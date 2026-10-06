@@ -139,6 +139,20 @@ mod tests {
         assert_eq!(cp1252::decode_z(b"abc\0def"), "abc");
     }
 
+    proptest::proptest! {
+        #[test]
+        fn cp1252_bytes_roundtrip(b in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..300)) {
+            proptest::prop_assert_eq!(cp1252::encode(&cp1252::decode(&b)), Some(b));
+        }
+
+        #[test]
+        fn cp1252_text_roundtrip(s in "\\PC{0,50}") {
+            if let Some(b) = cp1252::encode(&s) {
+                proptest::prop_assert_eq!(cp1252::decode(&b), s);
+            }
+        }
+    }
+
     #[test]
     fn cursor_bounds() {
         let mut c = Cursor::new(&[1, 0, 0, 0, 2]);
