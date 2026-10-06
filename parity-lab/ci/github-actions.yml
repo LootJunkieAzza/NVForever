@@ -1,0 +1,61 @@
+# CI template: copy to .github/workflows/parity.yml
+#
+# Two jobs:
+#  1. lab-selftest  — always runs on every platform; synthetic data only.
+#  2. parity        — runs the real scenarios on a SELF-HOSTED runner that has a
+#                     legitimately installed copy of the game plus private goldens.
+#                     Goldens and game data must never be uploaded to a public runner
+#                     or stored as artifacts. Fails on regressions (exit code 1).
+name: parity
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lab-selftest:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Lab self-tests
+        working-directory: parity-lab
+        run: python -m unittest discover -s tests -v
+      - name: Capture-tool self-tests
+        run: python -m unittest discover -s tools/capture/tests -v
+
+  engine-tests:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace --release
+
+  parity:
+    if: github.event_name == 'push'
+    needs: [lab-selftest, engine-tests]
+    runs-on: [self-hosted, fnv-data]   # private runner with the game installed
+    env:
+      FNVLAB_DATA_DIR: ${{ vars.FNV_DATA_DIR }}         # e.g. F:\SteamLibrary\steamapps\common\Fallout New Vegas\Data
+      FNVLAB_GOLDENS_DIR: ${{ vars.FNV_GOLDENS_DIR }}   # private, outside the repo
+      # The baseline must live OUTSIDE the checkout: actions/checkout cleans ignored
+      # files, so a baseline under parity-lab/runs/ would vanish before every run.
+      # A human creates it once with `python -m fnvlab baseline` on the runner.
+      FNVLAB_BASELINE_PATH: ${{ vars.FNV_BASELINE_PATH }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p fnvtool
+      - name: Parity run (fails on regressions vs baseline, or if no baseline exists)
+        working-directory: parity-lab
+        run: python -m fnvlab run --require-baseline --tag M1
+      # No report artifact is uploaded: reports quote golden values, which derive
+      # from copyrighted game data. Read runs/latest.md on the runner itself.

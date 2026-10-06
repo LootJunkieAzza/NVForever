@@ -1,0 +1,2212 @@
+{
+ "format": "fnv.schema/1",
+ "types": {
+  "AttackAnimation": {
+   "enum": "u16",
+   "values": {
+    "26": "AttackLeft",
+    "27": "AttackLeftUp",
+    "28": "AttackLeftDown",
+    "29": "AttackLeftIS",
+    "30": "AttackLeftISUp",
+    "31": "AttackLeftISDown",
+    "32": "AttackRight",
+    "33": "AttackRightUp",
+    "34": "AttackRightDown",
+    "35": "AttackRightIS",
+    "36": "AttackRightISUp",
+    "37": "AttackRightISDown",
+    "38": "Attack3",
+    "39": "Attack3Up",
+    "40": "Attack3Down",
+    "41": "Attack3IS",
+    "42": "Attack3ISUp",
+    "43": "Attack3ISDown",
+    "44": "Attack4",
+    "45": "Attack4Up",
+    "46": "Attack4Down",
+    "47": "Attack4IS",
+    "48": "Attack4ISUp",
+    "49": "Attack4ISDown",
+    "50": "Attack5",
+    "51": "Attack5Up",
+    "52": "Attack5Down",
+    "53": "Attack5IS",
+    "54": "Attack5ISUp",
+    "55": "Attack5ISDown",
+    "56": "Attack6",
+    "57": "Attack6Up",
+    "58": "Attack6Down",
+    "59": "Attack6IS",
+    "60": "Attack6ISUp",
+    "61": "Attack6ISDown",
+    "62": "Attack7",
+    "63": "Attack7Up",
+    "64": "Attack7Down",
+    "65": "Attack7IS",
+    "66": "Attack7ISUp",
+    "67": "Attack7ISDown",
+    "68": "Attack8",
+    "69": "Attack8Up",
+    "70": "Attack8Down",
+    "71": "Attack8IS",
+    "72": "Attack8ISUp",
+    "73": "Attack8ISDown",
+    "74": "AttackLoop",
+    "75": "AttackLoopUp",
+    "76": "AttackLoopDown",
+    "77": "AttackLoopIS",
+    "78": "AttackLoopISUp",
+    "79": "AttackLoopISDown",
+    "80": "AttackSpin",
+    "81": "AttackSpinUp",
+    "82": "AttackSpinDown",
+    "83": "AttackSpinIS",
+    "84": "AttackSpinISUp",
+    "85": "AttackSpinISDown",
+    "86": "AttackSpin2",
+    "87": "AttackSpin2Up",
+    "88": "AttackSpin2Down",
+    "89": "AttackSpin2IS",
+    "90": "AttackSpin2ISUp",
+    "91": "AttackSpin2ISDown",
+    "92": "AttackPower",
+    "93": "AttackForwardPower",
+    "94": "AttackBackPower",
+    "95": "AttackLeftPower",
+    "96": "AttackRightPower",
+    "97": "PlaceMine",
+    "98": "PlaceMineUp",
+    "99": "PlaceMineDown",
+    "100": "PlaceMineIS",
+    "101": "PlaceMineISUp",
+    "102": "PlaceMineISDown",
+    "103": "PlaceMine2",
+    "104": "PlaceMine2Up",
+    "105": "PlaceMine2Down",
+    "106": "PlaceMine2IS",
+    "107": "PlaceMine2ISUp",
+    "108": "PlaceMine2ISDown",
+    "109": "AttackThrow",
+    "110": "AttackThrowUp",
+    "111": "AttackThrowDown",
+    "112": "AttackThrowIS",
+    "113": "AttackThrowISUp",
+    "114": "AttackThrowISDown",
+    "115": "AttackThrow2",
+    "116": "AttackThrow2Up",
+    "117": "AttackThrow2Down",
+    "118": "AttackThrow2IS",
+    "119": "AttackThrow2ISUp",
+    "120": "AttackThrow2ISDown",
+    "121": "AttackThrow3",
+    "122": "AttackThrow3Up",
+    "123": "AttackThrow3Down",
+    "124": "AttackThrow3IS",
+    "125": "AttackThrow3ISUp",
+    "126": "AttackThrow3ISDown",
+    "127": "AttackThrow4",
+    "128": "AttackThrow4Up",
+    "129": "AttackThrow4Down",
+    "130": "AttackThrow4IS",
+    "131": "AttackThrow4ISUp",
+    "132": "AttackThrow4ISDown",
+    "133": "AttackThrow5",
+    "134": "AttackThrow5Up",
+    "135": "AttackThrow5Down",
+    "136": "AttackThrow5IS",
+    "137": "AttackThrow5ISUp",
+    "138": "AttackThrow5ISDown",
+    "167": "PipBoy",
+    "178": "PipBoyChild",
+    "255": "Any"
+   }
+  },
+  "ServiceFlags": {
+   "flags": "u32",
+   "bits": {
+    "0": "Weapons",
+    "1": "Armor",
+    "2": "Alcohol",
+    "3": "Books",
+    "4": "Food",
+    "5": "Chems",
+    "6": "Stimpaks",
+    "10": "Miscellaneous",
+    "14": "Training",
+    "16": "Recharge",
+    "17": "Repair"
+   }
+  },
+  "ActorImpactMaterial": {
+   "enum": "u32",
+   "values": {
+    "0": "Stone",
+    "1": "Dirt",
+    "2": "Grass",
+    "3": "Glass",
+    "4": "Metal",
+    "5": "Wood",
+    "6": "Organic",
+    "7": "Cloth",
+    "8": "Water",
+    "9": "Hollow Metal",
+    "10": "Organic Bug",
+    "11": "Organic Glow"
+   }
+  },
+  "Attributes7": {
+   "struct": [
+    {
+     "name": "strength",
+     "type": "u8"
+    },
+    {
+     "name": "perception",
+     "type": "u8"
+    },
+    {
+     "name": "endurance",
+     "type": "u8"
+    },
+    {
+     "name": "charisma",
+     "type": "u8"
+    },
+    {
+     "name": "intelligence",
+     "type": "u8"
+    },
+    {
+     "name": "agility",
+     "type": "u8"
+    },
+    {
+     "name": "luck",
+     "type": "u8"
+    }
+   ]
+  },
+  "ActorAIData": {
+   "struct": [
+    {
+     "name": "aggression",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "Unaggressive",
+       "1": "Aggressive",
+       "2": "Very Aggressive",
+       "3": "Frenzied"
+      }
+     }
+    },
+    {
+     "name": "confidence",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "Cowardly",
+       "1": "Cautious",
+       "2": "Average",
+       "3": "Brave",
+       "4": "Foolhardy"
+      }
+     }
+    },
+    {
+     "name": "energy_level",
+     "type": "u8"
+    },
+    {
+     "name": "responsibility",
+     "type": "u8"
+    },
+    {
+     "name": "mood",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "Neutral",
+       "1": "Afraid",
+       "2": "Annoyed",
+       "3": "Cocky",
+       "4": "Drugged",
+       "5": "Pleasant",
+       "6": "Angry",
+       "7": "Sad"
+      }
+     }
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 3
+     }
+    },
+    {
+     "name": "services",
+     "type": "ServiceFlags"
+    },
+    {
+     "name": "teaches",
+     "type": "Skill"
+    },
+    {
+     "name": "maximum_training_level",
+     "type": "u8"
+    },
+    {
+     "name": "assistance",
+     "type": {
+      "enum": "i8",
+      "values": {
+       "0": "Helps Nobody",
+       "1": "Helps Allies",
+       "2": "Helps Friends and Allies"
+      }
+     }
+    },
+    {
+     "name": "aggro_radius_behavior",
+     "type": "BoolU8"
+    },
+    {
+     "name": "aggro_radius",
+     "type": "i32"
+    }
+   ]
+  },
+  "ActorFactionEntry": {
+   "struct": [
+    {
+     "name": "faction",
+     "type": "formid"
+    },
+    {
+     "name": "rank",
+     "type": "i8"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 3
+     }
+    }
+   ]
+  },
+  "FactionRelation": {
+   "struct": [
+    {
+     "name": "faction",
+     "type": "formid"
+    },
+    {
+     "name": "modifier",
+     "type": "i32"
+    },
+    {
+     "name": "group_combat_reaction",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "Neutral",
+       "1": "Enemy",
+       "2": "Ally",
+       "3": "Friend"
+      }
+     }
+    }
+   ]
+  },
+  "LeveledListEntry": {
+   "struct": [
+    {
+     "name": "level",
+     "type": "u16"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 2
+     }
+    },
+    {
+     "name": "reference",
+     "type": "formid"
+    },
+    {
+     "name": "count",
+     "type": "u16",
+     "optional": true
+    },
+    {
+     "name": "unused2",
+     "type": {
+      "array": "u8",
+      "count": 2
+     },
+     "optional": true
+    }
+   ]
+  }
+ },
+ "records": {
+  "GLOB": {
+   "name": "Global",
+   "confidence": "documented",
+   "subrecords": {
+    "FNAM": {
+     "name": "Type",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "115": "Short",
+       "108": "Long",
+       "102": "Float"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas GLOB record"
+    },
+    "FLTV": {
+     "name": "Value",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas GLOB record"
+    }
+   }
+  },
+  "SCPT": {
+   "name": "Script",
+   "confidence": "documented",
+   "subrecords": {}
+  },
+  "FLST": {
+   "name": "FormID List",
+   "confidence": "documented",
+   "subrecords": {
+    "LNAM": {
+     "name": "FormID",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas FLST record"
+    }
+   }
+  },
+  "LVLI": {
+   "name": "Leveled Item",
+   "confidence": "documented",
+   "subrecords": {
+    "LVLD": {
+     "name": "Chance none",
+     "type": "u8",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LVLI record"
+    },
+    "LVLF": {
+     "name": "Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Calculate from all levels <= player's level",
+       "1": "Calculate for each item in count",
+       "2": "Use All"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LVLI record"
+    },
+    "LVLO": {
+     "name": "Leveled List Entry",
+     "type": "LeveledListEntry",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbLeveledListEntry via xEdit wbDefinitionsFNV.pas LVLI record; SetOptionalFrom(3); pre-FO4 branch ends with wbUnused(2)"
+    },
+    "LVLG": {
+     "name": "Global",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LVLI record"
+    }
+   }
+  },
+  "LVLN": {
+   "name": "Leveled NPC",
+   "confidence": "documented",
+   "subrecords": {
+    "LVLD": {
+     "name": "Chance none",
+     "type": "u8",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LVLN record"
+    },
+    "LVLF": {
+     "name": "Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Calculate from all levels <= player's level",
+       "1": "Calculate for each item in count"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LVLN record"
+    },
+    "LVLO": {
+     "name": "Leveled List Entry",
+     "type": "LeveledListEntry",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbLeveledListEntry via xEdit wbDefinitionsFNV.pas LVLN record; SetOptionalFrom(3); pre-FO4 branch ends with wbUnused(2)"
+    }
+   }
+  },
+  "LVLC": {
+   "name": "Leveled Creature",
+   "confidence": "documented",
+   "subrecords": {
+    "LVLD": {
+     "name": "Chance none",
+     "type": "u8",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LVLC record"
+    },
+    "LVLF": {
+     "name": "Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Calculate from all levels <= player's level",
+       "1": "Calculate for each item in count"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LVLC record"
+    },
+    "LVLO": {
+     "name": "Leveled List Entry",
+     "type": "LeveledListEntry",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbLeveledListEntry via xEdit wbDefinitionsFNV.pas LVLC record; SetOptionalFrom(3); pre-FO4 branch ends with wbUnused(2)"
+    }
+   }
+  },
+  "FACT": {
+   "name": "Faction",
+   "confidence": "documented",
+   "subrecords": {
+    "XNAM": {
+     "name": "Relation",
+     "type": "FactionRelation",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbFactionRelations via xEdit wbDefinitionsFNV.pas FACT record; non-TES4 branch with Group Combat Reaction"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "flags1",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Hidden from PC",
+          "1": "Evil",
+          "2": "Special Combat"
+         }
+        }
+       },
+       {
+        "name": "flags2",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Track Crime",
+          "1": "Allow Sell"
+         }
+        },
+        "optional": true
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas FACT record; SetOptionalFrom(1)"
+    },
+    "CNAM": {
+     "name": "Unused",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas FACT record; wbFloat(CNAM, 'Unused')"
+    },
+    "RNAM": {
+     "name": "Rank#",
+     "type": "i32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas wbFactionRank record"
+    },
+    "MNAM": {
+     "name": "Rank Male Title",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas wbFactionRank record"
+    },
+    "FNAM": {
+     "name": "Rank Female Title",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas wbFactionRank record"
+    },
+    "INAM": {
+     "name": "Rank Insignia (Unused)",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas wbFactionRank record"
+    },
+    "WMI1": {
+     "name": "Reputation",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas FACT record"
+    }
+   }
+  },
+  "CLAS": {
+   "name": "Class",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "tag_skills",
+        "type": {
+         "array": "ActorValue",
+         "count": 4
+        }
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Playable",
+          "1": "Guard"
+         }
+        }
+       },
+       {
+        "name": "services",
+        "type": "ServiceFlags"
+       },
+       {
+        "name": "teaches",
+        "type": "Skill"
+       },
+       {
+        "name": "maximum_training_level",
+        "type": "u8"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CLAS record; service flag names from wbServiceFlags (FO3/FNV branch)"
+    },
+    "ATTR": {
+     "name": "Attributes",
+     "type": "Attributes7",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CLAS record"
+    }
+   }
+  },
+  "MESG": {
+   "name": "Message",
+   "confidence": "documented",
+   "subrecords": {
+    "INAM": {
+     "name": "Icon",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record"
+    },
+    "DNAM": {
+     "name": "Flags",
+     "type": {
+      "flags": "u32",
+      "bits": {
+       "0": "Message Box",
+       "1": "Auto Display"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record"
+    },
+    "TNAM": {
+     "name": "Display Time",
+     "type": "u32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record"
+    },
+    "ITXT": {
+     "name": "Button Text",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record"
+    },
+    "NAM0": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record; wbUnused(NAM0, 0)"
+    },
+    "NAM1": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record; wbUnused(NAM1, 0)"
+    },
+    "NAM2": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record; wbUnused(NAM2, 0)"
+    },
+    "NAM3": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record; wbUnused(NAM3, 0)"
+    },
+    "NAM4": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record; wbUnused(NAM4, 0)"
+    },
+    "NAM5": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record; wbUnused(NAM5, 0)"
+    },
+    "NAM6": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record; wbUnused(NAM6, 0)"
+    },
+    "NAM7": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record; wbUnused(NAM7, 0)"
+    },
+    "NAM8": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record; wbUnused(NAM8, 0)"
+    },
+    "NAM9": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MESG record; wbUnused(NAM9, 0)"
+    }
+   }
+  },
+  "QUST": {
+   "name": "Quest",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "General",
+     "type": {
+      "struct": [
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Start game enabled",
+          "2": "Allow repeated conversation topics",
+          "3": "Allow repeated stages",
+          "4": "Default Script Processing Delay"
+         }
+        }
+       },
+       {
+        "name": "priority",
+        "type": "u8"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "quest_delay",
+        "type": "f32",
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas QUST record; SetOptionalFrom(3)"
+    },
+    "INDX": {
+     "name": "Stage Index",
+     "type": "i16",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas QUST record"
+    },
+    "QSDT": {
+     "name": "Stage Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Complete Quest",
+       "1": "Fail Quest"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas QUST record"
+    },
+    "CNAM": {
+     "name": "Log Entry",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas QUST record"
+    },
+    "NAM0": {
+     "name": "Next Quest",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas QUST record"
+    },
+    "QOBJ": {
+     "name": "Objective Index",
+     "type": "i32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas QUST record"
+    },
+    "NNAM": {
+     "name": "Objective Description",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas QUST record"
+    },
+    "QSTA": {
+     "name": "Target",
+     "type": {
+      "struct": [
+       {
+        "name": "target",
+        "type": "formid"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Compass Marker Ignores Locks"
+         }
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas QUST record"
+    }
+   }
+  },
+  "DIAL": {
+   "name": "Dialog Topic",
+   "confidence": "documented",
+   "subrecords": {
+    "QSTI": {
+     "name": "Added Quest",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas DIAL record"
+    },
+    "QSTR": {
+     "name": "Removed Quest",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbQSTR via xEdit wbDefinitionsFNV.pas DIAL record; xEdit notes no QSTR in FNV"
+    },
+    "PNAM": {
+     "name": "Priority",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas DIAL record"
+    },
+    "TDUM": {
+     "name": "Dumb Response",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas DIAL record"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "type",
+        "type": {
+         "enum": "u8",
+         "values": {
+          "0": "Topic",
+          "1": "Conversation",
+          "2": "Combat",
+          "3": "Persuasion",
+          "4": "Detection",
+          "5": "Service",
+          "6": "Miscellaneous",
+          "7": "Radio"
+         }
+        }
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Rumors",
+          "1": "Top-level"
+         }
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas DIAL record; SetOptionalFrom(1)"
+    },
+    "INOM": {
+     "name": "INFO Order (Masters only)",
+     "type": {
+      "array": "u32"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbINOM; FormIDs flagged dfUseLoadOrder (load-order space, not file-local), so kept as raw u32"
+    },
+    "INOA": {
+     "name": "INFO Order (All previous modules)",
+     "type": {
+      "array": "u32"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbINOA; FormIDs flagged dfUseLoadOrder (load-order space, not file-local), so kept as raw u32"
+    }
+   }
+  },
+  "INFO": {
+   "name": "Dialog response",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "type",
+        "type": {
+         "enum": "u8",
+         "values": {
+          "0": "Topic",
+          "1": "Conversation",
+          "2": "Combat",
+          "3": "Persuasion",
+          "4": "Detection",
+          "5": "Service",
+          "6": "Miscellaneous",
+          "7": "Radio"
+         }
+        }
+       },
+       {
+        "name": "next_speaker",
+        "type": {
+         "enum": "u8",
+         "values": {
+          "0": "Target",
+          "1": "Self",
+          "2": "Either"
+         }
+        }
+       },
+       {
+        "name": "flags1",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Goodbye",
+          "1": "Random",
+          "2": "Say Once",
+          "3": "Run Immediately",
+          "4": "Info Refusal",
+          "5": "Random End",
+          "6": "Run for Rumors",
+          "7": "Speech Challenge"
+         }
+        }
+       },
+       {
+        "name": "flags2",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Say Once a Day",
+          "1": "Always Darken",
+          "2": "Unknown 2",
+          "3": "Unknown 3",
+          "4": "Low Intelligence",
+          "5": "High Intelligence"
+         }
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record; SetOptionalFrom(3); next_speaker enum from wbDefinitionsCommon.pas wbNextSpeaker"
+    },
+    "QSTI": {
+     "name": "Quest",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "TPIC": {
+     "name": "Previous Topic",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "PNAM": {
+     "name": "Previous INFO",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "NAME": {
+     "name": "Add Topic",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "TRDT": {
+     "name": "Response Data",
+     "type": {
+      "struct": [
+       {
+        "name": "emotion_type",
+        "type": {
+         "enum": "u32",
+         "values": {
+          "0": "Neutral",
+          "1": "Anger",
+          "2": "Disgust",
+          "3": "Fear",
+          "4": "Sad",
+          "5": "Happy",
+          "6": "Surprise",
+          "7": "Pained"
+         }
+        }
+       },
+       {
+        "name": "emotion_value",
+        "type": "i32"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 4
+        }
+       },
+       {
+        "name": "response_number",
+        "type": "u8"
+       },
+       {
+        "name": "unused2",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       },
+       {
+        "name": "sound",
+        "type": "formid",
+        "optional": true
+       },
+       {
+        "name": "use_emotion_animation",
+        "type": "BoolU8",
+        "optional": true
+       },
+       {
+        "name": "unused3",
+        "type": {
+         "array": "u8",
+         "count": 3
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record; SetOptionalFrom(5)"
+    },
+    "NAM1": {
+     "name": "Response Text",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "NAM2": {
+     "name": "Script Notes",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "NAM3": {
+     "name": "Edits",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "SNAM": {
+     "name": "Speaker Animation",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "LNAM": {
+     "name": "Listener Animation",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "TCLT": {
+     "name": "Link To Topic",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "TCLF": {
+     "name": "Link From Topic",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "TCFU": {
+     "name": "Follow Up Info",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "NEXT": {
+     "name": "Script (End) Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "SNDD": {
+     "name": "Unused",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record; wbFormIDCk(SNDD, 'Unused', [SOUN])"
+    },
+    "RNAM": {
+     "name": "Prompt",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "ANAM": {
+     "name": "Speaker",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "KNAM": {
+     "name": "ActorValue/Perk",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    },
+    "DNAM": {
+     "name": "Speech Challenge",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "None",
+       "1": "Very Easy",
+       "2": "Easy",
+       "3": "Average",
+       "4": "Hard",
+       "5": "Very Hard"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas INFO record"
+    }
+   }
+  },
+  "NPC_": {
+   "name": "Non-Player Character",
+   "confidence": "documented",
+   "subrecords": {
+    "ACBS": {
+     "name": "Configuration",
+     "type": {
+      "struct": [
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Female",
+          "1": "Essential",
+          "2": "Is CharGen Face Preset",
+          "3": "Respawn",
+          "4": "Auto-calc stats",
+          "7": "PC Level Mult",
+          "8": "Use Template",
+          "9": "No Low Level Processing",
+          "11": "No Blood Spray",
+          "12": "No Blood Decal",
+          "20": "No VATS Melee",
+          "22": "Can be all races",
+          "23": "Autocalc Service",
+          "26": "No Knockdowns",
+          "27": "Not Pushable",
+          "28": "Unknown 28",
+          "30": "No Rotating To Head-track"
+         }
+        }
+       },
+       {
+        "name": "fatigue",
+        "type": "u16"
+       },
+       {
+        "name": "barter_gold",
+        "type": "u16"
+       },
+       {
+        "name": "level_or_level_mult_raw",
+        "type": "u16"
+       },
+       {
+        "name": "calc_min",
+        "type": "u16"
+       },
+       {
+        "name": "calc_max",
+        "type": "u16"
+       },
+       {
+        "name": "speed_multiplier",
+        "type": "u16"
+       },
+       {
+        "name": "karma",
+        "type": "f32"
+       },
+       {
+        "name": "disposition_base",
+        "type": "i16"
+       },
+       {
+        "name": "template_flags",
+        "type": {
+         "flags": "u16",
+         "bits": {
+          "0": "Traits",
+          "1": "Stats",
+          "2": "Factions",
+          "3": "Actor Effect List",
+          "4": "AI Data",
+          "5": "AI Packages",
+          "6": "Model/Animation",
+          "7": "Base Data",
+          "8": "Inventory",
+          "9": "Script"
+         }
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record; Level is an xEdit union (u16 level, or u16 level mult /1000 when 'PC Level Mult' is set), decoded as raw u16; template flag names from wbTemplateFlags (FO3/FNV branch)"
+    },
+    "SNAM": {
+     "name": "Faction",
+     "type": "ActorFactionEntry",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbFaction via xEdit wbDefinitionsFNV.pas NPC_ record; pre-FO4 branch with wbUnused(3)"
+    },
+    "INAM": {
+     "name": "Death item",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "VTCK": {
+     "name": "Voice",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "TPLT": {
+     "name": "Template",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "RNAM": {
+     "name": "Race",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "SPLO": {
+     "name": "Actor Effect",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas wbSPLO helper record"
+    },
+    "EAMT": {
+     "name": "Unarmed Attack Animation",
+     "type": "AttackAnimation",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record; enum from wbDefinitionsCommon.pas wbAttackAnimationEnum"
+    },
+    "AIDT": {
+     "name": "AI Data",
+     "type": "ActorAIData",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas wbAIDT helper record; mood names from wbMoodEnum FO3/FNV branch"
+    },
+    "PKID": {
+     "name": "Package",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "CNAM": {
+     "name": "Class",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "base_health",
+        "type": "i32"
+       },
+       {
+        "name": "attributes",
+        "type": "Attributes7"
+       },
+       {
+        "name": "unused",
+        "type": "bytes"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record; trailing wbByteArray('Unused') (14 bytes only in old record versions)"
+    },
+    "DNAM": {
+     "name": "Skills",
+     "type": {
+      "struct": [
+       {
+        "name": "skill_values",
+        "type": {
+         "struct": [
+          {
+           "name": "barter",
+           "type": "u8"
+          },
+          {
+           "name": "big_guns",
+           "type": "u8"
+          },
+          {
+           "name": "energy_weapons",
+           "type": "u8"
+          },
+          {
+           "name": "explosives",
+           "type": "u8"
+          },
+          {
+           "name": "lockpick",
+           "type": "u8"
+          },
+          {
+           "name": "medicine",
+           "type": "u8"
+          },
+          {
+           "name": "melee_weapons",
+           "type": "u8"
+          },
+          {
+           "name": "repair",
+           "type": "u8"
+          },
+          {
+           "name": "science",
+           "type": "u8"
+          },
+          {
+           "name": "guns",
+           "type": "u8"
+          },
+          {
+           "name": "sneak",
+           "type": "u8"
+          },
+          {
+           "name": "speech",
+           "type": "u8"
+          },
+          {
+           "name": "survival",
+           "type": "u8"
+          },
+          {
+           "name": "unarmed",
+           "type": "u8"
+          }
+         ]
+        }
+       },
+       {
+        "name": "skill_offsets",
+        "type": {
+         "struct": [
+          {
+           "name": "barter",
+           "type": "u8"
+          },
+          {
+           "name": "big_guns",
+           "type": "u8"
+          },
+          {
+           "name": "energy_weapons",
+           "type": "u8"
+          },
+          {
+           "name": "explosives",
+           "type": "u8"
+          },
+          {
+           "name": "lockpick",
+           "type": "u8"
+          },
+          {
+           "name": "medicine",
+           "type": "u8"
+          },
+          {
+           "name": "melee_weapons",
+           "type": "u8"
+          },
+          {
+           "name": "repair",
+           "type": "u8"
+          },
+          {
+           "name": "science",
+           "type": "u8"
+          },
+          {
+           "name": "guns",
+           "type": "u8"
+          },
+          {
+           "name": "sneak",
+           "type": "u8"
+          },
+          {
+           "name": "speech",
+           "type": "u8"
+          },
+          {
+           "name": "survival",
+           "type": "u8"
+          },
+          {
+           "name": "unarmed",
+           "type": "u8"
+          }
+         ]
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "PNAM": {
+     "name": "Head Part",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "HNAM": {
+     "name": "Hair",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "LNAM": {
+     "name": "Hair length",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "ENAM": {
+     "name": "Eyes",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "HCLR": {
+     "name": "Hair color",
+     "type": "ByteColor",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "ZNAM": {
+     "name": "Combat Style",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "NAM4": {
+     "name": "Impact Material Type",
+     "type": "ActorImpactMaterial",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "FGGS": {
+     "name": "FaceGen Symmetric Geometry",
+     "type": {
+      "array": "f32",
+      "count": 50
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbFaceGen"
+    },
+    "FGGA": {
+     "name": "FaceGen Asymmetric Geometry",
+     "type": {
+      "array": "f32",
+      "count": 30
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbFaceGen"
+    },
+    "FGTS": {
+     "name": "FaceGen Symmetric Texture",
+     "type": {
+      "array": "f32",
+      "count": 50
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbFaceGen"
+    },
+    "NAM5": {
+     "name": "unknown_NAM5",
+     "type": "u16",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record; xEdit: wbInteger(NAM5, 'Unknown', itU16)"
+    },
+    "NAM6": {
+     "name": "Height",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "NAM7": {
+     "name": "Weight",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    }
+   }
+  },
+  "CREA": {
+   "name": "Creature",
+   "confidence": "documented",
+   "subrecords": {
+    "SPLO": {
+     "name": "Actor Effect",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas wbSPLO helper record"
+    },
+    "EAMT": {
+     "name": "Unarmed Attack Animation",
+     "type": "AttackAnimation",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record; enum from wbDefinitionsCommon.pas wbAttackAnimationEnum"
+    },
+    "ACBS": {
+     "name": "Configuration",
+     "type": {
+      "struct": [
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Biped",
+          "1": "Essential",
+          "2": "Weapon & Shield?",
+          "3": "Respawn",
+          "4": "Swims",
+          "5": "Flies",
+          "6": "Walks",
+          "7": "PC Level Mult",
+          "9": "No Low Level Processing",
+          "11": "No Blood Spray",
+          "12": "No Blood Decal",
+          "15": "No Head",
+          "16": "No Right Arm",
+          "17": "No Left Arm",
+          "18": "No Combat in Water",
+          "19": "No Shadow",
+          "20": "No VATS Melee",
+          "21": "Allow PC Dialogue",
+          "22": "Can't Open Doors",
+          "23": "Immobile",
+          "24": "Tilt Front/Back",
+          "25": "Tilt Left/Right",
+          "26": "No Knockdowns",
+          "27": "Not Pushable / Allow Pickpocket",
+          "28": "Is Ghost",
+          "29": "No Rotating To Head-track",
+          "30": "Invulnerable"
+         }
+        }
+       },
+       {
+        "name": "fatigue",
+        "type": "u16"
+       },
+       {
+        "name": "barter_gold",
+        "type": "u16"
+       },
+       {
+        "name": "level_or_level_mult_raw",
+        "type": "u16"
+       },
+       {
+        "name": "calc_min",
+        "type": "u16"
+       },
+       {
+        "name": "calc_max",
+        "type": "u16"
+       },
+       {
+        "name": "speed_multiplier",
+        "type": "u16"
+       },
+       {
+        "name": "karma",
+        "type": "f32"
+       },
+       {
+        "name": "disposition_base",
+        "type": "i16"
+       },
+       {
+        "name": "template_flags",
+        "type": {
+         "flags": "u16",
+         "bits": {
+          "0": "Traits",
+          "1": "Stats",
+          "2": "Factions",
+          "3": "Actor Effect List",
+          "4": "AI Data",
+          "5": "AI Packages",
+          "6": "Model/Animation",
+          "7": "Base Data",
+          "8": "Inventory",
+          "9": "Script"
+         }
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record; Level is an xEdit union (u16 level, or u16 level mult /1000 when 'PC Level Mult' is set), decoded as raw u16; template flag names from wbTemplateFlags (FO3/FNV branch); xEdit lists bit 27 twice ('Not Pushable' and 'Allow Pickpocket')"
+    },
+    "SNAM": {
+     "name": "Faction",
+     "type": "ActorFactionEntry",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbFaction via xEdit wbDefinitionsFNV.pas CREA record; pre-FO4 branch with wbUnused(3)"
+    },
+    "INAM": {
+     "name": "Death item",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "VTCK": {
+     "name": "Voice",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "TPLT": {
+     "name": "Template",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "AIDT": {
+     "name": "AI Data",
+     "type": "ActorAIData",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas wbAIDT helper record; mood names from wbMoodEnum FO3/FNV branch"
+    },
+    "PKID": {
+     "name": "Package",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "type",
+        "type": {
+         "enum": "u8",
+         "values": {
+          "0": "Animal",
+          "1": "Mutated Animal",
+          "2": "Mutated Insect",
+          "3": "Abomination",
+          "4": "Super Mutant",
+          "5": "Feral Ghoul",
+          "6": "Robot",
+          "7": "Giant"
+         }
+        }
+       },
+       {
+        "name": "combat_skill",
+        "type": "u8"
+       },
+       {
+        "name": "magic_skill",
+        "type": "u8"
+       },
+       {
+        "name": "stealth_skill",
+        "type": "u8"
+       },
+       {
+        "name": "health",
+        "type": "i16"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "damage",
+        "type": "i16"
+       },
+       {
+        "name": "attributes",
+        "type": "Attributes7"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record; creature type enum from wbDefinitionsCommon.pas wbCreatureTypeEnum"
+    },
+    "RNAM": {
+     "name": "Attack reach",
+     "type": "u8",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "ZNAM": {
+     "name": "Combat Style",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "PNAM": {
+     "name": "Body Part Data",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "TNAM": {
+     "name": "Turning Speed",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "BNAM": {
+     "name": "Base Scale",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "WNAM": {
+     "name": "Foot Weight",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "NAM4": {
+     "name": "Impact Material Type",
+     "type": "ActorImpactMaterial",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "NAM5": {
+     "name": "Sound Level",
+     "type": "SoundLevel",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "CSCR": {
+     "name": "Inherits Sounds from",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "CSDT": {
+     "name": "Sound Type",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "Left Foot",
+       "1": "Right Foot",
+       "2": "Left Back Foot",
+       "3": "Right Back Foot",
+       "4": "Idle",
+       "5": "Aware",
+       "6": "Attack",
+       "7": "Hit",
+       "8": "Death",
+       "9": "Weapon",
+       "10": "Movement Loop",
+       "11": "Conscious Loop",
+       "12": "Auxiliary 1",
+       "13": "Auxiliary 2",
+       "14": "Auxiliary 3",
+       "15": "Auxiliary 4",
+       "16": "Auxiliary 5",
+       "17": "Auxiliary 6",
+       "18": "Auxiliary 7",
+       "19": "Auxiliary 8",
+       "20": "Auxiliary 8 (duplicate entry in xEdit)",
+       "21": "Jump",
+       "22": "PlayRandom/Loop"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas wbCSDT helper record; xEdit's positional enum lists 'Auxiliary 8' twice (comment says {19} both times), shifting Jump to 21 and PlayRandom/Loop to 22; kept as xEdit decodes it"
+    },
+    "CSDI": {
+     "name": "Sound",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbSoundTypeSounds"
+    },
+    "CSDC": {
+     "name": "Sound Chance",
+     "type": "u8",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbSoundTypeSounds"
+    },
+    "CNAM": {
+     "name": "Impact Dataset",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "LNAM": {
+     "name": "Melee Weapon List",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    }
+   }
+  },
+  "RACE": {
+   "name": "Race",
+   "confidence": "documented",
+   "subrecords": {
+    "XNAM": {
+     "name": "Relation",
+     "type": "FactionRelation",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbFactionRelations via xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "skill_boosts",
+        "type": {
+         "array": {
+          "struct": [
+           {
+            "name": "skill",
+            "type": "ActorValueI8"
+           },
+           {
+            "name": "boost",
+            "type": "i8"
+           }
+          ]
+         },
+         "count": 7
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "male_height",
+        "type": "f32"
+       },
+       {
+        "name": "female_height",
+        "type": "f32"
+       },
+       {
+        "name": "male_weight",
+        "type": "f32"
+       },
+       {
+        "name": "female_weight",
+        "type": "f32"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Playable",
+          "2": "Child"
+         }
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record; skill: wbActorValueEnum stored as s8; array count 7"
+    },
+    "ONAM": {
+     "name": "Older",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "YNAM": {
+     "name": "Younger",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "NAM2": {
+     "name": "Unknown Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "VTCK": {
+     "name": "Voices",
+     "type": {
+      "struct": [
+       {
+        "name": "male",
+        "type": "formid"
+       },
+       {
+        "name": "female",
+        "type": "formid"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "DNAM": {
+     "name": "Default Hair Styles",
+     "type": {
+      "struct": [
+       {
+        "name": "male",
+        "type": "formid"
+       },
+       {
+        "name": "female",
+        "type": "formid"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "CNAM": {
+     "name": "Default Hair Colors",
+     "type": {
+      "array": {
+       "enum": "u8",
+       "values": {
+        "0": "Bleached",
+        "1": "Brown",
+        "2": "Chocolate",
+        "3": "Platinum",
+        "4": "Cornsilk",
+        "5": "Suede",
+        "6": "Pecan",
+        "7": "Auburn",
+        "8": "Ginger",
+        "9": "Honey",
+        "10": "Gold",
+        "11": "Rosewood",
+        "12": "Black",
+        "13": "Chestnut",
+        "14": "Steel",
+        "15": "Champagne"
+       }
+      },
+      "count": 2
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record; [male, female]"
+    },
+    "PNAM": {
+     "name": "FaceGen - Main clamp",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "UNAM": {
+     "name": "FaceGen - Face clamp",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "ATTR": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record; wbByteArray(ATTR, 'Unused', 0)"
+    },
+    "NAM0": {
+     "name": "Head Data Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "NAM1": {
+     "name": "Body Data Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "MNAM": {
+     "name": "Male Data Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "FNAM": {
+     "name": "Female Data Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "HNAM": {
+     "name": "Hairs",
+     "type": {
+      "array": "formid"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "ENAM": {
+     "name": "Eyes",
+     "type": {
+      "array": "formid"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record"
+    },
+    "FGGS": {
+     "name": "FaceGen Symmetric Geometry",
+     "type": {
+      "array": "f32",
+      "count": 50
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbFaceGen"
+    },
+    "FGGA": {
+     "name": "FaceGen Asymmetric Geometry",
+     "type": {
+      "array": "f32",
+      "count": 30
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbFaceGen"
+    },
+    "FGTS": {
+     "name": "FaceGen Symmetric Texture",
+     "type": {
+      "array": "f32",
+      "count": 50
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbFaceGen"
+    },
+    "SNAM": {
+     "name": "unknown_SNAM",
+     "type": "u16",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record; xEdit: wbInteger(SNAM, 'Unknown', itU16), once per sex"
+    }
+   }
+  },
+  "PERK": {
+   "name": "Perk",
+   "confidence": "documented",
+   "subrecords": {
+    "PRKE": {
+     "name": "Effect Header",
+     "type": {
+      "struct": [
+       {
+        "name": "type",
+        "type": {
+         "enum": "u8",
+         "values": {
+          "0": "Quest + Stage",
+          "1": "Ability",
+          "2": "Entry Point"
+         }
+        }
+       },
+       {
+        "name": "rank",
+        "type": "u8"
+       },
+       {
+        "name": "priority",
+        "type": "u8"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PERK record; type enum from wbDefinitionsCommon.pas wbPerkEffectType"
+    },
+    "PRKC": {
+     "name": "Perk Condition Run On",
+     "type": "i8",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PERK record; custom-formatted s8 (wbPRKCToStr)"
+    },
+    "EPFT": {
+     "name": "Entry Point Function Parameter Type",
+     "type": "u8",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PERK record; custom-formatted u8 (wbPerkEPFTToStr)"
+    },
+    "EPF2": {
+     "name": "Button Label",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PERK record"
+    },
+    "EPF3": {
+     "name": "Run Immediately",
+     "type": {
+      "enum": "u16",
+      "values": {
+       "0": "False",
+       "1": "True"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PERK record"
+    },
+    "PRKF": {
+     "name": "End Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PERK record"
+    }
+   }
+  }
+ }
+}

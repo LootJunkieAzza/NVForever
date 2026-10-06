@@ -1,0 +1,16 @@
+{
+  "_comment": "Committed config. Private paths go in lab.local.json (gitignored) or FNVLAB_<VAR> environment variables.",
+  "local_overlay": "lab.local.json",
+  "vars": {
+    "candidate": "{lab_root}/../target/release/fnvtool",
+    "data_dir": "SET_ME: path to the game's Data folder",
+    "goldens_dir": "SET_ME: private goldens directory outside the repo",
+    "schema_dir": "{lab_root}/../schemas/fnv",
+    "baseline_path": "{lab_root}/runs/baseline.json"
+  },
+  "goldens_dir": "{goldens_dir}",
+  "scenarios_dirs": ["scenarios"],
+  "runs_dir": "runs",
+  "baseline": "{baseline_path}",
+  "default_timeout_s": 900
+}

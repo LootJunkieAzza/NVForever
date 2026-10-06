@@ -1,0 +1,1895 @@
+{
+ "format": "fnv.schema/1",
+ "types": {
+  "ValueWeight": {
+   "struct": [
+    {
+     "name": "value",
+     "type": "i32"
+    },
+    {
+     "name": "weight",
+     "type": "f32"
+    }
+   ]
+  },
+  "WeaponDNAM": {
+   "struct": [
+    {
+     "name": "animation_type",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "Hand to Hand",
+       "1": "Melee (1 Hand)",
+       "2": "Melee (2 Hand)",
+       "3": "Pistol - Ballistic (1 Hand)",
+       "4": "Pistol - Energy (1 Hand)",
+       "5": "Rifle - Ballistic (2 Hand)",
+       "6": "Rifle - Automatic (2 Hand)",
+       "7": "Rifle - Energy (2 Hand)",
+       "8": "Handle (2 Hand)",
+       "9": "Launcher (2 Hand)",
+       "10": "Grenade Throw (1 Hand)",
+       "11": "Land Mine (1 Hand)",
+       "12": "Mine Drop (1 Hand)",
+       "13": "Thrown (1 Hand)"
+      }
+     }
+    },
+    {
+     "name": "animation_multiplier",
+     "type": "f32"
+    },
+    {
+     "name": "reach",
+     "type": "f32"
+    },
+    {
+     "name": "flags1",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Ignores Normal Weapon Resistance",
+       "1": "Is Automatic",
+       "2": "Has Scope",
+       "3": "Can't Drop",
+       "4": "Hide Backpack",
+       "5": "Embedded Weapon",
+       "6": "Don't Use 1st Person IS Animations",
+       "7": "Non-Playable"
+      }
+     }
+    },
+    {
+     "name": "grip_animation",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "172": "Unknown 172",
+       "230": "HandGrip1",
+       "231": "HandGrip2",
+       "232": "HandGrip3",
+       "233": "HandGrip4",
+       "234": "HandGrip5",
+       "235": "HandGrip6",
+       "255": "DEFAULT"
+      }
+     }
+    },
+    {
+     "name": "ammo_use",
+     "type": "u8"
+    },
+    {
+     "name": "reload_animation",
+     "type": "WeaponReloadAnim"
+    },
+    {
+     "name": "min_spread",
+     "type": "f32"
+    },
+    {
+     "name": "spread",
+     "type": "f32"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 4
+     }
+    },
+    {
+     "name": "sight_fov",
+     "type": "f32"
+    },
+    {
+     "name": "unused2",
+     "type": {
+      "array": "u8",
+      "count": 4
+     }
+    },
+    {
+     "name": "projectile",
+     "type": "formid"
+    },
+    {
+     "name": "base_vats_to_hit_chance",
+     "type": "u8"
+    },
+    {
+     "name": "attack_animation",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "26": "AttackLeft",
+       "32": "AttackRight",
+       "38": "Attack3",
+       "44": "Attack4",
+       "50": "Attack5",
+       "56": "Attack6",
+       "62": "Attack7",
+       "68": "Attack8",
+       "74": "AttackLoop",
+       "80": "AttackSpin",
+       "86": "AttackSpin2",
+       "102": "PlaceMine",
+       "108": "PlaceMine2",
+       "114": "AttackThrow",
+       "120": "AttackThrow2",
+       "126": "AttackThrow3",
+       "132": "AttackThrow4",
+       "138": "AttackThrow5",
+       "144": "Attack9",
+       "150": "AttackThrow6",
+       "156": "AttackThrow7",
+       "162": "AttackThrow8",
+       "255": "DEFAULT"
+      }
+     }
+    },
+    {
+     "name": "projectile_count",
+     "type": "u8"
+    },
+    {
+     "name": "embedded_weapon_actor_value",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "Perception",
+       "1": "Endurance",
+       "2": "Left Attack",
+       "3": "Right Attack",
+       "4": "Left Mobility",
+       "5": "Right Mobility",
+       "6": "Brain"
+      }
+     }
+    },
+    {
+     "name": "min_range",
+     "type": "f32"
+    },
+    {
+     "name": "max_range",
+     "type": "f32"
+    },
+    {
+     "name": "on_hit",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "Normal formula behavior",
+       "1": "Dismember Only",
+       "2": "Explode Only",
+       "3": "No Dismember/Explode"
+      }
+     }
+    },
+    {
+     "name": "flags2",
+     "type": {
+      "flags": "u32",
+      "bits": {
+       "0": "Player Only",
+       "1": "NPCs Use Ammo",
+       "2": "No Jam After Reload",
+       "3": "Override - Action Points",
+       "4": "Minor Crime",
+       "5": "Range - Fixed",
+       "6": "Not Used In Normal Combat",
+       "7": "Override - Damage to Weapon Mult",
+       "8": "Don't Use 3rd Person IS Animations",
+       "9": "Short Burst",
+       "10": "Rumble Alternate",
+       "11": "Long Burst",
+       "12": "Scope has NightVision",
+       "13": "Scope from Mod"
+      }
+     }
+    },
+    {
+     "name": "animation_attack_multiplier",
+     "type": "f32"
+    },
+    {
+     "name": "fire_rate",
+     "type": "f32"
+    },
+    {
+     "name": "override_action_points",
+     "type": "f32"
+    },
+    {
+     "name": "rumble_left_motor_strength",
+     "type": "f32"
+    },
+    {
+     "name": "rumble_right_motor_strength",
+     "type": "f32"
+    },
+    {
+     "name": "rumble_duration",
+     "type": "f32"
+    },
+    {
+     "name": "override_damage_to_weapon_mult",
+     "type": "f32"
+    },
+    {
+     "name": "attack_shots_per_sec",
+     "type": "f32"
+    },
+    {
+     "name": "reload_time",
+     "type": "f32"
+    },
+    {
+     "name": "jam_time",
+     "type": "f32"
+    },
+    {
+     "name": "aim_arc",
+     "type": "f32"
+    },
+    {
+     "name": "skill",
+     "type": "ActorValue"
+    },
+    {
+     "name": "rumble_pattern",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "Constant",
+       "1": "Square",
+       "2": "Triangle",
+       "3": "Sawtooth"
+      }
+     }
+    },
+    {
+     "name": "rumble_wavelength",
+     "type": "f32"
+    },
+    {
+     "name": "limb_dmg_mult",
+     "type": "f32"
+    },
+    {
+     "name": "resist_type",
+     "type": "ActorValue",
+     "optional": true
+    },
+    {
+     "name": "sight_usage",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "semi_automatic_fire_delay_min",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "semi_automatic_fire_delay_max",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "unknown",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "effect_mod1",
+     "type": "WeaponModEffect",
+     "optional": true
+    },
+    {
+     "name": "effect_mod2",
+     "type": "WeaponModEffect",
+     "optional": true
+    },
+    {
+     "name": "effect_mod3",
+     "type": "WeaponModEffect",
+     "optional": true
+    },
+    {
+     "name": "value_a_mod1",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "value_a_mod2",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "value_a_mod3",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "power_attack_animation_override",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "0?",
+       "97": "AttackCustom1Power",
+       "98": "AttackCustom2Power",
+       "99": "AttackCustom3Power",
+       "100": "AttackCustom4Power",
+       "101": "AttackCustom5Power",
+       "255": "DEFAULT"
+      }
+     },
+     "optional": true
+    },
+    {
+     "name": "strength_req",
+     "type": "u32",
+     "optional": true
+    },
+    {
+     "name": "unknown2",
+     "type": {
+      "array": "u8",
+      "count": 1
+     },
+     "optional": true
+    },
+    {
+     "name": "reload_animation_mod",
+     "type": "WeaponReloadAnim",
+     "optional": true
+    },
+    {
+     "name": "unknown3",
+     "type": {
+      "array": "u8",
+      "count": 2
+     },
+     "optional": true
+    },
+    {
+     "name": "regen_rate",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "kill_impulse",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "value_b_mod1",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "value_b_mod2",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "value_b_mod3",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "impulse_dist",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "skill_req",
+     "type": "u32",
+     "optional": true
+    }
+   ]
+  },
+  "WeaponReloadAnim": {
+   "enum": "u8",
+   "values": {
+    "0": "ReloadA",
+    "1": "ReloadB",
+    "2": "ReloadC",
+    "3": "ReloadD",
+    "4": "ReloadE",
+    "5": "ReloadF",
+    "6": "ReloadG",
+    "7": "ReloadH",
+    "8": "ReloadI",
+    "9": "ReloadJ",
+    "10": "ReloadK",
+    "11": "ReloadL",
+    "12": "ReloadM",
+    "13": "ReloadN",
+    "14": "ReloadO",
+    "15": "ReloadP",
+    "16": "ReloadQ",
+    "17": "ReloadR",
+    "18": "ReloadS",
+    "19": "ReloadW",
+    "20": "ReloadX",
+    "21": "ReloadY",
+    "22": "ReloadZ"
+   }
+  },
+  "WeaponModEffect": {
+   "enum": "u32",
+   "values": {
+    "0": "None",
+    "1": "Increase Weapon Damage",
+    "2": "Increase Clip Capacity",
+    "3": "Decrease Spread",
+    "4": "Decrease Weight",
+    "5": "Regenerate Ammo (shots)",
+    "6": "Regenerate Ammo (seconds)",
+    "7": "Decrease Equip Time",
+    "8": "Increase Rate of Fire",
+    "9": "Increase Projectile Speed",
+    "10": "Increase Max. Condition",
+    "11": "Silence",
+    "12": "Split Beam",
+    "13": "VATS Bonus",
+    "14": "Increase Zoom",
+    "15": "Unknown 15",
+    "16": "Suppressor"
+   }
+  },
+  "SoundLevel": {
+   "enum": "u32",
+   "values": {
+    "0": "Loud",
+    "1": "Normal",
+    "2": "Silent"
+   }
+  }
+ },
+ "records": {
+  "STAT": {
+   "name": "Static",
+   "confidence": "documented",
+   "subrecords": {
+    "BRUS": {
+     "name": "Passthrough Sound",
+     "type": {
+      "enum": "i8",
+      "values": {
+       "-1": "NONE",
+       "0": "BushA",
+       "1": "BushB",
+       "2": "BushC",
+       "3": "BushD",
+       "4": "BushE",
+       "5": "BushF",
+       "6": "BushG",
+       "7": "BushH",
+       "8": "BushI",
+       "9": "BushJ",
+       "11": "Unknown 11"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas STAT record"
+    },
+    "RNAM": {
+     "name": "Sound - Looping/Random",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas STAT record"
+    }
+   }
+  },
+  "ACTI": {
+   "name": "Activator",
+   "confidence": "documented",
+   "subrecords": {
+    "SNAM": {
+     "name": "Sound - Looping",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ACTI record"
+    },
+    "VNAM": {
+     "name": "Sound - Activation",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ACTI record"
+    },
+    "INAM": {
+     "name": "Radio Template",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ACTI record"
+    },
+    "RNAM": {
+     "name": "Radio Station",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ACTI record"
+    },
+    "WNAM": {
+     "name": "Water Type",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ACTI record"
+    }
+   }
+  },
+  "DOOR": {
+   "name": "Door",
+   "confidence": "documented",
+   "subrecords": {
+    "SNAM": {
+     "name": "Sound - Open",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas DOOR record"
+    },
+    "ANAM": {
+     "name": "Sound - Close",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas DOOR record"
+    },
+    "BNAM": {
+     "name": "Sound - Looping",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas DOOR record"
+    },
+    "FNAM": {
+     "name": "Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "1": "Automatic Door",
+       "2": "Hidden",
+       "3": "Minimal Use",
+       "4": "Sliding Door"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas DOOR record"
+    }
+   }
+  },
+  "CONT": {
+   "name": "Container",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "1": "Respawns"
+         }
+        }
+       },
+       {
+        "name": "weight",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CONT record"
+    },
+    "SNAM": {
+     "name": "Sound - Open",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CONT record"
+    },
+    "QNAM": {
+     "name": "Sound - Close",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CONT record"
+    },
+    "RNAM": {
+     "name": "Sound - Random/Looping",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CONT record"
+    }
+   }
+  },
+  "MISC": {
+   "name": "Misc. Item",
+   "confidence": "documented",
+   "subrecords": {
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MISC record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MISC record (wbZNAM)"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": "ValueWeight",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MISC record"
+    },
+    "RNAM": {
+     "name": "Sound - Random/Looping",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MISC record"
+    }
+   }
+  },
+  "KEYM": {
+   "name": "Key",
+   "confidence": "documented",
+   "subrecords": {
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas KEYM record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas KEYM record (wbZNAM)"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": "ValueWeight",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas KEYM record"
+    },
+    "RNAM": {
+     "name": "Sound - Random/Looping",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas KEYM record"
+    }
+   }
+  },
+  "LIGH": {
+   "name": "Light",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "time",
+        "type": "i32"
+       },
+       {
+        "name": "radius",
+        "type": "u32"
+       },
+       {
+        "name": "color",
+        "type": "ByteColor"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Dynamic",
+          "1": "Can be Carried",
+          "2": "Negative",
+          "3": "Flicker",
+          "4": "Unused",
+          "5": "Off By Default",
+          "6": "Flicker Slow",
+          "7": "Pulse",
+          "8": "Pulse Slow",
+          "9": "Spot Light",
+          "10": "Spot Shadow"
+         }
+        }
+       },
+       {
+        "name": "falloff_exponent",
+        "type": "f32"
+       },
+       {
+        "name": "fov",
+        "type": "f32"
+       },
+       {
+        "name": "value",
+        "type": "u32"
+       },
+       {
+        "name": "weight",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LIGH record"
+    },
+    "FNAM": {
+     "name": "Fade value",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LIGH record"
+    },
+    "SNAM": {
+     "name": "Sound",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LIGH record"
+    }
+   }
+  },
+  "FURN": {
+   "name": "Furniture",
+   "confidence": "documented",
+   "subrecords": {
+    "MNAM": {
+     "name": "Marker Flags",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas FURN record; wbByteArray(MNAM, 'Marker Flags') with no fixed size"
+    }
+   }
+  },
+  "WEAP": {
+   "name": "Weapon",
+   "confidence": "documented",
+   "subrecords": {
+    "EAMT": {
+     "name": "Enchantment Capacity",
+     "type": "u16",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbEnchantment(True) via xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "NAM0": {
+     "name": "Ammo",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record (wbZNAM)"
+    },
+    "EFSD": {
+     "name": "Scope Effect",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "MWD1": {
+     "name": "Model - Mod 1",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "MWD2": {
+     "name": "Model - Mod 2",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "MWD3": {
+     "name": "Model - Mod 1 and 2",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "MWD4": {
+     "name": "Model - Mod 3",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "MWD5": {
+     "name": "Model - Mod 1 and 3",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "MWD6": {
+     "name": "Model - Mod 2 and 3",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "MWD7": {
+     "name": "Model - Mod 1, 2 and 3",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "VANM": {
+     "name": "VATS Attack Name",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "NNAM": {
+     "name": "Embedded Weapon Node",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "INAM": {
+     "name": "Impact DataSet",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WNAM": {
+     "name": "1st Person Model",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WNM1": {
+     "name": "1st Person Model - Mod 1",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WNM2": {
+     "name": "1st Person Model - Mod 2",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WNM3": {
+     "name": "1st Person Model - Mod 1 and 2",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WNM4": {
+     "name": "1st Person Model - Mod 3",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WNM5": {
+     "name": "1st Person Model - Mod 1 and 3",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WNM6": {
+     "name": "1st Person Model - Mod 2 and 3",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WNM7": {
+     "name": "1st Person Model - Mod 1, 2 and 3",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WMI1": {
+     "name": "Weapon Mod 1",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WMI2": {
+     "name": "Weapon Mod 2",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WMI3": {
+     "name": "Weapon Mod 3",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "SNAM": {
+     "name": "Sound - Gun - Shoot 3D / Shoot Dist",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record; appears twice in sequence (Shoot 3D, then Shoot Dist); both FormIDs"
+    },
+    "XNAM": {
+     "name": "Sound - Gun - Shoot 2D",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "NAM7": {
+     "name": "Sound - Gun - Shoot 3D Looping",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "TNAM": {
+     "name": "Sound - Melee - Swing / Gun - No Ammo",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "NAM6": {
+     "name": "Sound - Block",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "UNAM": {
+     "name": "Sound - Idle",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "NAM9": {
+     "name": "Sound - Equip",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "NAM8": {
+     "name": "Sound - Unequip",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "WMS1": {
+     "name": "Sound - Mod 1 - Shoot 3D / Shoot Dist",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record; appears twice in sequence; both FormIDs"
+    },
+    "WMS2": {
+     "name": "Sound - Mod 1 - Shoot 2D",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "value",
+        "type": "i32"
+       },
+       {
+        "name": "health",
+        "type": "i32"
+       },
+       {
+        "name": "weight",
+        "type": "f32"
+       },
+       {
+        "name": "base_damage",
+        "type": "i16"
+       },
+       {
+        "name": "clip_size",
+        "type": "u8"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "DNAM": {
+     "name": "Weapon Data",
+     "type": "WeaponDNAM",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record; SetOptionalFrom(36); one unnamed wbFloat (xEdit default name 'Unknown') after Semi-Automatic Fire Delay Max"
+    },
+    "CRDT": {
+     "name": "Critical Data",
+     "type": {
+      "struct": [
+       {
+        "name": "critical_damage",
+        "type": "u16"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "crit_percent_mult",
+        "type": "f32"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "On Death"
+         }
+        }
+       },
+       {
+        "name": "unused2",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       },
+       {
+        "name": "effect",
+        "type": "formid"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    },
+    "VATS": {
+     "name": "VATS",
+     "type": {
+      "struct": [
+       {
+        "name": "effect",
+        "type": "formid"
+       },
+       {
+        "name": "skill",
+        "type": "f32"
+       },
+       {
+        "name": "dam_mult",
+        "type": "f32"
+       },
+       {
+        "name": "ap",
+        "type": "f32"
+       },
+       {
+        "name": "silent",
+        "type": "BoolU8",
+        "optional": true
+       },
+       {
+        "name": "mod_required",
+        "type": "BoolU8",
+        "optional": true
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record; SetOptionalFrom(4)"
+    },
+    "VNAM": {
+     "name": "Sound Level",
+     "type": "SoundLevel",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WEAP record"
+    }
+   }
+  },
+  "ARMO": {
+   "name": "Armor",
+   "confidence": "documented",
+   "subrecords": {
+    "BMDT": {
+     "name": "Biped Data",
+     "type": {
+      "struct": [
+       {
+        "name": "biped_flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Head",
+          "1": "Hair",
+          "2": "Upper Body",
+          "3": "Left Hand",
+          "4": "Right Hand",
+          "5": "Weapon",
+          "6": "PipBoy",
+          "7": "Backpack",
+          "8": "Necklace",
+          "9": "Headband",
+          "10": "Hat",
+          "11": "Eye Glasses",
+          "12": "Nose Ring",
+          "13": "Earrings",
+          "14": "Mask",
+          "15": "Choker",
+          "16": "Mouth Object",
+          "17": "Body AddOn 1",
+          "18": "Body AddOn 2",
+          "19": "Body AddOn 3"
+         }
+        }
+       },
+       {
+        "name": "general_flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "unknown_0x01",
+          "1": "unknown_0x02",
+          "2": "Has Backpack",
+          "3": "Medium",
+          "4": "unknown_0x10",
+          "5": "Power Armor",
+          "6": "Non-Playable",
+          "7": "Heavy"
+         }
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas wbBMDT helper record; general flag bits named '1','2','5' in xEdit are unknown"
+    },
+    "BMCT": {
+     "name": "Ragdoll Constraint Template",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMO record"
+    },
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMO record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMO record (wbZNAM)"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "value",
+        "type": "i32"
+       },
+       {
+        "name": "health",
+        "type": "i32"
+       },
+       {
+        "name": "weight",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMO record"
+    },
+    "DNAM": {
+     "name": "Armor Data",
+     "type": {
+      "struct": [
+       {
+        "name": "dr",
+        "type": "i16"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "dt",
+        "type": "f32",
+        "optional": true
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u16",
+         "bits": {
+          "0": "Modulates Voice"
+         }
+        },
+        "optional": true
+       },
+       {
+        "name": "unused2",
+        "type": {
+         "array": "u8",
+         "count": 2
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMO record; SetOptionalFrom(2); DR is stored x100 (wbDiv(100))"
+    },
+    "BNAM": {
+     "name": "Overrides Animation Sounds",
+     "type": "BoolU32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMO record"
+    },
+    "SNAM": {
+     "name": "Animation Sound",
+     "type": {
+      "struct": [
+       {
+        "name": "sound",
+        "type": "formid"
+       },
+       {
+        "name": "chance",
+        "type": "u8"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       },
+       {
+        "name": "type",
+        "type": {
+         "enum": "u32",
+         "values": {
+          "17": "Walk",
+          "18": "Sneak",
+          "19": "Run",
+          "20": "Sneak (Armor)",
+          "21": "Run (Armor)",
+          "22": "Walk (Armor)"
+         }
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMO record"
+    },
+    "TNAM": {
+     "name": "Animation Sounds Template",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ARMO record"
+    }
+   }
+  },
+  "AMMO": {
+   "name": "Ammunition",
+   "confidence": "documented",
+   "subrecords": {
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas AMMO record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas AMMO record (wbZNAM)"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "speed",
+        "type": "f32"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Ignores Normal Weapon Resistance",
+          "1": "Non-Playable"
+         }
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       },
+       {
+        "name": "value",
+        "type": "i32"
+       },
+       {
+        "name": "clip_rounds",
+        "type": "u8"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas AMMO record"
+    },
+    "DAT2": {
+     "name": "Data 2",
+     "type": {
+      "struct": [
+       {
+        "name": "projectiles_per_shot",
+        "type": "u32"
+       },
+       {
+        "name": "projectile",
+        "type": "formid"
+       },
+       {
+        "name": "weight",
+        "type": "f32"
+       },
+       {
+        "name": "consumed_ammo",
+        "type": "formid",
+        "optional": true
+       },
+       {
+        "name": "consumed_percentage",
+        "type": "f32",
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas AMMO record; SetOptionalFrom(3)"
+    },
+    "ONAM": {
+     "name": "Short Name",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas AMMO record"
+    },
+    "QNAM": {
+     "name": "Abbrev.",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas AMMO record"
+    },
+    "RCIL": {
+     "name": "Ammo Effect",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas AMMO record"
+    }
+   }
+  },
+  "ALCH": {
+   "name": "Ingestible",
+   "confidence": "documented",
+   "subrecords": {
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ALCH record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ALCH record (wbZNAM)"
+    },
+    "DATA": {
+     "name": "Weight",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ALCH record"
+    },
+    "ENIT": {
+     "name": "Effect Data",
+     "type": {
+      "struct": [
+       {
+        "name": "value",
+        "type": "i32"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "No Auto-Calc (Unused)",
+          "1": "Food Item",
+          "2": "Medicine"
+         }
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 3
+        }
+       },
+       {
+        "name": "withdrawal_effect",
+        "type": "formid"
+       },
+       {
+        "name": "addiction_chance",
+        "type": "f32"
+       },
+       {
+        "name": "sound_consume",
+        "type": "formid"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ALCH record"
+    }
+   }
+  },
+  "BOOK": {
+   "name": "Book",
+   "confidence": "documented",
+   "subrecords": {
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas BOOK record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas BOOK record (wbZNAM)"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "Scroll",
+          "1": "Can't be Taken"
+         }
+        }
+       },
+       {
+        "name": "skill",
+        "type": "Skill"
+       },
+       {
+        "name": "value",
+        "type": "i32"
+       },
+       {
+        "name": "weight",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas BOOK record; skill enum from wbSkillEnum"
+    }
+   }
+  },
+  "NOTE": {
+   "name": "Note",
+   "confidence": "documented",
+   "subrecords": {
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NOTE record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NOTE record (wbZNAM)"
+    },
+    "DATA": {
+     "name": "Type",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "Sound",
+       "1": "Text",
+       "2": "Image",
+       "3": "Voice"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NOTE record"
+    },
+    "ONAM": {
+     "name": "Quest",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NOTE record"
+    },
+    "XNAM": {
+     "name": "Texture",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NOTE record"
+    },
+    "SNAM": {
+     "name": "Sound / NPC",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NOTE record; xEdit union of two FormID alternatives (SOUN or NPC_/CREA by note type); always a FormID"
+    }
+   }
+  },
+  "TXST": {
+   "name": "Texture Set",
+   "confidence": "documented",
+   "subrecords": {
+    "TX00": {
+     "name": "Base Image / Transparency",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TXST record"
+    },
+    "TX01": {
+     "name": "Normal Map / Specular",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TXST record"
+    },
+    "TX02": {
+     "name": "Environment Map Mask / ?",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TXST record"
+    },
+    "TX03": {
+     "name": "Glow Map / Unused",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TXST record"
+    },
+    "TX04": {
+     "name": "Parallax Map / Unused",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TXST record"
+    },
+    "TX05": {
+     "name": "Environment Map / Unused",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TXST record"
+    },
+    "DNAM": {
+     "name": "Flags",
+     "type": {
+      "flags": "u16",
+      "bits": {
+       "0": "No Specular Map"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TXST record"
+    }
+   }
+  },
+  "SOUN": {
+   "name": "Sound",
+   "confidence": "documented",
+   "subrecords": {
+    "FNAM": {
+     "name": "Sound FileName",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SOUN record"
+    },
+    "RNAM": {
+     "name": "Random Chance %",
+     "type": "u8",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SOUN record"
+    },
+    "SNDD": {
+     "name": "Sound Data",
+     "type": {
+      "struct": [
+       {
+        "name": "min_attenuation_distance",
+        "type": "u8"
+       },
+       {
+        "name": "max_attenuation_distance",
+        "type": "u8"
+       },
+       {
+        "name": "frequency_adjustment_percent",
+        "type": "i8"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 1
+        }
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Random Frequency Shift",
+          "1": "Play At Random",
+          "2": "Environment Ignored",
+          "3": "Random Location",
+          "4": "Loop",
+          "5": "Menu Sound",
+          "6": "2D",
+          "7": "360 LFE",
+          "8": "Dialogue Sound",
+          "9": "Envelope Fast",
+          "10": "Envelope Slow",
+          "11": "2D Radius",
+          "12": "Mute When Submerged",
+          "13": "Start at Random Position"
+         }
+        }
+       },
+       {
+        "name": "static_attenuation_cdb",
+        "type": "i16"
+       },
+       {
+        "name": "stop_time",
+        "type": "u8"
+       },
+       {
+        "name": "start_time",
+        "type": "u8"
+       },
+       {
+        "name": "attenuation_curve",
+        "type": {
+         "array": "i16",
+         "count": 5
+        }
+       },
+       {
+        "name": "reverb_attenuation_control",
+        "type": "i16"
+       },
+       {
+        "name": "priority",
+        "type": "i32"
+       },
+       {
+        "name": "loop_begin",
+        "type": "i32"
+       },
+       {
+        "name": "loop_end",
+        "type": "i32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SOUN record; min/max attenuation stored /5 and /100 (wbMul)"
+    },
+    "SNDX": {
+     "name": "Sound Data (old)",
+     "type": {
+      "struct": [
+       {
+        "name": "min_attenuation_distance",
+        "type": "u8"
+       },
+       {
+        "name": "max_attenuation_distance",
+        "type": "u8"
+       },
+       {
+        "name": "frequency_adjustment_percent",
+        "type": "i8"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 1
+        }
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Random Frequency Shift",
+          "1": "Play At Random",
+          "2": "Environment Ignored",
+          "3": "Random Location",
+          "4": "Loop",
+          "5": "Menu Sound",
+          "6": "2D",
+          "7": "360 LFE",
+          "8": "Dialogue Sound",
+          "9": "Envelope Fast",
+          "10": "Envelope Slow",
+          "11": "2D Radius",
+          "12": "Mute When Submerged"
+         }
+        }
+       },
+       {
+        "name": "static_attenuation_cdb",
+        "type": "i16"
+       },
+       {
+        "name": "stop_time",
+        "type": "u8"
+       },
+       {
+        "name": "start_time",
+        "type": "u8"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SOUN record"
+    },
+    "ANAM": {
+     "name": "Attenuation Curve",
+     "type": {
+      "array": "i16",
+      "count": 5
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SOUN record"
+    },
+    "GNAM": {
+     "name": "Reverb Attenuation Control",
+     "type": "i16",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SOUN record"
+    },
+    "HNAM": {
+     "name": "Priority",
+     "type": "i32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SOUN record"
+    }
+   }
+  },
+  "CSNO": {
+   "name": "Casino",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "decks_percent_before_shuffle",
+        "type": "f32"
+       },
+       {
+        "name": "blackjack_payout_ratio",
+        "type": "f32"
+       },
+       {
+        "name": "slot_reel_stops",
+        "type": {
+         "array": "u32",
+         "count": 7
+        }
+       },
+       {
+        "name": "number_of_decks",
+        "type": "u32"
+       },
+       {
+        "name": "max_winnings",
+        "type": "u32"
+       },
+       {
+        "name": "currency",
+        "type": "formid"
+       },
+       {
+        "name": "casino_winnings_quest",
+        "type": "formid"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Dealer Stay on Soft 17"
+         }
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CSNO record"
+    },
+    "MODT": {
+     "name": "BlackJack Table Model related",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CSNO record; CSNO uses MODT as a string, overriding the common model-info layout"
+    }
+   }
+  }
+ }
+}

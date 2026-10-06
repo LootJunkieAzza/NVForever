@@ -1,0 +1,1259 @@
+{
+ "format": "fnv.schema/1",
+ "types": {
+  "ActorValue": {
+   "enum": "i32",
+   "values": {
+    "-1": "None",
+    "0": "Aggression",
+    "1": "Confidence",
+    "2": "Energy",
+    "3": "Responsibility",
+    "4": "Mood",
+    "5": "Strength",
+    "6": "Perception",
+    "7": "Endurance",
+    "8": "Charisma",
+    "9": "Intelligence",
+    "10": "Agility",
+    "11": "Luck",
+    "12": "Action Points",
+    "13": "Carry Weight",
+    "14": "Critical Chance",
+    "15": "Heal Rate",
+    "16": "Health",
+    "17": "Melee Damage",
+    "18": "Damage Resistance",
+    "19": "Poison Resistance",
+    "20": "Rad Resistance",
+    "21": "Speed Multiplier",
+    "22": "Fatigue",
+    "23": "Karma",
+    "24": "XP",
+    "25": "Perception Condition",
+    "26": "Endurance Condition",
+    "27": "Left Attack Condition",
+    "28": "Right Attack Condition",
+    "29": "Left Mobility Condition",
+    "30": "Right Mobility Condition",
+    "31": "Brain Condition",
+    "32": "Barter",
+    "33": "Big Guns",
+    "34": "Energy Weapons",
+    "35": "Explosives",
+    "36": "Lockpick",
+    "37": "Medicine",
+    "38": "Melee Weapons",
+    "39": "Repair",
+    "40": "Science",
+    "41": "Guns",
+    "42": "Sneak",
+    "43": "Speech",
+    "44": "Survival",
+    "45": "Unarmed",
+    "46": "Inventory Weight",
+    "47": "Paralysis",
+    "48": "Invisibility",
+    "49": "Chameleon",
+    "50": "Night Eye",
+    "51": "Turbo",
+    "52": "Fire Resistance",
+    "53": "Water Breathing",
+    "54": "Rad Level",
+    "55": "Bloody Mess",
+    "56": "Unarmed Damage",
+    "57": "Assistance",
+    "58": "Electric Resistance",
+    "59": "Frost Resistance",
+    "60": "Energy Resistance",
+    "61": "EMP Resistance",
+    "62": "Variable01",
+    "63": "Variable02",
+    "64": "Variable03",
+    "65": "Variable04",
+    "66": "Variable05",
+    "67": "Variable06",
+    "68": "Variable07",
+    "69": "Variable08",
+    "70": "Variable09",
+    "71": "Variable10",
+    "72": "Ignore Crippled Limbs",
+    "73": "Dehydration",
+    "74": "Hunger",
+    "75": "Sleep Deprivation",
+    "76": "Damage Threshold"
+   }
+  },
+  "ActorValueI8": {
+   "enum": "i8",
+   "values": {
+    "-1": "None",
+    "0": "Aggression",
+    "1": "Confidence",
+    "2": "Energy",
+    "3": "Responsibility",
+    "4": "Mood",
+    "5": "Strength",
+    "6": "Perception",
+    "7": "Endurance",
+    "8": "Charisma",
+    "9": "Intelligence",
+    "10": "Agility",
+    "11": "Luck",
+    "12": "Action Points",
+    "13": "Carry Weight",
+    "14": "Critical Chance",
+    "15": "Heal Rate",
+    "16": "Health",
+    "17": "Melee Damage",
+    "18": "Damage Resistance",
+    "19": "Poison Resistance",
+    "20": "Rad Resistance",
+    "21": "Speed Multiplier",
+    "22": "Fatigue",
+    "23": "Karma",
+    "24": "XP",
+    "25": "Perception Condition",
+    "26": "Endurance Condition",
+    "27": "Left Attack Condition",
+    "28": "Right Attack Condition",
+    "29": "Left Mobility Condition",
+    "30": "Right Mobility Condition",
+    "31": "Brain Condition",
+    "32": "Barter",
+    "33": "Big Guns",
+    "34": "Energy Weapons",
+    "35": "Explosives",
+    "36": "Lockpick",
+    "37": "Medicine",
+    "38": "Melee Weapons",
+    "39": "Repair",
+    "40": "Science",
+    "41": "Guns",
+    "42": "Sneak",
+    "43": "Speech",
+    "44": "Survival",
+    "45": "Unarmed",
+    "46": "Inventory Weight",
+    "47": "Paralysis",
+    "48": "Invisibility",
+    "49": "Chameleon",
+    "50": "Night Eye",
+    "51": "Turbo",
+    "52": "Fire Resistance",
+    "53": "Water Breathing",
+    "54": "Rad Level",
+    "55": "Bloody Mess",
+    "56": "Unarmed Damage",
+    "57": "Assistance",
+    "58": "Electric Resistance",
+    "59": "Frost Resistance",
+    "60": "Energy Resistance",
+    "61": "EMP Resistance",
+    "62": "Variable01",
+    "63": "Variable02",
+    "64": "Variable03",
+    "65": "Variable04",
+    "66": "Variable05",
+    "67": "Variable06",
+    "68": "Variable07",
+    "69": "Variable08",
+    "70": "Variable09",
+    "71": "Variable10",
+    "72": "Ignore Crippled Limbs",
+    "73": "Dehydration",
+    "74": "Hunger",
+    "75": "Sleep Deprivation",
+    "76": "Damage Threshold"
+   }
+  },
+  "Skill": {
+   "enum": "i8",
+   "values": {
+    "-1": "None",
+    "0": "Barter",
+    "1": "Big Guns",
+    "2": "Energy Weapons",
+    "3": "Explosives",
+    "4": "Lockpick",
+    "5": "Medicine",
+    "6": "Melee Weapons",
+    "7": "Repair",
+    "8": "Science",
+    "9": "Guns",
+    "10": "Sneak",
+    "11": "Speech",
+    "12": "Survival",
+    "13": "Unarmed"
+   }
+  },
+  "Vec3i16": {
+   "struct": [
+    {
+     "name": "x",
+     "type": "i16"
+    },
+    {
+     "name": "y",
+     "type": "i16"
+    },
+    {
+     "name": "z",
+     "type": "i16"
+    }
+   ]
+  },
+  "ObjectBounds": {
+   "struct": [
+    {
+     "name": "min",
+     "type": "Vec3i16"
+    },
+    {
+     "name": "max",
+     "type": "Vec3i16"
+    }
+   ]
+  },
+  "Vec3f": {
+   "struct": [
+    {
+     "name": "x",
+     "type": "f32"
+    },
+    {
+     "name": "y",
+     "type": "f32"
+    },
+    {
+     "name": "z",
+     "type": "f32"
+    }
+   ]
+  },
+  "PosRot": {
+   "struct": [
+    {
+     "name": "position",
+     "type": "Vec3f"
+    },
+    {
+     "name": "rotation_radians",
+     "type": "Vec3f"
+    }
+   ]
+  },
+  "ByteColor": {
+   "struct": [
+    {
+     "name": "red",
+     "type": "u8"
+    },
+    {
+     "name": "green",
+     "type": "u8"
+    },
+    {
+     "name": "blue",
+     "type": "u8"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 1
+     }
+    }
+   ]
+  },
+  "FloatRGBA": {
+   "struct": [
+    {
+     "name": "red",
+     "type": "f32"
+    },
+    {
+     "name": "green",
+     "type": "f32"
+    },
+    {
+     "name": "blue",
+     "type": "f32"
+    },
+    {
+     "name": "alpha",
+     "type": "f32"
+    }
+   ]
+  },
+  "FloatRGB": {
+   "struct": [
+    {
+     "name": "red",
+     "type": "f32"
+    },
+    {
+     "name": "green",
+     "type": "f32"
+    },
+    {
+     "name": "blue",
+     "type": "f32"
+    }
+   ]
+  },
+  "TextureHash": {
+   "struct": [
+    {
+     "name": "file_hash_pc",
+     "type": "u64"
+    },
+    {
+     "name": "file_hash_console",
+     "type": "u64"
+    },
+    {
+     "name": "folder_hash",
+     "type": "u64"
+    }
+   ]
+  },
+  "BoolU8": {
+   "enum": "u8",
+   "values": {
+    "0": "False",
+    "1": "True"
+   }
+  },
+  "BoolU32": {
+   "enum": "u32",
+   "values": {
+    "0": "False",
+    "1": "True"
+   }
+  },
+  "Empty": {
+   "struct": []
+  },
+  "EquipType": {
+   "enum": "i32",
+   "values": {
+    "-1": "None",
+    "0": "Big Guns",
+    "1": "Energy Weapons",
+    "2": "Small Guns",
+    "3": "Melee Weapons",
+    "4": "Unarmed Weapon",
+    "5": "Thrown Weapons",
+    "6": "Mine",
+    "7": "Body Wear",
+    "8": "Head Wear",
+    "9": "Hand Wear",
+    "10": "Chems",
+    "11": "Stimpak",
+    "12": "Food",
+    "13": "Alcohol"
+   }
+  },
+  "SizePosRot": {
+   "struct": [
+    {
+     "name": "size",
+     "type": {
+      "struct": [
+       {
+        "name": "width",
+        "type": "f32"
+       },
+       {
+        "name": "height",
+        "type": "f32"
+       }
+      ]
+     }
+    },
+    {
+     "name": "position",
+     "type": "Vec3f"
+    },
+    {
+     "name": "rotation_quaternion",
+     "type": {
+      "struct": [
+       {
+        "name": "q1",
+        "type": "f32"
+       },
+       {
+        "name": "q2",
+        "type": "f32"
+       },
+       {
+        "name": "q3",
+        "type": "f32"
+       },
+       {
+        "name": "q4",
+        "type": "f32"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "ScriptHeader": {
+   "struct": [
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 4
+     }
+    },
+    {
+     "name": "ref_count",
+     "type": "u32"
+    },
+    {
+     "name": "compiled_size",
+     "type": "u32"
+    },
+    {
+     "name": "variable_count",
+     "type": "u32"
+    },
+    {
+     "name": "type",
+     "type": {
+      "enum": "u16",
+      "values": {
+       "0": "Object",
+       "1": "Quest",
+       "256": "Effect"
+      }
+     }
+    },
+    {
+     "name": "flags",
+     "type": {
+      "flags": "u16",
+      "bits": {
+       "0": "Enabled"
+      }
+     }
+    }
+   ]
+  },
+  "ScriptLocalVar": {
+   "struct": [
+    {
+     "name": "index",
+     "type": "u32"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 12
+     }
+    },
+    {
+     "name": "type",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "FloatOrRef",
+       "1": "Integer",
+       "2": "String (xNVSE)",
+       "3": "Array (xNVSE)",
+       "4": "Ref (xNVSE)",
+       "5": "Invalid (xNVSE)"
+      }
+     }
+    },
+    {
+     "name": "unused2",
+     "type": {
+      "array": "u8",
+      "count": 7
+     }
+    }
+   ]
+  },
+  "RagdollBone": {
+   "struct": [
+    {
+     "name": "bone_id",
+     "type": "u8"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 3
+     }
+    },
+    {
+     "name": "pos_rot",
+     "type": "PosRot"
+    }
+   ]
+  },
+  "Condition": {
+   "struct": [
+    {
+     "name": "type",
+     "type": "u8"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 3
+     }
+    },
+    {
+     "name": "comparison_value_raw",
+     "type": "u32"
+    },
+    {
+     "name": "function",
+     "type": "u16"
+    },
+    {
+     "name": "unused2",
+     "type": {
+      "array": "u8",
+      "count": 2
+     }
+    },
+    {
+     "name": "parameter1_raw",
+     "type": "u32"
+    },
+    {
+     "name": "parameter2_raw",
+     "type": "u32"
+    },
+    {
+     "name": "run_on",
+     "type": "u32",
+     "optional": true
+    },
+    {
+     "name": "reference_raw",
+     "type": "u32",
+     "optional": true
+    }
+   ]
+  }
+ },
+ "common": {
+  "EDID": {
+   "name": "Editor ID",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbEDID helper (all records) record"
+  },
+  "FULL": {
+   "name": "Name",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbFULL helper (all records) record"
+  },
+  "MODL": {
+   "name": "Model FileName",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbGenericModel / wbTexturedModel record"
+  },
+  "MODB": {
+   "name": "Model Unknown",
+   "type": {
+    "array": "u8",
+    "count": 4
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbGenericModel record; wbByteArray(MODB, 'Unknown', 4)"
+  },
+  "MODT": {
+   "name": "Model Texture Hashes",
+   "type": {
+    "array": "TextureHash"
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbModelInfo; pre-TES5 branch: array of 24-byte texture hash structs (CSNO overrides MODT as a string)"
+  },
+  "MODD": {
+   "name": "FaceGen Model Flags",
+   "type": {
+    "flags": "u8",
+    "bits": {
+     "0": "Head",
+     "1": "Torso",
+     "2": "Right Hand",
+     "3": "Left Hand"
+    }
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbMODD helper record"
+  },
+  "ICON": {
+   "name": "Large Icon FileName",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbICON helper record; all FNV ICON uses are wbString"
+  },
+  "MICO": {
+   "name": "Small Icon FileName",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbICON helper record; all FNV MICO uses are wbString"
+  },
+  "SCRI": {
+   "name": "Script",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbSCRI helper record"
+  },
+  "DESC": {
+   "name": "Description",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbDESC helper record"
+  },
+  "OBND": {
+   "name": "Object Bounds",
+   "type": "ObjectBounds",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbObjectBounds; non-Starfield branch: two wbVec3Int (3x s16)"
+  },
+  "XSCL": {
+   "name": "Scale",
+   "type": "f32",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbXSCL helper record"
+  },
+  "ETYP": {
+   "name": "Equipment Type",
+   "type": "EquipType",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbETYP helper record; enum from wbDefinitionsCommon.pas wbEquipTypeEnum"
+  },
+  "EITM": {
+   "name": "Unarmed Attack Effect",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas NPC_/CREA record; only FNV use of EITM"
+  },
+  "XESP": {
+   "name": "Enable Parent",
+   "type": {
+    "struct": [
+     {
+      "name": "reference",
+      "type": "formid"
+     },
+     {
+      "name": "flags",
+      "type": {
+       "flags": "u8",
+       "bits": {
+        "0": "Set Enable State to Opposite of Parent",
+        "1": "Pop In"
+       }
+      }
+     },
+     {
+      "name": "unused",
+      "type": {
+       "array": "u8",
+       "count": 3
+      }
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbXESP helper record"
+  },
+  "XOWN": {
+   "name": "Owner",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbOwnership; non-FO4 branch: FormID FACT/NPC_"
+  },
+  "XRNK": {
+   "name": "Faction rank",
+   "type": "i32",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbOwnership"
+  },
+  "DEST": {
+   "name": "Destructible Header",
+   "type": {
+    "struct": [
+     {
+      "name": "health",
+      "type": "i32"
+     },
+     {
+      "name": "count",
+      "type": "u8"
+     },
+     {
+      "name": "flags",
+      "type": {
+       "flags": "u8",
+       "bits": {
+        "0": "VATS Targetable"
+       }
+      }
+     },
+     {
+      "name": "unused",
+      "type": {
+       "array": "u8",
+       "count": 2
+      }
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbDEST helper record"
+  },
+  "DSTD": {
+   "name": "Destruction Stage Data",
+   "type": {
+    "struct": [
+     {
+      "name": "health_percent",
+      "type": "u8"
+     },
+     {
+      "name": "index",
+      "type": "u8"
+     },
+     {
+      "name": "damage_stage",
+      "type": "u8"
+     },
+     {
+      "name": "flags",
+      "type": {
+       "flags": "u8",
+       "bits": {
+        "0": "Cap Damage",
+        "1": "Disable",
+        "2": "Destroy"
+       }
+      }
+     },
+     {
+      "name": "self_damage_per_second",
+      "type": "i32"
+     },
+     {
+      "name": "explosion",
+      "type": "formid"
+     },
+     {
+      "name": "debris",
+      "type": "formid"
+     },
+     {
+      "name": "debris_count",
+      "type": "i32"
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbDEST helper record"
+  },
+  "DMDL": {
+   "name": "Destruction Stage Model FileName",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbDEST helper record"
+  },
+  "DMDT": {
+   "name": "Destruction Stage Model Texture Hashes",
+   "type": {
+    "array": "TextureHash"
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbModelInfo"
+  },
+  "DSTF": {
+   "name": "Destruction Stage End Marker",
+   "type": "Empty",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbDEST helper record; wbEmpty"
+  },
+  "CTDA": {
+   "name": "Condition",
+   "type": "Condition",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbConditions helper record; Comparison Value (float or GLOB FormID, chosen by a Type flag), Parameter #1/#2 (function-dependent) and Reference (FormID or unused, depends on Run On) are xEdit unions of 4-byte alternatives, decoded here as raw u32; Run On/Reference optional per SetOptionalFrom(7); Type is a custom-formatted u8 (comparison operator + flags)"
+  },
+  "SCHR": {
+   "name": "Basic Script Data",
+   "type": "ScriptHeader",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbSCHRReq helper record"
+  },
+  "SCDA": {
+   "name": "Compiled Script",
+   "type": "bytes",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas SCPT / wbEmbeddedScript record"
+  },
+  "SCTX": {
+   "name": "Script Source",
+   "type": "string",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas SCPT / wbEmbeddedScript record; wbStringScript"
+  },
+  "SLSD": {
+   "name": "Local Variable Data",
+   "type": "ScriptLocalVar",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbSLSD helper record"
+  },
+  "SCVR": {
+   "name": "Local Variable Name",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas SCPT / wbEmbeddedScript record"
+  },
+  "SCRO": {
+   "name": "Global Reference",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbSCROs helper record"
+  },
+  "SCRV": {
+   "name": "Local Variable Reference",
+   "type": "u32",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbSCROs helper record"
+  },
+  "XEZN": {
+   "name": "Encounter Zone",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas ACHR/ACRE/PGRE/PMIS/PBEA/REFR/CELL/WRLD record"
+  },
+  "XRGD": {
+   "name": "Ragdoll Bones",
+   "type": {
+    "array": "RagdollBone"
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbRagdoll"
+  },
+  "XRGB": {
+   "name": "Ragdoll Biped Rotation",
+   "type": "Vec3f",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbRagdoll; non-TES4 branch"
+  },
+  "XPRD": {
+   "name": "Patrol Idle Time",
+   "type": "f32",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs patrol data record"
+  },
+  "XPPA": {
+   "name": "Patrol Script Marker",
+   "type": "Empty",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs patrol data record"
+  },
+  "XLCM": {
+   "name": "Level Modifier",
+   "type": "i32",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbXLCM helper record"
+  },
+  "XMRC": {
+   "name": "Merchant Container",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas ACHR/ACRE record"
+  },
+  "XCNT": {
+   "name": "Count",
+   "type": "i32",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XRDS": {
+   "name": "Radius",
+   "type": "f32",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XHLP": {
+   "name": "Health",
+   "type": "f32",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XDCR": {
+   "name": "Linked Decal",
+   "type": {
+    "struct": [
+     {
+      "name": "reference",
+      "type": "formid"
+     },
+     {
+      "name": "unknown",
+      "type": "bytes"
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record; trailing wbUnknown"
+  },
+  "XLKR": {
+   "name": "Linked Reference",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XCLP": {
+   "name": "Linked Reference Color",
+   "type": {
+    "struct": [
+     {
+      "name": "link_start_color",
+      "type": "ByteColor"
+     },
+     {
+      "name": "link_end_color",
+      "type": "ByteColor"
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XAPD": {
+   "name": "Parent Activate Only",
+   "type": "BoolU8",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XAPR": {
+   "name": "Activate Parent Ref",
+   "type": {
+    "struct": [
+     {
+      "name": "reference",
+      "type": "formid"
+     },
+     {
+      "name": "delay",
+      "type": "f32"
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XATO": {
+   "name": "Activation Prompt",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas ACTI and placed refs record"
+  },
+  "XEMI": {
+   "name": "Emittance",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XMBR": {
+   "name": "MultiBound Reference",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XIBS": {
+   "name": "Ignored By Sandbox",
+   "type": "Empty",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XPWR": {
+   "name": "Reflected/Refracted By",
+   "type": {
+    "struct": [
+     {
+      "name": "reference",
+      "type": "formid"
+     },
+     {
+      "name": "type",
+      "type": {
+       "flags": "u32",
+       "bits": {
+        "0": "Reflection",
+        "1": "Refraction"
+       }
+      }
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas placed refs record"
+  },
+  "XACT": {
+   "name": "Action Flag",
+   "type": {
+    "flags": "u32",
+    "bits": {
+     "0": "Use Default",
+     "1": "Activate",
+     "2": "Open",
+     "3": "Open by Default"
+    }
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbActionFlag"
+  },
+  "XLOD": {
+   "name": "Distant LOD Data",
+   "type": {
+    "array": "f32",
+    "count": 3
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbXLOD"
+  },
+  "MOD2": {
+   "name": "Model 2 FileName",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas ARMO/WEAP wbTexturedModel, CSNO record; zstring in every FNV use"
+  },
+  "MOD3": {
+   "name": "Model 3 FileName",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas ARMO/WEAP wbTexturedModel, CSNO record; zstring in every FNV use"
+  },
+  "MOD4": {
+   "name": "Model 4 FileName",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas ARMO/WEAP wbTexturedModel, CSNO record; zstring in every FNV use"
+  },
+  "MO2T": {
+   "name": "Model 2 Texture Hashes",
+   "type": {
+    "array": "TextureHash"
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbModelInfo; via wbTexturedModel (ARMO/WEAP)"
+  },
+  "MO3T": {
+   "name": "Model 3 Texture Hashes",
+   "type": {
+    "array": "TextureHash"
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbModelInfo; via wbTexturedModel (ARMO/WEAP)"
+  },
+  "MO4T": {
+   "name": "Model 4 Texture Hashes",
+   "type": {
+    "array": "TextureHash"
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsCommon.pas wbModelInfo; via wbTexturedModel (ARMO/WEAP)"
+  },
+  "MOSD": {
+   "name": "FaceGen Model Flags (female)",
+   "type": {
+    "flags": "u8",
+    "bits": {
+     "0": "Head",
+     "1": "Torso",
+     "2": "Right Hand",
+     "3": "Left Hand"
+    }
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbMOSD helper record"
+  },
+  "ICO2": {
+   "name": "Icon 2 FileName",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas ARMO/EFSH/CSNO record; zstring in every FNV use"
+  },
+  "MIC2": {
+   "name": "Message Icon 2 FileName",
+   "type": "zstring",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas ARMO record"
+  },
+  "REPL": {
+   "name": "Repair List",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbREPL helper record"
+  },
+  "BIPL": {
+   "name": "Biped Model List",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbBIPL helper record"
+  },
+  "CNTO": {
+   "name": "Item",
+   "type": {
+    "struct": [
+     {
+      "name": "item",
+      "type": "formid"
+     },
+     {
+      "name": "count",
+      "type": "i32"
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbCNTO helper record"
+  },
+  "COED": {
+   "name": "Item Extra Data",
+   "type": {
+    "struct": [
+     {
+      "name": "owner",
+      "type": "formid"
+     },
+     {
+      "name": "global_or_rank_raw",
+      "type": "u32"
+     },
+     {
+      "name": "item_condition",
+      "type": "f32"
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbCOED helper record; field 2 is an xEdit union (unused / GLOB FormID / s32 required rank, chosen by owner type), decoded as raw u32"
+  },
+  "EFID": {
+   "name": "Base Effect",
+   "type": "formid",
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbEFID helper record"
+  },
+  "EFIT": {
+   "name": "Effect Item",
+   "type": {
+    "struct": [
+     {
+      "name": "magnitude",
+      "type": "u32"
+     },
+     {
+      "name": "area",
+      "type": "u32"
+     },
+     {
+      "name": "duration",
+      "type": "u32"
+     },
+     {
+      "name": "type",
+      "type": {
+       "enum": "u32",
+       "values": {
+        "0": "Self",
+        "1": "Touch",
+        "2": "Target"
+       }
+      }
+     },
+     {
+      "name": "actor_value",
+      "type": "ActorValue"
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbEFIT helper record; type enum from wbDefinitionsCommon.pas wbEffectTypeEnum"
+  },
+  "DODT": {
+   "name": "Decal Data",
+   "type": {
+    "struct": [
+     {
+      "name": "min_width",
+      "type": "f32"
+     },
+     {
+      "name": "max_width",
+      "type": "f32"
+     },
+     {
+      "name": "min_height",
+      "type": "f32"
+     },
+     {
+      "name": "max_height",
+      "type": "f32"
+     },
+     {
+      "name": "depth",
+      "type": "f32"
+     },
+     {
+      "name": "shininess",
+      "type": "f32"
+     },
+     {
+      "name": "parallax_scale",
+      "type": "f32"
+     },
+     {
+      "name": "parallax_passes",
+      "type": "u8"
+     },
+     {
+      "name": "flags",
+      "type": {
+       "flags": "u8",
+       "bits": {
+        "0": "Parallax",
+        "1": "Alpha - Blending",
+        "2": "Alpha - Testing"
+       }
+      }
+     },
+     {
+      "name": "unused",
+      "type": {
+       "array": "u8",
+       "count": 2
+      }
+     },
+     {
+      "name": "color",
+      "type": "ByteColor"
+     }
+    ]
+   },
+   "confidence": "documented",
+   "note": "xEdit wbDefinitionsFNV.pas wbDODT helper record"
+  }
+ }
+}

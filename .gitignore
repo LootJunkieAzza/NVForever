@@ -1,0 +1,15 @@
+/target/
+**/runs/
+**/__pycache__/
+*.pyc
+# Private ground truth and game data must never be committed.
+/goldens/
+/parity-lab/goldens/
+*.esm
+*.esp
+*.bsa
+*.nif
+*.dds
+lab.local.json
+baseline.json
+*.bundle
