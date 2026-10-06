@@ -24,3 +24,14 @@ fn wrong_expected_size_is_an_error() {
     let z = std::fs::read(dir.join("text.l6.zlib")).unwrap();
     assert!(zlib_decompress(&z, Some(10)).is_err());
 }
+
+#[test]
+fn every_truncation_is_an_error() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+    for lvl in [1, 6, 9] {
+        let z = std::fs::read(dir.join(format!("mixed.l{lvl}.zlib"))).unwrap();
+        for n in 0..z.len() {
+            assert!(zlib_decompress(&z[..n], None).is_err(), "l{lvl} prefix {n}");
+        }
+    }
+}
