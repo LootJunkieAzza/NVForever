@@ -248,12 +248,19 @@ pub fn normalize(p: &Path) -> PathBuf {
             }
             return lexical(&out);
         }
-        match (existing.file_name().map(|s| s.to_os_string()), existing.parent()) {
-            (Some(name), Some(parent)) => {
-                tail.push(name);
+        // Walk up by component, not file_name(): file_name() is None for a path that
+        // ends in `..`, which used to drop to the uncanonicalized path, so a symlinked
+        // base (macOS /var -> /private/var) no longer matched its canonical form.
+        let last = match existing.components().next_back() {
+            Some(c @ (Component::Normal(_) | Component::ParentDir | Component::CurDir)) => c.as_os_str().to_os_string(),
+            _ => return lexical(&abs),
+        };
+        match existing.parent() {
+            Some(parent) => {
+                tail.push(last);
                 existing = parent.to_path_buf();
             }
-            _ => return lexical(&abs),
+            None => return lexical(&abs),
         }
     }
 }
@@ -313,6 +320,21 @@ mod tests {
         assert!(is_within(&t, &t));
         assert!(!is_within(&t.join("ab"), &t.join("a")));
         assert!(is_within(&t.join("a/../a/b"), &t.join("a")));
+        std::fs::remove_dir_all(&t).ok();
+    }
+
+    /// A base reached through a symlink (macOS: /var -> /private/var) and a path with
+    /// `..` below a directory that does not exist yet.
+    #[cfg(unix)]
+    #[test]
+    fn containment_through_symlink_with_dotdot() {
+        let t = tmp("symlink");
+        std::fs::create_dir_all(t.join("real")).unwrap();
+        std::os::unix::fs::symlink(t.join("real"), t.join("link")).unwrap();
+        let base = t.join("link");
+        assert!(is_within(&base.join("a/../a/b"), &base.join("a")));
+        assert!(is_within(&base.join("a/../a/b"), &t.join("real/a")));
+        assert!(!is_within(&base.join("a/../c"), &base.join("a")));
         std::fs::remove_dir_all(&t).ok();
     }
 
