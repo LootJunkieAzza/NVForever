@@ -1,16 +1,17 @@
 //! `fnvtool setup` / `fnvtool paths`: NVForever's own home, kept apart from the game.
 
-use crate::{Args, CmdError};
+use crate::HomeArg;
+use anyhow::{bail, Context};
 use fnv_install::{check_separation, original_user_dir, Config, EngineHome, GameInstall};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-fn home_from(args: &Args) -> Result<EngineHome, CmdError> {
-    match args.value("home") {
+fn home_from(args: &HomeArg) -> anyhow::Result<EngineHome> {
+    match &args.home {
         Some(h) => Ok(EngineHome::new(h)),
         None => EngineHome::default_root()
             .map(EngineHome::new)
-            .ok_or_else(|| CmdError::Failed("cannot determine a home directory; pass --home or set NVFOREVER_HOME".into())),
+            .context("cannot determine a home directory; pass --home or set NVFOREVER_HOME"),
     }
 }
 
@@ -47,9 +48,8 @@ fn report(home: &EngineHome, game: Option<&GameInstall>) -> Value {
     v
 }
 
-pub fn paths(rest: &[String]) -> Result<Value, CmdError> {
-    let args = Args::parse(rest, &["home"]).map_err(CmdError::Usage)?;
-    let home = home_from(&args)?;
+pub fn paths(args: &HomeArg) -> anyhow::Result<Value> {
+    let home = home_from(args)?;
     let cfg = Config::load(&home)?;
     let game = match &cfg.game_dir {
         Some(d) => Some(GameInstall::open(d)?),
@@ -58,14 +58,12 @@ pub fn paths(rest: &[String]) -> Result<Value, CmdError> {
     Ok(report(&home, game.as_ref()))
 }
 
-pub fn setup(rest: &[String]) -> Result<Value, CmdError> {
-    let args = Args::parse(rest, &["home", "game"]).map_err(CmdError::Usage)?;
-    let home = home_from(&args)?;
-    let game_dir = args.value("game").ok_or_else(|| CmdError::Usage("setup needs --game <Fallout New Vegas folder>".into()))?;
+pub fn setup(game_dir: &Path, args: &HomeArg) -> anyhow::Result<Value> {
+    let home = home_from(args)?;
     let game = GameInstall::open(game_dir)?;
     let viol = check_separation(&home, &game, std::env::current_exe().ok().as_deref());
     if !viol.is_empty() {
-        return Err(CmdError::Failed(fnv_install::InstallError::Overlap(viol).to_string()));
+        bail!(fnv_install::InstallError::Overlap(viol));
     }
     home.create()?;
     Config { game_dir: Some(PathBuf::from(&game.root)) }.save(&home, Some(&game))?;
