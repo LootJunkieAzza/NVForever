@@ -11,3 +11,5 @@ fnv-inflate = { path = "../fnv-inflate" }
 serde_json.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+bytes = "1.9"
+memmap2 = "0.9"

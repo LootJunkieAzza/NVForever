@@ -4,6 +4,7 @@
 //! structure losslessly and can write it back byte-for-byte; see
 //! `docs/spec-notes/esm.md` for the format description and confidence tags.
 
+use bytes::Bytes;
 use fnv_util::{tag_str, Cursor};
 use std::borrow::Cow;
 
@@ -115,8 +116,9 @@ pub mod group_type {
 #[derive(Debug, Clone)]
 pub struct Record {
     pub header: RecordHeader,
-    /// Payload exactly as stored on disk (still compressed if flagged).
-    pub raw: Vec<u8>,
+    /// Payload exactly as stored on disk (still compressed if flagged). A zero-copy
+    /// slice of the plugin's buffer when parsed from a file.
+    pub raw: Bytes,
     /// File offset of the record header (diagnostics only).
     pub offset: u64,
 }
@@ -249,7 +251,8 @@ fn structure(offset: usize, msg: impl Into<String>) -> EsmError {
 }
 
 /// Parse a sequence of nodes occupying `data[start..end]`.
-pub fn parse_nodes(data: &[u8], start: usize, end: usize, depth: usize) -> Result<Vec<Node>, EsmError> {
+/// Parse `data[start..end]`. Record payloads are slices sharing `data`'s buffer.
+pub fn parse_nodes(data: &Bytes, start: usize, end: usize, depth: usize) -> Result<Vec<Node>, EsmError> {
     if depth > 16 {
         return Err(structure(start, "groups nested deeper than 16 levels"));
     }
@@ -295,7 +298,7 @@ pub fn parse_nodes(data: &[u8], start: usize, end: usize, depth: usize) -> Resul
                 .ok_or_else(|| {
                     structure(pos, format!("record {} data size {} overruns its container", tag_str(&sig), h.data_size))
                 })?;
-            out.push(Node::Record(Record { header: h, raw: data[dstart..dend].to_vec(), offset: pos as u64 }));
+            out.push(Node::Record(Record { header: h, raw: data.slice(dstart..dend), offset: pos as u64 }));
             pos = dend;
         }
     }
@@ -416,6 +419,7 @@ mod tests {
         grp.extend_from_slice(&inner);
         let mut file = rec(b"TES4", 0, &write_subrecords(&[sub(b"HEDR", &[0; 12])]));
         file.extend_from_slice(&grp);
+        let file = Bytes::from(file);
         let nodes = parse_nodes(&file, 0, file.len(), 0).unwrap();
         let mut out = Vec::new();
         write_nodes(&nodes, &mut out);
@@ -424,10 +428,10 @@ mod tests {
         visit_records(&nodes, &mut |_r, _s| n += 1);
         assert_eq!(n, 2);
         // Corrupt the group size: must be a structured error, not a panic.
-        let mut bad = file.clone();
+        let mut bad = file.to_vec();
         let gpos = file.len() - grp.len();
         bad[gpos + 4..gpos + 8].copy_from_slice(&9999u32.to_le_bytes());
-        assert!(parse_nodes(&bad, 0, bad.len(), 0).is_err());
-        assert!(parse_nodes(&file[..file.len() - 3], 0, file.len() - 3, 0).is_err());
+        assert!(parse_nodes(&Bytes::from(bad), 0, file.len(), 0).is_err());
+        assert!(parse_nodes(&file.slice(..file.len() - 3), 0, file.len() - 3, 0).is_err());
     }
 }
