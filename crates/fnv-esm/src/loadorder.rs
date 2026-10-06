@@ -10,32 +10,18 @@
 use crate::plugin::Plugin;
 use crate::raw::{visit_records, Record};
 use std::collections::HashMap;
-use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LoadOrderError {
+    #[error("{0} plugins; at most 255 can be loaded")]
     TooManyPlugins(usize),
+    #[error("{plugin} requires master {master}, which is not in the load order")]
     MissingMaster { plugin: String, master: String },
+    #[error("{plugin} requires master {master}, which loads after it")]
     MasterAfterDependent { plugin: String, master: String },
+    #[error("{0} appears twice in the load order")]
     Duplicate(String),
 }
-
-impl fmt::Display for LoadOrderError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LoadOrderError::TooManyPlugins(n) => write!(f, "{n} plugins; at most 255 can be loaded"),
-            LoadOrderError::MissingMaster { plugin, master } => {
-                write!(f, "{plugin} requires master {master}, which is not in the load order")
-            }
-            LoadOrderError::MasterAfterDependent { plugin, master } => {
-                write!(f, "{plugin} requires master {master}, which loads after it")
-            }
-            LoadOrderError::Duplicate(p) => write!(f, "{p} appears twice in the load order"),
-        }
-    }
-}
-
-impl std::error::Error for LoadOrderError {}
 
 /// Location of one record definition: (plugin load index, ordinal in that plugin).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

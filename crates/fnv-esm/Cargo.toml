@@ -10,3 +10,4 @@ fnv-util = { path = "../fnv-util" }
 fnv-inflate = { path = "../fnv-inflate" }
 serde_json.workspace = true
 serde.workspace = true
+thiserror.workspace = true

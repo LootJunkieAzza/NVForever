@@ -16,40 +16,20 @@ use std::path::{Component, Path, PathBuf};
 pub const CONFIG_FILE: &str = "nvforever.json";
 pub const HOME_ENV: &str = "NVFOREVER_HOME";
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum InstallError {
+    /// The message embeds the io::Error, so it is not declared as #[source].
+    #[error("{}: {}", .0.display(), .1)]
     Io(PathBuf, std::io::Error),
+    #[error("{} is not a Fallout: New Vegas install (expected Data\\FalloutNV.esm inside it)", .0.display())]
     NotAGameInstall(PathBuf),
+    #[error("NVForever and the original game overlap:{}", .0.iter().map(|x| format!("\n  - {x}")).collect::<String>())]
     Overlap(Vec<Violation>),
+    #[error("refusing to write {}: {reason}", path.display())]
     WriteDenied { path: PathBuf, reason: String },
+    #[error("config error: {0}")]
     Config(String),
 }
-
-impl fmt::Display for InstallError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            InstallError::Io(p, e) => write!(f, "{}: {e}", p.display()),
-            InstallError::NotAGameInstall(p) => write!(
-                f,
-                "{} is not a Fallout: New Vegas install (expected Data\\FalloutNV.esm inside it)",
-                p.display()
-            ),
-            InstallError::Overlap(v) => {
-                write!(f, "NVForever and the original game overlap:")?;
-                for x in v {
-                    write!(f, "\n  - {x}")?;
-                }
-                Ok(())
-            }
-            InstallError::WriteDenied { path, reason } => {
-                write!(f, "refusing to write {}: {reason}", path.display())
-            }
-            InstallError::Config(m) => write!(f, "config error: {m}"),
-        }
-    }
-}
-
-impl std::error::Error for InstallError {}
 
 /// The user's original game install. Opened read-only; NVForever never writes here.
 #[derive(Debug, Clone)]
