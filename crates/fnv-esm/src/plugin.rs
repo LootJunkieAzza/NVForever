@@ -1,6 +1,7 @@
 //! A whole plugin file: the TES4 header record plus the top-level groups.
 
 use crate::raw::{self, EsmError, Node, Record};
+use bytes::Bytes;
 use fnv_util::{cp1252, Cursor};
 use std::path::Path;
 
@@ -45,15 +46,21 @@ pub struct Plugin {
 }
 
 impl Plugin {
+    /// Memory-map the file; records reference the mapping without copying.
     pub fn open(path: impl AsRef<Path>) -> Result<Plugin, EsmError> {
         let p = path.as_ref();
-        let data = std::fs::read(p)?;
         let name = p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        Plugin::parse(&data, name)
+        Plugin::parse_bytes(map_file(p)?, name)
     }
 
+    /// Parse a copy of `data`.
     pub fn parse(data: &[u8], name: String) -> Result<Plugin, EsmError> {
-        let nodes = raw::parse_nodes(data, 0, data.len(), 0)?;
+        Plugin::parse_bytes(Bytes::copy_from_slice(data), name)
+    }
+
+    /// Parse without copying: records are slices of `data`.
+    pub fn parse_bytes(data: Bytes, name: String) -> Result<Plugin, EsmError> {
+        let nodes = raw::parse_nodes(&data, 0, data.len(), 0)?;
         let first = match nodes.first() {
             Some(Node::Record(r)) if &r.header.sig == b"TES4" => r,
             _ => {
@@ -81,6 +88,20 @@ impl Plugin {
     pub fn self_index(&self) -> u8 {
         self.header.masters.len().min(255) as u8
     }
+}
+
+/// Read-only shared mapping of a plugin file.
+pub fn map_file(path: &Path) -> Result<Bytes, EsmError> {
+    let file = std::fs::File::open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a regular file").into());
+    }
+    // SAFETY: plugins are read-only inputs (the game install is never written by
+    // NVForever, docs/design/install-layout.md). If another process truncates or
+    // rewrites the file while it is mapped, reads may fault or see changed bytes;
+    // that is the accepted trade-off for not copying 245 MB masters.
+    let map = unsafe { memmap2::Mmap::map(&file)? };
+    Ok(Bytes::from_owner(map))
 }
 
 fn parse_header(r: &Record) -> Result<PluginHeader, EsmError> {
