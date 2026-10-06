@@ -1,4 +1,5 @@
-use crate::{Args, CmdError};
+use crate::{EsmCmd, LoadOrderArgs};
+use anyhow::{bail, Context};
 use fnv_esm::decode::{decode_record, formid_str, Coverage};
 use fnv_esm::inventory::{header_json, inventory_json, stats_json};
 use fnv_esm::raw::{visit_records, write_subrecords};
@@ -8,40 +9,26 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
-pub fn run(sub: &str, rest: &[String]) -> Result<Value, CmdError> {
-    let args =
-        Args::parse(rest, &["schema", "formid", "edid", "max-rows", "plugin"]).map_err(CmdError::Usage)?;
-    let first = || args.positional.first().ok_or_else(|| CmdError::Usage("missing plugin path".into()));
-    match sub {
-        "header" => Ok(header_json(&Plugin::open(first()?)?)),
-        "stats" => Ok(stats_json(&Plugin::open(first()?)?)),
-        "inventory" => Ok(inventory_json(&Plugin::open(first()?)?)),
-        "verify" => verify(first()?),
-        "coverage" => {
-            let schema = load_schema(&args)?;
-            let p = Plugin::open(first()?)?;
+pub fn run(cmd: EsmCmd) -> anyhow::Result<Value> {
+    match cmd {
+        EsmCmd::Header { plugin } => Ok(header_json(&Plugin::open(plugin)?)),
+        EsmCmd::Stats { plugin } => Ok(stats_json(&Plugin::open(plugin)?)),
+        EsmCmd::Inventory { plugin } => Ok(inventory_json(&Plugin::open(plugin)?)),
+        EsmCmd::Verify { plugin } => verify(&plugin),
+        EsmCmd::Coverage { plugin, schema, max_rows } => {
+            let schema = Schema::load_dir(schema)?;
+            let p = Plugin::open(plugin)?;
             let mut cov = Coverage::default();
             visit_records(&p.nodes[1..], &mut |r, _| cov.add_record(r, &schema, None));
-            let max = args.value("max-rows").and_then(|s| s.parse().ok()).unwrap_or(200);
-            let mut v = cov.to_json(max);
+            let mut v = cov.to_json(max_rows);
             v["schema"] = json!("fnv.esm.coverage/1");
             v["plugin"] = json!(p.name);
             Ok(v)
         }
-        "decode" => {
-            let schema = load_schema(&args)?;
-            let p = Plugin::open(first()?)?;
-            let want_fid = match args.value("formid") {
-                Some(s) => Some(
-                    u32::from_str_radix(s.trim_start_matches("0x").trim_start_matches("0X"), 16)
-                        .map_err(|_| CmdError::Usage(format!("bad --formid {s}")))?,
-                ),
-                None => None,
-            };
-            let want_edid = args.value("edid").map(|s| s.to_ascii_lowercase());
-            if want_fid.is_none() && want_edid.is_none() {
-                return Err(CmdError::Usage("decode needs --formid or --edid".into()));
-            }
+        EsmCmd::Decode { plugin, schema, formid: want_fid, edid } => {
+            let schema = Schema::load_dir(schema)?;
+            let p = Plugin::open(plugin)?;
+            let want_edid = edid.map(|s| s.to_ascii_lowercase());
             let mut found = Vec::new();
             visit_records(&p.nodes[1..], &mut |r, _| {
                 let hit = match (want_fid, &want_edid) {
@@ -57,26 +44,20 @@ pub fn run(sub: &str, rest: &[String]) -> Result<Value, CmdError> {
                 }
             });
             if found.is_empty() {
-                return Err(CmdError::Failed("no matching record".into()));
+                bail!("no matching record");
             }
             Ok(json!({"schema": "fnv.esm.decode/1", "plugin": p.name, "records": found}))
         }
-        "loadorder" => loadorder(&args),
-        "survey" => survey(&args),
-        other => Err(CmdError::Usage(format!("unknown esm subcommand {other:?}"))),
+        EsmCmd::Loadorder { lo, schema } => loadorder(&lo, schema.as_deref()),
+        EsmCmd::Survey { lo, plugin } => survey(&lo, plugin.as_deref()),
     }
-}
-
-fn load_schema(args: &Args) -> Result<Schema, CmdError> {
-    let dir = args.value("schema").ok_or_else(|| CmdError::Usage("--schema <dir> is required".into()))?;
-    Ok(Schema::load_dir(dir)?)
 }
 
 /// Structural verification: byte-identical rewrite, every compressed record
 /// decompresses, every payload re-serializes identically from its subrecords.
-fn verify(path: &str) -> Result<Value, CmdError> {
-    let data = std::fs::read(path)?;
-    let name = Path::new(path).file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+fn verify(path: &Path) -> anyhow::Result<Value> {
+    let data = std::fs::read(path).with_context(|| path.display().to_string())?;
+    let name = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let p = Plugin::parse(&data, name)?;
     let out = p.to_bytes();
     let identical = out == data;
@@ -144,29 +125,22 @@ fn verify(path: &str) -> Result<Value, CmdError> {
     }))
 }
 
-fn open_load_order(args: &Args) -> Result<Vec<Plugin>, CmdError> {
-    let dir = args.positional.first().ok_or_else(|| CmdError::Usage("missing data directory".into()))?;
-    let names = &args.positional[1..];
-    if names.is_empty() {
-        return Err(CmdError::Usage("list at least one plugin, in load order".into()));
-    }
-    let mut plugins = Vec::new();
-    for n in names {
-        let p = Path::new(dir).join(n);
-        plugins.push(Plugin::open(&p).map_err(|e| CmdError::Failed(format!("{}: {e}", p.display())))?);
-    }
-    Ok(plugins)
+fn open_load_order(args: &LoadOrderArgs) -> anyhow::Result<Vec<Plugin>> {
+    args.plugins
+        .iter()
+        .map(|n| {
+            let p = args.data_dir.join(n);
+            Plugin::open(&p).with_context(|| p.display().to_string())
+        })
+        .collect()
 }
 
 /// Load-order resolution report. With --schema, also resolves every FormID-typed
 /// field the schema knows about.
-fn loadorder(args: &Args) -> Result<Value, CmdError> {
+fn loadorder(args: &LoadOrderArgs, schema: Option<&Path>) -> anyhow::Result<Value> {
     let plugins = open_load_order(args)?;
     let lo = LoadOrder::new(&plugins)?;
-    let schema = match args.value("schema") {
-        Some(d) => Some(Schema::load_dir(d)?),
-        None => None,
-    };
+    let schema = schema.map(Schema::load_dir).transpose()?;
     let mut per = Vec::new();
     let mut ref_total = 0u64;
     let mut ref_null = 0u64;
@@ -314,10 +288,10 @@ fn loadorder(args: &Args) -> Result<Value, CmdError> {
     Ok(v)
 }
 
-fn survey(args: &Args) -> Result<Value, CmdError> {
+fn survey(args: &LoadOrderArgs, only: Option<&str>) -> anyhow::Result<Value> {
     let plugins = open_load_order(args)?;
     let lo = LoadOrder::new(&plugins)?;
-    let only = args.value("plugin").map(|s| s.to_ascii_lowercase());
+    let only = only.map(|s| s.to_ascii_lowercase());
     let mut s = Survey::default();
     let mut errors = Vec::new();
     for (pi, p) in plugins.iter().enumerate() {

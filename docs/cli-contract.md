@@ -3,7 +3,8 @@
 The parity lab runs `fnvtool` and compares its stdout (one JSON document) with oracle
 goldens of the **same schema**. Any oracle tool (xEdit export script, independent
 reader) must emit these shapes. Exit code 0 = success, 1 = input could not be processed,
-2 = usage error; diagnostics go to stderr.
+2 = usage error (`--help` exits 0); diagnostics go to stderr. `fnvtool --help` and
+`fnvtool <group> <command> --help` describe every option.
 
 Conventions: FormIDs are strings `"0x%08X"` (upper-case hex) and are **file-local**
 (exactly as stored in the plugin, not load-order adjusted). Text is decoded from
