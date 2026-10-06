@@ -5,9 +5,12 @@
 //   2. Start FNVEdit, load FalloutNV.esm and the DLC masters you want to export.
 //   3. In the left tree, select one or more PLUGINS (the top-level file nodes, e.g.
 //      "[00] FalloutNV.esm"), right-click -> Apply Script... -> export_inventory.
-//   4. Enter an output folder OUTSIDE the repository and outside the game folder
-//      (default C:\NVForever-private\goldens\esm). One file per plugin is written as
-//      <PluginWithoutExtension>.xedit.inventory.json, e.g. FalloutNV.xedit.inventory.json.
+//   4. Output goes to OutputDir below (default C:\fnv-private\goldens\esm\), a folder
+//      OUTSIDE the repository and outside the game folder; edit the constant to change it.
+//      One file per plugin is written as <PluginWithoutExtension>.xedit.inventory.json,
+//      e.g. FalloutNV.xedit.inventory.json.
+//   4b. Afterwards run: python tools\capture\xedit\finish_export.py C:\fnv-private\goldens\esm
+//      (converts the files to UTF-8 JSON; the lab cannot read them before that).
 //   5. FalloutNV.esm has 465,016 records: expect several minutes. Progress appears in the
 //      Messages tab.
 //
@@ -32,6 +35,9 @@
 unit userscript;
 
 const
+  // Output folder: PRIVATE, outside the repository and outside the game folder. Must end
+  // with a backslash.
+  OutputDir = 'C:\fnv-private\goldens\esm\';
   // 0 = FixedFormID (default, see note 1), 1 = FormID, 2 = GetLoadOrderFormID (wrong; for
   // diagnostics only).
   FormIDSource = 0;
@@ -45,27 +51,17 @@ var
 
 function JsonEscape(s: string): string;
 var
-  i, c: integer;
   r: string;
 begin
-  r := '';
-  for i := 1 to Length(s) do begin
-    c := Ord(s[i]);
-    if c = 34 then
-      r := r + '\"'
-    else if c = 92 then
-      r := r + '\\'
-    else if c = 10 then
-      r := r + '\n'
-    else if c = 13 then
-      r := r + '\r'
-    else if c = 9 then
-      r := r + '\t'
-    else if (c < 32) or (c > 126) then
-      r := r + '\u' + LowerCase(IntToHex(c, 4))
-    else
-      r := r + s[i];
-  end;
+  // FNVEdit's interpreter cannot take Ord() of s[i] ("Type mismatch" [observed]), so
+  // escape with StringReplace only. Non-ASCII characters are written as they are, in
+  // the file's ANSI encoding; tools/capture/xedit/finish_export.py turns the file into
+  // UTF-8 JSON for the lab (it also accepts other control characters).
+  r := StringReplace(s, '\', '\\', [rfReplaceAll]);
+  r := StringReplace(r, '"', '\"', [rfReplaceAll]);
+  r := StringReplace(r, #13, '\r', [rfReplaceAll]);
+  r := StringReplace(r, #10, '\n', [rfReplaceAll]);
+  r := StringReplace(r, #9, '\t', [rfReplaceAll]);
   Result := '"' + r + '"';
 end;
 
@@ -95,13 +91,42 @@ begin
     Result := FixedFormID(rec);
 end;
 
+// The first FULL subrecord as stored: at the top level, or one level down inside a
+// struct. xEdit nests a REFR map marker's FULL inside "Map Marker", so a top-level
+// lookup reported null for names such as map markers [observed: 762 FalloutNV records
+// differed from both fnvtool and oracle_esm.py].
+function FirstFull(rec: IInterface): IInterface;
+var
+  i: integer;
+  child, found: IInterface;
+begin
+  Result := ElementBySignature(rec, 'FULL');
+  if Assigned(Result) then
+    Exit;
+  for i := 0 to ElementCount(rec) - 1 do begin
+    child := ElementByIndex(rec, i);
+    if ElementCount(child) > 0 then begin
+      found := ElementBySignature(child, 'FULL');
+      if Assigned(found) then begin
+        Result := found;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
 function RecordLine(rec: IInterface; fid: Int64): string;
 var
   edid, full, fv: string;
   flags: Int64;
+  fullEl: IInterface;
 begin
   edid := JsonStrOrNull(ElementExists(rec, 'EDID'), EditorID(rec));
-  full := JsonStrOrNull(ElementExists(rec, 'FULL'), GetElementEditValues(rec, 'FULL'));
+  fullEl := FirstFull(rec);
+  if Assigned(fullEl) then
+    full := JsonEscape(GetEditValue(fullEl))
+  else
+    full := 'null';
   flags := GetElementNativeValues(rec, 'Record Header\Record Flags');
   if ElementExists(rec, 'Record Header\Form Version') then
     fv := IntToStr(GetElementNativeValues(rec, 'Record Header\Form Version'))
@@ -242,18 +267,15 @@ begin
   gPluginNames := TStringList.Create;
   gPluginNames.Sorted := True;
   gPluginNames.Duplicates := dupIgnore;
-  gOutputDir := 'C:\NVForever-private\goldens\esm\';
-  if not InputQuery('fnv.esm.inventory/1 export',
-                    'Output directory (PRIVATE, outside the repository):', gOutputDir) then begin
-    Result := 1;   // cancelled: abort the script
-    Exit;
+  // No folder dialog: InputQuery showed its default garbled and returned an empty string
+  // in FNVEdit [observed]. Edit OutputDir at the top of this file instead.
+  gOutputDir := OutputDir;
+  try
+    ForceDirectories(gOutputDir);
+  except
+    AddMessage('Could not create ' + gOutputDir + ' (create it yourself if it does not exist).');
   end;
-  gOutputDir := IncludeTrailingPathDelimiter(gOutputDir);
-  if not ForceDirectories(gOutputDir) then begin
-    AddMessage('Cannot create output directory ' + gOutputDir);
-    Result := 1;
-    Exit;
-  end;
+  AddMessage('Writing to ' + gOutputDir);
   Result := 0;
 end;
 
@@ -276,7 +298,11 @@ begin
       ExportPlugin(f);
   end;
   if gPluginNames.Count = 0 then
-    AddMessage('Nothing selected: select one or more plugins in the left pane, then apply the script.');
+    AddMessage('Nothing selected: select one or more plugins in the left pane, then apply the script.')
+  else
+    // No trailing backslash: in "C:\dir\" the \" would reach Python as a literal quote.
+    AddMessage('Done. Now run: python tools\capture\xedit\finish_export.py "'
+      + Copy(gOutputDir, 1, Length(gOutputDir) - 1) + '"');
   gPluginNames.Free;
   Result := 0;
 end;

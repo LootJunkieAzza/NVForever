@@ -38,8 +38,9 @@ All integers little-endian.
 4. **File-name block** (if archive flag 0x2): every file name (no directory), each
    NUL-terminated, in the same order as the file records [observed].
 5. **File data**, immediately after the name block, in record order with no gaps
-   [observed: rebuilding with this rule reproduces 14 of 15 archives byte-for-byte; the
-   15th is a third-party file, see Anomalies].
+   [observed: true for 18 of the 21 archives in the owner's install; the exceptions are
+   listed under Anomalies]. The writer packs blocks in record order; `rewrite` keeps an
+   archive's own block order and name-block tail so the exceptions still rebuild.
 
 ## Archive flags
 
@@ -86,11 +87,24 @@ describes the algorithm; verified on every file and folder name in the corpus, o
   archives']. It parses, the reader reports `noncanonical_folder_name`,
   `data_not_contiguous` and `trailing_bytes`, and it cannot be rebuilt byte-identically.
 
+- `Fallout - Textures.bsa` (shipped, 1,196,767,196 bytes, 11,470 files): the data blocks
+  are contiguous and fill the file exactly, but are **not stored in record order** (the
+  first record's block is at 324,286,810) [observed: `fnvtool bsa verify` on the owner's
+  install, 2026-10-06]. The order actually used is unknown [hypothesis: the packing
+  tool's input order]. The reader reports `data_not_in_record_order`.
+- `Fallout - Voices1.bsa` (shipped, 1,602,331,889 bytes, 105,517 files): the file-name
+  block is **105 bytes longer** than the names it holds; `total_file_name_length` and
+  every folder offset count those bytes, and the data starts after them [observed: same
+  run; the rebuilt header differed at offset 28 and the rebuild was 105 bytes short].
+  Their content is not yet known (the reader's `name_block_slack` warning says whether
+  they are all NUL).
+
 ## Unknowns (need the user's help)
 
 - Archives over 400 MB (`Fallout - Meshes/Textures/Textures2/Sound/Voices1`,
-  `LonesomeRoad - Main`, `OldWorldBlues - Main`) could not be transferred; their listing
-  must be validated on the user's machine (run `fnvtool bsa verify` locally).
+  `LonesomeRoad - Main`, `OldWorldBlues - Main`) could not be transferred. Their listings
+  were validated on the owner's machine on 2026-10-06 (all match `oracle_bsa.py`); see
+  Anomalies for the two that did not rebuild with the canonical rule.
 - How the game resolves the same path present in several archives. `Fallout_default.ini`
   `[Archive]` has `SArchiveList=Fallout - Textures.bsa, Fallout - Textures2.bsa, Fallout -
   Meshes.bsa, Fallout - Voices1.bsa, Fallout - Sound.bsa, Fallout - Misc.bsa`,

@@ -1,0 +1,33 @@
+# cargo-deny policy (docs/design/dependencies.md, "Licence check"). Run: cargo deny check
+
+[licenses]
+# Permissive licences, compatible with the GPL-3.0-or-later placeholder and with a
+# permissive project licence if the owner chooses one.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "0BSD",
+    "Zlib",
+    "Unlicense",
+    "Unicode-3.0",
+    # option-ext (via directories): file-level copyleft; fine for an unmodified
+    # dependency under either project licence.
+    "MPL-2.0",
+    # NVForever's own crates.
+    "GPL-3.0-or-later",
+]
+confidence-threshold = 0.9
+
+[advisories]
+# RustSec vulnerabilities, unsoundness and yanked crates fail the check.
+yanked = "deny"
+
+[bans]
+multiple-versions = "warn"
+# Workspace path dependencies carry no version.
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

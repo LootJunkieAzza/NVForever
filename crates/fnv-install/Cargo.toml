@@ -6,4 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-fnv-json = { path = "../fnv-json" }
+serde_json.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+directories = "6"

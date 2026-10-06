@@ -4,9 +4,9 @@
 //! structure losslessly and can write it back byte-for-byte; see
 //! `docs/spec-notes/esm.md` for the format description and confidence tags.
 
+use bytes::Bytes;
 use fnv_util::{tag_str, Cursor};
 use std::borrow::Cow;
-use std::fmt;
 
 pub const RECORD_HEADER_SIZE: usize = 24;
 pub const GROUP_HEADER_SIZE: usize = 24;
@@ -22,26 +22,16 @@ pub mod record_flags {
     pub const COMPRESSED: u32 = 0x0004_0000;
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum EsmError {
+    /// The message embeds the io::Error, so it is not declared as #[source].
+    #[error("I/O error: {0}")]
     Io(std::io::Error),
+    #[error("structure error at 0x{offset:x}: {msg}")]
     Structure { offset: u64, msg: String },
+    #[error("cannot decompress record {form_id:08X} at 0x{offset:x}: {msg}")]
     Decompress { offset: u64, form_id: u32, msg: String },
 }
-
-impl fmt::Display for EsmError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EsmError::Io(e) => write!(f, "I/O error: {e}"),
-            EsmError::Structure { offset, msg } => write!(f, "structure error at 0x{offset:x}: {msg}"),
-            EsmError::Decompress { offset, form_id, msg } => {
-                write!(f, "cannot decompress record {form_id:08X} at 0x{offset:x}: {msg}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for EsmError {}
 
 impl From<std::io::Error> for EsmError {
     fn from(e: std::io::Error) -> Self {
@@ -126,8 +116,9 @@ pub mod group_type {
 #[derive(Debug, Clone)]
 pub struct Record {
     pub header: RecordHeader,
-    /// Payload exactly as stored on disk (still compressed if flagged).
-    pub raw: Vec<u8>,
+    /// Payload exactly as stored on disk (still compressed if flagged). A zero-copy
+    /// slice of the plugin's buffer when parsed from a file.
+    pub raw: Bytes,
     /// File offset of the record header (diagnostics only).
     pub offset: u64,
 }
@@ -170,8 +161,20 @@ impl Record {
 
     /// Uncompressed subrecord bytes. Tolerates zlib trailer anomalies (see
     /// [`Record::payload_checked`] to observe them).
+    /// Callers that need the trailer status use [`Record::payload_checked`]; here an
+    /// accepted anomaly is only logged.
     pub fn payload(&self) -> Result<Cow<'_, [u8]>, EsmError> {
-        self.payload_checked().map(|(p, _)| p)
+        let (p, trailer) = self.payload_checked()?;
+        if trailer != fnv_inflate::Trailer::Verified {
+            tracing::debug!(
+                record = %self.sig_str(),
+                form_id = format_args!("{:08X}", self.header.form_id),
+                offset = self.offset,
+                ?trailer,
+                "accepted zlib trailer anomaly"
+            );
+        }
+        Ok(p)
     }
 
     /// Uncompressed payload plus the zlib trailer status (`Verified` for
@@ -260,7 +263,8 @@ fn structure(offset: usize, msg: impl Into<String>) -> EsmError {
 }
 
 /// Parse a sequence of nodes occupying `data[start..end]`.
-pub fn parse_nodes(data: &[u8], start: usize, end: usize, depth: usize) -> Result<Vec<Node>, EsmError> {
+/// Parse `data[start..end]`. Record payloads are slices sharing `data`'s buffer.
+pub fn parse_nodes(data: &Bytes, start: usize, end: usize, depth: usize) -> Result<Vec<Node>, EsmError> {
     if depth > 16 {
         return Err(structure(start, "groups nested deeper than 16 levels"));
     }
@@ -306,7 +310,7 @@ pub fn parse_nodes(data: &[u8], start: usize, end: usize, depth: usize) -> Resul
                 .ok_or_else(|| {
                     structure(pos, format!("record {} data size {} overruns its container", tag_str(&sig), h.data_size))
                 })?;
-            out.push(Node::Record(Record { header: h, raw: data[dstart..dend].to_vec(), offset: pos as u64 }));
+            out.push(Node::Record(Record { header: h, raw: data.slice(dstart..dend), offset: pos as u64 }));
             pos = dend;
         }
     }
@@ -427,6 +431,7 @@ mod tests {
         grp.extend_from_slice(&inner);
         let mut file = rec(b"TES4", 0, &write_subrecords(&[sub(b"HEDR", &[0; 12])]));
         file.extend_from_slice(&grp);
+        let file = Bytes::from(file);
         let nodes = parse_nodes(&file, 0, file.len(), 0).unwrap();
         let mut out = Vec::new();
         write_nodes(&nodes, &mut out);
@@ -435,10 +440,10 @@ mod tests {
         visit_records(&nodes, &mut |_r, _s| n += 1);
         assert_eq!(n, 2);
         // Corrupt the group size: must be a structured error, not a panic.
-        let mut bad = file.clone();
+        let mut bad = file.to_vec();
         let gpos = file.len() - grp.len();
         bad[gpos + 4..gpos + 8].copy_from_slice(&9999u32.to_le_bytes());
-        assert!(parse_nodes(&bad, 0, bad.len(), 0).is_err());
-        assert!(parse_nodes(&file[..file.len() - 3], 0, file.len() - 3, 0).is_err());
+        assert!(parse_nodes(&Bytes::from(bad), 0, file.len(), 0).is_err());
+        assert!(parse_nodes(&file.slice(..file.len() - 3), 0, file.len() - 3, 0).is_err());
     }
 }
