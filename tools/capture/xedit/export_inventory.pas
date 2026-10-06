@@ -5,9 +5,12 @@
 //   2. Start FNVEdit, load FalloutNV.esm and the DLC masters you want to export.
 //   3. In the left tree, select one or more PLUGINS (the top-level file nodes, e.g.
 //      "[00] FalloutNV.esm"), right-click -> Apply Script... -> export_inventory.
-//   4. Enter an output folder OUTSIDE the repository and outside the game folder
-//      (default C:\fnv-private\goldens\esm). One file per plugin is written as
-//      <PluginWithoutExtension>.xedit.inventory.json, e.g. FalloutNV.xedit.inventory.json.
+//   4. Output goes to OutputDir below (default C:\fnv-private\goldens\esm\), a folder
+//      OUTSIDE the repository and outside the game folder; edit the constant to change it.
+//      One file per plugin is written as <PluginWithoutExtension>.xedit.inventory.json,
+//      e.g. FalloutNV.xedit.inventory.json.
+//   4b. Afterwards run: python tools\capture\xedit\finish_export.py C:\fnv-private\goldens\esm
+//      (converts the files to UTF-8 JSON; the lab cannot read them before that).
 //   5. FalloutNV.esm has 465,016 records: expect several minutes. Progress appears in the
 //      Messages tab.
 //
@@ -32,6 +35,9 @@
 unit userscript;
 
 const
+  // Output folder: PRIVATE, outside the repository and outside the game folder. Must end
+  // with a backslash.
+  OutputDir = 'C:\fnv-private\goldens\esm\';
   // 0 = FixedFormID (default, see note 1), 1 = FormID, 2 = GetLoadOrderFormID (wrong; for
   // diagnostics only).
   FormIDSource = 0;
@@ -45,27 +51,17 @@ var
 
 function JsonEscape(s: string): string;
 var
-  i, c: integer;
   r: string;
 begin
-  r := '';
-  for i := 1 to Length(s) do begin
-    c := Ord(s[i]);
-    if c = 34 then
-      r := r + '\"'
-    else if c = 92 then
-      r := r + '\\'
-    else if c = 10 then
-      r := r + '\n'
-    else if c = 13 then
-      r := r + '\r'
-    else if c = 9 then
-      r := r + '\t'
-    else if (c < 32) or (c > 126) then
-      r := r + '\u' + LowerCase(IntToHex(c, 4))
-    else
-      r := r + s[i];
-  end;
+  // FNVEdit's interpreter cannot take Ord() of s[i] ("Type mismatch" [observed]), so
+  // escape with StringReplace only. Non-ASCII characters are written as they are, in
+  // the file's ANSI encoding; tools/capture/xedit/finish_export.py turns the file into
+  // UTF-8 JSON for the lab (it also accepts other control characters).
+  r := StringReplace(s, '\', '\\', [rfReplaceAll]);
+  r := StringReplace(r, '"', '\"', [rfReplaceAll]);
+  r := StringReplace(r, #13, '\r', [rfReplaceAll]);
+  r := StringReplace(r, #10, '\n', [rfReplaceAll]);
+  r := StringReplace(r, #9, '\t', [rfReplaceAll]);
   Result := '"' + r + '"';
 end;
 
@@ -238,27 +234,13 @@ begin
 end;
 
 function Initialize: integer;
-var
-  dir: string;
 begin
   gPluginNames := TStringList.Create;
   gPluginNames.Sorted := True;
   gPluginNames.Duplicates := dupIgnore;
-  // Passing the global gOutputDir to InputQuery showed the default as garbled
-  // CJK-looking text in FNVEdit [observed]. A local variable is the usual pattern in
-  // xEdit scripts [hypothesis: avoids the garbling; unconfirmed].
-  dir := 'C:\fnv-private\goldens\esm\';
-  if not InputQuery('fnv.esm.inventory/1 export',
-                    'Output directory (PRIVATE, outside the repository):', dir) then begin
-    Result := 1;   // cancelled: abort the script
-    Exit;
-  end;
-  // FNVEdit's interpreter has no IncludeTrailingPathDelimiter [observed]; append by hand.
-  if (Length(dir) > 0) and (Copy(dir, Length(dir), 1) <> '\') then
-    dir := dir + '\';
-  gOutputDir := dir;
-  // ForceDirectories may also be missing from the interpreter; if it fails, carry on and
-  // let SaveToFile report a missing folder.
+  // No folder dialog: InputQuery showed its default garbled and returned an empty string
+  // in FNVEdit [observed]. Edit OutputDir at the top of this file instead.
+  gOutputDir := OutputDir;
   try
     ForceDirectories(gOutputDir);
   except
@@ -287,7 +269,9 @@ begin
       ExportPlugin(f);
   end;
   if gPluginNames.Count = 0 then
-    AddMessage('Nothing selected: select one or more plugins in the left pane, then apply the script.');
+    AddMessage('Nothing selected: select one or more plugins in the left pane, then apply the script.')
+  else
+    AddMessage('Done. Now run: python tools\capture\xedit\finish_export.py "' + gOutputDir + '"');
   gPluginNames.Free;
   Result := 0;
 end;
