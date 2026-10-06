@@ -1,0 +1,9 @@
+[package]
+name = "fnv-install"
+description = "Separation between the original game install (read-only) and NVForever's own home directory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-json = { path = "../fnv-json" }

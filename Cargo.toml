@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["crates/fnv-util", "crates/fnv-install", "crates/fnv-inflate", "crates/fnv-json", "crates/fnv-bsa", "crates/fnv-esm", "crates/fnvtool"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/LootJunkieAzza/NVForever"
+
+[profile.release]
+debug = 1

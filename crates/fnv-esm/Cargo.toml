@@ -1,0 +1,11 @@
+[package]
+name = "fnv-esm"
+description = "TES4-family plugin (ESM/ESP) parser with schema-as-data decoding"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-util = { path = "../fnv-util" }
+fnv-inflate = { path = "../fnv-inflate" }
+fnv-json = { path = "../fnv-json" }

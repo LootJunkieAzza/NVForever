@@ -1,0 +1,8 @@
+[package]
+name = "fnv-util"
+description = "Small shared helpers: Windows-1252 text, SHA-256, byte cursor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
