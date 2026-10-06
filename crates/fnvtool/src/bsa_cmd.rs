@@ -75,6 +75,12 @@ fn list(path: &Path, content_hash: bool) -> anyhow::Result<Value> {
     let mut rows = Vec::with_capacity(entries.len());
     let mut errors = Vec::new();
     let mut extra_warnings = Vec::new();
+    let mut decoded = if content_hash {
+        let recs: Vec<fnv_bsa::FileRecord> = entries.iter().map(|e| e.1.clone()).collect();
+        a.decode_files(&recs, |d| (d.len(), sha256::hex(d))).into_iter()
+    } else {
+        Vec::new().into_iter()
+    };
     for (p, r, fh) in entries {
         let mut row = json!({
             "path": p,
@@ -84,10 +90,10 @@ fn list(path: &Path, content_hash: bool) -> anyhow::Result<Value> {
             "compressed": a.is_compressed(&r),
         });
         if content_hash {
-            let (size, hash) = match a.extract_checked(&r) {
-                Ok((d, t)) => {
+            let (size, hash) = match decoded.next().expect("one result per entry") {
+                Ok(((len, hash), t)) => {
                     extra_warnings.extend(trailer_warning(&p, t));
-                    (json!(d.len()), json!(sha256::hex(&d)))
+                    (json!(len), json!(hash))
                 }
                 Err(e) => {
                     errors.push(format!("{p}: {e}"));
@@ -121,8 +127,9 @@ fn verify(path: &Path) -> anyhow::Result<Value> {
     let recs: Vec<(String, fnv_bsa::FileRecord)> = a.entries().map(|e| (e.path(), e.record.clone())).collect();
     let mut decode_errors = Vec::new();
     let mut extra_warnings = Vec::new();
-    for (p, r) in &recs {
-        match a.extract_checked(r) {
+    let file_recs: Vec<fnv_bsa::FileRecord> = recs.iter().map(|(_, r)| r.clone()).collect();
+    for ((p, _), res) in recs.iter().zip(a.decode_files(&file_recs, |_| ())) {
+        match res {
             Ok((_, t)) => extra_warnings.extend(trailer_warning(p, t)),
             Err(e) => decode_errors.push(e.to_string()),
         }

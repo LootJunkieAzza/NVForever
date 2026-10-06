@@ -1,5 +1,6 @@
 use crate::{EsmCmd, LoadOrderArgs};
 use anyhow::{bail, Context};
+use rayon::prelude::*;
 use fnv_esm::decode::{decode_record, formid_str, Coverage};
 use fnv_esm::inventory::{header_json, inventory_json, stats_json};
 use fnv_esm::raw::{visit_records, write_subrecords};
@@ -19,7 +20,9 @@ pub fn run(cmd: EsmCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(schema)?;
             let p = Plugin::open(plugin)?;
             let mut cov = Coverage::default();
-            visit_records(&p.nodes[1..], &mut |r, _| cov.add_record(r, &schema, None));
+            let mut recs = Vec::new();
+            visit_records(&p.nodes[1..], &mut |r, _| recs.push(r));
+            cov.add_records_par(&recs, &schema);
             let mut v = cov.to_json(max_rows);
             v["schema"] = json!("fnv.esm.coverage/1");
             v["plugin"] = json!(p.name);
@@ -62,54 +65,37 @@ fn verify(path: &Path) -> anyhow::Result<Value> {
     let out = p.to_bytes();
     let identical = out == data;
     let first_diff = if identical { None } else { out.iter().zip(&data).position(|(a, b)| a != b) };
-    let mut records = 0u64;
+    let mut recs = Vec::new();
+    visit_records(&p.nodes, &mut |r, _| recs.push(r));
+    // Decompress and re-serialize records in parallel; aggregate in file order.
+    let checks: Vec<RecordCheck> = recs.par_iter().map(|r| check_record(r)).collect();
     let mut compressed = 0u64;
     let mut decompress_errors = Vec::new();
     let mut subrecord_errors = Vec::new();
     let mut payload_mismatch = Vec::new();
     let mut xxxx = 0u64;
     let mut trailer_anomalies = Vec::new();
-    visit_records(&p.nodes, &mut |r, _| {
-        records += 1;
+    for (r, c) in recs.iter().zip(checks) {
         if r.is_compressed() {
             compressed += 1;
         }
-        let payload = match r.payload_checked() {
-            Ok((pl, t)) => {
-                if t != fnv_inflate::Trailer::Verified {
-                    trailer_anomalies.push(Value::from(format!(
-                        "{} {} at 0x{:x}: {:?}",
-                        r.sig_str(),
-                        formid_str(r.header.form_id),
-                        r.offset,
-                        t
-                    )));
-                }
-                pl
-            }
-            Err(e) => {
-                decompress_errors.push(Value::from(e.to_string()));
-                return;
-            }
-        };
-        match fnv_esm::raw::parse_subrecords(&payload) {
-            Ok(subs) => {
-                xxxx += subs.iter().filter(|s| s.extended).count() as u64;
-                if write_subrecords(&subs) != payload.as_ref() && payload_mismatch.len() < 50 {
-                    payload_mismatch.push(Value::from(format!("{} {}", r.sig_str(), formid_str(r.header.form_id))));
+        trailer_anomalies.extend(c.trailer_anomaly);
+        match c.subrecords {
+            Err(e) => decompress_errors.push(e),
+            Ok(Ok((extended, mismatch))) => {
+                xxxx += extended;
+                if mismatch && payload_mismatch.len() < 50 {
+                    payload_mismatch.push(format!("{} {}", r.sig_str(), formid_str(r.header.form_id)));
                 }
             }
-            Err((pos, m)) => {
+            Ok(Err(e)) => {
                 if subrecord_errors.len() < 50 {
-                    subrecord_errors.push(Value::from(format!(
-                        "{} {} at +{pos}: {m}",
-                        r.sig_str(),
-                        formid_str(r.header.form_id)
-                    )));
+                    subrecord_errors.push(e);
                 }
             }
         }
-    });
+    }
+    let records = recs.len();
     Ok(json!({
         "schema": "fnv.esm.verify/1",
         "plugin": p.name,
@@ -123,6 +109,28 @@ fn verify(path: &Path) -> anyhow::Result<Value> {
         "subrecord_errors": subrecord_errors,
         "payload_roundtrip_mismatches": payload_mismatch,
     }))
+}
+
+struct RecordCheck {
+    trailer_anomaly: Option<String>,
+    /// Err: payload cannot be decompressed. Ok(Err): subrecords do not parse.
+    /// Ok(Ok((extended-size subrecords, re-serialization differs))).
+    subrecords: Result<Result<(u64, bool), String>, String>,
+}
+
+fn check_record(r: &fnv_esm::Record) -> RecordCheck {
+    let (payload, trailer) = match r.payload_checked() {
+        Ok(x) => x,
+        Err(e) => return RecordCheck { trailer_anomaly: None, subrecords: Err(e.to_string()) },
+    };
+    let trailer_anomaly = (trailer != fnv_inflate::Trailer::Verified).then(|| {
+        format!("{} {} at 0x{:x}: {:?}", r.sig_str(), formid_str(r.header.form_id), r.offset, trailer)
+    });
+    let subrecords = match fnv_esm::raw::parse_subrecords(&payload) {
+        Ok(subs) => Ok((subs.iter().filter(|s| s.extended).count() as u64, write_subrecords(&subs) != payload.as_ref())),
+        Err((pos, m)) => Err(format!("{} {} at +{pos}: {m}", r.sig_str(), formid_str(r.header.form_id))),
+    };
+    RecordCheck { trailer_anomaly, subrecords: Ok(subrecords) }
 }
 
 fn open_load_order(args: &LoadOrderArgs) -> anyhow::Result<Vec<Plugin>> {
@@ -199,13 +207,16 @@ fn loadorder(args: &LoadOrderArgs, schema: Option<&Path>) -> anyhow::Result<Valu
         });
         let temp_in_onam = temp_overrides.intersection(&onam).count();
         if let Some(schema) = &schema {
-            for r in recs {
-                let mut fids: Vec<u32> = Vec::new();
-                let mut cov = Coverage::default();
-                {
-                    let mut sink = |v: u32| fids.push(v);
-                    cov.add_record(r, schema, Some(&mut sink));
-                }
+            // Decode in parallel; resolve in record order (examples keep the first ones).
+            let all_fids: Vec<Vec<u32>> = recs
+                .par_iter()
+                .map(|r| {
+                    let mut fids = Vec::new();
+                    Coverage::measure(r, schema, Some(&mut |v: u32| fids.push(v)));
+                    fids
+                })
+                .collect();
+            for (r, fids) in recs.iter().zip(all_fids) {
                 for v in fids {
                     ref_total += 1;
                     if v == 0 {
