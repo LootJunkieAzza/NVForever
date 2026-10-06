@@ -104,8 +104,8 @@ Step by step:
 4. In the left pane, select the plugin(s) to export (Ctrl+click for several).
 5. Right-click → **Apply Script...**, choose `export_inventory`, click OK.
 6. Enter the output directory when asked — a **private** folder outside the repo and
-   outside the game folder; the default is `C:\NVForever-private\goldens\esm\`, which is
-   exactly where the lab expects them (files are named `FalloutNV.xedit.inventory.json`
+   outside the game folder; the default is `C:\fnv-private\goldens\esm\`, the `esm\` folder
+   of the recommended goldens directory, which is exactly where the lab expects them (files are named `FalloutNV.xedit.inventory.json`
    etc.). Exporting FalloutNV.esm takes several minutes; progress
    is printed every 50,000 records.
 7. Read the Messages tab. For each plugin it prints the FormID check line
@@ -120,6 +120,8 @@ Step by step:
 If FNVEdit reports `'unit' expected but ',' found`, you have the first version of the
 script, whose header comment contained JSON braces (a `}` ends a Pascal brace comment
 early). The current script uses only `//` comments.
+If it reports `Undeclared Identifier 'IncludeTrailingPathDelimiter'`, or the default folder
+shows as garbled (CJK-looking) text, you have the second version; update the script.
 
 What to check on first use:
 
