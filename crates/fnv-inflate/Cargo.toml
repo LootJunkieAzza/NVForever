@@ -1,0 +1,8 @@
+[package]
+name = "fnv-inflate"
+description = "Dependency-free zlib/DEFLATE decoder and stored-block encoder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

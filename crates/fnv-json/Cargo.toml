@@ -1,0 +1,9 @@
+[package]
+name = "fnv-json"
+description = "Minimal order-preserving JSON value, parser and writer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+

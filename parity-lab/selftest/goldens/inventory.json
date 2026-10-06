@@ -1,0 +1,6 @@
+{"plugin": "Synthetic.esm", "records": [
+  {"formid": "0x00000001", "type": "WEAP", "edid": "Varmint", "flags": 0},
+  {"formid": "0x00000002", "type": "NPC_", "edid": "DocMitchell", "flags": 0},
+  {"formid": "0x00000003", "type": "QUST", "edid": "VMS01", "flags": 0},
+  {"formid": "0x00000004", "type": "CELL", "edid": "Goodsprings", "flags": 1024}
+]}

@@ -1,0 +1,7 @@
+{"events": [
+  {"t": 0, "event": "SetStage", "quest": "VMS01", "stage": 10},
+  {"t": 1, "event": "SetStage", "quest": "VMS01", "stage": 20},
+  {"t": 2, "event": "AddItem", "item": "Varmint", "count": 1},
+  {"t": 3, "event": "SetStage", "quest": "VMS01", "stage": 30},
+  {"t": 4, "event": "SetStage", "quest": "VMS01", "stage": 40}
+]}

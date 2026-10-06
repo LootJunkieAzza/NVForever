@@ -1,0 +1,865 @@
+//! Reader and writer for Bethesda archives (BSA) as shipped with Fallout 3 and
+//! Fallout: New Vegas (archive version 104).
+//!
+//! Format knowledge: see `docs/spec-notes/bsa.md` (clean-room description with
+//! confidence tags). Every structural claim used here was checked against the
+//! user's own archives: name hashes for 15,072 files and all folders matched, and
+//! the writer reproduces every staged archive byte-for-byte.
+//!
+//! Tolerance rules (spec section 7): unknown flag bits are preserved and reported,
+//! never silently dropped. Anything inconsistent becomes a `Warning`, not a panic.
+
+use fnv_util::{cp1252, Cursor};
+use std::fmt;
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::path::Path;
+
+pub const MAGIC: [u8; 4] = *b"BSA\0";
+pub const HEADER_SIZE: u32 = 36;
+
+/// Archive flag bits. Names follow public community documentation; meanings marked
+/// "unconfirmed" have not been verified against FNV behaviour.
+pub mod flags {
+    pub const DIR_NAMES: u32 = 0x1;
+    pub const FILE_NAMES: u32 = 0x2;
+    pub const COMPRESSED_DEFAULT: u32 = 0x4;
+    pub const RETAIN_DIR_NAMES: u32 = 0x8; // unconfirmed effect
+    pub const RETAIN_FILE_NAMES: u32 = 0x10; // unconfirmed effect
+    pub const RETAIN_FILE_NAME_OFFSETS: u32 = 0x20; // unconfirmed effect
+    pub const XBOX360: u32 = 0x40; // big-endian hashes/numbers on Xbox 360; not supported
+    pub const UNKNOWN_0X80: u32 = 0x80; // set on NIF/texture archives; no layout effect observed
+    pub const EMBED_FILE_NAMES: u32 = 0x100; // data blocks prefixed by a bstring path (not seen in FNV)
+    pub const KNOWN: u32 = 0x1FF;
+}
+
+/// Size field bit 30: inverts the archive's default compression for this file.
+pub const SIZE_COMPRESSION_TOGGLE: u32 = 0x4000_0000;
+/// Size field bit 31: meaning undocumented; preserved.
+pub const SIZE_UNKNOWN_BIT31: u32 = 0x8000_0000;
+pub const SIZE_MASK: u32 = 0x3FFF_FFFF;
+
+#[derive(Debug)]
+pub enum BsaError {
+    Io(io::Error),
+    NotBsa,
+    UnsupportedVersion(u32),
+    BigEndian,
+    Truncated(String),
+    Decompress { path: String, err: fnv_inflate::InflateError },
+    Layout(String),
+}
+
+impl fmt::Display for BsaError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BsaError::Io(e) => write!(f, "I/O error: {e}"),
+            BsaError::NotBsa => write!(f, "not a BSA archive (bad magic)"),
+            BsaError::UnsupportedVersion(v) => write!(f, "unsupported BSA version {v} (expected 104)"),
+            BsaError::BigEndian => write!(f, "Xbox 360 (big-endian) archives are not supported"),
+            BsaError::Truncated(w) => write!(f, "archive truncated: {w}"),
+            BsaError::Decompress { path, err } => write!(f, "cannot decompress {path}: {err}"),
+            BsaError::Layout(w) => write!(f, "layout error: {w}"),
+        }
+    }
+}
+
+impl std::error::Error for BsaError {}
+
+impl From<io::Error> for BsaError {
+    fn from(e: io::Error) -> Self {
+        BsaError::Io(e)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Header {
+    pub version: u32,
+    pub folder_records_offset: u32,
+    pub archive_flags: u32,
+    pub folder_count: u32,
+    pub file_count: u32,
+    pub total_folder_name_length: u32,
+    pub total_file_name_length: u32,
+    /// Content-type bits (meshes/textures/menus/sounds/voices/shaders/...), low 16 bits.
+    pub file_flags: u16,
+    /// High 16 bits of the file-flags dword. Not zero in every shipped archive; preserved.
+    pub file_flags_padding: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileRecord {
+    pub hash: u64,
+    /// Raw size field including flag bits.
+    pub size_field: u32,
+    /// Absolute offset of the file's data from the start of the archive.
+    pub offset: u32,
+    /// Raw (Windows-1252) file name without directory, from the file name block.
+    pub name: Vec<u8>,
+}
+
+impl FileRecord {
+    pub fn stored_size(&self) -> u32 {
+        self.size_field & SIZE_MASK
+    }
+    pub fn toggles_compression(&self) -> bool {
+        self.size_field & SIZE_COMPRESSION_TOGGLE != 0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderRecord {
+    pub hash: u64,
+    pub count: u32,
+    /// Raw offset field: position of this folder's file-record block plus
+    /// `total_file_name_length` (observed).
+    pub offset: u32,
+    /// Raw folder path bytes (Windows-1252, backslash separated), without the NUL.
+    pub name: Vec<u8>,
+    pub files: Vec<FileRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Warning {
+    pub code: &'static str,
+    pub detail: String,
+}
+
+/// Parsed directory of an archive. File data is read on demand.
+pub struct Archive {
+    pub header: Header,
+    pub folders: Vec<FolderRecord>,
+    pub warnings: Vec<Warning>,
+    file: File,
+    file_len: u64,
+}
+
+/// A flattened view of one file in the archive.
+#[derive(Debug, Clone)]
+pub struct Entry<'a> {
+    pub folder: &'a FolderRecord,
+    pub record: &'a FileRecord,
+    pub folder_index: usize,
+    pub file_index: usize,
+}
+
+impl<'a> Entry<'a> {
+    /// Full path as stored (`folder\name`), decoded from Windows-1252.
+    pub fn path(&self) -> String {
+        if self.folder.name.is_empty() {
+            cp1252::decode(&self.record.name)
+        } else {
+            format!("{}\\{}", cp1252::decode(&self.folder.name), cp1252::decode(&self.record.name))
+        }
+    }
+}
+
+/// Compute the archive name hash of a folder path or a file name.
+///
+/// Input is lower-cased (ASCII) and `/` becomes `\`. For files, the extension
+/// (from the last '.') is hashed separately and four known extensions set marker
+/// bits in the low dword. Verified against every name in the user's archives.
+pub fn name_hash(name: &[u8], is_file: bool) -> u64 {
+    let lowered: Vec<u8> = name
+        .iter()
+        .map(|&b| if b == b'/' { b'\\' } else { b.to_ascii_lowercase() })
+        .collect();
+    let (stem, ext): (&[u8], &[u8]) = if is_file {
+        match lowered.iter().rposition(|&b| b == b'.') {
+            Some(i) => (&lowered[..i], &lowered[i..]),
+            None => (&lowered[..], &[][..]),
+        }
+    } else {
+        (&lowered[..], &[][..])
+    };
+    let n = stem.len();
+    let mut lo: u32 = 0;
+    if n > 0 {
+        lo = stem[n - 1] as u32
+            | if n > 2 { (stem[n - 2] as u32) << 8 } else { 0 }
+            | (n as u32) << 16
+            | (stem[0] as u32) << 24;
+    }
+    match ext {
+        b".kf" => lo |= 0x80,
+        b".nif" => lo |= 0x8000,
+        b".dds" => lo |= 0x8080,
+        b".wav" => lo |= 0x8000_0000,
+        _ => {}
+    }
+    let mut h2: u32 = 0;
+    if n > 2 {
+        for &c in &stem[1..n - 2] {
+            h2 = h2.wrapping_mul(0x1003F).wrapping_add(c as u32);
+        }
+    }
+    let mut h3: u32 = 0;
+    for &c in ext {
+        h3 = h3.wrapping_mul(0x1003F).wrapping_add(c as u32);
+    }
+    ((h2.wrapping_add(h3) as u64) << 32) | lo as u64
+}
+
+fn read_bstring_z(c: &mut Cursor) -> Result<Vec<u8>, BsaError> {
+    let len = c.u8().map_err(|e| BsaError::Truncated(e.to_string()))? as usize;
+    let b = c.bytes(len).map_err(|e| BsaError::Truncated(e.to_string()))?;
+    // Length includes the terminating NUL.
+    Ok(b.strip_suffix(&[0]).unwrap_or(b).to_vec())
+}
+
+impl Archive {
+    pub fn open(path: impl AsRef<Path>) -> Result<Archive, BsaError> {
+        let mut file = File::open(path.as_ref())?;
+        let file_len = file.metadata()?.len();
+        let mut hb = [0u8; 36];
+        file.read_exact(&mut hb).map_err(|_| BsaError::NotBsa)?;
+        let mut c = Cursor::new(&hb);
+        let magic = c.tag().unwrap();
+        if magic != MAGIC {
+            return Err(BsaError::NotBsa);
+        }
+        let header = Header {
+            version: c.u32().unwrap(),
+            folder_records_offset: c.u32().unwrap(),
+            archive_flags: c.u32().unwrap(),
+            folder_count: c.u32().unwrap(),
+            file_count: c.u32().unwrap(),
+            total_folder_name_length: c.u32().unwrap(),
+            total_file_name_length: c.u32().unwrap(),
+            file_flags: c.u16().unwrap(),
+            file_flags_padding: c.u16().unwrap(),
+        };
+        if header.version != 104 {
+            return Err(BsaError::UnsupportedVersion(header.version));
+        }
+        if header.archive_flags & flags::XBOX360 != 0 {
+            return Err(BsaError::BigEndian);
+        }
+        let mut warnings = Vec::new();
+        if header.archive_flags & !flags::KNOWN != 0 {
+            warnings.push(Warning {
+                code: "unknown_archive_flags",
+                detail: format!("0x{:x}", header.archive_flags & !flags::KNOWN),
+            });
+        }
+        if header.folder_records_offset != HEADER_SIZE {
+            warnings.push(Warning {
+                code: "unusual_header_offset",
+                detail: header.folder_records_offset.to_string(),
+            });
+        }
+        // Directory size: folder records + file record blocks (with names) + file name block.
+        let has_dir_names = header.archive_flags & flags::DIR_NAMES != 0;
+        let has_file_names = header.archive_flags & flags::FILE_NAMES != 0;
+        let dir_len = header.folder_count as u64 * 16
+            + if has_dir_names { header.total_folder_name_length as u64 + header.folder_count as u64 } else { 0 }
+            + header.file_count as u64 * 16
+            + if has_file_names { header.total_file_name_length as u64 } else { 0 };
+        let start = header.folder_records_offset as u64;
+        if start + dir_len > file_len {
+            return Err(BsaError::Truncated(format!(
+                "directory needs {dir_len} bytes at {start}, file is {file_len}"
+            )));
+        }
+        let mut dir = vec![0u8; dir_len as usize];
+        file.seek(SeekFrom::Start(start))?;
+        file.read_exact(&mut dir)?;
+        let mut c = Cursor::new(&dir);
+        let mut folders = Vec::with_capacity(header.folder_count as usize);
+        for _ in 0..header.folder_count {
+            let hash = c.u64().map_err(|e| BsaError::Truncated(e.to_string()))?;
+            let count = c.u32().map_err(|e| BsaError::Truncated(e.to_string()))?;
+            let offset = c.u32().map_err(|e| BsaError::Truncated(e.to_string()))?;
+            folders.push(FolderRecord { hash, count, offset, name: Vec::new(), files: Vec::new() });
+        }
+        let mut total_files = 0u64;
+        for (fi, f) in folders.iter_mut().enumerate() {
+            let block_pos = start as usize + c.pos;
+            let expect = block_pos as u64 + header.total_file_name_length as u64;
+            if f.offset as u64 != expect {
+                warnings.push(Warning {
+                    code: "folder_offset_mismatch",
+                    detail: format!("folder #{fi}: offset field {} != computed {}", f.offset, expect),
+                });
+            }
+            if has_dir_names {
+                let len_byte = dir.get(c.pos).copied().unwrap_or(0);
+                f.name = read_bstring_z(&mut c)?;
+                if len_byte as usize != f.name.len() + 1 {
+                    // Canonical names carry a NUL counted in the length byte. Archives
+                    // made by third-party tools sometimes do not; such an archive
+                    // still loads but will not re-serialize byte-identically.
+                    warnings.push(Warning {
+                        code: "noncanonical_folder_name",
+                        detail: format!("folder #{fi}: length byte {len_byte}, name {:?}", cp1252::decode(&f.name)),
+                    });
+                }
+            }
+            for _ in 0..f.count {
+                let hash = c.u64().map_err(|e| BsaError::Truncated(e.to_string()))?;
+                let size_field = c.u32().map_err(|e| BsaError::Truncated(e.to_string()))?;
+                let offset = c.u32().map_err(|e| BsaError::Truncated(e.to_string()))?;
+                f.files.push(FileRecord { hash, size_field, offset, name: Vec::new() });
+            }
+            total_files += f.count as u64;
+        }
+        if total_files != header.file_count as u64 {
+            warnings.push(Warning {
+                code: "file_count_mismatch",
+                detail: format!("header says {}, folder records sum to {total_files}", header.file_count),
+            });
+        }
+        if has_file_names {
+            let names = c
+                .bytes(header.total_file_name_length as usize)
+                .map_err(|e| BsaError::Truncated(e.to_string()))?;
+            let mut it = names.split(|&b| b == 0);
+            for f in folders.iter_mut() {
+                for r in f.files.iter_mut() {
+                    match it.next() {
+                        Some(n) => r.name = n.to_vec(),
+                        None => {
+                            return Err(BsaError::Layout("file name block has fewer names than files".into()))
+                        }
+                    }
+                }
+            }
+        }
+        // Consistency checks that drive the work queue; never fatal.
+        for f in &folders {
+            if has_dir_names && name_hash(&f.name, false) != f.hash {
+                warnings.push(Warning {
+                    code: "folder_hash_mismatch",
+                    detail: format!("{} stored {:016x}", cp1252::decode(&f.name), f.hash),
+                });
+            }
+            for r in &f.files {
+                if has_file_names && name_hash(&r.name, true) != r.hash {
+                    warnings.push(Warning {
+                        code: "file_hash_mismatch",
+                        detail: format!("{} stored {:016x}", cp1252::decode(&r.name), r.hash),
+                    });
+                }
+                if r.offset as u64 + r.stored_size() as u64 > file_len {
+                    warnings.push(Warning {
+                        code: "data_out_of_bounds",
+                        detail: format!("{} offset {} size {}", cp1252::decode(&r.name), r.offset, r.stored_size()),
+                    });
+                }
+                if r.size_field & SIZE_UNKNOWN_BIT31 != 0 {
+                    warnings.push(Warning {
+                        code: "size_bit31_set",
+                        detail: cp1252::decode(&r.name),
+                    });
+                }
+            }
+        }
+        // Canonical data layout: blocks follow the name block contiguously, in record
+        // order, and the file ends with the last block [observed in shipped archives].
+        let mut expected = start + dir_len;
+        let mut gaps = 0u64;
+        let mut first_gap = None;
+        for r in folders.iter().flat_map(|f| f.files.iter()) {
+            if r.offset as u64 != expected {
+                gaps += 1;
+                if first_gap.is_none() {
+                    first_gap = Some(format!("{}: offset {} expected {}", cp1252::decode(&r.name), r.offset, expected));
+                }
+            }
+            expected = r.offset as u64 + r.stored_size() as u64;
+        }
+        if let Some(g) = first_gap {
+            warnings.push(Warning { code: "data_not_contiguous", detail: format!("{gaps} block(s); first {g}") });
+        }
+        if expected < file_len {
+            warnings.push(Warning {
+                code: "trailing_bytes",
+                detail: format!("{} byte(s) after the last data block", file_len - expected),
+            });
+        }
+        for w in folders.windows(2) {
+            if w[0].hash >= w[1].hash {
+                warnings.push(Warning { code: "folders_not_sorted", detail: format!("{:016x}", w[1].hash) });
+                break;
+            }
+        }
+        Ok(Archive { header, folders, warnings, file, file_len })
+    }
+
+    pub fn file_len(&self) -> u64 {
+        self.file_len
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = Entry<'_>> {
+        self.folders.iter().enumerate().flat_map(|(fi, f)| {
+            f.files.iter().enumerate().map(move |(ri, r)| Entry { folder: f, record: r, folder_index: fi, file_index: ri })
+        })
+    }
+
+    pub fn is_compressed(&self, r: &FileRecord) -> bool {
+        (self.header.archive_flags & flags::COMPRESSED_DEFAULT != 0) ^ r.toggles_compression()
+    }
+
+    pub fn embeds_names(&self) -> bool {
+        self.header.archive_flags & flags::EMBED_FILE_NAMES != 0
+    }
+
+    /// The exact stored bytes of a file's data block (still compressed, with any
+    /// embedded name prefix).
+    pub fn read_raw(&mut self, r: &FileRecord) -> Result<Vec<u8>, BsaError> {
+        let size = r.stored_size() as usize;
+        if r.offset as u64 + size as u64 > self.file_len {
+            return Err(BsaError::Truncated(format!("data for {} beyond end", cp1252::decode(&r.name))));
+        }
+        let mut buf = vec![0u8; size];
+        self.file.seek(SeekFrom::Start(r.offset as u64))?;
+        self.file.read_exact(&mut buf)?;
+        Ok(buf)
+    }
+
+    /// Decoded file contents: embedded name stripped, decompressed if needed.
+    pub fn extract(&mut self, r: &FileRecord) -> Result<Vec<u8>, BsaError> {
+        self.extract_checked(r).map(|(d, _)| d)
+    }
+
+    /// Like [`Archive::extract`], also returning the zlib trailer status
+    /// (`Verified` for uncompressed files and empty compressed entries).
+    pub fn extract_checked(&mut self, r: &FileRecord) -> Result<(Vec<u8>, fnv_inflate::Trailer), BsaError> {
+        let raw = self.read_raw(r)?;
+        let compressed = self.is_compressed(r);
+        decode_block_checked(&raw, compressed, self.embeds_names(), &cp1252::decode(&r.name))
+    }
+
+    /// Look up a file by full path (case-insensitive, either slash).
+    pub fn find(&self, path: &str) -> Option<(usize, usize)> {
+        let p = path.replace('/', "\\");
+        let (dir, name) = match p.rfind('\\') {
+            Some(i) => (&p[..i], &p[i + 1..]),
+            None => ("", &p[..]),
+        };
+        let dir_b = cp1252::encode(dir)?;
+        let name_b = cp1252::encode(name)?;
+        let dh = name_hash(&dir_b, false);
+        let fh = name_hash(&name_b, true);
+        let dir_lower: Vec<u8> = dir_b.iter().map(|b| b.to_ascii_lowercase()).collect();
+        let name_lower: Vec<u8> = name_b.iter().map(|b| b.to_ascii_lowercase()).collect();
+        for (fi, f) in self.folders.iter().enumerate() {
+            if f.hash != dh {
+                continue;
+            }
+            if !f.name.is_empty() && f.name.to_ascii_lowercase() != dir_lower {
+                continue;
+            }
+            for (ri, r) in f.files.iter().enumerate() {
+                if r.hash == fh && (r.name.is_empty() || r.name.to_ascii_lowercase() == name_lower) {
+                    return Some((fi, ri));
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Decode one stored data block.
+pub fn decode_block(raw: &[u8], compressed: bool, embedded_name: bool, label: &str) -> Result<Vec<u8>, BsaError> {
+    decode_block_checked(raw, compressed, embedded_name, label).map(|(d, _)| d)
+}
+
+/// Decode one stored data block, reporting zlib trailer anomalies instead of hiding them.
+pub fn decode_block_checked(
+    raw: &[u8],
+    compressed: bool,
+    embedded_name: bool,
+    label: &str,
+) -> Result<(Vec<u8>, fnv_inflate::Trailer), BsaError> {
+    use fnv_inflate::Trailer;
+    let mut body = raw;
+    if embedded_name {
+        let n = *body.first().ok_or_else(|| BsaError::Truncated(format!("{label}: empty block")))? as usize;
+        if body.len() < 1 + n {
+            return Err(BsaError::Truncated(format!("{label}: embedded name")));
+        }
+        body = &body[1 + n..];
+    }
+    if !compressed {
+        return Ok((body.to_vec(), Trailer::Verified));
+    }
+    if body.len() < 4 {
+        return Err(BsaError::Truncated(format!("{label}: compressed block shorter than 4 bytes")));
+    }
+    let orig = u32::from_le_bytes([body[0], body[1], body[2], body[3]]) as usize;
+    if orig == 0 && body.len() == 4 {
+        // Observed: Fallout - Misc.bsa, menus\do_not_delete.txt.
+        return Ok((Vec::new(), Trailer::Verified));
+    }
+    // The game data contains at least one zlib stream without an Adler-32 trailer
+    // (Fallout - Misc.bsa, menus\s.txt) [observed]; accept it. A wrong checksum
+    // with a clean stream of the exact expected size is also accepted, matching
+    // the ESM reader's policy.
+    fnv_inflate::zlib_decompress_ex(&body[4..], Some(orig))
+        .map_err(|err| BsaError::Decompress { path: label.to_string(), err })
+}
+
+// --------------------------------------------------------------------------- writer
+
+/// One file to write. `data` is the exact stored block (already compressed and
+/// name-prefixed if applicable); use [`encode_block`] to produce it.
+#[derive(Debug, Clone)]
+pub struct WriteFile {
+    pub name: Vec<u8>,
+    pub size_flag_bits: u32,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WriteFolder {
+    pub name: Vec<u8>,
+    pub files: Vec<WriteFile>,
+}
+
+/// Build a stored data block from file contents.
+pub fn encode_block(contents: &[u8], compress: bool, embed_path: Option<&[u8]>) -> Vec<u8> {
+    let mut out = Vec::new();
+    if let Some(p) = embed_path {
+        out.push(p.len().min(255) as u8);
+        out.extend_from_slice(&p[..p.len().min(255)]);
+    }
+    if compress {
+        out.extend_from_slice(&(contents.len() as u32).to_le_bytes());
+        out.extend_from_slice(&fnv_inflate::zlib_store(contents));
+    } else {
+        out.extend_from_slice(contents);
+    }
+    out
+}
+
+/// Serialize an archive in canonical layout: folders sorted by hash, files sorted
+/// by hash within each folder, data blocks in record order immediately after the
+/// file name block. This is the layout observed in every shipped archive.
+pub fn write_archive(
+    out: &mut impl Write,
+    archive_flags: u32,
+    file_flags: u16,
+    file_flags_padding: u16,
+    folders: &[WriteFolder],
+) -> Result<(), BsaError> {
+    let meta: Vec<LayoutFolder> = folders
+        .iter()
+        .map(|f| LayoutFolder {
+            name: f.name.clone(),
+            files: f
+                .files
+                .iter()
+                .map(|x| LayoutFile { name: x.name.clone(), size_flag_bits: x.size_flag_bits, len: x.data.len() as u64 })
+                .collect(),
+        })
+        .collect();
+    write_archive_streaming(out, archive_flags, file_flags, file_flags_padding, &meta, |fi, ri| {
+        Ok(folders[fi].files[ri].data.clone())
+    })
+}
+
+/// Name and stored length of one file, for [`write_archive_streaming`].
+#[derive(Debug, Clone)]
+pub struct LayoutFile {
+    pub name: Vec<u8>,
+    pub size_flag_bits: u32,
+    pub len: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct LayoutFolder {
+    pub name: Vec<u8>,
+    pub files: Vec<LayoutFile>,
+}
+
+/// Canonical writer that pulls each stored block from `fetch(folder, file)`
+/// (indices into `folders` as given) only when it is written, so memory use is the
+/// directory plus one file. `fetch` must return exactly `len` bytes.
+pub fn write_archive_streaming<W: Write, F: FnMut(usize, usize) -> Result<Vec<u8>, BsaError>>(
+    out: &mut W,
+    archive_flags: u32,
+    file_flags: u16,
+    file_flags_padding: u16,
+    folders: &[LayoutFolder],
+    mut fetch: F,
+) -> Result<(), BsaError> {
+    let mut order: Vec<usize> = (0..folders.len()).collect();
+    order.sort_by_key(|&i| name_hash(&folders[i].name, false));
+    let sorted_files: Vec<Vec<usize>> = order
+        .iter()
+        .map(|&fi| {
+            let mut v: Vec<usize> = (0..folders[fi].files.len()).collect();
+            v.sort_by_key(|&ri| name_hash(&folders[fi].files[ri].name, true));
+            v
+        })
+        .collect();
+    let has_dir = archive_flags & flags::DIR_NAMES != 0;
+    let has_names = archive_flags & flags::FILE_NAMES != 0;
+    let folder_count = folders.len() as u32;
+    let file_count: u32 = folders.iter().map(|f| f.files.len() as u32).sum();
+    let total_folder_name_length: u32 =
+        if has_dir { folders.iter().map(|f| f.name.len() as u32 + 1).sum() } else { 0 };
+    let total_file_name_length: u32 = if has_names {
+        folders.iter().flat_map(|f| f.files.iter()).map(|x| x.name.len() as u32 + 1).sum()
+    } else {
+        0
+    };
+
+    let mut buf: Vec<u8> = Vec::new();
+    buf.extend_from_slice(&MAGIC);
+    for v in [104u32, HEADER_SIZE, archive_flags, folder_count, file_count, total_folder_name_length, total_file_name_length] {
+        buf.extend_from_slice(&v.to_le_bytes());
+    }
+    buf.extend_from_slice(&file_flags.to_le_bytes());
+    buf.extend_from_slice(&file_flags_padding.to_le_bytes());
+
+    let records_start = HEADER_SIZE as usize + 16 * folders.len();
+    let mut block_pos = Vec::with_capacity(folders.len());
+    let mut p = records_start;
+    for (k, &fi) in order.iter().enumerate() {
+        block_pos.push(p);
+        if has_dir {
+            p += 1 + folders[fi].name.len() + 1;
+        }
+        p += 16 * sorted_files[k].len();
+    }
+    let names_start = p;
+    let data_start = names_start + total_file_name_length as usize;
+    for (k, &fi) in order.iter().enumerate() {
+        let off = block_pos[k] as u64 + total_file_name_length as u64;
+        if off > u32::MAX as u64 {
+            return Err(BsaError::Layout("archive too large".into()));
+        }
+        buf.extend_from_slice(&name_hash(&folders[fi].name, false).to_le_bytes());
+        buf.extend_from_slice(&(sorted_files[k].len() as u32).to_le_bytes());
+        buf.extend_from_slice(&(off as u32).to_le_bytes());
+    }
+    let mut data_off = data_start as u64;
+    for (k, &fi) in order.iter().enumerate() {
+        let f = &folders[fi];
+        if has_dir {
+            if f.name.len() > 254 {
+                return Err(BsaError::Layout("folder name too long".into()));
+            }
+            buf.push((f.name.len() + 1) as u8);
+            buf.extend_from_slice(&f.name);
+            buf.push(0);
+        }
+        for &ri in &sorted_files[k] {
+            let x = &f.files[ri];
+            if x.len > SIZE_MASK as u64 || data_off > u32::MAX as u64 {
+                return Err(BsaError::Layout("file too large".into()));
+            }
+            buf.extend_from_slice(&name_hash(&x.name, true).to_le_bytes());
+            buf.extend_from_slice(&((x.len as u32) | (x.size_flag_bits & !SIZE_MASK)).to_le_bytes());
+            buf.extend_from_slice(&(data_off as u32).to_le_bytes());
+            data_off += x.len;
+        }
+    }
+    if has_names {
+        for (k, &fi) in order.iter().enumerate() {
+            for &ri in &sorted_files[k] {
+                buf.extend_from_slice(&folders[fi].files[ri].name);
+                buf.push(0);
+            }
+        }
+    }
+    debug_assert_eq!(buf.len(), data_start);
+    out.write_all(&buf)?;
+    for (k, &fi) in order.iter().enumerate() {
+        for &ri in &sorted_files[k] {
+            let d = fetch(fi, ri)?;
+            if d.len() as u64 != folders[fi].files[ri].len {
+                return Err(BsaError::Layout("fetched block length differs from declared length".into()));
+            }
+            out.write_all(&d)?;
+        }
+    }
+    Ok(())
+}
+
+/// Re-serialize an opened archive from its own stored blocks, streaming one file at
+/// a time. Used by the golden-file round-trip test: output must equal the input
+/// byte for byte.
+pub fn rewrite(archive: &mut Archive, out: &mut impl Write) -> Result<(), BsaError> {
+    let meta: Vec<LayoutFolder> = archive
+        .folders
+        .iter()
+        .map(|f| LayoutFolder {
+            name: f.name.clone(),
+            files: f
+                .files
+                .iter()
+                .map(|r| LayoutFile {
+                    name: r.name.clone(),
+                    size_flag_bits: r.size_field & !SIZE_MASK,
+                    len: r.stored_size() as u64,
+                })
+                .collect(),
+        })
+        .collect();
+    let h = archive.header.clone();
+    let recs: Vec<Vec<FileRecord>> = archive.folders.iter().map(|f| f.files.clone()).collect();
+    write_archive_streaming(out, h.archive_flags, h.file_flags, h.file_flags_padding, &meta, |fi, ri| {
+        archive.read_raw(&recs[fi][ri])
+    })
+}
+
+/// A `Write` sink that compares everything written against an existing file, so a
+/// round-trip check needs no second copy in memory.
+pub struct CompareWriter<R: Read> {
+    original: R,
+    pub written: u64,
+    pub first_difference: Option<u64>,
+    scratch: Vec<u8>,
+}
+
+impl<R: Read> CompareWriter<R> {
+    pub fn new(original: R) -> Self {
+        CompareWriter { original, written: 0, first_difference: None, scratch: Vec::new() }
+    }
+
+    /// True if everything matched and the original has no bytes left.
+    pub fn finish(mut self) -> io::Result<(bool, Option<u64>)> {
+        let mut extra = [0u8; 1];
+        let more = self.original.read(&mut extra)? > 0;
+        if more && self.first_difference.is_none() {
+            self.first_difference = Some(self.written);
+        }
+        Ok((self.first_difference.is_none(), self.first_difference))
+    }
+}
+
+impl<R: Read> Write for CompareWriter<R> {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        if self.first_difference.is_none() {
+            self.scratch.resize(data.len(), 0);
+            let mut got = 0;
+            while got < data.len() {
+                let n = self.original.read(&mut self.scratch[got..])?;
+                if n == 0 {
+                    break;
+                }
+                got += n;
+            }
+            match data[..got].iter().zip(&self.scratch[..got]).position(|(a, b)| a != b) {
+                Some(i) => self.first_difference = Some(self.written + i as u64),
+                None if got < data.len() => self.first_difference = Some(self.written + got as u64),
+                None => {}
+            }
+        }
+        self.written += data.len() as u64;
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hash_examples() {
+        // Values observed in the user's Update.bsa / Fallout - Misc.bsa directories.
+        assert_eq!(name_hash(b"tutorial_menu.xml", true), 0x04b1_d76e_740d_6e75);
+        assert_eq!(name_hash(b"death.kf", true), 0x1776_fd25_6405_74e8);
+        assert_eq!(name_hash(b"DEATH.KF", true), 0x1776_fd25_6405_74e8);
+        assert_eq!(name_hash(b"dummy.dds", true), 0x8e50_c6fd_6405_edf9);
+    }
+
+    #[test]
+    fn hash_short_names() {
+        // Must not panic on 0-, 1- and 2-character stems.
+        let _ = name_hash(b"", false);
+        let _ = name_hash(b"a", false);
+        let _ = name_hash(b"ab.nif", true);
+        let _ = name_hash(b".nif", true);
+        assert_eq!(name_hash(b"a/b", false), name_hash(b"A\\B", false));
+    }
+
+    fn sample() -> Vec<WriteFolder> {
+        vec![
+            WriteFolder {
+                name: b"meshes\\test".to_vec(),
+                files: vec![
+                    WriteFile { name: b"b.nif".to_vec(), size_flag_bits: 0, data: encode_block(b"BBBB", false, None) },
+                    WriteFile { name: b"a.nif".to_vec(), size_flag_bits: 0, data: encode_block(b"AAAAAA", false, None) },
+                ],
+            },
+            WriteFolder {
+                name: b"textures".to_vec(),
+                files: vec![WriteFile {
+                    name: b"c.dds".to_vec(),
+                    size_flag_bits: SIZE_COMPRESSION_TOGGLE,
+                    data: encode_block(&[7u8; 1000], true, None),
+                }],
+            },
+        ]
+    }
+
+    #[test]
+    fn write_read_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("fnv-bsa-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.bsa");
+        let mut bytes = Vec::new();
+        write_archive(&mut bytes, flags::DIR_NAMES | flags::FILE_NAMES, 0x3, 0, &sample()).unwrap();
+        std::fs::write(&p, &bytes).unwrap();
+        let mut a = Archive::open(&p).unwrap();
+        assert!(a.warnings.is_empty(), "{:?}", a.warnings);
+        assert_eq!(a.header.file_count, 3);
+        let (fi, ri) = a.find("Meshes/Test/A.NIF").unwrap();
+        let r = a.folders[fi].files[ri].clone();
+        assert_eq!(a.extract(&r).unwrap(), b"AAAAAA");
+        let (fi, ri) = a.find("textures\\c.dds").unwrap();
+        let r = a.folders[fi].files[ri].clone();
+        assert!(a.is_compressed(&r));
+        assert_eq!(a.extract(&r).unwrap(), vec![7u8; 1000]);
+        assert!(a.find("textures\\missing.dds").is_none());
+        let mut again = Vec::new();
+        rewrite(&mut a, &mut again).unwrap();
+        assert_eq!(again, bytes);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn reports_trailing_bytes_and_trailer_status() {
+        let dir = std::env::temp_dir().join(format!("fnv-bsa-trail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.bsa");
+        let mut bytes = Vec::new();
+        write_archive(&mut bytes, flags::DIR_NAMES | flags::FILE_NAMES, 0, 0, &sample()).unwrap();
+        bytes.extend_from_slice(&[0, 0, 0]);
+        std::fs::write(&p, &bytes).unwrap();
+        let mut a = Archive::open(&p).unwrap();
+        assert!(a.warnings.iter().any(|w| w.code == "trailing_bytes"), "{:?}", a.warnings);
+        let (fi, ri) = a.find("textures\\c.dds").unwrap();
+        let r = a.folders[fi].files[ri].clone();
+        assert_eq!(a.extract_checked(&r).unwrap().1, fnv_inflate::Trailer::Verified);
+        // Streaming comparison detects the 3 extra bytes.
+        let mut cmp = CompareWriter::new(std::fs::File::open(&p).unwrap());
+        rewrite(&mut a, &mut cmp).unwrap();
+        let (same, at) = cmp.finish().unwrap();
+        assert!(!same);
+        assert_eq!(at, Some(bytes.len() as u64 - 3));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rejects_garbage() {
+        let dir = std::env::temp_dir().join(format!("fnv-bsa-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("bad.bsa");
+        std::fs::write(&p, b"not an archive at all, definitely not 36 bytes long..").unwrap();
+        assert!(matches!(Archive::open(&p), Err(BsaError::NotBsa)));
+        let mut bytes = Vec::new();
+        write_archive(&mut bytes, 3, 0, 0, &sample()).unwrap();
+        std::fs::write(&p, &bytes[..60]).unwrap();
+        assert!(matches!(Archive::open(&p), Err(BsaError::Truncated(_))));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
