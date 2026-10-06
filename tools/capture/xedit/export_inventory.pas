@@ -6,7 +6,7 @@
 //   3. In the left tree, select one or more PLUGINS (the top-level file nodes, e.g.
 //      "[00] FalloutNV.esm"), right-click -> Apply Script... -> export_inventory.
 //   4. Enter an output folder OUTSIDE the repository and outside the game folder
-//      (default C:\NVForever-private\goldens\esm). One file per plugin is written as
+//      (default C:\fnv-private\goldens\esm). One file per plugin is written as
 //      <PluginWithoutExtension>.xedit.inventory.json, e.g. FalloutNV.xedit.inventory.json.
 //   5. FalloutNV.esm has 465,016 records: expect several minutes. Progress appears in the
 //      Messages tab.
@@ -238,22 +238,33 @@ begin
 end;
 
 function Initialize: integer;
+var
+  dir: string;
 begin
   gPluginNames := TStringList.Create;
   gPluginNames.Sorted := True;
   gPluginNames.Duplicates := dupIgnore;
-  gOutputDir := 'C:\NVForever-private\goldens\esm\';
+  // Passing the global gOutputDir to InputQuery showed the default as garbled
+  // CJK-looking text in FNVEdit [observed]. A local variable is the usual pattern in
+  // xEdit scripts [hypothesis: avoids the garbling; unconfirmed].
+  dir := 'C:\fnv-private\goldens\esm\';
   if not InputQuery('fnv.esm.inventory/1 export',
-                    'Output directory (PRIVATE, outside the repository):', gOutputDir) then begin
+                    'Output directory (PRIVATE, outside the repository):', dir) then begin
     Result := 1;   // cancelled: abort the script
     Exit;
   end;
-  gOutputDir := IncludeTrailingPathDelimiter(gOutputDir);
-  if not ForceDirectories(gOutputDir) then begin
-    AddMessage('Cannot create output directory ' + gOutputDir);
-    Result := 1;
-    Exit;
+  // FNVEdit's interpreter has no IncludeTrailingPathDelimiter [observed]; append by hand.
+  if (Length(dir) > 0) and (Copy(dir, Length(dir), 1) <> '\') then
+    dir := dir + '\';
+  gOutputDir := dir;
+  // ForceDirectories may also be missing from the interpreter; if it fails, carry on and
+  // let SaveToFile report a missing folder.
+  try
+    ForceDirectories(gOutputDir);
+  except
+    AddMessage('Could not create ' + gOutputDir + ' (create it yourself if it does not exist).');
   end;
+  AddMessage('Writing to ' + gOutputDir);
   Result := 0;
 end;
 
