@@ -6,6 +6,7 @@ use crate::raw::{Record, Subrecord};
 use crate::schema::{Prim, Schema, TypeDef};
 use serde_json::{json, Map, Value};
 use fnv_util::{cp1252, sha256::to_hex, Cursor};
+use rayon::prelude::*;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -259,29 +260,58 @@ pub struct Coverage {
     pub record_errors: Vec<String>,
 }
 
+/// Coverage outcome of one record, computed independently of every other record.
+pub struct RecordCoverage {
+    sig: String,
+    form_id: u32,
+    /// Err if the payload cannot be split into subrecords.
+    subs: Result<Vec<SubOutcome>, String>,
+}
+
+struct SubOutcome {
+    sig: String,
+    size: usize,
+    status: SubStatus,
+    opaque: bool,
+    error: Option<String>,
+}
+
 impl Coverage {
-    pub fn add_record<'a>(&mut self, r: &Record, schema: &'a Schema, on_formid: Option<&'a mut dyn FnMut(u32)>) {
-        let rs = r.sig_str();
-        *self.records.entry(rs.clone()).or_default() += 1;
-        let subs = match r.subrecords() {
+    /// Decode one record's subrecords against the schema (no shared state).
+    pub fn measure<'a>(r: &Record, schema: &'a Schema, on_formid: Option<&'a mut dyn FnMut(u32)>) -> RecordCoverage {
+        let subs = r.subrecords().map_err(|e| e.to_string()).map(|subs| {
+            let mut ctx = DecodeCtx { schema, on_formid };
+            subs.iter()
+                .map(|s| {
+                    let d = decode_sub(&r.header.sig, s, &mut ctx);
+                    SubOutcome { sig: s.sig_str(), size: s.data.len(), status: d.status, opaque: d.opaque, error: d.error }
+                })
+                .collect()
+        });
+        RecordCoverage { sig: r.sig_str(), form_id: r.header.form_id, subs }
+    }
+
+    /// Fold one measured record into the totals. Records must be added in file
+    /// order: `first_error` and `record_errors` keep the earliest occurrences.
+    pub fn add(&mut self, rc: RecordCoverage) {
+        *self.records.entry(rc.sig.clone()).or_default() += 1;
+        let subs = match rc.subs {
             Ok(s) => s,
             Err(e) => {
                 if self.record_errors.len() < 100 {
-                    self.record_errors.push(e.to_string());
+                    self.record_errors.push(e);
                 }
                 return;
             }
         };
-        let mut ctx = DecodeCtx { schema, on_formid };
-        for s in &subs {
-            let d = decode_sub(&r.header.sig, s, &mut ctx);
-            let e = self.by_sub.entry((rs.clone(), s.sig_str())).or_default();
+        for sub in subs {
+            let e = self.by_sub.entry((rc.sig.clone(), sub.sig)).or_default();
             e.total += 1;
-            *e.sizes.entry(s.data.len()).or_default() += 1;
-            match d.status {
+            *e.sizes.entry(sub.size).or_default() += 1;
+            match sub.status {
                 SubStatus::Ok => {
                     e.ok += 1;
-                    if d.opaque {
+                    if sub.opaque {
                         e.opaque += 1;
                     }
                 }
@@ -290,9 +320,24 @@ impl Coverage {
                 SubStatus::Error => e.error += 1,
             }
             if e.first_error.is_none() {
-                if let Some(err) = d.error {
-                    e.first_error = Some(format!("{:08X}: {err}", r.header.form_id));
+                if let Some(err) = sub.error {
+                    e.first_error = Some(format!("{:08X}: {err}", rc.form_id));
                 }
+            }
+        }
+    }
+
+    pub fn add_record<'a>(&mut self, r: &Record, schema: &'a Schema, on_formid: Option<&'a mut dyn FnMut(u32)>) {
+        self.add(Self::measure(r, schema, on_formid));
+    }
+
+    /// [`Coverage::add_record`] for many records, decoded in parallel and folded in
+    /// order, so the result is identical to adding them one by one.
+    pub fn add_records_par(&mut self, recs: &[&Record], schema: &Schema) {
+        for chunk in recs.chunks(4096) {
+            let measured: Vec<RecordCoverage> = chunk.par_iter().map(|r| Self::measure(r, schema, None)).collect();
+            for rc in measured {
+                self.add(rc);
             }
         }
     }

@@ -13,3 +13,4 @@ serde.workspace = true
 thiserror.workspace = true
 bytes = "1.9"
 memmap2 = "0.9"
+rayon = "1"
