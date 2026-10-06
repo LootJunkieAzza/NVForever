@@ -161,8 +161,20 @@ impl Record {
 
     /// Uncompressed subrecord bytes. Tolerates zlib trailer anomalies (see
     /// [`Record::payload_checked`] to observe them).
+    /// Callers that need the trailer status use [`Record::payload_checked`]; here an
+    /// accepted anomaly is only logged.
     pub fn payload(&self) -> Result<Cow<'_, [u8]>, EsmError> {
-        self.payload_checked().map(|(p, _)| p)
+        let (p, trailer) = self.payload_checked()?;
+        if trailer != fnv_inflate::Trailer::Verified {
+            tracing::debug!(
+                record = %self.sig_str(),
+                form_id = format_args!("{:08X}", self.header.form_id),
+                offset = self.offset,
+                ?trailer,
+                "accepted zlib trailer anomaly"
+            );
+        }
+        Ok(p)
     }
 
     /// Uncompressed payload plus the zlib trailer status (`Verified` for

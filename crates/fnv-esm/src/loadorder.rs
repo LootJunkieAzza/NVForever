@@ -80,7 +80,14 @@ impl<'a> LoadOrder<'a> {
             for (ord, r) in recs.iter().enumerate() {
                 match lo.to_global(pi, r.header.form_id) {
                     Some(g) => lo.index.entry(g).or_default().push(DefRef { plugin: pi as u8, ordinal: ord as u32 }),
-                    None => lo.unmappable.push((pi as u8, r.header.form_id)),
+                    None => {
+                        tracing::debug!(
+                            plugin = %p.name,
+                            form_id = format_args!("{:08X}", r.header.form_id),
+                            "FormID's master index is outside this plugin's master list"
+                        );
+                        lo.unmappable.push((pi as u8, r.header.form_id))
+                    }
                 }
             }
             lo.records.push(recs);

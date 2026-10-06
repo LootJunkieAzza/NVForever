@@ -138,8 +138,22 @@ fn emit(v: &Value) {
     let _ = lock.write_all(b"\n");
 }
 
+/// Diagnostics go to stderr. Default level is `warn`; set `NVFOREVER_LOG` (an
+/// `EnvFilter` directive such as `debug` or `fnv_esm=trace`) for more.
+fn init_logging() {
+    use std::io::IsTerminal;
+    let filter = tracing_subscriber::EnvFilter::try_from_env("NVFOREVER_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_ansi(std::io::stderr().is_terminal())
+        .init();
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    init_logging();
     let res = match cli.cmd {
         Cmd::Setup { game, home } => install_cmd::setup(&game, &home),
         Cmd::Paths { home } => install_cmd::paths(&home),
