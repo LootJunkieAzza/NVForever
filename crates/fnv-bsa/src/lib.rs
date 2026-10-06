@@ -887,6 +887,58 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    mod malformed {
+        use super::*;
+        use proptest::prelude::*;
+        use proptest::sample::Index;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(128))]
+
+            /// Mutated archives open with an error or with warnings, every file
+            /// extracts or reports an error, and an archive that opens without
+            /// warnings and decodes cleanly is rewritten byte-for-byte.
+            #[test]
+            fn mutated_archives(
+                edits in prop::collection::vec((any::<Index>(), any::<u8>()), 1..6),
+                cut in prop::option::of(any::<Index>()),
+            ) {
+                let mut bytes = Vec::new();
+                write_archive(&mut bytes, flags::DIR_NAMES | flags::FILE_NAMES, 0x3, 0, &sample()).unwrap();
+                for (i, b) in &edits {
+                    let at = i.index(bytes.len());
+                    bytes[at] = *b;
+                }
+                if let Some(c) = cut {
+                    bytes.truncate(c.index(bytes.len() + 1));
+                }
+                let f = tempfile::NamedTempFile::new().unwrap();
+                std::fs::write(f.path(), &bytes).unwrap();
+                if let Ok(mut a) = Archive::open(f.path()) {
+                    let recs: Vec<FileRecord> = a.entries().map(|e| e.record.clone()).collect();
+                    let par = a.decode_files(&recs, |d| d.to_vec());
+                    let mut clean = a.warnings.is_empty();
+                    for (r, p) in recs.iter().zip(&par) {
+                        let one = a.extract_checked(r);
+                        prop_assert_eq!(one.is_ok(), p.is_ok());
+                        if let (Ok(x), Ok(y)) = (one, p) {
+                            prop_assert_eq!(&x.0, &y.0);
+                            clean &= x.1 == fnv_inflate::Trailer::Verified;
+                        } else {
+                            clean = false;
+                        }
+                    }
+                    let mut again = Vec::new();
+                    let rewritten = rewrite(&mut a, &mut again);
+                    if clean {
+                        rewritten.unwrap();
+                        prop_assert_eq!(again, bytes);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn rejects_garbage() {
         let dir = std::env::temp_dir().join(format!("fnv-bsa-bad-{}", std::process::id()));

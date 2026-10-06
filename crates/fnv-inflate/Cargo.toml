@@ -9,3 +9,6 @@ license.workspace = true
 adler2 = "2"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 thiserror.workspace = true
+
+[dev-dependencies]
+proptest = "1"
