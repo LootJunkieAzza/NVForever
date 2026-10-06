@@ -103,25 +103,31 @@ Step by step:
    Messages tab says "Background Loader: finished".
 4. In the left pane, select the plugin(s) to export (Ctrl+click for several).
 5. Right-click → **Apply Script...**, choose `export_inventory`, click OK.
-6. Enter the output directory when asked — a **private** folder outside the repo and
-   outside the game folder; the default is `C:\fnv-private\goldens\esm\`, the `esm\` folder
-   of the recommended goldens directory, which is exactly where the lab expects them (files are named `FalloutNV.xedit.inventory.json`
-   etc.). Exporting FalloutNV.esm takes several minutes; progress
-   is printed every 50,000 records.
+6. Files are written to the `OutputDir` constant at the top of the script, default
+   `C:\fnv-private\goldens\esm\` (the `esm\` folder of the recommended goldens
+   directory, exactly where the lab expects them; edit the constant to use another private
+   folder outside the repo and the game folder). They are named
+   `FalloutNV.xedit.inventory.json` etc. There is no folder dialog: FNVEdit's `InputQuery`
+   garbled its default and returned an empty string [observed]. Exporting FalloutNV.esm
+   takes several minutes; progress is printed every 50,000 records.
 7. Read the Messages tab. For each plugin it prints the FormID check line
    `N own (top byte M), K overrides/injected, J out of range`. Expected: out of range is 0,
    except GunRunnersArsenal.esm which may show 1 (its REFR stored as 0x02000801).
    If a plugin loaded at a load-order index different from its master count (e.g.
    HonestHearts.esm loaded after DeadMoney.esm) shows its new records as "out of range",
    the FormID function returned load-order IDs — switch `FormIDSource` in the script.
-8. If you chose another folder, copy the JSON files into your private goldens directory
+8. Convert the exports to UTF-8 JSON (the script writes non-ASCII text in the ANSI code
+   page because FNVEdit's interpreter cannot escape it), then they are ready for the lab:
+   `python tools\capture\xedit\finish_export.py C:\fnv-private\goldens\esm`
+9. If you changed `OutputDir`, copy the JSON files into your private goldens directory
    (`esm/`).
 
 If FNVEdit reports `'unit' expected but ',' found`, you have the first version of the
 script, whose header comment contained JSON braces (a `}` ends a Pascal brace comment
 early). The current script uses only `//` comments.
-If it reports `Undeclared Identifier 'IncludeTrailingPathDelimiter'`, or the default folder
-shows as garbled (CJK-looking) text, you have the second version; update the script.
+If it reports `Undeclared Identifier 'IncludeTrailingPathDelimiter'`, `Type mismatch` on
+line 53, shows a garbled (CJK-looking) folder dialog or logs `Writing to` with no folder,
+you have an older version; update the script.
 
 What to check on first use:
 
@@ -131,7 +137,7 @@ What to check on first use:
 - `form_version` is not `null` (path `Record Header\Form Version`).
 - FalloutNV.esm LAND 0x00150FC0 (bad zlib checksum) may produce an xEdit error and null
   `edid`/`full` for that record.
-- The output is pure ASCII (non-ASCII characters escaped as `\uXXXX`).
+- After `finish_export.py` the output is pure ASCII (non-ASCII characters escaped as `\uXXXX`).
 
 ## Tests
 
