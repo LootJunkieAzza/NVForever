@@ -376,6 +376,15 @@ impl Archive {
                 break;
             }
         }
+        tracing::debug!(
+            folders = header.folder_count,
+            files = header.file_count,
+            flags = header.archive_flags,
+            "opened BSA"
+        );
+        for w in &warnings {
+            tracing::debug!(code = w.code, detail = %w.detail, "BSA layout anomaly");
+        }
         Ok(Archive { header, folders, warnings, file, file_len })
     }
 
