@@ -139,6 +139,19 @@ What to check on first use:
   `edid`/`full` for that record.
 - After `finish_export.py` the output is pure ASCII (non-ASCII characters escaped as `\uXXXX`).
 
+Known disagreements with xEdit (first full run on the owner's install, 2026-10-06; the
+lab compares `type`, `edid`, `full`; fnvtool and `oracle_esm.py` agree on all of them):
+
+- GunRunnersArsenal.esm REFR stored as 0x02000801 (a test-cell placement of the
+  Faderator): xEdit reports 0x01000801 [observed]. We report the stored value.
+- Records whose EDID/FULL subrecord is absent from the file, where xEdit's view still
+  shows the field as an empty, non-greyed row and the script exports `""` instead of
+  `null` [observed in FNVEdit; the cause, xEdit materialising fields its definitions mark
+  as required, is a hypothesis]: FalloutNV.esm DIAL 0x00152CCA (`edid`), DeadMoney.esm
+  RACE 0x01005819 (`full`), OldWorldBlues.esm 0x0101533F (`full`, not inspected).
+- These four scenarios therefore fail by one record each. Accepting them is the owner's
+  decision (parity-lab/AGENT.md: agents never edit goldens or scenarios).
+
 ## Tests
 
 ```
