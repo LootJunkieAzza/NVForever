@@ -9,3 +9,4 @@ license.workspace = true
 fnv-util = { path = "../fnv-util" }
 fnv-inflate = { path = "../fnv-inflate" }
 thiserror.workspace = true
+rayon = "1"

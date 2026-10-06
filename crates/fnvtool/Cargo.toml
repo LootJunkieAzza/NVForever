@@ -18,3 +18,4 @@ fnv-bsa = { path = "../fnv-bsa" }
 fnv-esm = { path = "../fnv-esm" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+rayon = "1"

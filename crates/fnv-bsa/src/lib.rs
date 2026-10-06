@@ -10,6 +10,7 @@
 //! never silently dropped. Anything inconsistent becomes a `Warning`, not a panic.
 
 use fnv_util::{cp1252, Cursor};
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -420,6 +421,42 @@ impl Archive {
         let raw = self.read_raw(r)?;
         let compressed = self.is_compressed(r);
         decode_block_checked(&raw, compressed, self.embeds_names(), &cp1252::decode(&r.name))
+    }
+
+    /// Decode many files and summarise each decoded file with `f`, in parallel.
+    /// Results are in the order of `recs` and equal to calling
+    /// [`Archive::extract_checked`] on each. Stored blocks are read sequentially in
+    /// batches of about 64 MiB, so memory stays bounded for large archives.
+    pub fn decode_files<T: Send>(
+        &mut self,
+        recs: &[FileRecord],
+        f: impl Fn(&[u8]) -> T + Sync,
+    ) -> Vec<Result<(T, fnv_inflate::Trailer), BsaError>> {
+        const BATCH_BYTES: usize = 64 << 20;
+        let embeds = self.embeds_names();
+        let mut out = Vec::with_capacity(recs.len());
+        let mut rest = recs;
+        while !rest.is_empty() {
+            let mut batch = Vec::new();
+            let mut bytes = 0usize;
+            while let Some((r, tail)) = rest.split_first() {
+                if !batch.is_empty() && bytes >= BATCH_BYTES {
+                    break;
+                }
+                bytes += r.stored_size() as usize;
+                batch.push((r, self.is_compressed(r), self.read_raw(r)));
+                rest = tail;
+            }
+            let decoded: Vec<_> = batch
+                .into_par_iter()
+                .map(|(r, compressed, raw)| {
+                    let (data, trailer) = decode_block_checked(&raw?, compressed, embeds, &cp1252::decode(&r.name))?;
+                    Ok((f(&data), trailer))
+                })
+                .collect();
+            out.extend(decoded);
+        }
+        out
     }
 
     /// Look up a file by full path (case-insensitive, either slash).
