@@ -57,7 +57,8 @@ def main(argv: list[str]) -> int:
     if len(argv) != 1:
         print(__doc__, file=sys.stderr)
         return 2
-    folder = Path(argv[0])
+    # Windows passes "C:\dir\" as C:\dir" (the \" escapes the quote); drop the stray quote.
+    folder = Path(argv[0].strip().rstrip('"'))
     files = sorted(folder.glob("*.xedit.inventory.json"))
     if not files:
         print(f"no *.xedit.inventory.json files in {folder}", file=sys.stderr)

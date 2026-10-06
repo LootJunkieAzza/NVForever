@@ -271,7 +271,9 @@ begin
   if gPluginNames.Count = 0 then
     AddMessage('Nothing selected: select one or more plugins in the left pane, then apply the script.')
   else
-    AddMessage('Done. Now run: python tools\capture\xedit\finish_export.py "' + gOutputDir + '"');
+    // No trailing backslash: in "C:\dir\" the \" would reach Python as a literal quote.
+    AddMessage('Done. Now run: python tools\capture\xedit\finish_export.py "'
+      + Copy(gOutputDir, 1, Length(gOutputDir) - 1) + '"');
   gPluginNames.Free;
   Result := 0;
 end;
