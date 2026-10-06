@@ -35,8 +35,11 @@ Mods for NVForever go into `<home>\mods\` and are layered over the read-only gam
 by NVForever's virtual file system (planned with Layer 2/3). Nothing is ever installed
 into the game's `Data` folder, so the original game keeps running exactly as before.
 
+Paths come from the `directories` crate: the home default is the Local AppData known
+folder, and the original game's user folder is located through the Documents known
+folder, so a redirected Documents folder (e.g. OneDrive) is followed. Both are untested
+on the owner's PC so far.
+
 ## Not yet handled
 
-- A Documents folder redirected away from `%USERPROFILE%\Documents` (OneDrive) is not
-  detected; the check uses the default location [hypothesis about the path].
 - Symlinks/junctions are resolved by canonicalization only for paths that exist.
