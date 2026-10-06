@@ -39,7 +39,8 @@ class XEditScriptTests(unittest.TestCase):
 
     def test_no_identifiers_missing_from_xedit_interpreter(self):
         # FNVEdit's JvInterpreter reported these as undeclared [observed].
-        missing = ["IncludeTrailingPathDelimiter"]
+        # Ord(s[i]) gave "Type mismatch"; InputQuery garbled its default and returned "".
+        missing = ["IncludeTrailingPathDelimiter", "Ord(", "InputQuery", "InputBox"]
         for i, l in enumerate(self.lines, 1):
             code = strip_strings(l.split("//", 1)[0])
             for name in missing:
