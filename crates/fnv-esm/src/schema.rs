@@ -120,16 +120,9 @@ pub struct Schema {
     pub files: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("schema error: {0}")]
 pub struct SchemaError(pub String);
-
-impl fmt::Display for SchemaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "schema error: {}", self.0)
-    }
-}
-
-impl std::error::Error for SchemaError {}
 
 fn sig4(s: &str, ctx: &str) -> Result<[u8; 4], SchemaError> {
     let b = s.as_bytes();

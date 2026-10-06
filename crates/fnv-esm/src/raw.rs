@@ -6,7 +6,6 @@
 
 use fnv_util::{tag_str, Cursor};
 use std::borrow::Cow;
-use std::fmt;
 
 pub const RECORD_HEADER_SIZE: usize = 24;
 pub const GROUP_HEADER_SIZE: usize = 24;
@@ -22,26 +21,16 @@ pub mod record_flags {
     pub const COMPRESSED: u32 = 0x0004_0000;
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum EsmError {
+    /// The message embeds the io::Error, so it is not declared as #[source].
+    #[error("I/O error: {0}")]
     Io(std::io::Error),
+    #[error("structure error at 0x{offset:x}: {msg}")]
     Structure { offset: u64, msg: String },
+    #[error("cannot decompress record {form_id:08X} at 0x{offset:x}: {msg}")]
     Decompress { offset: u64, form_id: u32, msg: String },
 }
-
-impl fmt::Display for EsmError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EsmError::Io(e) => write!(f, "I/O error: {e}"),
-            EsmError::Structure { offset, msg } => write!(f, "structure error at 0x{offset:x}: {msg}"),
-            EsmError::Decompress { offset, form_id, msg } => {
-                write!(f, "cannot decompress record {form_id:08X} at 0x{offset:x}: {msg}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for EsmError {}
 
 impl From<std::io::Error> for EsmError {
     fn from(e: std::io::Error) -> Self {

@@ -48,20 +48,13 @@ pub struct Cursor<'a> {
     pub pos: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("read of {wanted} bytes at offset {pos} exceeds length {len}")]
 pub struct OutOfBounds {
     pub pos: usize,
     pub wanted: usize,
     pub len: usize,
 }
-
-impl std::fmt::Display for OutOfBounds {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "read of {} bytes at offset {} exceeds length {}", self.wanted, self.pos, self.len)
-    }
-}
-
-impl std::error::Error for OutOfBounds {}
 
 macro_rules! rd {
     ($name:ident, $t:ty, $n:expr) => {
