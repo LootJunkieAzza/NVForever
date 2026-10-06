@@ -8,3 +8,10 @@ license.workspace = true
 [dependencies]
 fnv-util = { path = "../fnv-util" }
 fnv-inflate = { path = "../fnv-inflate" }
+thiserror.workspace = true
+rayon = "1"
+tracing = "0.1"
+
+[dev-dependencies]
+proptest = "1"
+tempfile = "3"

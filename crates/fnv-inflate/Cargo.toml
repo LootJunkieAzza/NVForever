@@ -1,8 +1,14 @@
 [package]
 name = "fnv-inflate"
-description = "Dependency-free zlib/DEFLATE decoder and stored-block encoder"
+description = "zlib decoding with trailer diagnostics (flate2 with the zlib-rs backend) and a stored-block encoder"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
+adler2 = "2"
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest = "1"

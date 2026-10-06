@@ -1,53 +1,55 @@
 //! `fnvtool setup` / `fnvtool paths`: NVForever's own home, kept apart from the game.
 
-use crate::{Args, CmdError};
+use crate::HomeArg;
+use anyhow::{bail, Context};
 use fnv_install::{check_separation, original_user_dir, Config, EngineHome, GameInstall};
-use fnv_json::Value;
-use std::path::PathBuf;
+use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
 
-fn home_from(args: &Args) -> Result<EngineHome, CmdError> {
-    match args.value("home") {
+fn home_from(args: &HomeArg) -> anyhow::Result<EngineHome> {
+    match &args.home {
         Some(h) => Ok(EngineHome::new(h)),
         None => EngineHome::default_root()
             .map(EngineHome::new)
-            .ok_or_else(|| CmdError::Failed("cannot determine a home directory; pass --home or set NVFOREVER_HOME".into())),
+            .context("cannot determine a home directory; pass --home or set NVFOREVER_HOME"),
     }
 }
 
 fn path_str(p: &std::path::Path) -> Value {
-    Value::from(p.to_string_lossy().into_owned())
+    json!(p.to_string_lossy())
 }
 
 fn report(home: &EngineHome, game: Option<&GameInstall>) -> Value {
     let exe = std::env::current_exe().ok();
-    let mut v = Value::object();
-    v.set("schema", "nvforever.paths/1")
-        .set("home", path_str(&home.root))
-        .set("config_file", path_str(&home.config_file()))
-        .set("saves", path_str(&home.saves()))
-        .set("logs", path_str(&home.logs()))
-        .set("cache", path_str(&home.cache()))
-        .set("mods", path_str(&home.mods()))
-        .set("executable", exe.as_deref().map(path_str).unwrap_or(Value::Null))
-        .set("original_game_user_dir_never_touched", original_user_dir().as_deref().map(path_str).unwrap_or(Value::Null));
+    let mut v = json!({
+        "schema": "nvforever.paths/1",
+        "home": path_str(&home.root),
+        "config_file": path_str(&home.config_file()),
+        "saves": path_str(&home.saves()),
+        "logs": path_str(&home.logs()),
+        "cache": path_str(&home.cache()),
+        "mods": path_str(&home.mods()),
+        "executable": exe.as_deref().map(path_str),
+        "original_game_user_dir_never_touched": original_user_dir().as_deref().map(path_str),
+    });
     match game {
         Some(g) => {
-            let viol = check_separation(home, g, exe.as_deref());
-            v.set("game_install", path_str(&g.root))
-                .set("game_data_read_only", path_str(&g.data))
-                .set("separated", viol.is_empty())
-                .set("violations", Value::Array(viol.iter().map(|x| Value::from(x.0.clone())).collect()));
+            let viol: Vec<String> = check_separation(home, g, exe.as_deref()).into_iter().map(|x| x.0).collect();
+            v["game_install"] = path_str(&g.root);
+            v["game_data_read_only"] = path_str(&g.data);
+            v["separated"] = json!(viol.is_empty());
+            v["violations"] = json!(viol);
         }
         None => {
-            v.set("game_install", Value::Null).set("separated", Value::Null);
+            v["game_install"] = Value::Null;
+            v["separated"] = Value::Null;
         }
     }
     v
 }
 
-pub fn paths(rest: &[String]) -> Result<Value, CmdError> {
-    let args = Args::parse(rest, &["home"]).map_err(CmdError::Usage)?;
-    let home = home_from(&args)?;
+pub fn paths(args: &HomeArg) -> anyhow::Result<Value> {
+    let home = home_from(args)?;
     let cfg = Config::load(&home)?;
     let game = match &cfg.game_dir {
         Some(d) => Some(GameInstall::open(d)?),
@@ -56,14 +58,12 @@ pub fn paths(rest: &[String]) -> Result<Value, CmdError> {
     Ok(report(&home, game.as_ref()))
 }
 
-pub fn setup(rest: &[String]) -> Result<Value, CmdError> {
-    let args = Args::parse(rest, &["home", "game"]).map_err(CmdError::Usage)?;
-    let home = home_from(&args)?;
-    let game_dir = args.value("game").ok_or_else(|| CmdError::Usage("setup needs --game <Fallout New Vegas folder>".into()))?;
+pub fn setup(game_dir: &Path, args: &HomeArg) -> anyhow::Result<Value> {
+    let home = home_from(args)?;
     let game = GameInstall::open(game_dir)?;
     let viol = check_separation(&home, &game, std::env::current_exe().ok().as_deref());
     if !viol.is_empty() {
-        return Err(CmdError::Failed(fnv_install::InstallError::Overlap(viol).to_string()));
+        bail!(fnv_install::InstallError::Overlap(viol));
     }
     home.create()?;
     Config { game_dir: Some(PathBuf::from(&game.root)) }.save(&home, Some(&game))?;
