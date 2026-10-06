@@ -29,7 +29,8 @@ class LabConfig:
     def load(path: str | os.PathLike) -> "LabConfig":
         p = Path(path).resolve()
         try:
-            raw = json.loads(p.read_text(encoding="utf-8"))
+            # utf-8-sig: Windows PowerShell 5.1's "-Encoding utf8" writes a BOM.
+            raw = json.loads(p.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError) as e:
             raise ConfigError(f"cannot read config {p}: {e}") from e
         local = raw.get("local_overlay")
@@ -37,7 +38,7 @@ class LabConfig:
             lp = (p.parent / local)
             if lp.exists():
                 try:
-                    overlay = json.loads(lp.read_text(encoding="utf-8"))
+                    overlay = json.loads(lp.read_text(encoding="utf-8-sig"))
                 except json.JSONDecodeError as e:
                     raise ConfigError(f"bad local overlay {lp}: {e}") from e
                 raw = _merge(raw, overlay)
@@ -67,6 +68,11 @@ class LabConfig:
             baseline_path=rp(raw.get("baseline", "baseline.json")),
             default_timeout_s=float(raw.get("default_timeout_s", 600)),
         )
+
+
+def unset_vars(cfg: LabConfig) -> list[str]:
+    """Variables still holding a committed "SET_ME" placeholder."""
+    return sorted(k for k, v in cfg.vars.items() if v.startswith("SET_ME"))
 
 
 def _merge(a: dict, b: dict) -> dict:

@@ -10,7 +10,7 @@
 //! never silently dropped. Anything inconsistent becomes a `Warning`, not a panic.
 
 use fnv_util::{cp1252, Cursor};
-use std::fmt;
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -39,32 +39,25 @@ pub const SIZE_COMPRESSION_TOGGLE: u32 = 0x4000_0000;
 pub const SIZE_UNKNOWN_BIT31: u32 = 0x8000_0000;
 pub const SIZE_MASK: u32 = 0x3FFF_FFFF;
 
-#[derive(Debug)]
+// Messages embed the inner error, so no variant declares a #[source]: an error
+// chain printer would otherwise repeat it.
+#[derive(Debug, thiserror::Error)]
 pub enum BsaError {
+    #[error("I/O error: {0}")]
     Io(io::Error),
+    #[error("not a BSA archive (bad magic)")]
     NotBsa,
+    #[error("unsupported BSA version {0} (expected 104)")]
     UnsupportedVersion(u32),
+    #[error("Xbox 360 (big-endian) archives are not supported")]
     BigEndian,
+    #[error("archive truncated: {0}")]
     Truncated(String),
+    #[error("cannot decompress {path}: {err}")]
     Decompress { path: String, err: fnv_inflate::InflateError },
+    #[error("layout error: {0}")]
     Layout(String),
 }
-
-impl fmt::Display for BsaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BsaError::Io(e) => write!(f, "I/O error: {e}"),
-            BsaError::NotBsa => write!(f, "not a BSA archive (bad magic)"),
-            BsaError::UnsupportedVersion(v) => write!(f, "unsupported BSA version {v} (expected 104)"),
-            BsaError::BigEndian => write!(f, "Xbox 360 (big-endian) archives are not supported"),
-            BsaError::Truncated(w) => write!(f, "archive truncated: {w}"),
-            BsaError::Decompress { path, err } => write!(f, "cannot decompress {path}: {err}"),
-            BsaError::Layout(w) => write!(f, "layout error: {w}"),
-        }
-    }
-}
-
-impl std::error::Error for BsaError {}
 
 impl From<io::Error> for BsaError {
     fn from(e: io::Error) -> Self {
@@ -130,6 +123,10 @@ pub struct Archive {
     pub header: Header,
     pub folders: Vec<FolderRecord>,
     pub warnings: Vec<Warning>,
+    /// Bytes of the file-name block after the last name (counted in
+    /// `total_file_name_length`). Empty in canonical archives; 105 bytes in
+    /// `Fallout - Voices1.bsa` [observed].
+    pub name_block_tail: Vec<u8>,
     file: File,
     file_len: u64,
 }
@@ -309,20 +306,37 @@ impl Archive {
                 detail: format!("header says {}, folder records sum to {total_files}", header.file_count),
             });
         }
+        let mut name_block_tail = Vec::new();
         if has_file_names {
             let names = c
                 .bytes(header.total_file_name_length as usize)
                 .map_err(|e| BsaError::Truncated(e.to_string()))?;
             let mut it = names.split(|&b| b == 0);
+            let mut used = 0usize;
             for f in folders.iter_mut() {
                 for r in f.files.iter_mut() {
                     match it.next() {
-                        Some(n) => r.name = n.to_vec(),
+                        Some(n) => {
+                            r.name = n.to_vec();
+                            used += n.len() + 1;
+                        }
                         None => {
                             return Err(BsaError::Layout("file name block has fewer names than files".into()))
                         }
                     }
                 }
+            }
+            if used < names.len() {
+                name_block_tail = names[used..].to_vec();
+                let zeros = name_block_tail.iter().all(|&b| b == 0);
+                warnings.push(Warning {
+                    code: "name_block_slack",
+                    detail: format!(
+                        "{} byte(s) after the last file name ({})",
+                        name_block_tail.len(),
+                        if zeros { "all NUL" } else { "not all NUL" }
+                    ),
+                });
             }
         }
         // Consistency checks that drive the work queue; never fatal.
@@ -354,19 +368,31 @@ impl Archive {
                 }
             }
         }
-        // Canonical data layout: blocks follow the name block contiguously, in record
-        // order, and the file ends with the last block [observed in shipped archives].
+        // Data layout. Usual: blocks follow the name block contiguously in record order
+        // and the file ends with the last block [observed]. Contiguity is checked in
+        // offset order, so an archive whose blocks are merely stored in another order
+        // (Fallout - Textures.bsa [observed]) reports only data_not_in_record_order.
+        let mut by_offset: Vec<&FileRecord> = folders.iter().flat_map(|f| f.files.iter()).collect();
+        let in_record_order = by_offset.windows(2).all(|w| w[0].offset <= w[1].offset);
+        if !in_record_order {
+            let moved = by_offset.windows(2).filter(|w| w[0].offset > w[1].offset).count();
+            warnings.push(Warning {
+                code: "data_not_in_record_order",
+                detail: format!("{moved} place(s) where a block is stored before the previous record's"),
+            });
+            by_offset.sort_by_key(|r| r.offset);
+        }
         let mut expected = start + dir_len;
         let mut gaps = 0u64;
         let mut first_gap = None;
-        for r in folders.iter().flat_map(|f| f.files.iter()) {
+        for r in by_offset {
             if r.offset as u64 != expected {
                 gaps += 1;
                 if first_gap.is_none() {
                     first_gap = Some(format!("{}: offset {} expected {}", cp1252::decode(&r.name), r.offset, expected));
                 }
             }
-            expected = r.offset as u64 + r.stored_size() as u64;
+            expected = expected.max(r.offset as u64 + r.stored_size() as u64);
         }
         if let Some(g) = first_gap {
             warnings.push(Warning { code: "data_not_contiguous", detail: format!("{gaps} block(s); first {g}") });
@@ -383,7 +409,16 @@ impl Archive {
                 break;
             }
         }
-        Ok(Archive { header, folders, warnings, file, file_len })
+        tracing::debug!(
+            folders = header.folder_count,
+            files = header.file_count,
+            flags = header.archive_flags,
+            "opened BSA"
+        );
+        for w in &warnings {
+            tracing::debug!(code = w.code, detail = %w.detail, "BSA layout anomaly");
+        }
+        Ok(Archive { header, folders, warnings, name_block_tail, file, file_len })
     }
 
     pub fn file_len(&self) -> u64 {
@@ -428,6 +463,42 @@ impl Archive {
         let raw = self.read_raw(r)?;
         let compressed = self.is_compressed(r);
         decode_block_checked(&raw, compressed, self.embeds_names(), &cp1252::decode(&r.name))
+    }
+
+    /// Decode many files and summarise each decoded file with `f`, in parallel.
+    /// Results are in the order of `recs` and equal to calling
+    /// [`Archive::extract_checked`] on each. Stored blocks are read sequentially in
+    /// batches of about 64 MiB, so memory stays bounded for large archives.
+    pub fn decode_files<T: Send>(
+        &mut self,
+        recs: &[FileRecord],
+        f: impl Fn(&[u8]) -> T + Sync,
+    ) -> Vec<Result<(T, fnv_inflate::Trailer), BsaError>> {
+        const BATCH_BYTES: usize = 64 << 20;
+        let embeds = self.embeds_names();
+        let mut out = Vec::with_capacity(recs.len());
+        let mut rest = recs;
+        while !rest.is_empty() {
+            let mut batch = Vec::new();
+            let mut bytes = 0usize;
+            while let Some((r, tail)) = rest.split_first() {
+                if !batch.is_empty() && bytes >= BATCH_BYTES {
+                    break;
+                }
+                bytes += r.stored_size() as usize;
+                batch.push((r, self.is_compressed(r), self.read_raw(r)));
+                rest = tail;
+            }
+            let decoded: Vec<_> = batch
+                .into_par_iter()
+                .map(|(r, compressed, raw)| {
+                    let (data, trailer) = decode_block_checked(&raw?, compressed, embeds, &cp1252::decode(&r.name))?;
+                    Ok((f(&data), trailer))
+                })
+                .collect();
+            out.extend(decoded);
+        }
+        out
     }
 
     /// Look up a file by full path (case-insensitive, either slash).
@@ -582,6 +653,31 @@ pub fn write_archive_streaming<W: Write, F: FnMut(usize, usize) -> Result<Vec<u8
     file_flags: u16,
     file_flags_padding: u16,
     folders: &[LayoutFolder],
+    fetch: F,
+) -> Result<(), BsaError> {
+    let extras = LayoutExtras::default();
+    write_archive_layout(out, archive_flags, file_flags, file_flags_padding, folders, &extras, fetch)
+}
+
+/// Departures from the canonical layout that a byte-identical rewrite must reproduce.
+#[derive(Debug, Clone, Default)]
+pub struct LayoutExtras {
+    /// Bytes written after the last file name, inside the name block.
+    pub name_block_tail: Vec<u8>,
+    /// Order of the data blocks as `(folder, file)` indices into the `folders` given;
+    /// `None` = record order. Must list every file exactly once.
+    pub data_order: Option<Vec<(usize, usize)>>,
+}
+
+/// [`write_archive_streaming`] with [`LayoutExtras`]. Records and names are always in
+/// canonical (hash-sorted) order; blocks are packed contiguously in `data_order`.
+pub fn write_archive_layout<W: Write, F: FnMut(usize, usize) -> Result<Vec<u8>, BsaError>>(
+    out: &mut W,
+    archive_flags: u32,
+    file_flags: u16,
+    file_flags_padding: u16,
+    folders: &[LayoutFolder],
+    extras: &LayoutExtras,
     mut fetch: F,
 ) -> Result<(), BsaError> {
     let mut order: Vec<usize> = (0..folders.len()).collect();
@@ -600,10 +696,33 @@ pub fn write_archive_streaming<W: Write, F: FnMut(usize, usize) -> Result<Vec<u8
     let file_count: u32 = folders.iter().map(|f| f.files.len() as u32).sum();
     let total_folder_name_length: u32 =
         if has_dir { folders.iter().map(|f| f.name.len() as u32 + 1).sum() } else { 0 };
+    if !has_names && !extras.name_block_tail.is_empty() {
+        return Err(BsaError::Layout("name block tail without a file name block".into()));
+    }
     let total_file_name_length: u32 = if has_names {
-        folders.iter().flat_map(|f| f.files.iter()).map(|x| x.name.len() as u32 + 1).sum()
+        folders.iter().flat_map(|f| f.files.iter()).map(|x| x.name.len() as u32 + 1).sum::<u32>()
+            + extras.name_block_tail.len() as u32
     } else {
         0
+    };
+    // Data order: canonical record order unless the caller preserves another one.
+    let canonical: Vec<(usize, usize)> =
+        order.iter().enumerate().flat_map(|(k, &fi)| sorted_files[k].iter().map(move |&ri| (fi, ri))).collect();
+    let data_order: &[(usize, usize)] = match &extras.data_order {
+        None => &canonical,
+        Some(d) => {
+            let mut seen: Vec<Vec<bool>> = folders.iter().map(|f| vec![false; f.files.len()]).collect();
+            for &(fi, ri) in d {
+                match seen.get_mut(fi).and_then(|v| v.get_mut(ri)) {
+                    Some(x) if !*x => *x = true,
+                    _ => return Err(BsaError::Layout("data_order is not a permutation of the files".into())),
+                }
+            }
+            if d.len() != canonical.len() {
+                return Err(BsaError::Layout("data_order is not a permutation of the files".into()));
+            }
+            d
+        }
     };
 
     let mut buf: Vec<u8> = Vec::new();
@@ -635,7 +754,12 @@ pub fn write_archive_streaming<W: Write, F: FnMut(usize, usize) -> Result<Vec<u8
         buf.extend_from_slice(&(sorted_files[k].len() as u32).to_le_bytes());
         buf.extend_from_slice(&(off as u32).to_le_bytes());
     }
+    let mut offsets: Vec<Vec<u64>> = folders.iter().map(|f| vec![0; f.files.len()]).collect();
     let mut data_off = data_start as u64;
+    for &(fi, ri) in data_order {
+        offsets[fi][ri] = data_off;
+        data_off += folders[fi].files[ri].len;
+    }
     for (k, &fi) in order.iter().enumerate() {
         let f = &folders[fi];
         if has_dir {
@@ -648,13 +772,13 @@ pub fn write_archive_streaming<W: Write, F: FnMut(usize, usize) -> Result<Vec<u8
         }
         for &ri in &sorted_files[k] {
             let x = &f.files[ri];
-            if x.len > SIZE_MASK as u64 || data_off > u32::MAX as u64 {
+            let off = offsets[fi][ri];
+            if x.len > SIZE_MASK as u64 || off > u32::MAX as u64 {
                 return Err(BsaError::Layout("file too large".into()));
             }
             buf.extend_from_slice(&name_hash(&x.name, true).to_le_bytes());
             buf.extend_from_slice(&((x.len as u32) | (x.size_flag_bits & !SIZE_MASK)).to_le_bytes());
-            buf.extend_from_slice(&(data_off as u32).to_le_bytes());
-            data_off += x.len;
+            buf.extend_from_slice(&(off as u32).to_le_bytes());
         }
     }
     if has_names {
@@ -664,17 +788,16 @@ pub fn write_archive_streaming<W: Write, F: FnMut(usize, usize) -> Result<Vec<u8
                 buf.push(0);
             }
         }
+        buf.extend_from_slice(&extras.name_block_tail);
     }
     debug_assert_eq!(buf.len(), data_start);
     out.write_all(&buf)?;
-    for (k, &fi) in order.iter().enumerate() {
-        for &ri in &sorted_files[k] {
-            let d = fetch(fi, ri)?;
-            if d.len() as u64 != folders[fi].files[ri].len {
-                return Err(BsaError::Layout("fetched block length differs from declared length".into()));
-            }
-            out.write_all(&d)?;
+    for &(fi, ri) in data_order {
+        let d = fetch(fi, ri)?;
+        if d.len() as u64 != folders[fi].files[ri].len {
+            return Err(BsaError::Layout("fetched block length differs from declared length".into()));
         }
+        out.write_all(&d)?;
     }
     Ok(())
 }
@@ -701,7 +824,13 @@ pub fn rewrite(archive: &mut Archive, out: &mut impl Write) -> Result<(), BsaErr
         .collect();
     let h = archive.header.clone();
     let recs: Vec<Vec<FileRecord>> = archive.folders.iter().map(|f| f.files.clone()).collect();
-    write_archive_streaming(out, h.archive_flags, h.file_flags, h.file_flags_padding, &meta, |fi, ri| {
+    // Keep the archive's own block order and any bytes after the last name, so that
+    // archives laid out differently from the canonical rule still rebuild identically.
+    let mut data_order: Vec<(usize, usize)> =
+        recs.iter().enumerate().flat_map(|(fi, f)| (0..f.len()).map(move |ri| (fi, ri))).collect();
+    data_order.sort_by_key(|&(fi, ri)| recs[fi][ri].offset);
+    let extras = LayoutExtras { name_block_tail: archive.name_block_tail.clone(), data_order: Some(data_order) };
+    write_archive_layout(out, h.archive_flags, h.file_flags, h.file_flags_padding, &meta, &extras, |fi, ri| {
         archive.read_raw(&recs[fi][ri])
     })
 }
@@ -847,6 +976,104 @@ mod tests {
         assert!(!same);
         assert_eq!(at, Some(bytes.len() as u64 - 3));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    mod malformed {
+        use super::*;
+        use proptest::prelude::*;
+        use proptest::sample::Index;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(128))]
+
+            /// Mutated archives open with an error or with warnings, every file
+            /// extracts or reports an error, and an archive that opens without
+            /// warnings and decodes cleanly is rewritten byte-for-byte.
+            #[test]
+            fn mutated_archives(
+                edits in prop::collection::vec((any::<Index>(), any::<u8>()), 1..6),
+                cut in prop::option::of(any::<Index>()),
+            ) {
+                let mut bytes = Vec::new();
+                write_archive(&mut bytes, flags::DIR_NAMES | flags::FILE_NAMES, 0x3, 0, &sample()).unwrap();
+                for (i, b) in &edits {
+                    let at = i.index(bytes.len());
+                    bytes[at] = *b;
+                }
+                if let Some(c) = cut {
+                    bytes.truncate(c.index(bytes.len() + 1));
+                }
+                let f = tempfile::NamedTempFile::new().unwrap();
+                std::fs::write(f.path(), &bytes).unwrap();
+                if let Ok(mut a) = Archive::open(f.path()) {
+                    let recs: Vec<FileRecord> = a.entries().map(|e| e.record.clone()).collect();
+                    let par = a.decode_files(&recs, |d| d.to_vec());
+                    let mut clean = a.warnings.is_empty();
+                    for (r, p) in recs.iter().zip(&par) {
+                        let one = a.extract_checked(r);
+                        prop_assert_eq!(one.is_ok(), p.is_ok());
+                        if let (Ok(x), Ok(y)) = (one, p) {
+                            prop_assert_eq!(&x.0, &y.0);
+                            clean &= x.1 == fnv_inflate::Trailer::Verified;
+                        } else {
+                            clean = false;
+                        }
+                    }
+                    let mut again = Vec::new();
+                    let rewritten = rewrite(&mut a, &mut again);
+                    if clean {
+                        rewritten.unwrap();
+                        prop_assert_eq!(again, bytes);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Layouts observed in shipped archives that differ from the canonical rule:
+    /// blocks stored out of record order (Fallout - Textures.bsa) and bytes after the
+    /// last file name (Fallout - Voices1.bsa). Both must rebuild byte-identically.
+    #[test]
+    fn noncanonical_layouts_roundtrip() {
+        let folders = sample();
+        let meta: Vec<LayoutFolder> = folders
+            .iter()
+            .map(|f| LayoutFolder {
+                name: f.name.clone(),
+                files: f
+                    .files
+                    .iter()
+                    .map(|x| LayoutFile { name: x.name.clone(), size_flag_bits: x.size_flag_bits, len: x.data.len() as u64 })
+                    .collect(),
+            })
+            .collect();
+        let reversed: Vec<(usize, usize)> = vec![(1, 0), (0, 1), (0, 0)];
+        for (extras, expect) in [
+            (LayoutExtras { name_block_tail: vec![0; 5], data_order: None }, "name_block_slack"),
+            (LayoutExtras { name_block_tail: vec![], data_order: Some(reversed.clone()) }, "data_not_in_record_order"),
+            (LayoutExtras { name_block_tail: b"xy\0".to_vec(), data_order: Some(reversed.clone()) }, "name_block_slack"),
+        ] {
+            let mut bytes = Vec::new();
+            write_archive_layout(&mut bytes, flags::DIR_NAMES | flags::FILE_NAMES, 0x3, 0, &meta, &extras, |fi, ri| {
+                Ok(folders[fi].files[ri].data.clone())
+            })
+            .unwrap();
+            let f = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(f.path(), &bytes).unwrap();
+            let mut a = Archive::open(f.path()).unwrap();
+            let codes: Vec<&str> = a.warnings.iter().map(|w| w.code).collect();
+            assert!(codes.contains(&expect), "{codes:?}");
+            assert!(!codes.contains(&"data_not_contiguous") && !codes.contains(&"trailing_bytes"), "{codes:?}");
+            assert_eq!(a.name_block_tail, extras.name_block_tail);
+            let (fi, ri) = a.find("textures\\c.dds").unwrap();
+            let r = a.folders[fi].files[ri].clone();
+            assert_eq!(a.extract(&r).unwrap(), vec![7u8; 1000]);
+            let mut again = Vec::new();
+            rewrite(&mut a, &mut again).unwrap();
+            assert_eq!(again, bytes);
+        }
+        let bad = LayoutExtras { name_block_tail: vec![], data_order: Some(vec![(0, 0), (0, 0), (1, 0)]) };
+        assert!(write_archive_layout(&mut Vec::new(), 3, 0, 0, &meta, &bad, |_, _| Ok(vec![])).is_err());
     }
 
     #[test]

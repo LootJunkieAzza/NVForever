@@ -37,6 +37,15 @@ class XEditScriptTests(unittest.TestCase):
         # the final "end." closes the unit, which has no matching begin
         self.assertEqual(depth, -1)
 
+    def test_no_identifiers_missing_from_xedit_interpreter(self):
+        # FNVEdit's JvInterpreter reported these as undeclared [observed].
+        # Ord(s[i]) gave "Type mismatch"; InputQuery garbled its default and returned "".
+        missing = ["IncludeTrailingPathDelimiter", "Ord(", "InputQuery", "InputBox"]
+        for i, l in enumerate(self.lines, 1):
+            code = strip_strings(l.split("//", 1)[0])
+            for name in missing:
+                self.assertNotIn(name, code, f"line {i}: {l}")
+
     def test_output_name_matches_lab_scenarios(self):
         text = "\n".join(self.lines)
         self.assertIn("ChangeFileExt(fileName, '') + '.xedit.inventory.json'", text)

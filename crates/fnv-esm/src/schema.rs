@@ -18,7 +18,8 @@
 //! `{"enum": prim, "values": {"0": "Name"}}`, `{"flags": prim, "bits": {"0": "Name"}}`.
 //! Struct fields may be `"optional": true` (allowed to be absent at the end).
 
-use fnv_json::Value;
+use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
@@ -119,16 +120,9 @@ pub struct Schema {
     pub files: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("schema error: {0}")]
 pub struct SchemaError(pub String);
-
-impl fmt::Display for SchemaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "schema error: {}", self.0)
-    }
-}
-
-impl std::error::Error for SchemaError {}
 
 fn sig4(s: &str, ctx: &str) -> Result<[u8; 4], SchemaError> {
     let b = s.as_bytes();
@@ -140,7 +134,7 @@ fn sig4(s: &str, ctx: &str) -> Result<[u8; 4], SchemaError> {
 
 fn parse_type(v: &Value, ctx: &str) -> Result<TypeDef, SchemaError> {
     match v {
-        Value::Str(s) => Ok(match Prim::parse(s) {
+        Value::String(s) => Ok(match Prim::parse(s) {
             Some(p) => TypeDef::Prim(p),
             None => TypeDef::Named(s.clone()),
         }),
@@ -239,7 +233,7 @@ impl Schema {
     }
 
     pub fn merge_str(&mut self, text: &str, label: &str) -> Result<(), SchemaError> {
-        let v = fnv_json::parse(text).map_err(|e| SchemaError(format!("{label}: {e}")))?;
+        let v = parse_strict(text).map_err(|e| SchemaError(format!("{label}: {e}")))?;
         if v.get("format").and_then(Value::as_str) != Some("fnv.schema/1") {
             return Err(SchemaError(format!("{label}: missing \"format\": \"fnv.schema/1\"")));
         }
@@ -351,12 +345,74 @@ impl Schema {
     }
 }
 
+/// Parse JSON like `serde_json::from_str`, but reject duplicate object keys: in a
+/// schema file a repeated key would otherwise silently replace a definition.
+pub fn parse_strict(text: &str) -> Result<Value, serde_json::Error> {
+    serde_json::from_str::<Strict>(text).map(|s| s.0)
+}
+
+struct Strict(Value);
+
+impl<'de> Deserialize<'de> for Strict {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        d.deserialize_any(StrictVisitor).map(Strict)
+    }
+}
+
+struct StrictVisitor;
+
+impl<'de> Visitor<'de> for StrictVisitor {
+    type Value = Value;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("any JSON value")
+    }
+    fn visit_bool<E>(self, v: bool) -> Result<Value, E> {
+        Ok(Value::Bool(v))
+    }
+    fn visit_i64<E>(self, v: i64) -> Result<Value, E> {
+        Ok(Value::from(v))
+    }
+    fn visit_u64<E>(self, v: u64) -> Result<Value, E> {
+        Ok(Value::from(v))
+    }
+    fn visit_f64<E>(self, v: f64) -> Result<Value, E> {
+        Ok(Value::from(v))
+    }
+    fn visit_str<E>(self, v: &str) -> Result<Value, E> {
+        Ok(Value::String(v.to_string()))
+    }
+    fn visit_string<E>(self, v: String) -> Result<Value, E> {
+        Ok(Value::String(v))
+    }
+    fn visit_unit<E>(self) -> Result<Value, E> {
+        Ok(Value::Null)
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
+        let mut out = Vec::new();
+        while let Some(Strict(v)) = seq.next_element()? {
+            out.push(v);
+        }
+        Ok(Value::Array(out))
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+        let mut out = Map::new();
+        while let Some(k) = map.next_key::<String>()? {
+            let Strict(v) = map.next_value()?;
+            if out.insert(k.clone(), v).is_some() {
+                return Err(de::Error::custom(format!("duplicate key {k:?}")));
+            }
+        }
+        Ok(Value::Object(out))
+    }
+}
+
 fn collect_json(dir: &Path, out: &mut Vec<std::path::PathBuf>) -> std::io::Result<()> {
     for e in std::fs::read_dir(dir)? {
         let p = e?.path();
         if p.is_dir() {
             collect_json(&p, out)?;
-        } else if p.extension().map_or(false, |x| x == "json") {
+        } else if p.extension().is_some_and(|x| x == "json") {
             out.push(p);
         }
     }
@@ -396,5 +452,8 @@ mod tests {
         assert!(s.merge_str(opt_mid, "x").is_err());
         let mut s = Schema::default();
         assert!(s.merge_str(r#"{"format":"fnv.schema/1","common":{"TOOLONG":{"type":"u8"}}}"#, "x").is_err());
+        let mut s = Schema::default();
+        let dup = r#"{"format":"fnv.schema/1","common":{"EDID":{"type":"u8"},"EDID":{"type":"u16"}}}"#;
+        assert!(s.merge_str(dup, "x").unwrap_err().0.contains("duplicate key"));
     }
 }

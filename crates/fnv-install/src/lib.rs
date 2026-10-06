@@ -9,47 +9,27 @@
 //!
 //! Path containment is checked on canonicalized paths, case-insensitively on Windows.
 
-use fnv_json::Value;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
 pub const CONFIG_FILE: &str = "nvforever.json";
 pub const HOME_ENV: &str = "NVFOREVER_HOME";
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum InstallError {
+    /// The message embeds the io::Error, so it is not declared as #[source].
+    #[error("{}: {}", .0.display(), .1)]
     Io(PathBuf, std::io::Error),
+    #[error("{} is not a Fallout: New Vegas install (expected Data\\FalloutNV.esm inside it)", .0.display())]
     NotAGameInstall(PathBuf),
+    #[error("NVForever and the original game overlap:{}", .0.iter().map(|x| format!("\n  - {x}")).collect::<String>())]
     Overlap(Vec<Violation>),
+    #[error("refusing to write {}: {reason}", path.display())]
     WriteDenied { path: PathBuf, reason: String },
+    #[error("config error: {0}")]
     Config(String),
 }
-
-impl fmt::Display for InstallError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            InstallError::Io(p, e) => write!(f, "{}: {e}", p.display()),
-            InstallError::NotAGameInstall(p) => write!(
-                f,
-                "{} is not a Fallout: New Vegas install (expected Data\\FalloutNV.esm inside it)",
-                p.display()
-            ),
-            InstallError::Overlap(v) => {
-                write!(f, "NVForever and the original game overlap:")?;
-                for x in v {
-                    write!(f, "\n  - {x}")?;
-                }
-                Ok(())
-            }
-            InstallError::WriteDenied { path, reason } => {
-                write!(f, "refusing to write {}: {reason}", path.display())
-            }
-            InstallError::Config(m) => write!(f, "config error: {m}"),
-        }
-    }
-}
-
-impl std::error::Error for InstallError {}
 
 /// The user's original game install. Opened read-only; NVForever never writes here.
 #[derive(Debug, Clone)]
@@ -84,22 +64,16 @@ pub struct EngineHome {
 }
 
 impl EngineHome {
-    /// `NVFOREVER_HOME` if set, else the platform's per-user data directory:
-    /// Windows `%LOCALAPPDATA%\NVForever`, macOS `~/Library/Application Support/NVForever`,
-    /// other Unix `$XDG_DATA_HOME/nvforever` or `~/.local/share/nvforever`.
+    /// `NVFOREVER_HOME` if set, else the platform's per-user local data directory
+    /// (from the `directories` crate): Windows `%LOCALAPPDATA%\NVForever` (the Local
+    /// AppData known folder), macOS `~/Library/Application Support/NVForever`, other
+    /// Unix `$XDG_DATA_HOME/nvforever` or `~/.local/share/nvforever`.
     pub fn default_root() -> Option<PathBuf> {
         if let Some(h) = std::env::var_os(HOME_ENV).filter(|s| !s.is_empty()) {
             return Some(PathBuf::from(h));
         }
-        if cfg!(windows) {
-            std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("NVForever"))
-        } else if cfg!(target_os = "macos") {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support/NVForever"))
-        } else if let Some(x) = std::env::var_os("XDG_DATA_HOME").filter(|s| !s.is_empty()) {
-            Some(PathBuf::from(x).join("nvforever"))
-        } else {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/nvforever"))
-        }
+        let name = if cfg!(any(windows, target_os = "macos")) { "NVForever" } else { "nvforever" };
+        directories::BaseDirs::new().map(|d| d.data_local_dir().join(name))
     }
 
     pub fn new(root: impl Into<PathBuf>) -> EngineHome {
@@ -137,12 +111,13 @@ impl EngineHome {
 }
 
 /// The original game's per-user folder (INIs, saves, plugins.txt). NVForever must not
-/// read or write it. Windows: `%USERPROFILE%\Documents\My Games\FalloutNV`
-/// [documented: community/xEdit docs; verify on the user's PC]. A redirected Documents
-/// folder is not detected yet.
+/// read or write it. Windows: `Documents\My Games\FalloutNV` [documented: community/xEdit
+/// docs; verify on the user's PC], where Documents is the Documents known folder, so a
+/// Documents folder redirected (e.g. to OneDrive or another drive) is followed.
 pub fn original_user_dir() -> Option<PathBuf> {
     if cfg!(windows) {
-        std::env::var_os("USERPROFILE").map(|u| PathBuf::from(u).join("Documents").join("My Games").join("FalloutNV"))
+        directories::UserDirs::new()
+            .and_then(|u| u.document_dir().map(|d| d.join("My Games").join("FalloutNV")))
     } else {
         None
     }
@@ -215,10 +190,20 @@ pub fn guard_write(path: &Path, game: Option<&GameInstall>) -> Result<(), Instal
     Ok(())
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+/// `nvforever.json` in the engine home. Unknown keys are ignored so older builds can
+/// read newer files.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     /// The original game's install folder (read-only input).
     pub game_dir: Option<PathBuf>,
+}
+
+#[derive(Serialize)]
+struct ConfigFile<'a> {
+    format: &'static str,
+    #[serde(flatten)]
+    config: &'a Config,
 }
 
 impl Config {
@@ -229,17 +214,15 @@ impl Config {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Config::default()),
             Err(e) => return Err(InstallError::Io(p, e)),
         };
-        let v = fnv_json::parse(&text).map_err(|e| InstallError::Config(format!("{}: {e}", p.display())))?;
-        Ok(Config { game_dir: v.get("game_dir").and_then(Value::as_str).map(PathBuf::from) })
+        serde_json::from_str(&text).map_err(|e| InstallError::Config(format!("{}: {e}", p.display())))
     }
 
     pub fn save(&self, home: &EngineHome, game: Option<&GameInstall>) -> Result<(), InstallError> {
         let p = home.config_file();
         guard_write(&p, game)?;
-        let mut v = Value::object();
-        v.set("format", "nvforever.config/1")
-            .set("game_dir", self.game_dir.as_ref().map(|d| d.to_string_lossy().into_owned()));
-        std::fs::write(&p, v.to_pretty() + "\n").map_err(|e| InstallError::Io(p, e))
+        let file = ConfigFile { format: "nvforever.config/1", config: self };
+        let text = serde_json::to_string_pretty(&file).map_err(|e| InstallError::Config(e.to_string()))?;
+        std::fs::write(&p, text + "\n").map_err(|e| InstallError::Io(p, e))
     }
 }
 
@@ -265,12 +248,19 @@ pub fn normalize(p: &Path) -> PathBuf {
             }
             return lexical(&out);
         }
-        match (existing.file_name().map(|s| s.to_os_string()), existing.parent()) {
-            (Some(name), Some(parent)) => {
-                tail.push(name);
+        // Walk up by component, not file_name(): file_name() is None for a path that
+        // ends in `..`, which used to drop to the uncanonicalized path, so a symlinked
+        // base (macOS /var -> /private/var) no longer matched its canonical form.
+        let last = match existing.components().next_back() {
+            Some(c @ (Component::Normal(_) | Component::ParentDir | Component::CurDir)) => c.as_os_str().to_os_string(),
+            _ => return lexical(&abs),
+        };
+        match existing.parent() {
+            Some(parent) => {
+                tail.push(last);
                 existing = parent.to_path_buf();
             }
-            _ => return lexical(&abs),
+            None => return lexical(&abs),
         }
     }
 }
@@ -330,6 +320,21 @@ mod tests {
         assert!(is_within(&t, &t));
         assert!(!is_within(&t.join("ab"), &t.join("a")));
         assert!(is_within(&t.join("a/../a/b"), &t.join("a")));
+        std::fs::remove_dir_all(&t).ok();
+    }
+
+    /// A base reached through a symlink (macOS: /var -> /private/var) and a path with
+    /// `..` below a directory that does not exist yet.
+    #[cfg(unix)]
+    #[test]
+    fn containment_through_symlink_with_dotdot() {
+        let t = tmp("symlink");
+        std::fs::create_dir_all(t.join("real")).unwrap();
+        std::os::unix::fs::symlink(t.join("real"), t.join("link")).unwrap();
+        let base = t.join("link");
+        assert!(is_within(&base.join("a/../a/b"), &base.join("a")));
+        assert!(is_within(&base.join("a/../a/b"), &t.join("real/a")));
+        assert!(!is_within(&base.join("a/../c"), &base.join("a")));
         std::fs::remove_dir_all(&t).ok();
     }
 

@@ -11,9 +11,9 @@ FalloutNV.esm and every DLC master load, every FormID resolves, and a complete r
 inventory matches a trusted reference.
 
 Assumptions (defaults chosen while the user was away; easy to revisit):
-- **Rust**, standard library only. The sandbox has no crates.io access, so zlib inflate,
-  JSON and SHA-256 are implemented in-tree (`fnv-inflate`, `fnv-json`, `fnv-util`). Swapping
-  in `miniz_oxide`/`serde_json` later is a local change.
+- **Rust**, originally standard library only because the first sandbox had no crates.io
+  access. Superseded 2026-10-06 by the owner's decision to use the Rust ecosystem fully:
+  see `docs/design/dependencies.md` for what replaced the in-tree zlib, JSON and SHA-256.
 - Licence placeholder **GPL-3.0-or-later** (OpenMW's choice). Not yet decided by the user.
 - Ground truth = an independent Python reader written by a separate agent from the spec
   notes only, plus the HEDR record count authored by Bethesda's own tool, plus (pending)
@@ -25,9 +25,8 @@ Assumptions (defaults chosen while the user was away; easy to revisit):
 
 | Crate | Role |
 |---|---|
-| `fnv-util` | Windows-1252 text, SHA-256, bounds-checked LE cursor |
-| `fnv-inflate` | zlib/DEFLATE decoder (RFC 1950/1951) with trailer diagnostics; stored-block encoder |
-| `fnv-json` | order-preserving JSON value, strict parser, writer |
+| `fnv-util` | Windows-1252 text (`encoding_rs`), SHA-256 (`sha2`), bounds-checked LE cursor |
+| `fnv-inflate` | zlib decoding (`flate2`, zlib-rs backend) with our own header/trailer diagnostics; stored-block encoder |
 | `fnv-bsa` | BSA v104 reader, name hash, canonical writer, byte-identical rewrite |
 | `fnv-esm` | `raw` container layer → `plugin` → `loadorder` → `schema`/`decode` → `inventory`/`survey` |
 | `fnvtool` | candidate CLI; every command prints one JSON document (`docs/cli-contract.md`) |

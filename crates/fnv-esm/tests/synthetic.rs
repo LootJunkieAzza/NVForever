@@ -125,7 +125,7 @@ fn load_order_overrides_and_remap() {
     let (wp, wr) = lo.winner(0x0000_1001).unwrap();
     assert_eq!(wp.name, "Dlc.esm");
     let decoded = decode_record(wr, &schema());
-    let s = decoded.to_compact();
+    let s = decoded.to_string();
     assert!(s.contains("20.0"), "{s}");
     assert_eq!(lo.index.len(), 3);
     assert_eq!(lo.index[&0x0000_1001].len(), 2);
@@ -152,7 +152,7 @@ fn compressed_record_decodes_and_coverage_counts() {
         cov.add_record(r, &s, None);
         if r.is_compressed() {
             let v = decode_record(r, &s);
-            let t = v.to_compact();
+            let t = v.to_string();
             assert!(t.contains("GlobC") && t.contains("3.5") && t.contains("Float"), "{t}");
         }
     });
@@ -205,7 +205,7 @@ fn stats_counts_repeated_unknown_group_types() {
     let v = fnv_esm::inventory::stats_json(&p);
     let g = v.get("by_group_type").unwrap();
     assert_eq!(g.get("unknown_11").and_then(|x| x.as_u64()), Some(3));
-    assert_eq!(g.as_object().unwrap().iter().filter(|(k, _)| k == "unknown_11").count(), 1);
+    assert_eq!(g.as_object().unwrap().iter().filter(|(k, _)| *k == "unknown_11").count(), 1);
 }
 
 #[test]
@@ -225,4 +225,99 @@ fn schema_cannot_request_unbounded_zero_width_arrays() {
     let mut cov = Coverage::default();
     visit_records(&p.nodes[1..], &mut |r, _| cov.add_record(r, &s, None));
     assert_eq!(cov.totals().4, 1, "must be reported as an error");
+}
+
+/// Malformed-input properties: parsing and decoding never panic, and whatever
+/// parses is written back byte-for-byte.
+mod malformed {
+    use super::*;
+    use proptest::prelude::*;
+    use proptest::sample::Index;
+
+    fn real_schema() -> Schema {
+        Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap()
+    }
+
+    fn exercise(p: &Plugin, schema: &Schema) {
+        let mut cov = Coverage::default();
+        visit_records(&p.nodes, &mut |r, _| {
+            let _ = r.payload_checked();
+            let _ = decode_record(r, schema);
+            cov.add_record(r, schema, Some(&mut |_| {}));
+        });
+        let _ = cov.to_json(10);
+        let _ = fnv_esm::inventory::inventory_json(p);
+        let _ = fnv_esm::inventory::stats_json(p);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn arbitrary_bytes(data in prop::collection::vec(any::<u8>(), 0..600)) {
+            if let Ok(p) = Plugin::parse(&data, "x.esp".into()) {
+                prop_assert_eq!(p.to_bytes(), data);
+            }
+        }
+
+        #[test]
+        fn mutated_plugins(
+            edits in prop::collection::vec((any::<Index>(), any::<u8>()), 1..6),
+            cut in prop::option::of(any::<Index>()),
+        ) {
+            let schema = real_schema();
+            let mut f = dlc();
+            for (i, b) in &edits {
+                let at = i.index(f.len());
+                f[at] = *b;
+            }
+            if let Some(c) = cut {
+                f.truncate(c.index(f.len() + 1));
+            }
+            if let Ok(p) = Plugin::parse(&f, "Dlc.esm".into()) {
+                prop_assert_eq!(p.to_bytes(), f);
+                exercise(&p, &schema);
+                let m = Plugin::parse(&master(), "Master.esm".into()).unwrap();
+                let _ = LoadOrder::new(&[m, p]);
+            }
+        }
+
+        #[test]
+        fn subrecords_roundtrip(subs in prop::collection::vec((any::<[u8; 4]>(), prop::collection::vec(any::<u8>(), 0..80)), 0..8)) {
+            let subs: Vec<Subrecord> = subs.into_iter().map(|(sig, data)| Subrecord { sig, data, extended: false }).collect();
+            let bytes = write_subrecords(&subs);
+            let back = fnv_esm::raw::parse_subrecords(&bytes).unwrap();
+            prop_assert_eq!(write_subrecords(&back), bytes);
+        }
+
+        /// Every schema-defined subrecord of every record type, filled with random
+        /// bytes of random length, decodes to a value or a reported error.
+        #[test]
+        fn schema_decode_random_payloads(rec in any::<Index>(), seed in prop::collection::vec(any::<u8>(), 0..64)) {
+            let schema = real_schema();
+            let mut sigs: Vec<&[u8; 4]> = schema.records.keys().collect();
+            sigs.sort();
+            let rsig = sigs[rec.index(sigs.len())];
+            let mut subdefs: Vec<&[u8; 4]> = schema.records[rsig].subrecords.keys().collect();
+            subdefs.sort();
+            let subs: Vec<Subrecord> = subdefs
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let n = seed.get(i).map_or(i, |&b| b as usize % 48);
+                    let data = (0..n).map(|k| seed.get((i + k) % seed.len().max(1)).copied().unwrap_or(k as u8)).collect();
+                    Subrecord { sig: **s, data, extended: false }
+                })
+                .collect();
+            let mut f = tes4(&[], 1, &[]);
+            f.extend(group(rsig, 0, &record(rsig, 0, 0x800, &write_subrecords(&subs))));
+            let p = Plugin::parse(&f, "S.esm".into()).unwrap();
+            exercise(&p, &schema);
+        }
+
+        #[test]
+        fn schema_text(text in ".{0,200}") {
+            let _ = Schema::default().merge_str(&text, "fuzz");
+        }
+    }
 }

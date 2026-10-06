@@ -1,46 +1,37 @@
-use crate::{Args, CmdError};
+use crate::{EsmCmd, LoadOrderArgs};
+use anyhow::{bail, Context};
+use rayon::prelude::*;
 use fnv_esm::decode::{decode_record, formid_str, Coverage};
 use fnv_esm::inventory::{header_json, inventory_json, stats_json};
 use fnv_esm::raw::{visit_records, write_subrecords};
 use fnv_esm::survey::Survey;
 use fnv_esm::{LoadOrder, Plugin, Schema};
-use fnv_json::Value;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
-pub fn run(sub: &str, rest: &[String]) -> Result<Value, CmdError> {
-    let args =
-        Args::parse(rest, &["schema", "formid", "edid", "max-rows", "plugin"]).map_err(CmdError::Usage)?;
-    let first = || args.positional.first().ok_or_else(|| CmdError::Usage("missing plugin path".into()));
-    match sub {
-        "header" => Ok(header_json(&Plugin::open(first()?)?)),
-        "stats" => Ok(stats_json(&Plugin::open(first()?)?)),
-        "inventory" => Ok(inventory_json(&Plugin::open(first()?)?)),
-        "verify" => verify(first()?),
-        "coverage" => {
-            let schema = load_schema(&args)?;
-            let p = Plugin::open(first()?)?;
+pub fn run(cmd: EsmCmd) -> anyhow::Result<Value> {
+    match cmd {
+        EsmCmd::Header { plugin } => Ok(header_json(&Plugin::open(plugin)?)),
+        EsmCmd::Stats { plugin } => Ok(stats_json(&Plugin::open(plugin)?)),
+        EsmCmd::Inventory { plugin } => Ok(inventory_json(&Plugin::open(plugin)?)),
+        EsmCmd::Verify { plugin } => verify(&plugin),
+        EsmCmd::Coverage { plugin, schema, max_rows } => {
+            let schema = Schema::load_dir(schema)?;
+            let p = Plugin::open(plugin)?;
             let mut cov = Coverage::default();
-            visit_records(&p.nodes[1..], &mut |r, _| cov.add_record(r, &schema, None));
-            let max = args.value("max-rows").and_then(|s| s.parse().ok()).unwrap_or(200);
-            let mut v = cov.to_json(max);
-            v.set("schema", "fnv.esm.coverage/1").set("plugin", p.name.as_str());
+            let mut recs = Vec::new();
+            visit_records(&p.nodes[1..], &mut |r, _| recs.push(r));
+            cov.add_records_par(&recs, &schema);
+            let mut v = cov.to_json(max_rows);
+            v["schema"] = json!("fnv.esm.coverage/1");
+            v["plugin"] = json!(p.name);
             Ok(v)
         }
-        "decode" => {
-            let schema = load_schema(&args)?;
-            let p = Plugin::open(first()?)?;
-            let want_fid = match args.value("formid") {
-                Some(s) => Some(
-                    u32::from_str_radix(s.trim_start_matches("0x").trim_start_matches("0X"), 16)
-                        .map_err(|_| CmdError::Usage(format!("bad --formid {s}")))?,
-                ),
-                None => None,
-            };
-            let want_edid = args.value("edid").map(|s| s.to_ascii_lowercase());
-            if want_fid.is_none() && want_edid.is_none() {
-                return Err(CmdError::Usage("decode needs --formid or --edid".into()));
-            }
+        EsmCmd::Decode { plugin, schema, formid: want_fid, edid } => {
+            let schema = Schema::load_dir(schema)?;
+            let p = Plugin::open(plugin)?;
+            let want_edid = edid.map(|s| s.to_ascii_lowercase());
             let mut found = Vec::new();
             visit_records(&p.nodes[1..], &mut |r, _| {
                 let hit = match (want_fid, &want_edid) {
@@ -48,7 +39,7 @@ pub fn run(sub: &str, rest: &[String]) -> Result<Value, CmdError> {
                     (None, Some(e)) => fnv_esm::inventory::names(r)
                         .ok()
                         .and_then(|(ed, _)| ed)
-                        .map_or(false, |ed| ed.to_ascii_lowercase() == *e),
+                        .is_some_and(|ed| ed.to_ascii_lowercase() == *e),
                     _ => false,
                 };
                 if hit {
@@ -56,118 +47,108 @@ pub fn run(sub: &str, rest: &[String]) -> Result<Value, CmdError> {
                 }
             });
             if found.is_empty() {
-                return Err(CmdError::Failed("no matching record".into()));
+                bail!("no matching record");
             }
-            let mut v = Value::object();
-            v.set("schema", "fnv.esm.decode/1").set("plugin", p.name.as_str()).set("records", Value::Array(found));
-            Ok(v)
+            Ok(json!({"schema": "fnv.esm.decode/1", "plugin": p.name, "records": found}))
         }
-        "loadorder" => loadorder(&args),
-        "survey" => survey(&args),
-        other => Err(CmdError::Usage(format!("unknown esm subcommand {other:?}"))),
+        EsmCmd::Loadorder { lo, schema } => loadorder(&lo, schema.as_deref()),
+        EsmCmd::Survey { lo, plugin } => survey(&lo, plugin.as_deref()),
     }
-}
-
-fn load_schema(args: &Args) -> Result<Schema, CmdError> {
-    let dir = args.value("schema").ok_or_else(|| CmdError::Usage("--schema <dir> is required".into()))?;
-    Ok(Schema::load_dir(dir)?)
 }
 
 /// Structural verification: byte-identical rewrite, every compressed record
 /// decompresses, every payload re-serializes identically from its subrecords.
-fn verify(path: &str) -> Result<Value, CmdError> {
-    let data = std::fs::read(path)?;
-    let name = Path::new(path).file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let p = Plugin::parse(&data, name)?;
+fn verify(path: &Path) -> anyhow::Result<Value> {
+    let data = fnv_esm::plugin::map_file(path).with_context(|| path.display().to_string())?;
+    let name = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let p = Plugin::parse_bytes(data.clone(), name)?;
     let out = p.to_bytes();
     let identical = out == data;
     let first_diff = if identical { None } else { out.iter().zip(&data).position(|(a, b)| a != b) };
-    let mut records = 0u64;
+    let mut recs = Vec::new();
+    visit_records(&p.nodes, &mut |r, _| recs.push(r));
+    // Decompress and re-serialize records in parallel; aggregate in file order.
+    let checks: Vec<RecordCheck> = recs.par_iter().map(|r| check_record(r)).collect();
     let mut compressed = 0u64;
     let mut decompress_errors = Vec::new();
     let mut subrecord_errors = Vec::new();
     let mut payload_mismatch = Vec::new();
     let mut xxxx = 0u64;
     let mut trailer_anomalies = Vec::new();
-    visit_records(&p.nodes, &mut |r, _| {
-        records += 1;
+    for (r, c) in recs.iter().zip(checks) {
         if r.is_compressed() {
             compressed += 1;
         }
-        let payload = match r.payload_checked() {
-            Ok((pl, t)) => {
-                if t != fnv_inflate::Trailer::Verified {
-                    trailer_anomalies.push(Value::from(format!(
-                        "{} {} at 0x{:x}: {:?}",
-                        r.sig_str(),
-                        formid_str(r.header.form_id),
-                        r.offset,
-                        t
-                    )));
-                }
-                pl
-            }
-            Err(e) => {
-                decompress_errors.push(Value::from(e.to_string()));
-                return;
-            }
-        };
-        match fnv_esm::raw::parse_subrecords(&payload) {
-            Ok(subs) => {
-                xxxx += subs.iter().filter(|s| s.extended).count() as u64;
-                if write_subrecords(&subs) != payload.as_ref() && payload_mismatch.len() < 50 {
-                    payload_mismatch.push(Value::from(format!("{} {}", r.sig_str(), formid_str(r.header.form_id))));
+        trailer_anomalies.extend(c.trailer_anomaly);
+        match c.subrecords {
+            Err(e) => decompress_errors.push(e),
+            Ok(Ok((extended, mismatch))) => {
+                xxxx += extended;
+                if mismatch && payload_mismatch.len() < 50 {
+                    payload_mismatch.push(format!("{} {}", r.sig_str(), formid_str(r.header.form_id)));
                 }
             }
-            Err((pos, m)) => {
+            Ok(Err(e)) => {
                 if subrecord_errors.len() < 50 {
-                    subrecord_errors.push(Value::from(format!(
-                        "{} {} at +{pos}: {m}",
-                        r.sig_str(),
-                        formid_str(r.header.form_id)
-                    )));
+                    subrecord_errors.push(e);
                 }
             }
         }
-    });
-    let mut v = Value::object();
-    v.set("schema", "fnv.esm.verify/1")
-        .set("plugin", p.name.as_str())
-        .set("roundtrip_identical", identical)
-        .set("first_difference", first_diff)
-        .set("records", records)
-        .set("compressed_records", compressed)
-        .set("extended_size_subrecords", xxxx)
-        .set("decompress_errors", Value::Array(decompress_errors))
-        .set("zlib_trailer_anomalies", Value::Array(trailer_anomalies))
-        .set("subrecord_errors", Value::Array(subrecord_errors))
-        .set("payload_roundtrip_mismatches", Value::Array(payload_mismatch));
-    Ok(v)
+    }
+    let records = recs.len();
+    Ok(json!({
+        "schema": "fnv.esm.verify/1",
+        "plugin": p.name,
+        "roundtrip_identical": identical,
+        "first_difference": first_diff,
+        "records": records,
+        "compressed_records": compressed,
+        "extended_size_subrecords": xxxx,
+        "decompress_errors": decompress_errors,
+        "zlib_trailer_anomalies": trailer_anomalies,
+        "subrecord_errors": subrecord_errors,
+        "payload_roundtrip_mismatches": payload_mismatch,
+    }))
 }
 
-fn open_load_order(args: &Args) -> Result<Vec<Plugin>, CmdError> {
-    let dir = args.positional.first().ok_or_else(|| CmdError::Usage("missing data directory".into()))?;
-    let names = &args.positional[1..];
-    if names.is_empty() {
-        return Err(CmdError::Usage("list at least one plugin, in load order".into()));
-    }
-    let mut plugins = Vec::new();
-    for n in names {
-        let p = Path::new(dir).join(n);
-        plugins.push(Plugin::open(&p).map_err(|e| CmdError::Failed(format!("{}: {e}", p.display())))?);
-    }
-    Ok(plugins)
+struct RecordCheck {
+    trailer_anomaly: Option<String>,
+    /// Err: payload cannot be decompressed. Ok(Err): subrecords do not parse.
+    /// Ok(Ok((extended-size subrecords, re-serialization differs))).
+    subrecords: Result<Result<(u64, bool), String>, String>,
+}
+
+fn check_record(r: &fnv_esm::Record) -> RecordCheck {
+    let (payload, trailer) = match r.payload_checked() {
+        Ok(x) => x,
+        Err(e) => return RecordCheck { trailer_anomaly: None, subrecords: Err(e.to_string()) },
+    };
+    let trailer_anomaly = (trailer != fnv_inflate::Trailer::Verified).then(|| {
+        format!("{} {} at 0x{:x}: {:?}", r.sig_str(), formid_str(r.header.form_id), r.offset, trailer)
+    });
+    let subrecords = match fnv_esm::raw::parse_subrecords(&payload) {
+        Ok(subs) => Ok((subs.iter().filter(|s| s.extended).count() as u64, write_subrecords(&subs) != payload.as_ref())),
+        Err((pos, m)) => Err(format!("{} {} at +{pos}: {m}", r.sig_str(), formid_str(r.header.form_id))),
+    };
+    RecordCheck { trailer_anomaly, subrecords: Ok(subrecords) }
+}
+
+fn open_load_order(args: &LoadOrderArgs) -> anyhow::Result<Vec<Plugin>> {
+    args.plugins
+        .iter()
+        .map(|n| {
+            let p = args.data_dir.join(n);
+            Plugin::open(&p).with_context(|| p.display().to_string())
+        })
+        .collect()
 }
 
 /// Load-order resolution report. With --schema, also resolves every FormID-typed
 /// field the schema knows about.
-fn loadorder(args: &Args) -> Result<Value, CmdError> {
+fn loadorder(args: &LoadOrderArgs, schema: Option<&Path>) -> anyhow::Result<Value> {
     let plugins = open_load_order(args)?;
     let lo = LoadOrder::new(&plugins)?;
-    let schema = match args.value("schema") {
-        Some(d) => Some(Schema::load_dir(d)?),
-        None => None,
-    };
+    let schema = schema.map(Schema::load_dir).transpose()?;
     let mut per = Vec::new();
     let mut ref_total = 0u64;
     let mut ref_null = 0u64;
@@ -214,11 +195,11 @@ fn loadorder(args: &Args) -> Result<Value, CmdError> {
             if r.header.form_id >> 24 >= self_idx {
                 return;
             }
-            if stack.last().map_or(false, |g| g.group_type == fnv_esm::raw::group_type::CELL_TEMPORARY_CHILDREN) {
+            if stack.last().is_some_and(|g| g.group_type == fnv_esm::raw::group_type::CELL_TEMPORARY_CHILDREN) {
                 temp_overrides.insert(r.header.form_id);
             }
             if let Some(g) = lo.to_global(pi, r.header.form_id) {
-                let earlier = lo.index.get(&g).map_or(false, |d| d.iter().any(|x| (x.plugin as usize) < pi));
+                let earlier = lo.index.get(&g).is_some_and(|d| d.iter().any(|x| (x.plugin as usize) < pi));
                 if !earlier {
                     *injected.entry(r.sig_str()).or_default() += 1;
                 }
@@ -226,13 +207,16 @@ fn loadorder(args: &Args) -> Result<Value, CmdError> {
         });
         let temp_in_onam = temp_overrides.intersection(&onam).count();
         if let Some(schema) = &schema {
-            for r in recs {
-                let mut fids: Vec<u32> = Vec::new();
-                let mut cov = Coverage::default();
-                {
-                    let mut sink = |v: u32| fids.push(v);
-                    cov.add_record(r, schema, Some(&mut sink));
-                }
+            // Decode in parallel; resolve in record order (examples keep the first ones).
+            let all_fids: Vec<Vec<u32>> = recs
+                .par_iter()
+                .map(|r| {
+                    let mut fids = Vec::new();
+                    Coverage::measure(r, schema, Some(&mut |v: u32| fids.push(v)));
+                    fids
+                })
+                .collect();
+            for (r, fids) in recs.iter().zip(all_fids) {
                 for v in fids {
                     ref_total += 1;
                     if v == 0 {
@@ -276,63 +260,49 @@ fn loadorder(args: &Args) -> Result<Value, CmdError> {
                 }
             }
         }
-        let mut o = Value::object();
-        o.set("plugin", p.name.as_str())
-            .set("load_index", pi)
-            .set("records", recs.len())
-            .set("new_forms", new_forms)
-            .set("overrides", overrides)
-            .set("unmappable_formids", Value::Array(unmappable))
-            .set("onam_entries", onam.len())
-            .set("onam_entries_that_are_overrides", onam_overridden)
-            .set("temporary_group_overrides", temp_overrides.len())
-            .set("temporary_group_overrides_in_onam", temp_in_onam)
-            .set(
-                "injected_forms_by_type",
-                Value::Object(injected.into_iter().map(|(k, n)| (k, Value::from(n))).collect()),
-            )
-            .set(
-                "overrides_by_type",
-                Value::Object(override_types.into_iter().map(|(k, n)| (k, Value::from(n))).collect()),
-            )
-            .set(
-                "overrides_not_in_onam_by_type",
-                Value::Object(not_in_onam.into_iter().map(|(k, n)| (k, Value::from(n))).collect()),
-            );
-        per.push(o);
+        per.push(json!({
+            "plugin": p.name,
+            "load_index": pi,
+            "records": recs.len(),
+            "new_forms": new_forms,
+            "overrides": overrides,
+            "unmappable_formids": unmappable,
+            "onam_entries": onam.len(),
+            "onam_entries_that_are_overrides": onam_overridden,
+            "temporary_group_overrides": temp_overrides.len(),
+            "temporary_group_overrides_in_onam": temp_in_onam,
+            "injected_forms_by_type": injected,
+            "overrides_by_type": override_types,
+            "overrides_not_in_onam_by_type": not_in_onam,
+        }));
     }
     let mut chains: BTreeMap<usize, u64> = BTreeMap::new();
     for defs in lo.index.values() {
         *chains.entry(defs.len()).or_default() += 1;
     }
-    let mut v = Value::object();
-    v.set("schema", "fnv.esm.loadorder/1")
-        .set("plugins", Value::Array(per))
-        .set("unique_global_forms", lo.index.len())
-        .set(
-            "definitions_per_form",
-            Value::Object(chains.into_iter().map(|(k, n)| (k.to_string(), Value::from(n))).collect()),
-        );
+    let mut v = json!({
+        "schema": "fnv.esm.loadorder/1",
+        "plugins": per,
+        "unique_global_forms": lo.index.len(),
+        "definitions_per_form": chains,
+    });
     if schema.is_some() {
-        let mut r = Value::object();
-        r.set("formid_fields", ref_total)
-            .set("null", ref_null)
-            .set("resolved", ref_ok)
-            .set("bad_master_index", ref_bad_index)
-            .set("unresolved_by_kind", Value::Object(ref_missing.into_iter().map(|(k, n)| (k, Value::from(n))).collect()))
-            .set(
-                "unresolved_examples",
-                Value::Object(ref_missing_examples.into_iter().map(|(k, v)| (k, Value::Array(v))).collect()),
-            );
-        v.set("references", r);
+        v["references"] = json!({
+            "formid_fields": ref_total,
+            "null": ref_null,
+            "resolved": ref_ok,
+            "bad_master_index": ref_bad_index,
+            "unresolved_by_kind": ref_missing,
+            "unresolved_examples": ref_missing_examples,
+        });
     }
     Ok(v)
 }
 
-fn survey(args: &Args) -> Result<Value, CmdError> {
+fn survey(args: &LoadOrderArgs, only: Option<&str>) -> anyhow::Result<Value> {
     let plugins = open_load_order(args)?;
     let lo = LoadOrder::new(&plugins)?;
-    let only = args.value("plugin").map(|s| s.to_ascii_lowercase());
+    let only = only.map(|s| s.to_ascii_lowercase());
     let mut s = Survey::default();
     let mut errors = Vec::new();
     for (pi, p) in plugins.iter().enumerate() {
@@ -349,6 +319,6 @@ fn survey(args: &Args) -> Result<Value, CmdError> {
         }
     }
     let mut v = s.to_json();
-    v.set("errors", Value::Array(errors));
+    v["errors"] = Value::Array(errors);
     Ok(v)
 }

@@ -8,4 +8,13 @@ license.workspace = true
 [dependencies]
 fnv-util = { path = "../fnv-util" }
 fnv-inflate = { path = "../fnv-inflate" }
-fnv-json = { path = "../fnv-json" }
+serde_json.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+bytes = "1.9"
+memmap2 = "0.9"
+rayon = "1"
+tracing = "0.1"
+
+[dev-dependencies]
+proptest = "1"

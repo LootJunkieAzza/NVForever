@@ -58,9 +58,8 @@ private goldens) and `parity-lab` (the comparison lab).
 ```
 crates/
   fnv-install   separation of NVForever's home from the original game
-  fnv-util      Windows-1252, SHA-256, byte cursor
-  fnv-inflate   zlib/DEFLATE decoder (+ stored-block encoder)
-  fnv-json      order-preserving JSON
+  fnv-util      Windows-1252 (encoding_rs), SHA-256 (sha2), byte cursor
+  fnv-inflate   zlib decoding with trailer diagnostics (flate2) + stored-block encoder
   fnv-bsa       BSA v104 archives
   fnv-esm       plugins: container, load order, schema-driven decoding, coverage
   fnvtool       CLI used by the parity lab (JSON on stdout)
