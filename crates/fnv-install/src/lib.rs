@@ -64,22 +64,16 @@ pub struct EngineHome {
 }
 
 impl EngineHome {
-    /// `NVFOREVER_HOME` if set, else the platform's per-user data directory:
-    /// Windows `%LOCALAPPDATA%\NVForever`, macOS `~/Library/Application Support/NVForever`,
-    /// other Unix `$XDG_DATA_HOME/nvforever` or `~/.local/share/nvforever`.
+    /// `NVFOREVER_HOME` if set, else the platform's per-user local data directory
+    /// (from the `directories` crate): Windows `%LOCALAPPDATA%\NVForever` (the Local
+    /// AppData known folder), macOS `~/Library/Application Support/NVForever`, other
+    /// Unix `$XDG_DATA_HOME/nvforever` or `~/.local/share/nvforever`.
     pub fn default_root() -> Option<PathBuf> {
         if let Some(h) = std::env::var_os(HOME_ENV).filter(|s| !s.is_empty()) {
             return Some(PathBuf::from(h));
         }
-        if cfg!(windows) {
-            std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("NVForever"))
-        } else if cfg!(target_os = "macos") {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support/NVForever"))
-        } else if let Some(x) = std::env::var_os("XDG_DATA_HOME").filter(|s| !s.is_empty()) {
-            Some(PathBuf::from(x).join("nvforever"))
-        } else {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/nvforever"))
-        }
+        let name = if cfg!(any(windows, target_os = "macos")) { "NVForever" } else { "nvforever" };
+        directories::BaseDirs::new().map(|d| d.data_local_dir().join(name))
     }
 
     pub fn new(root: impl Into<PathBuf>) -> EngineHome {
@@ -117,12 +111,13 @@ impl EngineHome {
 }
 
 /// The original game's per-user folder (INIs, saves, plugins.txt). NVForever must not
-/// read or write it. Windows: `%USERPROFILE%\Documents\My Games\FalloutNV`
-/// [documented: community/xEdit docs; verify on the user's PC]. A redirected Documents
-/// folder is not detected yet.
+/// read or write it. Windows: `Documents\My Games\FalloutNV` [documented: community/xEdit
+/// docs; verify on the user's PC], where Documents is the Documents known folder, so a
+/// Documents folder redirected (e.g. to OneDrive or another drive) is followed.
 pub fn original_user_dir() -> Option<PathBuf> {
     if cfg!(windows) {
-        std::env::var_os("USERPROFILE").map(|u| PathBuf::from(u).join("Documents").join("My Games").join("FalloutNV"))
+        directories::UserDirs::new()
+            .and_then(|u| u.document_dir().map(|d| d.join("My Games").join("FalloutNV")))
     } else {
         None
     }
