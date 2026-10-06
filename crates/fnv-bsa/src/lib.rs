@@ -10,7 +10,6 @@
 //! never silently dropped. Anything inconsistent becomes a `Warning`, not a panic.
 
 use fnv_util::{cp1252, Cursor};
-use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -39,32 +38,25 @@ pub const SIZE_COMPRESSION_TOGGLE: u32 = 0x4000_0000;
 pub const SIZE_UNKNOWN_BIT31: u32 = 0x8000_0000;
 pub const SIZE_MASK: u32 = 0x3FFF_FFFF;
 
-#[derive(Debug)]
+// Messages embed the inner error, so no variant declares a #[source]: an error
+// chain printer would otherwise repeat it.
+#[derive(Debug, thiserror::Error)]
 pub enum BsaError {
+    #[error("I/O error: {0}")]
     Io(io::Error),
+    #[error("not a BSA archive (bad magic)")]
     NotBsa,
+    #[error("unsupported BSA version {0} (expected 104)")]
     UnsupportedVersion(u32),
+    #[error("Xbox 360 (big-endian) archives are not supported")]
     BigEndian,
+    #[error("archive truncated: {0}")]
     Truncated(String),
+    #[error("cannot decompress {path}: {err}")]
     Decompress { path: String, err: fnv_inflate::InflateError },
+    #[error("layout error: {0}")]
     Layout(String),
 }
-
-impl fmt::Display for BsaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BsaError::Io(e) => write!(f, "I/O error: {e}"),
-            BsaError::NotBsa => write!(f, "not a BSA archive (bad magic)"),
-            BsaError::UnsupportedVersion(v) => write!(f, "unsupported BSA version {v} (expected 104)"),
-            BsaError::BigEndian => write!(f, "Xbox 360 (big-endian) archives are not supported"),
-            BsaError::Truncated(w) => write!(f, "archive truncated: {w}"),
-            BsaError::Decompress { path, err } => write!(f, "cannot decompress {path}: {err}"),
-            BsaError::Layout(w) => write!(f, "layout error: {w}"),
-        }
-    }
-}
-
-impl std::error::Error for BsaError {}
 
 impl From<io::Error> for BsaError {
     fn from(e: io::Error) -> Self {
