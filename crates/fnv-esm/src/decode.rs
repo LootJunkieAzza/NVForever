@@ -4,7 +4,7 @@
 
 use crate::raw::{Record, Subrecord};
 use crate::schema::{Prim, Schema, TypeDef};
-use fnv_json::Value;
+use serde_json::{json, Map, Value};
 use fnv_util::{cp1252, sha256::to_hex, Cursor};
 use std::collections::BTreeMap;
 
@@ -52,8 +52,8 @@ fn read_prim(p: Prim, c: &mut Cursor, ctx: &mut DecodeCtx) -> Result<Value, Stri
         Prim::I16 => Value::from(c.i16().map_err(e)?),
         Prim::I32 => Value::from(c.i32().map_err(e)?),
         Prim::I64 => Value::from(c.i64().map_err(e)?),
-        Prim::F32 => Value::Float(c.f32().map_err(e)? as f64),
-        Prim::F64 => Value::Float(c.f64().map_err(e)?),
+        Prim::F32 => Value::from(c.f32().map_err(e)? as f64),
+        Prim::F64 => Value::from(c.f64().map_err(e)?),
         Prim::FormId => {
             let v = c.u32().map_err(e)?;
             if let Some(f) = ctx.on_formid.as_mut() {
@@ -96,15 +96,15 @@ pub fn decode_type(t: &TypeDef, c: &mut Cursor, ctx: &mut DecodeCtx) -> Result<V
         TypeDef::Prim(p) => read_prim(*p, c, ctx),
         TypeDef::Named(_) => Err("unresolved type".into()),
         TypeDef::Struct(fields) => {
-            let mut obj = Value::object();
+            let mut obj = Map::new();
             for f in fields {
                 if f.optional && c.is_empty() {
                     break;
                 }
                 let v = decode_type(&f.ty, c, ctx).map_err(|e| format!("{}: {e}", f.name))?;
-                obj.set(f.name.clone(), v);
+                obj.insert(f.name.clone(), v);
             }
-            Ok(obj)
+            Ok(Value::Object(obj))
         }
         TypeDef::Array { elem, count } => {
             let mut out = Vec::new();
@@ -151,10 +151,9 @@ pub fn decode_type(t: &TypeDef, c: &mut Cursor, ctx: &mut DecodeCtx) -> Result<V
                     rest &= !(1u64 << b);
                 }
             }
-            let mut o = Value::object();
-            o.set("value", v).set("set", Value::Array(names));
+            let mut o = json!({"value": v, "set": names});
             if rest != 0 {
-                o.set("unknown_bits", format!("0x{rest:x}"));
+                o["unknown_bits"] = json!(format!("0x{rest:x}"));
             }
             Ok(o)
         }
@@ -200,43 +199,40 @@ pub fn decode_sub(rec_sig: &[u8; 4], s: &Subrecord, ctx: &mut DecodeCtx) -> Deco
 
 /// Decode a whole record to JSON.
 pub fn decode_record(r: &Record, schema: &Schema) -> Value {
-    let mut out = Value::object();
-    out.set("formid", formid_str(r.header.form_id))
-        .set("type", r.sig_str())
-        .set("flags", r.header.flags)
-        .set("form_version", r.header.form_version);
+    let mut out = json!({
+        "formid": formid_str(r.header.form_id),
+        "type": r.sig_str(),
+        "flags": r.header.flags,
+        "form_version": r.header.form_version,
+    });
     if let Some(rd) = schema.records.get(&r.header.sig) {
-        out.set("type_name", rd.name.as_str());
+        out["type_name"] = json!(rd.name);
     }
     match r.subrecords() {
         Err(e) => {
-            out.set("error", e.to_string());
+            out["error"] = json!(e.to_string());
         }
         Ok(subs) => {
             let mut arr = Vec::with_capacity(subs.len());
             let mut ctx = DecodeCtx { schema, on_formid: None };
             for s in &subs {
                 let d = decode_sub(&r.header.sig, s, &mut ctx);
-                let mut o = Value::object();
-                o.set("sig", s.sig_str());
+                let mut o = Map::new();
+                o.insert("sig".into(), json!(s.sig_str()));
                 if let Some(n) = d.name {
-                    o.set("name", n);
+                    o.insert("name".into(), json!(n));
                 }
-                o.set("status", d.status.as_str());
+                o.insert("status".into(), json!(d.status.as_str()));
                 match d.value {
-                    Some(v) => {
-                        o.set("value", v);
-                    }
-                    None => {
-                        o.set("raw", to_hex(&s.data));
-                    }
-                }
+                    Some(v) => o.insert("value".into(), v),
+                    None => o.insert("raw".into(), json!(to_hex(&s.data))),
+                };
                 if let Some(e) = d.error {
-                    o.set("error", e);
+                    o.insert("error".into(), json!(e));
                 }
-                arr.push(o);
+                arr.push(Value::Object(o));
             }
-            out.set("subrecords", Value::Array(arr));
+            out["subrecords"] = Value::Array(arr);
         }
     }
     out
@@ -315,57 +311,44 @@ impl Coverage {
 
     pub fn to_json(&self, max_rows: usize) -> Value {
         let (total, ok, unknown, trailing, error) = self.totals();
-        let mut v = Value::object();
         let pct = |n: u64| if total == 0 { 0.0 } else { (n as f64) * 100.0 / total as f64 };
-        let mut s = Value::object();
-        s.set("subrecords", total)
-            .set("ok", ok)
-            .set("unknown", unknown)
-            .set("trailing", trailing)
-            .set("error", error)
-            .set("ok_percent", (pct(ok) * 100.0).round() / 100.0)
-            .set("opaque_bytes", self.by_sub.values().map(|c| c.opaque).sum::<u64>())
-            .set("distinct_pairs", self.by_sub.len())
-            .set(
-                "pairs_fully_decoded",
-                self.by_sub.values().filter(|c| c.ok == c.total).count(),
-            );
-        v.set("summary", s);
+        let summary = json!({
+            "subrecords": total,
+            "ok": ok,
+            "unknown": unknown,
+            "trailing": trailing,
+            "error": error,
+            "ok_percent": (pct(ok) * 100.0).round() / 100.0,
+            "opaque_bytes": self.by_sub.values().map(|c| c.opaque).sum::<u64>(),
+            "distinct_pairs": self.by_sub.len(),
+            "pairs_fully_decoded": self.by_sub.values().filter(|c| c.ok == c.total).count(),
+        });
         // Work queue: pairs with the most undecoded instances first.
         let mut rows: Vec<(&(String, String), &SubCoverage)> =
             self.by_sub.iter().filter(|(_, c)| c.ok < c.total).collect();
         rows.sort_by(|a, b| (b.1.total - b.1.ok).cmp(&(a.1.total - a.1.ok)).then(a.0.cmp(b.0)));
         let mut q = Vec::new();
         for ((rt, st), c) in rows.into_iter().take(max_rows) {
-            let mut o = Value::object();
             let sizes: Vec<Value> = {
                 let mut sv: Vec<(&usize, &u64)> = c.sizes.iter().collect();
                 sv.sort_by(|a, b| b.1.cmp(a.1));
-                sv.into_iter()
-                    .take(5)
-                    .map(|(sz, n)| {
-                        let mut x = Value::object();
-                        x.set("size", *sz).set("count", *n);
-                        x
-                    })
-                    .collect()
+                sv.into_iter().take(5).map(|(sz, n)| json!({"size": sz, "count": n})).collect()
             };
-            o.set("record", rt.as_str())
-                .set("sub", st.as_str())
-                .set("total", c.total)
-                .set("ok", c.ok)
-                .set("unknown", c.unknown)
-                .set("trailing", c.trailing)
-                .set("error", c.error)
-                .set("top_sizes", Value::Array(sizes));
+            let mut o = json!({
+                "record": rt,
+                "sub": st,
+                "total": c.total,
+                "ok": c.ok,
+                "unknown": c.unknown,
+                "trailing": c.trailing,
+                "error": c.error,
+                "top_sizes": sizes,
+            });
             if let Some(e) = &c.first_error {
-                o.set("first_error", e.as_str());
+                o["first_error"] = json!(e);
             }
             q.push(o);
         }
-        v.set("work_queue", Value::Array(q));
-        let errs: Vec<Value> = self.record_errors.iter().map(|e| Value::from(e.as_str())).collect();
-        v.set("record_errors", Value::Array(errs));
-        v
+        json!({"summary": summary, "work_queue": q, "record_errors": self.record_errors})
     }
 }

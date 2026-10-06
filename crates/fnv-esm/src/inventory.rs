@@ -5,7 +5,7 @@
 use crate::decode::formid_str;
 use crate::plugin::Plugin;
 use crate::raw::{group_type, visit_groups, visit_records, Record};
-use fnv_json::Value;
+use serde_json::{json, Value};
 use fnv_util::cp1252;
 use std::collections::BTreeMap;
 
@@ -58,55 +58,46 @@ pub fn inventory(p: &Plugin) -> (Vec<InventoryRow>, Vec<String>) {
 
 pub fn header_json(p: &Plugin) -> Value {
     let h = &p.header;
-    let mut v = Value::object();
-    let masters: Vec<Value> = h.masters.iter().map(|m| Value::from(m.name.as_str())).collect();
-    v.set("plugin", p.name.as_str())
-        .set("is_master", h.is_master())
-        .set("flags", h.flags)
-        .set("version", h.version as f64)
-        .set("num_records", h.num_records)
-        .set("next_object_id", formid_str(h.next_object_id))
-        .set("author", h.author.clone())
-        .set("description", h.description.clone())
-        .set("masters", Value::Array(masters))
-        .set("overridden_forms", h.overridden_forms.len())
-        .set("other_subrecords", Value::from(h.other.clone()))
-        .set("file_size", p.file_size);
-    v
+    let masters: Vec<&str> = h.masters.iter().map(|m| m.name.as_str()).collect();
+    json!({
+        "plugin": p.name,
+        "is_master": h.is_master(),
+        "flags": h.flags,
+        "version": h.version as f64,
+        "num_records": h.num_records,
+        "next_object_id": formid_str(h.next_object_id),
+        "author": h.author,
+        "description": h.description,
+        "masters": masters,
+        "overridden_forms": h.overridden_forms.len(),
+        "other_subrecords": h.other,
+        "file_size": p.file_size,
+    })
 }
 
 pub fn inventory_json(p: &Plugin) -> Value {
     let (rows, errors) = inventory(p);
-    let mut recs = Vec::with_capacity(rows.len());
-    for r in &rows {
-        let mut o = Value::object();
-        o.set("formid", formid_str(r.form_id))
-            .set("type", r.sig.as_str())
-            .set("edid", r.edid.clone())
-            .set("full", r.full.clone())
-            .set("flags", r.flags)
-            .set("form_version", r.form_version);
-        recs.push(o);
-    }
-    let mut v = Value::object();
-    v.set("schema", "fnv.esm.inventory/1")
-        .set("plugin", p.name.as_str())
-        .set("header", header_json(p))
-        .set(
-            "errors",
-            Value::Array(
-                errors
-                    .into_iter()
-                    .map(|e| {
-                        let mut o = Value::object();
-                        o.set("code", "record_payload").set("detail", e);
-                        o
-                    })
-                    .collect(),
-            ),
-        )
-        .set("records", Value::Array(recs));
-    v
+    let recs: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "formid": formid_str(r.form_id),
+                "type": r.sig,
+                "edid": r.edid,
+                "full": r.full,
+                "flags": r.flags,
+                "form_version": r.form_version,
+            })
+        })
+        .collect();
+    let errors: Vec<Value> = errors.into_iter().map(|e| json!({"code": "record_payload", "detail": e})).collect();
+    json!({
+        "schema": "fnv.esm.inventory/1",
+        "plugin": p.name,
+        "header": header_json(p),
+        "errors": errors,
+        "records": recs,
+    })
 }
 
 pub fn stats_json(p: &Plugin) -> Value {
@@ -140,21 +131,21 @@ pub fn stats_json(p: &Plugin) -> Value {
             None => by_group.push((key, 1)),
         }
         if depth == 0 {
-            top_labels.push(Value::from(fnv_util::tag_str(&g.header.label)));
+            top_labels.push(fnv_util::tag_str(&g.header.label));
         }
     });
     let hedr_matches = p.header.num_records as i64 == (records + groups) as i64 - 1;
-    let mut v = Value::object();
-    v.set("schema", "fnv.esm.stats/1")
-        .set("plugin", p.name.as_str())
-        .set("records", records)
-        .set("groups", groups)
-        .set("compressed_records", compressed)
-        .set("deleted_records", deleted)
-        .set("hedr_num_records", p.header.num_records)
-        .set("hedr_matches_records_plus_groups_minus_one", hedr_matches)
-        .set("top_groups", Value::Array(top_labels))
-        .set("by_type", Value::Object(by_type.into_iter().map(|(k, n)| (k, Value::from(n))).collect()))
-        .set("by_group_type", Value::Object(by_group.into_iter().map(|(k, n)| (k, Value::from(n))).collect()));
-    v
+    json!({
+        "schema": "fnv.esm.stats/1",
+        "plugin": p.name,
+        "records": records,
+        "groups": groups,
+        "compressed_records": compressed,
+        "deleted_records": deleted,
+        "hedr_num_records": p.header.num_records,
+        "hedr_matches_records_plus_groups_minus_one": hedr_matches,
+        "top_groups": top_labels,
+        "by_type": by_type,
+        "by_group_type": by_group.into_iter().map(|(k, n)| (k, Value::from(n))).collect::<serde_json::Map<_, _>>(),
+    })
 }

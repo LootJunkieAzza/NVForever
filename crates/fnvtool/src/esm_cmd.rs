@@ -4,7 +4,7 @@ use fnv_esm::inventory::{header_json, inventory_json, stats_json};
 use fnv_esm::raw::{visit_records, write_subrecords};
 use fnv_esm::survey::Survey;
 use fnv_esm::{LoadOrder, Plugin, Schema};
-use fnv_json::Value;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
@@ -24,7 +24,8 @@ pub fn run(sub: &str, rest: &[String]) -> Result<Value, CmdError> {
             visit_records(&p.nodes[1..], &mut |r, _| cov.add_record(r, &schema, None));
             let max = args.value("max-rows").and_then(|s| s.parse().ok()).unwrap_or(200);
             let mut v = cov.to_json(max);
-            v.set("schema", "fnv.esm.coverage/1").set("plugin", p.name.as_str());
+            v["schema"] = json!("fnv.esm.coverage/1");
+            v["plugin"] = json!(p.name);
             Ok(v)
         }
         "decode" => {
@@ -48,7 +49,7 @@ pub fn run(sub: &str, rest: &[String]) -> Result<Value, CmdError> {
                     (None, Some(e)) => fnv_esm::inventory::names(r)
                         .ok()
                         .and_then(|(ed, _)| ed)
-                        .map_or(false, |ed| ed.to_ascii_lowercase() == *e),
+                        .is_some_and(|ed| ed.to_ascii_lowercase() == *e),
                     _ => false,
                 };
                 if hit {
@@ -58,9 +59,7 @@ pub fn run(sub: &str, rest: &[String]) -> Result<Value, CmdError> {
             if found.is_empty() {
                 return Err(CmdError::Failed("no matching record".into()));
             }
-            let mut v = Value::object();
-            v.set("schema", "fnv.esm.decode/1").set("plugin", p.name.as_str()).set("records", Value::Array(found));
-            Ok(v)
+            Ok(json!({"schema": "fnv.esm.decode/1", "plugin": p.name, "records": found}))
         }
         "loadorder" => loadorder(&args),
         "survey" => survey(&args),
@@ -130,19 +129,19 @@ fn verify(path: &str) -> Result<Value, CmdError> {
             }
         }
     });
-    let mut v = Value::object();
-    v.set("schema", "fnv.esm.verify/1")
-        .set("plugin", p.name.as_str())
-        .set("roundtrip_identical", identical)
-        .set("first_difference", first_diff)
-        .set("records", records)
-        .set("compressed_records", compressed)
-        .set("extended_size_subrecords", xxxx)
-        .set("decompress_errors", Value::Array(decompress_errors))
-        .set("zlib_trailer_anomalies", Value::Array(trailer_anomalies))
-        .set("subrecord_errors", Value::Array(subrecord_errors))
-        .set("payload_roundtrip_mismatches", Value::Array(payload_mismatch));
-    Ok(v)
+    Ok(json!({
+        "schema": "fnv.esm.verify/1",
+        "plugin": p.name,
+        "roundtrip_identical": identical,
+        "first_difference": first_diff,
+        "records": records,
+        "compressed_records": compressed,
+        "extended_size_subrecords": xxxx,
+        "decompress_errors": decompress_errors,
+        "zlib_trailer_anomalies": trailer_anomalies,
+        "subrecord_errors": subrecord_errors,
+        "payload_roundtrip_mismatches": payload_mismatch,
+    }))
 }
 
 fn open_load_order(args: &Args) -> Result<Vec<Plugin>, CmdError> {
@@ -214,11 +213,11 @@ fn loadorder(args: &Args) -> Result<Value, CmdError> {
             if r.header.form_id >> 24 >= self_idx {
                 return;
             }
-            if stack.last().map_or(false, |g| g.group_type == fnv_esm::raw::group_type::CELL_TEMPORARY_CHILDREN) {
+            if stack.last().is_some_and(|g| g.group_type == fnv_esm::raw::group_type::CELL_TEMPORARY_CHILDREN) {
                 temp_overrides.insert(r.header.form_id);
             }
             if let Some(g) = lo.to_global(pi, r.header.form_id) {
-                let earlier = lo.index.get(&g).map_or(false, |d| d.iter().any(|x| (x.plugin as usize) < pi));
+                let earlier = lo.index.get(&g).is_some_and(|d| d.iter().any(|x| (x.plugin as usize) < pi));
                 if !earlier {
                     *injected.entry(r.sig_str()).or_default() += 1;
                 }
@@ -276,55 +275,41 @@ fn loadorder(args: &Args) -> Result<Value, CmdError> {
                 }
             }
         }
-        let mut o = Value::object();
-        o.set("plugin", p.name.as_str())
-            .set("load_index", pi)
-            .set("records", recs.len())
-            .set("new_forms", new_forms)
-            .set("overrides", overrides)
-            .set("unmappable_formids", Value::Array(unmappable))
-            .set("onam_entries", onam.len())
-            .set("onam_entries_that_are_overrides", onam_overridden)
-            .set("temporary_group_overrides", temp_overrides.len())
-            .set("temporary_group_overrides_in_onam", temp_in_onam)
-            .set(
-                "injected_forms_by_type",
-                Value::Object(injected.into_iter().map(|(k, n)| (k, Value::from(n))).collect()),
-            )
-            .set(
-                "overrides_by_type",
-                Value::Object(override_types.into_iter().map(|(k, n)| (k, Value::from(n))).collect()),
-            )
-            .set(
-                "overrides_not_in_onam_by_type",
-                Value::Object(not_in_onam.into_iter().map(|(k, n)| (k, Value::from(n))).collect()),
-            );
-        per.push(o);
+        per.push(json!({
+            "plugin": p.name,
+            "load_index": pi,
+            "records": recs.len(),
+            "new_forms": new_forms,
+            "overrides": overrides,
+            "unmappable_formids": unmappable,
+            "onam_entries": onam.len(),
+            "onam_entries_that_are_overrides": onam_overridden,
+            "temporary_group_overrides": temp_overrides.len(),
+            "temporary_group_overrides_in_onam": temp_in_onam,
+            "injected_forms_by_type": injected,
+            "overrides_by_type": override_types,
+            "overrides_not_in_onam_by_type": not_in_onam,
+        }));
     }
     let mut chains: BTreeMap<usize, u64> = BTreeMap::new();
     for defs in lo.index.values() {
         *chains.entry(defs.len()).or_default() += 1;
     }
-    let mut v = Value::object();
-    v.set("schema", "fnv.esm.loadorder/1")
-        .set("plugins", Value::Array(per))
-        .set("unique_global_forms", lo.index.len())
-        .set(
-            "definitions_per_form",
-            Value::Object(chains.into_iter().map(|(k, n)| (k.to_string(), Value::from(n))).collect()),
-        );
+    let mut v = json!({
+        "schema": "fnv.esm.loadorder/1",
+        "plugins": per,
+        "unique_global_forms": lo.index.len(),
+        "definitions_per_form": chains,
+    });
     if schema.is_some() {
-        let mut r = Value::object();
-        r.set("formid_fields", ref_total)
-            .set("null", ref_null)
-            .set("resolved", ref_ok)
-            .set("bad_master_index", ref_bad_index)
-            .set("unresolved_by_kind", Value::Object(ref_missing.into_iter().map(|(k, n)| (k, Value::from(n))).collect()))
-            .set(
-                "unresolved_examples",
-                Value::Object(ref_missing_examples.into_iter().map(|(k, v)| (k, Value::Array(v))).collect()),
-            );
-        v.set("references", r);
+        v["references"] = json!({
+            "formid_fields": ref_total,
+            "null": ref_null,
+            "resolved": ref_ok,
+            "bad_master_index": ref_bad_index,
+            "unresolved_by_kind": ref_missing,
+            "unresolved_examples": ref_missing_examples,
+        });
     }
     Ok(v)
 }
@@ -349,6 +334,6 @@ fn survey(args: &Args) -> Result<Value, CmdError> {
         }
     }
     let mut v = s.to_json();
-    v.set("errors", Value::Array(errors));
+    v["errors"] = Value::Array(errors);
     Ok(v)
 }
