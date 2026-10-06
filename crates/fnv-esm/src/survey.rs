@@ -56,11 +56,12 @@ impl Survey {
                 }
             }
             if !s.data.is_empty() && s.data.len() % 4 == 0 {
-                let all = s.data.chunks_exact(4).all(|c| {
-                    let v = u32::from_le_bytes(c.try_into().unwrap());
+                let words = s.data.as_chunks::<4>().0;
+                let all = words.iter().all(|c| {
+                    let v = u32::from_le_bytes(*c);
                     v == 0 || exists(v)
                 });
-                let any_nonzero = s.data.chunks_exact(4).any(|c| c != [0, 0, 0, 0]);
+                let any_nonzero = words.iter().any(|c| *c != [0, 0, 0, 0]);
                 if all && any_nonzero {
                     p.formid_array_like += 1;
                 }

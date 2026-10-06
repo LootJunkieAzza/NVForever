@@ -27,6 +27,7 @@ Fix or explain every regression.
 
 ```
 cargo test --workspace --release
+cargo clippy --workspace --all-targets --release -- -D warnings
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
 ```

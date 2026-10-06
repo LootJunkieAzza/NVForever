@@ -1,27 +1,30 @@
 # Dependency plan: using the Rust ecosystem fully
 
 Owner decision (2026-10-06): use Rust "to the full extent, external libraries and
-everything". The current code is std-only **only** because the build sandbox's network
-policy blocks crates.io; that restriction is being lifted, not adopted as a project rule.
+everything". The first code was std-only only because its build sandbox could not reach
+crates.io; that restriction was lifted the same day.
 
-Migration happens crate by crate, each step behind the existing tests and the parity lab
-(84/84 Layer 1 scenarios must still pass, byte-identical round-trips included).
+Migration happened crate by crate, each step behind the existing tests and an old-vs-new
+comparison of `fnvtool` output on synthetic plugins and archives (strict: key order,
+int-vs-float type, values, exit codes). The parity lab needs the owner's game data, so it
+still has to be re-run there (84/84 Layer 1 scenarios expected).
 
-## Replace in-tree helpers (Layer 0/1)
+## Layer 0/1: done
 
-| Today | Replace with | Notes |
+| Was | Now | Notes |
 |---|---|---|
-| `fnv-json` | `serde` + `serde_json` (`preserve_order`) | derive structs for every CLI document; schemas become typed |
-| `fnv-inflate` decoder | `flate2` (miniz_oxide or zlib-rs backend) | keep our trailer diagnostics: inflate the raw deflate body, then check Adler-32 ourselves (`adler2`) |
-| `fnv-util::sha256` | `sha2` | |
+| `fnv-json` | `serde` + `serde_json` (`preserve_order`) | documents built with `json!`; `nvforever.json` is a derived struct; schema files keep duplicate-key rejection via a strict deserializer. Floats >= 1e16 are now written as floats (fnv-json printed them as integer tokens). |
+| `fnv-inflate` decoder | `flate2`, **zlib-rs** backend | our zlib header + Adler-32 trailer diagnostics kept (`adler2`). miniz_oxide was rejected: in streaming mode it accepts back-references before the output start. |
+| `fnv-util::sha256` | `sha2` (+ `hex`) | |
 | `fnv-util::cp1252` | `encoding_rs` (WINDOWS_1252) | |
-| hand-rolled CLI parsing | `clap` (derive) | |
-| ad-hoc error enums | `thiserror` (libs) + `anyhow` (bins) | |
-| `std::fs::read` of 245 MB masters | `memmap2` | zero-copy records |
-| sequential coverage/loadorder scans | `rayon` | per-record decode is embarrassingly parallel |
-| manual home-dir logic in `fnv-install` | `directories` | same policy, platform-correct paths |
-| — | `tracing` + `tracing-subscriber` | structured logging of unhandled data (spec section 7) |
-| — | `proptest` / `cargo-fuzz` | fuzz parsers (the review's malformed-input cases) |
+| hand-rolled CLI parsing | `clap` (derive) | `--help` everywhere; exits 0 for help, 2 for usage errors |
+| ad-hoc error enums | `thiserror` (libs) + `anyhow` (fnvtool) | messages unchanged (they appear in JSON) |
+| `std::fs::read` of masters | `memmap2` + `bytes::Bytes` | records are zero-copy slices; about half the peak memory |
+| sequential scans | `rayon` | per-record/per-file work in parallel, folded in file order so output is identical |
+| manual home-dir logic | `directories` | Windows known folders; a redirected Documents folder is followed |
+| — | `tracing` + `tracing-subscriber` | debug events for data accepted without being reported; `NVFOREVER_LOG=debug` |
+| — | `proptest` | malformed-input properties for every parser; `cargo-fuzz` (nightly) not set up |
+| — | `cargo-deny` | `deny.toml`: licences, RustSec advisories, sources; runs in CI |
 
 ## Engine layers (candidates, to evaluate when each layer starts)
 
@@ -40,11 +43,14 @@ Migration happens crate by crate, each step behind the existing tests and the pa
 
 ## Licence check
 
-All candidates above are MIT/Apache-2.0 (or Zlib/BSD), compatible with GPL-3.0 and with a
-permissive project licence. `cargo-deny` will enforce licences and advisories in CI.
+All dependencies are MIT/Apache-2.0 or similar permissive licences, plus one MPL-2.0 crate
+(`option-ext`, via `directories`), compatible with GPL-3.0 and with a permissive project
+licence. `cargo deny check` enforces the allow-list in `deny.toml` and RustSec advisories;
+CI runs it on every push.
 
-## Status
+## CI
 
-Blocked on network access to `crates.io`, `index.crates.io` and `static.crates.io` from
-the build sandbox. Until then, CI on GitHub (which has registry access) is where
-dependency-based builds can be verified.
+`.github/workflows/ci.yml`: tests and clippy (`-D warnings`) on Linux, Windows and macOS,
+the Python lab/capture self-tests, `cargo deny`, and a Windows `fnvtool.exe` artifact
+(`fnvtool-windows-x64`). The parity job that needs game data stays in
+`parity-lab/ci/github-actions.yml` (self-hosted runner only).
