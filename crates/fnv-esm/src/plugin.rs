@@ -68,6 +68,7 @@ impl Plugin {
             }
         };
         let header = parse_header(first)?;
+        tracing::debug!(plugin = %name, masters = header.masters.len(), bytes = data.len(), "parsed plugin");
         Ok(Plugin { name, nodes, header, file_size: data.len() as u64 })
     }
 
