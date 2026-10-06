@@ -6,7 +6,7 @@ mod bsa_cmd;
 mod esm_cmd;
 mod install_cmd;
 
-use fnv_json::Value;
+use serde_json::Value;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
@@ -76,7 +76,7 @@ impl<E: std::fmt::Display> From<E> for CmdError {
 
 pub fn emit(v: &Value) {
     use std::io::Write;
-    let s = v.to_compact();
+    let s = v.to_string();
     let stdout = std::io::stdout();
     let mut lock = stdout.lock();
     let _ = lock.write_all(s.as_bytes());

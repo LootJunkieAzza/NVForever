@@ -8,4 +8,4 @@ license.workspace = true
 [dependencies]
 adler2 = "2"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
-thiserror = "2"
+thiserror.workspace = true

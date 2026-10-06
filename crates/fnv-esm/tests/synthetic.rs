@@ -125,7 +125,7 @@ fn load_order_overrides_and_remap() {
     let (wp, wr) = lo.winner(0x0000_1001).unwrap();
     assert_eq!(wp.name, "Dlc.esm");
     let decoded = decode_record(wr, &schema());
-    let s = decoded.to_compact();
+    let s = decoded.to_string();
     assert!(s.contains("20.0"), "{s}");
     assert_eq!(lo.index.len(), 3);
     assert_eq!(lo.index[&0x0000_1001].len(), 2);
@@ -152,7 +152,7 @@ fn compressed_record_decodes_and_coverage_counts() {
         cov.add_record(r, &s, None);
         if r.is_compressed() {
             let v = decode_record(r, &s);
-            let t = v.to_compact();
+            let t = v.to_string();
             assert!(t.contains("GlobC") && t.contains("3.5") && t.contains("Float"), "{t}");
         }
     });
@@ -205,7 +205,7 @@ fn stats_counts_repeated_unknown_group_types() {
     let v = fnv_esm::inventory::stats_json(&p);
     let g = v.get("by_group_type").unwrap();
     assert_eq!(g.get("unknown_11").and_then(|x| x.as_u64()), Some(3));
-    assert_eq!(g.as_object().unwrap().iter().filter(|(k, _)| k == "unknown_11").count(), 1);
+    assert_eq!(g.as_object().unwrap().iter().filter(|(k, _)| *k == "unknown_11").count(), 1);
 }
 
 #[test]

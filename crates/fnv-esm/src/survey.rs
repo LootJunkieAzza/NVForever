@@ -7,7 +7,7 @@
 
 use crate::loadorder::LoadOrder;
 use crate::raw::Subrecord;
-use fnv_json::Value;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Default, Clone)]
@@ -48,7 +48,7 @@ impl Survey {
             if zstring_like(&s.data) {
                 p.zstring_like += 1;
             }
-            let exists = |v: u32| lo.to_global(plugin_index, v).map_or(false, |g| lo.exists(g));
+            let exists = |v: u32| lo.to_global(plugin_index, v).is_some_and(|g| lo.exists(g));
             if s.data.len() >= 4 {
                 let v = u32::from_le_bytes(s.data[..4].try_into().unwrap());
                 if exists(v) {
@@ -75,32 +75,21 @@ impl Survey {
     pub fn to_json(&self) -> Value {
         let mut rows = Vec::new();
         for ((r, s), p) in &self.pairs {
-            let mut o = Value::object();
             let mut sizes: Vec<(&usize, &u64)> = p.sizes.iter().collect();
             sizes.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
-            let sz: Vec<Value> = sizes
-                .iter()
-                .take(8)
-                .map(|(k, v)| {
-                    let mut x = Value::object();
-                    x.set("size", **k).set("count", **v);
-                    x
-                })
-                .collect();
-            o.set("record", r.as_str())
-                .set("sub", s.as_str())
-                .set("count", p.count)
-                .set("distinct_sizes", p.sizes.len())
-                .set("top_sizes", Value::Array(sz))
-                .set("zstring_like", p.zstring_like)
-                .set("formid_array_like", p.formid_array_like)
-                .set("first_u32_formid", p.first_u32_formid)
-                .set("max_per_record", p.per_record_max);
-            rows.push(o);
+            let sz: Vec<Value> = sizes.iter().take(8).map(|(k, v)| json!({"size": k, "count": v})).collect();
+            rows.push(json!({
+                "record": r,
+                "sub": s,
+                "count": p.count,
+                "distinct_sizes": p.sizes.len(),
+                "top_sizes": sz,
+                "zstring_like": p.zstring_like,
+                "formid_array_like": p.formid_array_like,
+                "first_u32_formid": p.first_u32_formid,
+                "max_per_record": p.per_record_max,
+            }));
         }
-        let mut v = Value::object();
-        let recs: Vec<(String, Value)> = self.records.iter().map(|(k, n)| (k.clone(), Value::from(*n))).collect();
-        v.set("schema", "fnv.esm.survey/1").set("records", Value::Object(recs)).set("pairs", Value::Array(rows));
-        v
+        json!({"schema": "fnv.esm.survey/1", "records": self.records, "pairs": rows})
     }
 }

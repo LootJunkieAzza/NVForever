@@ -13,6 +13,6 @@ path = "src/main.rs"
 fnv-install = { path = "../fnv-install" }
 fnv-util = { path = "../fnv-util" }
 fnv-inflate = { path = "../fnv-inflate" }
-fnv-json = { path = "../fnv-json" }
+serde_json.workspace = true
 fnv-bsa = { path = "../fnv-bsa" }
 fnv-esm = { path = "../fnv-esm" }

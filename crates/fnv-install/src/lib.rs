@@ -9,7 +9,7 @@
 //!
 //! Path containment is checked on canonicalized paths, case-insensitively on Windows.
 
-use fnv_json::Value;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
@@ -215,10 +215,20 @@ pub fn guard_write(path: &Path, game: Option<&GameInstall>) -> Result<(), Instal
     Ok(())
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+/// `nvforever.json` in the engine home. Unknown keys are ignored so older builds can
+/// read newer files.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     /// The original game's install folder (read-only input).
     pub game_dir: Option<PathBuf>,
+}
+
+#[derive(Serialize)]
+struct ConfigFile<'a> {
+    format: &'static str,
+    #[serde(flatten)]
+    config: &'a Config,
 }
 
 impl Config {
@@ -229,17 +239,15 @@ impl Config {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Config::default()),
             Err(e) => return Err(InstallError::Io(p, e)),
         };
-        let v = fnv_json::parse(&text).map_err(|e| InstallError::Config(format!("{}: {e}", p.display())))?;
-        Ok(Config { game_dir: v.get("game_dir").and_then(Value::as_str).map(PathBuf::from) })
+        serde_json::from_str(&text).map_err(|e| InstallError::Config(format!("{}: {e}", p.display())))
     }
 
     pub fn save(&self, home: &EngineHome, game: Option<&GameInstall>) -> Result<(), InstallError> {
         let p = home.config_file();
         guard_write(&p, game)?;
-        let mut v = Value::object();
-        v.set("format", "nvforever.config/1")
-            .set("game_dir", self.game_dir.as_ref().map(|d| d.to_string_lossy().into_owned()));
-        std::fs::write(&p, v.to_pretty() + "\n").map_err(|e| InstallError::Io(p, e))
+        let file = ConfigFile { format: "nvforever.config/1", config: self };
+        let text = serde_json::to_string_pretty(&file).map_err(|e| InstallError::Config(e.to_string()))?;
+        std::fs::write(&p, text + "\n").map_err(|e| InstallError::Io(p, e))
     }
 }
 
