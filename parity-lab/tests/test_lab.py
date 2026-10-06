@@ -204,6 +204,23 @@ class EndToEndTests(unittest.TestCase):
         self.assertTrue(reg["redacted"])
         self.assertNotIn("status", reg)
 
+    def test_unset_placeholder_refuses_to_run(self):
+        cfgp = self.tmp / "selftest" / "lab.json"
+        raw = json.loads(cfgp.read_text())
+        raw.setdefault("vars", {})["data_dir"] = "SET_ME: path to the game's Data folder"
+        cfgp.write_text(json.dumps(raw))
+        code, _, err = self._run("run")
+        self.assertEqual(code, 3)
+        self.assertIn("not set: data_dir", err)
+        self.assertIn("FNVLAB_DATA_DIR", err)
+        self.assertFalse((self.tmp / "selftest" / "runs" / "latest.json").exists())
+        # The local overlay (written with a BOM, as Windows PowerShell does) fixes it.
+        raw["local_overlay"] = "lab.local.json"
+        cfgp.write_text(json.dumps(raw))
+        (self.tmp / "selftest" / "lab.local.json").write_bytes(
+            b"\xef\xbb\xbf" + json.dumps({"vars": {"data_dir": "/data"}}).encode())
+        self.assertEqual(self._run("run")[0], 0)
+
     def test_require_baseline(self):
         self.assertEqual(self._run("run", "--require-baseline")[0], 4)
         self._run("run")

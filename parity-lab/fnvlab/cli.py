@@ -15,7 +15,7 @@ import json
 import os
 import sys
 
-from .config import ConfigError, LabConfig, filter_scenarios, load_scenarios
+from .config import ConfigError, LabConfig, filter_scenarios, load_scenarios, unset_vars
 from .report import build_report, render_markdown, write_reports
 from .runner import find_regressions, load_baseline, make_baseline, run_all
 
@@ -95,6 +95,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # run
+    unset = unset_vars(cfg)
+    if unset:
+        local = cfg.root / "lab.local.json"
+        print(f"config error: not set: {', '.join(unset)}. Put them in {local} "
+              f"(\"vars\": {{...}}, see lab.local.example.json) or set "
+              f"{', '.join('FNVLAB_' + k.upper() for k in unset)}. "
+              f"{local} {'exists' if local.exists() else 'does not exist'}.", file=sys.stderr)
+        return 3
     if a.require_baseline and load_baseline(cfg) is None:
         print(f"no baseline at {cfg.baseline_path}; refusing to run with --require-baseline",
               file=sys.stderr)
