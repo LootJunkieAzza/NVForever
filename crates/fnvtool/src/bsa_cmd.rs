@@ -1,4 +1,5 @@
-use crate::{Args, CmdError};
+use crate::BsaCmd;
+use anyhow::Context;
 use fnv_bsa::{rewrite, Archive, CompareWriter};
 use fnv_inflate::Trailer;
 use serde_json::{json, Value};
@@ -9,8 +10,8 @@ fn hex64(v: u64) -> String {
     format!("0x{v:016x}")
 }
 
-fn archive_name(p: &str) -> String {
-    Path::new(p).file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+fn archive_name(p: &Path) -> String {
+    p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 fn header_json(a: &Archive) -> Value {
@@ -47,32 +48,27 @@ fn trailer_warning(path: &str, t: Trailer) -> Option<(String, String)> {
     }
 }
 
-pub fn run(sub: &str, rest: &[String]) -> Result<Value, CmdError> {
-    let args = Args::parse(rest, &[]).map_err(CmdError::Usage)?;
-    let path = args.positional.first().ok_or_else(|| CmdError::Usage("missing archive path".into()))?;
-    match sub {
-        "list" => list(path, !args.flag("no-content-hash")),
-        "extract" => {
-            let inner = args.positional.get(1).ok_or_else(|| CmdError::Usage("missing path in archive".into()))?;
-            let out = args.positional.get(2).ok_or_else(|| CmdError::Usage("missing output file".into()))?;
-            let mut a = Archive::open(path)?;
-            let (fi, ri) = a.find(inner).ok_or_else(|| CmdError::Failed(format!("{inner} not found in archive")))?;
+pub fn run(cmd: BsaCmd) -> anyhow::Result<Value> {
+    match cmd {
+        BsaCmd::List { archive, no_content_hash } => list(&archive, !no_content_hash),
+        BsaCmd::Extract { archive, path_in_archive: inner, out_file: out } => {
+            let mut a = Archive::open(&archive)?;
+            let (fi, ri) = a.find(&inner).with_context(|| format!("{inner} not found in archive"))?;
             let r = a.folders[fi].files[ri].clone();
             let data = a.extract(&r)?;
             // Never write into the original game install the archive came from.
-            let game = Path::new(path).parent().and_then(|d| fnv_install::GameInstall::open(d).ok());
-            fnv_install::guard_write(Path::new(out), game.as_ref())?;
-            std::fs::write(out, &data)?;
+            let game = archive.parent().and_then(|d| fnv_install::GameInstall::open(d).ok());
+            fnv_install::guard_write(&out, game.as_ref())?;
+            std::fs::write(&out, &data).with_context(|| out.display().to_string())?;
             Ok(json!({"schema": "fnv.bsa.extract/1", "path": inner, "size": data.len()}))
         }
-        "verify" => verify(path),
-        other => Err(CmdError::Usage(format!("unknown bsa subcommand {other:?}"))),
+        BsaCmd::Verify { archive } => verify(&archive),
     }
 }
 
 /// Archive listing. Rows: path, name_hash, folder_hash, stored_size, compressed,
 /// size (decoded), sha256 (of decoded contents).
-fn list(path: &str, content_hash: bool) -> Result<Value, CmdError> {
+fn list(path: &Path, content_hash: bool) -> anyhow::Result<Value> {
     let mut a = Archive::open(path)?;
     let entries: Vec<(String, fnv_bsa::FileRecord, u64)> =
         a.entries().map(|e| (e.path(), e.record.clone(), e.folder.hash)).collect();
@@ -113,11 +109,12 @@ fn list(path: &str, content_hash: bool) -> Result<Value, CmdError> {
     }))
 }
 
-fn verify(path: &str) -> Result<Value, CmdError> {
-    let original_size = std::fs::metadata(path)?.len();
+fn verify(path: &Path) -> anyhow::Result<Value> {
+    let original_size = std::fs::metadata(path).with_context(|| path.display().to_string())?.len();
     let mut a = Archive::open(path)?;
     // Stream the rewrite into a comparator: memory stays at directory + one file.
-    let mut cmp = CompareWriter::new(std::io::BufReader::new(std::fs::File::open(path)?));
+    let file = std::fs::File::open(path).with_context(|| path.display().to_string())?;
+    let mut cmp = CompareWriter::new(std::io::BufReader::new(file));
     rewrite(&mut a, &mut cmp)?;
     let rewritten = cmp.written;
     let (identical, first_diff) = cmp.finish()?;
