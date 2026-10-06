@@ -49,6 +49,12 @@ class FinishExportTests(unittest.TestCase):
     def test_cp1252_undefined_bytes_are_kept(self):
         self.assertEqual(finish_export.decode(b"\x81\x8d\x80"), "\x81\x8d\u20ac")
 
+    def test_folder_argument_with_stray_quote(self):
+        # What Windows hands Python for "C:\dir\" typed with a trailing backslash.
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "T.xedit.inventory.json").write_bytes(EXPORT.encode("cp1252"))
+            self.assertEqual(finish_export.main([d + os.sep + '"']), 0)
+
     def test_rejects_other_documents(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "X.xedit.inventory.json").write_text('{"schema": "other"}')
