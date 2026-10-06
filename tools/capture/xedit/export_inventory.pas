@@ -91,13 +91,42 @@ begin
     Result := FixedFormID(rec);
 end;
 
+// The first FULL subrecord as stored: at the top level, or one level down inside a
+// struct. xEdit nests a REFR map marker's FULL inside "Map Marker", so a top-level
+// lookup reported null for names such as map markers [observed: 762 FalloutNV records
+// differed from both fnvtool and oracle_esm.py].
+function FirstFull(rec: IInterface): IInterface;
+var
+  i: integer;
+  child, found: IInterface;
+begin
+  Result := ElementBySignature(rec, 'FULL');
+  if Assigned(Result) then
+    Exit;
+  for i := 0 to ElementCount(rec) - 1 do begin
+    child := ElementByIndex(rec, i);
+    if ElementCount(child) > 0 then begin
+      found := ElementBySignature(child, 'FULL');
+      if Assigned(found) then begin
+        Result := found;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
 function RecordLine(rec: IInterface; fid: Int64): string;
 var
   edid, full, fv: string;
   flags: Int64;
+  fullEl: IInterface;
 begin
   edid := JsonStrOrNull(ElementExists(rec, 'EDID'), EditorID(rec));
-  full := JsonStrOrNull(ElementExists(rec, 'FULL'), GetElementEditValues(rec, 'FULL'));
+  fullEl := FirstFull(rec);
+  if Assigned(fullEl) then
+    full := JsonEscape(GetEditValue(fullEl))
+  else
+    full := 'null';
   flags := GetElementNativeValues(rec, 'Record Header\Record Flags');
   if ElementExists(rec, 'Record Header\Form Version') then
     fv := IntToStr(GetElementNativeValues(rec, 'Record Header\Form Version'))
