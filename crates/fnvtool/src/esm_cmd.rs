@@ -56,9 +56,9 @@ pub fn run(cmd: EsmCmd) -> anyhow::Result<Value> {
 /// Structural verification: byte-identical rewrite, every compressed record
 /// decompresses, every payload re-serializes identically from its subrecords.
 fn verify(path: &Path) -> anyhow::Result<Value> {
-    let data = std::fs::read(path).with_context(|| path.display().to_string())?;
+    let data = fnv_esm::plugin::map_file(path).with_context(|| path.display().to_string())?;
     let name = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let p = Plugin::parse(&data, name)?;
+    let p = Plugin::parse_bytes(data.clone(), name)?;
     let out = p.to_bytes();
     let identical = out == data;
     let first_diff = if identical { None } else { out.iter().zip(&data).position(|(a, b)| a != b) };
