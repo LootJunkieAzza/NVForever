@@ -172,3 +172,30 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 
 `docs/spec-notes/simulation.md` (new): forms and references, the player, items and
 carried items, leveled lists, locks/doors/activation, capture procedure, CLI contract.
+
+## 7. Workstreams (parallel sessions)
+
+Owner decision 2026-10-07: the rest of Layer 4 is split between sessions, each owning
+distinct files and working in its own git worktree and branch, merging `main` before its
+PR.
+
+| # | Workstream | Branch | Owns | Delivers | Depends on |
+|---|---|---|---|---|---|
+| 1 | Collision geometry | `claude/layer4-collide` | `crates/fnv-collide`, `crates/fnvtool/src/collide_cmd.rs`, `tools/capture/oracle_collide.py` (+ test), `parity-lab/scenarios/layer4_collide.json`, `docs/spec-notes/collision.md` | Havok collision blocks of every mesh → engine-neutral shapes in game units; Havok scale measured; independent oracle and scenarios | `fnv-nif` (read only) |
+| 2 | Physics and character controller | `claude/layer4-phys` | `crates/fnv-phys`, `crates/fnvtool/src/phys_cmd.rs`, `docs/spec-notes/physics.md`, the physics row of `dependencies.md` | rapier3d world from placed references + LAND terrain; ray and shape queries; kinematic capsule controller; dynamic clutter; deterministic stepping | 1's shape API (stub first), `fnv-world` |
+| 3 | Simulation core | `claude/layer4-sim-*` | `crates/fnv-sim`, `crates/fnvtool/src/sim_cmd.rs`, `parity-lab/scenarios/layer4_sim.json`, `parity-lab/inputs/layer4/`, `docs/spec-notes/simulation.md`, this file (except §2.8 detail owned by 1/2 in their spec notes), README Layer 4 row | per-stack extra data, equip, encumbrance, game clock, respawn, enable-parent propagation, PGRE, schema gaps (IMOD, CHIP, CCRD, CMNY, NOTE), distribution comparator for leveled lists | — |
+| 4 | Engine integration | `claude/layer4-play` | new Bevy crate `engine/nvf-play`; one registration line in `engine/nvforever` | player controller in the game, crosshair activation, container/inventory screen | 2 and 3; coordinate with the renderer owner of `engine/` |
+
+Rules: shared files get additions only — one workspace member, one `mod` + one dispatch
+line in `crates/fnvtool/src/main.rs`, one pointer paragraph in `docs/cli-contract.md`
+(the contract itself lives in the workstream's spec note). In-game captures are the
+owner's (docs/spec-notes/simulation.md §6).
+
+**Shape API between 1 and 2** (`fnv_collide::shape`, stub committed first on
+`claude/layer4-collide`; field meanings documented in `docs/spec-notes/collision.md`):
+`Shape` = box (half extents), sphere, capsule (two points + radius), convex hull
+(points), triangle mesh (vertices, triangles, per-triangle material), compound
+(children with transforms); `CollisionObject` = the NIF node it is attached to, motion
+type, collision layer, mass, friction, restitution, the body transform and the `Shape`.
+All lengths in game units, Z up, after the Havok scale is applied. Workstream 2 consumes
+only this API, never NIF blocks.
