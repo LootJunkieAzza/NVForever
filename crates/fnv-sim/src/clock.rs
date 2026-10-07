@@ -5,13 +5,16 @@
 //! (5.0), TimeScale 0x3A (30). Scripts read and set them (Layer 5), so the simulation
 //! keeps time *in* those globals rather than in a separate counter.
 //!
-//! Rules **[hypothesis]**, to be checked with in-game captures (`GetGlobalValue` after
-//! `Wait`/fast travel):
+//! Rules:
 //! - TimeScale is game seconds per real second (30 → one real minute is 30 game
-//!   minutes) [documented: GECK wiki "TimeScale" describes it as the game-time ratio].
+//!   minutes) [hypothesis; GECK wiki "TimeScale" describes it as the game-time ratio].
 //! - Advancing by h game hours adds h to GameHour and h / 24 to GameDaysPassed; each
 //!   wrap of GameHour past 24 advances GameDay, rolling the month and year over with
-//!   Gregorian month lengths, GameMonth counting from 0 (January).
+//!   Gregorian month lengths, GameMonth counting from 0 (January). [observed in game for
+//!   the day and month: day 18 + 30 h → day 19; day 31 of month 9 at 20:00 + 6 h → day
+//!   1 of month 10 (xNVSE capture, `L4.sim.trace.goodsprings_weight_and_time`). The
+//!   GameHour/GameDaysPassed arithmetic and the year rollover are still hypothesis: the
+//!   in-game clock keeps running during menus, so those were not captured.]
 
 /// Editor IDs of the time globals.
 pub const GAME_YEAR: &str = "GameYear";

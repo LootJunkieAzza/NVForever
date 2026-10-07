@@ -469,8 +469,10 @@ impl<'a> World<'a> {
 
     /// Carried weight against capacity. Capacity = fAVDCarryWeightsBase +
     /// fAVDCarryWeightMult × Strength (150 + 10 × Strength in the masters); the actor is
-    /// over-encumbered when the weight exceeds it. [hypothesis: the formula the setting
-    /// names describe; equipped items count]
+    /// over-encumbered when the weight exceeds it. [observed in game: capacity 200 at
+    /// Strength 5 and 160 at Strength 1, equipped items counted — xNVSE capture,
+    /// `L4.sim.trace.goodsprings_weight_and_time`; the over-encumbered threshold itself
+    /// (weight > capacity) is still hypothesis]
     pub fn encumbrance(&mut self, actor: FormId) -> Result<Encumbrance, SimError> {
         let strength = self.actor_value(actor, "strength")?;
         let capacity = self.setting("fAVDCarryWeightsBase")? + self.setting("fAVDCarryWeightMult")? * strength;
