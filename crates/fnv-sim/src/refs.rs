@@ -79,6 +79,8 @@ pub struct PlacedRef {
     pub teleport: Option<Teleport>,
     pub enable_parent: Option<EnableParent>,
     pub linked: Option<FormId>,
+    /// XMRC on an actor reference: the container holding the actor's merchant stock.
+    pub merchant_container: Option<FormId>,
 }
 
 impl PlacedRef {
@@ -102,6 +104,8 @@ pub struct RefTable {
     pub cell_world: HashMap<FormId, FormId>,
     /// Each worldspace's exterior cells by grid coordinate.
     pub world_grid: HashMap<FormId, BTreeMap<(i32, i32), FormId>>,
+    /// Merchant containers (XMRC targets) -> the actor references whose stock they hold.
+    pub merchant_containers: BTreeMap<FormId, Vec<FormId>>,
     /// References whose winning definition carries the Deleted flag (left out).
     pub deleted: u64,
     pub issues: Issues,
@@ -183,6 +187,9 @@ impl RefTable {
                 if let Some(c) = pr.cell {
                     t.by_cell.entry(c).or_default().push(pr.id);
                 }
+                if let Some(m) = pr.merchant_container {
+                    t.merchant_containers.entry(m).or_default().push(pr.id);
+                }
                 t.refs.insert(pr.id, pr);
             }
         }
@@ -195,6 +202,14 @@ impl RefTable {
         let world = self.cell_world.get(&cell)?;
         let (gx, gy) = fnv_world::cell_of(pos[0], pos[1]);
         self.world_grid.get(world)?.get(&(gx, gy)).copied()
+    }
+
+    /// Whether `id` holds a merchant's stock (an actor reference names it in XMRC).
+    /// [documented: xEdit "Merchant Container" on ACHR/ACRE; observed in game: such a
+    /// container restocks faster than the 72 h cell respawn — the rule is being
+    /// captured, docs/spec-notes/simulation.md §3]
+    pub fn is_merchant_container(&self, id: FormId) -> bool {
+        self.merchant_containers.contains_key(&id)
     }
 
     /// A cell by Editor ID (case-insensitive).
@@ -319,5 +334,6 @@ fn load_ref(
         teleport,
         enable_parent,
         linked: fid(first(&d, b"XLKR"), "XLKR", issues),
+        merchant_container: fid(first(&d, b"XMRC"), "XMRC", issues),
     })
 }
