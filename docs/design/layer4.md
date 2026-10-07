@@ -104,6 +104,9 @@ question (spec section 8.1). The lab's `distribution` comparator (2026-10-07) co
 sampled outcome counts from the original game with the candidate's samples (chi-square
 test of homogeneity) or exact probabilities (goodness of fit), per case, pooling rare
 outcomes; the candidate side is `fnvtool sim sample` (docs/spec-notes/simulation.md §7).
+Smoke test [observed]: 300 draws per case (seed 12345) against the scenario's 20,000
+(seed 0) pass every case of `leveled_basic` (p 0.18–1.0); swapping two cases' outcomes
+fails both.
 
 ### 2.7 Activation
 
