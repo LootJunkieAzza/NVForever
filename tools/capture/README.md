@@ -267,6 +267,38 @@ python tools/capture/script_functions.py --wiki C:/fnv-private/geckwiki/function
   --data "<FNV>/Data" --xedit <path>/wbDefinitionsFNV.pas --notes schemas/script/notes.json
 ```
 
+## 9. `oracle_collide.py` — independent collision reader (Layer 4)
+
+Written only from `docs/spec-notes/collision.md` (section 5 is the contract), `nif.md`,
+`bsa.md` and the niftools `nif.xml` read as documentation for the Havok block layouts (not
+from `crates/`, `schemas/` or `engine/`). Standard library only; imports `oracle_nif.py`
+(container header, archive walking) and through it `oracle_bsa.py`, so all three must sit
+together. `Fallout - Meshes.bsa` takes about 10 s.
+
+```
+python tools/capture/oracle_collide.py objects "<Data>/Fallout - Meshes.bsa" -o "C:/fnv-private/goldens/collide/Fallout - Meshes.bsa.collide.objects.json"
+python tools/capture/oracle_collide.py objects "<Data>/Update.bsa" --filter clutter     # paths containing "clutter"
+```
+
+- `objects` → `fnv.collide.objects/1`: every `.nif` in archive record order. Files with a
+  block-size table are split into blocks by it; scene objects are read up to their
+  collision reference (nodes also their child list), and every collision object, body and
+  shape block that is followed is decoded completely and must consume its stored size
+  exactly. A file is listed in `skipped` (and contributes no objects or phantoms) when its
+  container does not decode (`container: ...`), it has no size table (`no block-size
+  table ...`), a followed block does not decode (`block N (Type): ...`), a reference is
+  missing (`missing block: ...`), a shape/body/collision-object type is unsupported
+  (`unsupported ...`), packed vertices are compressed, or a transform matrix is not a
+  rotation times a uniform scale. Reasons are free text; the lab compares paths only.
+- Bounds are in the mesh root's frame: the root node's own transform is not applied
+  (collision.md §4); scene objects below it compose as usual.
+- `--filter` keeps files whose path contains the text (any case); `--schema` is accepted
+  and ignored.
+- Points where the spec leaves a choice open are marked `# SPEC-AMBIGUITY` in the source.
+
+Goldens layout: `collide/<Archive>.collide.objects.json`, e.g.
+`collide/Fallout - Meshes.bsa.collide.objects.json`.
+
 ## Tests
 
 ```
@@ -278,4 +310,9 @@ empty compressed entry, hash mismatches, XXXX subrecord, compressed records incl
 Adler-32, nested GRUPs, truncated inputs) and, for `oracle_world.py`, a master plus a
 dependent plugin (reference override and move between cells, references added to master
 cells, LAND override, persistent cell, interior cell, compressed records, XESP, XSCL,
-engine-defined base, `.spt` model, unmappable FormID). No game data is needed or used.
+engine-defined base, `.spt` model, unmappable FormID). For `oracle_collide.py` they build
+NIFs with collision on the root, on a transformed and scaled child node and on a geometry
+object, bhkRigidBody vs bhkRigidBodyT, every supported shape (box, sphere, capsule, convex
+vertices, multi-sphere, list, transform, convex transform, MOPP over packed strips with
+sub-parts, NiTriStrips shape), phantoms, and each skip reason. No game data is needed or
+used.
