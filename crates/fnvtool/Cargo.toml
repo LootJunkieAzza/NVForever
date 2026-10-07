@@ -22,6 +22,7 @@ fnv-vfs = { path = "../fnv-vfs" }
 fnv-world = { path = "../fnv-world" }
 fnv-phys = { path = "../fnv-phys" }
 fnv-collide = { path = "../fnv-collide" }
+fnv-sim = { path = "../fnv-sim" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 rayon = "1"

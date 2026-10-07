@@ -449,6 +449,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-sim"
+version = "0.1.0"
+dependencies = [
+ "fnv-esm",
+ "fnv-world",
+ "proptest",
+ "rand_chacha",
+ "rand_core",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "fnv-util"
 version = "0.1.0"
 dependencies = [
@@ -492,6 +508,7 @@ dependencies = [
  "fnv-install",
  "fnv-nif",
  "fnv-phys",
+ "fnv-sim",
  "fnv-util",
  "fnv-vfs",
  "fnv-world",
