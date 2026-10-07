@@ -33,19 +33,26 @@ pub struct SimConfig {
     #[serde(default)]
     pub hardcore: bool,
     /// Game hours a cell must stay unloaded before its respawning containers refill.
-    /// No game setting holds it in the masters; 72 is the commonly cited engine
-    /// default [hypothesis] (absent in older snapshots).
-    #[serde(default = "default_respawn_hours")]
-    pub respawn_hours: f32,
+    /// `None`: the `iHoursToRespawnCell` game setting when a plugin defines it, else
+    /// [`DEFAULT_RESPAWN_HOURS`] (see [`World::respawn_hours`]).
+    #[serde(default)]
+    pub respawn_hours: Option<f32>,
 }
 
-fn default_respawn_hours() -> f32 {
-    72.0
-}
+/// Respawn delay when neither the config nor a plugin sets one. No master defines
+/// `iHoursToRespawnCell` [observed]; 72 is the commonly cited engine value
+/// [hypothesis, contradicted for at least one container: Ringo's cash box refilled after
+/// a 24 h absence in game (L4.sim.trace.goodsprings_respawn); the in-game value is being
+/// captured].
+pub const DEFAULT_RESPAWN_HOURS: f32 = 72.0;
+
+/// The game setting that holds the respawn delay. [hypothesis: name as cited by the
+/// community; not present in the masters]
+pub const RESPAWN_SETTING: &str = "iHoursToRespawnCell";
 
 impl Default for SimConfig {
     fn default() -> Self {
-        SimConfig { seed: 0, player_level: 1, hardcore: false, respawn_hours: default_respawn_hours() }
+        SimConfig { seed: 0, player_level: 1, hardcore: false, respawn_hours: None }
     }
 }
 
@@ -571,6 +578,15 @@ impl<'a> World<'a> {
         self.advance_hours(seconds * scale / 3600.0)
     }
 
+    /// The respawn delay in game hours: the config's, else the `iHoursToRespawnCell`
+    /// setting from the plugins, else [`DEFAULT_RESPAWN_HOURS`].
+    pub fn respawn_hours(&self) -> f32 {
+        self.cfg
+            .respawn_hours
+            .or_else(|| self.forms.setting_f32(RESPAWN_SETTING))
+            .unwrap_or(DEFAULT_RESPAWN_HOURS)
+    }
+
     /// The engine unloads `cell` (the player left it).
     pub fn detach_cell(&mut self, cell: FormId) -> Result<(), SimError> {
         let now = self.calendar()?.days_passed;
@@ -590,7 +606,7 @@ impl<'a> World<'a> {
         // GameDaysPassed is an f32 global, so an exact delay can come out a hair short
         // (72 h measured as 71.99999 h): compare with a thousandth of an hour of slack.
         let elapsed_hours = (now as f64 - since as f64) * 24.0;
-        if elapsed_hours + 1e-3 < self.cfg.respawn_hours as f64 {
+        if elapsed_hours + 1e-3 < self.respawn_hours() as f64 {
             return Ok(Vec::new());
         }
         let forms = self.forms;

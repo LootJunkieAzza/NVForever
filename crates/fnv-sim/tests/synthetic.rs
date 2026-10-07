@@ -731,7 +731,7 @@ fn respawning_containers_refill_after_the_delay() {
     assert!(w.peek(id(SAFE_REF)).unwrap().lock.unwrap().locked);
     // Attaching a cell that was never detached does nothing; the config is honoured.
     assert!(w.attach_cell(id(CELL_B)).unwrap().is_empty());
-    let mut quick = World::new(&f.forms, &f.refs, SimConfig { respawn_hours: 1.0, ..SimConfig::default() });
+    let mut quick = World::new(&f.forms, &f.refs, SimConfig { respawn_hours: Some(1.0), ..SimConfig::default() });
     quick.get(id(SAFE_REF)).unwrap();
     quick.detach_cell(cell).unwrap();
     quick.advance_hours(1.0).unwrap();
@@ -785,4 +785,22 @@ fn teleporting_into_a_worldspace_lands_in_the_grid_cell() {
     // Back inside: an interior door keeps its own cell.
     w.activate(p, id(EXT_DOOR)).unwrap();
     assert_eq!(w.peek(p).unwrap().cell, Some(id(CELL_B)));
+}
+
+#[test]
+fn respawn_delay_comes_from_config_then_setting_then_default() {
+    use fnv_sim::world::DEFAULT_RESPAWN_HOURS;
+    let f = fixture();
+    // The fixture defines no iHoursToRespawnCell: the default applies.
+    assert_eq!(World::new(&f.forms, &f.refs, SimConfig::default()).respawn_hours(), DEFAULT_RESPAWN_HOURS);
+    let cfg = SimConfig { respawn_hours: Some(5.0), ..SimConfig::default() };
+    assert_eq!(World::new(&f.forms, &f.refs, cfg).respawn_hours(), 5.0);
+    // A plugin setting is used when the config does not override it.
+    let mut forms = FormStore::default();
+    forms.settings.insert("ihourstorespawncell".into(), fnv_sim::settings::Setting::Int(24));
+    let refs = RefTable::default();
+    assert_eq!(World::new(&forms, &refs, SimConfig::default()).respawn_hours(), 24.0);
+    // Older snapshots stored a plain number.
+    let old: SimConfig = serde_json::from_str(r#"{"seed": 0, "player_level": 1, "respawn_hours": 72.0}"#).unwrap();
+    assert_eq!(old.respawn_hours, Some(72.0));
 }
