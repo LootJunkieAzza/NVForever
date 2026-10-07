@@ -27,6 +27,7 @@ Exit codes: 0 ok, 1 archive unreadable, 2 usage error. Diagnostics go to stderr.
 """
 import argparse
 import json
+import math
 import mmap
 import os
 import struct
@@ -202,6 +203,15 @@ def stats_entry(path: str, buf, archive_error: str = None) -> dict:
 
 # --------------------------------------------------------------------------- scene
 
+def _num(x: float):
+    """f32 widened to a JSON number; NaN and infinities (not representable in JSON) -> null."""
+    return x if math.isfinite(x) else None
+
+
+def _nums(values):
+    return [_num(x) for x in values]
+
+
 def _string(h: Header, index: int, what: str):
     if index == NO_STRING:
         return None
@@ -224,9 +234,9 @@ def read_scene_object(r: Reader, h: Header):
         r.u32("flags")
     else:
         r.u16("flags")
-    translation = list(r.f32s(3, "translation"))
-    rotation = list(r.f32s(9, "rotation"))
-    scale = r.f32s(1, "scale")[0]
+    translation = _nums(r.f32s(3, "translation"))
+    rotation = _nums(r.f32s(9, "rotation"))
+    scale = _num(r.f32s(1, "scale")[0])
     _ref_list(r, "properties")
     r.i32("collision object")
     return name, translation, rotation, scale
@@ -253,8 +263,8 @@ def read_shape_data(r: Reader, h: Header, type_name: str) -> dict:
         if tangent_bit:
             r.skip(24 * n, "tangents and bitangents")
             has_tangents = True
-    center = list(r.f32s(3, "bound centre"))
-    radius = r.f32s(1, "bound radius")[0]
+    center = _nums(r.f32s(3, "bound centre"))
+    radius = _num(r.f32s(1, "bound radius")[0])
     has_colors = bool(r.u8("has vertex colours"))
     if has_colors:
         r.skip(16 * n, "vertex colours")
@@ -283,8 +293,8 @@ def read_shape_data(r: Reader, h: Header, type_name: str) -> dict:
         raise NifError(f"{r.end - r.pos} bytes left over at end of block")
     if positions:
         xs, ys, zs = positions[0::3], positions[1::3], positions[2::3]
-        aabb_min = [min(xs), min(ys), min(zs)]
-        aabb_max = [max(xs), max(ys), max(zs)]
+        aabb_min = _nums([min(xs), min(ys), min(zs)])
+        aabb_max = _nums([max(xs), max(ys), max(zs)])
     else:
         aabb_min = aabb_max = None
     return {

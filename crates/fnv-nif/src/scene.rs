@@ -156,7 +156,7 @@ pub fn shape_summary(block: usize, type_name: &str, s: &Struct) -> ShapeSummary 
     ShapeSummary {
         block,
         type_name: type_name.to_string(),
-        vertices: verts.len(),
+        vertices: s.int("num_vertices").map_or(verts.len(), |n| n as usize),
         triangles: triangle_count(s),
         has_normals: s.get("normals").is_some(),
         has_tangents: s.get("tangents").is_some(),

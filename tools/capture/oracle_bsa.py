@@ -205,7 +205,7 @@ def _decode_entry(buf, listing: Listing, path: str, offset: int, stored: int,
         return None
     data = memoryview(buf)[offset:end]
     if embedded_names:
-        # Flag 0x100 (never set in FNV): data begins with a length-prefixed full path.
+        # Flag 0x100 (set on the two texture archives): data begins with a length-prefixed full path.
         if len(data) < 1 or 1 + data[0] > len(data):
             listing.error("embedded_name_truncated", f"{path}: embedded name runs past data")
             return None

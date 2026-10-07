@@ -122,7 +122,10 @@ decoded (decompressed) contents and are omitted with `--no-content-hash`. Lab co
 
 Inputs are BSA archives; every `.nif` / `.kf` (or `.dds`) file inside is reported, in
 archive order. Paths are as stored in the archive (lower case, backslashes). Floats are
-f32 values widened to JSON numbers without rounding. Block references are block indices.
+f32 values widened to JSON numbers without rounding; NaN and infinities are `null`
+(two node translations in the game are NaN). -0.0 and 0.0 compare equal. Block references
+are block indices. `error` / `reason` texts are diagnostics: tools should agree on whether
+one is present, and the lab compares them, but none occur in the game data.
 
 ## `fnvtool nif stats <archive>` → `fnv.nif.stats/1`
 
@@ -173,7 +176,11 @@ also files whose container cannot be read). `key` is `path#block`.
   NiTriShape, NiTriStrips, BSSegmentedTriShape, in block order. `name` is the object name
   (`null` for "no string"). `parent` is the index of the first node (lowest block index)
   whose child list contains this block, else `null`. `rotation` is row-major.
-- `shapes`: every NiTriShapeData and NiTriStripsData block. `triangles` = triangle count
+- A file in which any block cannot be decoded is listed in `skipped` and contributes no
+  objects or shapes.
+- `shapes`: every NiTriShapeData and NiTriStripsData block. `vertices` is the stored vertex
+  count. `has_tangents` means tangents are actually stored (normals present and the
+  tangent bit set). `triangles` = triangle count
   if the has-triangles byte is set (lists), or the sum over strips of
   max(length − 2, 0) if the has-points byte is set (strips), else 0. `uv_sets` = the
   number of UV sets actually stored. `aabb_min`/`aabb_max` = component-wise min/max over

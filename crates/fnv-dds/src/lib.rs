@@ -82,7 +82,8 @@ const CAPS2_ALL_FACES: u32 = 0xFC00;
 impl PixelFormat {
     /// The format named in dds.md §2, or a description of an unknown one.
     pub fn format(&self) -> Result<Format, String> {
-        if self.flags & PF_FOURCC != 0 {
+        // The rows of dds.md §2 match on the whole flags value.
+        if self.flags == PF_FOURCC {
             return match &self.fourcc {
                 b"DXT1" => Ok(Format::Dxt1),
                 b"DXT3" => Ok(Format::Dxt3),
@@ -90,7 +91,7 @@ impl PixelFormat {
                 _ => Err(self.describe()),
             };
         }
-        if self.flags & PF_RGB != 0 {
+        if self.flags == PF_RGB || self.flags == PF_RGB | PF_ALPHA_PIXELS {
             let alpha = self.flags & PF_ALPHA_PIXELS != 0;
             return match (self.rgb_bits, self.masks, alpha) {
                 (32, [0x00FF_0000, 0x0000_FF00, 0x0000_00FF, 0xFF00_0000], true) => Ok(Format::A8R8G8B8),
