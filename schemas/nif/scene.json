@@ -1,0 +1,563 @@
+{
+  "format": "fnv.nif.schema/1",
+  "_comment": "Scene group: Bethesda shader properties and texture sets, NiTexturingProperty/NiSourceTexture, NiStencilProperty, skinning (NiSkinData, NiSkinPartition, BSDismemberSkinInstance), multi-bounds, special nodes, lights, camera, extra data and additional geometry data. Layouts re-expressed in our own format from niftools nif.xml (https://github.com/niftools/nifxml, GPL-3.0, read as documentation only; no text copied) for the FNV corpus versions only: 20.2.0.7 with user version 11 and bs_version 14-34, and 20.0.0.4 with user version 11. Fields impossible in those versions are omitted. Every block is checked against the user's install with `fnvtool nif coverage` (exact consumption + byte-identical re-encode).",
+  "enums": {
+    "ShadeFlags": {"storage": "u16", "values": {"0": "SHADING_HARD", "1": "SHADING_SMOOTH"}},
+    "BSShaderType": {
+      "storage": "u32",
+      "values": {"0": "SHADER_TALL_GRASS", "1": "SHADER_DEFAULT", "10": "SHADER_SKY", "14": "SHADER_SKIN", "15": "SHADER_UNKNOWN", "17": "SHADER_WATER", "29": "SHADER_LIGHTING30", "32": "SHADER_TILE", "33": "SHADER_NOLIGHTING"}
+    },
+    "BSShaderFlags": {
+      "storage": "u32",
+      "bits": {"0": "specular", "1": "skinned", "2": "low_detail", "3": "vertex_alpha", "4": "unknown_1", "5": "single_pass", "6": "empty", "7": "environment_mapping", "8": "alpha_texture", "9": "unknown_2", "10": "face_gen", "11": "parallax_shader_index_15", "12": "unknown_3", "13": "non_projective_shadows", "14": "unknown_4", "15": "refraction", "16": "fire_refraction", "17": "eye_environment_mapping", "18": "hair", "19": "dynamic_alpha", "20": "localmap_hide_secret", "21": "window_environment_mapping", "22": "tree_billboard", "23": "shadow_frustum", "24": "multiple_textures", "25": "remappable_textures", "26": "decal_single_pass", "27": "dynamic_decal_single_pass", "28": "parallax_occlusion", "29": "external_emittance", "30": "shadow_map", "31": "zbuffer_test"}
+    },
+    "BSShaderFlags2": {
+      "storage": "u32",
+      "bits": {"0": "zbuffer_write", "1": "lod_landscape", "2": "lod_building", "3": "no_fade", "4": "refraction_tint", "5": "vertex_colors", "6": "unknown_1", "7": "first_light_is_point_light", "8": "second_light", "9": "third_light", "10": "vertex_lighting", "11": "uniform_scale", "12": "fit_slope", "13": "billboard_and_envmap_light_fade", "14": "no_lod_land_blend", "15": "envmap_light_fade", "16": "wireframe", "17": "vats_selection", "18": "show_in_local_map", "19": "premult_alpha", "20": "skip_normal_maps", "21": "alpha_decal", "22": "no_transparency_multisampling", "23-31": "unknown_high"}
+    },
+    "TexClampMode": {"storage": "u32", "values": {"0": "CLAMP_S_CLAMP_T", "1": "CLAMP_S_WRAP_T", "2": "WRAP_S_CLAMP_T", "3": "WRAP_S_WRAP_T"}},
+    "TexFilterMode": {
+      "storage": "u32",
+      "values": {"0": "FILTER_NEAREST", "1": "FILTER_BILERP", "2": "FILTER_TRILERP", "3": "FILTER_NEAREST_MIPNEAREST", "4": "FILTER_NEAREST_MIPLERP", "5": "FILTER_BILERP_MIPNEAREST", "6": "FILTER_ANISOTROPIC"}
+    },
+    "ApplyMode": {"storage": "u32", "values": {"0": "APPLY_REPLACE", "1": "APPLY_DECAL", "2": "APPLY_MODULATE", "3": "APPLY_HILIGHT", "4": "APPLY_HILIGHT2"}},
+    "TransformMethod": {"storage": "u32", "values": {"0": "MAYA_DEPRECATED", "1": "MAX", "2": "MAYA"}},
+    "TexturingFlags": {"storage": "u16", "bits": {"0": "multitexture", "1-3": "apply_mode", "4-11": "decal_count"}},
+    "TexturingMapFlags": {"storage": "u16", "bits": {"0-7": "texture_index", "8-11": "filter_mode", "12-15": "clamp_mode"}},
+    "PixelLayout": {
+      "storage": "u32",
+      "values": {"0": "PALETTIZED_8", "1": "HIGH_COLOR_16", "2": "TRUE_COLOR_32", "3": "COMPRESSED", "4": "BUMPMAP", "5": "PALETTIZED_4", "6": "DEFAULT", "7": "SINGLE_COLOR_8", "8": "SINGLE_COLOR_16", "9": "SINGLE_COLOR_32", "10": "DOUBLE_COLOR_32", "11": "DOUBLE_COLOR_64", "12": "FLOAT_COLOR_32", "13": "FLOAT_COLOR_64", "14": "FLOAT_COLOR_128", "15": "SINGLE_COLOR_4", "16": "DEPTH_24_X8"}
+    },
+    "MipMapFormat": {"storage": "u32", "values": {"0": "MIP_FMT_NO", "1": "MIP_FMT_YES", "2": "MIP_FMT_DEFAULT"}},
+    "AlphaFormat": {"storage": "u32", "values": {"0": "ALPHA_NONE", "1": "ALPHA_BINARY", "2": "ALPHA_SMOOTH", "3": "ALPHA_DEFAULT"}},
+    "StencilTestFunc": {"storage": "u32", "values": {"0": "TEST_NEVER", "1": "TEST_LESS", "2": "TEST_EQUAL", "3": "TEST_LESS_EQUAL", "4": "TEST_GREATER", "5": "TEST_NOT_EQUAL", "6": "TEST_GREATER_EQUAL", "7": "TEST_ALWAYS"}},
+    "StencilAction": {"storage": "u32", "values": {"0": "ACTION_KEEP", "1": "ACTION_ZERO", "2": "ACTION_REPLACE", "3": "ACTION_INCREMENT", "4": "ACTION_DECREMENT", "5": "ACTION_INVERT"}},
+    "StencilDrawMode": {"storage": "u32", "values": {"0": "DRAW_CCW_OR_BOTH", "1": "DRAW_CCW", "2": "DRAW_CW", "3": "DRAW_BOTH"}},
+    "StencilFlags": {"storage": "u16", "bits": {"0": "enable", "1-3": "fail_action", "4-6": "z_fail_action", "7-9": "pass_action", "10-11": "draw_mode", "12-15": "test_func"}},
+    "BSPartFlag": {"storage": "u16", "bits": {"0": "editor_visible", "8": "start_net_boneset"}},
+    "BSDismemberBodyPartType": {
+      "storage": "u16",
+      "values": {
+        "0": "BP_TORSO", "1": "BP_HEAD", "2": "BP_HEAD2", "3": "BP_LEFTARM", "4": "BP_LEFTARM2", "5": "BP_RIGHTARM", "6": "BP_RIGHTARM2", "7": "BP_LEFTLEG", "8": "BP_LEFTLEG2", "9": "BP_LEFTLEG3", "10": "BP_RIGHTLEG", "11": "BP_RIGHTLEG2", "12": "BP_RIGHTLEG3", "13": "BP_BRAIN",
+        "101": "BP_SECTIONCAP_HEAD", "102": "BP_SECTIONCAP_HEAD2", "103": "BP_SECTIONCAP_LEFTARM", "104": "BP_SECTIONCAP_LEFTARM2", "105": "BP_SECTIONCAP_RIGHTARM", "106": "BP_SECTIONCAP_RIGHTARM2", "107": "BP_SECTIONCAP_LEFTLEG", "108": "BP_SECTIONCAP_LEFTLEG2", "109": "BP_SECTIONCAP_LEFTLEG3", "110": "BP_SECTIONCAP_RIGHTLEG", "111": "BP_SECTIONCAP_RIGHTLEG2", "112": "BP_SECTIONCAP_RIGHTLEG3", "113": "BP_SECTIONCAP_BRAIN",
+        "201": "BP_TORSOCAP_HEAD", "202": "BP_TORSOCAP_HEAD2", "203": "BP_TORSOCAP_LEFTARM", "204": "BP_TORSOCAP_LEFTARM2", "205": "BP_TORSOCAP_RIGHTARM", "206": "BP_TORSOCAP_RIGHTARM2", "207": "BP_TORSOCAP_LEFTLEG", "208": "BP_TORSOCAP_LEFTLEG2", "209": "BP_TORSOCAP_LEFTLEG3", "210": "BP_TORSOCAP_RIGHTLEG", "211": "BP_TORSOCAP_RIGHTLEG2", "212": "BP_TORSOCAP_RIGHTLEG3", "213": "BP_TORSOCAP_BRAIN",
+        "1000": "BP_TORSOSECTION_HEAD", "2000": "BP_TORSOSECTION_HEAD2", "3000": "BP_TORSOSECTION_LEFTARM", "4000": "BP_TORSOSECTION_LEFTARM2", "5000": "BP_TORSOSECTION_RIGHTARM", "6000": "BP_TORSOSECTION_RIGHTARM2", "7000": "BP_TORSOSECTION_LEFTLEG", "8000": "BP_TORSOSECTION_LEFTLEG2", "9000": "BP_TORSOSECTION_LEFTLEG3", "10000": "BP_TORSOSECTION_RIGHTLEG", "11000": "BP_TORSOSECTION_RIGHTLEG2", "12000": "BP_TORSOSECTION_RIGHTLEG3", "13000": "BP_TORSOSECTION_BRAIN"
+      }
+    },
+    "SkyObjectType": {"storage": "u32", "values": {"0": "BSSM_SKY_TEXTURE", "1": "BSSM_SKY_SUNGLARE", "2": "BSSM_SKY", "3": "BSSM_SKY_CLOUDS", "5": "BSSM_SKY_STARS", "7": "BSSM_SKY_MOON_STARS_MASK"}},
+    "BillboardMode": {
+      "storage": "u16",
+      "values": {"0": "ALWAYS_FACE_CAMERA", "1": "ROTATE_ABOUT_UP", "2": "RIGID_FACE_CAMERA", "3": "ALWAYS_FACE_CENTER", "4": "RIGID_FACE_CENTER", "5": "BSROTATE_ABOUT_UP", "8": "UNKNOWN_8", "9": "ROTATE_ABOUT_UP2", "10": "UNKNOWN_10", "11": "UNKNOWN_11", "12": "UNKNOWN_12"}
+    },
+    "BSValueNodeFlags": {"storage": "u8", "bits": {"0": "billboard_world_z", "1": "use_player_adjust"}},
+    "NiAGDDataStreamFlags": {"storage": "u8", "bits": {"0": "keep", "1-3": "consistency_type"}}
+  },
+  "structs": {
+    "NiTransform": {
+      "fields": [
+        {"name": "rotation", "type": "mat33"},
+        {"name": "translation", "type": "vec3"},
+        {"name": "scale", "type": "f32"}
+      ],
+      "note": "nif.xml <struct name=\"NiTransform\">."
+    },
+    "BoneVertData": {
+      "fields": [
+        {"name": "index", "type": "u16"},
+        {"name": "weight", "type": "f32"}
+      ],
+      "note": "nif.xml <struct name=\"BoneVertData\">."
+    },
+    "BoneData": {
+      "fields": [
+        {"name": "skin_transform", "type": "NiTransform"},
+        {"name": "bounding_sphere", "type": "NiBound"},
+        {"name": "num_vertices", "type": "u16"},
+        {"name": "vertex_weights", "type": "BoneVertData", "length": "num_vertices", "cond": "arg != 0"}
+      ],
+      "note": "nif.xml <struct name=\"BoneData\">; arg is the owning NiSkinData's has_vertex_weights."
+    },
+    "SkinPartition": {
+      "fields": [
+        {"name": "num_vertices", "type": "u16"},
+        {"name": "num_triangles", "type": "u16"},
+        {"name": "num_bones", "type": "u16"},
+        {"name": "num_strips", "type": "u16"},
+        {"name": "num_weights_per_vertex", "type": "u16"},
+        {"name": "bones", "type": "u16", "length": "num_bones"},
+        {"name": "has_vertex_map", "type": "bool"},
+        {"name": "vertex_map", "type": "u16", "length": "num_vertices", "cond": "has_vertex_map"},
+        {"name": "has_vertex_weights", "type": "bool"},
+        {"name": "vertex_weights", "type": "f32", "length": "num_vertices", "width": "num_weights_per_vertex", "cond": "has_vertex_weights"},
+        {"name": "strip_lengths", "type": "u16", "length": "num_strips"},
+        {"name": "has_faces", "type": "bool"},
+        {"name": "strips", "type": "u16", "length": "num_strips", "width": "strip_lengths", "cond": "has_faces && num_strips != 0"},
+        {"name": "triangles", "type": "triangle", "length": "num_triangles", "cond": "has_faces && num_strips == 0"},
+        {"name": "has_bone_indices", "type": "bool"},
+        {"name": "bone_indices", "type": "u8", "length": "num_vertices", "width": "num_weights_per_vertex", "cond": "has_bone_indices"}
+      ],
+      "note": "nif.xml <struct name=\"SkinPartition\">; the LOD/global-VB and SSE vertex fields need bs_version > 34."
+    },
+    "BodyPartList": {
+      "fields": [
+        {"name": "part_flag", "type": "BSPartFlag"},
+        {"name": "body_part", "type": "BSDismemberBodyPartType"}
+      ],
+      "note": "nif.xml <struct name=\"BodyPartList\">."
+    },
+    "TexDesc": {
+      "fields": [
+        {"name": "source", "type": "ref"},
+        {"name": "clamp_mode", "type": "TexClampMode", "until": "20.0.0.5"},
+        {"name": "filter_mode", "type": "TexFilterMode", "until": "20.0.0.5"},
+        {"name": "flags", "type": "TexturingMapFlags", "since": "20.1.0.3"},
+        {"name": "uv_set", "type": "u32", "until": "20.0.0.5"},
+        {"name": "has_texture_transform", "type": "bool"},
+        {"name": "translation", "type": "vec2", "cond": "has_texture_transform"},
+        {"name": "scale", "type": "vec2", "cond": "has_texture_transform"},
+        {"name": "rotation", "type": "f32", "cond": "has_texture_transform"},
+        {"name": "transform_method", "type": "TransformMethod", "cond": "has_texture_transform"},
+        {"name": "center", "type": "vec2", "cond": "has_texture_transform"}
+      ],
+      "note": "nif.xml <struct name=\"TexDesc\"> (one texture slot of NiTexturingProperty)."
+    },
+    "ShaderTexDesc": {
+      "fields": [
+        {"name": "has_map", "type": "bool"},
+        {"name": "map", "type": "TexDesc", "cond": "has_map"},
+        {"name": "map_id", "type": "u32", "cond": "has_map"}
+      ],
+      "note": "nif.xml <struct name=\"ShaderTexDesc\">."
+    },
+    "FormatPrefs": {
+      "fields": [
+        {"name": "pixel_layout", "type": "PixelLayout"},
+        {"name": "use_mipmaps", "type": "MipMapFormat"},
+        {"name": "alpha_format", "type": "AlphaFormat"}
+      ],
+      "note": "nif.xml <struct name=\"FormatPrefs\">."
+    },
+    "NiAGDDataStream": {
+      "fields": [
+        {"name": "type", "type": "u32"},
+        {"name": "unit_size", "type": "u32"},
+        {"name": "total_size", "type": "u32"},
+        {"name": "stride", "type": "u32"},
+        {"name": "block_index", "type": "u32"},
+        {"name": "block_offset", "type": "u32"},
+        {"name": "flags", "type": "NiAGDDataStreamFlags"}
+      ],
+      "note": "nif.xml <struct name=\"NiAGDDataStream\">."
+    },
+    "NiAGDDataBlock": {
+      "fields": [
+        {"name": "block_size", "type": "u32"},
+        {"name": "num_blocks", "type": "u32"},
+        {"name": "block_offsets", "type": "u32", "length": "num_blocks"},
+        {"name": "num_data", "type": "u32"},
+        {"name": "data_sizes", "type": "u32", "length": "num_data"},
+        {"name": "data", "type": "bytes", "length": "num_data * block_size", "note": "nif.xml: num_data rows of block_size bytes; stored flat here."},
+        {"name": "shader_index", "type": "u32", "cond": "arg == 1"},
+        {"name": "total_size", "type": "u32", "cond": "arg == 1"}
+      ],
+      "note": "nif.xml <struct name=\"NiAGDDataBlock\">; arg 1 is the packed (BS) variant."
+    },
+    "NiAGDDataBlocks": {
+      "fields": [
+        {"name": "has_data", "type": "bool"},
+        {"name": "data_block", "type": "NiAGDDataBlock", "cond": "has_data", "arg": "arg"}
+      ],
+      "note": "nif.xml <struct name=\"NiAGDDataBlocks\">."
+    },
+    "BSGeometrySegmentData": {
+      "fields": [
+        {"name": "flags", "type": "u8"},
+        {"name": "start_index", "type": "u32"},
+        {"name": "num_primitives", "type": "u32"}
+      ],
+      "note": "nif.xml <struct name=\"BSGeometrySegmentData\">; the sub-segment fields need bs_version >= 130."
+    },
+    "FurniturePosition": {
+      "fields": [
+        {"name": "offset", "type": "vec3"},
+        {"name": "orientation", "type": "u16"},
+        {"name": "position_ref_1", "type": "u8"},
+        {"name": "position_ref_2", "type": "u8"}
+      ],
+      "note": "nif.xml <struct name=\"FurniturePosition\">; heading/animation fields need bs_version > 34."
+    },
+    "DecalVectorArray": {
+      "fields": [
+        {"name": "num_vectors", "type": "u16"},
+        {"name": "points", "type": "vec3", "length": "num_vectors"},
+        {"name": "normals", "type": "vec3", "length": "num_vectors"}
+      ],
+      "note": "nif.xml <struct name=\"DecalVectorArray\">."
+    },
+    "ByteArray": {
+      "fields": [
+        {"name": "data_size", "type": "u32"},
+        {"name": "data", "type": "bytes", "length": "data_size"}
+      ],
+      "note": "nif.xml <struct name=\"ByteArray\">."
+    }
+  },
+  "blocks": {
+    "NiShadeProperty": {
+      "inherit": "NiProperty",
+      "fields": [
+        {"name": "flags", "type": "ShadeFlags", "cond": "bs_version <= 34"}
+      ],
+      "note": "nif.xml <niobject name=\"NiShadeProperty\">; parent of the Bethesda shader properties."
+    },
+    "BSShaderProperty": {
+      "inherit": "NiShadeProperty",
+      "fields": [
+        {"name": "shader_type", "type": "BSShaderType"},
+        {"name": "shader_flags", "type": "BSShaderFlags"},
+        {"name": "shader_flags_2", "type": "BSShaderFlags2"},
+        {"name": "environment_map_scale", "type": "f32"}
+      ],
+      "note": "nif.xml <niobject name=\"BSShaderProperty\">; all four fields exist for bs_version <= 34 (every FNV file)."
+    },
+    "BSShaderLightingProperty": {
+      "abstract": true,
+      "inherit": "BSShaderProperty",
+      "fields": [
+        {"name": "texture_clamp_mode", "type": "TexClampMode"}
+      ],
+      "note": "nif.xml <niobject name=\"BSShaderLightingProperty\">."
+    },
+    "BSShaderPPLightingProperty": {
+      "inherit": "BSShaderLightingProperty",
+      "fields": [
+        {"name": "texture_set", "type": "ref"},
+        {"name": "refraction_strength", "type": "f32", "cond": "bs_version > 14"},
+        {"name": "refraction_fire_period", "type": "i32", "cond": "bs_version > 14"},
+        {"name": "parallax_max_passes", "type": "f32", "cond": "bs_version > 24"},
+        {"name": "parallax_scale", "type": "f32", "cond": "bs_version > 24"}
+      ],
+      "note": "nif.xml <niobject name=\"BSShaderPPLightingProperty\">; the emissive colour needs bs_version > 34."
+    },
+    "BSShaderNoLightingProperty": {
+      "inherit": "BSShaderLightingProperty",
+      "fields": [
+        {"name": "file_name", "type": "sized_string"},
+        {"name": "falloff_start_angle", "type": "f32", "cond": "bs_version > 26"},
+        {"name": "falloff_stop_angle", "type": "f32", "cond": "bs_version > 26"},
+        {"name": "falloff_start_opacity", "type": "f32", "cond": "bs_version > 26"},
+        {"name": "falloff_stop_opacity", "type": "f32", "cond": "bs_version > 26"}
+      ],
+      "note": "nif.xml <niobject name=\"BSShaderNoLightingProperty\">."
+    },
+    "TileShaderProperty": {
+      "inherit": "BSShaderLightingProperty",
+      "fields": [
+        {"name": "file_name", "type": "sized_string"}
+      ],
+      "note": "nif.xml <niobject name=\"TileShaderProperty\">."
+    },
+    "SkyShaderProperty": {
+      "inherit": "BSShaderLightingProperty",
+      "fields": [
+        {"name": "file_name", "type": "sized_string"},
+        {"name": "sky_object_type", "type": "SkyObjectType"}
+      ],
+      "note": "nif.xml <niobject name=\"SkyShaderProperty\">."
+    },
+    "TallGrassShaderProperty": {
+      "inherit": "BSShaderProperty",
+      "fields": [
+        {"name": "file_name", "type": "sized_string"}
+      ],
+      "note": "nif.xml <niobject name=\"TallGrassShaderProperty\">."
+    },
+    "WaterShaderProperty": {
+      "inherit": "BSShaderProperty",
+      "note": "nif.xml <niobject name=\"WaterShaderProperty\">; no fields of its own."
+    },
+    "BSShaderTextureSet": {
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "num_textures", "type": "u32"},
+        {"name": "textures", "type": "sized_string", "length": "num_textures"}
+      ],
+      "note": "nif.xml <niobject name=\"BSShaderTextureSet\">; slots 0 diffuse, 1 normal/gloss, 2 glow/skin, 3 height, 4 environment, 5 environment mask."
+    },
+    "NiTexturingProperty": {
+      "inherit": "NiProperty",
+      "fields": [
+        {"name": "flags", "type": "TexturingFlags", "since": "20.1.0.2"},
+        {"name": "apply_mode", "type": "ApplyMode", "until": "20.1.0.1"},
+        {"name": "texture_count", "type": "u32"},
+        {"name": "has_base_texture", "type": "bool"},
+        {"name": "base_texture", "type": "TexDesc", "cond": "has_base_texture"},
+        {"name": "has_dark_texture", "type": "bool"},
+        {"name": "dark_texture", "type": "TexDesc", "cond": "has_dark_texture"},
+        {"name": "has_detail_texture", "type": "bool"},
+        {"name": "detail_texture", "type": "TexDesc", "cond": "has_detail_texture"},
+        {"name": "has_gloss_texture", "type": "bool"},
+        {"name": "gloss_texture", "type": "TexDesc", "cond": "has_gloss_texture"},
+        {"name": "has_glow_texture", "type": "bool"},
+        {"name": "glow_texture", "type": "TexDesc", "cond": "has_glow_texture"},
+        {"name": "has_bump_map_texture", "type": "bool", "cond": "texture_count > 5"},
+        {"name": "bump_map_texture", "type": "TexDesc", "cond": "has_bump_map_texture"},
+        {"name": "bump_map_luma_scale", "type": "f32", "cond": "has_bump_map_texture"},
+        {"name": "bump_map_luma_offset", "type": "f32", "cond": "has_bump_map_texture"},
+        {"name": "bump_map_matrix", "type": "mat22", "cond": "has_bump_map_texture"},
+        {"name": "has_normal_texture", "type": "bool", "cond": "texture_count > 6", "since": "20.2.0.5"},
+        {"name": "normal_texture", "type": "TexDesc", "cond": "has_normal_texture", "since": "20.2.0.5"},
+        {"name": "has_parallax_texture", "type": "bool", "cond": "texture_count > 7", "since": "20.2.0.5"},
+        {"name": "parallax_texture", "type": "TexDesc", "cond": "has_parallax_texture", "since": "20.2.0.5"},
+        {"name": "parallax_offset", "type": "f32", "cond": "has_parallax_texture", "since": "20.2.0.5"},
+        {"name": "has_decal_0_texture", "type": "bool", "cond": "texture_count > 6", "until": "20.2.0.4"},
+        {"name": "has_decal_0_texture", "type": "bool", "cond": "texture_count > 8", "since": "20.2.0.5"},
+        {"name": "decal_0_texture", "type": "TexDesc", "cond": "has_decal_0_texture"},
+        {"name": "has_decal_1_texture", "type": "bool", "cond": "texture_count > 7", "until": "20.2.0.4"},
+        {"name": "has_decal_1_texture", "type": "bool", "cond": "texture_count > 9", "since": "20.2.0.5"},
+        {"name": "decal_1_texture", "type": "TexDesc", "cond": "has_decal_1_texture"},
+        {"name": "has_decal_2_texture", "type": "bool", "cond": "texture_count > 8", "until": "20.2.0.4"},
+        {"name": "has_decal_2_texture", "type": "bool", "cond": "texture_count > 10", "since": "20.2.0.5"},
+        {"name": "decal_2_texture", "type": "TexDesc", "cond": "has_decal_2_texture"},
+        {"name": "has_decal_3_texture", "type": "bool", "cond": "texture_count > 9", "until": "20.2.0.4"},
+        {"name": "has_decal_3_texture", "type": "bool", "cond": "texture_count > 11", "since": "20.2.0.5"},
+        {"name": "decal_3_texture", "type": "TexDesc", "cond": "has_decal_3_texture"},
+        {"name": "num_shader_textures", "type": "u32"},
+        {"name": "shader_textures", "type": "ShaderTexDesc", "length": "num_shader_textures"}
+      ],
+      "note": "nif.xml <niobject name=\"NiTexturingProperty\">."
+    },
+    "NiTexture": {"abstract": true, "inherit": "NiObjectNET", "note": "nif.xml <niobject name=\"NiTexture\">."},
+    "NiSourceTexture": {
+      "inherit": "NiTexture",
+      "fields": [
+        {"name": "use_external", "type": "u8"},
+        {"name": "file_name", "type": "string", "cond": "use_external == 1", "note": "nif.xml FilePath: inline sized string before 20.1.0.3, string-table index after, as `string` reads it."},
+        {"name": "file_name", "type": "string", "cond": "use_external == 0", "note": "Source file name of embedded pixel data."},
+        {"name": "pixel_data", "type": "ref", "cond": "use_external == 1"},
+        {"name": "pixel_data", "type": "ref", "cond": "use_external == 0"},
+        {"name": "format_prefs", "type": "FormatPrefs"},
+        {"name": "is_static", "type": "u8"},
+        {"name": "direct_render", "type": "bool"},
+        {"name": "persist_render_data", "type": "bool", "since": "20.2.0.4"}
+      ],
+      "note": "nif.xml <niobject name=\"NiSourceTexture\">."
+    },
+    "NiStencilProperty": {
+      "inherit": "NiProperty",
+      "fields": [
+        {"name": "stencil_enabled", "type": "u8", "until": "20.0.0.5"},
+        {"name": "stencil_function", "type": "StencilTestFunc", "until": "20.0.0.5"},
+        {"name": "stencil_ref", "type": "u32", "until": "20.0.0.5"},
+        {"name": "stencil_mask", "type": "u32", "until": "20.0.0.5"},
+        {"name": "fail_action", "type": "StencilAction", "until": "20.0.0.5"},
+        {"name": "z_fail_action", "type": "StencilAction", "until": "20.0.0.5"},
+        {"name": "pass_action", "type": "StencilAction", "until": "20.0.0.5"},
+        {"name": "draw_mode", "type": "StencilDrawMode", "until": "20.0.0.5"},
+        {"name": "flags", "type": "StencilFlags", "since": "20.1.0.3"},
+        {"name": "stencil_ref", "type": "u32", "since": "20.1.0.3"},
+        {"name": "stencil_mask", "type": "u32", "since": "20.1.0.3"}
+      ],
+      "note": "nif.xml <niobject name=\"NiStencilProperty\">; 20.1.0.3+ packs enable/actions/draw mode/test into flags."
+    },
+    "NiSkinData": {
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "skin_transform", "type": "NiTransform"},
+        {"name": "num_bones", "type": "u32"},
+        {"name": "has_vertex_weights", "type": "bool"},
+        {"name": "bone_list", "type": "BoneData", "length": "num_bones", "arg": "has_vertex_weights"}
+      ],
+      "note": "nif.xml <niobject name=\"NiSkinData\">."
+    },
+    "NiSkinPartition": {
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "num_partitions", "type": "u32"},
+        {"name": "partitions", "type": "SkinPartition", "length": "num_partitions"}
+      ],
+      "note": "nif.xml <niobject name=\"NiSkinPartition\">; the SSE vertex-data fields need bs_version 100."
+    },
+    "BSDismemberSkinInstance": {
+      "inherit": "NiSkinInstance",
+      "fields": [
+        {"name": "num_partitions", "type": "u32"},
+        {"name": "partitions", "type": "BodyPartList", "length": "num_partitions"}
+      ],
+      "note": "nif.xml <niobject name=\"BSDismemberSkinInstance\">."
+    },
+    "BSMultiBoundNode": {
+      "inherit": "NiNode",
+      "fields": [
+        {"name": "multi_bound", "type": "ref"}
+      ],
+      "note": "nif.xml <niobject name=\"BSMultiBoundNode\">; the culling mode needs bs_version >= 83."
+    },
+    "BSMultiBound": {
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "data", "type": "ref"}
+      ],
+      "note": "nif.xml <niobject name=\"BSMultiBound\">."
+    },
+    "BSMultiBoundData": {"abstract": true, "inherit": "NiObject", "note": "nif.xml <niobject name=\"BSMultiBoundData\"> (described there as an abstract base)."},
+    "BSMultiBoundAABB": {
+      "inherit": "BSMultiBoundData",
+      "fields": [
+        {"name": "position", "type": "vec3"},
+        {"name": "extent", "type": "vec3"}
+      ],
+      "note": "nif.xml <niobject name=\"BSMultiBoundAABB\">."
+    },
+    "BSMultiBoundOBB": {
+      "inherit": "BSMultiBoundData",
+      "fields": [
+        {"name": "center", "type": "vec3"},
+        {"name": "size", "type": "vec3"},
+        {"name": "rotation", "type": "mat33"}
+      ],
+      "note": "nif.xml <niobject name=\"BSMultiBoundOBB\">."
+    },
+    "BSMultiBoundSphere": {
+      "inherit": "BSMultiBoundData",
+      "fields": [
+        {"name": "center", "type": "vec3"},
+        {"name": "radius", "type": "f32"}
+      ],
+      "note": "nif.xml <niobject name=\"BSMultiBoundSphere\">."
+    },
+    "AbstractAdditionalGeometryData": {"abstract": true, "inherit": "NiObject", "note": "nif.xml <niobject name=\"AbstractAdditionalGeometryData\">."},
+    "NiAdditionalGeometryData": {
+      "inherit": "AbstractAdditionalGeometryData",
+      "fields": [
+        {"name": "num_vertices", "type": "u16"},
+        {"name": "num_block_infos", "type": "u32"},
+        {"name": "block_infos", "type": "NiAGDDataStream", "length": "num_block_infos"},
+        {"name": "num_blocks", "type": "u32"},
+        {"name": "blocks", "type": "NiAGDDataBlocks", "length": "num_blocks", "arg": "0"}
+      ],
+      "note": "nif.xml <niobject name=\"NiAdditionalGeometryData\">."
+    },
+    "BSSegmentedTriShape": {
+      "inherit": "NiTriShape",
+      "fields": [
+        {"name": "num_segments", "type": "u32"},
+        {"name": "segment", "type": "BSGeometrySegmentData", "length": "num_segments"}
+      ],
+      "note": "nif.xml <niobject name=\"BSSegmentedTriShape\">."
+    },
+    "NiBillboardNode": {
+      "inherit": "NiNode",
+      "fields": [
+        {"name": "billboard_mode", "type": "BillboardMode"}
+      ],
+      "note": "nif.xml <niobject name=\"NiBillboardNode\">."
+    },
+    "BSValueNode": {
+      "inherit": "NiNode",
+      "fields": [
+        {"name": "value", "type": "u32"},
+        {"name": "value_node_flags", "type": "BSValueNodeFlags"}
+      ],
+      "note": "nif.xml <niobject name=\"BSValueNode\">."
+    },
+    "BSOrderedNode": {
+      "inherit": "NiNode",
+      "fields": [
+        {"name": "alpha_sort_bound", "type": "vec4"},
+        {"name": "static_bound", "type": "bool"}
+      ],
+      "note": "nif.xml <niobject name=\"BSOrderedNode\">."
+    },
+    "BSRangeNode": {
+      "inherit": "NiNode",
+      "fields": [
+        {"name": "min", "type": "u8"},
+        {"name": "max", "type": "u8"},
+        {"name": "current", "type": "u8"}
+      ],
+      "note": "nif.xml <niobject name=\"BSRangeNode\">; parent of the blast/debris/damage-stage nodes."
+    },
+    "BSBlastNode": {"inherit": "BSRangeNode", "note": "nif.xml <niobject name=\"BSBlastNode\">; no fields of its own."},
+    "BSDamageStage": {"inherit": "BSBlastNode", "note": "nif.xml <niobject name=\"BSDamageStage\">; no fields of its own."},
+    "BSDebrisNode": {"inherit": "BSRangeNode", "note": "nif.xml <niobject name=\"BSDebrisNode\">; no fields of its own."},
+    "NiCamera": {
+      "inherit": "NiAVObject",
+      "fields": [
+        {"name": "camera_flags", "type": "u16"},
+        {"name": "frustum_left", "type": "f32"},
+        {"name": "frustum_right", "type": "f32"},
+        {"name": "frustum_top", "type": "f32"},
+        {"name": "frustum_bottom", "type": "f32"},
+        {"name": "frustum_near", "type": "f32"},
+        {"name": "frustum_far", "type": "f32"},
+        {"name": "use_orthographic_projection", "type": "bool"},
+        {"name": "viewport_left", "type": "f32"},
+        {"name": "viewport_right", "type": "f32"},
+        {"name": "viewport_top", "type": "f32"},
+        {"name": "viewport_bottom", "type": "f32"},
+        {"name": "lod_adjust", "type": "f32"},
+        {"name": "scene", "type": "ref"},
+        {"name": "num_screen_polygons", "type": "u32", "note": "Deprecated; nif.xml says always written as 0 with no array."},
+        {"name": "num_screen_textures", "type": "u32", "note": "Deprecated; nif.xml says always written as 0 with no array."}
+      ],
+      "note": "nif.xml <niobject name=\"NiCamera\">."
+    },
+    "NiPointLight": {
+      "inherit": "NiLight",
+      "fields": [
+        {"name": "constant_attenuation", "type": "f32"},
+        {"name": "linear_attenuation", "type": "f32"},
+        {"name": "quadratic_attenuation", "type": "f32"}
+      ],
+      "note": "nif.xml <niobject name=\"NiPointLight\">."
+    },
+    "NiAmbientLight": {"inherit": "NiLight", "note": "nif.xml <niobject name=\"NiAmbientLight\">; no fields of its own."},
+    "BSFurnitureMarker": {
+      "inherit": "NiExtraData",
+      "fields": [
+        {"name": "num_positions", "type": "u32"},
+        {"name": "positions", "type": "FurniturePosition", "length": "num_positions"}
+      ],
+      "note": "nif.xml <niobject name=\"BSFurnitureMarker\">."
+    },
+    "NiFloatExtraData": {
+      "inherit": "NiExtraData",
+      "fields": [
+        {"name": "float_data", "type": "f32"}
+      ],
+      "note": "nif.xml <niobject name=\"NiFloatExtraData\">."
+    },
+    "BSDecalPlacementVectorExtraData": {
+      "inherit": "NiFloatExtraData",
+      "fields": [
+        {"name": "num_vector_blocks", "type": "u16"},
+        {"name": "vector_blocks", "type": "DecalVectorArray", "length": "num_vector_blocks"}
+      ],
+      "note": "nif.xml <niobject name=\"BSDecalPlacementVectorExtraData\">."
+    },
+    "BSBound": {
+      "inherit": "NiExtraData",
+      "fields": [
+        {"name": "center", "type": "vec3"},
+        {"name": "dimensions", "type": "vec3"}
+      ],
+      "note": "nif.xml <niobject name=\"BSBound\">."
+    },
+    "NiBinaryExtraData": {
+      "inherit": "NiExtraData",
+      "fields": [
+        {"name": "binary_data", "type": "ByteArray"}
+      ],
+      "note": "nif.xml <niobject name=\"NiBinaryExtraData\">."
+    },
+    "BSWArray": {
+      "inherit": "NiExtraData",
+      "fields": [
+        {"name": "num_items", "type": "u32"},
+        {"name": "items", "type": "i32", "length": "num_items"}
+      ],
+      "note": "nif.xml <niobject name=\"BSWArray\">."
+    }
+  }
+}

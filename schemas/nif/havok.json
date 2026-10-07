@@ -1,0 +1,636 @@
+{
+  "format": "fnv.nif.schema/1",
+  "_comment": "Havok collision and physics blocks (Bethesda bhk*/hk* types). Layouts re-expressed from niftools nif.xml (https://github.com/niftools/nifxml, read as documentation) for the versions in the FNV corpus only: 20.2.0.7 with user version 11 and bs_version 14-34, and 20.0.0.4 with user version 11. Fields that cannot occur in those versions are omitted; bs_version tests that split this range (e.g. <= 16) are kept. Every block is checked against the user's install with `fnvtool nif coverage` (exact consumption + byte-identical re-encode).",
+  "enums": {
+    "OblivionLayer": {"storage": "u8", "values": {"0": "OL_UNIDENTIFIED", "1": "OL_STATIC", "2": "OL_ANIM_STATIC", "3": "OL_TRANSPARENT", "4": "OL_CLUTTER", "5": "OL_WEAPON", "6": "OL_PROJECTILE", "7": "OL_SPELL", "8": "OL_BIPED", "9": "OL_TREES", "10": "OL_PROPS", "11": "OL_WATER", "12": "OL_TRIGGER", "13": "OL_TERRAIN", "14": "OL_TRAP", "15": "OL_NONCOLLIDABLE", "16": "OL_CLOUD_TRAP", "17": "OL_GROUND", "18": "OL_PORTAL", "19": "OL_STAIRS", "20": "OL_CHAR_CONTROLLER", "21": "OL_AVOID_BOX", "22": "OL_UNKNOWN1", "23": "OL_UNKNOWN2", "24": "OL_CAMERA_PICK", "25": "OL_ITEM_PICK", "26": "OL_LINE_OF_SIGHT", "27": "OL_PATH_PICK", "28": "OL_CUSTOM_PICK_1", "29": "OL_CUSTOM_PICK_2", "30": "OL_SPELL_EXPLOSION", "31": "OL_DROPPING_PICK", "32": "OL_OTHER", "33": "OL_HEAD", "34": "OL_BODY", "35": "OL_SPINE1", "36": "OL_SPINE2", "37": "OL_L_UPPER_ARM", "38": "OL_L_FOREARM", "39": "OL_L_HAND", "40": "OL_L_THIGH", "41": "OL_L_CALF", "42": "OL_L_FOOT", "43": "OL_R_UPPER_ARM", "44": "OL_R_FOREARM", "45": "OL_R_HAND", "46": "OL_R_THIGH", "47": "OL_R_CALF", "48": "OL_R_FOOT", "49": "OL_TAIL", "50": "OL_SIDE_WEAPON", "51": "OL_SHIELD", "52": "OL_QUIVER", "53": "OL_BACK_WEAPON", "54": "OL_BACK_WEAPON2", "55": "OL_PONYTAIL", "56": "OL_WING", "57": "OL_NULL"}},
+    "Fallout3Layer": {"storage": "u8", "values": {"0": "FOL_UNIDENTIFIED", "1": "FOL_STATIC", "2": "FOL_ANIM_STATIC", "3": "FOL_TRANSPARENT", "4": "FOL_CLUTTER", "5": "FOL_WEAPON", "6": "FOL_PROJECTILE", "7": "FOL_SPELL", "8": "FOL_BIPED", "9": "FOL_TREES", "10": "FOL_PROPS", "11": "FOL_WATER", "12": "FOL_TRIGGER", "13": "FOL_TERRAIN", "14": "FOL_TRAP", "15": "FOL_NONCOLLIDABLE", "16": "FOL_CLOUD_TRAP", "17": "FOL_GROUND", "18": "FOL_PORTAL", "19": "FOL_DEBRIS_SMALL", "20": "FOL_DEBRIS_LARGE", "21": "FOL_ACOUSTIC_SPACE", "22": "FOL_ACTORZONE", "23": "FOL_PROJECTILEZONE", "24": "FOL_GASTRAP", "25": "FOL_SHELLCASING", "26": "FOL_TRANSPARENT_SMALL", "27": "FOL_INVISIBLE_WALL", "28": "FOL_TRANSPARENT_SMALL_ANIM", "29": "FOL_DEADBIP", "30": "FOL_CHARCONTROLLER", "31": "FOL_AVOIDBOX", "32": "FOL_COLLISIONBOX", "33": "FOL_CAMERASPHERE", "34": "FOL_DOORDETECTION", "35": "FOL_CAMERAPICK", "36": "FOL_ITEMPICK", "37": "FOL_LINEOFSIGHT", "38": "FOL_PATHPICK", "39": "FOL_CUSTOMPICK1", "40": "FOL_CUSTOMPICK2", "41": "FOL_SPELLEXPLOSION", "42": "FOL_DROPPINGPICK", "43": "FOL_NULL"}},
+    "OblivionHavokMaterial": {"storage": "u32", "values": {"0": "OB_HAV_MAT_STONE", "1": "OB_HAV_MAT_CLOTH", "2": "OB_HAV_MAT_DIRT", "3": "OB_HAV_MAT_GLASS", "4": "OB_HAV_MAT_GRASS", "5": "OB_HAV_MAT_METAL", "6": "OB_HAV_MAT_ORGANIC", "7": "OB_HAV_MAT_SKIN", "8": "OB_HAV_MAT_WATER", "9": "OB_HAV_MAT_WOOD", "10": "OB_HAV_MAT_HEAVY_STONE", "11": "OB_HAV_MAT_HEAVY_METAL", "12": "OB_HAV_MAT_HEAVY_WOOD", "13": "OB_HAV_MAT_CHAIN", "14": "OB_HAV_MAT_SNOW", "15": "OB_HAV_MAT_STONE_STAIRS", "16": "OB_HAV_MAT_CLOTH_STAIRS", "17": "OB_HAV_MAT_DIRT_STAIRS", "18": "OB_HAV_MAT_GLASS_STAIRS", "19": "OB_HAV_MAT_GRASS_STAIRS", "20": "OB_HAV_MAT_METAL_STAIRS", "21": "OB_HAV_MAT_ORGANIC_STAIRS", "22": "OB_HAV_MAT_SKIN_STAIRS", "23": "OB_HAV_MAT_WATER_STAIRS", "24": "OB_HAV_MAT_WOOD_STAIRS", "25": "OB_HAV_MAT_HEAVY_STONE_STAIRS", "26": "OB_HAV_MAT_HEAVY_METAL_STAIRS", "27": "OB_HAV_MAT_HEAVY_WOOD_STAIRS", "28": "OB_HAV_MAT_CHAIN_STAIRS", "29": "OB_HAV_MAT_SNOW_STAIRS", "30": "OB_HAV_MAT_ELEVATOR", "31": "OB_HAV_MAT_RUBBER"}},
+    "Fallout3HavokMaterial": {"storage": "u32", "values": {"0": "FO_HAV_MAT_STONE", "1": "FO_HAV_MAT_CLOTH", "2": "FO_HAV_MAT_DIRT", "3": "FO_HAV_MAT_GLASS", "4": "FO_HAV_MAT_GRASS", "5": "FO_HAV_MAT_METAL", "6": "FO_HAV_MAT_ORGANIC", "7": "FO_HAV_MAT_SKIN", "8": "FO_HAV_MAT_WATER", "9": "FO_HAV_MAT_WOOD", "10": "FO_HAV_MAT_HEAVY_STONE", "11": "FO_HAV_MAT_HEAVY_METAL", "12": "FO_HAV_MAT_HEAVY_WOOD", "13": "FO_HAV_MAT_CHAIN", "14": "FO_HAV_MAT_BOTTLECAP", "15": "FO_HAV_MAT_ELEVATOR", "16": "FO_HAV_MAT_HOLLOW_METAL", "17": "FO_HAV_MAT_SHEET_METAL", "18": "FO_HAV_MAT_SAND", "19": "FO_HAV_MAT_BROKEN_CONCRETE", "20": "FO_HAV_MAT_VEHICLE_BODY", "21": "FO_HAV_MAT_VEHICLE_PART_SOLID", "22": "FO_HAV_MAT_VEHICLE_PART_HOLLOW", "23": "FO_HAV_MAT_BARREL", "24": "FO_HAV_MAT_BOTTLE", "25": "FO_HAV_MAT_SODA_CAN", "26": "FO_HAV_MAT_PISTOL", "27": "FO_HAV_MAT_RIFLE", "28": "FO_HAV_MAT_SHOPPING_CART", "29": "FO_HAV_MAT_LUNCHBOX", "30": "FO_HAV_MAT_BABY_RATTLE", "31": "FO_HAV_MAT_RUBBER_BALL", "32": "FO_HAV_MAT_STONE_PLATFORM", "33": "FO_HAV_MAT_CLOTH_PLATFORM", "34": "FO_HAV_MAT_DIRT_PLATFORM", "35": "FO_HAV_MAT_GLASS_PLATFORM", "36": "FO_HAV_MAT_GRASS_PLATFORM", "37": "FO_HAV_MAT_METAL_PLATFORM", "38": "FO_HAV_MAT_ORGANIC_PLATFORM", "39": "FO_HAV_MAT_SKIN_PLATFORM", "40": "FO_HAV_MAT_WATER_PLATFORM", "41": "FO_HAV_MAT_WOOD_PLATFORM", "42": "FO_HAV_MAT_HEAVY_STONE_PLATFORM", "43": "FO_HAV_MAT_HEAVY_METAL_PLATFORM", "44": "FO_HAV_MAT_HEAVY_WOOD_PLATFORM", "45": "FO_HAV_MAT_CHAIN_PLATFORM", "46": "FO_HAV_MAT_BOTTLECAP_PLATFORM", "47": "FO_HAV_MAT_ELEVATOR_PLATFORM", "48": "FO_HAV_MAT_HOLLOW_METAL_PLATFORM", "49": "FO_HAV_MAT_SHEET_METAL_PLATFORM", "50": "FO_HAV_MAT_SAND_PLATFORM", "51": "FO_HAV_MAT_BROKEN_CONCRETE_PLATFORM", "52": "FO_HAV_MAT_VEHICLE_BODY_PLATFORM", "53": "FO_HAV_MAT_VEHICLE_PART_SOLID_PLATFORM", "54": "FO_HAV_MAT_VEHICLE_PART_HOLLOW_PLATFORM", "55": "FO_HAV_MAT_BARREL_PLATFORM", "56": "FO_HAV_MAT_BOTTLE_PLATFORM", "57": "FO_HAV_MAT_SODA_CAN_PLATFORM", "58": "FO_HAV_MAT_PISTOL_PLATFORM", "59": "FO_HAV_MAT_RIFLE_PLATFORM", "60": "FO_HAV_MAT_SHOPPING_CART_PLATFORM", "61": "FO_HAV_MAT_LUNCHBOX_PLATFORM", "62": "FO_HAV_MAT_BABY_RATTLE_PLATFORM", "63": "FO_HAV_MAT_RUBBER_BALL_PLATFORM", "64": "FO_HAV_MAT_STONE_STAIRS", "65": "FO_HAV_MAT_CLOTH_STAIRS", "66": "FO_HAV_MAT_DIRT_STAIRS", "67": "FO_HAV_MAT_GLASS_STAIRS", "68": "FO_HAV_MAT_GRASS_STAIRS", "69": "FO_HAV_MAT_METAL_STAIRS", "70": "FO_HAV_MAT_ORGANIC_STAIRS", "71": "FO_HAV_MAT_SKIN_STAIRS", "72": "FO_HAV_MAT_WATER_STAIRS", "73": "FO_HAV_MAT_WOOD_STAIRS", "74": "FO_HAV_MAT_HEAVY_STONE_STAIRS", "75": "FO_HAV_MAT_HEAVY_METAL_STAIRS", "76": "FO_HAV_MAT_HEAVY_WOOD_STAIRS", "77": "FO_HAV_MAT_CHAIN_STAIRS", "78": "FO_HAV_MAT_BOTTLECAP_STAIRS", "79": "FO_HAV_MAT_ELEVATOR_STAIRS", "80": "FO_HAV_MAT_HOLLOW_METAL_STAIRS", "81": "FO_HAV_MAT_SHEET_METAL_STAIRS", "82": "FO_HAV_MAT_SAND_STAIRS", "83": "FO_HAV_MAT_BROKEN_CONCRETE_STAIRS", "84": "FO_HAV_MAT_VEHICLE_BODY_STAIRS", "85": "FO_HAV_MAT_VEHICLE_PART_SOLID_STAIRS", "86": "FO_HAV_MAT_VEHICLE_PART_HOLLOW_STAIRS", "87": "FO_HAV_MAT_BARREL_STAIRS", "88": "FO_HAV_MAT_BOTTLE_STAIRS", "89": "FO_HAV_MAT_SODA_CAN_STAIRS", "90": "FO_HAV_MAT_PISTOL_STAIRS", "91": "FO_HAV_MAT_RIFLE_STAIRS", "92": "FO_HAV_MAT_SHOPPING_CART_STAIRS", "93": "FO_HAV_MAT_LUNCHBOX_STAIRS", "94": "FO_HAV_MAT_BABY_RATTLE_STAIRS", "95": "FO_HAV_MAT_RUBBER_BALL_STAIRS", "96": "FO_HAV_MAT_STONE_STAIRS_PLATFORM", "97": "FO_HAV_MAT_CLOTH_STAIRS_PLATFORM", "98": "FO_HAV_MAT_DIRT_STAIRS_PLATFORM", "99": "FO_HAV_MAT_GLASS_STAIRS_PLATFORM", "100": "FO_HAV_MAT_GRASS_STAIRS_PLATFORM", "101": "FO_HAV_MAT_METAL_STAIRS_PLATFORM", "102": "FO_HAV_MAT_ORGANIC_STAIRS_PLATFORM", "103": "FO_HAV_MAT_SKIN_STAIRS_PLATFORM", "104": "FO_HAV_MAT_WATER_STAIRS_PLATFORM", "105": "FO_HAV_MAT_WOOD_STAIRS_PLATFORM", "106": "FO_HAV_MAT_HEAVY_STONE_STAIRS_PLATFORM", "107": "FO_HAV_MAT_HEAVY_METAL_STAIRS_PLATFORM", "108": "FO_HAV_MAT_HEAVY_WOOD_STAIRS_PLATFORM", "109": "FO_HAV_MAT_CHAIN_STAIRS_PLATFORM", "110": "FO_HAV_MAT_BOTTLECAP_STAIRS_PLATFORM", "111": "FO_HAV_MAT_ELEVATOR_STAIRS_PLATFORM", "112": "FO_HAV_MAT_HOLLOW_METAL_STAIRS_PLATFORM", "113": "FO_HAV_MAT_SHEET_METAL_STAIRS_PLATFORM", "114": "FO_HAV_MAT_SAND_STAIRS_PLATFORM", "115": "FO_HAV_MAT_BROKEN_CONCRETE_STAIRS_PLATFORM", "116": "FO_HAV_MAT_VEHICLE_BODY_STAIRS_PLATFORM", "117": "FO_HAV_MAT_VEHICLE_PART_SOLID_STAIRS_PLATFORM", "118": "FO_HAV_MAT_VEHICLE_PART_HOLLOW_STAIRS_PLATFORM", "119": "FO_HAV_MAT_BARREL_STAIRS_PLATFORM", "120": "FO_HAV_MAT_BOTTLE_STAIRS_PLATFORM", "121": "FO_HAV_MAT_SODA_CAN_STAIRS_PLATFORM", "122": "FO_HAV_MAT_PISTOL_STAIRS_PLATFORM", "123": "FO_HAV_MAT_RIFLE_STAIRS_PLATFORM", "124": "FO_HAV_MAT_SHOPPING_CART_STAIRS_PLATFORM", "125": "FO_HAV_MAT_LUNCHBOX_STAIRS_PLATFORM", "126": "FO_HAV_MAT_BABY_RATTLE_STAIRS_PLATFORM", "127": "FO_HAV_MAT_RUBBER_BALL_STAIRS_PLATFORM"}},
+    "BroadPhaseType": {"storage": "u8", "values": {"0": "BROAD_PHASE_INVALID", "1": "BROAD_PHASE_ENTITY", "2": "BROAD_PHASE_PHANTOM", "3": "BROAD_PHASE_BORDER"}},
+    "hkResponseType": {"storage": "u8", "values": {"0": "RESPONSE_INVALID", "1": "RESPONSE_SIMPLE_CONTACT", "2": "RESPONSE_REPORTING", "3": "RESPONSE_NONE"}},
+    "hkMotionType": {"storage": "u8", "values": {"0": "MO_SYS_INVALID", "1": "MO_SYS_DYNAMIC", "2": "MO_SYS_SPHERE_INERTIA", "3": "MO_SYS_SPHERE_STABILIZED", "4": "MO_SYS_BOX_INERTIA", "5": "MO_SYS_BOX_STABILIZED", "6": "MO_SYS_KEYFRAMED", "7": "MO_SYS_FIXED", "8": "MO_SYS_THIN_BOX", "9": "MO_SYS_CHARACTER"}},
+    "hkDeactivatorType": {"storage": "u8", "values": {"0": "DEACTIVATOR_INVALID", "1": "DEACTIVATOR_NEVER", "2": "DEACTIVATOR_SPATIAL"}},
+    "hkSolverDeactivation": {"storage": "u8", "values": {"0": "SOLVER_DEACTIVATION_INVALID", "1": "SOLVER_DEACTIVATION_OFF", "2": "SOLVER_DEACTIVATION_LOW", "3": "SOLVER_DEACTIVATION_MEDIUM", "4": "SOLVER_DEACTIVATION_HIGH", "5": "SOLVER_DEACTIVATION_MAX"}},
+    "hkQualityType": {"storage": "u8", "values": {"0": "MO_QUAL_INVALID", "1": "MO_QUAL_FIXED", "2": "MO_QUAL_KEYFRAMED", "3": "MO_QUAL_DEBRIS", "4": "MO_QUAL_MOVING", "5": "MO_QUAL_CRITICAL", "6": "MO_QUAL_BULLET", "7": "MO_QUAL_USER", "8": "MO_QUAL_CHARACTER", "9": "MO_QUAL_KEYFRAMED_REPORT"}},
+    "hkConstraintType": {"storage": "u32", "values": {"0": "BALLANDSOCKET", "1": "HINGE", "2": "LIMITED_HINGE", "6": "PRISMATIC", "7": "RAGDOLL", "8": "STIFFSPRING", "13": "MALLEABLE"}},
+    "ConstraintPriority": {"storage": "u32", "values": {"0": "PRIORITY_INVALID", "1": "PRIORITY_PSI", "3": "PRIORITY_TOI"}},
+    "hkMotorType": {"storage": "u8", "values": {"0": "MOTOR_NONE", "1": "MOTOR_POSITION", "2": "MOTOR_VELOCITY", "3": "MOTOR_SPRING"}},
+    "CollisionFilterFlags": {"storage": "u8", "bits": {"0-4": "biped_part", "5": "mopp_scaled", "6": "no_collision", "7": "linked_group"}},
+    "bhkWeldInfo": {"storage": "u16", "bits": {"0-4": "angle_edge_1", "5-9": "angle_edge_2", "10-14": "angle_edge_3", "15": "unused"}},
+    "bhkCOFlags": {"storage": "u16", "bits": {"0": "active", "1": "reset_trans", "2": "notify", "3": "set_local", "4": "dbg_display", "5": "use_vel", "6": "reset", "7": "sync_on_update", "8": "blend_pos", "9": "always_blend", "10": "anim_targeted", "11": "dismembered_limb"}}
+  },
+  "structs": {
+    "HavokFilter": {
+      "note": "nif.xml <struct name=\"HavokFilter\">: layer, filter flags and group packed into four bytes.",
+      "fields": [
+        {"name": "layer", "type": "OblivionLayer", "cond": "version <= 0x14000005 && bs_version < 16"},
+        {"name": "layer", "type": "Fallout3Layer", "cond": "version == 0x14020007"},
+        {"name": "flags", "type": "CollisionFilterFlags"},
+        {"name": "group", "type": "u16"}
+      ]
+    },
+    "HavokMaterial": {
+      "note": "nif.xml <struct name=\"HavokMaterial\">: per-game material enum, always a u32 here.",
+      "fields": [
+        {"name": "material", "type": "OblivionHavokMaterial", "cond": "version <= 0x14000005 && bs_version < 16"},
+        {"name": "material", "type": "Fallout3HavokMaterial", "cond": "version == 0x14020007"}
+      ]
+    },
+    "hkSubPartData": {
+      "note": "nif.xml <struct name=\"hkSubPartData\">.",
+      "fields": [
+        {"name": "havok_filter", "type": "HavokFilter"},
+        {"name": "num_vertices", "type": "u32"},
+        {"name": "material", "type": "HavokMaterial"}
+      ]
+    },
+    "TriangleData": {
+      "note": "nif.xml <struct name=\"TriangleData\">.",
+      "fields": [
+        {"name": "triangle", "type": "triangle"},
+        {"name": "welding_info", "type": "bhkWeldInfo"},
+        {"name": "normal", "type": "vec3", "until": "20.0.0.5"}
+      ]
+    },
+    "bhkWorldObjCInfoProperty": {
+      "note": "nif.xml <struct name=\"bhkWorldObjCInfoProperty\">.",
+      "fields": [
+        {"name": "data", "type": "u32"},
+        {"name": "size", "type": "u32"},
+        {"name": "capacity_and_flags", "type": "u32"}
+      ]
+    },
+    "bhkWorldObjectCInfo": {
+      "note": "nif.xml <struct name=\"bhkWorldObjectCInfo\">.",
+      "fields": [
+        {"name": "unused_01", "type": "bytes", "length": 4},
+        {"name": "broad_phase_type", "type": "BroadPhaseType"},
+        {"name": "unused_02", "type": "bytes", "length": 3},
+        {"name": "property", "type": "bhkWorldObjCInfoProperty"}
+      ]
+    },
+    "bhkEntityCInfo": {
+      "note": "nif.xml <struct name=\"bhkEntityCInfo\">.",
+      "fields": [
+        {"name": "collision_response", "type": "hkResponseType"},
+        {"name": "unused_01", "type": "u8"},
+        {"name": "process_contact_callback_delay", "type": "u16"}
+      ]
+    },
+    "bhkRigidBodyCInfo550_660": {
+      "note": "nif.xml <struct name=\"bhkRigidBodyCInfo550_660\"> (used for bs_version <= 34). rotation is an hkQuaternion stored x, y, z, w; inertia_tensor is a 3x3 matrix stored as three rows of four floats (fourth column unused).",
+      "fields": [
+        {"name": "unused_01", "type": "bytes", "length": 4},
+        {"name": "havok_filter", "type": "HavokFilter"},
+        {"name": "unused_02", "type": "bytes", "length": 4},
+        {"name": "collision_response", "type": "hkResponseType"},
+        {"name": "unused_03", "type": "u8"},
+        {"name": "process_contact_callback_delay", "type": "u16"},
+        {"name": "unused_04", "type": "bytes", "length": 4},
+        {"name": "translation", "type": "vec4"},
+        {"name": "rotation", "type": "vec4"},
+        {"name": "linear_velocity", "type": "vec4"},
+        {"name": "angular_velocity", "type": "vec4"},
+        {"name": "inertia_tensor", "type": "mat34"},
+        {"name": "center", "type": "vec4"},
+        {"name": "mass", "type": "f32"},
+        {"name": "linear_damping", "type": "f32"},
+        {"name": "angular_damping", "type": "f32"},
+        {"name": "friction", "type": "f32"},
+        {"name": "restitution", "type": "f32"},
+        {"name": "max_linear_velocity", "type": "f32"},
+        {"name": "max_angular_velocity", "type": "f32"},
+        {"name": "penetration_depth", "type": "f32"},
+        {"name": "motion_system", "type": "hkMotionType"},
+        {"name": "deactivator_type", "type": "hkDeactivatorType"},
+        {"name": "solver_deactivation", "type": "hkSolverDeactivation"},
+        {"name": "quality_type", "type": "hkQualityType"},
+        {"name": "unused_05", "type": "bytes", "length": 12}
+      ]
+    },
+    "hkpMoppCode": {
+      "note": "nif.xml <struct name=\"hkpMoppCode\">; the build type byte exists only for bs_version > 34. offset xyz = origin, w = quantisation scale.",
+      "fields": [
+        {"name": "data_size", "type": "u32"},
+        {"name": "offset", "type": "vec4"},
+        {"name": "data", "type": "bytes", "length": "data_size"}
+      ]
+    },
+    "bhkConstraintCInfo": {
+      "note": "nif.xml <struct name=\"bhkConstraintCInfo\">.",
+      "fields": [
+        {"name": "num_entities", "type": "u32"},
+        {"name": "entity_a", "type": "ptr"},
+        {"name": "entity_b", "type": "ptr"},
+        {"name": "priority", "type": "ConstraintPriority"}
+      ]
+    },
+    "bhkPositionConstraintMotor": {
+      "note": "nif.xml <struct name=\"bhkPositionConstraintMotor\">.",
+      "fields": [
+        {"name": "min_force", "type": "f32"},
+        {"name": "max_force", "type": "f32"},
+        {"name": "tau", "type": "f32"},
+        {"name": "damping", "type": "f32"},
+        {"name": "proportional_recovery_velocity", "type": "f32"},
+        {"name": "constant_recovery_velocity", "type": "f32"},
+        {"name": "motor_enabled", "type": "bool"}
+      ]
+    },
+    "bhkVelocityConstraintMotor": {
+      "note": "nif.xml <struct name=\"bhkVelocityConstraintMotor\">.",
+      "fields": [
+        {"name": "min_force", "type": "f32"},
+        {"name": "max_force", "type": "f32"},
+        {"name": "tau", "type": "f32"},
+        {"name": "target_velocity", "type": "f32"},
+        {"name": "use_velocity_target", "type": "bool"},
+        {"name": "motor_enabled", "type": "bool"}
+      ]
+    },
+    "bhkSpringDamperConstraintMotor": {
+      "note": "nif.xml <struct name=\"bhkSpringDamperConstraintMotor\">.",
+      "fields": [
+        {"name": "min_force", "type": "f32"},
+        {"name": "max_force", "type": "f32"},
+        {"name": "spring_constant", "type": "f32"},
+        {"name": "spring_damping", "type": "f32"},
+        {"name": "motor_enabled", "type": "bool"}
+      ]
+    },
+    "bhkConstraintMotorCInfo": {
+      "note": "nif.xml <struct name=\"bhkConstraintMotorCInfo\">.",
+      "fields": [
+        {"name": "motor_type", "type": "hkMotorType"},
+        {"name": "position_motor", "type": "bhkPositionConstraintMotor", "cond": "motor_type == 1"},
+        {"name": "velocity_motor", "type": "bhkVelocityConstraintMotor", "cond": "motor_type == 2"},
+        {"name": "spring_damper_motor", "type": "bhkSpringDamperConstraintMotor", "cond": "motor_type == 3"}
+      ]
+    },
+    "bhkRagdollConstraintCInfo": {
+      "note": "nif.xml <struct name=\"bhkRagdollConstraintCInfo\">: Havok 5.5 vector order for bs_version <= 16, Havok 6.6 order (with motor vectors and a motor) above.",
+      "fields": [
+        {"name": "pivot_a", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "plane_a", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "twist_a", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "pivot_b", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "plane_b", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "twist_b", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "twist_a", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "plane_a", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "motor_a", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "pivot_a", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "twist_b", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "plane_b", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "motor_b", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "pivot_b", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "cone_max_angle", "type": "f32"},
+        {"name": "plane_min_angle", "type": "f32"},
+        {"name": "plane_max_angle", "type": "f32"},
+        {"name": "twist_min_angle", "type": "f32"},
+        {"name": "twist_max_angle", "type": "f32"},
+        {"name": "max_friction", "type": "f32"},
+        {"name": "motor", "type": "bhkConstraintMotorCInfo", "since": "20.2.0.7", "cond": "bs_version > 16"}
+      ]
+    },
+    "bhkLimitedHingeConstraintCInfo": {
+      "note": "nif.xml <struct name=\"bhkLimitedHingeConstraintCInfo\">: Havok 5.5 vector order for bs_version <= 16, Havok 6.6 order (two transforms) and a motor above.",
+      "fields": [
+        {"name": "pivot_a", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "axis_a", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "perp_axis_in_a1", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "perp_axis_in_a2", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "pivot_b", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "axis_b", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "perp_axis_in_b2", "type": "vec4", "cond": "bs_version <= 16"},
+        {"name": "axis_a", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "perp_axis_in_a1", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "perp_axis_in_a2", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "pivot_a", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "axis_b", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "perp_axis_in_b1", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "perp_axis_in_b2", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "pivot_b", "type": "vec4", "cond": "bs_version > 16"},
+        {"name": "min_angle", "type": "f32"},
+        {"name": "max_angle", "type": "f32"},
+        {"name": "max_friction", "type": "f32"},
+        {"name": "motor", "type": "bhkConstraintMotorCInfo", "since": "20.2.0.7", "cond": "bs_version > 16"}
+      ]
+    },
+    "bhkHingeConstraintCInfo": {
+      "note": "nif.xml <struct name=\"bhkHingeConstraintCInfo\">: the 20.0.0.x layout differs from 20.2.0.7.",
+      "fields": [
+        {"name": "pivot_a", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "perp_axis_in_a1", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "perp_axis_in_a2", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "pivot_b", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "axis_b", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "axis_a", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "perp_axis_in_a1", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "perp_axis_in_a2", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "pivot_a", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "axis_b", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "perp_axis_in_b1", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "perp_axis_in_b2", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "pivot_b", "type": "vec4", "since": "20.2.0.7"}
+      ]
+    },
+    "bhkBallAndSocketConstraintCInfo": {
+      "note": "nif.xml <struct name=\"bhkBallAndSocketConstraintCInfo\">.",
+      "fields": [
+        {"name": "pivot_a", "type": "vec4"},
+        {"name": "pivot_b", "type": "vec4"}
+      ]
+    },
+    "bhkPrismaticConstraintCInfo": {
+      "note": "nif.xml <struct name=\"bhkPrismaticConstraintCInfo\">: the 20.0.0.x layout differs from 20.2.0.7.",
+      "fields": [
+        {"name": "pivot_a", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "rotation_a", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "plane_a", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "sliding_a", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "sliding_b", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "pivot_b", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "rotation_b", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "plane_b", "type": "vec4", "until": "20.0.0.5"},
+        {"name": "sliding_a", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "rotation_a", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "plane_a", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "pivot_a", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "sliding_b", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "rotation_b", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "plane_b", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "pivot_b", "type": "vec4", "since": "20.2.0.7"},
+        {"name": "min_distance", "type": "f32"},
+        {"name": "max_distance", "type": "f32"},
+        {"name": "friction", "type": "f32"},
+        {"name": "motor", "type": "bhkConstraintMotorCInfo", "since": "20.2.0.7", "cond": "bs_version > 16"}
+      ]
+    },
+    "bhkStiffSpringConstraintCInfo": {
+      "note": "nif.xml <struct name=\"bhkStiffSpringConstraintCInfo\">.",
+      "fields": [
+        {"name": "pivot_a", "type": "vec4"},
+        {"name": "pivot_b", "type": "vec4"},
+        {"name": "length", "type": "f32"}
+      ]
+    },
+    "bhkMalleableConstraintCInfo": {
+      "note": "nif.xml <struct name=\"bhkMalleableConstraintCInfo\">: a constraint of type constraint_type wrapped with a softness value.",
+      "fields": [
+        {"name": "constraint_type", "type": "hkConstraintType"},
+        {"name": "constraint_info", "type": "bhkConstraintCInfo"},
+        {"name": "ball_and_socket", "type": "bhkBallAndSocketConstraintCInfo", "cond": "constraint_type == 0"},
+        {"name": "hinge", "type": "bhkHingeConstraintCInfo", "cond": "constraint_type == 1"},
+        {"name": "limited_hinge", "type": "bhkLimitedHingeConstraintCInfo", "cond": "constraint_type == 2"},
+        {"name": "prismatic", "type": "bhkPrismaticConstraintCInfo", "cond": "constraint_type == 6"},
+        {"name": "ragdoll", "type": "bhkRagdollConstraintCInfo", "cond": "constraint_type == 7"},
+        {"name": "stiff_spring", "type": "bhkStiffSpringConstraintCInfo", "cond": "constraint_type == 8"},
+        {"name": "tau", "type": "f32", "until": "20.0.0.5"},
+        {"name": "damping", "type": "f32", "until": "20.0.0.5"},
+        {"name": "strength", "type": "f32", "since": "20.2.0.7"}
+      ]
+    },
+    "bhkWrappedConstraintData": {
+      "note": "nif.xml <struct name=\"bhkWrappedConstraintData\">: polymorphic constraint selected by constraint_type.",
+      "fields": [
+        {"name": "constraint_type", "type": "hkConstraintType"},
+        {"name": "constraint_info", "type": "bhkConstraintCInfo"},
+        {"name": "ball_and_socket", "type": "bhkBallAndSocketConstraintCInfo", "cond": "constraint_type == 0"},
+        {"name": "hinge", "type": "bhkHingeConstraintCInfo", "cond": "constraint_type == 1"},
+        {"name": "limited_hinge", "type": "bhkLimitedHingeConstraintCInfo", "cond": "constraint_type == 2"},
+        {"name": "prismatic", "type": "bhkPrismaticConstraintCInfo", "cond": "constraint_type == 6"},
+        {"name": "ragdoll", "type": "bhkRagdollConstraintCInfo", "cond": "constraint_type == 7"},
+        {"name": "stiff_spring", "type": "bhkStiffSpringConstraintCInfo", "cond": "constraint_type == 8"},
+        {"name": "malleable", "type": "bhkMalleableConstraintCInfo", "cond": "constraint_type == 13"}
+      ]
+    }
+  },
+  "blocks": {
+    "bhkNiCollisionObject": {
+      "abstract": true,
+      "inherit": "NiCollisionObject",
+      "note": "nif.xml <niobject name=\"bhkNiCollisionObject\">.",
+      "fields": [
+        {"name": "flags", "type": "bhkCOFlags"},
+        {"name": "body", "type": "ref"}
+      ]
+    },
+    "bhkCollisionObject": {"inherit": "bhkNiCollisionObject", "note": "nif.xml <niobject name=\"bhkCollisionObject\">; no fields of its own."},
+    "bhkBlendCollisionObject": {
+      "inherit": "bhkCollisionObject",
+      "note": "nif.xml <niobject name=\"bhkBlendCollisionObject\">; its two extra floats exist only for bs_version < 9.",
+      "fields": [
+        {"name": "heir_gain", "type": "f32"},
+        {"name": "vel_gain", "type": "f32"}
+      ]
+    },
+    "bhkPCollisionObject": {"inherit": "bhkNiCollisionObject", "note": "nif.xml <niobject name=\"bhkPCollisionObject\">; collision object for phantoms."},
+    "bhkSPCollisionObject": {"inherit": "bhkPCollisionObject", "note": "nif.xml <niobject name=\"bhkSPCollisionObject\">; collision object for shape phantoms."},
+    "bhkBlendController": {
+      "inherit": "NiTimeController",
+      "note": "nif.xml <niobject name=\"bhkBlendController\">.",
+      "fields": [
+        {"name": "keys", "type": "u32"}
+      ]
+    },
+    "bhkRefObject": {"abstract": true, "inherit": "NiObject", "note": "nif.xml <niobject name=\"bhkRefObject\">."},
+    "bhkSerializable": {"abstract": true, "inherit": "bhkRefObject", "note": "nif.xml <niobject name=\"bhkSerializable\">."},
+    "bhkWorldObject": {
+      "abstract": true,
+      "inherit": "bhkSerializable",
+      "note": "nif.xml <niobject name=\"bhkWorldObject\">.",
+      "fields": [
+        {"name": "shape", "type": "ref"},
+        {"name": "havok_filter", "type": "HavokFilter"},
+        {"name": "world_object_info", "type": "bhkWorldObjectCInfo"}
+      ]
+    },
+    "bhkPhantom": {"abstract": true, "inherit": "bhkWorldObject", "note": "nif.xml <niobject name=\"bhkPhantom\">."},
+    "bhkShapePhantom": {"abstract": true, "inherit": "bhkPhantom", "note": "nif.xml <niobject name=\"bhkShapePhantom\">."},
+    "bhkSimpleShapePhantom": {
+      "inherit": "bhkShapePhantom",
+      "note": "nif.xml <niobject name=\"bhkSimpleShapePhantom\">.",
+      "fields": [
+        {"name": "unused_01", "type": "bytes", "length": 8},
+        {"name": "transform", "type": "mat44"}
+      ]
+    },
+    "bhkEntity": {
+      "abstract": true,
+      "inherit": "bhkWorldObject",
+      "note": "nif.xml <niobject name=\"bhkEntity\">.",
+      "fields": [
+        {"name": "entity_info", "type": "bhkEntityCInfo"}
+      ]
+    },
+    "bhkRigidBody": {
+      "inherit": "bhkEntity",
+      "note": "nif.xml <niobject name=\"bhkRigidBody\">; the 550/660 body info applies to every bs_version in this corpus.",
+      "fields": [
+        {"name": "rigid_body_info", "type": "bhkRigidBodyCInfo550_660"},
+        {"name": "num_constraints", "type": "u32"},
+        {"name": "constraints", "type": "ref", "length": "num_constraints"},
+        {"name": "body_flags", "type": "u32"}
+      ]
+    },
+    "bhkRigidBodyT": {"inherit": "bhkRigidBody", "note": "nif.xml <niobject name=\"bhkRigidBodyT\">; same layout, translation/rotation are applied."},
+    "bhkAction": {"abstract": true, "inherit": "bhkSerializable", "note": "nif.xml <niobject name=\"bhkAction\">."},
+    "bhkUnaryAction": {
+      "abstract": true,
+      "inherit": "bhkAction",
+      "note": "nif.xml <niobject name=\"bhkUnaryAction\">.",
+      "fields": [
+        {"name": "entity", "type": "ptr"},
+        {"name": "unused_01", "type": "bytes", "length": 8}
+      ]
+    },
+    "bhkLiquidAction": {
+      "inherit": "bhkAction",
+      "note": "nif.xml <niobject name=\"bhkLiquidAction\">.",
+      "fields": [
+        {"name": "unused_01", "type": "bytes", "length": 12},
+        {"name": "initial_stick_force", "type": "f32"},
+        {"name": "stick_strength", "type": "f32"},
+        {"name": "neighbor_distance", "type": "f32"},
+        {"name": "neighbor_strength", "type": "f32"}
+      ]
+    },
+    "bhkOrientHingedBodyAction": {
+      "inherit": "bhkUnaryAction",
+      "note": "nif.xml <niobject name=\"bhkOrientHingedBodyAction\">.",
+      "fields": [
+        {"name": "unused_02", "type": "bytes", "length": 8},
+        {"name": "hinge_axis_ls", "type": "vec4"},
+        {"name": "forward_ls", "type": "vec4"},
+        {"name": "strength", "type": "f32"},
+        {"name": "damping", "type": "f32"},
+        {"name": "unused_03", "type": "bytes", "length": 8}
+      ]
+    },
+    "bhkConstraint": {
+      "abstract": true,
+      "inherit": "bhkSerializable",
+      "note": "nif.xml <niobject name=\"bhkConstraint\">.",
+      "fields": [
+        {"name": "constraint_info", "type": "bhkConstraintCInfo"}
+      ]
+    },
+    "bhkLimitedHingeConstraint": {
+      "inherit": "bhkConstraint",
+      "note": "nif.xml <niobject name=\"bhkLimitedHingeConstraint\">.",
+      "fields": [
+        {"name": "constraint", "type": "bhkLimitedHingeConstraintCInfo"}
+      ]
+    },
+    "bhkMalleableConstraint": {
+      "inherit": "bhkConstraint",
+      "note": "nif.xml <niobject name=\"bhkMalleableConstraint\">.",
+      "fields": [
+        {"name": "constraint", "type": "bhkMalleableConstraintCInfo"}
+      ]
+    },
+    "bhkStiffSpringConstraint": {
+      "inherit": "bhkConstraint",
+      "note": "nif.xml <niobject name=\"bhkStiffSpringConstraint\">.",
+      "fields": [
+        {"name": "constraint", "type": "bhkStiffSpringConstraintCInfo"}
+      ]
+    },
+    "bhkRagdollConstraint": {
+      "inherit": "bhkConstraint",
+      "note": "nif.xml <niobject name=\"bhkRagdollConstraint\">.",
+      "fields": [
+        {"name": "constraint", "type": "bhkRagdollConstraintCInfo"}
+      ]
+    },
+    "bhkPrismaticConstraint": {
+      "inherit": "bhkConstraint",
+      "note": "nif.xml <niobject name=\"bhkPrismaticConstraint\">.",
+      "fields": [
+        {"name": "constraint", "type": "bhkPrismaticConstraintCInfo"}
+      ]
+    },
+    "bhkHingeConstraint": {
+      "inherit": "bhkConstraint",
+      "note": "nif.xml <niobject name=\"bhkHingeConstraint\">.",
+      "fields": [
+        {"name": "constraint", "type": "bhkHingeConstraintCInfo"}
+      ]
+    },
+    "bhkBallAndSocketConstraint": {
+      "inherit": "bhkConstraint",
+      "note": "nif.xml <niobject name=\"bhkBallAndSocketConstraint\">.",
+      "fields": [
+        {"name": "constraint", "type": "bhkBallAndSocketConstraintCInfo"}
+      ]
+    },
+    "bhkBreakableConstraint": {
+      "inherit": "bhkConstraint",
+      "note": "nif.xml <niobject name=\"bhkBreakableConstraint\">.",
+      "fields": [
+        {"name": "constraint_data", "type": "bhkWrappedConstraintData"},
+        {"name": "threshold", "type": "f32"},
+        {"name": "remove_when_broken", "type": "bool"}
+      ]
+    },
+    "bhkShape": {"abstract": true, "inherit": "bhkSerializable", "note": "nif.xml <niobject name=\"bhkShape\">."},
+    "bhkTransformShape": {
+      "inherit": "bhkShape",
+      "note": "nif.xml <niobject name=\"bhkTransformShape\">.",
+      "fields": [
+        {"name": "shape", "type": "ref"},
+        {"name": "material", "type": "HavokMaterial"},
+        {"name": "radius", "type": "f32"},
+        {"name": "unused_01", "type": "bytes", "length": 8},
+        {"name": "transform", "type": "mat44"}
+      ]
+    },
+    "bhkConvexShapeBase": {"abstract": true, "inherit": "bhkShape", "note": "nif.xml <niobject name=\"bhkConvexShapeBase\">."},
+    "bhkSphereRepShape": {
+      "abstract": true,
+      "inherit": "bhkConvexShapeBase",
+      "note": "nif.xml <niobject name=\"bhkSphereRepShape\">.",
+      "fields": [
+        {"name": "material", "type": "HavokMaterial"}
+      ]
+    },
+    "bhkConvexShape": {
+      "abstract": true,
+      "inherit": "bhkSphereRepShape",
+      "note": "nif.xml <niobject name=\"bhkConvexShape\">.",
+      "fields": [
+        {"name": "radius", "type": "f32"}
+      ]
+    },
+    "bhkSphereShape": {"inherit": "bhkConvexShape", "note": "nif.xml <niobject name=\"bhkSphereShape\">; the radius is the sphere."},
+    "bhkCapsuleShape": {
+      "inherit": "bhkConvexShape",
+      "note": "nif.xml <niobject name=\"bhkCapsuleShape\">.",
+      "fields": [
+        {"name": "unused_01", "type": "bytes", "length": 8},
+        {"name": "first_point", "type": "vec3"},
+        {"name": "radius_1", "type": "f32"},
+        {"name": "second_point", "type": "vec3"},
+        {"name": "radius_2", "type": "f32"}
+      ]
+    },
+    "bhkBoxShape": {
+      "inherit": "bhkConvexShape",
+      "note": "nif.xml <niobject name=\"bhkBoxShape\">; dimensions are half extents.",
+      "fields": [
+        {"name": "unused_01", "type": "bytes", "length": 8},
+        {"name": "dimensions", "type": "vec3"},
+        {"name": "unused_float", "type": "f32"}
+      ]
+    },
+    "bhkConvexVerticesShape": {
+      "inherit": "bhkConvexShape",
+      "note": "nif.xml <niobject name=\"bhkConvexVerticesShape\">; normals are planes (xyz normal, w distance).",
+      "fields": [
+        {"name": "vertices_property", "type": "bhkWorldObjCInfoProperty"},
+        {"name": "normals_property", "type": "bhkWorldObjCInfoProperty"},
+        {"name": "num_vertices", "type": "u32"},
+        {"name": "vertices", "type": "vec4", "length": "num_vertices"},
+        {"name": "num_normals", "type": "u32"},
+        {"name": "normals", "type": "vec4", "length": "num_normals"}
+      ]
+    },
+    "bhkConvexTransformShape": {
+      "inherit": "bhkConvexShapeBase",
+      "note": "nif.xml <niobject name=\"bhkConvexTransformShape\">.",
+      "fields": [
+        {"name": "shape", "type": "ref"},
+        {"name": "material", "type": "HavokMaterial"},
+        {"name": "radius", "type": "f32"},
+        {"name": "unused_01", "type": "bytes", "length": 8},
+        {"name": "transform", "type": "mat44"}
+      ]
+    },
+    "bhkMultiSphereShape": {
+      "inherit": "bhkSphereRepShape",
+      "note": "nif.xml <niobject name=\"bhkMultiSphereShape\">.",
+      "fields": [
+        {"name": "shape_property", "type": "bhkWorldObjCInfoProperty"},
+        {"name": "num_spheres", "type": "u32"},
+        {"name": "spheres", "type": "NiBound", "length": "num_spheres"}
+      ]
+    },
+    "bhkBvTreeShape": {
+      "abstract": true,
+      "inherit": "bhkShape",
+      "note": "nif.xml <niobject name=\"bhkBvTreeShape\">.",
+      "fields": [
+        {"name": "shape", "type": "ref"}
+      ]
+    },
+    "bhkMoppBvTreeShape": {
+      "inherit": "bhkBvTreeShape",
+      "note": "nif.xml <niobject name=\"bhkMoppBvTreeShape\">.",
+      "fields": [
+        {"name": "unused_01", "type": "bytes", "length": 12},
+        {"name": "scale", "type": "f32"},
+        {"name": "mopp_code", "type": "hkpMoppCode"}
+      ]
+    },
+    "bhkShapeCollection": {"abstract": true, "inherit": "bhkShape", "note": "nif.xml <niobject name=\"bhkShapeCollection\">."},
+    "bhkListShape": {
+      "inherit": "bhkShapeCollection",
+      "note": "nif.xml <niobject name=\"bhkListShape\">.",
+      "fields": [
+        {"name": "num_sub_shapes", "type": "u32"},
+        {"name": "sub_shapes", "type": "ref", "length": "num_sub_shapes"},
+        {"name": "material", "type": "HavokMaterial"},
+        {"name": "child_shape_property", "type": "bhkWorldObjCInfoProperty"},
+        {"name": "child_filter_property", "type": "bhkWorldObjCInfoProperty"},
+        {"name": "num_filters", "type": "u32"},
+        {"name": "filters", "type": "HavokFilter", "length": "num_filters"}
+      ]
+    },
+    "bhkPackedNiTriStripsShape": {
+      "inherit": "bhkShapeCollection",
+      "note": "nif.xml <niobject name=\"bhkPackedNiTriStripsShape\">; the sub-shape list lives here up to 20.0.0.5 and in hkPackedNiTriStripsData from 20.2.0.7.",
+      "fields": [
+        {"name": "num_sub_shapes", "type": "u16", "until": "20.0.0.5"},
+        {"name": "sub_shapes", "type": "hkSubPartData", "length": "num_sub_shapes", "until": "20.0.0.5"},
+        {"name": "user_data", "type": "u32"},
+        {"name": "unused_01", "type": "bytes", "length": 4},
+        {"name": "radius", "type": "f32"},
+        {"name": "unused_02", "type": "bytes", "length": 4},
+        {"name": "scale", "type": "vec4"},
+        {"name": "radius_copy", "type": "f32"},
+        {"name": "scale_copy", "type": "vec4"},
+        {"name": "data", "type": "ref"}
+      ]
+    },
+    "hkPackedNiTriStripsData": {
+      "inherit": "bhkShapeCollection",
+      "note": "nif.xml <niobject name=\"hkPackedNiTriStripsData\">; compressed_vertices are three 16-bit floats per vertex.",
+      "fields": [
+        {"name": "num_triangles", "type": "u32"},
+        {"name": "triangles", "type": "TriangleData", "length": "num_triangles"},
+        {"name": "num_vertices", "type": "u32"},
+        {"name": "compressed", "type": "bool", "since": "20.2.0.7"},
+        {"name": "vertices", "type": "vec3", "length": "num_vertices", "cond": "compressed == 0"},
+        {"name": "compressed_vertices", "type": "u16", "length": "num_vertices", "width": 3, "cond": "compressed != 0"},
+        {"name": "num_sub_shapes", "type": "u16", "since": "20.2.0.7"},
+        {"name": "sub_shapes", "type": "hkSubPartData", "length": "num_sub_shapes", "since": "20.2.0.7"}
+      ]
+    },
+    "bhkNiTriStripsShape": {
+      "inherit": "bhkShapeCollection",
+      "note": "nif.xml <niobject name=\"bhkNiTriStripsShape\">; geometry is held in NiTriStripsData blocks.",
+      "fields": [
+        {"name": "material", "type": "HavokMaterial"},
+        {"name": "radius", "type": "f32"},
+        {"name": "unused_01", "type": "bytes", "length": 20},
+        {"name": "grow_by", "type": "u32"},
+        {"name": "scale", "type": "vec4"},
+        {"name": "num_strips_data", "type": "u32"},
+        {"name": "strips_data", "type": "ref", "length": "num_strips_data"},
+        {"name": "num_filters", "type": "u32"},
+        {"name": "filters", "type": "HavokFilter", "length": "num_filters"}
+      ]
+    }
+  }
+}
