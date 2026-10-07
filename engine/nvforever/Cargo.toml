@@ -1,0 +1,16 @@
+[package]
+name = "nvforever"
+description = "NVForever: the game. At milestone M3 a free-camera explorer of the world (terrain and objects)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bevy.workspace = true
+nvf-assets.workspace = true
+fnv-nif.workspace = true
+fnv-esm.workspace = true
+fnv-world.workspace = true
+clap.workspace = true
+serde_json = "1"

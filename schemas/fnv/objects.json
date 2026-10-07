@@ -470,6 +470,22 @@
     "1": "Normal",
     "2": "Silent"
    }
+  },
+  "StaticPlacement": {
+   "struct": [
+    {
+     "name": "position",
+     "type": "Vec3f"
+    },
+    {
+     "name": "rotation_radians",
+     "type": "Vec3f"
+    },
+    {
+     "name": "scale",
+     "type": "f32"
+    }
+   ]
   }
  },
  "records": {
@@ -1888,6 +1904,98 @@
      "type": "zstring",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas CSNO record; CSNO uses MODT as a string, overriding the common model-info layout"
+    }
+   }
+  },
+  "SCOL": {
+   "name": "Static Collection",
+   "confidence": "documented",
+   "subrecords": {
+    "ONAM": {
+     "name": "Static",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SCOL record (wbStaticPart) and wbDefinitionsCommon.pas wbStaticPartPlacements; each ONAM is followed by its DATA"
+    },
+    "DATA": {
+     "name": "Placements",
+     "type": {
+      "array": "StaticPlacement"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SCOL record (wbStaticPart) and wbDefinitionsCommon.pas wbStaticPartPlacements"
+    }
+   }
+  },
+  "TREE": {
+   "name": "Tree",
+   "confidence": "documented",
+   "subrecords": {
+    "SNAM": {
+     "name": "SpeedTree Seeds",
+     "type": {
+      "array": "u32"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TREE record"
+    },
+    "CNAM": {
+     "name": "Tree Data",
+     "type": {
+      "struct": [
+       {
+        "name": "leaf_curvature",
+        "type": "f32"
+       },
+       {
+        "name": "min_leaf_angle",
+        "type": "f32"
+       },
+       {
+        "name": "max_leaf_angle",
+        "type": "f32"
+       },
+       {
+        "name": "branch_dimming",
+        "type": "f32"
+       },
+       {
+        "name": "leaf_dimming",
+        "type": "f32"
+       },
+       {
+        "name": "shadow_radius",
+        "type": "i32"
+       },
+       {
+        "name": "rock_speed",
+        "type": "f32"
+       },
+       {
+        "name": "rustle_speed",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TREE record"
+    },
+    "BNAM": {
+     "name": "Billboard Dimensions",
+     "type": {
+      "struct": [
+       {
+        "name": "width",
+        "type": "f32"
+       },
+       {
+        "name": "height",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TREE record"
     }
    }
   }

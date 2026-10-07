@@ -111,7 +111,7 @@ def run_scenario(s: Scenario, cfg: LabConfig) -> ScenarioResult:
         return err(f"candidate: {e}")
     try:
         cmp = COMPARATORS[s.comparator["kind"]]
-        res = cmp(expected, actual, s.comparator)
+        res = cmp(expected, actual, {**s.comparator, "_goldens_dir": str(cfg.goldens_dir)})
     except ComparatorError as e:
         return err(f"comparator: {e}")
     except Exception as e:  # noqa: BLE001

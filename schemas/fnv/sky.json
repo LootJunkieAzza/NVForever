@@ -1,0 +1,630 @@
+{
+ "format": "fnv.schema/1",
+ "types": {
+  "WeatherType": {
+   "struct": [
+    {
+     "name": "weather",
+     "type": "formid"
+    },
+    {
+     "name": "chance",
+     "type": "i32"
+    },
+    {
+     "name": "global",
+     "type": "formid"
+    }
+   ]
+  },
+  "ClimateTiming": {
+   "struct": [
+    {
+     "name": "sunrise_begin",
+     "type": "u8"
+    },
+    {
+     "name": "sunrise_end",
+     "type": "u8"
+    },
+    {
+     "name": "sunset_begin",
+     "type": "u8"
+    },
+    {
+     "name": "sunset_end",
+     "type": "u8"
+    },
+    {
+     "name": "volatility",
+     "type": "u8"
+    },
+    {
+     "name": "moons_phase_length",
+     "type": "u8"
+    }
+   ]
+  },
+  "WeatherFog": {
+   "struct": [
+    {
+     "name": "day_near",
+     "type": "f32"
+    },
+    {
+     "name": "day_far",
+     "type": "f32"
+    },
+    {
+     "name": "night_near",
+     "type": "f32"
+    },
+    {
+     "name": "night_far",
+     "type": "f32"
+    },
+    {
+     "name": "day_power",
+     "type": "f32"
+    },
+    {
+     "name": "night_power",
+     "type": "f32"
+    }
+   ]
+  },
+  "WeatherData": {
+   "struct": [
+    {
+     "name": "wind_speed",
+     "type": "u8"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 2
+     }
+    },
+    {
+     "name": "trans_delta",
+     "type": "u8"
+    },
+    {
+     "name": "sun_glare",
+     "type": "u8"
+    },
+    {
+     "name": "sun_damage",
+     "type": "u8"
+    },
+    {
+     "name": "precipitation_begin_fade_in",
+     "type": "u8"
+    },
+    {
+     "name": "precipitation_end_fade_out",
+     "type": "u8"
+    },
+    {
+     "name": "lightning_begin_fade_in",
+     "type": "u8"
+    },
+    {
+     "name": "lightning_end_fade_out",
+     "type": "u8"
+    },
+    {
+     "name": "lightning_frequency",
+     "type": "u8"
+    },
+    {
+     "name": "flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Pleasant",
+       "1": "Cloudy",
+       "2": "Rainy",
+       "3": "Snow"
+      }
+     }
+    },
+    {
+     "name": "lightning_color",
+     "type": {
+      "array": "u8",
+      "count": 3
+     }
+    }
+   ]
+  },
+  "WaterVisual": {
+   "struct": [
+    {
+     "name": "unknown_0",
+     "type": "f32"
+    },
+    {
+     "name": "unknown_1",
+     "type": "f32"
+    },
+    {
+     "name": "unknown_2",
+     "type": "f32"
+    },
+    {
+     "name": "unknown_3",
+     "type": "f32"
+    },
+    {
+     "name": "sun_power",
+     "type": "f32"
+    },
+    {
+     "name": "reflectivity_amount",
+     "type": "f32"
+    },
+    {
+     "name": "fresnel_amount",
+     "type": "f32"
+    },
+    {
+     "name": "unused_0",
+     "type": {
+      "array": "u8",
+      "count": 4
+     }
+    },
+    {
+     "name": "above_fog_near",
+     "type": "f32"
+    },
+    {
+     "name": "above_fog_far",
+     "type": "f32"
+    },
+    {
+     "name": "shallow_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "deep_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "reflection_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "unused_1",
+     "type": {
+      "array": "u8",
+      "count": 4
+     }
+    },
+    {
+     "name": "rain_force",
+     "type": "f32"
+    },
+    {
+     "name": "rain_velocity",
+     "type": "f32"
+    },
+    {
+     "name": "rain_falloff",
+     "type": "f32"
+    },
+    {
+     "name": "rain_dampner",
+     "type": "f32"
+    },
+    {
+     "name": "displacement_starting_size",
+     "type": "f32"
+    },
+    {
+     "name": "displacement_force",
+     "type": "f32"
+    },
+    {
+     "name": "displacement_velocity",
+     "type": "f32"
+    },
+    {
+     "name": "displacement_falloff",
+     "type": "f32"
+    },
+    {
+     "name": "displacement_dampner",
+     "type": "f32"
+    },
+    {
+     "name": "rain_starting_size",
+     "type": "f32"
+    },
+    {
+     "name": "noise_normals_scale",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer1_wind_direction",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer2_wind_direction",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer3_wind_direction",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer1_wind_speed",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer2_wind_speed",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer3_wind_speed",
+     "type": "f32"
+    },
+    {
+     "name": "noise_depth_falloff_start",
+     "type": "f32"
+    },
+    {
+     "name": "noise_depth_falloff_end",
+     "type": "f32"
+    },
+    {
+     "name": "above_fog_amount",
+     "type": "f32"
+    },
+    {
+     "name": "noise_normals_uv_scale",
+     "type": "f32"
+    },
+    {
+     "name": "under_fog_amount",
+     "type": "f32"
+    },
+    {
+     "name": "under_fog_near",
+     "type": "f32"
+    },
+    {
+     "name": "under_fog_far",
+     "type": "f32"
+    },
+    {
+     "name": "distortion_amount",
+     "type": "f32"
+    },
+    {
+     "name": "shininess",
+     "type": "f32"
+    },
+    {
+     "name": "reflection_hdr_multiplier",
+     "type": "f32"
+    },
+    {
+     "name": "light_radius",
+     "type": "f32"
+    },
+    {
+     "name": "light_brightness",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer1_uv_scale",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "noise_layer2_uv_scale",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "noise_layer3_uv_scale",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "noise_layer1_amplitude",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "noise_layer2_amplitude",
+     "type": "f32",
+     "optional": true
+    },
+    {
+     "name": "noise_layer3_amplitude",
+     "type": "f32",
+     "optional": true
+    }
+   ]
+  },
+  "LightingData": {
+   "struct": [
+    {
+     "name": "ambient_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "directional_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "fog_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "fog_near",
+     "type": "f32"
+    },
+    {
+     "name": "fog_far",
+     "type": "f32"
+    },
+    {
+     "name": "directional_rotation_xy",
+     "type": "i32"
+    },
+    {
+     "name": "directional_rotation_z",
+     "type": "i32"
+    },
+    {
+     "name": "directional_fade",
+     "type": "f32"
+    },
+    {
+     "name": "fog_clip_dist",
+     "type": "f32"
+    },
+    {
+     "name": "fog_power",
+     "type": "f32"
+    }
+   ]
+  }
+ },
+ "records": {
+  "CLMT": {
+   "name": "Climate",
+   "confidence": "documented",
+   "subrecords": {
+    "WLST": {
+     "name": "Weather Types",
+     "type": {
+      "array": "WeatherType"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CLMT record"
+    },
+    "FNAM": {
+     "name": "Sun Texture",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CLMT record"
+    },
+    "GNAM": {
+     "name": "Sun Glare Texture",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CLMT record"
+    },
+    "TNAM": {
+     "name": "Timing",
+     "type": "ClimateTiming",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbClimateTiming; times in 10-minute units (wbClmtTime)"
+    }
+   }
+  },
+  "WTHR": {
+   "name": "Weather",
+   "confidence": "documented",
+   "subrecords": {
+    "DNAM": {
+     "name": "Cloud Texture Layer 0",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbWeatherCloudTextures (FO3/FNV form)"
+    },
+    "CNAM": {
+     "name": "Cloud Texture Layer 1",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbWeatherCloudTextures (FO3/FNV form)"
+    },
+    "ANAM": {
+     "name": "Cloud Texture Layer 2",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbWeatherCloudTextures (FO3/FNV form)"
+    },
+    "BNAM": {
+     "name": "Cloud Texture Layer 3",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbWeatherCloudTextures (FO3/FNV form)"
+    },
+    "LNAM": {
+     "name": "Max Cloud Layers",
+     "type": "u32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WTHR record"
+    },
+    "ONAM": {
+     "name": "Cloud Speeds",
+     "type": {
+      "array": "u8",
+      "count": 4
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbWeatherCloudSpeed (FO3/FNV form)"
+    },
+    "PNAM": {
+     "name": "Cloud Colors",
+     "type": {
+      "array": "ByteColor"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbWeatherCloudColors: per cloud layer, one colour per time of day; observed 96 bytes (4 layers x 6 times) or 64 (x 4 times)"
+    },
+    "NAM0": {
+     "name": "Weather Colors",
+     "type": {
+      "array": "ByteColor"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbWeatherColors/wbWeatherTimeOfDay: 10 colour types (sky upper, fog, unused, ambient, sunlight, sun, stars, sky lower, horizon, effect lighting), each one colour per time of day (sunrise, day, sunset, night[, high noon, midnight]); observed 240 bytes (x 6) in 90 records, 160 (x 4) in 8. Expressed as a flat list because schema v1 has no size-selected union"
+    },
+    "FNAM": {
+     "name": "Fog Distance",
+     "type": "WeatherFog",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbWeatherFogDistance (FNV: six floats)"
+    },
+    "INAM": {
+     "name": "Unused",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WTHR record wbUnused(INAM, 304)"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": "WeatherData",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WTHR record"
+    },
+    "SNAM": {
+     "name": "Sound",
+     "type": {
+      "struct": [
+       {
+        "name": "sound",
+        "type": "formid"
+       },
+       {
+        "name": "type",
+        "type": {
+         "enum": "u32",
+         "values": {
+          "0": "Default",
+          "1": "Precipitation",
+          "2": "Wind",
+          "3": "Thunder"
+         }
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbWeatherSounds"
+    }
+   }
+  },
+  "WATR": {
+   "name": "Water",
+   "confidence": "documented",
+   "subrecords": {
+    "NNAM": {
+     "name": "Noise Map",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WATR record"
+    },
+    "ANAM": {
+     "name": "Opacity",
+     "type": "u8",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WATR record"
+    },
+    "FNAM": {
+     "name": "Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Causes Damage",
+       "1": "Reflective"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WATR record"
+    },
+    "MNAM": {
+     "name": "Material ID",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WATR record"
+    },
+    "SNAM": {
+     "name": "Sound",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WATR record"
+    },
+    "XNAM": {
+     "name": "Actor Effect",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WATR record"
+    },
+    "DATA": {
+     "name": "Damage",
+     "type": "u16",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WATR record; 8 older records instead hold the visual data plus damage here (186 bytes, xEdit union), not expressed in schema v1"
+    },
+    "GNAM": {
+     "name": "Related Waters",
+     "type": {
+      "struct": [
+       {
+        "name": "daytime",
+        "type": "formid"
+       },
+       {
+        "name": "nighttime",
+        "type": "formid"
+       },
+       {
+        "name": "underwater",
+        "type": "formid"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WATR record"
+    },
+    "DNAM": {
+     "name": "Visual Data",
+     "type": "WaterVisual",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WATR record (optional from field 46)"
+    }
+   }
+  },
+  "LGTM": {
+   "name": "Lighting Template",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Lighting",
+     "type": "LightingData",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LGTM record"
+    }
+   }
+  }
+ }
+}
