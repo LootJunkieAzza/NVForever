@@ -182,7 +182,33 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   [observed]. WATR: noise texture `NNAM`, opacity `ANAM`, visual data `DNAM` (colours
   shallow/deep/reflection at bytes 48/52/56 among 49 fields) [documented].
 
-## 7. Open questions
+## 7. Distant LOD
+
+Pre-built LOD ships per worldspace [observed: `Fallout - Meshes.bsa`, `Fallout -
+Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
+
+- **Terrain**: `meshes\landscape\lod\<world>\<world>.level<L>.x<X>.y<Y>.nif` for levels
+  L = 4, 8, 16, 32; a chunk covers L × L cells starting at cell (X, Y), with X and Y
+  multiples of L. WastelandNV: 1,024 / 256 / 64 / 16 chunks covering cells −64..63 in
+  both axes. Each chunk is a BSMultiBoundNode translated to the chunk's south-west corner
+  (e.g. x = −20 → −81,920 = −20 × 4096) holding one NiTriShape (about 850 vertices at
+  level 4) with a BSShaderPPLightingProperty whose texture set names the chunk's own
+  diffuse and normal textures,
+  `textures\landscape\lod\<world>\{diffuse,normals}\<world>.n.level<L>.x<X>.y<Y>.dds`
+  (1,360 of each, one per chunk). The geometry also
+  carries an NiAdditionalGeometryData stream of one f32 per vertex (meaning unknown).
+- **Objects**: `...\<world>locks\<world>.level4.x<X>.y<Y>.nif` (289 for WastelandNV,
+  plus 6 `.high.` variants), merged geometry of distant buildings and landmarks over the
+  same 4 × 4-cell squares, textured from one atlas `...locks\<world>.buildings.dds`
+  (+ `_n`). Separately, 692 `*_lod.nif` meshes sit next to their full models.
+- **Settings**: `lodsettings\<world>.dlodsettings`, 24 bytes. For WastelandNV:
+  u32 4, u32 32, u32 128, i16 −64, i16 −64, i16 63, i16 63, u32 4 [observed], read as
+  smallest and largest level, grid size in cells, south-west and north-east cells, and
+  object LOD level [hypothesis: matches the files present].
+- How the engine hides LOD under loaded cells, and when it switches levels, is not known
+  [hypothesis in the renderer: level 4 only; layer3.md].
+
+## 8. Open questions
 
 1. Engine-defined base objects (FormIDs < 0x800): which are visible? (Assumed none.)
 2. Texture-layer details: quadrant order, blending of `layer` numbers, the default
