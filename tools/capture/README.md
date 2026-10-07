@@ -209,6 +209,50 @@ python tools/capture/oracle_world.py heights "<Data>" FalloutNV.esm DeadMoney.es
 - Diagnostics (first 20 per code) go to stderr; exit code 1 when a plugin cannot be read or
   the worldspace does not exist, 2 for usage errors.
 
+## 7. Reference frames from the original game (Layer 3, image scenarios)
+
+Screenshots of the original game at fixed cameras, compared with `nvforever`'s render of
+the same camera by the lab's `image` comparator. You take them in your own game; they
+stay in the private goldens directory. Console commands below are the game's own
+[documented: community console references; verify on your install]; NVForever never
+changes your game files or `Documents\My Games\FalloutNV`.
+
+**Setup (once).** Pick how to save screenshots: the game's own key needs
+`bAllowScreenShot=1` in the `[Display]` section of your `Fallout.ini` (you edit it
+yourself) and writes `ScreenShot<N>.bmp` into the game folder; Steam's F12 also works if
+you enable "Save an uncompressed copy" (PNG). Avoid JPEG. Use the same resolution for
+every capture; 16:10 or 16:9 both work.
+
+**Per frame.**
+1. Load a save, then go to the place: `coc <CellEditorID>` (e.g. `coc Goodsprings`, the
+   exterior cell at grid −18, 0) or walk there.
+2. Freeze the variables: `set timescale to 1`, `set gamehour to 12` (or another hour),
+   `fw <weather FormID>` (e.g. NVWastelandClear; look up its FormID with `help
+   NVWastelandClear 4`), wait a few seconds for the weather to settle.
+3. Stand still in first person, then record the player's position and angles:
+   `player.getpos x`, `player.getpos y`, `player.getpos z`, `player.getangle z`
+   (heading), `player.getangle x` (pitch). To set exact values instead:
+   `player.setpos x <v>` etc. and `player.setangle z <deg>`, `player.setangle x <deg>`.
+4. Note the field of view (`fov` with no argument prints it on some setups; default 75
+   [hypothesis]).
+5. Hide the HUD and console: `tm`, close the console, take the screenshot, `tm` again.
+6. Copy the image to `<goldens>\frames\` and add an entry to
+   `<goldens>\frames\manifest.json` (format in `parity-lab/tools/gen_layer3_frames.py`):
+   id, image file name, `player_pos`, `heading`, `pitch`, `hour`, `weather`, `fov`, and
+   `masks` for regions that cannot match (NPCs or creatures walking by, particles).
+
+A first set of 5-10 frames is plenty: Goodsprings at noon and at 19:00, a view towards
+the Strip, Lake Mead shore, a hill with distant LOD in view.
+
+**Then:** `python parity-lab/tools/gen_layer3_frames.py <goldens>` writes the oracle
+documents and `<goldens>\frames\scenarios\layer3_frames.json`; add
+`"<goldens>/frames/scenarios"` to `scenarios_dirs` in `parity-lab/lab.local.json` and build
+the engine (`cd engine && cargo build --release`). `python -m fnvlab run --layer 3` then
+renders each camera headless and compares. `min_ssim` in the manifest is provisional
+(0.6); it is fixed with you after the first comparisons and then not changed to make
+scenarios pass. The camera is placed `eye_height` (default 120 units [hypothesis]) above
+the player's position; the first comparisons will tell us the right value.
+
 ## Tests
 
 ```
