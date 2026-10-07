@@ -332,8 +332,8 @@ interface and the game's script language) and writes only to the capture directo
 
 **Per scenario:**
 ```
-python tools/capture/capture_steps.py actions parity-lab/inputs/layer4/goodsprings_weight_and_time.actions.json --start "Load the pinned save in Doc Mitchell's house (new level-1 character, no perks)." -o C:/fnv-private/capture/jobs/goodsprings_weight_and_time.steps.json
-python tools/capture/capture_steps.py cases parity-lab/inputs/layer4/leveled_basic.cases.json --draws 300 --start "Load a test save in a quiet interior." -o C:/fnv-private/capture/jobs/leveled_basic.steps.json
+python tools/capture/capture_steps.py actions parity-lab/inputs/layer4/goodsprings_weight_and_time.actions.json --data "<Data>" --start "Load the pinned save in Doc Mitchell's house (new level-1 character, no perks)." -o C:/fnv-private/capture/jobs/goodsprings_weight_and_time.steps.json
+python tools/capture/capture_steps.py cases parity-lab/inputs/layer4/leveled_basic.cases.json --data "<Data>" --draws 300 --start "Load a test save in a quiet interior." -o C:/fnv-private/capture/jobs/leveled_basic.steps.json
 ```
 Start the game, load the save named in `--start`; the plugin announces the first pending
 job (top left). **End** starts it, **Home** skips it; manual steps (waiting, walking
@@ -344,9 +344,10 @@ is in `nvf_capture.log`. Then build the golden:
 python tools/capture/capture_steps.py trace   C:/fnv-private/capture/out/goodsprings_weight_and_time.<time>.jsonl -o C:/fnv-private/goldens/sim/goodsprings_weight_and_time.trace.json
 python tools/capture/capture_steps.py samples C:/fnv-private/capture/out/leveled_basic.<time>.jsonl --cases parity-lab/inputs/layer4/leveled_basic.cases.json -o C:/fnv-private/goldens/sim/leveled_basic.samples.json
 ```
-Forms in jobs are named by plugin file and local FormID, so the game's own load order
-does not matter; output FormIDs are mapped back through the load order recorded at the
-start of every job. A step that fails (e.g. a script that does not compile) is recorded
+`--data` (the game's Data folder, read-only) resolves Editor IDs to FormIDs: the game does
+not know Editor IDs at run time. Forms in jobs are named by plugin file and local FormID,
+so the game's own load order does not matter; output FormIDs are mapped back through the masters' mod indices,
+which every job records first (`GetModIndex`). A step that fails (e.g. a script that does not compile) is recorded
 as an error and the job continues; check the golden for `error` fields before using it.
 Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, layouts) and
 `tests/test_capture_steps.py`.
