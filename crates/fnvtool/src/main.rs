@@ -7,6 +7,7 @@ mod dds_cmd;
 mod esm_cmd;
 mod install_cmd;
 mod nif_cmd;
+mod phys_cmd;
 mod source;
 mod world_cmd;
 
@@ -53,6 +54,49 @@ enum Cmd {
     /// Worldspaces, cells, placed references and landscape across a load order.
     #[command(subcommand)]
     World(WorldCmd),
+    /// Physics world built from the game data: terrain, collision, probe characters.
+    #[command(subcommand)]
+    Phys(PhysCmd),
+}
+
+#[derive(Subcommand)]
+pub enum PhysCmd {
+    /// Build the static world around a cell and drop probe characters (fnv.phys.cell/1).
+    Cell {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Cell Editor ID or load-order FormID.
+        #[arg(long)]
+        cell: Option<String>,
+        /// Worldspace Editor ID or FormID, with --x and --y.
+        #[arg(long)]
+        world: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        x: Option<i32>,
+        #[arg(long, allow_hyphen_values = true)]
+        y: Option<i32>,
+        /// Exterior cells loaded around the centre cell, in grid squares.
+        #[arg(long, default_value_t = 1)]
+        radius: i32,
+        /// Drop point "x,y" or "x,y,z" in world units (repeatable; default: the centre
+        /// of the cell, 100 units above the ground).
+        #[arg(long = "drop", allow_hyphen_values = true)]
+        drops: Vec<String>,
+        /// Simulated seconds per probe.
+        #[arg(long, default_value_t = 5.0)]
+        seconds: f32,
+    },
+    /// Vertical rays on every landscape cell of a worldspace against the analytic
+    /// terrain surface (fnv.phys.terrain/1).
+    Terrain {
+        #[command(flatten)]
+        w: WorldArgs,
+        #[arg(long)]
+        world: String,
+        /// Scattered sample points per cell (grid vertices and lines are added).
+        #[arg(long, default_value_t = 64)]
+        samples: usize,
+    },
 }
 
 #[derive(Args)]
@@ -324,6 +368,7 @@ fn main() -> ExitCode {
         Cmd::Nif(c) => nif_cmd::run(c),
         Cmd::Dds(c) => dds_cmd::run(c),
         Cmd::World(c) => world_cmd::run(c),
+        Cmd::Phys(c) => phys_cmd::run(c),
     };
     match res {
         Ok(v) => {
