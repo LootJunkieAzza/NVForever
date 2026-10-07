@@ -82,8 +82,10 @@ fn find_weather(world: &WorldData, name: &str) -> Option<u32> {
     })
 }
 
+/// The sky dome, with each vertex's height (−1..1) kept from creation: the colours are
+/// recomputed from these instead of reading the mesh back.
 #[derive(Component)]
-pub struct SkyDome;
+pub struct SkyDome(Vec<f32>);
 
 #[derive(Component)]
 pub struct Sun;
@@ -102,10 +104,14 @@ pub fn setup_sky(
 ) {
     let mut dome = Sphere::new(DOME_RADIUS).mesh().uv(48, 24);
     let n = dome.count_vertices();
+    let heights: Vec<f32> = match dome.attribute(Mesh::ATTRIBUTE_POSITION) {
+        Some(VertexAttributeValues::Float32x3(p)) => p.iter().map(|v| v[1] / DOME_RADIUS).collect(),
+        _ => vec![0.0; n],
+    };
     dome.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.0f32; 4]; n]);
     commands.spawn((
         Name::new("Sky"),
-        SkyDome,
+        SkyDome(heights),
         Mesh3d(meshes.add(dome)),
         MeshMaterial3d(materials.add(StandardMaterial {
             unlit: true,
@@ -171,7 +177,7 @@ pub fn update_sky(
     mut clear: ResMut<ClearColor>,
     mut ambient: ResMut<GlobalAmbientLight>,
     cam: Query<(&Transform, &mut DistanceFog), (With<FlyCam>, Without<SkyDome>, Without<Sun>, Without<SunDisc>)>,
-    mut dome: Query<(&Mesh3d, &mut Transform), (With<SkyDome>, Without<FlyCam>, Without<Sun>, Without<SunDisc>)>,
+    mut dome: Query<(&Mesh3d, &SkyDome, &mut Transform), (With<SkyDome>, Without<FlyCam>, Without<Sun>, Without<SunDisc>)>,
     mut sun: Query<(&mut DirectionalLight, &mut Transform), (With<Sun>, Without<FlyCam>, Without<SkyDome>, Without<SunDisc>)>,
     mut disc: Query<(&mut Transform, &MeshMaterial3d<StandardMaterial>), (With<SunDisc>, Without<FlyCam>, Without<SkyDome>, Without<Sun>)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -186,7 +192,7 @@ pub fn update_sky(
             return;
         }
         let c = |v: [u8; 3]| to_color(v.map(fnv_world::sky::srgb_to_linear));
-        if let Ok((_, mut t)) = dome.single_mut() {
+        if let Ok((_, _, mut t)) = dome.single_mut() {
             t.scale = Vec3::ZERO;
         }
         if let Ok((mut t, _)) = disc.single_mut() {
@@ -215,7 +221,7 @@ pub fn update_sky(
     let sun_dir = to_bevy.rotation * sun_dir_game;
 
     // Follow the camera every frame.
-    if let Ok((_, mut t)) = dome.single_mut() {
+    if let Ok((_, _, mut t)) = dome.single_mut() {
         t.translation = cam_pos;
     }
     if let Ok((mut t, _)) = disc.single_mut() {
@@ -229,13 +235,10 @@ pub fn update_sky(
     let upper = w.color(c, ColorType::SkyUpper, h);
     let lower = w.color(c, ColorType::SkyLower, h);
     let horizon = w.color(c, ColorType::Horizon, h);
-    if let Ok((m, _)) = dome.single() {
+    if let Ok((m, heights, _)) = dome.single() {
         if let Some(mut mesh) = meshes.get_mut(&m.0) {
-            let ys: Vec<f32> = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
-                Some(VertexAttributeValues::Float32x3(p)) => p.iter().map(|v| v[1] / DOME_RADIUS).collect(),
-                _ => Vec::new(),
-            };
-            let cols: Vec<[f32; 4]> = ys
+            let cols: Vec<[f32; 4]> = heights
+                .0
                 .iter()
                 .map(|&y| {
                     let c = if y >= 0.0 {

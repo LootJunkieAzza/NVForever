@@ -108,6 +108,12 @@ struct Args {
     /// Light intensity per squared unit of LIGH radius (Bevy lumens) [tuned by eye].
     #[arg(long, default_value_t = 20_000.0)]
     light_scale: f32,
+    /// Test aid: fly forward at this speed (game units per second).
+    #[arg(long, default_value_t = 0.0)]
+    auto_fly: f32,
+    /// Test aid: exit with success after this many seconds (smoke tests).
+    #[arg(long)]
+    run_seconds: Option<f32>,
     /// Do not draw the text overlay (implied by --frame-json).
     #[arg(long)]
     no_overlay: bool,
@@ -221,6 +227,7 @@ fn main() -> AppExit {
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
+    .insert_resource(fly::AutoFly(args.auto_fly))
     .insert_resource(lod::LodState::new(&world, args.lod_radius, !args.no_lod && interior.is_none()))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
@@ -247,6 +254,18 @@ fn main() -> AppExit {
     .add_systems(Update, (fly::fly, sky::sky_keys, sky::update_sky, world::stream, lod::update_lod, overlay, keys).chain());
     if args.screenshot.is_some() {
         app.add_systems(Update, screenshot_and_exit);
+    }
+    if let Some(secs) = args.run_seconds {
+        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, mut commands: Commands, mut t: Local<f32>| {
+            *t += time.delta_secs();
+            if *t >= secs {
+                info!(
+                    "run finished after {:.1}s: {} cells loaded in total, {} loaded now",
+                    *t, streamer.stats.cells_loaded, streamer.loaded.len()
+                );
+                commands.write_message(AppExit::Success);
+            }
+        });
     }
     app.run()
 }

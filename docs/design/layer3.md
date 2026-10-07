@@ -100,6 +100,11 @@ What it does now:
   the camera starts at the middle of its references. Lights: every enabled LIGH
   reference becomes a point (or spot) light, indoors and out (`--light-scale`, tuned by
   eye in GSDocMitchellHouse).
+- Test aids: `--auto-fly <speed>` flies the camera forward, `--run-seconds <n>` exits
+  after n seconds; together a headless smoke test of streaming and LOD rebuilds (40 s at
+  4000 units/s streams 200-260 cells). Meshes on the GPU are render-world only and cannot
+  be read back; code that derives meshes later (LOD trimming) asks the model cache for
+  CPU copies (`ModelCtx::model_with_cpu`).
 - Water: one plane per "has water" cell at its water height with the water type's
   colour, opacity and noise normal map (no reflection or refraction yet).
 
