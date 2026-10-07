@@ -188,7 +188,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    perks), `goodsprings_respawn` (test save; Ringo's cash container), `x13_enable_parents`
    (test save in Old World Blues' X-13) and `leveled_basic.samples` (a few hundred
    `AddItem` draws per case). They can now be run with the `nvf_capture` plugin (needs
-   xNVSE 6.4.9+ installed by you; tools/capture/README.md §10). Not yet tried in-game.
+   xNVSE 6.4.9+ installed by you; tools/capture/README.md §10). First golden captured
+   2026-10-07: `goodsprings_weight_and_time` passes 9/9.
 
 ## 6. Updated spec notes
 
