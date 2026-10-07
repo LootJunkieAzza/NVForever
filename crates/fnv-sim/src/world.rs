@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 
 use crate::clock::{self, Calendar};
 use crate::form::FormId;
-use crate::forms::{BaseData, FormStore};
-use crate::inventory::Inventory;
+use crate::forms::{BaseData, FormStore, ItemKind, SPECIAL};
+use crate::inventory::{unequipped, Extra, Inventory};
 use crate::leveled::{self, LeveledError};
 use crate::refs::{PlacedRef, RefTable};
 
@@ -28,11 +28,14 @@ pub struct SimConfig {
     /// Level used for leveled lists (the player's level). [hypothesis: containers
     /// resolve against the player's level]
     pub player_level: u16,
+    /// Hardcore mode: ammunition has weight. (Absent in older snapshots.)
+    #[serde(default)]
+    pub hardcore: bool,
 }
 
 impl Default for SimConfig {
     fn default() -> Self {
-        SimConfig { seed: 0, player_level: 1 }
+        SimConfig { seed: 0, player_level: 1, hardcore: false }
     }
 }
 
@@ -59,6 +62,12 @@ pub struct RefState {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub lock: Option<LockState>,
     pub open: bool,
+    /// Item references: condition (XHLP on placed weapons and armour) and owner.
+    #[serde(skip_serializing_if = "Extra::is_plain", default)]
+    pub extra: Extra,
+    /// Actor values changed at run time, by lower-case name (S.P.E.C.I.A.L. so far).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub actor_values: BTreeMap<String, f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -75,6 +84,16 @@ pub enum SimError {
     BadCount(i32),
     #[error("{0} is not in the world (deleted)")]
     Deleted(FormId),
+    #[error("{0} cannot be equipped")]
+    NotEquippable(FormId),
+    #[error("{actor} has no unequipped {item}")]
+    NotCarried { actor: FormId, item: FormId },
+    #[error("unknown actor value {0:?}")]
+    UnknownActorValue(String),
+    #[error("{0} has no actor values")]
+    NoActorValues(FormId),
+    #[error("the game setting {0} is not defined by any plugin")]
+    MissingSetting(String),
     #[error("the global {0} is not defined by any plugin")]
     MissingGlobal(String),
     #[error(transparent)]
@@ -108,6 +127,24 @@ pub struct Activation {
     /// The base form's script, which would receive OnActivate (Layer 5).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub script: Option<FormId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Equip {
+    /// Aid items are used up instead of worn.
+    pub consumed: bool,
+    /// Items unequipped to make room.
+    pub unequipped: Vec<FormId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Encumbrance {
+    pub weight: f64,
+    pub capacity: f64,
+    pub over: bool,
+    /// Carried items whose weight is unknown (not counted).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unknown_weight: Vec<FormId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -185,11 +222,16 @@ impl<'a> World<'a> {
                 let mut inv = Inventory::new();
                 let mut out = Vec::new();
                 for e in entries {
+                    let from = out.len();
                     leveled::resolve(self.forms, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
+                    // COED on an entry applies to whatever it resolves to. [hypothesis]
+                    for r in &mut out[from..] {
+                        r.extra = e.extra;
+                    }
                 }
                 for e in out {
                     if e.count > 0 {
-                        inv.add(e.item, e.count);
+                        inv.add_extra(e.item, e.count, e.extra);
                     }
                 }
                 Some(inv)
@@ -208,6 +250,12 @@ impl<'a> World<'a> {
             // A reference with lock data starts locked. [hypothesis]
             lock: placed.and_then(|p| p.lock).map(|l| LockState { level: l.level, key: l.key, locked: true }),
             open: false,
+            extra: Extra {
+                condition: placed.and_then(|p| p.health),
+                owner: placed.and_then(|p| p.owner),
+                equipped: false,
+            },
+            actor_values: BTreeMap::new(),
         })
     }
 
@@ -267,20 +315,23 @@ impl<'a> World<'a> {
             return Err(SimError::BadCount(count));
         }
         self.inventory(to)?;
-        let n = self.inventory(from)?.remove(item, count);
-        if n > 0 {
-            self.inventory(to)?.add(item, n);
+        let groups = unequipped(self.inventory(from)?.take(item, count));
+        let dest = self.inventory(to)?;
+        let mut n = 0;
+        for (e, c) in groups {
+            dest.add_extra(item, c, e);
+            n += c;
         }
         Ok(n)
     }
 
-    /// Move everything; returns the stacks moved.
+    /// Move everything; returns the stacks moved. Extra data (condition, owner) moves
+    /// with the items; equipped items are unequipped.
     pub fn transfer_all(&mut self, from: FormId, to: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
         self.inventory(to)?;
         let stacks: Vec<_> = self.inventory(from)?.iter().collect();
         for &(item, n) in &stacks {
-            self.inventory(from)?.remove(item, n);
-            self.inventory(to)?.add(item, n);
+            self.transfer(from, to, item, n)?;
         }
         Ok(stacks)
     }
@@ -293,32 +344,128 @@ impl<'a> World<'a> {
         Ok(stacks)
     }
 
-    /// Drop items from an inventory into the world as a new reference at the owner's
-    /// position. Returns the new reference.
-    pub fn drop_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<Option<FormId>, SimError> {
-        let n = self.remove_item(from, item, count)?;
-        if n == 0 {
-            return Ok(None);
+    /// Drop items from an inventory into the world at the holder's position, one new
+    /// reference per group of identical extra data [hypothesis]. Returns the new
+    /// references.
+    pub fn drop_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
+        if count <= 0 {
+            return Err(SimError::BadCount(count));
         }
-        let owner = self.get(from)?.clone();
-        let id = FormId(self.next_dynamic);
-        self.next_dynamic += 1;
-        self.refs.insert(
-            id,
-            RefState {
-                base: item,
-                cell: owner.cell,
-                pos: owner.pos,
-                rot: [0.0; 3],
-                enabled: true,
-                deleted: false,
-                count: n,
-                inventory: None,
-                lock: None,
-                open: false,
-            },
-        );
-        Ok(Some(id))
+        let groups = unequipped(self.inventory(from)?.take(item, count));
+        let holder = self.get(from)?.clone();
+        let mut out = Vec::new();
+        for (extra, n) in groups {
+            let id = FormId(self.next_dynamic);
+            self.next_dynamic += 1;
+            self.refs.insert(
+                id,
+                RefState {
+                    base: item,
+                    cell: holder.cell,
+                    pos: holder.pos,
+                    rot: [0.0; 3],
+                    enabled: true,
+                    deleted: false,
+                    count: n,
+                    inventory: None,
+                    lock: None,
+                    open: false,
+                    extra,
+                    actor_values: BTreeMap::new(),
+                },
+            );
+            out.push(id);
+        }
+        Ok(out)
+    }
+
+    /// Equip one carried `item` on `actor`. Weapons replace the equipped weapon; armour
+    /// replaces equipped armour that shares a body slot (BMDT biped flags); aid items
+    /// are consumed (their effects are Layer 6). [hypothesis: in-game equip rules as the
+    /// GECK wiki describes `EquipItem`; to be captured]
+    pub fn equip(&mut self, actor: FormId, item: FormId) -> Result<Equip, SimError> {
+        let it = self.forms.item(item).ok_or(SimError::NotAnItem(item))?.clone();
+        let forms = self.forms;
+        let inv = self.inventory(actor)?;
+        if it.kind == ItemKind::Aid {
+            return match inv.remove(item, 1) {
+                1 => Ok(Equip { consumed: true, unequipped: Vec::new() }),
+                _ => Err(SimError::NotCarried { actor, item }),
+            };
+        }
+        if !matches!(it.kind, ItemKind::Weapon | ItemKind::Armor) {
+            return Err(SimError::NotEquippable(item));
+        }
+        if inv.count(item) == 0 {
+            return Err(SimError::NotCarried { actor, item });
+        }
+        let clashes = |other: FormId| -> bool {
+            let Some(o) = forms.item(other) else { return false };
+            match (it.kind, o.kind) {
+                (ItemKind::Weapon, ItemKind::Weapon) => true,
+                (ItemKind::Armor, ItemKind::Armor) => it.slots.unwrap_or(0) & o.slots.unwrap_or(0) != 0,
+                _ => false,
+            }
+        };
+        let mut unequipped = Vec::new();
+        for other in inv.equipped() {
+            if clashes(other) && inv.clear_equipped(other) {
+                unequipped.push(other);
+            }
+        }
+        if !inv.set_equipped(item) {
+            return Err(SimError::NotCarried { actor, item });
+        }
+        Ok(Equip { consumed: false, unequipped })
+    }
+
+    /// Unequip `item`; returns whether it was equipped.
+    pub fn unequip(&mut self, actor: FormId, item: FormId) -> Result<bool, SimError> {
+        Ok(self.inventory(actor)?.clear_equipped(item))
+    }
+
+    /// An actor value: S.P.E.C.I.A.L. from the base NPC_ record unless changed at run
+    /// time. (Template NPCs take stats from their template: not followed yet.)
+    pub fn actor_value(&mut self, actor: FormId, name: &str) -> Result<f32, SimError> {
+        let key = name.to_ascii_lowercase();
+        let idx = SPECIAL.iter().position(|n| *n == key).ok_or_else(|| SimError::UnknownActorValue(name.into()))?;
+        let s = self.get(actor)?;
+        if let Some(v) = s.actor_values.get(&key) {
+            return Ok(*v);
+        }
+        let base = s.base;
+        match self.forms.get(base).map(|b| &b.data) {
+            Some(BaseData::Actor(a)) => a.attributes.map(|a| a[idx] as f32).ok_or(SimError::NoActorValues(actor)),
+            _ => Err(SimError::NoActorValues(actor)),
+        }
+    }
+
+    pub fn set_actor_value(&mut self, actor: FormId, name: &str, value: f32) -> Result<(), SimError> {
+        let key = name.to_ascii_lowercase();
+        self.actor_value(actor, &key)?;
+        self.get(actor)?.actor_values.insert(key, value);
+        Ok(())
+    }
+
+    fn setting(&self, edid: &str) -> Result<f32, SimError> {
+        self.forms.setting_f32(edid).ok_or_else(|| SimError::MissingSetting(edid.into()))
+    }
+
+    /// Carried weight against capacity. Capacity = fAVDCarryWeightsBase +
+    /// fAVDCarryWeightMult × Strength (150 + 10 × Strength in the masters); the actor is
+    /// over-encumbered when the weight exceeds it. [hypothesis: the formula the setting
+    /// names describe; equipped items count]
+    pub fn encumbrance(&mut self, actor: FormId) -> Result<Encumbrance, SimError> {
+        let strength = self.actor_value(actor, "strength")?;
+        let capacity = self.setting("fAVDCarryWeightsBase")? + self.setting("fAVDCarryWeightMult")? * strength;
+        let (forms, hardcore) = (self.forms, self.cfg.hardcore);
+        let t = self.inventory(actor)?.totals(forms, hardcore);
+        Ok(Encumbrance {
+            weight: t.weight,
+            capacity: capacity as f64,
+            over: t.weight > capacity as f64,
+            unknown_weight: t.unknown_weight,
+        })
     }
 
     /// Whether a reference is enabled, following its enable-parent chain. A reference
@@ -462,10 +609,9 @@ impl<'a> World<'a> {
         }
         let outcome = match &base.data {
             BaseData::Item(_) => {
-                self.inventory(actor)?.add(t.base, t.count);
+                self.inventory(actor)?.add_extra(t.base, t.count, t.extra);
                 self.get(target)?.deleted = true;
-                let owner = self.placed.get(target).and_then(|p| p.owner);
-                Outcome::PickedUp { item: t.base, count: t.count, owner }
+                Outcome::PickedUp { item: t.base, count: t.count, owner: t.extra.owner }
             }
             BaseData::Container(_) => Outcome::OpenedContainer { container: target },
             BaseData::Door(_) => match self.placed.get(target).and_then(|p| p.teleport) {

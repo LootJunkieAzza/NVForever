@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::extract::{self, first, global, has_flag, int, local_fid, num, text, Decoded, Issues};
 use crate::form::FormId;
+use crate::inventory::Extra;
 use crate::settings::{unhex, Setting};
 
 /// Kinds of form that can sit in an inventory.
@@ -65,12 +66,24 @@ pub struct Item {
     /// `None` when the schema has no layout for this record type's value yet.
     pub value: Option<i32>,
     pub weight: Option<f32>,
+    /// ARMO BMDT biped flags: the body slots the item occupies when worn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slots: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Entry {
     pub item: FormId,
     pub count: i32,
+    /// COED that follows the CNTO: condition and owner of these items.
+    #[serde(skip_serializing_if = "Extra::is_plain")]
+    pub extra: Extra,
+}
+
+impl Entry {
+    pub fn new(item: FormId, count: i32) -> Entry {
+        Entry { item, count, extra: Extra::default() }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -84,6 +97,8 @@ pub struct Container {
 pub struct ActorBase {
     /// Items the actor carries (CNTO), like a container's.
     pub entries: Vec<Entry>,
+    /// NPC_ DATA attributes (S.P.E.C.I.A.L., in that order); `None` for creatures.
+    pub attributes: Option<[u8; 7]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -334,7 +349,10 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                 let respawns = first(&d, b"DATA").and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Respawns"));
                 BaseData::Container(Container { respawns, entries: entries(lo, pi, id, &d, issues) })
             }
-            b"NPC_" | b"CREA" => BaseData::Actor(ActorBase { entries: entries(lo, pi, id, &d, issues) }),
+            b"NPC_" | b"CREA" => BaseData::Actor(ActorBase {
+                entries: entries(lo, pi, id, &d, issues),
+                attributes: if &sig == b"NPC_" { attributes(&d) } else { None },
+            }),
             b"DOOR" => {
                 let f = first(&d, b"FNAM");
                 BaseData::Door(Door {
@@ -370,20 +388,68 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         // CCRD, CMNY have no record layout). Reported by the caller.
         _ => (None, None),
     };
-    Some(Item { kind, value: value.map(|v| v as i32), weight: weight.map(|w| w as f32) })
+    let slots = match kind {
+        ItemKind::Armor => first(d, b"BMDT").and_then(|v| v.get("biped_flags")).and_then(|f| int(f, "value")),
+        _ => None,
+    };
+    Some(Item { kind, value: value.map(|v| v as i32), weight: weight.map(|w| w as f32), slots: slots.map(|s| s as u32) })
+}
+
+/// S.P.E.C.I.A.L. names in NPC_ DATA order.
+pub const SPECIAL: [&str; 7] = ["strength", "perception", "endurance", "charisma", "intelligence", "agility", "luck"];
+
+fn attributes(d: &[Decoded]) -> Option<[u8; 7]> {
+    let a = first(d, b"DATA")?.get("attributes")?;
+    let mut out = [0u8; 7];
+    for (o, name) in out.iter_mut().zip(SPECIAL) {
+        *o = int(a, name)? as u8;
+    }
+    Some(out)
 }
 
 fn entries(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Issues) -> Vec<Entry> {
+    // COED belongs to the CNTO right before it [documented: xEdit wbCNTO/wbCOED
+    // struct; observed: all 1,661 COED in the masters directly follow a CNTO].
     let mut out = Vec::new();
-    for v in extract::all(d, b"CNTO") {
-        let (Some(local), Some(count)) = (v.get("item").and_then(local_fid), int(v, "count")) else {
-            issues.note("CNTO without item/count", || format!("{id}"));
+    let mut last_kept = false;
+    for x in d {
+        let Some(v) = x.value.as_ref() else {
+            if &x.sig == b"CNTO" || &x.sig == b"COED" {
+                issues.note("CNTO/COED undecodable", || format!("{id}"));
+            }
+            last_kept = false;
             continue;
         };
-        match global(lo, pi, local) {
-            Ok(Some(item)) => out.push(Entry { item, count: count as i32 }),
-            Ok(None) => issues.note("CNTO with null item", || format!("{id}")),
-            Err(l) => issues.note("FormID outside master list", || format!("{id} CNTO 0x{l:08X}")),
+        match &x.sig {
+            b"CNTO" => {
+                last_kept = false;
+                let (Some(local), Some(count)) = (v.get("item").and_then(local_fid), int(v, "count")) else {
+                    issues.note("CNTO without item/count", || format!("{id}"));
+                    continue;
+                };
+                match global(lo, pi, local) {
+                    Ok(Some(item)) => {
+                        out.push(Entry::new(item, count as i32));
+                        last_kept = true;
+                    }
+                    Ok(None) => issues.note("CNTO with null item", || format!("{id}")),
+                    Err(l) => issues.note("FormID outside master list", || format!("{id} CNTO 0x{l:08X}")),
+                }
+            }
+            b"COED" if last_kept => {
+                let e = &mut out.last_mut().expect("last_kept").extra;
+                e.condition = num(v, "item_condition").map(|c| c as f32);
+                e.owner = match v.get("owner").and_then(local_fid).map(|l| global(lo, pi, l)) {
+                    Some(Ok(g)) => g,
+                    Some(Err(l)) => {
+                        issues.note("FormID outside master list", || format!("{id} COED 0x{l:08X}"));
+                        None
+                    }
+                    None => None,
+                };
+            }
+            b"COED" => issues.note("COED not after a kept CNTO", || format!("{id}")),
+            _ => last_kept = false,
         }
     }
     out
