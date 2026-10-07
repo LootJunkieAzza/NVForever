@@ -4,81 +4,6 @@
   "player_level": 1,
   "actions": [
     {
-      "op": "remove_all_items",
-      "from": "player"
-    },
-    {
-      "op": "set_av",
-      "of": "player",
-      "name": "Strength",
-      "value": 5
-    },
-    {
-      "op": "get_weight",
-      "of": "player",
-      "label": "empty inventory at strength 5"
-    },
-    {
-      "op": "add_item",
-      "to": "player",
-      "item": "WeapNV9mmPistol",
-      "count": 1
-    },
-    {
-      "op": "add_item",
-      "to": "player",
-      "item": "ArmorLeather",
-      "count": 1
-    },
-    {
-      "op": "add_item",
-      "to": "player",
-      "item": "OutfitWasteland01",
-      "count": 1
-    },
-    {
-      "op": "add_item",
-      "to": "player",
-      "item": "Ammo9mm",
-      "count": 100
-    },
-    {
-      "op": "get_weight",
-      "of": "player",
-      "label": "pistol, leather armor, brahmin-skin outfit, 100 9mm rounds"
-    },
-    {
-      "op": "equip_item",
-      "actor": "player",
-      "item": "ArmorLeather"
-    },
-    {
-      "op": "get_weight",
-      "of": "player",
-      "label": "after equipping the leather armor"
-    },
-    {
-      "op": "equip_item",
-      "actor": "player",
-      "item": "OutfitWasteland01"
-    },
-    {
-      "op": "get_weight",
-      "of": "player",
-      "label": "after equipping the outfit (same body slot)"
-    },
-    {
-      "op": "set_av",
-      "of": "player",
-      "name": "Strength",
-      "value": 1
-    },
-    {
-      "op": "get_weight",
-      "of": "player",
-      "label": "at strength 1"
-    },
-    {
       "op": "set_global",
       "name": "TimeScale",
       "value": 1
@@ -164,6 +89,81 @@
       "op": "set_global",
       "name": "TimeScale",
       "value": 30
+    },
+    {
+      "op": "remove_all_items",
+      "from": "player"
+    },
+    {
+      "op": "set_av",
+      "of": "player",
+      "name": "Strength",
+      "value": 5
+    },
+    {
+      "op": "get_weight",
+      "of": "player",
+      "label": "empty inventory at strength 5"
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "WeapNV9mmPistol",
+      "count": 1
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "ArmorLeather",
+      "count": 1
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "OutfitWasteland01",
+      "count": 1
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "Ammo9mm",
+      "count": 100
+    },
+    {
+      "op": "get_weight",
+      "of": "player",
+      "label": "pistol, leather armor, brahmin-skin outfit, 100 9mm rounds"
+    },
+    {
+      "op": "equip_item",
+      "actor": "player",
+      "item": "ArmorLeather"
+    },
+    {
+      "op": "get_weight",
+      "of": "player",
+      "label": "after equipping the leather armor"
+    },
+    {
+      "op": "equip_item",
+      "actor": "player",
+      "item": "OutfitWasteland01"
+    },
+    {
+      "op": "get_weight",
+      "of": "player",
+      "label": "after equipping the outfit (same body slot)"
+    },
+    {
+      "op": "set_av",
+      "of": "player",
+      "name": "Strength",
+      "value": 1
+    },
+    {
+      "op": "get_weight",
+      "of": "player",
+      "label": "at strength 1"
     }
   ],
   "report": [
