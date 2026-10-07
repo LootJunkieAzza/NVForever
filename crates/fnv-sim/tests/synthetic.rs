@@ -219,7 +219,7 @@ fn plugin_bytes() -> Vec<u8> {
         &refr(STIM_REF, 0, STIMPAK, [4.0, 5.0, 6.0], vec![sub(b"XCNT", 3i32.to_le_bytes().to_vec())]),
         &refr(DOOR_A, 0, DOOR, [0.0; 3], vec![xtel(DOOR_B, [100.0, 0.0, 0.0])]),
         &refr(PLAIN_DOOR, 0, DOOR, [0.0; 3], vec![]),
-        &refr(CHAIR_REF, 0, CHAIR, [0.0; 3], vec![]),
+        &refr(CHAIR_REF, 0, CHAIR, [0.0; 3], vec![sub(b"XMRC", SAFE_REF.to_le_bytes().to_vec())]),
         &refr(CHILD_SAME, 0, STIMPAK, [0.0; 3], vec![xesp(KEY_REF, false)]),
         &refr(CHILD_OPPOSITE, 0, STIMPAK, [0.0; 3], vec![xesp(KEY_REF, true)]),
         &refr(GRANDCHILD, 0, STIMPAK, [0.0; 3], vec![xesp(CHILD_OPPOSITE, false)]),
@@ -364,6 +364,10 @@ fn references_load_with_cells_and_extra_data() {
     let key = f.refs.get(id(KEY_REF)).unwrap();
     assert!(key.in_persistent_group && key.initially_disabled());
     assert_eq!(f.refs.by_edid("TESTSAFEREF"), Some(id(SAFE_REF)));
+    // XMRC (decoded through the common layout) marks the merchant's stock container.
+    assert_eq!(f.refs.get(id(CHAIR_REF)).unwrap().merchant_container, Some(id(SAFE_REF)));
+    assert!(f.refs.is_merchant_container(id(SAFE_REF)));
+    assert!(!f.refs.is_merchant_container(id(CHAIR_REF)));
 }
 
 // ---- runtime --------------------------------------------------------------------

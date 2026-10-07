@@ -261,6 +261,22 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
             "teleports": {"classes": tel, "samples": tel_samples},
             "enable_parents": {"classes": ep, "samples": ep_samples},
             "placed_explosives": pgre,
+            "merchant_containers": {
+                "containers": refs.merchant_containers.len(),
+                "actor_links": refs.merchant_containers.values().map(Vec::len).sum::<usize>(),
+                "base_respawns_flag": refs
+                    .merchant_containers
+                    .keys()
+                    .filter(|c| {
+                        refs.get(**c).and_then(|r| forms.get(r.base)).is_some_and(|b| matches!(&b.data, BaseData::Container(c) if c.respawns))
+                    })
+                    .count(),
+                "container_base_types": refs.merchant_containers.keys().fold(BTreeMap::<String, u64>::new(), |mut m, c| {
+                    let t = refs.get(*c).and_then(|r| forms.sig(r.base)).map(|s| sig_str(&s)).unwrap_or_else(|| "missing".into());
+                    *m.entry(t).or_default() += 1;
+                    m
+                }),
+            },
         },
         "issues": issues.to_json(),
     })
