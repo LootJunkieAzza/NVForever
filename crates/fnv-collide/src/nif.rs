@@ -165,6 +165,18 @@ pub fn iso_from_mat44(m: &[f32; 16]) -> Option<(Iso, f32)> {
     if a.is_nan() || a <= 1e-6 || (a - b).abs() > 1e-3 * a || (a - c).abs() > 1e-3 * a {
         return None;
     }
+    // Columns mutually orthogonal and a proper rotation (no mirror), within 1e-3 of the
+    // squared column length.
+    let dot = |i: usize, j: usize| r[i] * r[j] + r[3 + i] * r[3 + j] + r[6 + i] * r[6 + j];
+    let tol = 1e-3 * a * a;
+    if dot(0, 1).abs() > tol || dot(0, 2).abs() > tol || dot(1, 2).abs() > tol {
+        return None;
+    }
+    let det = r[0] * (r[4] * r[8] - r[5] * r[7]) - r[1] * (r[3] * r[8] - r[5] * r[6])
+        + r[2] * (r[3] * r[7] - r[4] * r[6]);
+    if det <= 0.0 {
+        return None;
+    }
     Some((Iso { translation: [m[12], m[13], m[14]], rotation: r.map(|v| v / a) }, a))
 }
 
@@ -334,6 +346,7 @@ impl Walk<'_> {
 /// transform excluded), plus the render bounds and vertices in that frame.
 fn scene_space(file: &NifFile, dec: &Decoded) -> (HashMap<usize, Similarity>, Option<Aabb>, Vec<[f32; 3]>) {
     let objs = scene_objects(file, dec);
+    let root = file.footer.roots.first().copied();
     let by_block: HashMap<usize, usize> = objs.iter().enumerate().map(|(k, o)| (o.block, k)).collect();
     let mut to_root: HashMap<usize, Similarity> = HashMap::new();
     for o in &objs {
@@ -347,10 +360,12 @@ fn scene_space(file: &NifFile, dec: &Decoded) -> (HashMap<usize, Similarity>, Op
             cur = by_block.get(&p).and_then(|&k| objs[k].parent);
         }
         let mut acc = Similarity::IDENTITY;
-        // The topmost ancestor (the mesh root) contributes nothing: a placed reference's
+        // The mesh root (the footer's first root) contributes nothing: a placed reference's
         // transform replaces the root's own transform [observed: docs/spec-notes/world.md
-        // §4], so collision lives in the root's frame, like the drawn geometry.
-        for b in chain.iter().rev().skip(1) {
+        // §4], so collision lives in the root's frame, like the drawn geometry. Objects
+        // not below it compose their whole chain.
+        let skip = usize::from(chain.last().is_some_and(|&top| Some(top as i32) == root));
+        for b in chain.iter().rev().skip(skip) {
             if let Some(&k) = by_block.get(b) {
                 acc = acc.compose(&Similarity::from_local(&objs[k].transform));
             }
@@ -539,10 +554,16 @@ mod tests {
         }
         let (iso, s) = iso_from_mat44(&ms).unwrap();
         assert!((s - k).abs() < 1e-7 && (iso.rotation[3] - 1.0).abs() < 1e-6);
-        // A non-uniform scale is refused.
+        // A non-uniform scale, a shear and a mirror are refused.
         let mut bad = m;
         bad[1] = 2.0;
         assert!(iso_from_mat44(&bad).is_none());
+        let mut shear = Iso::IDENTITY.rotation.map(|v| v);
+        shear[1] = 0.5;
+        let sm = [shear[0], shear[3], shear[6], 0.0, shear[1], shear[4], shear[7], 0.0, shear[2], shear[5], shear[8], 0.0, 0.0, 0.0, 0.0, 1.0];
+        assert!(iso_from_mat44(&sm).is_none());
+        let mirror = [-1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        assert!(iso_from_mat44(&mirror).is_none());
     }
 
     #[test]
