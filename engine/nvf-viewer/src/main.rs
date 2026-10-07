@@ -8,20 +8,16 @@
 //! pause, H show hidden objects, F frame, F12 screenshot, Esc quit. Mouse: left drag
 //! orbit, right drag pan, wheel zoom.
 
-mod anim_play;
 mod camera;
-mod data;
-mod nif_spawn;
-mod texture;
 
-use anim_play::AnimState;
+use nvf_assets::anim_play::{self, AnimState};
 use bevy::image::{ImageAddressMode, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use camera::Orbit;
 use clap::Parser;
-use data::{ArchivePlugin, GameData};
-use nif_spawn::{NifHidden, NifRoot, SpawnCtx, SpawnReport};
+use nvf_assets::{texture, ArchivePlugin, GameData};
+use nvf_assets::{NifHidden, NifRoot, SpawnCtx, SpawnReport};
 use std::path::PathBuf;
 
 /// NVForever asset viewer (meshes, textures, animations from your own game data).
@@ -32,7 +28,7 @@ struct Args {
     #[arg(long, env = "NVFOREVER_DATA")]
     data: PathBuf,
     /// NIF schema directory.
-    #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../schemas/nif"))]
+    #[arg(long, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/nif"))]
     schema: PathBuf,
     /// Mesh to open first (path inside the archives, e.g. meshes\clutter\x.nif).
     #[arg(long)]
@@ -117,7 +113,6 @@ fn main() -> AppExit {
     .insert_resource(ClearColor(Color::srgb(0.18, 0.19, 0.21)))
     .insert_resource(GlobalAmbientLight { brightness: 400.0, ..default() })
     .insert_resource(Browser { meshes, index, load_requested: true, report: None, error: None, show_hidden: false })
-    .init_resource::<texture::TextureCache>()
     .init_resource::<AnimState>()
     .add_systems(Startup, setup)
     .add_systems(Update, (keys, load_mesh, anim_play::advance, camera::orbit_input, overlay).chain());

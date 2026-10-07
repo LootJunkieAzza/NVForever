@@ -32,7 +32,7 @@ Decisions taken with the owner (2026-10-07):
 | `fnv-dds` | DDS header, format naming, face/mip layout with exact size check, RGBA8 for uncompressed layouts | no |
 | `fnv-vfs` | read-only virtual file system: archives in precedence order + loose files | no |
 | `fnvtool` | `nif coverage/decode/stats/scene/anim/textures`, `dds list` | no |
-| `viewer/` (`nvf-viewer`) | Bevy app: ArchivePlugin, NIF spawning, textures, skinning, animation playback | yes (own workspace) |
+| `engine/nvf-viewer` + `engine/nvf-assets` (was `viewer/`) | Bevy app: ArchivePlugin, NIF spawning, textures, skinning, animation playback | yes (own workspace) |
 
 ### 2.2 NIF container (details and tags: `docs/spec-notes/nif.md` §1–§2)
 
@@ -100,7 +100,7 @@ B-splines with compact control points (decompression and degree are hypotheses s
 by unit-length checks on ~1.6 M rotation samples). The viewer samples these tracks itself
 (ADR-0001 §4).
 
-### 2.8 Viewer (`viewer/`, ADR-0001)
+### 2.8 Viewer (`engine/nvf-viewer`, ADR-0001, ADR-0002)
 
 `nvf-viewer --data <Data> [--mesh path] [--anim file.kf] [--skeleton path] [--filter text]
 [--screenshot out.png [--screenshot-at seconds]]`. Skinned meshes are bound to a skeleton:
@@ -110,12 +110,12 @@ NPC record names the skeleton (Layer 4). Spawns the scene graph (Z-up → Y-up a
 the root), meshes with base and normal textures, alpha test/blend, double-sided stencil,
 skinned meshes bound to their bone entities, and plays embedded sequences or those of a
 `.kf`. Browsing keys and the headless screenshot mode are documented in
-`viewer/src/main.rs`. Materials approximate the original shaders (Layer 3 work).
+`engine/nvf-viewer/src/main.rs`. Materials approximate the original shaders (Layer 3 work).
 
 ## 3. Code, schema and tests
 
 - Rust: `crates/fnv-nif`, `crates/fnv-dds`, `crates/fnv-vfs`, `crates/fnvtool/src/{nif,dds}_cmd.rs`,
-  `viewer/`. Tests: unit tests per module, `crates/fnv-nif/tests/synthetic.rs`
+  `engine/`. Tests: unit tests per module, `crates/fnv-nif/tests/synthetic.rs`
   (hand-built NIFs through the repository schemas, malformed-input properties), proptest
   on DDS headers.
 - Independent oracles: `tools/capture/oracle_nif.py`, `oracle_dds.py` — written by a

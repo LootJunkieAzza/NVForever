@@ -209,6 +209,17 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
 - **Texture-set slots** (BSShaderTextureSet): 0 diffuse, 1 normal (+ gloss in alpha),
   2 glow / skin / hair, 3 height, 4 environment cube, 5 environment mask [documented:
   nif.xml].
+- **Editor markers**: 327 meshes in `Fallout - Meshes.bsa` (155 under `effects\`) have a
+  node named `EditorMarker` (or `EditorMarker01`, ...) holding helper geometry such as
+  wireframe boxes and arrows; most are *not* flagged hidden [observed]. nif.xml documents a
+  BSXFlags bit "EditorMarkers present" [documented]. Drawn, they appear as bright boxes
+  and lines around effects (observed in the first world render); the renderers skip them
+  [hypothesis: the game never draws them; consistent with in-game appearance].
+- **Alpha** (NiAlphaProperty flags, layout documented in nif.xml): foliage and fences set
+  both blending and alpha testing; drawing them as blended causes order-dependent
+  artefacts, drawing them alpha-tested matches the expected look, so the test wins.
+  Destination factor ONE (additive) is kept as additive [hypothesis, to confirm against
+  screenshots].
 
 ## 7. Coverage status
 

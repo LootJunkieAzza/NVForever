@@ -346,6 +346,56 @@ def compare_sequence(expected: Any, actual: Any, cfg: dict) -> ComparisonResult:
                             {"oracle_len": len(e), "candidate_len": len(a), "matching_prefix": prefix})
 
 
+# --------------------------------------------------------------------------- image
+
+def compare_image(expected: Any, actual: Any, cfg: dict) -> ComparisonResult:
+    """Rendered frame vs reference frame (fnvlab.image for the metrics).
+
+    expected / actual: ``{"image": path, "masks": [[x0, y0, x1, y1], ...]}``; a relative
+    expected path is under the goldens directory (passed by the runner as
+    ``_goldens_dir``), masks are in the reference image's pixels and apply to both.
+    cfg: ``min_ssim`` (required), optional ``max_mae``, ``max_mean_color_delta``,
+    ``width`` (working width, default 192).
+    Score: 1.0 when every threshold holds, else the SSIM (0 if the sizes' aspect ratios
+    differ by more than 1%).
+    """
+    import os
+    from . import image as im
+
+    if "min_ssim" not in cfg:
+        raise ComparatorError("image comparator needs 'min_ssim'")
+    if not isinstance(expected, dict) or not isinstance(actual, dict) or "image" not in expected or "image" not in actual:
+        raise ComparatorError("image comparator expects {'image': path} documents on both sides")
+    ep = expected["image"]
+    if not os.path.isabs(ep):
+        ep = os.path.join(cfg.get("_goldens_dir", "."), ep)
+    try:
+        ei, ai = im.load(ep), im.load(actual["image"])
+    except (OSError, im.ImageError) as e:
+        raise ComparatorError(f"cannot read image: {e}") from e
+    col = _Collector()
+    ra, rb = ei.width / ei.height, ai.width / ai.height
+    stats: dict = {"expected_size": [ei.width, ei.height], "actual_size": [ai.width, ai.height]}
+    if abs(ra - rb) / ra > 0.01:
+        col.add(Failure("aspect", "/image", [ei.width, ei.height], [ai.width, ai.height]))
+        return ComparisonResult(0.0, col.failures, col.total, stats)
+    masks = expected.get("masks") or []
+    width = int(cfg.get("width", 192))
+    scale = ai.width / ei.width
+    a_masks = [[m[0] * scale, m[1] * scale, m[2] * scale, m[3] * scale] for m in masks]
+    m = im.compare(im.downsample(ei, width, masks), im.downsample(ai, width, a_masks))
+    stats.update({"ssim": round(m.ssim, 4), "mae": round(m.mae, 4), "mean_color_delta": round(m.mean_color_delta, 4),
+                  "working_size": [m.width, m.height], "tiles": m.tiles})
+    if m.ssim < cfg["min_ssim"]:
+        col.add(Failure("ssim", "/image", f">= {cfg['min_ssim']}", round(m.ssim, 4)))
+    if "max_mae" in cfg and m.mae > cfg["max_mae"]:
+        col.add(Failure("mae", "/image", f"<= {cfg['max_mae']}", round(m.mae, 4)))
+    if "max_mean_color_delta" in cfg and m.mean_color_delta > cfg["max_mean_color_delta"]:
+        col.add(Failure("mean_color", "/image", f"<= {cfg['max_mean_color_delta']}", round(m.mean_color_delta, 4)))
+    score = 1.0 if col.total == 0 else max(0.0, min(1.0, m.ssim))
+    return ComparisonResult(score, col.failures, col.total, stats)
+
+
 # --------------------------------------------------------------------------- registry
 
 def _planned(name: str) -> Callable[[Any, Any, dict], ComparisonResult]:
@@ -358,6 +408,6 @@ COMPARATORS: dict[str, Callable[[Any, Any, dict], ComparisonResult]] = {
     "exact": compare_exact,
     "keyed": compare_keyed,
     "sequence": compare_sequence,
-    "image": _planned("image"),
+    "image": compare_image,
     "distribution": _planned("distribution"),
 }

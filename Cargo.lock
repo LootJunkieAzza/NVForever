@@ -394,6 +394,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-world"
+version = "0.1.0"
+dependencies = [
+ "fnv-esm",
+ "fnv-nif",
+ "fnv-vfs",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "fnvtool"
 version = "0.1.0"
 dependencies = [
@@ -407,6 +418,7 @@ dependencies = [
  "fnv-nif",
  "fnv-util",
  "fnv-vfs",
+ "fnv-world",
  "rayon",
  "serde_json",
  "tracing",
