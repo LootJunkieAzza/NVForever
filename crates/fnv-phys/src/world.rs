@@ -157,6 +157,8 @@ pub struct PhysWorld {
     materials: HashMap<ColliderHandle, Vec<u32>>,
     /// Colliders changed since the broad phase was last updated.
     dirty: bool,
+    /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
+    new_bodies: Vec<RigidBodyHandle>,
     steps: u64,
 }
 
@@ -174,6 +176,7 @@ impl PhysWorld {
             refs: BTreeMap::new(),
             materials: HashMap::new(),
             dirty: false,
+            new_bodies: Vec::new(),
             steps: 0,
         }
     }
@@ -231,7 +234,7 @@ impl PhysWorld {
                 Motion::Keyframed => RigidBodyBuilder::kinematic_position_based(),
                 Motion::Dynamic => RigidBodyBuilder::dynamic(),
             };
-            let body = self.w.insert_body(builder.pose(body_pose).user_data(owner.encode()));
+            let body = self.insert_body(builder.pose(body_pose).user_data(owner.encode()));
             report.colliders += self.attach(body, owner, o, leaves);
             if o.motion == Motion::Dynamic {
                 self.set_mass(body, o.mass);
@@ -305,10 +308,17 @@ impl PhysWorld {
         self.refs.get(&form_id).into_iter().flatten().map(|&b| body_state(&self.w.bodies[b], self.k)).collect()
     }
 
+    pub(crate) fn insert_body(&mut self, b: impl Into<RigidBody>) -> RigidBodyHandle {
+        let h = self.w.insert_body(b);
+        self.new_bodies.push(h);
+        h
+    }
+
     /// Advance one fixed step.
     pub fn step(&mut self) {
         self.w.step();
         self.dirty = false;
+        self.new_bodies.clear();
         self.steps += 1;
     }
 
@@ -321,6 +331,17 @@ impl PhysWorld {
     pub fn update_queries(&mut self) {
         if self.dirty {
             self.w.detect_collisions(&(), &());
+            // rapier 0.36's collision-only pipeline consumes the change flags of bodies
+            // inserted since the last step without registering them with the island
+            // manager, so they would never move [observed: a dynamic box added, queried
+            // and stepped stays put; test `bodies_added_then_queried_still_simulate`].
+            // Flag them changed again so the next step registers them.
+            for &h in &self.new_bodies {
+                if let Some(b) = self.w.bodies.get_mut(h) {
+                    let p = *b.position();
+                    b.set_position(p, false);
+                }
+            }
             self.dirty = false;
         }
     }
@@ -348,6 +369,39 @@ impl PhysWorld {
             *s.colliders.entry(shape_name(c.shape().shape_type())).or_default() += 1;
         }
         s
+    }
+
+    /// A full copy of the world (bodies, colliders, contacts, islands, broad phase and the
+    /// tables here). Stepping the copy gives bit-identical results to stepping the
+    /// original [observed: test `snapshot_continues_identically`]; characters keep their
+    /// handles, so a cloned [`crate::Character`] drives the copy.
+    pub fn snapshot(&self) -> PhysWorld {
+        let w = &self.w;
+        PhysWorld {
+            params: self.params,
+            w: PhysicsWorld {
+                gravity: w.gravity,
+                integration_parameters: w.integration_parameters,
+                physics_pipeline: PhysicsPipeline::new(),
+                collision_pipeline: CollisionPipeline::new(),
+                islands: w.islands.clone(),
+                broad_phase: w.broad_phase.clone(),
+                narrow_phase: w.narrow_phase.clone(),
+                bodies: w.bodies.clone(),
+                colliders: w.colliders.clone(),
+                impulse_joints: w.impulse_joints.clone(),
+                multibody_joints: w.multibody_joints.clone(),
+                soft_bodies: w.soft_bodies.clone(),
+                ccd_solver: CCDSolver::new(),
+            },
+            k: self.k,
+            terrain: self.terrain.clone(),
+            refs: self.refs.clone(),
+            materials: self.materials.clone(),
+            dirty: self.dirty,
+            new_bodies: self.new_bodies.clone(),
+            steps: self.steps,
+        }
     }
 
     /// A digest of every body's position and velocity bits, in handle order: equal

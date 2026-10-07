@@ -446,3 +446,40 @@ proptest! {
         prop_assert!((hit.point[2] - want).abs() < 0.05, "{} vs {}", hit.point[2], want);
     }
 }
+
+#[test]
+fn bodies_added_then_queried_still_simulate() {
+    // Adding a dynamic body and querying before the first step syncs the broad phase
+    // through rapier's collision-only pipeline; the body must still fall afterwards.
+    let mut w = ground();
+    w.add_ref(&at(0x99, [100.0, 100.0, 500.0]), &[object(boxed([10.0, 10.0, 10.0]), Motion::Dynamic)]);
+    let _ = down(&mut w, 0.0, 0.0);
+    for _ in 0..30 {
+        w.step();
+    }
+    let z = w.ref_bodies(0x99)[0].translation[2];
+    assert!(z < 490.0, "the box fell: z = {z}");
+}
+
+#[test]
+fn snapshot_continues_identically() {
+    let mut a = scene();
+    let mut ca = a.add_character(1, CharacterParams::default(), [-50.0, -50.0, 5.0]);
+    let input = |i: u32| CharacterInput { velocity: [100.0, 60.0 - i as f32 * 0.4], jump: i.is_multiple_of(53) };
+    for i in 0..90u32 {
+        a.move_character(&mut ca, input(i));
+        a.step();
+    }
+    // The clutter was simulated (the top box started at z = 97).
+    assert!(a.ref_bodies(111)[0].translation[2] < 60.0, "{:?}", a.ref_bodies(111));
+    let mut b = a.snapshot();
+    let mut cb = ca.clone();
+    for i in 90..300u32 {
+        let sa = a.move_character(&mut ca, input(i));
+        let sb = b.move_character(&mut cb, input(i));
+        a.step();
+        b.step();
+        assert_eq!(sa, sb);
+        assert_eq!(a.state_digest(), b.state_digest(), "step {i}");
+    }
+}
