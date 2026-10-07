@@ -1,0 +1,10 @@
+[package]
+name = "fnv-vfs"
+description = "Read-only virtual file system over BSA archives and loose files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-bsa = { path = "../fnv-bsa" }
+thiserror.workspace = true

@@ -319,6 +319,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-dds"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "thiserror",
+]
+
+[[package]]
 name = "fnv-esm"
 version = "0.1.0"
 dependencies = [
@@ -355,6 +363,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-nif"
+version = "0.1.0"
+dependencies = [
+ "fnv-bsa",
+ "fnv-util",
+ "proptest",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "fnv-util"
 version = "0.1.0"
 dependencies = [
@@ -366,16 +386,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-vfs"
+version = "0.1.0"
+dependencies = [
+ "fnv-bsa",
+ "thiserror",
+]
+
+[[package]]
 name = "fnvtool"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "fnv-bsa",
+ "fnv-dds",
  "fnv-esm",
  "fnv-inflate",
  "fnv-install",
+ "fnv-nif",
  "fnv-util",
+ "fnv-vfs",
  "rayon",
  "serde_json",
  "tracing",

@@ -4,17 +4,20 @@ An open-source, clean-room reimplementation of the engine behaviour of **Fallout
 Vegas**, in the spirit of OpenMW. It reads the data files of *your own legally purchased
 copy*; it ships no Bethesda content and contains no Bethesda or Gamebryo code.
 
-Status: **Layer 0 (tooling) done; Layer 1 (archives and plugins) implemented and
-validated** against FNV 1.4.0.525 (base game + all DLC), with two items open: the FNVEdit
-cross-check (run on your PC) and record-specific layouts for the 67 record types that so
-far decode only their shared subrecords. See [docs/design/layer1.md](docs/design/layer1.md).
+Status: **Layers 0–2 implemented and validated** against FNV 1.4.0.525 (base game + all
+DLC). Layer 1: archives and plugins ([docs/design/layer1.md](docs/design/layer1.md)).
+Layer 2: every mesh and animation block in the game decodes and re-encodes exactly, an
+independent oracle agrees on scene graphs, geometry and all 26,907 textures, and a Bevy
+viewer renders meshes with textures, skinning and animation
+([docs/design/layer2.md](docs/design/layer2.md)).
 
 | Layer | Scope | State |
 |---|---|---|
 | 0 | Ground truth, parity lab, capture tools | done (`parity-lab/`, `tools/capture/`) |
 | 1 | BSA reader, ESM/ESP parser, load order, schemas | container + load order complete; layouts for 40/107 record types; xEdit cross-check pending |
-| 2 | NIF, DDS, KF assets | next |
-| 3–7 | World, simulation, scripting, gameplay, UI/audio/saves | not started |
+| 2 | NIF, DDS, KF assets, viewer | 160/160 block types, 1,036,695 blocks exact; 56/56 parity scenarios; viewer (owner visual check pending) |
+| 3 | World and rendering | next |
+| 4–7 | Simulation, scripting, gameplay, UI/audio/saves | not started |
 
 ## Where things go (separate from the game)
 
@@ -62,13 +65,19 @@ crates/
   fnv-inflate   zlib decoding with trailer diagnostics (flate2) + stored-block encoder
   fnv-bsa       BSA v104 archives
   fnv-esm       plugins: container, load order, schema-driven decoding, coverage
+  fnv-nif       NIF/KF: container, schema interpreter, scene graph, geometry, animation
+  fnv-dds       DDS: header, formats, mip layout
+  fnv-vfs       read-only virtual file system (archives in precedence order + loose files)
   fnvtool       CLI used by the parity lab (JSON on stdout)
+viewer/         nvf-viewer: Bevy asset viewer (its own Cargo workspace)
 schemas/fnv/    record layouts as data (fnv.schema/1)
+schemas/nif/    NIF block layouts as data (fnv.nif.schema/1)
 parity-lab/     oracle-vs-candidate differential testing (Python stdlib)
 tools/capture/  oracles, xEdit export script, install inventory
 docs/
   spec-notes/   clean-room format/behaviour notes (tagged documented/observed/hypothesis)
   design/       per-layer designs
+  adr/          architecture decision records
   cli-contract.md
 ```
 
@@ -79,12 +88,11 @@ cargo test --workspace --release
 cargo build --release -p fnvtool
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
+cd viewer && cargo build --release        # Bevy viewer (first build takes a while)
 ```
 
-No external crates are used *yet*: the build sandbox had no access to crates.io. The
-project will move to the standard ecosystem (serde, flate2, clap, memmap2, rayon, wgpu,
-…) as soon as that access exists; see [docs/design/dependencies.md](docs/design/dependencies.md).
-Builds with a stock stable Rust toolchain (tested with 1.97).
+Dependencies and the reasons for each: [docs/design/dependencies.md](docs/design/dependencies.md)
+and [docs/adr/](docs/adr/). Builds with a stock stable Rust toolchain (tested with 1.99).
 
 ## Try it on your install
 
@@ -96,7 +104,22 @@ fnvtool bsa list "$D/Update.bsa"
 fnvtool esm loadorder "$D" FalloutNV.esm DeadMoney.esm HonestHearts.esm OldWorldBlues.esm \
     LonesomeRoad.esm GunRunnersArsenal.esm --schema schemas/fnv
 fnvtool esm decode "$D/FalloutNV.esm" --schema schemas/fnv --edid GSDocMitchellScript
+fnvtool nif coverage "$D/Fallout - Meshes.bsa" --schema schemas/nif   # every block, exact?
+fnvtool nif decode "$D/Fallout - Meshes.bsa" --path "meshes\clutter\junk\nv\nvnukacolaquartz.nif" --schema schemas/nif
+fnvtool dds list "$D/Fallout - Textures.bsa"
 ```
+
+The viewer (Windows PowerShell; reads your Data folder, never writes to it):
+
+```powershell
+$D = "C:\Program Files (x86)\Steam\steamapps\common\Fallout New Vegas\Data"
+cd viewer
+cargo run --release -- --data $D --filter "clutter\junk\nv"
+cargo run --release -- --data $D --mesh "meshes\creatures\deathclaw\deathclaw.nif" --anim "meshes\creatures\deathclaw\mtidle.kf"
+```
+
+Keys: N/P next/previous mesh, A next animation, Space pause, H show hidden objects,
+F frame, F12 screenshot, Esc quit; mouse: left drag orbit, right drag pan, wheel zoom.
 
 ## Rules of the project
 
