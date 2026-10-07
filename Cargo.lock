@@ -379,6 +379,7 @@ name = "fnv-sim"
 version = "0.1.0"
 dependencies = [
  "fnv-esm",
+ "fnv-world",
  "proptest",
  "rand_chacha",
  "rand_core",
