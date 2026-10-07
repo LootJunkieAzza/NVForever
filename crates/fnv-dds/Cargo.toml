@@ -1,0 +1,12 @@
+[package]
+name = "fnv-dds"
+description = "DDS texture header, mip layout and uncompressed-format conversion (Layer 2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest = "1"

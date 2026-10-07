@@ -2,7 +2,10 @@ use crate::source::{process, read_one};
 use crate::NifCmd;
 use anyhow::{bail, Context};
 use fnv_nif::header::version_string;
-use fnv_nif::{BlockStatus, NifFile, Schema};
+use fnv_nif::scene::{scene_objects, shape_summary, Decoded, SHAPE_DATA_TYPES};
+use fnv_nif::value::float_json;
+use fnv_nif::{BlockStatus, Header, NifFile, Schema};
+use fnv_util::Cursor;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -13,6 +16,11 @@ pub fn run(cmd: NifCmd) -> anyhow::Result<Value> {
         NifCmd::Coverage { sources, schema, filter, max_rows, no_reencode } => {
             let schema = Schema::load_dir(&schema)?;
             coverage(&sources, &schema, filter.as_deref(), max_rows, !no_reencode)
+        }
+        NifCmd::Stats { archive } => stats(&archive),
+        NifCmd::Scene { archive, schema } => {
+            let schema = Schema::load_dir(&schema)?;
+            scene(&archive, &schema)
         }
         NifCmd::Decode { source, path, schema, block } => {
             let schema = Schema::load_dir(&schema)?;
@@ -212,4 +220,89 @@ fn decode(label: &str, data: &[u8], schema: &Schema, only: Option<usize>) -> any
         "roots": f.footer.roots,
         "blocks": blocks,
     }))
+}
+
+fn archive_name(p: &std::path::Path) -> String {
+    p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+fn stats_row(path: &str, data: &[u8]) -> Value {
+    match Header::parse(&mut Cursor::new(data)) {
+        Ok(h) => {
+            let mut types: BTreeMap<String, u64> = BTreeMap::new();
+            for i in 0..h.num_blocks as usize {
+                *types.entry(h.block_type_name(i).unwrap_or_default()).or_default() += 1;
+            }
+            json!({"path": path, "version": version_string(h.version), "user_version": h.user_version,
+                   "bs_version": h.bs_version(), "num_blocks": h.num_blocks,
+                   "strings": h.strings.as_ref().map(|s| s.len()), "block_types": types, "error": null})
+        }
+        Err(e) => json!({"path": path, "version": null, "user_version": null, "bs_version": null,
+                         "num_blocks": null, "strings": null, "block_types": null, "error": e.to_string()}),
+    }
+}
+
+fn stats(archive: &std::path::Path) -> anyhow::Result<Value> {
+    let items = process(&[archive.to_path_buf()], &MESH_EXTS, None, stats_row)?;
+    let mut files = Vec::with_capacity(items.len());
+    for it in items {
+        files.push(match it.result {
+            Ok(v) => v,
+            Err(e) => json!({"path": it.path, "version": null, "user_version": null, "bs_version": null,
+                             "num_blocks": null, "strings": null, "block_types": null, "error": e}),
+        });
+    }
+    Ok(json!({"schema": "fnv.nif.stats/1", "archive": archive_name(archive), "files": files}))
+}
+
+fn f3(v: [f32; 3]) -> Value {
+    Value::Array(v.iter().map(|f| float_json(*f)).collect())
+}
+
+/// Per file: Ok((objects, shapes)) or Err(skip reason).
+fn scene_rows(path: &str, data: &[u8], schema: &Schema) -> Result<(Vec<Value>, Vec<Value>), String> {
+    let f = NifFile::parse(data, Some(schema)).map_err(|e| e.to_string())?;
+    if f.header.block_sizes.is_none() {
+        return Err(format!("no block-size table (version {})", version_string(f.header.version)));
+    }
+    let dec = Decoded::new(&f, data, schema);
+    let objects = scene_objects(&f, &dec)
+        .into_iter()
+        .map(|o| {
+            json!({"key": format!("{path}#{}", o.block), "type": o.type_name, "name": o.name,
+                   "parent": o.parent, "translation": f3(o.transform.translation),
+                   "rotation": o.transform.rotation.iter().map(|x| float_json(*x)).collect::<Vec<_>>(),
+                   "scale": float_json(o.transform.scale)})
+        })
+        .collect();
+    let mut shapes = Vec::new();
+    for (i, b) in f.blocks.iter().enumerate() {
+        if !SHAPE_DATA_TYPES.contains(&b.type_name.as_str()) {
+            continue;
+        }
+        let Ok(s) = &dec.blocks[i] else { continue };
+        let sm = shape_summary(i, &b.type_name, s);
+        shapes.push(json!({"key": format!("{path}#{i}"), "type": sm.type_name, "vertices": sm.vertices,
+            "triangles": sm.triangles, "has_normals": sm.has_normals, "has_tangents": sm.has_tangents,
+            "uv_sets": sm.uv_sets, "has_vertex_colors": sm.has_vertex_colors,
+            "bound_center": f3(sm.bound_center), "bound_radius": float_json(sm.bound_radius),
+            "aabb_min": sm.aabb.map(|a| f3(a.0)), "aabb_max": sm.aabb.map(|a| f3(a.1))}));
+    }
+    Ok((objects, shapes))
+}
+
+fn scene(archive: &std::path::Path, schema: &Schema) -> anyhow::Result<Value> {
+    let items = process(&[archive.to_path_buf()], &MESH_EXTS, None, |p, d| scene_rows(p, d, schema))?;
+    let (mut skipped, mut objects, mut shapes) = (Vec::new(), Vec::new(), Vec::new());
+    for it in items {
+        match it.result {
+            Ok(Ok((o, s))) => {
+                objects.extend(o);
+                shapes.extend(s);
+            }
+            Ok(Err(reason)) | Err(reason) => skipped.push(json!({"path": it.path, "reason": reason})),
+        }
+    }
+    Ok(json!({"schema": "fnv.nif.scene/1", "archive": archive_name(archive), "skipped": skipped,
+              "objects": objects, "shapes": shapes}))
 }

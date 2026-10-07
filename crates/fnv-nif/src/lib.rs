@@ -11,6 +11,7 @@ pub mod codec;
 pub mod expr;
 pub mod file;
 pub mod header;
+pub mod scene;
 pub mod schema;
 pub mod value;
 
