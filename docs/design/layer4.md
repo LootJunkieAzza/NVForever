@@ -183,16 +183,13 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 6. Cell respawn delay: `iHoursToRespawnCell` is not in any master (an engine default).
    Please read it in-game with the console: `GetGameSetting iHoursToRespawnCell` (a
    secondary source suggests 73 hours; unverified).
-7. **Captures waiting for you** (procedures and console equivalents in
-   docs/spec-notes/simulation.md §6; goldens go to `C:/fnv-private/goldens/sim/`):
-   `goodsprings_doc_mitchell`, `goodsprings_weight_and_time` (new level-1 character, no
-   perks), `goodsprings_merchant_restock` (test save; Ringo's cash container), `x13_enable_parents`
-   (test save in Old World Blues' X-13) and `leveled_basic.samples` (a few hundred
-   `AddItem` draws per case). They can now be run with the `nvf_capture` plugin (needs
-   xNVSE 6.4.9+ installed by you; tools/capture/README.md §10). First golden captured
-   2026-10-07: `goodsprings_weight_and_time` passes 9/9; `leveled_basic` (2,100 in-game
-   draws) passes 7/7 cases; `goodsprings_merchant_restock` passes 4/4;
-   `goodsprings_doc_mitchell` 5/6 (z after a teleport, waits for the controller).
+7. **In-game captures**: log, results and the backlog of captures still to make
+   (X-13, a merchant box without the Respawns flag, cell respawn on an ordinary
+   container, calendar, encumbrance edges, more leveled lists, PGRE) are in
+   docs/spec-notes/layer4-captures.md. Status 2026-10-07: `goodsprings_weight_and_time`
+   9/9, `leveled_basic` 7/7, `goodsprings_merchant_restock` 4/4,
+   `goodsprings_doc_mitchell` 5/6 (z waits for the controller); `x13_enable_parents`
+   still needs a save inside X-13.
 
 ## 6. Updated spec notes
 

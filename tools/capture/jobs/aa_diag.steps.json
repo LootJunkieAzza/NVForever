@@ -1,0 +1,167 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_diag",
+ "title": "Script syntax check (about 1 second, no input needed)",
+ "start": "Any save (it adds and removes a few caps).",
+ "steps": [
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetAV Strength\nSetFunctionValue fV\nEnd\n",
+   "label": "q01 control GetAV",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "q02 GetModIndex",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nref rF1\nfloat fV\nlet rF1 := BuildRef (GetModIndex \"OldWorldBlues.esm\") 0x0038F7\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "q03 BuildRef GetDisabled",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nstring_var sV\nlet sV := GetNthModName 0\nSetFunctionValue sV\nEnd\n",
+   "label": "q04 string GetNthModName",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nstring_var sV\nlet sV := \"a\" + \"b\"\nSetFunctionValue sV\nEnd\n",
+   "label": "q05 string concat",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nint iI\nwhile iI < 3\n  let iI += 1\nloop\nSetFunctionValue iI\nEnd\n",
+   "label": "q06 while loop",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nstring_var sV\nlet sV := $ 3\nSetFunctionValue sV\nEnd\n",
+   "label": "q07 ToString",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nref rC\nstring_var sV\nlet rC := player.GetParentCell\nlet sV := GetFormIDString rC\nSetFunctionValue sV\nEnd\n",
+   "label": "q08 GetFormIDString cell",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "q09 GetNumItems",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nref rI\nstring_var sV\nlet rI := player.GetInventoryObject 0\nlet sV := GetFormIDString rI\nSetFunctionValue sV\nEnd\n",
+   "label": "q10 GetInventoryObject",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "q11 GetPos",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "q12 global read",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetItemCount Caps001\nSetFunctionValue fV\nEnd\n",
+   "label": "c00 caps before",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nplayer.AddItem Caps001 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "s01 AddItem statement",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetItemCount Caps001\nSetFunctionValue fV\nEnd\n",
+   "label": "c01",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\r\nplayer.AddItem Caps001 1 1\r\nSetFunctionValue 1\r\nEnd\r\n",
+   "label": "s02 AddItem statement CRLF",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetItemCount Caps001\nSetFunctionValue fV\nEnd\n",
+   "label": "c02",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nplayer.AddItem Caps001 1\nSetFunctionValue 1\nEnd\n",
+   "label": "s03 AddItem two args",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetItemCount Caps001\nSetFunctionValue fV\nEnd\n",
+   "label": "c03",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nPlayerREF.AddItem Caps001 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "s04 PlayerREF.AddItem",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetItemCount Caps001\nSetFunctionValue fV\nEnd\n",
+   "label": "c04",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nref rP\nlet rP := PlayerREF\nrP.AddItem Caps001 1 1\nSetFunctionValue 1\nEnd\n",
+   "label": "s05 ref var AddItem",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetItemCount Caps001\nSetFunctionValue fV\nEnd\n",
+   "label": "c05",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nset GameHour to GameHour\nSetFunctionValue 1\nEnd\n",
+   "label": "s06 set global",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nlet GameHour := GameHour\nSetFunctionValue 1\nEnd\n",
+   "label": "s07 let global",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nplayer.RemoveItem Caps001 1\nSetFunctionValue 1\nEnd\n",
+   "label": "s08 RemoveItem statement",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetItemCount Caps001\nSetFunctionValue fV\nEnd\n",
+   "label": "c08",
+   "field": "v"
+  },
+  {
+   "console": "player.additem Caps001 1"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetItemCount Caps001\nSetFunctionValue fV\nEnd\n",
+   "label": "c09 after console additem",
+   "field": "v"
+  },
+  {
+   "console": "set GameHour to GameHour"
+  },
+  {
+   "console": "player.removeitem Caps001 1"
+  },
+  {
+   "query": "Begin Function { }\nfloat fV\nlet fV := player.GetItemCount Caps001\nSetFunctionValue fV\nEnd\n",
+   "label": "c10 after console removeitem",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue 1\nEnd\n",
+   "label": "s11 SetFunctionValue only",
+   "field": "v"
+  }
+ ]
+}

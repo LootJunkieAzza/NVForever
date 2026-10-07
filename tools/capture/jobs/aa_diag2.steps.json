@@ -1,0 +1,104 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_diag2",
+ "title": "Script syntax check 2 (about 1 second)",
+ "start": "Any save (adds and removes a few caps).",
+ "steps": [
+  {
+   "query": "ref rF\nfloat fV\nBegin Function { }\nlet rF := BuildRef 3 0x38F7\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "d01 ref outside BuildRef hex",
+   "field": "v"
+  },
+  {
+   "query": "ref rF\nfloat fV\nBegin Function { }\nlet rF := BuildRef 3 14583\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "d02 ref outside BuildRef decimal",
+   "field": "v"
+  },
+  {
+   "query": "string_var sV\nBegin Function { }\nlet sV := GetNthModName 0\nSetFunctionValue sV\nEnd\n",
+   "label": "d03 string_var outside GetNthModName",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue \"abc\"\nEnd\n",
+   "label": "d04 string literal",
+   "field": "v"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetItemCount (BuildRef 0 15)\nSetFunctionValue fV\nEnd\n",
+   "label": "d05 inline BuildRef arg",
+   "field": "v"
+  },
+  {
+   "query": "ref rF\nfloat fV\nBegin Function { }\nlet rF := BuildRef 0 15\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "d06 caps via ref var (before)",
+   "field": "v"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GSDocMitchellHouseIntDoorREF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "d07 persistent ref EDID",
+   "field": "v"
+  },
+  {
+   "console": "player.additem 0000000F 3"
+  },
+  {
+   "query": "ref rF\nfloat fV\nBegin Function { }\nlet rF := BuildRef 0 15\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "d09 caps after console additem 3",
+   "field": "v"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := BuildRef 0 15\nplayer.AddItem rF 2 1\nSetFunctionValue 1\nEnd\n",
+   "label": "d10 AddItem with ref var item",
+   "field": "v"
+  },
+  {
+   "query": "ref rF\nfloat fV\nBegin Function { }\nlet rF := BuildRef 0 15\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "d11 caps after script AddItem 2",
+   "field": "v"
+  },
+  {
+   "query": "ref rC\nstring_var sV\nBegin Function { }\nlet rC := player.GetParentCell\nlet sV := GetFormIDString rC\nSetFunctionValue sV\nEnd\n",
+   "label": "d12 GetFormIDString outside vars",
+   "field": "v"
+  },
+  {
+   "query": "string_var sV\nBegin Function { }\nlet sV := $ 3\nSetFunctionValue sV\nEnd\n",
+   "label": "d13 ToString outside var",
+   "field": "v"
+  },
+  {
+   "query": "int iI\nint iN\nref rI\nstring_var sV\nBegin Function { }\nlet sV := \"\"\nlet iN := player.GetNumItems\nwhile iI < iN\n  let rI := player.GetInventoryObject iI\n  let sV := sV + (GetFormIDString rI) + \"x\" + $(player.GetItemCount rI) + \";\"\n  let iI += 1\nloop\nSetFunctionValue sV\nEnd\n",
+   "label": "d14 inventory dump",
+   "field": "v"
+  },
+  {
+   "query": "int iI\nint iN\nstring_var sV\nBegin Function { }\nlet sV := \"\"\nlet iN := GetNumLoadedMods\nwhile iI < iN\n  let sV := sV + (GetNthModName iI) + \"|\"\n  let iI += 1\nloop\nSetFunctionValue sV\nEnd\n",
+   "label": "d15 load order",
+   "field": "v"
+  },
+  {
+   "query": "ref rF\nBegin Function { }\nlet rF := BuildRef 0 15\nplayer.RemoveItem rF 2\nSetFunctionValue 1\nEnd\n",
+   "label": "d16 RemoveItem with ref var",
+   "field": "v"
+  },
+  {
+   "console": "player.removeitem 0000000F 3"
+  },
+  {
+   "query": "ref rF\nfloat fV\nBegin Function { }\nlet rF := BuildRef 0 15\nlet fV := player.GetItemCount rF\nSetFunctionValue fV\nEnd\n",
+   "label": "d17 caps after removing 5",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nplayer.SetAV Strength 5\nSetFunctionValue 1\nEnd\n",
+   "label": "d18 SetAV statement",
+   "field": "v"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Strength\nSetFunctionValue fV\nEnd\n",
+   "label": "d19 RemoveAllItems statement (target self-only test: GetAV)",
+   "field": "v"
+  }
+ ]
+}
