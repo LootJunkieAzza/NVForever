@@ -21,11 +21,14 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   top byte is replaced by the load-order index of the plugin it designates
   (docs/spec-notes/esm.md "FormIDs and load order"). The last plugin to define a FormID
   wins; a winning record with the Deleted flag (0x20) removes the form [documented: UESP
-  "Tes4Mod:Mod File Format" record flags; observed: 68 references are deleted by a later
-  master, no base form is].
+  "Tes4Mod:Mod File Format" record flags; observed: 67 placed references are deleted by
+  their winning definition, no base form is].
 - A reference's **cell** is the label of the innermost cell-children group (types 8
   persistent, 9 temporary, 10 visible-distant) that contains it [documented: UESP group
-  types].
+  types]. The simulation takes membership and cell from Layer 3's world index
+  (docs/spec-notes/world.md), so both layers apply one rule.
+- Besides REFR, ACHR and ACRE, cell groups hold 297 placed grenades (PGRE, all in
+  OldWorldBlues.esm) [observed]; the simulation does not model them yet (reported).
 - Record flag **0x400** on a reference coincides exactly with placement in a
   persistent-children group: 20,344 references have both, none has only one [observed].
   It is the "Persistent" flag [documented: UESP].

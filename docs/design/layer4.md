@@ -18,9 +18,8 @@ Assumptions and decisions (2026-10-07):
 - **Developed in parallel with Layer 3** (another session works on world rendering). To
   stay out of its way, Layer 4 lives in its own crate (`fnv-sim`), touches no rendering,
   viewer or cell-streaming code, and changes shared files only by small additions
-  (workspace member, `fnvtool sim` subcommand, one `pub(crate)`). The placed-reference
-  table (§2.3) reads the same REFR data Layer 3 draws; when Layer 3 lands, the two
-  loaders are to be unified (open question 5).
+  (workspace member, `fnvtool sim` subcommand, one `pub(crate)`). After Layer 3 merged,
+  the placed-reference table was rebuilt on Layer 3's `fnv_world::WorldIndex` (§2.3).
 - The core does **not** use an ECS (§2.2).
 - Behaviour that the data cannot show (what activation does, how leveled lists roll) is
   implemented as clearly tagged **[hypothesis]** and isolated behind small functions, so
@@ -43,8 +42,8 @@ engine-reserved bases 0x17/0x20 (occlusion planes and portals: Layer 3 culling).
 | `fnv-collide` | Havok collision blocks from NIFs → engine-neutral shapes in game units | next (§2.8) |
 | `fnv-phys` | rigid bodies, queries, character controller over a physics engine | after `fnv-collide` |
 
-`fnv-sim` depends on `fnv-esm` only (plus serde, rand_chacha, rayon). No Bevy, no
-renderer: the Bevy app will drive it, never the reverse.
+`fnv-sim` depends on `fnv-esm` and `fnv-world` (plus serde, rand_chacha, rayon). No
+Bevy, no renderer: the Bevy engine will drive it, never the reverse.
 
 ### 2.2 Entity model: plain ordered maps, not an ECS (decision)
 
@@ -58,7 +57,7 @@ renderer: the Bevy app will drive it, never the reverse.
   only (§2.4), plus created references (FormIDs from 0xFF000000).
 
 Rejected for the core: `bevy_ecs` (ties the simulation to Bevy's release cadence, which
-ADR-0001 deliberately confined to `viewer/`; query iteration order is not a stable
+ADR-0001/0002 deliberately confine to the `engine/` workspace; query iteration order is not a stable
 contract, which determinism needs) and `hecs` (no benefit at this stage: there are no
 per-frame systems iterating thousands of entities yet). Revisit when AI and physics need
 per-frame iteration over many actors (Layer 6); the Bevy app mirrors `World` into ECS
@@ -68,8 +67,12 @@ entities through an adapter rather than owning the state.
 
 Fields are looked up by the names `schemas/fnv` gives them (`extract.rs`), so layout
 corrections need no code change, and anything skipped is counted in an issues list
-("nothing silently dropped", spec section 7). Full load of the ten masters (forms and all
-427,022 references) takes about 1.5 s [observed, release build].
+("nothing silently dropped", spec section 7). Which references exist and which cell each
+is in come from Layer 3's `fnv_world::WorldIndex` (`RefTable::from_index` lets the engine
+share one index); `fnv-sim` adds count, owner, lock, teleport and linked reference.
+Switching to the shared index left every `sim forms` statistic and the Goodsprings trace
+unchanged [observed]. Full load of the ten masters (forms, index and all 427,022
+references) takes about 0.8 s [observed, release build].
 
 ### 2.4 Save-agnostic state
 
@@ -162,8 +165,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    anything for those entries?
 4. Schema gaps that block weight/value: NOTE (no field), IMOD, CHIP, CCRD, CMNY (no
    layouts yet) — Layer 1 work queue.
-5. Coordination with Layer 3: after its merge, decide whether Layer 3's placement loader
-   uses `fnv_sim::refs::RefTable` or both move to a shared crate.
+5. Placed grenades (PGRE, 297 in OldWorldBlues.esm) are not simulated yet: are they
+   live explosives in-game, or decoration?
 
 ## 6. Updated spec notes
 
