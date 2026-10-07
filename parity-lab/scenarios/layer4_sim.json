@@ -254,11 +254,11 @@
    ]
   },
   {
-   "id": "L4.sim.trace.goodsprings_respawn",
+   "id": "L4.sim.trace.goodsprings_merchant_restock",
    "layer": 4,
-   "description": "Container respawn: Ringo's cash container 0x001629C0 (base CaravanCashRingo, Respawns flag, 200 caps) in GSGasStation is emptied, then checked after leaving the cell for 24 and for 96 game hours (parity-lab/inputs/layer4/goodsprings_respawn.actions.json), against an in-game capture on a test save (docs/spec-notes/simulation.md section 6). Tests the respawn delay (iHoursToRespawnCell, unknown) from both sides.",
+   "description": "Merchant container restock, independent of the save's hidden restock time: Ringo's cash box 0x001629C0 (merchant container of ACHR 0x00104C7D) in GSGasStation is emptied, read 72 h later (player stays inside, no menus), emptied again and read 84 h later (parity-lab/inputs/layer4/goodsprings_merchant_restock.actions.json), against an in-game capture. Both reads expect a restock under either model the captures allow (restock on access after 72 h since the last restock, or on a 72 h schedule); docs/spec-notes/simulation.md section 3.",
    "oracle": {
-    "golden": "sim/goodsprings_respawn.trace.json"
+    "golden": "sim/goodsprings_merchant_restock.trace.json"
    },
    "candidate": {
     "argv": [
@@ -279,7 +279,7 @@
      "--schema",
      "{schema_dir}",
      "--actions",
-     "{lab_root}/inputs/layer4/goodsprings_respawn.actions.json"
+     "{lab_root}/inputs/layer4/goodsprings_merchant_restock.actions.json"
     ]
    },
    "comparator": {
@@ -290,6 +290,7 @@
    "tags": [
     "sim",
     "respawn",
+    "merchant",
     "containers",
     "time",
     "M4",
