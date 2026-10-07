@@ -116,15 +116,15 @@ Scripts given to `CompileScript` on the owner's install (xNVSE 6.4.9, game 1.4.0
   [hypothesis for the reason]; hex literals (`0x38F7`); `ref` and `string_var` variables
   declared inside the block; any `string_var` assignment (`let`, or `set … sv_Construct`).
 - Globals are set with console lines (`set <Global> to <n>`), as a player would.
-- **Crash on changing TimeScale after inventory changes**: the weight/time job crashed the
-  game four times (access violation, same address in FalloutNV.exe) at the step that set
-  TimeScale, after the job had emptied the inventory, equipped two outfits and set
-  Strength — also with 10–30 game loops of pause between those steps. In an untouched
-  game, console TimeScale changes (30, 10, 5, 2, 1) and `SetAV Strength 1` did not crash,
-  and the first run (no TimeScale step) set the clock globals and finished. The scenario
-  therefore changes TimeScale before touching the inventory. Jobs also pause after every
-  action (10 game loops, 30 after equipping, activating, actor-value and bulk inventory
-  changes), which costs little.
+- **Crash on setting the clock back at a low TimeScale**: with TimeScale 1, `set GameHour to
+  8` from 8.33 crashed the game (access violation, FalloutNV.exe+0x477C6D) on a freshly
+  loaded save; the jump from TimeScale 30 to 1 just before it did not (crash test 3).
+  The same address ended four earlier runs that set TimeScale to 0 or 1 and then the
+  clock. At TimeScale 30 the clock was set back without a crash (first run), and console
+  TimeScale changes alone (30, 10, 5, 2, 1) never crashed. The weight/time scenario
+  therefore sets the date and hour first and lowers TimeScale afterwards; later clock
+  changes only move it forward. Jobs also pause after every action (10 game loops, 30
+  after equipping, activating, actor-value and bulk inventory changes).
 - **Call reported as failed**: a function that sets no return value, even when its
   statements ran (`player.RemoveAllItems`, `set GameHour to 8.0` alone); every action
   script therefore ends with `SetFunctionValue 1`.

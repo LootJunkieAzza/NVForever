@@ -5,16 +5,6 @@
   "actions": [
     {
       "op": "set_global",
-      "name": "TimeScale",
-      "value": 1
-    },
-    {
-      "op": "set_global",
-      "name": "GameHour",
-      "value": 8
-    },
-    {
-      "op": "set_global",
       "name": "GameDay",
       "value": 18
     },
@@ -32,6 +22,16 @@
       "op": "set_global",
       "name": "GameDaysPassed",
       "value": 5
+    },
+    {
+      "op": "set_global",
+      "name": "GameHour",
+      "value": 8
+    },
+    {
+      "op": "set_global",
+      "name": "TimeScale",
+      "value": 1
     },
     {
       "op": "advance_time",
