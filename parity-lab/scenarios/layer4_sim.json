@@ -166,6 +166,51 @@
     "M4",
     "needs-local-capture"
    ]
+  },
+  {
+   "id": "L4.sim.trace.goodsprings_weight_and_time",
+   "layer": 4,
+   "description": "Encumbrance, equipping and game time on a pinned save in Doc Mitchell's house (parity-lab/inputs/layer4/goodsprings_weight_and_time.actions.json): carried weight and capacity (in-game GetAV InventoryWeight / CarryWeight) at Strength 5 and 1, before and after equipping armour that shares a body slot, and the time globals after waiting 24 + 6 hours and across a month end, against an in-game capture (docs/spec-notes/simulation.md section 6). Absolute tolerance 0.01 (f32 weights summed).",
+   "oracle": {
+    "golden": "sim/goodsprings_weight_and_time.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/goodsprings_weight_and_time.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.01
+   },
+   "tags": [
+    "sim",
+    "inventory",
+    "encumbrance",
+    "equip",
+    "time",
+    "M4",
+    "needs-local-capture"
+   ]
   }
  ]
 }
