@@ -1307,6 +1307,36 @@
      "note": "xEdit wbDefinitionsFNV.pas REFR record; wbVec3PosRot(DATA)"
     }
    }
+  },
+  "PGRE": {
+   "name": "Placed Grenade",
+   "confidence": "documented",
+   "subrecords": {
+    "NAME": {
+     "name": "Base",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PGRE record (PROJ)"
+    },
+    "INAM": {
+     "name": "Patrol Idle",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PGRE record"
+    },
+    "TNAM": {
+     "name": "Patrol Topic",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PGRE record"
+    },
+    "DATA": {
+     "name": "Position/Rotation",
+     "type": "PosRot",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PGRE record; wbVec3PosRot(DATA)"
+    }
+   }
   }
  }
 }

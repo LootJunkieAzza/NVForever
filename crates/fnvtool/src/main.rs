@@ -8,6 +8,7 @@ mod esm_cmd;
 mod install_cmd;
 mod nif_cmd;
 mod source;
+mod world_cmd;
 
 use clap::{Args, Parser, Subcommand};
 use serde_json::Value;
@@ -49,6 +50,86 @@ enum Cmd {
     /// DDS textures.
     #[command(subcommand)]
     Dds(DdsCmd),
+    /// Worldspaces, cells, placed references and landscape across a load order.
+    #[command(subcommand)]
+    World(WorldCmd),
+}
+
+#[derive(Args)]
+pub struct WorldArgs {
+    #[command(flatten)]
+    pub lo: LoadOrderArgs,
+    #[arg(long)]
+    pub schema: PathBuf,
+}
+
+#[derive(Args)]
+pub struct GridArgs {
+    /// Worldspace Editor ID or load-order FormID.
+    #[arg(long)]
+    pub world: String,
+    #[arg(long, allow_hyphen_values = true)]
+    pub x: i32,
+    #[arg(long, allow_hyphen_values = true)]
+    pub y: i32,
+}
+
+#[derive(Subcommand)]
+pub enum WorldCmd {
+    /// Every worldspace with cell and reference counts (fnv.world.list/1).
+    List {
+        #[command(flatten)]
+        w: WorldArgs,
+    },
+    /// Cells of a worldspace, or all interior cells (fnv.world.cells/1).
+    Cells {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Worldspace Editor ID or FormID; omit for interior cells.
+        #[arg(long)]
+        world: Option<String>,
+    },
+    /// References placed in one cell (fnv.world.refs/1).
+    #[command(group(clap::ArgGroup::new("which").required(true).args(["cell", "world"])))]
+    Refs {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Cell Editor ID or load-order FormID.
+        #[arg(long)]
+        cell: Option<String>,
+        /// Exterior cell by worldspace and grid (with --x and --y).
+        #[arg(long, requires_all = ["x", "y"])]
+        world: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        x: Option<i32>,
+        #[arg(long, allow_hyphen_values = true)]
+        y: Option<i32>,
+    },
+    /// Landscape of one exterior cell (fnv.world.land/1).
+    Land {
+        #[command(flatten)]
+        w: WorldArgs,
+        #[command(flatten)]
+        g: GridArgs,
+        /// Also normals, vertex colours and texture layers.
+        #[arg(long)]
+        full: bool,
+    },
+    /// Height summary of every landscape cell in a worldspace (fnv.world.heights/1).
+    Heights {
+        #[command(flatten)]
+        w: WorldArgs,
+        #[arg(long)]
+        world: String,
+    },
+    /// Observational checks of the world conventions (fnv.world.check/1).
+    Check {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Worldspace to check (default: every worldspace).
+        #[arg(long)]
+        world: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -237,6 +318,7 @@ fn main() -> ExitCode {
         Cmd::Esm(c) => esm_cmd::run(c),
         Cmd::Nif(c) => nif_cmd::run(c),
         Cmd::Dds(c) => dds_cmd::run(c),
+        Cmd::World(c) => world_cmd::run(c),
     };
     match res {
         Ok(v) => {
