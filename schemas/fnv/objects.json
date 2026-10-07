@@ -470,6 +470,22 @@
     "1": "Normal",
     "2": "Silent"
    }
+  },
+  "StaticPlacement": {
+   "struct": [
+    {
+     "name": "position",
+     "type": "Vec3f"
+    },
+    {
+     "name": "rotation_radians",
+     "type": "Vec3f"
+    },
+    {
+     "name": "scale",
+     "type": "f32"
+    }
+   ]
   }
  },
  "records": {
@@ -1888,6 +1904,26 @@
      "type": "zstring",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas CSNO record; CSNO uses MODT as a string, overriding the common model-info layout"
+    }
+   }
+  },
+  "SCOL": {
+   "name": "Static Collection",
+   "confidence": "documented",
+   "subrecords": {
+    "ONAM": {
+     "name": "Static",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SCOL record (wbStaticPart) and wbDefinitionsCommon.pas wbStaticPartPlacements; each ONAM is followed by its DATA"
+    },
+    "DATA": {
+     "name": "Placements",
+     "type": {
+      "array": "StaticPlacement"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SCOL record (wbStaticPart) and wbDefinitionsCommon.pas wbStaticPartPlacements"
     }
    }
   }
