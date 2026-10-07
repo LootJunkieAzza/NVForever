@@ -136,12 +136,21 @@ u16 — the count is optional in the layout but present in all 16,950 entries [o
 3,479 lists; 7,871 entries name another list; flags: all-levels 1,526, each 2,042,
 use-all 723; 41 lists have LVLG [observed].
 
-Selection rules **[hypothesis, from the flag names only]**, implemented in
-`fnv_sim::leveled` and to be checked against sampled in-game outcomes with the planned
-distribution comparator:
+Selection rules, implemented in `fnv_sim::leveled`; first derived from the flag names
+only, now **consistent with the game** for the cases below [observed in game,
+2026-10-07, `L4.sim.leveled.basic`: 300 `AddItem` draws per case on the owner's install
+against 20,000 candidate draws; chi-square p ≥ 0.15 in every case, alpha 0.01, so only
+differences of several percentage points would have shown]. Covered: chance none (50,
+65), "each item in count" with count 3 (outcomes 0–3 stimpaks: 43/103/125/29 in game,
+consistent with three independent rolls), all-levels vs highest eligible level
+(`VFactionSquadStimpaks`: always 1 stimpak at player level 10, always 3 at level 30, in
+game and candidate), Use All (`VendorChestStimpaksBoomer`), a uniform pick of 18
+(`ClutterHouseholdJunkNV`). Console `AddItem` with a leveled list resolves it against
+the player's level [observed, same captures]. Not covered yet: LVLG globals, deep
+nesting, levels between entries' levels with the all-levels flag set.
 1. Roll 0–99; below chance none (or the LVLG global's value) yields nothing.
-2. Eligible entries have level ≤ the requesting level (the player's level for
-   containers [hypothesis]).
+2. Eligible entries have level ≤ the requesting level (the player's level; for
+   containers [hypothesis], for AddItem [observed]).
 3. Use All: every eligible entry. Otherwise one entry uniformly from all eligible entries
    (all-levels flag) or from those of the highest eligible level.
 4. "For each item in count": N separate rolls of one; otherwise one roll times N.

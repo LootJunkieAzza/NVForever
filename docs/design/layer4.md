@@ -158,7 +158,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 2. Static contents: `L4.sim.containers` and `L4.sim.items` against the independent oracle.
 3. Behaviour: action traces against in-game captures (Goodsprings first, then a locked
    container with its key, a lock without key, a teleport pair, dropping and re-taking).
-4. Leveled lists: distribution scenarios (comparator done; needs in-game samples).
+4. Leveled lists: distribution scenarios — `L4.sim.leveled.basic` passes against in-game
+   samples (7 cases); more cases (LVLG, nesting) to come.
 5. Collision: shape conversion vs oracle; Havok scale measured; then movement traces.
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
@@ -189,7 +190,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    (test save in Old World Blues' X-13) and `leveled_basic.samples` (a few hundred
    `AddItem` draws per case). They can now be run with the `nvf_capture` plugin (needs
    xNVSE 6.4.9+ installed by you; tools/capture/README.md §10). First golden captured
-   2026-10-07: `goodsprings_weight_and_time` passes 9/9.
+   2026-10-07: `goodsprings_weight_and_time` passes 9/9; `leveled_basic` (2,100 in-game
+   draws) passes 7/7 cases.
 
 ## 6. Updated spec notes
 
