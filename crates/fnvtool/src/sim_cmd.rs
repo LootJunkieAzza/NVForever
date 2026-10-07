@@ -271,6 +271,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
                         refs.get(**c).and_then(|r| forms.get(r.base)).is_some_and(|b| matches!(&b.data, BaseData::Container(c) if c.respawns))
                     })
                     .count(),
+                "without_respawns_flag": merchant_without_respawn(forms, refs),
                 "container_base_types": refs.merchant_containers.keys().fold(BTreeMap::<String, u64>::new(), |mut m, c| {
                     let t = refs.get(*c).and_then(|r| forms.sig(r.base)).map(|s| sig_str(&s)).unwrap_or_else(|| "missing".into());
                     *m.entry(t).or_default() += 1;
@@ -280,6 +281,34 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
         },
         "issues": issues.to_json(),
     })
+}
+
+/// Merchant containers whose base lacks the Respawns flag, with cell and merchants.
+fn merchant_without_respawn(forms: &FormStore, refs: &RefTable) -> Vec<Value> {
+    let cell_name: std::collections::HashMap<FormId, &String> = refs.cell_edids.iter().map(|(e, c)| (*c, e)).collect();
+    refs.merchant_containers
+        .iter()
+        .filter_map(|(c, actors)| {
+            let r = refs.get(*c)?;
+            let b = forms.get(r.base)?;
+            if matches!(&b.data, BaseData::Container(cd) if cd.respawns) {
+                return None;
+            }
+            let merchants: Vec<Value> = actors
+                .iter()
+                .map(|a| {
+                    let ar = refs.get(*a);
+                    json!({"ref": a, "ref_edid": ar.and_then(|x| x.edid.clone()),
+                           "base_edid": ar.and_then(|x| forms.get(x.base)).and_then(|x| x.edid.clone()),
+                           "cell": ar.and_then(|x| x.cell),
+                           "cell_edid": ar.and_then(|x| x.cell).and_then(|c| cell_name.get(&c).map(|s| s.to_string()))})
+                })
+                .collect();
+            Some(json!({"container": c, "container_edid": r.edid, "base": r.base, "base_edid": b.edid,
+                        "cell": r.cell, "cell_edid": r.cell.and_then(|c| cell_name.get(&c).map(|s| s.to_string())),
+                        "pos": r.pos, "merchants": merchants}))
+        })
+        .collect()
 }
 
 /// Every inventory item base (fnv.sim.items/1), contract in docs/spec-notes/simulation.md.
