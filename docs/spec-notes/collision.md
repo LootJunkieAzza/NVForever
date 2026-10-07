@@ -138,7 +138,9 @@ resolve, and the conversion uses 7 (`fnv_collide::nif::HAVOK_SCALE`).
   listed in `phantoms` instead (their shape trees are not followed). A file whose header
   or blocks cannot be decoded, or whose solid collision cannot be followed (missing
   block, unsupported shape type, compressed packed vertices, a transform matrix that is
-  not rotation × uniform scale), is listed in `skipped` with no rows and no phantoms.
+  not rotation × uniform scale: its three columns equal in length and mutually orthogonal
+  within 1e-3 relative to the squared length, determinant positive), is listed in
+  `skipped` with no rows and no phantoms.
   `reason` is free text (not compared).
 - `node`, `node_block`: the scene object holding the collision object (`node` = its
   name, `null` if none). `object_type`, `body_type`: block type names.
@@ -159,7 +161,9 @@ resolve, and the conversion uses 7 (`fnv_collide::nif::HAVOK_SCALE`).
   8 corners; sphere and capsule: centre(s) ± radius along each axis (after placement);
   hull and mesh: their points. `null` for an empty tree.
 - Scene-object-to-root: product of the local transforms (translation, row-major
-  rotation, uniform scale) of the scene object and its ancestors below the root, the
+  rotation, uniform scale) of the scene object and its ancestors below the root (the
+  footer's first root, block 0 in every game file; an object not below it composes its
+  whole chain), the
   parent of an object being the lowest-index node listing it as a child (as in
   `fnv.nif.scene/1`).
 
