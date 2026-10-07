@@ -808,3 +808,40 @@ fn respawn_delay_comes_from_config_then_setting_then_default() {
     let old: SimConfig = serde_json::from_str(r#"{"seed": 0, "player_level": 1, "respawn_hours": 72.0}"#).unwrap();
     assert_eq!(old.respawn_hours, Some(72.0));
 }
+
+#[test]
+fn merchant_containers_restock_on_access_every_respawn_period() {
+    // CHAIR_REF names SAFE_REF in XMRC: the safe is a merchant container.
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    let safe = id(SAFE_REF);
+    // Day 5 (authored): first access, nothing due yet (the period counts from the start).
+    assert_eq!(w.item_count(safe, id(CAPS)).unwrap(), 3);
+    w.unlock(safe).unwrap();
+    w.transfer_all(safe, p).unwrap();
+    w.add_item(safe, id(AID), 1).unwrap(); // "sold" to the merchant
+    // 71 h later: not due; the sold item is still there.
+    w.advance_hours(71.0).unwrap();
+    assert_eq!((w.item_count(safe, id(CAPS)).unwrap(), w.item_count(safe, id(AID)).unwrap()), (0, 1));
+    // 72 h after the start: restocked, contents replaced, without any cell event.
+    w.advance_hours(1.0).unwrap();
+    assert_eq!((w.item_count(safe, id(CAPS)).unwrap(), w.item_count(safe, id(AID)).unwrap()), (3, 0));
+    let restocked_at = w.peek(safe).unwrap().last_restock.unwrap();
+    // Emptied again: the next restock is 72 h after the last one, not after emptying.
+    w.transfer_all(safe, p).unwrap();
+    w.advance_hours(71.5).unwrap();
+    assert_eq!(w.item_count(safe, id(CAPS)).unwrap(), 0);
+    w.advance_hours(0.5).unwrap();
+    assert_eq!(w.item_count(safe, id(CAPS)).unwrap(), 3);
+    assert!(w.peek(safe).unwrap().last_restock.unwrap() > restocked_at);
+    // Opening it counts as access too; a non-merchant container never restocks this way.
+    w.transfer_all(safe, p).unwrap();
+    w.advance_hours(80.0).unwrap();
+    assert!(matches!(w.activate(p, safe).unwrap().outcome, Outcome::OpenedContainer { .. }));
+    assert_eq!(w.peek(safe).unwrap().inventory.as_ref().unwrap().count(id(CAPS)), 3);
+    assert_eq!(w.item_count(id(GUN_REF), id(CAPS)), Err(SimError::NoInventory(id(GUN_REF))));
+    // The restock time is part of the snapshot.
+    let snap = w.snapshot();
+    assert!(snap.refs[&safe].last_restock.is_some());
+}
