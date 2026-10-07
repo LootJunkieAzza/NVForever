@@ -96,6 +96,18 @@ struct Args {
     /// Window size "WxH" (also the screenshot size).
     #[arg(long, default_value = "1280x800")]
     size: String,
+    /// Horizontal field of view in degrees [hypothesis: the game's default is 75].
+    #[arg(long, default_value_t = 75.0)]
+    fov: f32,
+    /// Added to the z of --pos (e.g. the eye height above a captured player position).
+    #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+    eye_height: f32,
+    /// With --screenshot: also write the lab's frame document (fnv.frame/1) here.
+    #[arg(long, requires = "screenshot")]
+    frame_json: Option<PathBuf>,
+    /// Do not draw the text overlay (implied by --frame-json).
+    #[arg(long)]
+    no_overlay: bool,
 }
 
 #[derive(Component)]
@@ -126,7 +138,7 @@ fn main() -> AppExit {
     // Start position (game space).
     let start = match args.pos.as_deref() {
         Some(p) => match parse_vec::<3>(p) {
-            Some(v) => Vec3::from_array(v),
+            Some(v) => Vec3::from_array(v) + Vec3::Z * args.eye_height,
             None => return fail(format!("--pos {p}: expected x,y,z")),
         },
         None => {
@@ -161,6 +173,11 @@ fn main() -> AppExit {
         return fail(format!("--size {}: expected WxH", args.size));
     };
 
+    if let Some(dir) = args.screenshot.as_deref().and_then(|p| p.parent()).filter(|d| !d.as_os_str().is_empty()) {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            return fail(format!("{}: {e}", dir.display()));
+        }
+    }
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -172,7 +189,12 @@ fn main() -> AppExit {
                 },
             })
             .set(WindowPlugin {
-                primary_window: Some(Window { title: "NVForever".into(), resolution: (w, h).into(), ..default() }),
+                // Scale factor 1 so screenshots are exactly --size pixels on any display.
+                primary_window: Some(Window {
+                    title: "NVForever".into(),
+                    resolution: bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0),
+                    ..default()
+                }),
                 ..default()
             }),
     )
@@ -191,7 +213,14 @@ fn main() -> AppExit {
         stats: Default::default(),
     })
     .insert_resource(world)
-    .insert_resource(StartPose { position: start, heading: args.heading, pitch: args.pitch })
+    .insert_resource(StartPose {
+        position: start,
+        heading: args.heading,
+        pitch: args.pitch,
+        fov: args.fov,
+        aspect: w as f32 / h as f32,
+        overlay: !args.no_overlay && args.frame_json.is_none(),
+    })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
     .add_systems(Update, (fly::fly, sky::sky_keys, sky::update_sky, world::stream, lod::update_lod, overlay, keys).chain());
@@ -206,6 +235,15 @@ struct StartPose {
     position: Vec3,
     heading: f32,
     pitch: f32,
+    /// Horizontal field of view in degrees.
+    fov: f32,
+    aspect: f32,
+    overlay: bool,
+}
+
+/// Vertical field of view (radians) for a horizontal one (degrees) at an aspect ratio.
+fn vertical_fov(h_deg: f32, aspect: f32) -> f32 {
+    2.0 * ((h_deg.to_radians() / 2.0).tan() / aspect).atan()
 }
 
 fn setup(mut commands: Commands, start: Res<StartPose>) {
@@ -213,11 +251,19 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
     let (yaw, pitch) = (-start.heading.to_radians(), start.pitch.to_radians());
     commands.spawn((
         Camera3d::default(),
-        Projection::Perspective(PerspectiveProjection { far: 400_000.0, near: 5.0, ..default() }),
+        Projection::Perspective(PerspectiveProjection {
+            fov: vertical_fov(start.fov, start.aspect),
+            far: 400_000.0,
+            near: 5.0,
+            ..default()
+        }),
         Transform::from_translation(pos).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)),
         FlyCam { yaw, pitch, speed: 800.0 },
         sky::initial_fog(),
     ));
+    if !start.overlay {
+        return;
+    }
     commands.spawn((
         Text::new(""),
         TextFont { font_size: FontSize::Px(14.0), ..default() },
@@ -262,6 +308,24 @@ fn keys(input: Res<ButtonInput<KeyCode>>, mut commands: Commands, mut n: Local<u
     }
 }
 
+/// The lab's frame document: where the image is and how it was made.
+fn write_frame_json(out: &std::path::Path, image: &std::path::Path, args: &Args, sky: &sky::SkyState) -> std::io::Result<()> {
+    let abs = std::path::absolute(image)?;
+    let doc = serde_json::json!({
+        "schema": "fnv.frame/1",
+        "image": abs.to_string_lossy(),
+        "size": args.size,
+        "camera": {"pos": args.pos, "eye_height": args.eye_height, "heading": args.heading, "pitch": args.pitch, "fov": args.fov},
+        "world": args.world,
+        "hour": sky.hour,
+        "weather": sky.weather.edid,
+    });
+    if let Some(dir) = out.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(out, serde_json::to_vec_pretty(&doc)?)
+}
+
 /// --screenshot: wait for the cells around the start and for pipelines and textures, save,
 /// exit.
 #[allow(clippy::too_many_arguments)]
@@ -274,6 +338,7 @@ fn screenshot_and_exit(
     streamer: Res<Streamer>,
     models: Res<ModelCache>,
     textures: Res<TextureCache>,
+    sky: Res<sky::SkyState>,
     mut commands: Commands,
 ) {
     *frames += 1;
@@ -299,6 +364,11 @@ fn screenshot_and_exit(
             }
             info!("models failed {}, textures failed {}", models.failures.len(), textures.failures.len());
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path.clone()));
+            if let Some(fj) = &args.frame_json {
+                if let Err(e) = write_frame_json(fj, path, &args, &sky) {
+                    error!("frame json {}: {e}", fj.display());
+                }
+            }
         }
         *frames = 10_000;
         *ready_at = Some(*elapsed);

@@ -3,6 +3,7 @@
   "local_overlay": "lab.local.json",
   "vars": {
     "candidate": "{lab_root}/../target/release/fnvtool",
+    "engine_candidate": "{lab_root}/../engine/target/release/nvforever",
     "data_dir": "SET_ME: path to the game's Data folder",
     "goldens_dir": "SET_ME: private goldens directory outside the repo",
     "schema_dir": "{lab_root}/../schemas/fnv",

@@ -3940,6 +3940,7 @@ dependencies = [
  "fnv-nif",
  "fnv-world",
  "nvf-assets",
+ "serde_json",
 ]
 
 [[package]]
