@@ -70,8 +70,13 @@ pub struct BsHeader {
 
 impl BsHeader {
     pub fn author_text(&self) -> String {
-        cp1252::decode_z(&self.author)
+        export_text(&self.author)
     }
+}
+
+/// Text of a raw export string (skips the length byte, stops at the NUL).
+pub fn export_text(raw: &[u8]) -> String {
+    cp1252::decode_z(raw.get(1..).unwrap_or_default())
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -152,12 +152,37 @@ lab compares `type`, `edid`, `full`; fnvtool and `oracle_esm.py` agree on all of
 - These four scenarios therefore fail by one record each. Accepting them is the owner's
   decision (parity-lab/AGENT.md: agents never edit goldens or scenarios).
 
+## 5. `oracle_nif.py` / `oracle_dds.py` — independent mesh and texture readers (Layer 2)
+
+Written only from `docs/spec-notes/nif.md`, `dds.md`, `bsa.md` and the Layer 2 section of the
+contract (not from `crates/` or `schemas/`). Standard library only; they import
+`oracle_bsa.py` (archive decoding, including the flag 0x100 path prefix of the two texture
+archives) and must sit next to it. Archives are memory-mapped, so the 1 GB ones work too.
+
+```
+python tools/capture/oracle_nif.py stats "<Data>/Update.bsa" --out "C:/fnv-private/goldens/nif/Update.bsa.nif.stats.json"
+python tools/capture/oracle_nif.py scene "<Data>/Update.bsa" --out "C:/fnv-private/goldens/nif/Update.bsa.nif.scene.json"
+python tools/capture/oracle_dds.py list  "<Data>/Fallout - Textures.bsa" --out "C:/fnv-private/goldens/dds/Fallout - Textures.bsa.dds.listing.json"
+```
+
+- `stats` → `fnv.nif.stats/1`: header fields of every `.nif`/`.kf` (archive record order).
+- `scene` → `fnv.nif.scene/1`: files with a block-size table are split into blocks by the
+  size table; nodes/geometry objects are read up to their child list, NiTriShapeData /
+  NiTriStripsData are decoded completely and must consume their block exactly. A file
+  whose container or any analysed block does not decode is listed in `skipped` (reason
+  `container: ...` or `block N (Type): ...`) and contributes no objects or shapes.
+- `list` → `fnv.dds.listing/1`; errors are exactly `bad magic` / `short header`. Size
+  mismatches are printed to stderr.
+
+Goldens layout: `nif/<Archive>.nif.stats.json`, `nif/<Archive>.nif.scene.json`,
+`dds/<Archive>.dds.listing.json`.
+
 ## Tests
 
 ```
 python3 -m unittest discover -s tools/capture/tests -v
 ```
 
-The tests build tiny synthetic BSA and ESM files (compressed and trailer-less BSA entries,
+The tests build tiny synthetic BSA, ESM, NIF and DDS files (compressed and trailer-less BSA entries,
 empty compressed entry, hash mismatches, XXXX subrecord, compressed records including a bad
 Adler-32, nested GRUPs, truncated inputs). No game data is needed or used.
