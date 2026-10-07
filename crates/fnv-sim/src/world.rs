@@ -85,6 +85,10 @@ pub struct RefState {
     /// Actor values changed at run time, by lower-case name (S.P.E.C.I.A.L. so far).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub actor_values: BTreeMap<String, f32>,
+    /// Merchant containers: GameDaysPassed of the last restock (`None`: not restocked
+    /// since the simulation started).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_restock: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -241,27 +245,7 @@ impl<'a> World<'a> {
             None if id == FormId::PLAYER_REF => (FormId::PLAYER_BASE, None),
             None => return Err(SimError::UnknownRef(id)),
         };
-        let inventory = match self.forms.entries(base) {
-            Some(entries) => {
-                let mut inv = Inventory::new();
-                let mut out = Vec::new();
-                for e in entries {
-                    let from = out.len();
-                    leveled::resolve(self.forms, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
-                    // COED on an entry applies to whatever it resolves to. [hypothesis]
-                    for r in &mut out[from..] {
-                        r.extra = e.extra;
-                    }
-                }
-                for e in out {
-                    if e.count > 0 {
-                        inv.add_extra(e.item, e.count, e.extra);
-                    }
-                }
-                Some(inv)
-            }
-            None => None,
-        };
+        let inventory = self.roll_inventory(base)?;
         Ok(RefState {
             base,
             cell: placed.and_then(|p| p.cell),
@@ -280,10 +264,70 @@ impl<'a> World<'a> {
                 equipped: false,
             },
             actor_values: BTreeMap::new(),
+            last_restock: None,
         })
     }
 
+    /// A fresh inventory for a container or actor base: its carried items with leveled
+    /// lists resolved. `None` for bases without carried items.
+    fn roll_inventory(&mut self, base: FormId) -> Result<Option<Inventory>, SimError> {
+        let Some(entries) = self.forms.entries(base) else { return Ok(None) };
+        let mut inv = Inventory::new();
+        let mut out = Vec::new();
+        for e in entries {
+            let from = out.len();
+            leveled::resolve(self.forms, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
+            // COED on an entry applies to whatever it resolves to. [hypothesis]
+            for r in &mut out[from..] {
+                r.extra = e.extra;
+            }
+        }
+        for e in out {
+            if e.count > 0 {
+                inv.add_extra(e.item, e.count, e.extra);
+            }
+        }
+        Ok(Some(inv))
+    }
+
+    /// Merchant restock, checked whenever a merchant container's inventory is accessed:
+    /// once `respawn_hours` have passed since its last restock, its contents are replaced
+    /// by a fresh roll of its base's carried items (anything sold into it is lost) and
+    /// the restock time becomes now. A container never restocked counts from the
+    /// simulation's start (the authored GameDaysPassed). [hypothesis consistent with the
+    /// in-game captures, docs/spec-notes/simulation.md §3: Ringo's cash box refilled
+    /// while the player stayed in the cell, not after 5 h or 10 h absences, and between
+    /// GetItemCount checks at 9.883 and 10.384 days after a restock at 7.379 — a fixed
+    /// day-0 grid is ruled out — and a stimpak added to it was gone after the restock;
+    /// the start of the first period in a new game is not captured]
+    fn restock_if_due(&mut self, id: FormId) -> Result<(), SimError> {
+        if !self.placed.is_merchant_container(id) {
+            return Ok(());
+        }
+        let Ok(now) = self.calendar().map(|c| c.days_passed) else { return Ok(()) };
+        let start = match self.forms.global_by_edid(clock::GAME_DAYS_PASSED) {
+            Some((_, v)) => v,
+            None => return Ok(()),
+        };
+        let s = self.get(id)?;
+        if s.deleted {
+            return Ok(());
+        }
+        let since = s.last_restock.unwrap_or(start);
+        let base = s.base;
+        // Same f32 slack as cell respawn.
+        if (now as f64 - since as f64) * 24.0 + 1e-3 < self.respawn_hours() as f64 {
+            return Ok(());
+        }
+        let inv = self.roll_inventory(base)?;
+        let s = self.get(id)?;
+        s.inventory = inv;
+        s.last_restock = Some(now);
+        Ok(())
+    }
+
     fn inventory(&mut self, id: FormId) -> Result<&mut Inventory, SimError> {
+        self.restock_if_due(id)?;
         let s = self.get(id)?;
         if s.deleted {
             return Err(SimError::Deleted(id));
@@ -396,6 +440,7 @@ impl<'a> World<'a> {
                     open: false,
                     extra,
                     actor_values: BTreeMap::new(),
+                    last_restock: None,
                 },
             );
             out.push(id);
@@ -699,7 +744,10 @@ impl<'a> World<'a> {
         }
         let outcome = match &base.data {
             BaseData::Item(_) => unreachable!("items are handled above"),
-            BaseData::Container(_) => Outcome::OpenedContainer { container: target },
+            BaseData::Container(_) => {
+                self.restock_if_due(target)?;
+                Outcome::OpenedContainer { container: target }
+            }
             BaseData::Door(_) => match self.placed.get(target).and_then(|p| p.teleport) {
                 Some(tp) => {
                     let door_cell = match self.placed.get(tp.door) {
