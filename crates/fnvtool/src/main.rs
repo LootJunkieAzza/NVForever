@@ -9,6 +9,7 @@ mod esm_cmd;
 mod install_cmd;
 mod nif_cmd;
 mod phys_cmd;
+mod sim_cmd;
 mod source;
 mod world_cmd;
 
@@ -61,6 +62,9 @@ enum Cmd {
     /// Layer 4 collision geometry: Havok collision blocks of meshes.
     #[command(subcommand)]
     Collide(CollideCmd),
+    /// Layer 4 core simulation: forms, references, inventories, activation.
+    #[command(subcommand)]
+    Sim(SimCmd),
 }
 
 #[derive(Subcommand)]
@@ -248,6 +252,34 @@ pub enum WorldCmd {
         /// Worldspace to check (default: every worldspace).
         #[arg(long)]
         world: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SimCmd {
+    /// What the simulation loaders understood, with consistency checks (fnv.sim.forms/1).
+    Forms {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+    },
+    /// Every container base form with its authored contents (fnv.sim.containers/1).
+    Containers {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+    },
+    /// Run a scripted action sequence (fnv.sim.actions/1) and print its trace
+    /// (fnv.sim.trace/1).
+    Run {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long)]
+        actions: PathBuf,
     },
 }
 
@@ -440,6 +472,7 @@ fn main() -> ExitCode {
         Cmd::World(c) => world_cmd::run(c),
         Cmd::Phys(c) => phys_cmd::run(c),
         Cmd::Collide(c) => collide_cmd::run(c),
+        Cmd::Sim(c) => sim_cmd::run(c),
     };
     match res {
         Ok(v) => {
