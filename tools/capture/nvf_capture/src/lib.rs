@@ -54,6 +54,13 @@ pub fn scan_jobs(dir: &Path, log: &mut dyn FnMut(String)) -> Vec<Job> {
     jobs
 }
 
+/// PostLoadGame's success flag. xNVSE passes the bool *in* the message's data field,
+/// not behind a pointer: reading it as a pointer crashed the game (access violation in
+/// this DLL on the first save load, 2026-10-07) [observed]. Only the low byte counts.
+pub fn post_load_succeeded(data: *mut c_void) -> bool {
+    (data as usize) & 0xFF != 0
+}
+
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
@@ -214,9 +221,8 @@ unsafe extern "C" fn on_message(msg: *mut Message) {
         let Ok(mut guard) = PLUGIN.lock() else { return };
         let Some(p) = guard.as_mut() else { return };
         let events = if m.kind == MSG_POST_LOAD_GAME {
-            // data: one bool, true when the save loaded.
-            let loaded = !m.data.is_null() && *(m.data as *const u8) != 0;
-            if !loaded {
+            if !post_load_succeeded(m.data) {
+                p.log("save load reported failure; nothing to do");
                 return;
             }
             let dir = p.dir.clone();
@@ -302,6 +308,13 @@ fn _types(_: *const c_char) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn post_load_flag_is_the_data_value() {
+        assert!(post_load_succeeded(std::ptr::without_provenance_mut(1)));
+        assert!(!post_load_succeeded(std::ptr::null_mut()));
+        assert!(!post_load_succeeded(std::ptr::without_provenance_mut(0x100)), "only the low byte is the bool");
+    }
 
     #[test]
     fn capture_dir_from_ini() {
