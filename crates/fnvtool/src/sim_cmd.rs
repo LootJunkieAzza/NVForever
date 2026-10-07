@@ -137,7 +137,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
     let mut ref_sigs: BTreeMap<String, u64> = BTreeMap::new();
     let mut ref_base: BTreeMap<String, u64> = BTreeMap::new();
     let mut persist = [[0u64; 2]; 2]; // [flag][group]
-    let (mut disabled, mut with_count, mut owned) = (0u64, 0u64, 0u64);
+    let (mut disabled, mut with_count, mut owned, mut reparented) = (0u64, 0u64, 0u64, 0u64);
     let mut lock_levels: BTreeMap<String, u64> = BTreeMap::new();
     let mut lock_keys: BTreeMap<String, u64> = BTreeMap::new();
     let mut lock_on: BTreeMap<String, u64> = BTreeMap::new();
@@ -157,6 +157,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
         );
         persist[(r.flags & FLAG_PERSISTENT != 0) as usize][r.in_persistent_group as usize] += 1;
         disabled += r.initially_disabled() as u64;
+        reparented += (r.cell != r.stored_in) as u64;
         with_count += r.count.is_some() as u64;
         owned += r.owner.is_some() as u64;
         if let Some(l) = r.lock {
@@ -253,6 +254,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
                 "neither": persist[0][0],
             },
             "initially_disabled_flag": disabled,
+            "parent_cell_is_grid_cell_not_storage_cell": reparented,
             "with_count": with_count,
             "owned": owned,
             "locks": {"levels": lock_levels, "keys": lock_keys, "on_base_type": lock_on},

@@ -16,7 +16,7 @@ use fnv_esm::{LoadOrder, Record, Schema};
 use fnv_world::{RefEntry, WorldIndex};
 use rayon::prelude::*;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::extract::{self, first, global, has_flag, int, local_fid, num, text, Issues};
 use crate::form::FormId;
@@ -56,7 +56,12 @@ pub struct PlacedRef {
     pub sig: [u8; 4],
     pub edid: Option<String>,
     pub base: FormId,
+    /// The reference's parent cell: the cell whose group stores it, except that a
+    /// reference stored in a worldspace's persistent cell belongs to the exterior cell
+    /// containing its position (see `stored_in`).
     pub cell: Option<FormId>,
+    /// The cell whose children group stores the winning definition.
+    pub stored_in: Option<FormId>,
     /// Load-order index of the plugin whose definition won.
     pub plugin: u8,
     pub flags: u32,
@@ -143,19 +148,6 @@ impl RefTable {
                 (pr, false, issues)
             })
             .collect();
-        for (pr, deleted, issues) in loaded {
-            t.issues.merge(issues);
-            t.deleted += deleted as u64;
-            if let Some(pr) = pr {
-                if let Some(e) = &pr.edid {
-                    t.edids.insert(e.to_ascii_lowercase(), pr.id);
-                }
-                if let Some(c) = pr.cell {
-                    t.by_cell.entry(c).or_default().push(pr.id);
-                }
-                t.refs.insert(pr.id, pr);
-            }
-        }
         for c in ix.cells.values() {
             if let Some(e) = &c.edid {
                 t.cell_edids.insert(e.to_ascii_lowercase(), FormId(c.form_id));
@@ -164,8 +156,35 @@ impl RefTable {
                 t.cell_world.insert(FormId(c.form_id), FormId(w));
             }
         }
+        let mut persistent_cells = HashSet::new();
         for (w, ws) in &ix.worldspaces {
             t.world_grid.insert(FormId(*w), ws.grid.iter().map(|(g, c)| (*g, FormId(*c))).collect());
+            persistent_cells.extend(ws.persistent_cell.map(FormId));
+        }
+        for (pr, deleted, issues) in loaded {
+            t.issues.merge(issues);
+            t.deleted += deleted as u64;
+            if let Some(mut pr) = pr {
+                // A reference stored in a worldspace's persistent cell belongs to the
+                // exterior cell that contains it. [observed in game: GetParentCell of the
+                // persistent door 0x00103E69, asked outdoors, is Goodsprings 0x000DAEBB
+                // (grid -18,0 containing its position), not the persistent cell]
+                if let Some(c) = pr.cell.filter(|c| persistent_cells.contains(c)) {
+                    match t.exterior_cell_at(c, pr.pos) {
+                        Some(grid) => pr.cell = Some(grid),
+                        None => t.issues.note("persistent exterior reference outside every grid cell", || {
+                            format!("{} at ({}, {})", pr.id, pr.pos[0], pr.pos[1])
+                        }),
+                    }
+                }
+                if let Some(e) = &pr.edid {
+                    t.edids.insert(e.to_ascii_lowercase(), pr.id);
+                }
+                if let Some(c) = pr.cell {
+                    t.by_cell.entry(c).or_default().push(pr.id);
+                }
+                t.refs.insert(pr.id, pr);
+            }
         }
         t
     }
@@ -286,6 +305,7 @@ fn load_ref(
         edid: first(&d, b"EDID").and_then(text),
         base,
         cell: Some(cell),
+        stored_in: Some(cell),
         plugin: pi as u8,
         flags: r.header.flags,
         in_persistent_group,

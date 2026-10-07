@@ -691,10 +691,9 @@ impl<'a> World<'a> {
                         None => self.peek(tp.door).and_then(|d| d.cell),
                     };
                     // Into a worldspace, the actor ends up in the exterior cell that
-                    // contains the destination, not the (often persistent) cell that
-                    // stores the destination door. [observed in game: leaving Doc
-                    // Mitchell's house puts the player in Goodsprings, WastelandNV grid
-                    // -18,0, while the door is stored in WastelandNV's persistent cell]
+                    // contains the destination, not necessarily the destination door's.
+                    // [observed in game: leaving Doc Mitchell's house puts the player in
+                    // Goodsprings, WastelandNV grid -18,0]
                     let cell = door_cell.map(|c| self.placed.exterior_cell_at(c, tp.pos).unwrap_or(c));
                     let a = self.get(actor)?;
                     a.cell = cell;
