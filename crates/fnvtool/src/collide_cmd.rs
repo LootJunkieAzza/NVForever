@@ -5,6 +5,7 @@ use crate::CollideCmd;
 use fnv_collide::nif::{extract, motion, Aabb, Extracted};
 use fnv_collide::shape::{Iso, Shape};
 use fnv_nif::file::NifFile;
+use fnv_nif::header::version_string;
 use fnv_nif::scene::Decoded;
 use fnv_nif::Schema;
 use serde_json::{json, Value};
@@ -19,6 +20,10 @@ pub fn run(cmd: CollideCmd) -> anyhow::Result<Value> {
 
 fn analyse(data: &[u8], schema: &Schema) -> Result<Extracted, String> {
     let file = NifFile::parse(data, Some(schema)).map_err(|e| e.to_string())?;
+    // As in fnv.nif.scene/1: only files with a block-size table are analysed.
+    if file.header.block_sizes.is_none() {
+        return Err(format!("no block-size table (version {})", version_string(file.header.version)));
+    }
     let dec = Decoded::new(&file, data, schema);
     Ok(extract(&file, &dec))
 }
@@ -166,7 +171,8 @@ fn survey(sources: &[std::path::PathBuf], schema: &Schema, filter: Option<&str>)
                 };
                 mat_fit.entry("as_read".into()).or_default().push(err(&bounds(&o.shape, &body)));
                 let rotated = o.transform_matrices.iter().any(|m| {
-                    let r = fnv_collide::nif::iso_from_mat44(m).rotation;
+                    let Some((iso, _)) = fnv_collide::nif::iso_from_mat44(m) else { return false };
+                    let r = iso.rotation;
                     (r[1] - r[3]).abs() + (r[2] - r[6]).abs() + (r[5] - r[7]).abs() > 1e-3
                 });
                 if rotated && !ex.render_points.is_empty() {
@@ -277,12 +283,11 @@ fn objects(archive: &std::path::Path, schema: &Schema, filter: Option<&str>) -> 
             skipped.push(json!({"path": it.path, "reason": ex.problems.join("; ")}));
             continue;
         }
+        for (block, body_type) in &ex.phantoms {
+            phantoms.push(json!({"key": format!("{}#{}", it.path, block), "body_type": body_type}));
+        }
         for o in &ex.objects {
             let key = format!("{}#{}", it.path, o.object_block);
-            if o.is_phantom() {
-                phantoms.push(json!({"key": key, "body_type": o.body_type}));
-                continue;
-            }
             let c = o.to_object();
             let mut leaves = BTreeMap::new();
             let (mut hull, mut verts, mut tris) = (0, 0, 0);
@@ -303,8 +308,8 @@ fn objects(archive: &std::path::Path, schema: &Schema, filter: Option<&str>) -> 
                 "hull_points": hull,
                 "mesh_vertices": verts,
                 "mesh_triangles": tris,
-                "aabb_min": b.min.map(f),
-                "aabb_max": b.max.map(f),
+                "aabb_min": if b.is_valid() { json!(b.min.map(f)) } else { Value::Null },
+                "aabb_max": if b.is_valid() { json!(b.max.map(f)) } else { Value::Null },
             }));
         }
     }
