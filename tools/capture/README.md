@@ -253,6 +253,20 @@ renders each camera headless and compares. `min_ssim` in the manifest is provisi
 scenarios pass. The camera is placed `eye_height` (default 120 units [hypothesis]) above
 the player's position; the first comparisons will tell us the right value.
 
+## 8. `script_functions.py` — script-function catalogue (scripting groundwork)
+
+Builds `schemas/script/functions.json` and `docs/spec-notes/script-functions-catalogue.md`
+from a private GECK wiki export (structured template fields only), the masters' compiled
+scripts (opcodes and usage by lining up SCDA with SCTX) and, optionally, xEdit's
+condition-function table. Unlike the oracles, its outputs **are committed**: they hold only
+names, parameter metadata, opcodes, counts and our own paraphrases
+(`schemas/script/notes.json`). Details: `docs/spec-notes/script-functions.md`.
+
+```
+python tools/capture/script_functions.py --wiki C:/fnv-private/geckwiki/functions.xml ^
+  --data "<FNV>/Data" --xedit <path>/wbDefinitionsFNV.pas --notes schemas/script/notes.json
+```
+
 ## Tests
 
 ```
