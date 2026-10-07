@@ -4,10 +4,32 @@
   "player_level": 1,
   "actions": [
     {
+      "op": "remove_all_items",
+      "from": "0x001629C0"
+    },
+    {
       "op": "get_item_count",
       "of": "0x001629C0",
       "item": "Caps001",
-      "label": "Ringo's cash container at start"
+      "label": "box after emptying"
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x001629C0",
+      "item": "Caps001",
+      "label": "box 72 h after emptying"
     },
     {
       "op": "remove_all_items",
@@ -17,55 +39,29 @@
       "op": "get_item_count",
       "of": "0x001629C0",
       "item": "Caps001",
-      "label": "after emptying it"
-    },
-    {
-      "op": "detach_cell",
-      "cell": "GSGasStation"
+      "label": "box after emptying again"
     },
     {
       "op": "advance_time",
       "hours": 24
     },
     {
-      "op": "attach_cell",
-      "cell": "GSGasStation"
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "advance_time",
+      "hours": 12
     },
     {
       "op": "get_item_count",
       "of": "0x001629C0",
       "item": "Caps001",
-      "label": "after leaving, waiting 24 hours outside and returning"
-    },
-    {
-      "op": "detach_cell",
-      "cell": "GSGasStation"
-    },
-    {
-      "op": "advance_time",
-      "hours": 24
-    },
-    {
-      "op": "advance_time",
-      "hours": 24
-    },
-    {
-      "op": "advance_time",
-      "hours": 24
-    },
-    {
-      "op": "advance_time",
-      "hours": 24
-    },
-    {
-      "op": "attach_cell",
-      "cell": "GSGasStation"
-    },
-    {
-      "op": "get_item_count",
-      "of": "0x001629C0",
-      "item": "Caps001",
-      "label": "after leaving, waiting 96 hours outside and returning"
+      "label": "box 84 h after emptying again"
     }
   ]
 }

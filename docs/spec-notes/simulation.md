@@ -96,7 +96,7 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   delay in the masters (§5b); the simulation uses 72 game hours by default
   (`SimConfig.respawn_hours`), a figure to be captured. Other references are not reset
   yet. The engine reports unloading/loading (`detach_cell` / `attach_cell` ops).
-  **In game** [observed 2026-10-07, `L4.sim.trace.goodsprings_respawn`]: Ringo's cash
+  **In game** [observed 2026-10-07, `L4.sim.trace.goodsprings_respawn`, since retired]: Ringo's cash
   container 0x001629C0 (base CaravanCashRingo, Respawns, 200 caps) in GSGasStation, emptied
   with `RemoveAllItems`, held **200 caps again after the player left, waited 24 hours
   outside and came back**, and again after 96 hours. So the delay for this container is at
@@ -121,8 +121,8 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   (`iHoursToRespawnCell`, 72 in game) have passed since its last restock, it is reset to a
   fresh roll of its base contents and the restock time becomes the access time. A save
   carries each container's last restock time, which the plugins do not, so captures that
-  start from a save depend on that hidden state (`L4.sim.trace.goodsprings_respawn`'s 24 h
-  case does). Merchant containers can be identified from the data: an
+  start from a save depend on that hidden state (the retired `L4.sim.trace.goodsprings_respawn`'s
+  24 h case did; `L4.sim.trace.goodsprings_merchant_restock` avoids it). Merchant containers can be identified from the data: an
   ACHR/ACRE `XMRC` "Merchant Container" names them [documented: xEdit]; Ringo's
   reference 0x00104C7D points at 0x001629C0, and FalloutNV.esm has 77 XMRC links
   [observed].
