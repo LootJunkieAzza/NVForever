@@ -294,3 +294,9 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
 - `world check [--world W]` → `fnv.world.check/1`: the observational checks behind
   world.md (cell membership of references, shared LAND edges, normals against heights,
   base object types).
+
+# Layer 4 (core simulation)
+
+`fnvtool sim containers` (`fnv.sim.containers/1`), `fnvtool sim run`
+(`fnv.sim.actions/1` → `fnv.sim.trace/1`) and `fnvtool sim forms` (`fnv.sim.forms/1`)
+are defined in docs/spec-notes/simulation.md §7 together with the simulation notes.

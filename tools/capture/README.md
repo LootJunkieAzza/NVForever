@@ -17,6 +17,7 @@ committed**. Recommended layout:
   esm/<Plugin>.stats.json         oracle_esm.py stats
   esm/<Plugin>.xedit.inventory.json   xedit/export_inventory.pas
   bsa/<Archive>.listing.json      oracle_bsa.py   (e.g. "DeadMoney - Main.bsa.listing.json")
+  sim/containers.json             oracle_sim.py containers (ten masters)
 ```
 
 Point the lab at it through its `goldens_dir` setting in an uncommitted local overlay or an
@@ -267,13 +268,43 @@ python tools/capture/script_functions.py --wiki C:/fnv-private/geckwiki/function
   --data "<FNV>/Data" --xedit <path>/wbDefinitionsFNV.pas --notes schemas/script/notes.json
 ```
 
+## 9. `oracle_sim.py` — independent simulation oracle (Layer 4)
+
+Written only from `docs/spec-notes/simulation.md` (§3, §7) and `docs/spec-notes/esm.md`
+(not from `crates/` or `schemas/`). Standard library only; it imports the container
+helpers (tolerant zlib, XXXX-aware subrecord iterator, cp1252 strings) from
+`oracle_esm.py` and must sit next to it. One linear pass per plugin; only CONT records are
+parsed in full and LIGH records for their DATA flags, so the ten masters take about a second.
+
+```
+python tools/capture/oracle_sim.py containers "<Data>" FalloutNV.esm DeadMoney.esm HonestHearts.esm OldWorldBlues.esm LonesomeRoad.esm GunRunnersArsenal.esm ClassicPack.esm MercenaryPack.esm TribalPack.esm CaravanPack.esm -o C:/fnv-private/goldens/sim/containers.json
+```
+
+- `containers` → `fnv.sim.containers/1` (golden `sim/containers.json`): one object per
+  winning, non-deleted CONT, ordered by global FormID, with `edid`, `name`, `respawns`,
+  `script` and the CNTO `entries` classified as `item` / `leveled_item` / `other:<SIG>` /
+  `engine_builtin` / `missing`. Load order = the plugins in the order given; masters are
+  matched to the load order by file name, case-insensitively.
+- Oracle extensions at top level (the lab compares only `/containers`): `load_order`,
+  `summary` (forms defined/deleted, respawning containers, containers without CNTO,
+  entries per class, null and unmappable entries) and `warnings` (`{code, detail}`, capped
+  at 50 per code). On the ten masters the only warning is `unmappable_formid` for the
+  GunRunnersArsenal.esm REFR stored as 0x02000801 (ignored as a form).
+- Choices where the contract is silent: a null item is a *stored* FormID of 0; a master
+  that is not in the load order makes its FormIDs unmappable (entries omitted, `script`
+  null); a SCRI that cannot be globalised gives `script: null`; a CNTO shorter than 8 bytes
+  is skipped, a longer one uses its first 8; the first EDID/FULL/SCRI/DATA counts; a LIGH
+  without DATA or with DATA shorter than 16 bytes is not carriable; a CONT whose compressed
+  data cannot be decoded is still listed, with null fields and no entries; within one
+  plugin a later record with the same FormID replaces an earlier one.
+
 ## Tests
 
 ```
 python3 -m unittest discover -s tools/capture/tests -v
 ```
 
-The tests build tiny synthetic BSA, ESM, NIF and DDS files (compressed and trailer-less BSA entries,
+The tests build tiny synthetic BSA, ESM (single plugins and small load orders), NIF and DDS files (compressed and trailer-less BSA entries,
 empty compressed entry, hash mismatches, XXXX subrecord, compressed records including a bad
 Adler-32, nested GRUPs, truncated inputs) and, for `oracle_world.py`, a master plus a
 dependent plugin (reference override and move between cells, references added to master
