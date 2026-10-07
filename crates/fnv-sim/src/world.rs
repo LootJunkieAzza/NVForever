@@ -22,7 +22,7 @@ use crate::inventory::{unequipped, Extra, Inventory};
 use crate::leveled::{self, LeveledError};
 use crate::refs::{PlacedRef, RefTable};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SimConfig {
     pub seed: u64,
     /// Level used for leveled lists (the player's level). [hypothesis: containers
@@ -31,11 +31,20 @@ pub struct SimConfig {
     /// Hardcore mode: ammunition has weight. (Absent in older snapshots.)
     #[serde(default)]
     pub hardcore: bool,
+    /// Game hours a cell must stay unloaded before its respawning containers refill.
+    /// No game setting holds it in the masters; 72 is the commonly cited engine
+    /// default [hypothesis] (absent in older snapshots).
+    #[serde(default = "default_respawn_hours")]
+    pub respawn_hours: f32,
+}
+
+fn default_respawn_hours() -> f32 {
+    72.0
 }
 
 impl Default for SimConfig {
     fn default() -> Self {
-        SimConfig { seed: 0, player_level: 1, hardcore: false }
+        SimConfig { seed: 0, player_level: 1, hardcore: false, respawn_hours: default_respawn_hours() }
     }
 }
 
@@ -110,6 +119,7 @@ pub enum Outcome {
     OpenedContainer { container: FormId },
     Locked { level: u8 },
     Teleported { to_door: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3] },
+    Disarmed { item: FormId },
     DoorToggled { open: bool },
     Talk { actor: FormId },
     Activated,
@@ -158,6 +168,9 @@ pub struct Snapshot {
     /// Globals whose value differs from the plugins (absent in older snapshots).
     #[serde(default)]
     pub globals: BTreeMap<FormId, f32>,
+    /// Unloaded cells: GameDaysPassed when each was detached (absent in older snapshots).
+    #[serde(default)]
+    pub detached_cells: BTreeMap<FormId, f32>,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
@@ -169,6 +182,8 @@ pub struct World<'a> {
     refs: BTreeMap<FormId, RefState>,
     /// Globals set at run time (scripts, the clock); others keep their authored value.
     globals: BTreeMap<FormId, f32>,
+    /// Unloaded cells and the GameDaysPassed at which they were unloaded.
+    detached_cells: BTreeMap<FormId, f32>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -181,6 +196,7 @@ impl<'a> World<'a> {
             cfg,
             refs: BTreeMap::new(),
             globals: BTreeMap::new(),
+            detached_cells: BTreeMap::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -552,6 +568,45 @@ impl<'a> World<'a> {
         self.advance_hours(seconds * scale / 3600.0)
     }
 
+    /// The engine unloads `cell` (the player left it).
+    pub fn detach_cell(&mut self, cell: FormId) -> Result<(), SimError> {
+        let now = self.calendar()?.days_passed;
+        self.detached_cells.insert(cell, now);
+        Ok(())
+    }
+
+    /// The engine loads `cell` again. If it stayed unloaded for at least
+    /// `respawn_hours`, the containers in it whose base has the Respawns flag go back
+    /// to their authored state: their next use rolls new contents, and anything left in
+    /// them is lost. [hypothesis: the cell-reset behaviour commonly described for this
+    /// engine generation; other references are not reset yet] Returns the containers
+    /// reset.
+    pub fn attach_cell(&mut self, cell: FormId) -> Result<Vec<FormId>, SimError> {
+        let Some(since) = self.detached_cells.remove(&cell) else { return Ok(Vec::new()) };
+        let now = self.calendar()?.days_passed;
+        // GameDaysPassed is an f32 global, so an exact delay can come out a hair short
+        // (72 h measured as 71.99999 h): compare with a thousandth of an hour of slack.
+        let elapsed_hours = (now as f64 - since as f64) * 24.0;
+        if elapsed_hours + 1e-3 < self.cfg.respawn_hours as f64 {
+            return Ok(Vec::new());
+        }
+        let forms = self.forms;
+        let respawns = |base: FormId| matches!(forms.get(base).map(|b| &b.data), Some(BaseData::Container(c)) if c.respawns);
+        let reset: Vec<FormId> = self
+            .placed
+            .by_cell
+            .get(&cell)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|id| self.refs.get(id).is_some_and(|s| respawns(s.base)))
+            .collect();
+        for id in &reset {
+            self.refs.remove(id);
+        }
+        Ok(reset)
+    }
+
     pub fn set_enabled(&mut self, id: FormId, enabled: bool) -> Result<(), SimError> {
         self.get(id)?.enabled = enabled;
         Ok(())
@@ -635,6 +690,15 @@ impl<'a> World<'a> {
             BaseData::Actor(_) => Outcome::Talk { actor: target },
             BaseData::Activator | BaseData::Furniture => Outcome::Activated,
             BaseData::LeveledItem(_) => Outcome::NoDefault { sig: "LVLI".into() },
+            // A placed explosive: disarming it gives the weapon that fires it.
+            // [hypothesis: in-game disarming of placed mines; the Explosives skill check
+            // and the chance to trigger are Layer 6]
+            BaseData::Projectile { item: Some(item) } => {
+                self.inventory(actor)?.add(*item, 1);
+                self.get(target)?.deleted = true;
+                Outcome::Disarmed { item: *item }
+            }
+            BaseData::Projectile { item: None } => Outcome::NoDefault { sig: "PROJ".into() },
         };
         Ok(done(outcome, unlocked_with))
     }
@@ -647,6 +711,7 @@ impl<'a> World<'a> {
             next_dynamic: self.next_dynamic,
             refs: self.refs.clone(),
             globals: self.globals.clone(),
+            detached_cells: self.detached_cells.clone(),
         }
     }
 
@@ -660,6 +725,7 @@ impl<'a> World<'a> {
         w.next_dynamic = s.next_dynamic;
         w.refs = s.refs.clone();
         w.globals = s.globals.clone();
+        w.detached_cells = s.detached_cells.clone();
         Ok(w)
     }
 }
