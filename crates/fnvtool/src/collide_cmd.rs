@@ -94,6 +94,9 @@ fn survey(sources: &[std::path::PathBuf], schema: &Schema, filter: Option<&str>)
     let mut centre_body: BTreeMap<String, Vec<f64>> = BTreeMap::new();
     // Transform-shape rotation convention: fit error with the rotation as read vs transposed.
     let mut mat_fit: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    // Same question at vertex level: mean distance from collision points to the nearest
+    // render vertex (relative to mesh size), only where a transform rotation is not identity.
+    let mut mat_vfit: Vec<(String, f64, f64)> = Vec::new();
     for it in &items {
         files += 1;
         let ex = match &it.result {
@@ -162,6 +165,32 @@ fn survey(sources: &[std::path::PathBuf], schema: &Schema, filter: Option<&str>)
                     (0..3).map(|i| ((c[i] * 7.0 - rc[i]).abs() + (e[i] * 7.0 - re[i]).abs()) as f64).sum::<f64>() / size
                 };
                 mat_fit.entry("as_read".into()).or_default().push(err(&bounds(&o.shape, &body)));
+                let rotated = o.transform_matrices.iter().any(|m| {
+                    let r = fnv_collide::nif::iso_from_mat44(m).rotation;
+                    (r[1] - r[3]).abs() + (r[2] - r[6]).abs() + (r[5] - r[7]).abs() > 1e-3
+                });
+                if rotated && !ex.render_points.is_empty() {
+                    let fit = |s: &Shape| {
+                        let mut pts = Vec::new();
+                        s.bound_points(&body, &mut |p| pts.push(p.map(|v| v * 7.0)));
+                        let step = (pts.len() / 400).max(1);
+                        let rstep = (ex.render_points.len() / 20000).max(1);
+                        let sampled: Vec<_> = pts.iter().step_by(step).collect();
+                        let total: f64 = sampled
+                            .iter()
+                            .map(|p| {
+                                ex.render_points
+                                    .iter()
+                                    .step_by(rstep)
+                                    .map(|q| (0..3).map(|i| ((p[i] - q[i]) as f64).powi(2)).sum::<f64>())
+                                    .fold(f64::INFINITY, f64::min)
+                                    .sqrt()
+                            })
+                            .sum();
+                        total / sampled.len().max(1) as f64 / size
+                    };
+                    mat_vfit.push((it.path.clone(), fit(&o.shape), fit(&transposed(&o.shape))));
+                }
                 mat_fit.entry("transposed".into()).or_default().push(err(&bounds(&transposed(&o.shape), &body)));
             }
             centre_plain.entry(fam.clone()).or_default().push(off(&plain));
@@ -189,6 +218,12 @@ fn survey(sources: &[std::path::PathBuf], schema: &Schema, filter: Option<&str>)
             "by_family": ratio.into_iter().map(|(k, v)| (k, quantiles(v))).collect::<serde_json::Map<_, _>>(),
             "samples": ratio_samples,
             "centre_offset_x7_without_body_transform": centre_plain.into_iter().map(|(k, v)| (k, quantiles(v))).collect::<serde_json::Map<_, _>>(),
+            "transform_shape_vertex_fit": {
+                "meshes": mat_vfit.len(),
+                "as_read_better": mat_vfit.iter().filter(|x| x.1 < x.2 * 0.9).count(),
+                "transposed_better": mat_vfit.iter().filter(|x| x.2 < x.1 * 0.9).count(),
+                "rows": mat_vfit.iter().map(|(p, a, b)| json!([p, a, b])).collect::<Vec<_>>(),
+            },
             "transform_shape_fit_error": mat_fit.into_iter().map(|(k, v)| (k, quantiles(v))).collect::<serde_json::Map<_, _>>(),
             "centre_offset_x7_with_body_transform": centre_body.into_iter().map(|(k, v)| (k, quantiles(v))).collect::<serde_json::Map<_, _>>(),
         },

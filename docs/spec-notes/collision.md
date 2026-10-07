@@ -55,10 +55,13 @@ conversion uses 7 (`fnv_collide::nif::HAVOK_SCALE`).
 
 - **Transform matrices**: in all 176 stored matrices the translation is in elements
   12–14 and elements 3, 7, 11 are 0 [observed]; element 15 is 1 (68), 0 (103) or a stray
-  value (5) and is ignored. The rotation is read as stored column by column (element
-  `4·col + row`) [hypothesis: consistent with the translation's position; a bounds fit
-  cannot tell the two readings apart for symmetric shapes, and the column reading fits
-  slightly better on the 55 measurable meshes].
+  value (5) and is ignored. The rotation is stored column by column (element
+  `4·col + row`) [observed: of the 10 meshes in the base game, Dead Money, Old World
+  Blues, Lonesome Road, Gun Runners' Arsenal and Update archives whose transform shapes
+  have a non-symmetric rotation, collision points sit closer to the render vertices with
+  this reading in 2 by a factor of 3–4 (`architecture\freeside\ramshacklebusdoor02.nif`,
+  `clutter\questitems\mq03postalbox.nif`), and no worse in the other 8; the transposed
+  reading is never better; consistent with the translation's position].
 - **Packed strips**: no data block uses compressed vertices [observed]. Sub-parts
   partition the vertex array in order; every triangle's three vertices fall in one
   sub-part, which gives the triangle its material [observed: 0 mixed triangles in the
@@ -137,12 +140,11 @@ Lab comparator: **keyed** on `key` over `/objects` (all fields; float tolerance)
 ### `fnvtool collide survey <sources>... --schema <schemas/nif>` → `fnv.collide.survey/1`
 
 Observational statistics behind §1–§4 (structures, layers, motion, matrix layout, the
-scale measurement per shape family and body type). Not a scenario.
+scale measurement per shape family and body type, the transform-shape rotation fits).
+Not a scenario.
 
 ## 6. Open questions
 
-1. Transform-shape rotation reading (§3): settle with a vertex-level fit or an in-game
-   check (an object whose collision is a rotated, non-symmetric shape).
-2. What each collision layer collides with, and the player capsule's size, step height
+1. What each collision layer collides with, and the player capsule's size, step height
    and slope limit (workstream 2's capture list).
-3. Whether the engine uses exactly 7.
+2. Whether the engine uses exactly 7.
