@@ -211,7 +211,25 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
 - How the engine hides LOD under loaded cells, and when it switches levels, is not known
   [hypothesis in the renderer: level 4 only; layer3.md].
 
-## 8. Open questions
+## 8. Interior lighting and lights
+
+- **Interior cells** carry `XCLL`: ambient, directional and fog colours, fog near/far,
+  directional rotation (two i32 angles), directional fade, fog clip distance, fog power
+  [documented; observed: GSDocMitchellHouse fog 64..5000]. `LTMP` names a lighting
+  template (LGTM, `DATA` = the same ten fields, 40 bytes [documented; observed: all 40
+  LGTM records decode exactly]) and `LNAM` holds "inherit" flags, one per field
+  [documented]. The renderer takes a field from the template when its bit is set
+  [hypothesis]. The two rotation angles are read as azimuth about z and elevation, in
+  degrees [hypothesis].
+- **Lights (LIGH DATA)**: time i32, radius u32, colour (RGBA bytes), flags u32
+  (dynamic, can be carried, negative, flicker, off by default, flicker slow, pulse,
+  pulse slow, spot, spot shadow, ...), falloff exponent f32, FOV f32, value u32, weight
+  f32 [documented]. Doc Mitchell's house holds 25 LIGH references without a model
+  [observed]. The renderer draws each enabled, non-negative, not-off-by-default light as
+  a point light (spot light for spot types) with range = radius; brightness grows with
+  radius² and is tuned by eye [hypothesis].
+
+## 9. Open questions
 
 1. Engine-defined base objects (FormIDs < 0x800): which are visible? (Assumed none.)
 2. Texture-layer details: quadrant order, blending of `layer` numbers, the default
@@ -219,5 +237,7 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
    Verify by comparing renders with in-game screenshots.
 3. XCLW sentinel 3.4028235e38: confirm that the worldspace water height applies.
 4. Weather selection rule and the meaning of WLST globals (see §6).
-5. The engine's handling of SCOL references: whether it draws the combined mesh (assumed)
+5. Light brightness and falloff (LIGH radius, falloff exponent) and the XCLL rotation
+   angles; to calibrate against in-game interior screenshots.
+6. The engine's handling of SCOL references: whether it draws the combined mesh (assumed)
    or the parts.

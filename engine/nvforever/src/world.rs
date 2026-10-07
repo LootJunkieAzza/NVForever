@@ -93,7 +93,18 @@ pub struct Streamer {
     pub per_frame: usize,
     /// Model path fragments not to draw (diagnostics).
     pub hide: Vec<String>,
+    /// Interior mode: this one cell instead of the exterior grid.
+    pub interior: Option<u32>,
+    /// Light intensity (Bevy lumens) per squared game unit of LIGH radius [tuned by eye].
+    pub light_scale: f32,
     pub stats: StreamStats,
+}
+
+/// Which cell to load.
+#[derive(Debug, Clone, Copy)]
+pub enum CellKey {
+    Exterior((i32, i32)),
+    Interior(u32),
 }
 
 #[derive(Debug, Default, Clone)]
@@ -106,6 +117,7 @@ pub struct StreamStats {
     /// TREE references: SpeedTree models are not drawn yet (layer3.md work item).
     pub refs_speedtree: usize,
     pub water_planes: usize,
+    pub lights: usize,
     pub shapes: usize,
     pub load_ms: f64,
     pub skipped_types: HashMap<String, usize>,
@@ -136,6 +148,18 @@ pub fn stream(
     mut terrain: TerrainMaterials,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
+    if let Some(id) = streamer.interior {
+        if streamer.loaded.is_empty() {
+            let t0 = std::time::Instant::now();
+            let s = &mut *streamer;
+            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, s);
+            commands.entity(root).add_child(e);
+            streamer.loaded.insert((i32::MIN, i32::MIN), e);
+            streamer.stats.cells_loaded += 1;
+            streamer.stats.load_ms += t0.elapsed().as_secs_f64() * 1000.0;
+        }
+        return;
+    }
     let g = bevy_to_game(cam.translation());
     let centre = cell_of(g.x, g.y);
     let r = streamer.radius;
@@ -160,7 +184,7 @@ pub fn stream(
     for c in missing.into_iter().take(streamer.per_frame) {
         let t0 = std::time::Instant::now();
         let s = &mut *streamer;
-        let e = load_cell(&mut commands, &world, c, &mut models, &mut terrain, &s.hide, &mut s.stats);
+        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, s);
         commands.entity(root).add_child(e);
         streamer.loaded.insert(c, e);
         streamer.stats.cells_loaded += 1;
@@ -176,23 +200,27 @@ fn ref_affine(p: &Placement) -> Affine3A {
 fn load_cell(
     commands: &mut Commands,
     world: &WorldData,
-    g: (i32, i32),
+    key: CellKey,
     models: &mut ModelCtx,
     terrain: &mut TerrainMaterials,
-    hide: &[String],
-    stats: &mut StreamStats,
+    streamer: &mut Streamer,
 ) -> Entity {
-    let origin = Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0);
-    let cell_e = commands
-        .spawn((Name::new(format!("Cell {},{}", g.0, g.1)), CellEntity, Transform::from_translation(origin), Visibility::default()))
-        .id();
-    let cell = world.grid_cell(g);
-    if let Some(land) = cell.and_then(|c| c.land) {
-        spawn_terrain(commands, cell_e, world, land, g, &mut TerrainCtx { tm: terrain, assets: models });
-    }
+    let (hide, light_scale, stats) = (&streamer.hide, streamer.light_scale, &mut streamer.stats);
+    let (origin, cell, name) = match key {
+        CellKey::Exterior(g) => {
+            (Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0), world.grid_cell(g), format!("Cell {},{}", g.0, g.1))
+        }
+        CellKey::Interior(id) => (Vec3::ZERO, world.index.cells.get(&id), format!("Interior {id:08X}")),
+    };
+    let cell_e = commands.spawn((Name::new(name), CellEntity, Transform::from_translation(origin), Visibility::default())).id();
     let mut refs: Vec<u32> = cell.map(|c| c.refs.clone()).unwrap_or_default();
-    if let Some(p) = world.persistent_by_grid.get(&g) {
-        refs.extend(p);
+    if let CellKey::Exterior(g) = key {
+        if let Some(land) = cell.and_then(|c| c.land) {
+            spawn_terrain(commands, cell_e, world, land, g, &mut TerrainCtx { tm: terrain, assets: models });
+        }
+        if let Some(p) = world.persistent_by_grid.get(&g) {
+            refs.extend(p);
+        }
     }
     if let Some(c) = cell {
         spawn_water(commands, cell_e, world, c, models, stats);
@@ -211,6 +239,11 @@ fn load_cell(
             *stats.skipped_types.entry(t).or_default() += 1;
             continue;
         };
+        if &base.sig == b"LIGH"
+            && spawn_light(commands, cell_e, world, base.form_id, (to_cell * ref_affine(&p)).translation.into(), light_scale)
+        {
+            stats.lights += 1;
+        }
         if base.is_speedtree() {
             // SpeedTree geometry is not decoded yet: draw the tree's billboard as two
             // crossed quads (interim; docs/design/layer3.md).
@@ -253,6 +286,35 @@ fn load_cell(
     cell_e
 }
 
+/// A LIGH reference's light: a point light (spot light for spot types) with the light's
+/// colour and radius as range [documented: LIGH DATA]; intensity grows with the radius
+/// squared (scale tuned by eye). Negative and off-by-default lights are not drawn.
+fn spawn_light(commands: &mut Commands, cell_e: Entity, world: &WorldData, ligh: u32, at: Vec3, scale: f32) -> bool {
+    use fnv_world::lighting::{light_data, light_flags};
+    let Some(l) = light_data(&world.lo, world.schema, ligh) else { return false };
+    if l.flags & (light_flags::NEGATIVE | light_flags::OFF_BY_DEFAULT) != 0 || l.radius <= 0.0 {
+        return false;
+    }
+    let lin = l.color.map(fnv_world::sky::srgb_to_linear);
+    let color = Color::LinearRgba(LinearRgba::rgb(lin[0], lin[1], lin[2]));
+    let intensity = scale * l.radius * l.radius;
+    let t = Transform::from_translation(at);
+    if l.flags & light_flags::SPOT != 0 {
+        let a = (l.fov.clamp(1.0, 179.0) / 2.0).to_radians();
+        // Spot lights point down their reference's -z [hypothesis].
+        commands.entity(cell_e).with_child((
+            SpotLight { color, intensity, range: l.radius, outer_angle: a, inner_angle: a * 0.8, shadow_maps_enabled: false, ..default() },
+            t.looking_to(-Vec3::Z, Vec3::Y),
+        ));
+    } else {
+        commands.entity(cell_e).with_child((
+            PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() },
+            t,
+        ));
+    }
+    true
+}
+
 /// Water surface of a cell: cells flagged "has water" get a plane at XCLW, or at the
 /// worldspace's default water height when XCLW is absent or the 3.4e38 sentinel
 /// [hypothesis, world.md §1]; the water type is CELL XCWT, else the worldspace's NAM2.
@@ -270,6 +332,7 @@ fn spawn_water(
     let ws = &world.index.worldspaces[&world.world];
     let height = match c.water_height {
         Some(h) if h.is_finite() && h.abs() < 1.0e30 => h,
+        _ if c.is_interior() => return,
         _ => match ws.default_water_height {
             Some(h) => h,
             None => return,

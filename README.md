@@ -130,7 +130,8 @@ cargo run --release --bin nvforever -- --data $D --cell Goodsprings
 
 Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
 `[`/`]` hour, F12 screenshot, Esc quit. `--world`, `--cell x,y`, `--pos x,y,z`, `--heading`,
-`--radius`, `--hour`, `--weather`.
+`--radius`, `--hour`, `--weather`. An interior cell's Editor ID as `--cell` (e.g.
+`GSDocMitchellHouse`) opens that interior with its own lighting.
 
 ## Rules of the project
 

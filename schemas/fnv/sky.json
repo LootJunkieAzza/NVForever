@@ -350,6 +350,50 @@
      "optional": true
     }
    ]
+  },
+  "LightingData": {
+   "struct": [
+    {
+     "name": "ambient_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "directional_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "fog_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "fog_near",
+     "type": "f32"
+    },
+    {
+     "name": "fog_far",
+     "type": "f32"
+    },
+    {
+     "name": "directional_rotation_xy",
+     "type": "i32"
+    },
+    {
+     "name": "directional_rotation_z",
+     "type": "i32"
+    },
+    {
+     "name": "directional_fade",
+     "type": "f32"
+    },
+    {
+     "name": "fog_clip_dist",
+     "type": "f32"
+    },
+    {
+     "name": "fog_power",
+     "type": "f32"
+    }
+   ]
   }
  },
  "records": {
@@ -567,6 +611,18 @@
      "type": "WaterVisual",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas WATR record (optional from field 46)"
+    }
+   }
+  },
+  "LGTM": {
+   "name": "Lighting Template",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Lighting",
+     "type": "LightingData",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas LGTM record"
     }
    }
   }

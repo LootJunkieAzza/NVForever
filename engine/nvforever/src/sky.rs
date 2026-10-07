@@ -33,6 +33,8 @@ pub struct SkyState {
     pub hour: f32,
     /// Fog distances from the weather are used as stored unless this is set.
     pub fog_override: Option<(f32, f32)>,
+    /// Interior mode: the cell's own lighting replaces sky, sun and weather.
+    pub interior: Option<fnv_world::lighting::CellLighting>,
     changed: bool,
 }
 
@@ -50,10 +52,13 @@ impl SkyState {
             None => default_weather(&clim, |g| global_value(&world.lo, world.schema, g)).ok_or("climate lists no weather")?,
         };
         let w = weather(&world.lo, world.schema, wid).ok_or("weather unreadable")?;
-        Ok(SkyState { climate: clim, weather: w, hour, fog_override: None, changed: true })
+        Ok(SkyState { climate: clim, weather: w, hour, fog_override: None, interior: None, changed: true })
     }
 
     pub fn describe(&self) -> String {
+        if self.interior.is_some() {
+            return "interior lighting (XCLL / template)".into();
+        }
         format!(
             "{:02}:{:02}  climate {}  weather {}",
             self.hour as u32 % 24,
@@ -176,6 +181,35 @@ pub fn update_sky(
     let cam_pos = cam_t.translation;
     let to_bevy = game_to_bevy();
     let changed = std::mem::take(&mut sky.changed);
+    if let Some(l) = sky.interior {
+        if !changed {
+            return;
+        }
+        let c = |v: [u8; 3]| to_color(v.map(fnv_world::sky::srgb_to_linear));
+        if let Ok((_, mut t)) = dome.single_mut() {
+            t.scale = Vec3::ZERO;
+        }
+        if let Ok((mut t, _)) = disc.single_mut() {
+            t.scale = Vec3::ZERO;
+        }
+        clear.0 = c(l.fog_color);
+        ambient.color = c(l.ambient);
+        ambient.brightness = AMBIENT_BRIGHTNESS;
+        if let Ok((mut light, mut t)) = sun.single_mut() {
+            // XCLL directional rotation: xy = azimuth about z, z = elevation, in degrees
+            // [hypothesis].
+            let (az, el) = ((l.directional_rotation_xy as f32).to_radians(), (l.directional_rotation_z as f32).to_radians());
+            let from_game = Vec3::new(az.sin() * el.cos(), az.cos() * el.cos(), el.sin());
+            let from = game_to_bevy().rotation * from_game;
+            *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
+            light.color = c(l.directional);
+            light.illuminance = SUN_LUX * l.directional_fade.clamp(0.0, 1.0);
+        }
+        fog.color = c(l.fog_color);
+        fog.falloff = FogFalloff::Linear { start: l.fog_near.max(0.0), end: l.fog_far.max(l.fog_near + 1.0) };
+        info!("interior lighting: fog {:.0}..{:.0}", l.fog_near, l.fog_far);
+        return;
+    }
     let (h, c, w) = (sky.hour, &sky.climate, &sky.weather);
     let sun_dir_game = Vec3::from_array(sun_direction(c, h, SUN_TILT));
     let sun_dir = to_bevy.rotation * sun_dir_game;
