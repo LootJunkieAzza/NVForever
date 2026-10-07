@@ -254,6 +254,12 @@ coordinates need `--drop=-1,2` or `--x=-18`.
              "rest_above_terrain": 1.5, "touched": [{"kind": "terrain", "grid": [-18, 0]}]}]}
 ```
 
+(The example above predates mesh collision; with it, Goodsprings counts
+`"with_collision": 849, "colliders": 1430` and no `awaiting_collision`, §4.) Without
+`--drop`, an exterior probe falls at the cell's centre and an interior one at the middle of
+the placements that have collision; ground rays span the loaded terrain and placements
+with 1,000 units to spare.
+
 `refs.counts` keys appear only when non-zero: `placed`, `unreadable`, `deleted`,
 `initially_disabled`, `no_base`, `no_model`, `collision_primitive` (CollisionMarker
 primitives added), `bad_primitive`, `speedtree`, `model_without_collision`,
@@ -270,6 +276,46 @@ collision needs the NIF schema: `--nif-schema <dir>`, by default `nif` next to t
 `rest_above_terrain` = final feet z − `terrain_z` (the capsule rests `skin` above the
 surface along the contact normal, so slightly more than `skin` on slopes).
 Output is deterministic (no timings).
+
+### `fnvtool phys walk ... --script <file> (--world <edid|formid> | --cell <edid|formid>) [--radius N] [--every N] [--nif-schema <dir>] [--no-meshes]` → `fnv.phys.walk/1`
+
+Builds the world as `phys cell` does around the cell holding the script's start (for
+`--world`) or the given interior cell, adds one character and runs the script, stepping
+the world once per script step. The script (`fnv.phys.walk-script/1`):
+
+```json
+{"schema": "fnv.phys.walk-script/1",
+ "start": [-71680.0, 2048.0],
+ "hz": 60,
+ "params": {"step_height": 24.0},
+ "segments": [{"steps": 30},
+              {"steps": 300, "velocity": [250.0, 0.0]},
+              {"steps": 1, "velocity": [250.0, 0.0], "jump": true}]}
+```
+
+`start` is the feet `[x, y]` (then 1 unit above what a downward ray finds) or `[x, y, z]`;
+`hz` the step rate (default 60, sets `dt`); `params` overrides `gravity` or any character
+parameter (`radius`, `height`, `step_height`, `max_slope_deg`, `jump_height`, `skin`,
+`max_fall_speed`, `push_mass`); each segment holds a horizontal velocity (units/s, world
+axes, default 0) for `steps` steps, and `jump` presses jump on its first step. Output:
+the `phys cell` document's world fields (`cell` ... `refs`, with `params` and `character`
+as used), then
+
+```json
+{"start": [-71680.0, 2048.0, 8369.0],
+ "summary": {"steps": 781, "seconds": 13.017, "end": [-70061.3, 3268.3, 8352.5],
+             "horizontal_path": 2850.5, "min_z": 8344.5, "max_z": 8423.6, "jumps": 1,
+             "landings": 2, "airborne_steps": 52,
+             "touched": [{"owner": {"kind": "terrain", "grid": [-18, 0]}, "steps": 359}]},
+ "trace": [{"step": 1, "feet": [-71680.0, 2048.0, 8368.5], "vertical_speed": 0.0,
+            "grounded": true, "sliding": false, "landed_speed": null, "touched": []}]}
+```
+
+`trace` holds every `--every`th step and the last. Runs are deterministic: the same
+inputs give byte-identical output [observed: the Goodsprings script below, run twice].
+`crates/fnv-phys/scripts/goodsprings_walk.json` is such a script (synthetic input, not a
+capture); once the owner records a real walk (§6), a script with the same inputs and the
+recorded positions become a parity scenario.
 
 ### `fnvtool phys terrain ... --world <edid|formid> [--samples N]` → `fnv.phys.terrain/1`
 

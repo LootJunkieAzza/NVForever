@@ -96,6 +96,33 @@ pub enum PhysCmd {
         #[arg(long)]
         no_meshes: bool,
     },
+    /// A scripted character walk through the world built around its start, traced step
+    /// by step (fnv.phys.walk/1).
+    Walk {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Walk script (JSON, `fnv.phys.walk-script/1`, physics.md §7).
+        #[arg(long)]
+        script: PathBuf,
+        /// Interior cell to walk in (Editor ID or FormID).
+        #[arg(long)]
+        cell: Option<String>,
+        /// Worldspace to walk in (Editor ID or FormID); the cells around the start load.
+        #[arg(long)]
+        world: Option<String>,
+        /// Exterior cells loaded around the start cell, in grid squares.
+        #[arg(long, default_value_t = 1)]
+        radius: i32,
+        /// Record every Nth step (the last step is always recorded).
+        #[arg(long, default_value_t = 1)]
+        every: usize,
+        /// NIF schema directory for mesh collision (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Leave mesh collision out (terrain and collision primitives only).
+        #[arg(long)]
+        no_meshes: bool,
+    },
     /// Vertical rays on every landscape cell of a worldspace against the analytic
     /// terrain surface (fnv.phys.terrain/1).
     Terrain {
