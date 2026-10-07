@@ -123,6 +123,14 @@ pub enum PhysCmd {
         #[arg(long)]
         no_meshes: bool,
     },
+    /// Terrain height under fixed sample points of every landscape cell of a worldspace,
+    /// found by vertical rays against the physics terrain (fnv.phys.heights/1).
+    Heights {
+        #[command(flatten)]
+        w: WorldArgs,
+        #[arg(long)]
+        world: String,
+    },
     /// Vertical rays on every landscape cell of a worldspace against the analytic
     /// terrain surface (fnv.phys.terrain/1).
     Terrain {
