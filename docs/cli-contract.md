@@ -301,3 +301,9 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
 dropped in it) and `phys terrain` (`fnv.phys.terrain/1`: terrain colliders checked
 against the LAND heights of a worldspace). Their contract lives in
 docs/spec-notes/physics.md §7.
+
+# Layer 4 (collision geometry)
+
+`fnvtool collide objects` (`fnv.collide.objects/1`) and `fnvtool collide survey`
+(`fnv.collide.survey/1`) are defined in docs/spec-notes/collision.md §5 together with the
+collision notes.

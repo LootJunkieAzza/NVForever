@@ -3,6 +3,7 @@
 //! Exit codes: 0 success, 1 the input could not be processed, 2 usage error.
 
 mod bsa_cmd;
+mod collide_cmd;
 mod dds_cmd;
 mod esm_cmd;
 mod install_cmd;
@@ -57,6 +58,9 @@ enum Cmd {
     /// Physics world built from the game data: terrain, collision, probe characters.
     #[command(subcommand)]
     Phys(PhysCmd),
+    /// Layer 4 collision geometry: Havok collision blocks of meshes.
+    #[command(subcommand)]
+    Collide(CollideCmd),
 }
 
 #[derive(Subcommand)]
@@ -96,6 +100,31 @@ pub enum PhysCmd {
         /// Scattered sample points per cell (grid vertices and lines are added).
         #[arg(long, default_value_t = 64)]
         samples: usize,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CollideCmd {
+    /// Statistics of every collision object and the measured stored-to-game scale
+    /// (fnv.collide.survey/1).
+    Survey {
+        /// BSA archives, loose .nif files or directories.
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Only files whose path contains this text (case-insensitive).
+        #[arg(long)]
+        filter: Option<String>,
+    },    /// Every solid collision object of every mesh in an archive, in game units
+    /// (fnv.collide.objects/1).
+    Objects {
+        archive: PathBuf,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Only files whose path contains this text (case-insensitive).
+        #[arg(long)]
+        filter: Option<String>,
     },
 }
 
@@ -369,6 +398,7 @@ fn main() -> ExitCode {
         Cmd::Dds(c) => dds_cmd::run(c),
         Cmd::World(c) => world_cmd::run(c),
         Cmd::Phys(c) => phys_cmd::run(c),
+        Cmd::Collide(c) => collide_cmd::run(c),
     };
     match res {
         Ok(v) => {
