@@ -101,8 +101,15 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   with `RemoveAllItems`, held **200 caps again after the player left, waited 24 hours
   outside and came back**, and again after 96 hours. So the delay for this container is at
   most about 24 game hours (plus the minutes spent walking), well under the 72 h default;
-  whether merchant cash boxes follow a different rule from other respawning containers,
-  and the setting's value, are not captured yet.
+  A follow-up (`aa_respawn_delay`) read **`iHoursToRespawnCell` = 72 in the running game**
+  (an engine default; no master defines it) [observed], and the same box stayed empty
+  after 1 h and after 6 h away and was full after 12 h away (about 19 h after it was first
+  emptied). So this merchant cash box restocks on a rule of its own, faster than the
+  72-hour cell respawn [observed]; which rule (hours away, day change, time since
+  emptying) is being captured. Merchant containers can be identified from the data: an
+  ACHR/ACRE `XMRC` "Merchant Container" names them [documented: xEdit]; Ringo's
+  reference 0x00104C7D points at 0x001629C0, and FalloutNV.esm has 77 XMRC links
+  [observed].
 - **Inventory model**: one stack per base item, split into groups of identical extra data
   (condition, owner, equipped). Removing more than is held removes what is there and
   reports that number [hypothesis: GECK `RemoveItem` behaviour as commonly described; to
