@@ -39,15 +39,15 @@ pub struct SimConfig {
     pub respawn_hours: Option<f32>,
 }
 
-/// Respawn delay when neither the config nor a plugin sets one. No master defines
-/// `iHoursToRespawnCell` [observed]; 72 is the commonly cited engine value
-/// [hypothesis, contradicted for at least one container: Ringo's cash box refilled after
-/// a 24 h absence in game (L4.sim.trace.goodsprings_respawn); the in-game value is being
-/// captured].
+/// Respawn delay when neither the config nor a plugin sets one: the engine's built-in
+/// value of `iHoursToRespawnCell` [observed in game: `GetGameSetting
+/// iHoursToRespawnCell` = 72.0; no master defines the setting]. Merchant containers
+/// restock faster, by a separate rule not modelled yet (Ringo's cash box: empty after
+/// 1 h and 6 h away, full after 12 h and 24 h; `RefTable::is_merchant_container`).
 pub const DEFAULT_RESPAWN_HOURS: f32 = 72.0;
 
-/// The game setting that holds the respawn delay. [hypothesis: name as cited by the
-/// community; not present in the masters]
+/// The game setting that holds the cell-respawn delay [observed in game: the running
+/// game answers `GetGameSetting iHoursToRespawnCell`].
 pub const RESPAWN_SETTING: &str = "iHoursToRespawnCell";
 
 impl Default for SimConfig {
