@@ -186,7 +186,7 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 7. **Captures waiting for you** (procedures and console equivalents in
    docs/spec-notes/simulation.md §6; goldens go to `C:/fnv-private/goldens/sim/`):
    `goodsprings_doc_mitchell`, `goodsprings_weight_and_time` (new level-1 character, no
-   perks), `goodsprings_respawn` (test save; Ringo's cash container), `x13_enable_parents`
+   perks), `goodsprings_merchant_restock` (test save; Ringo's cash container), `x13_enable_parents`
    (test save in Old World Blues' X-13) and `leveled_basic.samples` (a few hundred
    `AddItem` draws per case). They can now be run with the `nvf_capture` plugin (needs
    xNVSE 6.4.9+ installed by you; tools/capture/README.md §10). First golden captured
@@ -210,6 +210,12 @@ PR.
 | 2 | Physics and character controller | `claude/layer4-phys` | `crates/fnv-phys`, `crates/fnvtool/src/phys_cmd.rs`, `docs/spec-notes/physics.md`, the physics row of `dependencies.md` | rapier3d world from placed references + LAND terrain; ray and shape queries; kinematic capsule controller; dynamic clutter; deterministic stepping | 1's shape API (stub first), `fnv-world` |
 | 3 | Simulation core | `claude/layer4-sim-*` | `crates/fnv-sim`, `crates/fnvtool/src/sim_cmd.rs`, `parity-lab/scenarios/layer4_sim.json`, `parity-lab/inputs/layer4/`, `docs/spec-notes/simulation.md`, this file (except §2.8 detail owned by 1/2 in their spec notes), README Layer 4 row | per-stack extra data, equip, encumbrance, game clock, respawn, enable-parent propagation, PGRE, schema gaps (IMOD, CHIP, CCRD, CMNY, NOTE), distribution comparator for leveled lists | — |
 | 4 | Engine integration | `claude/layer4-play` | new Bevy crate `engine/nvf-play`; one registration line in `engine/nvforever` | player controller in the game, crosshair activation, container/inventory screen | 2 and 3; coordinate with the renderer owner of `engine/` |
+
+Retired scenario (owner decision 2026-10-07): `L4.sim.trace.goodsprings_respawn` — its
+24 h case passed in game only because the save's merchant restock time was due (hidden
+save state), and it exercised a merchant box rather than the 72 h cell respawn it was
+meant for; replaced by `L4.sim.trace.goodsprings_merchant_restock`. A cell-respawn
+scenario on a non-merchant Respawns container is still to be designed.
 
 Workstream 3 runs as two sessions since 2026-10-07 (owner's split by agreement between
 them): **3-core** (`claude/layer4-sim-core`: `crates/fnv-sim`, `crates/fnvtool/src/sim_cmd.rs`)
