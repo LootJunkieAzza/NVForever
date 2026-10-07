@@ -366,6 +366,7 @@ dependencies = [
 name = "fnv-nif"
 version = "0.1.0"
 dependencies = [
+ "fnv-bsa",
  "fnv-util",
  "proptest",
  "serde_json",
@@ -385,6 +386,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-vfs"
+version = "0.1.0"
+dependencies = [
+ "fnv-bsa",
+ "thiserror",
+]
+
+[[package]]
 name = "fnvtool"
 version = "0.1.0"
 dependencies = [
@@ -397,6 +406,7 @@ dependencies = [
  "fnv-install",
  "fnv-nif",
  "fnv-util",
+ "fnv-vfs",
  "rayon",
  "serde_json",
  "tracing",

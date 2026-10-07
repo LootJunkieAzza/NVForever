@@ -1,0 +1,25 @@
+[package]
+name = "nvf-viewer"
+description = "NVForever asset viewer: renders NIF meshes with their DDS textures and plays KF animations (Bevy)"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+# Its own workspace so the format crates and their CI never compile Bevy.
+[workspace]
+
+[dependencies]
+# Pinned exactly: upgrade deliberately, in its own commit, with a full parity-lab run.
+bevy = "=0.19.1"
+fnv-nif = { path = "../crates/fnv-nif" }
+fnv-dds = { path = "../crates/fnv-dds" }
+fnv-vfs = { path = "../crates/fnv-vfs" }
+clap = { version = "4", features = ["derive", "env"] }
+
+# Bevy is slow unoptimised; optimise dependencies even in dev builds.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

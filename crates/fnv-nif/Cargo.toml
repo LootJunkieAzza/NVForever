@@ -13,3 +13,6 @@ tracing = "0.1"
 
 [dev-dependencies]
 proptest = "1"
+
+[dev-dependencies.fnv-bsa]
+path = "../fnv-bsa"
