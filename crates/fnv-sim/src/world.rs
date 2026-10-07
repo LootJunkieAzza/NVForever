@@ -15,6 +15,7 @@ use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use crate::clock::{self, Calendar};
 use crate::form::FormId;
 use crate::forms::{BaseData, FormStore};
 use crate::inventory::Inventory;
@@ -74,6 +75,8 @@ pub enum SimError {
     BadCount(i32),
     #[error("{0} is not in the world (deleted)")]
     Deleted(FormId),
+    #[error("the global {0} is not defined by any plugin")]
+    MissingGlobal(String),
     #[error(transparent)]
     Leveled(#[from] LeveledError),
 }
@@ -115,6 +118,9 @@ pub struct Snapshot {
     pub rng_word_pos: String,
     pub next_dynamic: u32,
     pub refs: BTreeMap<FormId, RefState>,
+    /// Globals whose value differs from the plugins (absent in older snapshots).
+    #[serde(default)]
+    pub globals: BTreeMap<FormId, f32>,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
@@ -124,6 +130,8 @@ pub struct World<'a> {
     pub placed: &'a RefTable,
     cfg: SimConfig,
     refs: BTreeMap<FormId, RefState>,
+    /// Globals set at run time (scripts, the clock); others keep their authored value.
+    globals: BTreeMap<FormId, f32>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -135,6 +143,7 @@ impl<'a> World<'a> {
             placed,
             cfg,
             refs: BTreeMap::new(),
+            globals: BTreeMap::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -312,6 +321,90 @@ impl<'a> World<'a> {
         Ok(Some(id))
     }
 
+    /// Whether a reference is enabled, following its enable-parent chain. A reference
+    /// with an enable parent takes the parent's effective state (inverted when the
+    /// "opposite" flag is set) and its own flag is ignored; a chain that ends at a
+    /// reference that does not exist, or loops, falls back to the reference's own flag.
+    /// [hypothesis: GECK wiki "Enable Parent"; to be captured] Does not materialise
+    /// anything, so it never consumes randomness.
+    pub fn is_enabled(&self, id: FormId) -> Result<bool, SimError> {
+        let own = |w: &World, id: FormId| -> Option<bool> {
+            match w.refs.get(&id) {
+                Some(s) => Some(s.enabled),
+                None => w.placed.get(id).map(|p| !p.initially_disabled()),
+            }
+        };
+        let start = own(self, id).ok_or(SimError::UnknownRef(id))?;
+        let mut invert = false;
+        let mut cur = id;
+        let mut seen = vec![id];
+        loop {
+            let Some(ep) = self.placed.get(cur).and_then(|p| p.enable_parent) else {
+                return Ok(own(self, cur).unwrap_or(start) ^ invert);
+            };
+            if seen.contains(&ep.reference) || own(self, ep.reference).is_none() {
+                return Ok(start);
+            }
+            invert ^= ep.opposite;
+            seen.push(ep.reference);
+            cur = ep.reference;
+        }
+    }
+
+    /// Current value of a global.
+    pub fn global(&self, id: FormId) -> Result<f32, SimError> {
+        match self.globals.get(&id) {
+            Some(v) => Ok(*v),
+            None => self.forms.globals.get(&id).copied().ok_or(SimError::UnknownForm(id)),
+        }
+    }
+
+    pub fn set_global(&mut self, id: FormId, value: f32) -> Result<(), SimError> {
+        if !self.forms.globals.contains_key(&id) {
+            return Err(SimError::UnknownForm(id));
+        }
+        self.globals.insert(id, value);
+        Ok(())
+    }
+
+    fn time_global(&self, edid: &str) -> Result<(FormId, f32), SimError> {
+        let (id, _) = self.forms.global_by_edid(edid).ok_or_else(|| SimError::MissingGlobal(edid.to_string()))?;
+        Ok((id, self.global(id)?))
+    }
+
+    /// The clock as stored in the time globals.
+    pub fn calendar(&self) -> Result<Calendar, SimError> {
+        Ok(Calendar {
+            year: self.time_global(clock::GAME_YEAR)?.1,
+            month: self.time_global(clock::GAME_MONTH)?.1,
+            day: self.time_global(clock::GAME_DAY)?.1,
+            hour: self.time_global(clock::GAME_HOUR)?.1,
+            days_passed: self.time_global(clock::GAME_DAYS_PASSED)?.1,
+        })
+    }
+
+    /// Advance game time by `hours` (waiting, sleeping, fast travel).
+    pub fn advance_hours(&mut self, hours: f64) -> Result<Calendar, SimError> {
+        let c = self.calendar()?.advance(hours);
+        for (edid, v) in [
+            (clock::GAME_YEAR, c.year),
+            (clock::GAME_MONTH, c.month),
+            (clock::GAME_DAY, c.day),
+            (clock::GAME_HOUR, c.hour),
+            (clock::GAME_DAYS_PASSED, c.days_passed),
+        ] {
+            let (id, _) = self.time_global(edid)?;
+            self.globals.insert(id, v);
+        }
+        Ok(c)
+    }
+
+    /// Advance game time by `seconds` of real time at the current TimeScale.
+    pub fn advance_real_seconds(&mut self, seconds: f64) -> Result<Calendar, SimError> {
+        let scale = self.time_global(clock::TIME_SCALE)?.1 as f64;
+        self.advance_hours(seconds * scale / 3600.0)
+    }
+
     pub fn set_enabled(&mut self, id: FormId, enabled: bool) -> Result<(), SimError> {
         self.get(id)?.enabled = enabled;
         Ok(())
@@ -345,7 +438,7 @@ impl<'a> World<'a> {
         let base = self.forms.get(t.base);
         let script = base.and_then(|b| b.script);
         let done = |outcome, unlocked_with| Activation { outcome, unlocked_with, script };
-        if t.deleted || !t.enabled {
+        if t.deleted || !self.is_enabled(target)? {
             return Ok(done(Outcome::Disabled, None));
         }
         let Some(base) = base else {
@@ -407,6 +500,7 @@ impl<'a> World<'a> {
             rng_word_pos: self.rng.get_word_pos().to_string(),
             next_dynamic: self.next_dynamic,
             refs: self.refs.clone(),
+            globals: self.globals.clone(),
         }
     }
 
@@ -419,6 +513,7 @@ impl<'a> World<'a> {
         w.rng.set_word_pos(pos);
         w.next_dynamic = s.next_dynamic;
         w.refs = s.refs.clone();
+        w.globals = s.globals.clone();
         Ok(w)
     }
 }

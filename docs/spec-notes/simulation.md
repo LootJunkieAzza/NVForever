@@ -27,8 +27,17 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   persistent, 9 temporary, 10 visible-distant) that contains it [documented: UESP group
   types]. The simulation takes membership and cell from Layer 3's world index
   (docs/spec-notes/world.md), so both layers apply one rule.
-- Besides REFR, ACHR and ACRE, cell groups hold 297 placed grenades (PGRE, all in
-  OldWorldBlues.esm) [observed]; the simulation does not model them yet (reported).
+- Besides REFR, ACHR and ACRE, cell groups hold 297 placed explosives (PGRE) across
+  FalloutNV, DeadMoney, HonestHearts, OldWorldBlues and LonesomeRoad; their bases are
+  projectiles (PROJ), e.g. `MineFragProjectile` "Frag Mine", `MinePlasmaProjectile`,
+  `MineNVPowderChargeProjectile`, a C4 projectile [observed]. They are armed mines and
+  charges [hypothesis]; the simulation does not model them yet (reported).
+- **Enable parents** (XESP: parent reference, flag bit 0 "Set Enable State to Opposite of
+  Parent" [documented: xEdit]): 5,171 references have one, 759 with the opposite flag;
+  162 chains are two deep, none deeper; no chain loops or names a missing reference
+  [observed]. The simulation derives a child's enabled state from its parent's
+  (inverted for "opposite") and ignores the child's own flag while it has a parent; a
+  broken chain falls back to the own flag [hypothesis: GECK wiki "Enable Parent"].
 - Record flag **0x400** on a reference coincides exactly with placement in a
   persistent-children group: 20,344 references have both, none has only one [observed].
   It is the "Persistent" flag [documented: UESP].
@@ -116,6 +125,21 @@ distribution comparator:
 - **Created references** (dropped items) get FormIDs from 0xFF000000 upwards, a load
   slot no plugin can use [hypothesis for the original engine's numbering].
 
+## 5b. Game settings and game time
+
+- **GMST** DATA is a union chosen by the Editor ID's first letter: `f` f32, `i` i32,
+  `s` NUL-terminated string [documented: xEdit]. The masters hold 649 settings (459 `f`,
+  61 `i`, 130 `s` in FalloutNV.esm alone), all matching the rule [observed]. Examples:
+  `fAVDCarryWeightsBase` 150.0, `fAVDCarryWeightMult` 10.0 [observed]. There is no
+  respawn-delay setting in the masters (no `iHoursToRespawnCell`) [observed]; the delay
+  is an engine default [hypothesis].
+- **Time** is kept in globals [observed, FalloutNV.esm]: GameYear 0x35 = 2281, GameMonth
+  0x36 = 9, GameDay 0x37 = 18, GameHour 0x38 = 12, GameDaysPassed 0x39 = 5.0, TimeScale
+  0x3A = 30. Advancing time [hypothesis]: TimeScale is game seconds per real second;
+  h game hours add h to GameHour and h/24 to GameDaysPassed; each wrap past 24 hours
+  advances GameDay with Gregorian month lengths, GameMonth counting from 0.
+- Globals changed at run time are part of the simulation state (`Snapshot.globals`).
+
 ## 6. Capturing the oracle (in-game)
 
 Layer 4 scenarios compare *observations* (item counts, position, cell) that the original
@@ -168,8 +192,10 @@ Lab comparator: **keyed** on `formid` over `/containers`, all fields.
 
 Input `fnv.sim.actions/1` (`parity-lab/inputs/layer4/*.actions.json`): `seed`,
 `player_level`, `actions` (ops: `activate`, `add_item`, `remove_item`, `transfer`,
-`transfer_all`, `drop_item`, `remove_all_items`, `get_item_count`, `get_pos`, `lock`,
-`unlock`, `enable`, `disable`), optional `report`. References and forms are named by
+`transfer_all`, `drop_item`, `remove_all_items`, `get_item_count`, `get_pos`,
+`get_disabled`, `get_global`, `set_global`, `advance_time`, `lock`, `unlock`, `enable`,
+`disable`), optional `report`. Queries (`get_*`) produce observations; `get_disabled`
+reports `disabled` (the in-game `GetDisabled`), `get_global` reports `value`. References and forms are named by
 global FormID, Editor ID, or `"player"`.
 
 ```json

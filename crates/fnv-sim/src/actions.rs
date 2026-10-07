@@ -11,7 +11,8 @@
 //! References and forms are named by FormID (global, hex), by Editor ID, or
 //! `"player"`. Output `fnv.sim.trace/1`: one result per step (a failed step records
 //! its error and the run continues, since errors are behaviour too), the
-//! `observations` made by the query ops (`get_item_count`, `get_pos`), and the final
+//! `observations` made by the query ops (`get_item_count`, `get_pos`, `get_disabled`,
+//! `get_global`), and the final
 //! state of the reported references (all changed references when `report` is absent).
 //!
 //! Observations are what the parity scenarios compare: they are the values an in-game
@@ -56,6 +57,10 @@ pub enum Action {
     DropItem { from: String, item: String, count: i32 },
     GetItemCount { of: String, item: String, #[serde(default)] label: Option<String> },
     GetPos { of: String, #[serde(default)] label: Option<String> },
+    GetDisabled { of: String, #[serde(default)] label: Option<String> },
+    GetGlobal { name: String, #[serde(default)] label: Option<String> },
+    SetGlobal { name: String, value: f32 },
+    AdvanceTime { hours: f64 },
     RemoveAllItems { from: String },
     Lock { target: String, #[serde(default)] level: Option<u8> },
     Unlock { target: String },
@@ -74,6 +79,10 @@ impl Action {
             Action::DropItem { .. } => "drop_item",
             Action::GetItemCount { .. } => "get_item_count",
             Action::GetPos { .. } => "get_pos",
+            Action::GetDisabled { .. } => "get_disabled",
+            Action::GetGlobal { .. } => "get_global",
+            Action::SetGlobal { .. } => "set_global",
+            Action::AdvanceTime { .. } => "advance_time",
             Action::RemoveAllItems { .. } => "remove_all_items",
             Action::Lock { .. } => "lock",
             Action::Unlock { .. } => "unlock",
@@ -145,6 +154,20 @@ fn step(w: &mut World, a: &Action) -> Result<Value, String> {
             let s = w.get(r(w, of)?).map_err(e)?;
             json!({"cell": s.cell, "pos": s.pos, "rot": s.rot})
         }
+        Action::GetDisabled { of, .. } => {
+            json!({"disabled": !w.is_enabled(r(w, of)?).map_err(e)?})
+        }
+        Action::GetGlobal { name, .. } => {
+            json!({"value": w.global(f(w, name)?).map_err(e)?})
+        }
+        Action::SetGlobal { name, value } => {
+            w.set_global(f(w, name)?, *value).map_err(e)?;
+            json!({})
+        }
+        Action::AdvanceTime { hours } => {
+            let c = w.advance_hours(*hours).map_err(e)?;
+            json!({"year": c.year, "month": c.month, "day": c.day, "hour": c.hour, "days_passed": c.days_passed})
+        }
         Action::RemoveAllItems { from } => {
             let removed: Vec<_> = w.remove_all_items(r(w, from)?).map_err(e)?.into_iter().map(|(i, n)| json!([i, n])).collect();
             json!({"removed": removed})
@@ -182,7 +205,11 @@ pub fn run(w: &mut World, s: &Script) -> Result<Value, String> {
     for (i, a) in s.actions.iter().enumerate() {
         let mut o = json!({"step": i, "op": a.op()});
         let res = step(w, a);
-        if let Action::GetItemCount { label, .. } | Action::GetPos { label, .. } = a {
+        if let Action::GetItemCount { label, .. }
+        | Action::GetPos { label, .. }
+        | Action::GetDisabled { label, .. }
+        | Action::GetGlobal { label, .. } = a
+        {
             let mut ob = json!({"label": label.clone().unwrap_or_else(|| format!("step{i}")), "step": i});
             match &res {
                 Ok(v) => {
