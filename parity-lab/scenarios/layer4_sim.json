@@ -211,6 +211,47 @@
     "M4",
     "needs-local-capture"
    ]
+  },
+  {
+   "id": "L4.sim.trace.x13_enable_parents",
+   "layer": 4,
+   "description": "Enable-parent propagation in X-13 (OldWorldBlues.esm cell NVDLC03X13): GetDisabled of children, grandchildren and opposite-state children after disabling and re-enabling their root parents, incl. an initially-disabled child of an opposite link (parity-lab/inputs/layer4/x13_enable_parents.actions.json), against an in-game capture on a test save (docs/spec-notes/simulation.md section 6).",
+   "oracle": {
+    "golden": "sim/x13_enable_parents.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/x13_enable_parents.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "sim",
+    "enable-parent",
+    "M4",
+    "needs-local-capture"
+   ]
   }
  ]
 }
