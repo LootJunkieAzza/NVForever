@@ -44,10 +44,13 @@ All calls use the C calling convention of 32-bit MSVC (cdecl); `bool` is one byt
   `sender` (C string), `type` u32, `dataLen` u32, `data` (pointer). With sender `"NVSE"`,
   message types are numbered from 0 in this order: PostLoad, ExitGame, ExitToMainMenu,
   LoadGame, SaveGame, ScriptPrecompile, PreLoadGame, ExitGame_Console, **PostLoadGame
-  (8; data: one bool, true if the save loaded)**, PostPostLoad, RuntimeScriptError,
+  (8; data: true if the save loaded)**, PostPostLoad, RuntimeScriptError,
   DeleteGame, RenameGame, RenameNewGame, NewGame, DeleteGameName, RenameGameName,
   RenameNewGameName, DeferredInit, ClearScriptDataCache, **MainGameLoop (20; sent every
-  game loop)**, and later ones not used here.
+  game loop)**, and later ones not used here. For PostLoadGame the header says only
+  "data: bool"; the flag is carried **in the `data` field itself**, not behind it:
+  reading `data` as a pointer crashed the game on the first save load (access violation
+  in `nvf_capture.dll`, 2026-10-07) [observed]. The plugin reads the low byte of the field.
 - **Script interface** (id 6, runtime only): `CallFunction(Script*, ref* calling, ref*
   container, Element* result, u8 numArgs, ...) -> bool`, `GetFunctionParams`,
   `ExtractArgsEx`, `ExtractFormatStringArgs`, `CallFunctionAlt`, **`CompileScript(const
