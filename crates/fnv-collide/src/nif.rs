@@ -111,6 +111,8 @@ pub struct Extracted {
     pub objects: Vec<RawCollision>,
     /// Render geometry bounds in mesh-root space.
     pub render: Option<Aabb>,
+    /// Render vertices in mesh-root space (for fit measurements).
+    pub render_points: Vec<[f32; 3]>,
     /// Anything that could not be followed (dangling ref, unknown shape type).
     pub problems: Vec<String>,
 }
@@ -147,7 +149,7 @@ fn material(s: &Struct) -> u32 {
 
 /// Iso from a stored 4×4 matrix, reading the translation from elements 12–14 and the
 /// rotation as the transpose of the upper 3×3 (i.e. the matrix stored column by
-/// column). [hypothesis: verified by `fnvtool collide survey`, collision.md §3]
+/// column). [observed: vertex-level fits, collision.md §3]
 pub fn iso_from_mat44(m: &[f32; 16]) -> Iso {
     Iso {
         translation: [m[12], m[13], m[14]],
@@ -313,7 +315,7 @@ impl Walk<'_> {
 }
 
 /// Node-to-root transforms of every scene node and shape, plus the render bounds.
-fn scene_space(file: &NifFile, dec: &Decoded) -> (HashMap<usize, Similarity>, Option<Aabb>) {
+fn scene_space(file: &NifFile, dec: &Decoded) -> (HashMap<usize, Similarity>, Option<Aabb>, Vec<[f32; 3]>) {
     let objs = scene_objects(file, dec);
     let by_block: HashMap<usize, usize> = objs.iter().enumerate().map(|(k, o)| (o.block, k)).collect();
     let mut to_root: HashMap<usize, Similarity> = HashMap::new();
@@ -336,21 +338,24 @@ fn scene_space(file: &NifFile, dec: &Decoded) -> (HashMap<usize, Similarity>, Op
         to_root.insert(o.block, acc);
     }
     let mut bounds = Aabb::empty();
+    let mut points = Vec::new();
     for o in objs.iter().filter(|o| !o.is_node) {
         let Some(s) = dec.blocks[o.block].as_ref().ok() else { continue };
         let Some(d) = s.block_ref("data").and_then(|r| dec.get(r)) else { continue };
         let x = to_root[&o.block];
         for p in mesh_data(d).positions {
-            bounds.add(x.apply(p));
+            let q = x.apply(p);
+            bounds.add(q);
+            points.push(q);
         }
     }
-    (to_root, bounds.is_valid().then_some(bounds))
+    (to_root, bounds.is_valid().then_some(bounds), points)
 }
 
 /// Every collision object reachable from a scene node's `collision_object`.
 pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
-    let (to_root, render) = scene_space(file, dec);
-    let mut out = Extracted { render, ..Default::default() };
+    let (to_root, render, render_points) = scene_space(file, dec);
+    let mut out = Extracted { render, render_points, ..Default::default() };
     for (i, b) in dec.blocks.iter().enumerate() {
         let Ok(node) = b else { continue };
         if !dec.is_a(i, "NiAVObject") {
