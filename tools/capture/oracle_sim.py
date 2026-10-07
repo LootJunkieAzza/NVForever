@@ -9,6 +9,8 @@ cp1252 zstring decoding) from oracle_esm.py, which must sit in the same folder.
 
 usage: oracle_sim.py containers <data_dir> <plugin>... [-o out.json]
        -> fnv.sim.containers/1
+       oracle_sim.py items <data_dir> <plugin>... [-o out.json]
+       -> fnv.sim.items/1
 Exit codes: 0 ok, 1 input unreadable, 2 usage error.
 
 What it does, in brief:
@@ -25,19 +27,33 @@ What it does, in brief:
   One pass      each plugin is walked once with an explicit stack of group end offsets.
                 Only CONT records are parsed in full (EDID, FULL, SCRI, DATA, CNTO); LIGH
                 records are parsed for DATA (flags u32 at byte offset 12, bit 1 "Can be
-                Carried"); every other record contributes only its type, FormID and flags,
-                so compressed non-CONT/LIGH records (e.g. LAND) are never decoded.
+                Carried"); for `items` the inventory item records (WEAP, ARMO, AMMO,
+                ALCH, BOOK, KEYM, MISC, NOTE, IMOD, CHIP, CCRD, CMNY, LIGH) are also parsed
+                for EDID, FULL and the value/weight/health/biped-flags subrecords as each
+                definition is met; every other record contributes only its type, FormID
+                and flags, so compressed records of other types (e.g. LAND) are never
+                decoded.
   Compression   flag 0x00040000: u32 decoded size + zlib stream; inflated raw after the
                 2-byte zlib header so a wrong Adler-32 trailer is tolerated (reported).
 
 Document (fnv.sim.containers/1): "format", "count", "containers" (one object per winning,
 non-deleted CONT, ordered by global FormID: formid, edid, name, respawns, script, entries
-[{item, count, class}]). Extra top-level keys of this oracle (not compared by the lab):
-"load_order", "summary" (counts for cross-checking the spec note) and "warnings"
-([{code, detail}], irregular data that did not stop the run).
+[{item, count, class}]).
+
+Document (fnv.sim.items/1): "format", "count", "items" (one object per winning,
+non-deleted inventory item record, LIGH only with "Can be Carried", ordered by global
+FormID: formid, sig, edid, name, value, weight, health, biped_flags). The four numeric
+fields come from the byte offsets of the spec's table (ITEM_FIELDS below); a field is null
+when the record type has no such field, or its subrecord is absent or too short. The first
+occurrence of each subrecord is used. Weights are f32 widened to a Python float, unrounded.
+
+Extra top-level keys of both documents (not compared by the lab): "load_order",
+"summary" (counts for cross-checking the spec note) and "warnings" ([{code, detail}],
+irregular data that did not stop the run).
 """
 import argparse
 import json
+import math
 import os
 import struct
 import sys
@@ -49,6 +65,7 @@ if CAPTURE_DIR not in sys.path:
 from oracle_esm import inflate_zlib, iter_subrecords, signature_text, zstring  # noqa: E402
 
 CONTAINERS_FORMAT = "fnv.sim.containers/1"
+ITEMS_FORMAT = "fnv.sim.items/1"
 
 HEADER_SIZE = 24
 FLAG_DELETED = 0x20
@@ -65,6 +82,27 @@ _RECORD_HEADER = struct.Struct("<4sIII")       # type, data size, flags, FormID
 _GROUP_SIZE = struct.Struct("<I")
 _U32 = struct.Struct("<I")
 _CNTO = struct.Struct("<Ii")
+
+# fnv.sim.items/1 field sources (spec §7 table): field -> (subrecord, byte offset, struct
+# format). A field missing from a type's entry has no such field in that record format.
+ITEM_FIELD_NAMES = ("value", "weight", "health", "biped_flags")
+_I32, _U32F, _F32 = "<i", "<I", "<f"
+ITEM_FIELDS = {
+    b"WEAP": {"value": (b"DATA", 0, _I32), "weight": (b"DATA", 8, _F32), "health": (b"DATA", 4, _I32)},
+    b"ARMO": {"value": (b"DATA", 0, _I32), "weight": (b"DATA", 8, _F32), "health": (b"DATA", 4, _I32),
+              "biped_flags": (b"BMDT", 0, _U32F)},
+    b"AMMO": {"value": (b"DATA", 8, _I32), "weight": (b"DAT2", 8, _F32)},
+    b"ALCH": {"value": (b"ENIT", 0, _I32), "weight": (b"DATA", 0, _F32)},
+    b"BOOK": {"value": (b"DATA", 2, _I32), "weight": (b"DATA", 6, _F32)},
+    b"KEYM": {"value": (b"DATA", 0, _I32), "weight": (b"DATA", 4, _F32)},
+    b"MISC": {"value": (b"DATA", 0, _I32), "weight": (b"DATA", 4, _F32)},
+    b"LIGH": {"value": (b"DATA", 24, _U32F), "weight": (b"DATA", 28, _F32)},
+    b"IMOD": {"value": (b"DATA", 0, _U32F), "weight": (b"DATA", 4, _F32)},
+    b"CCRD": {"value": (b"DATA", 0, _U32F)},
+    b"NOTE": {}, b"CHIP": {}, b"CMNY": {},
+}
+ITEM_SUBRECORDS = {sig: frozenset(src for src, _, _ in fields.values())
+                   for sig, fields in ITEM_FIELDS.items()}
 
 MAX_WARNINGS_PER_CODE = 50
 
@@ -205,11 +243,16 @@ def open_plugin(data_dir: str, name: str, index: int, load_order_lower: list, wa
 
 # --------------------------------------------------------------------------- scanning
 
-def scan_plugin(plugin: Plugin, forms: dict, warnings: Warnings) -> None:
+def scan_plugin(plugin: Plugin, forms: dict, warnings: Warnings, items=None) -> None:
     """Walk one plugin and record every record as the current winner of its global FormID.
 
     forms[global] = (sig, deleted, extra); extra is the "Can be Carried" bool for LIGH,
     (plugin, data, start, end) for CONT (data None if it could not be decoded), else None.
+
+    When `items` is a dict, every non-deleted inventory item record (ITEM_FIELDS types,
+    LIGH included) is parsed as it is met and items[global] holds the fields of the
+    current definition; a deleted or non-item definition removes the entry, so after the
+    last plugin items[g] belongs to the winner of g.
     """
     buf = plugin.buf
     size = len(buf)
@@ -271,6 +314,7 @@ def scan_plugin(plugin: Plugin, forms: dict, warnings: Warnings) -> None:
         formid = (target << 24) | (local & 0x00FFFFFF)
         deleted = bool(flags & FLAG_DELETED)
         extra = None
+        item_fields = None
         if not deleted:
             if sig == b"CONT":
                 where = f"{name} CONT 0x{local:08X}"
@@ -279,9 +323,20 @@ def scan_plugin(plugin: Plugin, forms: dict, warnings: Warnings) -> None:
                     data, start, end = bytes(buf[start:end]), 0, end - start
                 extra = (plugin, data, start, end)
             elif sig == b"LIGH":
-                extra = light_can_be_carried(buf, data_start, data_end, flags,
-                                             f"{name} LIGH 0x{local:08X}", warnings)
+                where = f"{name} LIGH 0x{local:08X}"
+                if items is None:
+                    extra = light_can_be_carried(buf, data_start, data_end, flags, where, warnings)
+                else:
+                    item_fields, extra = parse_item(sig, buf, data_start, data_end, flags, where, warnings)
+            elif items is not None and sig in ITEM_TYPES:
+                item_fields, _ = parse_item(sig, buf, data_start, data_end, flags,
+                                            f"{name} {signature_text(sig)} 0x{local:08X}", warnings)
         forms[formid] = (sig, deleted, extra)
+        if items is not None:
+            if item_fields is None:
+                items.pop(formid, None)
+            else:
+                items[formid] = item_fields
 
 
 def light_can_be_carried(buf, start: int, end: int, flags: int, where: str, warnings: Warnings) -> bool:
@@ -296,6 +351,63 @@ def light_can_be_carried(buf, start: int, end: int, flags: int, where: str, warn
             return bool(_U32.unpack_from(data, off + 12)[0] & LIGH_CAN_BE_CARRIED)
     warnings.add("ligh_no_data", f"{where}: no DATA subrecord; not carried")
     return False
+
+
+def parse_item(sig: bytes, buf, start: int, end: int, flags: int, where: str, warnings: Warnings):
+    """(fields, can_be_carried) of one inventory item record.
+
+    fields: {"edid", "name", "value", "weight", "health", "biped_flags", "short": [...]}
+    from the first EDID, FULL and field subrecords; "short" lists the fields whose
+    subrecord was present but too short. can_be_carried is only meaningful for LIGH (the
+    same rule as light_can_be_carried: first DATA, flags u32 at offset 12, bit 1).
+    """
+    fields = {"edid": None, "name": None, "value": None, "weight": None, "health": None,
+              "biped_flags": None, "short": []}
+    data, start, end = record_data(buf, start, end, flags, where, warnings)
+    if data is None:
+        warnings.add("item_data_unreadable", f"{where}: data could not be decoded; fields null")
+        return fields, False
+    wanted = ITEM_SUBRECORDS[sig]
+    first = {}
+    for sub_sig, off, size in subrecords(data, start, end, where, warnings):
+        if sub_sig == b"EDID" or sub_sig == b"FULL" or sub_sig in wanted:
+            if sub_sig in first:
+                if sub_sig in wanted:
+                    warnings.add("item_subrecord_repeated",
+                                 f"{where}: {signature_text(sub_sig)} occurs again; the first is used")
+                continue
+            first[sub_sig] = (off, size)
+    if b"EDID" in first:
+        off, size = first[b"EDID"]
+        fields["edid"] = zstring(data[off:off + size])
+    if b"FULL" in first:
+        off, size = first[b"FULL"]
+        fields["name"] = zstring(data[off:off + size])
+    for field, (sub_sig, at, fmt) in ITEM_FIELDS[sig].items():
+        found = first.get(sub_sig)
+        if found is None:
+            continue
+        off, size = found
+        if size < at + 4:
+            fields["short"].append(field)
+            warnings.add("item_field_short", f"{where}: {signature_text(sub_sig)} is {size} bytes; "
+                                             f"{field} at +{at} needs {at + 4}; null")
+            continue
+        value = struct.unpack_from(fmt, data, off + at)[0]
+        if fmt == _F32 and not math.isfinite(value):
+            warnings.add("item_weight_not_finite", f"{where}: {field} is {value}; null")
+            continue
+        fields[field] = value
+    carried = False
+    if sig == b"LIGH":
+        found = first.get(b"DATA")
+        if found is None:
+            warnings.add("ligh_no_data", f"{where}: no DATA subrecord; not carried")
+        elif found[1] < 16:
+            warnings.add("ligh_data_short", f"{where}: DATA is {found[1]} bytes, flags need 16; not carried")
+        else:
+            carried = bool(_U32.unpack_from(data, found[0] + 12)[0] & LIGH_CAN_BE_CARRIED)
+    return fields, carried
 
 
 # --------------------------------------------------------------------------- containers
@@ -408,6 +520,58 @@ def build_containers(data_dir: str, plugins: list, warnings: Warnings) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- items
+
+def build_items(data_dir: str, plugins: list, warnings: Warnings) -> dict:
+    load_order_lower = [p.lower() for p in plugins]
+    forms = {}
+    parsed = {}
+    for index, name in enumerate(plugins):
+        plugin = open_plugin(data_dir, name, index, load_order_lower, warnings)
+        scan_plugin(plugin, forms, warnings, items=parsed)
+        plugin.buf = None
+    by_sig = {}
+    null_fields = {}
+    stats = {"forms_defined": sum(1 for v in forms.values() if not v[1]),
+             "forms_deleted": sum(1 for v in forms.values() if v[1]),
+             "deleted_item_winners": 0, "ligh_carried": 0, "ligh_not_carried": 0,
+             "by_sig": by_sig, "null_fields": null_fields, "short_fields": 0}
+    items = []
+    for formid in sorted(forms):
+        sig, deleted, extra = forms[formid]
+        if sig not in ITEM_FIELDS:
+            continue
+        if deleted:
+            stats["deleted_item_winners"] += 1
+            continue
+        if sig == b"LIGH":
+            if not extra:
+                stats["ligh_not_carried"] += 1
+                continue
+            stats["ligh_carried"] += 1
+        fields = parsed[formid]
+        text = signature_text(sig)
+        by_sig[text] = by_sig.get(text, 0) + 1
+        stats["short_fields"] += len(fields["short"])
+        for field in ITEM_FIELDS[sig]:
+            if fields[field] is None:
+                per = null_fields.setdefault(text, {})
+                per[field] = per.get(field, 0) + 1
+        items.append({"formid": fid_text(formid), "sig": text, "edid": fields["edid"],
+                      "name": fields["name"], "value": fields["value"], "weight": fields["weight"],
+                      "health": fields["health"], "biped_flags": fields["biped_flags"]})
+    stats["by_sig"] = dict(sorted(by_sig.items()))
+    stats["null_fields"] = {k: dict(sorted(v.items())) for k, v in sorted(null_fields.items())}
+    return {
+        "format": ITEMS_FORMAT,
+        "count": len(items),
+        "load_order": list(plugins),
+        "summary": stats,
+        "warnings": warnings.finish(),
+        "items": items,
+    }
+
+
 # --------------------------------------------------------------------------- output / CLI
 
 def render(doc: dict, list_key=None) -> str:
@@ -430,11 +594,14 @@ def render(doc: dict, list_key=None) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Layer 4 simulation oracle.")
     sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("containers", help=f"emit {CONTAINERS_FORMAT}")
-    p.add_argument("data_dir")
-    p.add_argument("plugins", nargs="+", metavar="plugin")
-    p.add_argument("-o", "--output", help="write JSON here instead of stdout")
+    for command, fmt in (("containers", CONTAINERS_FORMAT), ("items", ITEMS_FORMAT)):
+        p = sub.add_parser(command, help=f"emit {fmt}")
+        p.add_argument("data_dir")
+        p.add_argument("plugins", nargs="+", metavar="plugin")
+        p.add_argument("-o", "--output", help="write JSON here instead of stdout")
     args = parser.parse_args(argv)
+    build, list_key = {"containers": (build_containers, "containers"),
+                       "items": (build_items, "items")}[args.command]
 
     lowered = [name.lower() for name in args.plugins]
     if len(set(lowered)) != len(lowered):
@@ -448,11 +615,11 @@ def main(argv=None) -> int:
         return 1
     warnings = Warnings()
     try:
-        doc = build_containers(args.data_dir, args.plugins, warnings)
+        doc = build(args.data_dir, args.plugins, warnings)
     except InputError as exc:
         print(f"oracle_sim: {exc}", file=sys.stderr)
         return 1
-    text = render(doc, "containers")
+    text = render(doc, list_key)
     if args.output:
         with open(args.output, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
