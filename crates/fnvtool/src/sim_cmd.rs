@@ -129,6 +129,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
     let mut tel: BTreeMap<String, u64> = BTreeMap::new();
     let mut tel_samples: Vec<String> = Vec::new();
     let mut ep: BTreeMap<String, u64> = BTreeMap::new();
+    let mut pgre: BTreeMap<String, u64> = BTreeMap::new();
     let mut ep_samples: Vec<String> = Vec::new();
     for r in refs.refs.values() {
         bump(&mut ref_sigs, sig_str(&r.sig));
@@ -186,6 +187,14 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
                 }
             }
         }
+        if &r.sig == b"PGRE" {
+            let class = match forms.get(r.base).map(|b| &b.data) {
+                Some(BaseData::Projectile { item: Some(i) }) => format!("disarms to {i}"),
+                Some(BaseData::Projectile { item: None }) => "no single weapon".to_string(),
+                _ => "base not a projectile".to_string(),
+            };
+            bump(&mut pgre, class);
+        }
         if let Some(t) = r.teleport {
             let class = match refs.get(t.door) {
                 None => "destination missing".to_string(),
@@ -234,6 +243,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
             "locks": {"levels": lock_levels, "keys": lock_keys, "on_base_type": lock_on},
             "teleports": {"classes": tel, "samples": tel_samples},
             "enable_parents": {"classes": ep, "samples": ep_samples},
+            "placed_explosives": pgre,
         },
         "issues": issues.to_json(),
     })

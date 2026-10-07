@@ -68,6 +68,8 @@ pub enum Action {
     GetAv { of: String, name: String, #[serde(default)] label: Option<String> },
     SetAv { of: String, name: String, value: f32 },
     GetWeight { of: String, #[serde(default)] label: Option<String> },
+    DetachCell { cell: String },
+    AttachCell { cell: String },
     RemoveAllItems { from: String },
     Lock { target: String, #[serde(default)] level: Option<u8> },
     Unlock { target: String },
@@ -95,6 +97,8 @@ impl Action {
             Action::GetAv { .. } => "get_av",
             Action::SetAv { .. } => "set_av",
             Action::GetWeight { .. } => "get_weight",
+            Action::DetachCell { .. } => "detach_cell",
+            Action::AttachCell { .. } => "attach_cell",
             Action::RemoveAllItems { .. } => "remove_all_items",
             Action::Lock { .. } => "lock",
             Action::Unlock { .. } => "unlock",
@@ -125,6 +129,14 @@ pub fn resolve_form(w: &World, s: &str) -> Result<FormId, String> {
         }
     }
     w.forms.by_edid(s).ok_or_else(|| format!("no base form named {s:?}"))
+}
+
+/// Resolve a cell name: a hex FormID or a cell's Editor ID.
+pub fn resolve_cell(w: &World, s: &str) -> Result<FormId, String> {
+    if s.starts_with("0x") || s.starts_with("0X") {
+        return s.parse().map_err(|e: crate::form::BadFormId| e.to_string());
+    }
+    w.placed.cell_by_edid(s).ok_or_else(|| format!("no cell named {s:?}"))
 }
 
 fn step(w: &mut World, a: &Action) -> Result<Value, String> {
@@ -198,6 +210,13 @@ fn step(w: &mut World, a: &Action) -> Result<Value, String> {
         Action::GetWeight { of, .. } => {
             serde_json::to_value(w.encumbrance(r(w, of)?).map_err(e)?).expect("serialisable")
         }
+        Action::DetachCell { cell } => {
+            w.detach_cell(resolve_cell(w, cell)?).map_err(e)?;
+            json!({})
+        }
+        Action::AttachCell { cell } => {
+            json!({"reset": w.attach_cell(resolve_cell(w, cell)?).map_err(e)?})
+        }
         Action::RemoveAllItems { from } => {
             let removed: Vec<_> = w.remove_all_items(r(w, from)?).map_err(e)?.into_iter().map(|(i, n)| json!([i, n])).collect();
             json!({"removed": removed})
@@ -222,7 +241,7 @@ fn step(w: &mut World, a: &Action) -> Result<Value, String> {
 }
 
 pub fn config(s: &Script) -> SimConfig {
-    SimConfig { seed: s.seed, player_level: s.player_level, hardcore: s.hardcore }
+    SimConfig { seed: s.seed, player_level: s.player_level, hardcore: s.hardcore, ..SimConfig::default() }
 }
 
 /// Run every action on `w` and build the trace document.
