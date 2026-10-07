@@ -107,6 +107,16 @@ disabled references have no collision until enabled; the enable state belongs to
 - Bodies are created in call order, and rapier's results depend on it [hypothesis, as for
   any solver]; the tools add terrain by grid and references by FormID. Queries that
   return several colliders sort them.
+- **Snapshots**: `PhysWorld::snapshot` copies the whole world (bodies, colliders, contact
+  graph, islands, broad phase); stepping the copy and the original with the same inputs
+  stays bit-identical, a character included [observed: test
+  `snapshot_continues_identically`].
+- **rapier quirk**: bringing queries up to date between steps runs rapier's collision-only
+  pipeline, which consumes the change flags of newly inserted bodies without registering
+  them for simulation; a dynamic body added and then queried (or added while a character
+  moves, since `move_character` updates queries first) never moved [observed: test
+  `bodies_added_then_queried_still_simulate`, rapier 0.36.0]. `update_queries` flags such
+  bodies changed again so the next step registers them. Re-check when upgrading rapier.
 - **f32 range**: a ray–sphere test from about 10,000 units away was off by about one unit
   (cancellation in the quadratic), from 100 units by under 0.01 [observed: tests]. Probes
   and activation rays should start near what they test; `fnvtool phys` starts ground rays

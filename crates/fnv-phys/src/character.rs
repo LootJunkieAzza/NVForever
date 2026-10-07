@@ -129,9 +129,8 @@ impl PhysWorld {
         let shape = capsule(&params, self.k);
         let owner = Owner::Character { id };
         let mut c = Character { id, params, body: RigidBodyHandle::invalid(), shape, feet, vertical_speed: 0.0, grounded: false };
-        let body = self.w.insert_body(
-            RigidBodyBuilder::kinematic_position_based().translation(c.center(self.k)).user_data(owner.encode()),
-        );
+        let body =
+            self.insert_body(RigidBodyBuilder::kinematic_position_based().translation(c.center(self.k)).user_data(owner.encode()));
         self.w.insert_collider(ColliderBuilder::new(c.shape.clone()).user_data(owner.encode()), Some(body));
         c.body = body;
         self.mark_dirty();
