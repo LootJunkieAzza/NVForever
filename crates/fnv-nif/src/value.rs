@@ -163,12 +163,12 @@ impl Value {
     }
 }
 
-/// f32 widened to f64 exactly; NaN and infinities (which JSON cannot hold) as strings.
+/// f32 widened to f64 exactly; NaN and infinities (which JSON cannot hold) as `null`.
 pub fn float_json(f: f32) -> Json {
     if f.is_finite() {
         json!(f as f64)
     } else {
-        json!(format!("{f}"))
+        Json::Null
     }
 }
 

@@ -222,6 +222,14 @@ class NifSceneTest(TempDirCase):
         self.assertEqual(objects[1]["translation"], [7.0, 8.0, 9.0])
         self.assertEqual(objects[1]["parent"], 0)
 
+    def test_non_finite_floats_become_null(self):
+        nan = float("nan")
+        blocks = [("NiNode", node(0, [], translation=(nan, 1.0, float("inf"))))]
+        status, objects, _ = oracle_nif.scene_file("n.nif", build_nif(blocks, ["n"]))
+        self.assertEqual(status, "ok")
+        self.assertEqual(objects[0]["translation"], [None, 1.0, None])
+        self.assertNotIn("NaN", oracle_nif.render({"objects": objects}, ("objects",)))
+
     def test_strips_without_points(self):
         blocks = [("NiTriStripsData", tri_strips_data(VERTS, [[0, 1, 2, 3]], has_points=False))]
         status, _, shapes = oracle_nif.scene_file("s.nif", build_nif(blocks))

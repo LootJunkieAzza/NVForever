@@ -160,6 +160,16 @@ pub enum NifCmd {
         #[arg(long)]
         schema: PathBuf,
     },
+    /// Animation sequences of every .kf/.nif in an archive, with sanity statistics
+    /// for the evaluated tracks (fnv.nif.anim/1).
+    Anim {
+        archive: PathBuf,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Only files whose path contains this text.
+        #[arg(long)]
+        filter: Option<String>,
+    },
     /// Decode one file's blocks with the schema.
     Decode {
         /// A loose file, or a BSA archive together with --path.
