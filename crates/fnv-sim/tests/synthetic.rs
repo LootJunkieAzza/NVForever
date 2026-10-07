@@ -92,6 +92,17 @@ fn glob_rec(fid: u32, edid: &str, ty: u8, v: f32) -> Vec<u8> {
     record(b"GLOB", 0, fid, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![ty]), sub(b"FLTV", v.to_le_bytes().to_vec())])
 }
 
+fn weap(fid: u32, edid: &str, value: i32, weight: f32) -> Vec<u8> {
+    let data = cat(&[&value.to_le_bytes(), &100i32.to_le_bytes(), &weight.to_le_bytes(), &10i16.to_le_bytes(), &[12u8]]);
+    record(b"WEAP", 0, fid, &[sub(b"EDID", z(edid)), sub(b"DATA", data)])
+}
+
+fn armo(fid: u32, edid: &str, slots: u32, weight: f32) -> Vec<u8> {
+    let bmdt = cat(&[&slots.to_le_bytes(), &[0u8, 0, 0, 0]]);
+    let data = cat(&[&10i32.to_le_bytes(), &50i32.to_le_bytes(), &weight.to_le_bytes()]);
+    record(b"ARMO", 0, fid, &[sub(b"EDID", z(edid)), sub(b"BMDT", bmdt), sub(b"DATA", data)])
+}
+
 fn cell_children(cell: u32, temp: &[u8], persistent: &[u8]) -> Vec<u8> {
     let label = cell.to_le_bytes();
     let mut body = Vec::new();
@@ -124,6 +135,15 @@ const CHAIR_REF: u32 = 0x306;
 const CHILD_SAME: u32 = 0x307; // XESP -> KEY_REF (initially disabled)
 const CHILD_OPPOSITE: u32 = 0x308; // XESP -> KEY_REF, opposite
 const GRANDCHILD: u32 = 0x309; // XESP -> CHILD_OPPOSITE
+const GUN_REF: u32 = 0x30A; // PISTOL with XHLP 0.25
+const PISTOL: u32 = 0x170; // WEAP, weight 3
+const RIFLE: u32 = 0x171; // WEAP, weight 8
+const HELMET: u32 = 0x172; // ARMO, slots Head|Hair, weight 2
+const HAT: u32 = 0x173; // ARMO, slot Hair, weight 1
+const SUIT: u32 = 0x174; // ARMO, slot Upper Body, weight 15
+const AID: u32 = 0x175; // ALCH, weight 0.5
+const BULLETS: u32 = 0x176; // AMMO, weight 0.1 (Hardcore only)
+const LOCKER: u32 = 0x121; // CONT: PISTOL x1 with COED condition 0.75
 
 fn plugin_bytes() -> Vec<u8> {
     let misc = cat(&[
@@ -156,7 +176,23 @@ fn plugin_bytes() -> Vec<u8> {
         ],
     );
     let door = record(b"DOOR", 0, DOOR, &[sub(b"EDID", z("TestDoor")), sub(b"FNAM", vec![0])]);
-    let npc = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), cnto(CAPS, 5)]);
+    // S.P.E.C.I.A.L. 5,6,7,4,3,2,1 after base health.
+    let npc_data = cat(&[&100i32.to_le_bytes(), &[5u8, 6, 7, 4, 3, 2, 1]]);
+    let npc = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), cnto(CAPS, 5), sub(b"DATA", npc_data)]);
+    let weaps = cat(&[&weap(PISTOL, "TestPistol", 100, 3.0), &weap(RIFLE, "TestRifle", 300, 8.0)]);
+    let armos = cat(&[&armo(HELMET, "TestHelmet", 0b11, 2.0), &armo(HAT, "TestHat", 0b10, 1.0), &armo(SUIT, "TestSuit", 0b100, 15.0)]);
+    let enit = cat(&[&20i32.to_le_bytes(), &[0u8, 0, 0, 0], &0u32.to_le_bytes(), &0f32.to_le_bytes(), &0u32.to_le_bytes()]);
+    let alch = record(b"ALCH", 0, AID, &[sub(b"EDID", z("TestAid")), sub(b"DATA", 0.5f32.to_le_bytes().to_vec()), sub(b"ENIT", enit)]);
+    let ammo_data = cat(&[&1f32.to_le_bytes(), &[0u8, 0, 0, 0], &2i32.to_le_bytes(), &[10u8]]);
+    let ammo_dat2 = cat(&[&1u32.to_le_bytes(), &0u32.to_le_bytes(), &0.1f32.to_le_bytes()]);
+    let ammo = record(b"AMMO", 0, BULLETS, &[sub(b"EDID", z("TestBullets")), sub(b"DATA", ammo_data), sub(b"DAT2", ammo_dat2)]);
+    let coed = cat(&[&0u32.to_le_bytes(), &0u32.to_le_bytes(), &0.75f32.to_le_bytes()]);
+    let locker = record(
+        b"CONT",
+        0,
+        LOCKER,
+        &[sub(b"EDID", z("TestLocker")), cnto(PISTOL, 1), sub(b"COED", coed), sub(b"DATA", cat(&[&[0u8], &1f32.to_le_bytes()]))],
+    );
     let cell_a = record(b"CELL", 0, CELL_A, &[sub(b"EDID", z("TestCellA"))]);
     let cell_b = record(b"CELL", 0, CELL_B, &[sub(b"EDID", z("TestCellB"))]);
     let temp_a = cat(&[
@@ -168,6 +204,7 @@ fn plugin_bytes() -> Vec<u8> {
         &refr(CHILD_SAME, 0, STIMPAK, [0.0; 3], vec![xesp(KEY_REF, false)]),
         &refr(CHILD_OPPOSITE, 0, STIMPAK, [0.0; 3], vec![xesp(KEY_REF, true)]),
         &refr(GRANDCHILD, 0, STIMPAK, [0.0; 3], vec![xesp(CHILD_OPPOSITE, false)]),
+        &refr(GUN_REF, 0, PISTOL, [0.0; 3], vec![sub(b"XHLP", 0.25f32.to_le_bytes().to_vec())]),
     ]);
     let pers_a = refr(KEY_REF, 0x400 | 0x800, KEY, [7.0, 8.0, 9.0], vec![sub(b"EDID", z("TestKeyRef"))]);
     let temp_b = refr(DOOR_B, 0, DOOR, [0.0; 3], vec![xtel(DOOR_A, [-100.0, 0.0, 0.0])]);
@@ -195,6 +232,7 @@ fn plugin_bytes() -> Vec<u8> {
     let gmst = cat(&[
         &record(b"GMST", 0, 0x160, &[sub(b"EDID", z("fAVDCarryWeightsBase")), sub(b"DATA", 150f32.to_le_bytes().to_vec())]),
         &record(b"GMST", 0, 0x161, &[sub(b"EDID", z("sOverEncumbered")), sub(b"DATA", z("Too heavy"))]),
+        &record(b"GMST", 0, 0x162, &[sub(b"EDID", z("fAVDCarryWeightMult")), sub(b"DATA", 10f32.to_le_bytes().to_vec())]),
     ]);
     cat(&[
         &tes4(),
@@ -204,7 +242,11 @@ fn plugin_bytes() -> Vec<u8> {
         &top(b"KEYM", &keym),
         &top(b"FURN", &furn),
         &top(b"LVLI", &lvli),
-        &top(b"CONT", &cont),
+        &top(b"CONT", &cat(&[&cont, &locker])),
+        &top(b"WEAP", &weaps),
+        &top(b"ARMO", &armos),
+        &top(b"ALCH", &alch),
+        &top(b"AMMO", &ammo),
         &top(b"DOOR", &door),
         &top(b"NPC_", &npc),
         &cells,
@@ -245,7 +287,7 @@ fn forms_load_through_the_schema() {
     assert!(c.respawns);
     assert_eq!(
         c.entries,
-        vec![Entry { item: id(CAPS), count: 3 }, Entry { item: id(LL_LOOT), count: 1 }, Entry { item: id(STIMPAK), count: 0 }]
+        vec![Entry::new(id(CAPS), 3), Entry::new(id(LL_LOOT), 1), Entry::new(id(STIMPAK), 0)]
     );
     let l = f.forms.leveled(id(LL_LOOT)).unwrap();
     assert_eq!(l.entries.len(), 2);
@@ -260,7 +302,7 @@ fn forms_load_through_the_schema() {
 fn references_load_with_cells_and_extra_data() {
     let f = fixture();
     assert!(f.refs.issues.is_empty(), "{:?}", f.refs.issues.to_json());
-    assert_eq!(f.refs.refs.len(), 10);
+    assert_eq!(f.refs.refs.len(), 11);
     let safe = f.refs.get(id(SAFE_REF)).unwrap();
     assert_eq!((safe.base, safe.cell, safe.pos), (id(SAFE), Some(id(CELL_A)), [1.0, 2.0, 3.0]));
     assert_eq!(safe.lock.unwrap().key, Some(id(KEY)));
@@ -279,7 +321,7 @@ fn references_load_with_cells_and_extra_data() {
 #[test]
 fn locked_container_needs_its_key() {
     let f = fixture();
-    let mut w = World::new(&f.forms, &f.refs, SimConfig { seed: 1, player_level: 1 });
+    let mut w = World::new(&f.forms, &f.refs, SimConfig { seed: 1, player_level: 1, hardcore: false });
     let p = FormId::PLAYER_REF;
     assert_eq!(w.item_count(p, id(CAPS)).unwrap(), 5, "player starts with the base form's items");
     let r = w.activate(p, id(SAFE_REF)).unwrap();
@@ -307,7 +349,7 @@ fn picking_up_and_dropping_items() {
     assert_eq!(r.outcome, Outcome::PickedUp { item: id(STIMPAK), count: 3, owner: None });
     assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 3);
     assert_eq!(w.activate(p, id(STIM_REF)).unwrap().outcome, Outcome::Disabled);
-    let dropped = w.drop_item(p, id(STIMPAK), 2).unwrap().unwrap();
+    let dropped = w.drop_item(p, id(STIMPAK), 2).unwrap()[0];
     assert_eq!(dropped, FormId::FIRST_DYNAMIC);
     assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 1);
     assert_eq!(w.activate(p, dropped).unwrap().outcome, Outcome::PickedUp { item: id(STIMPAK), count: 2, owner: None });
@@ -369,7 +411,7 @@ fn leveled_lists_follow_level_and_chance_none() {
         leveled::resolve(&f.forms, id(LL_LOOT), 2, 10, &mut rng, &mut out).unwrap();
         // Without "all levels" only the highest eligible level (5) is chosen; one roll
         // multiplied by the requested count.
-        assert_eq!(out, vec![Entry { item: id(CAPS), count: 20 }]);
+        assert_eq!(out, vec![Entry::new(id(CAPS), 20)]);
     }
 }
 
@@ -425,7 +467,7 @@ fn action_script_trace() {
     assert!(steps[5]["error"].as_str().unwrap().contains("NoSuchThing"));
     assert_eq!(steps[6]["result"]["count"], 3);
     assert_eq!(steps[7]["result"]["cell"], "0x00000201");
-    assert_eq!(steps[8]["result"]["reference"], "0xFF000000");
+    assert_eq!(steps[8]["result"]["references"], serde_json::json!(["0xFF000000"]));
     let obs = t["observations"].as_array().unwrap();
     assert_eq!(obs.len(), 3);
     assert_eq!((obs[0]["label"].as_str(), obs[0]["count"].as_i64()), (Some("stims"), Some(3)));
@@ -445,7 +487,7 @@ fn action_script_trace() {
 #[test]
 fn snapshot_resumes_identically() {
     let f = fixture();
-    let cfg = SimConfig { seed: 99, player_level: 5 };
+    let cfg = SimConfig { seed: 99, player_level: 5, hardcore: false };
     let ops = |w: &mut World| {
         let p = FormId::PLAYER_REF;
         for _ in 0..20 {
@@ -511,4 +553,84 @@ fn clock_lives_in_the_time_globals() {
     assert_eq!(snap.globals[&id(0x150)], 7.0);
     let back = World::restore(&f.forms, &f.refs, &snap).unwrap();
     assert_eq!(back.calendar().unwrap(), w.calendar().unwrap());
+}
+
+#[test]
+fn condition_and_ownership_travel_with_items() {
+    use fnv_sim::inventory::Extra;
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    // COED on the container entry.
+    let BaseData::Container(c) = &f.forms.get(id(LOCKER)).unwrap().data else { panic!() };
+    assert_eq!(c.entries[0].extra.condition, Some(0.75));
+    // The locker is not placed; give the player its pistol through a placed gun (XHLP).
+    assert_eq!(f.refs.get(id(GUN_REF)).unwrap().health, Some(0.25));
+    w.activate(p, id(GUN_REF)).unwrap();
+    w.add_item(p, id(PISTOL), 1).unwrap();
+    let inv = w.peek(p).unwrap().inventory.clone().unwrap();
+    let groups: Vec<_> = inv.groups().filter(|g| g.0 == id(PISTOL)).map(|g| (g.1, g.2)).collect();
+    assert_eq!(groups, vec![(Extra::default(), 1), (Extra { condition: Some(0.25), ..Extra::default() }, 1)]);
+    // Dropping both makes one reference per group, keeping the condition.
+    let refs = w.drop_item(p, id(PISTOL), 2).unwrap();
+    assert_eq!(refs.len(), 2);
+    assert_eq!(w.peek(refs[1]).unwrap().extra.condition, Some(0.25));
+    w.activate(p, refs[1]).unwrap();
+    let inv = w.peek(p).unwrap().inventory.clone().unwrap();
+    assert_eq!(inv.groups().find(|g| g.0 == id(PISTOL)).unwrap().1.condition, Some(0.25));
+    // Snapshots keep extra data.
+    let snap = serde_json::to_string(&w.snapshot()).unwrap();
+    let back = World::restore(&f.forms, &f.refs, &serde_json::from_str(&snap).unwrap()).unwrap();
+    assert_eq!(back.peek(p), w.peek(p));
+}
+
+#[test]
+fn equipping_follows_slots() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    for it in [PISTOL, RIFLE, HELMET, HAT, SUIT, AID, CAPS] {
+        w.add_item(p, id(it), 1).unwrap();
+    }
+    assert!(w.equip(p, id(PISTOL)).unwrap().unequipped.is_empty());
+    assert_eq!(w.equip(p, id(RIFLE)).unwrap().unequipped, vec![id(PISTOL)]);
+    w.equip(p, id(HAT)).unwrap();
+    w.equip(p, id(SUIT)).unwrap();
+    // The helmet covers Head and Hair: it replaces the hat, not the suit.
+    assert_eq!(w.equip(p, id(HELMET)).unwrap().unequipped, vec![id(HAT)]);
+    let inv = w.peek(p).unwrap().inventory.clone().unwrap();
+    assert_eq!(inv.equipped(), vec![id(RIFLE), id(HELMET), id(SUIT)]);
+    // Aid items are consumed; other items cannot be equipped.
+    assert!(w.equip(p, id(AID)).unwrap().consumed);
+    assert_eq!(w.item_count(p, id(AID)).unwrap(), 0);
+    assert_eq!(w.equip(p, id(CAPS)), Err(SimError::NotEquippable(id(CAPS))));
+    assert_eq!(w.equip(p, id(AID)), Err(SimError::NotCarried { actor: p, item: id(AID) }));
+    // Giving away an equipped item unequips it.
+    w.transfer(p, id(SAFE_REF), id(RIFLE), 1).unwrap();
+    assert!(!w.peek(id(SAFE_REF)).unwrap().inventory.as_ref().unwrap().is_equipped(id(RIFLE)));
+    assert!(w.unequip(p, id(SUIT)).unwrap());
+    assert!(!w.unequip(p, id(SUIT)).unwrap());
+}
+
+#[test]
+fn encumbrance_uses_strength_and_settings() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    assert_eq!(w.actor_value(p, "Strength").unwrap(), 5.0);
+    assert_eq!(w.actor_value(p, "luck").unwrap(), 1.0);
+    assert!(matches!(w.actor_value(p, "Speechcraft"), Err(SimError::UnknownActorValue(_))));
+    w.add_item(p, id(SUIT), 1).unwrap();
+    w.add_item(p, id(BULLETS), 100).unwrap();
+    let e = w.encumbrance(p).unwrap();
+    // 150 + 10 x 5; suit 15; ammo weightless outside Hardcore; caps weigh 0.
+    assert_eq!((e.capacity, e.weight, e.over), (200.0, 15.0, false));
+    w.add_item(p, id(RIFLE), 24).unwrap();
+    assert!(w.encumbrance(p).unwrap().over);
+    w.set_actor_value(p, "strength", 10.0).unwrap();
+    assert!(!w.encumbrance(p).unwrap().over);
+    let mut hc = World::new(&f.forms, &f.refs, SimConfig { hardcore: true, ..SimConfig::default() });
+    hc.add_item(p, id(BULLETS), 100).unwrap();
+    assert!((hc.encumbrance(p).unwrap().weight - 10.0).abs() < 1e-4);
+    assert!(matches!(w.encumbrance(id(SAFE_REF)), Err(SimError::NoActorValues(_))));
 }

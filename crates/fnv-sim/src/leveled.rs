@@ -67,7 +67,7 @@ fn resolve_at(
         return Ok(());
     }
     let Some(list) = forms.leveled(item) else {
-        out.push(Entry { item, count });
+        out.push(Entry::new(item, count));
         return Ok(());
     };
     if depth >= MAX_DEPTH {
