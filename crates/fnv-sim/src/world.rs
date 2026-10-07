@@ -25,8 +25,9 @@ use crate::refs::{PlacedRef, RefTable};
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SimConfig {
     pub seed: u64,
-    /// Level used for leveled lists (the player's level). [hypothesis: containers
-    /// resolve against the player's level]
+    /// Level used for leveled lists (the player's level). [observed in game: `AddItem` of
+    /// a list resolves against the player's level (`L4.sim.leveled.basic`); that
+    /// containers do too is hypothesis]
     pub player_level: u16,
     /// Hardcore mode: ammunition has weight. (Absent in older snapshots.)
     #[serde(default)]
