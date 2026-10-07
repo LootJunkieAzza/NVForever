@@ -87,6 +87,11 @@ Measured on the owner's machine (i7-7700HQ, GTX 1050): 5 × 5 cells around Goods
 (1,948 references drawn, 3,085 shapes, 224 models, 506 terrain layers) load in 2.5 s;
 7 × 7 cells (2,386 references, 280 models) in 2.6 s. No model or texture failures.
 
+**Owner's visual check (2026-10-07)** [observed]: flying through the Mojave in
+`nvforever`, object placement (positions and rotations of NIF models in the worldspace)
+and terrain heights look as expected compared with the original game. Still open:
+terrain texturing details, lighting, sky, water, LOD and SpeedTree (below).
+
 Rendering hypotheses to check against screenshots: terrain texture repeat
 (`--terrain-tile`, default 4096/6 units), alpha-grid orientation, layer order, triangle
 diagonal, the alpha test/blend rule, the default texture for the 43 quadrants without a

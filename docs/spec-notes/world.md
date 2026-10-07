@@ -111,7 +111,9 @@ only ones that can tell orders apart). This convention reproduces the node's rot
 within 1e-3 for 286 of them; the best alternative fits 85. Of all 45 misfits, 41 belong
 to six collections (0x001680B1–B6) whose meshes probably predate edits to the record
 [hypothesis]. Single-axis checks fix the sign: for z-only rotations only the clockwise
-reading fits. Reproduce with `crates/fnv-world/examples/scol_rotation.rs`.
+reading fits. Reproduce with `crates/fnv-world/examples/scol_rotation.rs`. The owner
+confirmed in the renderer that placements and terrain heights look as in the original
+game (visual check, 2026-10-07) [observed].
 
 A reference's world transform is then translation = position, rotation as above, uniform
 scale = XSCL, applied to the model's root (whose own transform composes beneath it).
