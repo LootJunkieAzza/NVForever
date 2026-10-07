@@ -271,6 +271,7 @@ fn load_cell(
             stats.refs_no_model += 1;
             continue;
         };
+        // The reference transform replaces the model root's own (world.md §4).
         let rt = to_cell * ref_affine(&p);
         for s in &model.shapes {
             let m = Mat4::from(rt * s.transform);

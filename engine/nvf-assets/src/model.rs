@@ -22,7 +22,8 @@ use std::sync::Arc;
 pub struct PreparedShape {
     pub mesh: Handle<Mesh>,
     pub material: Handle<StandardMaterial>,
-    /// Shape-to-model transform in NIF (game) space.
+    /// Shape transform in NIF (game) space relative to the root node's own frame: the
+    /// root's transform is not included (see [`PreparedModel::root`]).
     pub transform: Affine3A,
     pub name: Option<String>,
     /// CPU copy of the mesh, kept only for models loaded with
@@ -34,7 +35,12 @@ pub struct PreparedShape {
 #[derive(Debug, Clone, Default)]
 pub struct PreparedModel {
     pub shapes: Vec<PreparedShape>,
-    /// Model-space bounds in NIF (game) space.
+    /// The root node's own transform. A placed reference's transform replaces it, so
+    /// world references draw shapes at `reference ∘ shape.transform`; geometry drawn
+    /// without a reference (LOD blocks) uses `root ∘ shape.transform` [observed:
+    /// docs/spec-notes/world.md §4].
+    pub root: Affine3A,
+    /// Model-space bounds in NIF (game) space, root transform included.
     pub bounds: Option<(Vec3, Vec3)>,
     pub triangles: usize,
     pub skipped_skinned: usize,
@@ -128,15 +134,21 @@ impl ModelCtx<'_> {
         };
 
         let mut out = PreparedModel::default();
+        if let Some(r) = objects.iter().find(|o| o.parent.is_none()) {
+            out.root = affine(&r.transform);
+        }
         for o in objects.iter().filter(|o| !o.is_node) {
-            // Walk to the root: accumulate the transform and look for hidden ancestors.
-            let mut t = affine(&o.transform);
+            // Walk to the root: accumulate the transform below the root's own and look
+            // for hidden ancestors.
+            let mut t = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
             let mut hidden = hidden_self(o.block);
             let mut cur = o.parent;
             let mut depth = 0;
             while let Some(p) = cur {
                 let Some(po) = by_block.get(&p) else { break };
-                t = affine(&po.transform) * t;
+                if po.parent.is_some() {
+                    t = affine(&po.transform) * t;
+                }
                 hidden |= hidden_self(p);
                 cur = po.parent;
                 depth += 1;
@@ -165,7 +177,7 @@ impl ModelCtx<'_> {
             );
             if let Some(VertexAttributeValues::Float32x3(p)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
                 for v in p {
-                    let q = t.transform_point3(Vec3::from_array(*v));
+                    let q = (out.root * t).transform_point3(Vec3::from_array(*v));
                     out.bounds = Some(match out.bounds {
                         None => (q, q),
                         Some((lo, hi)) => (lo.min(q), hi.max(q)),
