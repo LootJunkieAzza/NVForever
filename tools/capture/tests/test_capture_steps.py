@@ -74,6 +74,15 @@ class JobTests(unittest.TestCase):
                 self.assertIn("SetFunctionValue 1", text)
         self.assertIn("SetFunctionValue (GetFormIDString rC)", job["steps"][12]["query"])
 
+    def test_whole_numbers_have_no_decimal_point(self):
+        job = cs.actions_job(actions({"op": "set_av", "of": "player", "name": "Strength", "value": 5.0},
+                                     {"op": "set_global", "name": "GameHour", "value": 8},
+                                     {"op": "set_global", "name": "GameHour", "value": 8.5}), "x", "s")
+        texts = [s["script"] for s in job["steps"][len(cs.MASTERS):]]
+        self.assertIn("player.SetAV Strength 5\n", texts[0])
+        self.assertIn("set GameHour to 8\n", texts[1])
+        self.assertIn("set GameHour to 8.5\n", texts[2])
+
     def test_queries_fields_and_default_labels(self):
         job = cs.actions_job(actions({"op": "get_pos", "of": "player"},
                                      {"op": "get_weight", "of": "player", "label": "w"},

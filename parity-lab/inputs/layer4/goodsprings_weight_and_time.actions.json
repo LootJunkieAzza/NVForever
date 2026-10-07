@@ -80,6 +80,11 @@
     },
     {
       "op": "set_global",
+      "name": "TimeScale",
+      "value": 0
+    },
+    {
+      "op": "set_global",
       "name": "GameHour",
       "value": 8
     },
@@ -154,6 +159,11 @@
       "op": "get_global",
       "name": "GameMonth",
       "label": "GameMonth after crossing midnight on day 31"
+    },
+    {
+      "op": "set_global",
+      "name": "TimeScale",
+      "value": 30
     }
   ],
   "report": [
