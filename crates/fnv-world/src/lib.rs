@@ -5,6 +5,7 @@
 //! - [`index`]: which cells belong to which worldspace and which references to which cell
 //! - [`placed`]: a placed reference (REFR/ACHR/ACRE/...) and the base object it places
 //! - [`land`]: landscape heights, normals, vertex colours and texture layers
+//! - [`sky`]: climate, weather and water records; time-of-day colours, sun and fog
 //! - [`transform`]: reference rotation convention
 //!
 //! Format facts and confidence tags: `docs/spec-notes/world.md`.
@@ -13,6 +14,7 @@ pub mod fields;
 pub mod index;
 pub mod land;
 pub mod placed;
+pub mod sky;
 pub mod transform;
 
 pub use index::{Cell, RefEntry, WorldIndex, Worldspace};

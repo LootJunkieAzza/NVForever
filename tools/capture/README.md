@@ -177,6 +177,38 @@ python tools/capture/oracle_dds.py list  "<Data>/Fallout - Textures.bsa" --out "
 Goldens layout: `nif/<Archive>.nif.stats.json`, `nif/<Archive>.nif.scene.json`,
 `dds/<Archive>.dds.listing.json`.
 
+## 6. `oracle_world.py` — independent world reader (Layer 3)
+
+Written only from `docs/spec-notes/esm.md`, `world.md` and the Layer 3 section of the
+contract (not from `crates/`, `engine/` or `schemas/`). Standard library only; imports
+`oracle_esm.py` (zlib tolerance, `XXXX` subrecords, cp1252 text) and must sit next to it.
+Plugins are memory-mapped and walked once each; only the selected cells, their references,
+the references' base objects and (for `heights`) the cells' LAND records are decoded.
+`refs --world WastelandNV` over the ten masters takes about 5 s, `refs --interiors` about
+6 s, `heights --world WastelandNV` about 14 s.
+
+```
+python tools/capture/oracle_world.py refs    "<Data>" FalloutNV.esm DeadMoney.esm ... --world WastelandNV -o "C:/fnv-private/goldens/world/WastelandNV.refs.json"
+python tools/capture/oracle_world.py refs    "<Data>" FalloutNV.esm DeadMoney.esm ... --interiors     -o "C:/fnv-private/goldens/world/interiors.refs.json"
+python tools/capture/oracle_world.py heights "<Data>" FalloutNV.esm DeadMoney.esm ... --world 0x000DA726 -o "C:/fnv-private/goldens/world/WastelandNV.heights.json"
+```
+
+- Plugins are given in load order and echoed as `load_order`. `--world` takes an Editor ID
+  (case-insensitive) or a load-order FormID `0x%08X`; `--schema` is accepted and ignored.
+  Only the whole-worldspace and `--interiors` selections are implemented (no `--cell`,
+  `--x/--y`).
+- `refs` → `fnv.world.refs/1`, `heights` → `fnv.world.heights/1`. FormIDs are mapped to the
+  load order through each plugin's master list; the last definition wins, including the
+  cell a reference sits in and the cell's LAND. A record whose own FormID has a master
+  index beyond its plugin's master list (GunRunnersArsenal.esm REFR 0x02000801) is
+  dropped and reported.
+- `model` follows the contract rule: surrounding whitespace removed (`null` if empty),
+  ASCII letters lower-cased, `/` → `\`, leading `\` removed (TREE models are stored as
+  `\WastelandShrub01.spt`), then `trees\` (`.spt`) or `meshes\` prefixed unless present.
+- Points where the notes leave a choice open are marked `# SPEC-AMBIGUITY` in the source.
+- Diagnostics (first 20 per code) go to stderr; exit code 1 when a plugin cannot be read or
+  the worldspace does not exist, 2 for usage errors.
+
 ## Tests
 
 ```
@@ -185,4 +217,7 @@ python3 -m unittest discover -s tools/capture/tests -v
 
 The tests build tiny synthetic BSA, ESM, NIF and DDS files (compressed and trailer-less BSA entries,
 empty compressed entry, hash mismatches, XXXX subrecord, compressed records including a bad
-Adler-32, nested GRUPs, truncated inputs). No game data is needed or used.
+Adler-32, nested GRUPs, truncated inputs) and, for `oracle_world.py`, a master plus a
+dependent plugin (reference override and move between cells, references added to master
+cells, LAND override, persistent cell, interior cell, compressed records, XESP, XSCL,
+engine-defined base, `.spt` model, unmappable FormID). No game data is needed or used.

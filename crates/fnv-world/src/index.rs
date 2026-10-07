@@ -24,6 +24,9 @@ pub struct Worldspace {
     pub parent_flags: u16,
     pub default_land_height: Option<f32>,
     pub default_water_height: Option<f32>,
+    /// WRLD CNAM climate and NAM2 water.
+    pub climate: Option<u32>,
+    pub water: Option<u32>,
     /// The cell placed directly in the world-children group (not in a block); it holds
     /// the worldspace's persistent references.
     pub persistent_cell: Option<u32>,
@@ -43,6 +46,8 @@ pub struct Cell {
     pub data_flags: u8,
     /// CELL XCLW, when present.
     pub water_height: Option<f32>,
+    /// CELL XCWT water type, when present.
+    pub water_type: Option<u32>,
     /// Load-order index of the plugin with the winning CELL record.
     pub plugin: usize,
     /// References whose winning placement is in this cell, by FormID.
@@ -53,6 +58,11 @@ pub struct Cell {
 impl Cell {
     pub fn is_interior(&self) -> bool {
         self.data_flags & 1 != 0
+    }
+
+    /// CELL DATA bit 1 [documented: xEdit "Has water"].
+    pub fn has_water(&self) -> bool {
+        self.data_flags & 2 != 0
     }
 }
 
@@ -162,6 +172,8 @@ impl WorldIndex {
         w.edid = f.string(b"EDID");
         w.name = f.string(b"FULL");
         w.parent = f.formid(b"WNAM", lo);
+        w.climate = f.formid(b"CNAM", lo);
+        w.water = f.formid(b"NAM2", lo);
         w.parent_flags = f.get(b"PNAM").and_then(|v| num(&v, "value")).map_or(0, |v| v as u16);
         if let Some(d) = f.get(b"DNAM") {
             w.default_land_height = num(&d, "default_land_height").map(|v| v as f32);
@@ -193,6 +205,7 @@ impl WorldIndex {
         c.data_flags = f.get(b"DATA").and_then(|v| num(&v, "value")).map_or(0, |v| v as u8);
         c.grid = f.get(b"XCLC").and_then(|v| Some((num(&v, "x")? as i32, num(&v, "y")? as i32)));
         c.water_height = f.get(b"XCLW").and_then(|v| v.as_f64()).map(|v| v as f32);
+        c.water_type = f.formid(b"XCWT", lo);
         // A cell directly inside the world-children group (no block group after it) is the
         // worldspace's persistent cell [observed: one per worldspace, see world.md].
         if let (Some(w), Some(last)) = (world, stack.last()) {

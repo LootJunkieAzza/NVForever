@@ -105,6 +105,7 @@ pub struct StreamStats {
     pub refs_no_model: usize,
     /// TREE references: SpeedTree models are not drawn yet (layer3.md work item).
     pub refs_speedtree: usize,
+    pub water_planes: usize,
     pub shapes: usize,
     pub load_ms: f64,
     pub skipped_types: HashMap<String, usize>,
@@ -193,6 +194,9 @@ fn load_cell(
     if let Some(p) = world.persistent_by_grid.get(&g) {
         refs.extend(p);
     }
+    if let Some(c) = cell {
+        spawn_water(commands, cell_e, world, c, models, stats);
+    }
     let to_cell = Affine3A::from_translation(-origin);
     for r in refs {
         let Some(p) = placement(&world.lo, world.schema, r) else { continue };
@@ -240,6 +244,71 @@ fn load_cell(
         stats.refs_drawn += 1;
     }
     cell_e
+}
+
+/// Water surface of a cell: cells flagged "has water" get a plane at XCLW, or at the
+/// worldspace's default water height when XCLW is absent or the 3.4e38 sentinel
+/// [hypothesis, world.md §1]; the water type is CELL XCWT, else the worldspace's NAM2.
+fn spawn_water(
+    commands: &mut Commands,
+    cell_e: Entity,
+    world: &WorldData,
+    c: &fnv_world::Cell,
+    models: &mut ModelCtx,
+    stats: &mut StreamStats,
+) {
+    if !c.has_water() {
+        return;
+    }
+    let ws = &world.index.worldspaces[&world.world];
+    let height = match c.water_height {
+        Some(h) if h.is_finite() && h.abs() < 1.0e30 => h,
+        _ => match ws.default_water_height {
+            Some(h) => h,
+            None => return,
+        },
+    };
+    let Some(wid) = c.water_type.or(ws.water) else { return };
+    let mat = match models.cache.water_material(wid) {
+        Some(m) => m,
+        None => {
+            let Some(w) = fnv_world::sky::water(&world.lo, world.schema, wid) else { return };
+            let noise = w.noise_texture.as_deref().and_then(|t| {
+                let a = &mut *models;
+                a.textures.get(t, false, &a.data, &mut a.images, a.formats.as_deref())
+            });
+            let lin = |c: [u8; 3]| c.map(fnv_world::sky::srgb_to_linear);
+            let s = lin(w.shallow);
+            let m = models.materials.add(StandardMaterial {
+                base_color: Color::LinearRgba(LinearRgba::new(s[0], s[1], s[2], (w.opacity as f32 / 255.0).clamp(0.3, 0.95))),
+                normal_map_texture: noise,
+                perceptual_roughness: 0.08,
+                reflectance: 0.6,
+                alpha_mode: AlphaMode::Blend,
+                cull_mode: None,
+                ..default()
+            });
+            models.cache.set_water_material(wid, m.clone());
+            m
+        }
+    };
+    let s = CELL_SIZE;
+    let mut mesh = Mesh::from(Plane3d::new(Vec3::Z, Vec2::splat(s / 2.0)));
+    // Repeat the noise map every 1024 units [hypothesis].
+    if let Some(bevy::mesh::VertexAttributeValues::Float32x2(uv)) = mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0) {
+        for t in uv.iter_mut() {
+            t[0] *= s / 1024.0;
+            t[1] *= s / 1024.0;
+        }
+    }
+    let _ = mesh.generate_tangents();
+    let mesh = models.meshes.add(mesh);
+    commands.entity(cell_e).with_child((
+        Mesh3d(mesh),
+        MeshMaterial3d(mat),
+        Transform::from_xyz(s / 2.0, s / 2.0, height),
+    ));
+    stats.water_planes += 1;
 }
 
 fn base_type_name(b: Option<&BaseObject>) -> String {
