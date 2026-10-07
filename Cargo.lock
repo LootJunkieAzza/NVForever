@@ -483,6 +483,7 @@ dependencies = [
  "anyhow",
  "clap",
  "fnv-bsa",
+ "fnv-collide",
  "fnv-dds",
  "fnv-esm",
  "fnv-inflate",
