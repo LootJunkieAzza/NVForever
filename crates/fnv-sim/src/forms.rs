@@ -69,6 +69,9 @@ pub struct Item {
     /// ARMO BMDT biped flags: the body slots the item occupies when worn.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slots: Option<u32>,
+    /// WEAP DNAM: the projectile the weapon fires.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projectile: Option<FormId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -138,6 +141,9 @@ pub enum BaseData {
     Furniture,
     Actor(ActorBase),
     LeveledItem(LeveledList),
+    /// PROJ, the base of a placed explosive (PGRE). `item` is the weapon that fires
+    /// this projectile, when exactly one does (what disarming yields).
+    Projectile { item: Option<FormId> },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -162,7 +168,7 @@ pub const OTHER_SIGS: &[&[u8; 4]] = &[b"GLOB", b"GMST"];
 /// Record types interpreted as base forms.
 pub const BASE_SIGS: &[&[u8; 4]] = &[
     b"WEAP", b"ARMO", b"AMMO", b"ALCH", b"BOOK", b"KEYM", b"MISC", b"NOTE", b"LIGH", b"IMOD", b"CHIP", b"CCRD",
-    b"CMNY", b"CONT", b"DOOR", b"ACTI", b"TACT", b"FURN", b"NPC_", b"CREA", b"LVLI",
+    b"CMNY", b"CONT", b"DOOR", b"ACTI", b"TACT", b"FURN", b"NPC_", b"CREA", b"LVLI", b"PROJ",
 ];
 
 #[derive(Default)]
@@ -207,6 +213,7 @@ impl FormStore {
                 (id, l, issues)
             })
             .collect();
+        let loaded = link_projectiles(loaded);
         for (id, l, issues) in loaded {
             store.issues.merge(issues);
             match l {
@@ -281,6 +288,30 @@ impl FormStore {
     }
 }
 
+/// Give every PROJ base the weapon that fires it, when exactly one weapon does.
+fn link_projectiles(mut loaded: Vec<(FormId, Loaded, Issues)>) -> Vec<(FormId, Loaded, Issues)> {
+    let mut firing: HashMap<FormId, Vec<FormId>> = HashMap::new();
+    for (id, l, _) in &loaded {
+        if let Loaded::Base(b) = l {
+            if let BaseData::Item(Item { kind: ItemKind::Weapon, projectile: Some(p), .. }) = &b.data {
+                firing.entry(*p).or_default().push(*id);
+            }
+        }
+    }
+    for (_, l, issues) in &mut loaded {
+        if let Loaded::Base(b) = l {
+            if let BaseData::Projectile { item } = &mut b.data {
+                match firing.get(&b.id).map(Vec::as_slice) {
+                    Some([w]) => *item = Some(*w),
+                    Some(ws) => issues.note("PROJ fired by several weapons", || format!("{} {:?}", b.id, ws)),
+                    None => {}
+                }
+            }
+        }
+    }
+    loaded
+}
+
 enum Loaded {
     Base(Box<BaseForm>),
     Global(Option<String>, f32),
@@ -335,7 +366,15 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
     let script = fid(first(&d, b"SCRI"), "SCRI");
     let data = if let Some(kind) = ItemKind::from_sig(&sig) {
         match item(kind, &d) {
-            Some(i) => {
+            Some(mut i) => {
+                i.projectile = match i.projectile.map(|p| global(lo, pi, p.0)) {
+                    Some(Ok(g)) => g,
+                    Some(Err(l)) => {
+                        issues.note("FormID outside master list", || format!("{id} DNAM projectile 0x{l:08X}"));
+                        None
+                    }
+                    None => None,
+                };
                 if i.value.is_none() || i.weight.is_none() {
                     issues.note(&format!("{sig_s}: no value/weight layout in the schema"), || format!("{id}"));
                 }
@@ -363,6 +402,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
             b"ACTI" | b"TACT" => BaseData::Activator,
             b"FURN" => BaseData::Furniture,
             b"LVLI" => BaseData::LeveledItem(leveled(lo, pi, id, &d, issues)),
+            b"PROJ" => BaseData::Projectile { item: None },
             _ => return Loaded::Skip,
         }
     };
@@ -388,11 +428,22 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         // CCRD, CMNY have no record layout). Reported by the caller.
         _ => (None, None),
     };
+    let projectile = match kind {
+        ItemKind::Weapon => first(d, b"DNAM").and_then(|v| v.get("projectile")).and_then(local_fid),
+        _ => None,
+    };
     let slots = match kind {
         ItemKind::Armor => first(d, b"BMDT").and_then(|v| v.get("biped_flags")).and_then(|f| int(f, "value")),
         _ => None,
     };
-    Some(Item { kind, value: value.map(|v| v as i32), weight: weight.map(|w| w as f32), slots: slots.map(|s| s as u32) })
+    Some(Item {
+        kind,
+        value: value.map(|v| v as i32),
+        weight: weight.map(|w| w as f32),
+        slots: slots.map(|s| s as u32),
+        // File-local here; made global by the caller.
+        projectile: projectile.map(FormId),
+    })
 }
 
 /// S.P.E.C.I.A.L. names in NPC_ DATA order.

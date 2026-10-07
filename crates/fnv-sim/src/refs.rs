@@ -10,6 +10,7 @@
 //! docs/spec-notes/world.md), so the renderer and the simulation agree by construction;
 //! this module adds the extra data the simulation needs.
 
+use fnv_esm::decode::SubStatus;
 use fnv_esm::raw::record_flags;
 use fnv_esm::{LoadOrder, Record, Schema};
 use fnv_world::{RefEntry, WorldIndex};
@@ -81,13 +82,17 @@ impl PlacedRef {
     }
 }
 
-pub const REF_SIGS: &[&[u8; 4]] = &[b"REFR", b"ACHR", b"ACRE"];
+pub const REF_SIGS: &[&[u8; 4]] = &[b"REFR", b"ACHR", b"ACRE", b"PGRE"];
 
 #[derive(Default)]
 pub struct RefTable {
     pub refs: BTreeMap<FormId, PlacedRef>,
     /// Lower-case Editor ID -> reference.
     pub edids: HashMap<String, FormId>,
+    /// References by cell, in FormID order.
+    pub by_cell: BTreeMap<FormId, Vec<FormId>>,
+    /// Lower-case cell Editor ID -> cell.
+    pub cell_edids: HashMap<String, FormId>,
     /// References whose winning definition carries the Deleted flag (left out).
     pub deleted: u64,
     pub issues: Issues,
@@ -141,10 +146,23 @@ impl RefTable {
                 if let Some(e) = &pr.edid {
                     t.edids.insert(e.to_ascii_lowercase(), pr.id);
                 }
+                if let Some(c) = pr.cell {
+                    t.by_cell.entry(c).or_default().push(pr.id);
+                }
                 t.refs.insert(pr.id, pr);
             }
         }
+        for c in ix.cells.values() {
+            if let Some(e) = &c.edid {
+                t.cell_edids.insert(e.to_ascii_lowercase(), FormId(c.form_id));
+            }
+        }
         t
+    }
+
+    /// A cell by Editor ID (case-insensitive).
+    pub fn cell_by_edid(&self, edid: &str) -> Option<FormId> {
+        self.cell_edids.get(&edid.to_ascii_lowercase()).copied()
     }
 
     pub fn get(&self, id: FormId) -> Option<&PlacedRef> {
@@ -189,13 +207,25 @@ fn load_ref(
     in_persistent_group: bool,
     issues: &mut Issues,
 ) -> Option<PlacedRef> {
-    let d = match extract::decode(r, schema) {
+    // Placed explosives (PGRE) use the placed-reference subrecords; the schema
+    // describes them once, under REFR. [hypothesis: xEdit defines PGRE with the same
+    // placed-object subrecords; checked by counting subrecords the REFR layout does not
+    // decode, reported below]
+    let layout = if &r.header.sig == b"PGRE" { b"REFR" } else { &r.header.sig };
+    let d = match extract::decode_as(r, schema, layout) {
         Ok(d) => d,
         Err(e) => {
             issues.note("reference undecodable", || format!("{id}: {e}"));
             return None;
         }
     };
+    if &r.header.sig == b"PGRE" {
+        for x in d.iter().filter(|x| x.status != SubStatus::Ok) {
+            issues.note(&format!("PGRE subrecord {} not decoded by the REFR layout", String::from_utf8_lossy(&x.sig)), || {
+                format!("{id}")
+            });
+        }
+    }
     let fid = |v: Option<&serde_json::Value>, what: &str, issues: &mut Issues| field_fid(lo, pi, id, v, what, issues);
     let Some(base) = fid(first(&d, b"NAME"), "NAME", issues) else {
         issues.note("reference without base (NAME)", || format!("{id}"));
