@@ -126,6 +126,15 @@ class Names:
         return var
 
 
+def number(v):
+    """A numeric literal the runtime compiler accepts: whole numbers without a decimal
+    point (`SetAV Strength 5.0` did not compile, `SetAV Strength 5` did [observed])."""
+    f = float(v)
+    if not f == f or f in (float("inf"), float("-inf")):
+        raise InputError(f"not a finite number: {v!r}")
+    return str(int(f)) if f.is_integer() else repr(f)
+
+
 def plain_name(name, what):
     """A global or actor-value name: used verbatim, so it must be an identifier."""
     if not isinstance(name, str) or not name or not all(c.isalnum() or c == "_" for c in name) or name[:2].lower() == "0x":
@@ -196,9 +205,9 @@ def action_steps(i, a, ctx):
         return [rs(["{0}." + op.capitalize()], g("target"))]
     if op == "set_global":
         name = plain_name(g("name"), "set_global: the global")
-        return [{"script": function([], [f"set {name} to {float(g('value'))!r}"], returns_value=False)}]
+        return [{"script": function([], [f"set {name} to {number(g('value'))}"], returns_value=False)}]
     if op == "set_av":
-        return [rs([f"{{0}}.SetAV {plain_name(g('name'), 'set_av: the actor value')} {float(g('value'))!r}"], g("of"))]
+        return [rs([f"{{0}}.SetAV {plain_name(g('name'), 'set_av: the actor value')} {number(g('value'))}"], g("of"))]
     if op == "equip_item":
         return [rs(["{0}.EquipItem {1}"], g("actor"), g("item"))]
     if op == "unequip_item":
