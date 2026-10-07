@@ -3,10 +3,14 @@
 Spec section 5 Layer 4 ("entity model (forms and references), save-agnostic game state,
 collision and character controller, basic physics, activation, containers, inventory")
 and milestone M4 ("player controller, collision, activation, inventory"), in the section
-9 format. Status 2026-10-07: **started**. The headless simulation core (forms, references,
-inventories, leveled lists, activation, delta state, scripted traces) is implemented and
-runs on the owner's install. Collision and the character controller are designed (§2.8)
-and come next.
+9 format. Status 2026-10-07: **simulation core (workstream 3) feature-complete for this
+cut**: forms, references (incl. placed explosives), inventories with per-stack extra data,
+equipping, encumbrance, leveled lists, activation, enable-parent chains, game settings,
+game clock and globals, container respawn, delta state, scripted traces, item listing and
+leveled-list sampling — all headless, on the owner's install, with `L4.sim.containers`
+and `L4.sim.items` passing against the independent oracle. Behaviour rules stay
+[hypothesis] until the in-game captures (simulation.md §6) exist. Collision and the
+character controller are workstreams 1 and 2 (§7).
 
 ## 1. Summary and assumptions
 
