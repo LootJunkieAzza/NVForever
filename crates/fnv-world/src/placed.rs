@@ -66,14 +66,21 @@ pub struct BaseObject {
 }
 
 impl BaseObject {
-    /// Archive path of the model (`meshes\...`, lower case).
+    /// Archive path of the model, lower case: `meshes\...`, except SpeedTree models
+    /// (`.spt`, used by TREE), which live under `trees\` [observed: all ten `.spt` files
+    /// in the archives are in `trees\`, and TREE MODL values name them without a folder].
     pub fn model_path(&self) -> Option<String> {
         let m = self.model.as_deref()?.trim();
         if m.is_empty() {
             return None;
         }
         let m = m.replace('/', "\\").to_ascii_lowercase();
-        Some(if m.starts_with("meshes\\") { m } else { format!("meshes\\{m}") })
+        let root = if m.ends_with(".spt") { "trees\\" } else { "meshes\\" };
+        Some(if m.starts_with(root) { m } else { format!("{root}{m}") })
+    }
+
+    pub fn is_speedtree(&self) -> bool {
+        self.model_path().is_some_and(|m| m.ends_with(".spt"))
     }
 }
 
@@ -93,5 +100,7 @@ mod tests {
         assert_eq!(b("Clutter\\Junk\\Can.NIF").model_path().unwrap(), "meshes\\clutter\\junk\\can.nif");
         assert_eq!(b("meshes/a.nif").model_path().unwrap(), "meshes\\a.nif");
         assert_eq!(b("  ").model_path(), None);
+        assert_eq!(b("WastelandShrub01.spt").model_path().unwrap(), "trees\\wastelandshrub01.spt");
+        assert!(b("WastelandShrub01.spt").is_speedtree() && !b("a.nif").is_speedtree());
     }
 }

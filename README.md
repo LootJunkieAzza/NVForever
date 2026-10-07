@@ -16,7 +16,7 @@ viewer renders meshes with textures, skinning and animation
 | 0 | Ground truth, parity lab, capture tools | done (`parity-lab/`, `tools/capture/`) |
 | 1 | BSA reader, ESM/ESP parser, load order, schemas | container + load order complete; layouts for 40/107 record types; xEdit cross-check pending |
 | 2 | NIF, DDS, KF assets, viewer | 160/160 block types, 1,036,695 blocks exact; 56/56 parity scenarios; viewer (owner visual check pending) |
-| 3 | World and rendering | next |
+| 3 | World and rendering | in progress: world data checked on the full load order; free-camera explorer draws terrain and objects (no LOD, sky, water or SpeedTree yet) |
 | 4–7 | Simulation, scripting, gameplay, UI/audio/saves | not started |
 
 ## Where things go (separate from the game)
@@ -68,8 +68,9 @@ crates/
   fnv-nif       NIF/KF: container, schema interpreter, scene graph, geometry, animation
   fnv-dds       DDS: header, formats, mip layout
   fnv-vfs       read-only virtual file system (archives in precedence order + loose files)
+  fnv-world     worldspaces, cells, references, landscape across a load order
   fnvtool       CLI used by the parity lab (JSON on stdout)
-viewer/         nvf-viewer: Bevy asset viewer (its own Cargo workspace)
+engine/         Bevy workspace (its own): nvf-assets, nvf-viewer (asset viewer), nvforever (game)
 schemas/fnv/    record layouts as data (fnv.schema/1)
 schemas/nif/    NIF block layouts as data (fnv.nif.schema/1)
 parity-lab/     oracle-vs-candidate differential testing (Python stdlib)
@@ -88,7 +89,7 @@ cargo test --workspace --release
 cargo build --release -p fnvtool
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
-cd viewer && cargo build --release        # Bevy viewer (first build takes a while)
+cd engine && cargo build --release        # Bevy viewer and game (first build takes a while)
 ```
 
 Dependencies and the reasons for each: [docs/design/dependencies.md](docs/design/dependencies.md)
@@ -113,13 +114,22 @@ The viewer (Windows PowerShell; reads your Data folder, never writes to it):
 
 ```powershell
 $D = "C:\Program Files (x86)\Steam\steamapps\common\Fallout New Vegas\Data"
-cd viewer
-cargo run --release -- --data $D --filter "clutter\junk\nv"
-cargo run --release -- --data $D --mesh "meshes\creatures\deathclaw\deathclaw.nif" --anim "meshes\creatures\deathclaw\mtidle.kf"
+cd engine
+cargo run --release --bin nvf-viewer -- --data $D --filter "clutter\junk\nv"
+cargo run --release --bin nvf-viewer -- --data $D --mesh "meshes\creatures\deathclaw\deathclaw.nif" --anim "meshes\creatures\deathclaw\mtidle.kf"
 ```
 
 Keys: N/P next/previous mesh, A next animation, Space pause, H show hidden objects,
 F frame, F12 screenshot, Esc quit; mouse: left drag orbit, right drag pan, wheel zoom.
+
+The world (Layer 3, in progress): terrain and objects streamed around a free camera.
+
+```powershell
+cargo run --release --bin nvforever -- --data $D --cell Goodsprings
+```
+
+Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
+F12 screenshot, Esc quit. `--world`, `--cell x,y`, `--pos x,y,z`, `--heading`, `--radius`.
 
 ## Rules of the project
 

@@ -2,7 +2,9 @@
 
 Spec section 5 Layer 3 and milestone M3 ("walk a free camera through the Mojave with
 correct terrain and objects"), in the section 9 format. Status 2026-10-07: **world data
-layer done and checked on the owner's install; rendering not started.**
+layer done and checked on the owner's install; first world renderer draws terrain and
+static objects around a free camera (Goodsprings renders recognisably); sky, water, LOD,
+SpeedTree and screenshot parity not started.**
 
 ## 1. Summary and assumptions
 
@@ -52,17 +54,43 @@ findings above.
 
 Schema additions: SCOL (parts and placements), PGRE (placed grenade).
 
-### 2.2 Rendering architecture (planned)
+### 2.2 Rendering architecture (ADR-0002)
 
-The Bevy code becomes one workspace, `engine/` (renamed from `viewer/`), so the viewer
-and the game share the asset plugins:
+The Bevy code is one workspace, `engine/` (renamed from `viewer/`), so the viewer and the
+game share the asset plugins:
 
 | Crate | Role |
 |---|---|
-| `nvf-assets` | ArchivePlugin (VFS), NIF → entities, DDS → images, KF playback (moved from the viewer) |
-| `nvf-world-render` | WorldStreamingPlugin: cells around the camera, terrain meshes and material, reference spawning with instancing of shared meshes, lights, water, sky |
+| `nvf-assets` | ArchivePlugin (VFS), NIF → entities, prepared static models shared by all references, DDS → images, KF playback |
 | `nvf-viewer` | the M2 asset viewer, unchanged in behaviour |
-| `nvforever` | the game binary; at M3 a free-camera explorer: `--world WastelandNV --cell x,y` |
+| `nvforever` | the game binary; at M3 a free-camera explorer. `world.rs` (streaming, references), `terrain.rs`, `fly.rs` |
+
+`nvforever --data <Data> [--world W] [--cell EDID|x,y] [--pos x,y,z] [--heading deg]
+[--pitch deg] [--radius n] [--screenshot out.png] [--size WxH] [--hide text,...]`
+
+What it does now:
+- Streams the (2r+1)² cells around the camera, nearest first, one per frame; unloads with
+  one cell of hysteresis. The worldspace's persistent references are assigned to cells by
+  position (world.md §1).
+- References: drawn when enabled at game start (not deleted, not initially disabled,
+  enable parent in the required state) and the base is a static-like type with a NIF
+  model; actors, sounds, idle markers, editor marker meshes and SpeedTree trees are
+  counted, not drawn. Transform = position · `Rx(−x)Ry(−y)Rz(−z)` · scale.
+- Terrain: per quadrant, base texture + alpha-blended layers (ADR-0002 §4), stored
+  normals, vertex colours (sRGB → linear).
+- Materials as in the viewer, plus: nodes named `EditorMarker*` are skipped, additive and
+  multiplicative NIF blend modes are honoured, alpha test wins over blending, and
+  BSShaderNoLightingProperty is unlit (nif.md §6).
+- Placeholder sun, ambient light, sky colour and distance fog.
+
+Measured on the owner's machine (i7-7700HQ, GTX 1050): 5 × 5 cells around Goodsprings
+(1,948 references drawn, 3,085 shapes, 224 models, 506 terrain layers) load in 2.5 s;
+7 × 7 cells (2,386 references, 280 models) in 2.6 s. No model or texture failures.
+
+Rendering hypotheses to check against screenshots: terrain texture repeat
+(`--terrain-tile`, default 4096/6 units), alpha-grid orientation, layer order, triangle
+diagonal, the alpha test/blend rule, the default texture for the 43 quadrants without a
+base layer seen around Goodsprings (drawn neutral grey).
 
 Coordinate mapping as in the viewer: game Z-up → Bevy Y-up at a single root transform;
 game units unchanged.
@@ -75,13 +103,13 @@ game units unchanged.
    worldspace. Oracle: an independent clean-room Python reader (`tools/capture/
    oracle_world.py`, written by a separate agent from the spec notes and CLI contract
    only), plus an optional FNVEdit export procedure.
-3. **Terrain**: one mesh per cell (33 × 33 grid, stored normals, vertex colours), texture
+3. **Terrain** (first version done): one mesh per cell (33 × 33 grid, stored normals, vertex colours), texture
    splatting with a custom material (base texture per quadrant + up to N alpha layers),
    matched against in-game screenshots.
-4. **Objects**: spawn each reference's model with its transform; skip deleted,
+4. **Objects** (first version done): spawn each reference's model with its transform; skip deleted,
    initially-disabled and marker references; reuse meshes and materials across
    references of the same base object.
-5. **Streaming**: load the cells within a radius of the camera (the original uses a
+5. **Streaming** (synchronous version done): load the cells within a radius of the camera (the original uses a
    square of `uGridsToLoad` cells, default 5 [documented: Fallout.ini default, to be
    confirmed from the owner's INI]); load on background tasks; despawn outside a
    hysteresis margin.
@@ -89,9 +117,12 @@ game units unchanged.
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
 7. **Water**: worldspace / cell water height, WATR records, placeable water (PWAT).
-8. **LOD**: distant terrain and object LOD from the game's LOD meshes and textures
+8. **SpeedTree**: TREE references (18,050 in WastelandNV, e.g. the desert shrubs) use
+   SpeedTree `.spt` models from `trees\`, a non-NIF format; needs its own clean-room
+   format study before they can be drawn.
+9. **LOD**: distant terrain and object LOD from the game's LOD meshes and textures
    (layout to be surveyed).
-9. **Image parity**: an image comparator in the lab (perceptual metric with region masks,
+10. **Image parity**: an image comparator in the lab (perceptual metric with region masks,
    standard library only), a capture procedure for the original game, and fixed-camera
    scenarios.
 
@@ -99,6 +130,8 @@ game units unchanged.
 
 - `crates/fnv-world` (unit tests per module), `crates/fnvtool/src/world_cmd.rs`,
   `crates/fnv-world/examples/scol_rotation.rs` (evidence program).
+- `engine/` (ADR-0002): `nvf-assets` (model cache, shared materials, blend modes,
+  editor markers; unit tests), `nvforever` (world streaming, terrain, free camera).
 - Schemas: `objects.json` SCOL, `world.json` PGRE.
 
 ## 4. Validation plan and exit criterion (M3)
@@ -117,7 +150,10 @@ owner once the first comparisons exist; they are then frozen like any other tole
    values in a small JSON file next to each image.
 2. **INI values**: `uGridsToLoad`, `uExterior Cell Buffer`, fog and LOD distances from
    your `Fallout.ini` / `FalloutPrefs.ini` (we read them; NVForever never writes there).
-3. Confirm in game that initially-disabled references are hidden at the start of a
+3. A first look: `cargo run --release --bin nvforever -- --data <Data> --cell Goodsprings`
+   (from `engine/`) and fly around; anything that looks wrong compared with the game is
+   useful (missing or extra objects, wrong terrain textures).
+4. Confirm in game that initially-disabled references are hidden at the start of a
    new game in the cells we test (expected for quest-gated objects).
 
 ## 6. Updated spec notes
