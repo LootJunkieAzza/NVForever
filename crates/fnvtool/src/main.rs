@@ -7,6 +7,7 @@ mod dds_cmd;
 mod esm_cmd;
 mod install_cmd;
 mod nif_cmd;
+mod sim_cmd;
 mod source;
 
 use clap::{Args, Parser, Subcommand};
@@ -49,6 +50,37 @@ enum Cmd {
     /// DDS textures.
     #[command(subcommand)]
     Dds(DdsCmd),
+    /// Layer 4 core simulation: forms, references, inventories, activation.
+    #[command(subcommand)]
+    Sim(SimCmd),
+}
+
+#[derive(Subcommand)]
+pub enum SimCmd {
+    /// What the simulation loaders understood, with consistency checks (fnv.sim.forms/1).
+    Forms {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+    },
+    /// Every container base form with its authored contents (fnv.sim.containers/1).
+    Containers {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+    },
+    /// Run a scripted action sequence (fnv.sim.actions/1) and print its trace
+    /// (fnv.sim.trace/1).
+    Run {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long)]
+        actions: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -237,6 +269,7 @@ fn main() -> ExitCode {
         Cmd::Esm(c) => esm_cmd::run(c),
         Cmd::Nif(c) => nif_cmd::run(c),
         Cmd::Dds(c) => dds_cmd::run(c),
+        Cmd::Sim(c) => sim_cmd::run(c),
     };
     match res {
         Ok(v) => {
