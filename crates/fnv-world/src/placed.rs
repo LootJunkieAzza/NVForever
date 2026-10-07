@@ -93,6 +93,19 @@ pub fn base_object(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<BaseObje
     Some(BaseObject { form_id: fid, sig: r.header.sig, edid: f.string(b"EDID"), model: f.string(b"MODL") })
 }
 
+/// A TREE's billboard: its size (TREE BNAM width, height) and texture,
+/// `textures\trees\billboards\<model file name>.dds` [observed: one billboard per `.spt`
+/// with the same stem].
+pub fn tree_billboard(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<([f32; 2], String)> {
+    let (pi, r) = winner(lo, fid)?;
+    let f = Fields::new(r, pi, schema).ok()?;
+    let b = f.get(b"BNAM")?;
+    let size = [num(&b, "width")? as f32, num(&b, "height")? as f32];
+    let model = BaseObject { form_id: fid, sig: r.header.sig, edid: None, model: f.string(b"MODL") }.model_path()?;
+    let stem = model.rsplit('\\').next()?.strip_suffix(".spt")?;
+    Some((size, format!("textures\\trees\\billboards\\{stem}.dds")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

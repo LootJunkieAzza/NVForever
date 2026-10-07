@@ -62,7 +62,10 @@ entry in the schemas.
   relative to `meshes\`, except TREE models: SpeedTree `.spt` files named without a
   folder, which live in `trees\` [observed: all ten `.spt` files in the archives are
   there, e.g. `trees\wastelandshrub01.spt`; WastelandNV has 18,050 TREE references].
-  `.spt` is SpeedTree's own format, not NIF; it is not decoded yet.
+  `.spt` is SpeedTree's own format, not NIF; it is not decoded yet. Each `.spt` has a
+  billboard texture with the same stem, `textures	reesillboards\<stem>.dds` (square,
+  256 or 512 px, DXT3/DXT5) [observed], and TREE `BNAM` gives the billboard width and
+  height in game units (WastelandShrub01: 175 × 175) [documented: xEdit; observed].
 - **Engine-defined base objects** [observed]: 102 WastelandNV references name a base
   FormID below 0x800 that no master defines (e.g. 0x17 on references carrying portal /
   occlusion box data in XPRM/XOCP). These are built into the engine [hypothesis] and are
