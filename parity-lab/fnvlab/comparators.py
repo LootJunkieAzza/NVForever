@@ -396,6 +396,212 @@ def compare_image(expected: Any, actual: Any, cfg: dict) -> ComparisonResult:
     return ComparisonResult(score, col.failures, col.total, stats)
 
 
+# --------------------------------------------------------------------------- distribution
+
+def _gammainc_upper(a: float, x: float) -> float:
+    """Regularised upper incomplete gamma Q(a, x) = Gamma(a, x) / Gamma(a), for a > 0.
+
+    Series for x < a + 1, Lentz continued fraction otherwise (the textbook pair; both
+    converge quickly in their region). Accurate to ~1e-12, plenty for p-values.
+    """
+    if x <= 0.0:
+        return 1.0
+    ln_pre = a * math.log(x) - x - math.lgamma(a)
+    if x < a + 1.0:
+        term = total = 1.0 / a
+        n = a
+        for _ in range(10_000):
+            n += 1.0
+            term *= x / n
+            total += term
+            if abs(term) < abs(total) * 1e-15:
+                break
+        return max(0.0, 1.0 - total * math.exp(ln_pre))
+    tiny = 1e-300
+    b = x + 1.0 - a
+    c = 1.0 / tiny
+    d = 1.0 / b
+    h = d
+    for i in range(1, 10_000):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        d = tiny if abs(d) < tiny else d
+        c = b + an / c
+        c = tiny if abs(c) < tiny else c
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-15:
+            break
+    return min(1.0, math.exp(ln_pre) * h)
+
+
+def chi2_sf(stat: float, df: int) -> float:
+    """P(X >= stat) for X ~ chi-square with df degrees of freedom."""
+    if df <= 0:
+        return 1.0
+    return _gammainc_upper(df / 2.0, stat / 2.0)
+
+
+def _pool(cats: list, expected_min: list[float], min_expected: float) -> list[list]:
+    """Group categories so every group's smallest expected count reaches min_expected.
+
+    Categories already large enough stay alone; the small ones are merged (in order of
+    increasing expectation) into one pooled group, and if that group is still too small
+    it absorbs the smallest remaining single category, until it is large enough or only
+    one group is left.
+    """
+    order = sorted(range(len(cats)), key=lambda i: (expected_min[i], str(cats[i])))
+    big = [[cats[i]] for i in order if expected_min[i] >= min_expected]
+    small = [cats[i] for i in order if expected_min[i] < min_expected]
+    if not small:
+        return big
+    pooled = list(small)
+    pooled_e = sum(expected_min[cats.index(c)] for c in small)
+    while pooled_e < min_expected and big:
+        g = big.pop(0)  # smallest remaining single category
+        pooled.extend(g)
+        pooled_e += expected_min[cats.index(g[0])]
+    return big + [pooled]
+
+
+def _histogram(row: dict, field_name: str, side: str, label: str) -> dict:
+    h = row.get(field_name)
+    if not isinstance(h, dict) or not all(_is_num(v) and v >= 0 for v in h.values()):
+        raise ValueError(f"{side} case {label!r}: {field_name!r} must map outcomes to non-negative numbers")
+    return h
+
+
+def _test_case(oracle_counts: dict, cand: dict, cfg: dict) -> dict:
+    """Chi-square test of one case. Returns {p, chi2, df, mode, tv, impossible}."""
+    min_expected = float(cfg.get("min_expected", 5.0))
+    n_o = float(sum(oracle_counts.values()))
+    probs = cand.get("probabilities")
+    if probs is not None:
+        # Goodness of fit: oracle samples against the candidate's exact distribution.
+        cats = sorted(set(oracle_counts) | set(probs), key=str)
+        total_p = float(sum(probs.values()))
+        p = [float(probs.get(c, 0.0)) / total_p if total_p > 0 else 0.0 for c in cats]
+        obs = [float(oracle_counts.get(c, 0)) for c in cats]
+        impossible = [c for c, pi, o in zip(cats, p, obs) if pi == 0.0 and o > 0]
+        tv = 0.5 * sum(abs(o / n_o - pi) for o, pi in zip(obs, p)) if n_o else 0.0
+        if impossible:
+            return {"mode": "fit", "p": 0.0, "chi2": math.inf, "df": len(cats) - 1, "tv": tv,
+                    "impossible": impossible}
+        exp = [n_o * pi for pi in p]
+        groups = _pool(cats, exp, min_expected)
+        chi2 = 0.0
+        for g in groups:
+            o = sum(obs[cats.index(c)] for c in g)
+            e = sum(exp[cats.index(c)] for c in g)
+            if e > 0:
+                chi2 += (o - e) ** 2 / e
+        df = len(groups) - 1
+        return {"mode": "fit", "p": chi2_sf(chi2, df), "chi2": chi2, "df": df, "tv": tv, "impossible": []}
+    # Homogeneity: two samples (2 x K contingency table).
+    counts = cand.get("outcomes", {})
+    n_c = float(sum(counts.values()))
+    cats = sorted(set(oracle_counts) | set(counts), key=str)
+    o_row = [float(oracle_counts.get(c, 0)) for c in cats]
+    c_row = [float(counts.get(c, 0)) for c in cats]
+    total = n_o + n_c
+    tv = 0.5 * sum(abs(a / n_o - b / n_c) for a, b in zip(o_row, c_row)) if n_o and n_c else 1.0
+    if n_o == 0 or n_c == 0:
+        return {"mode": "homogeneity", "p": 0.0 if n_o != n_c else 1.0, "chi2": math.inf, "df": 0, "tv": tv,
+                "impossible": []}
+    col = [a + b for a, b in zip(o_row, c_row)]
+    # The smaller row has the smaller expected counts: pool on that row's expectation.
+    e_min = [k * min(n_o, n_c) / total for k in col]
+    groups = _pool(cats, e_min, min_expected)
+    chi2 = 0.0
+    for g in groups:
+        idx = [cats.index(c) for c in g]
+        k = sum(col[i] for i in idx)
+        for row, n in ((o_row, n_o), (c_row, n_c)):
+            e = n * k / total
+            o = sum(row[i] for i in idx)
+            if e > 0:
+                chi2 += (o - e) ** 2 / e
+    df = len(groups) - 1
+    return {"mode": "homogeneity", "p": chi2_sf(chi2, df), "chi2": chi2, "df": df, "tv": tv, "impossible": []}
+
+
+def compare_distribution(expected: Any, actual: Any, cfg: dict) -> ComparisonResult:
+    """Random outcomes (spec section 8.1): per case, sampled outcome counts from the
+    original game against the candidate's samples or exact probabilities.
+
+    Documents hold an array of cases (``select``), keyed by ``key`` (default ``label``).
+    Oracle case: ``{"<key>": .., "outcomes": {"<outcome>": count}}``. Candidate case:
+    the same, or ``"probabilities": {"<outcome>": p}`` (exact distribution; used when
+    present). Per case, Pearson's chi-square test: goodness of fit against the
+    candidate's probabilities, else homogeneity of the two samples; categories whose
+    expected count is below ``min_expected`` (default 5) are pooled. A case passes when
+    the p-value is at least ``alpha`` (default 0.01) and, in fit mode, the oracle shows no
+    outcome the candidate gives probability 0. Score = passing cases / (oracle cases +
+    extra candidate cases). Stats: per-case p-value, chi-square, degrees of freedom and
+    total-variation distance.
+    """
+    key = cfg.get("key", "label")
+    alpha = float(cfg.get("alpha", 0.01))
+    sel = cfg.get("select")
+    field_name = cfg.get("field", "outcomes")
+    e_rows = _select(expected, sel)
+    try:
+        a_rows = _select(actual, sel)
+    except ComparatorError:
+        col = _Collector()
+        col.add(Failure("missing", sel or "/", "<collection>", None))
+        return ComparisonResult(0.0, col.failures, col.total, {})
+    e_idx, e_prob = _index(e_rows, key, "oracle")
+    if e_prob:
+        raise ComparatorError(f"oracle has {len(e_prob)} malformed/duplicate rows, first: {e_prob[0].to_json()}")
+    a_idx, a_prob = _index(a_rows, key, "candidate")
+    col = _Collector()
+    for p in a_prob:
+        col.add(p)
+    cases: dict = {}
+    passed = 0
+    for k, erow in e_idx.items():
+        kp = f"/{_esc(_fmt_key(k))}"
+        try:
+            oh = _histogram(erow, field_name, "oracle", _fmt_key(k))
+        except ValueError as ex:
+            raise ComparatorError(str(ex)) from ex
+        if not oh or sum(oh.values()) <= 0:
+            raise ComparatorError(f"oracle case {_fmt_key(k)!r} has no samples")
+        arow = a_idx.get(k)
+        if arow is None:
+            col.add(Failure("missing", kp, _clip(oh), None))
+            continue
+        cand: dict = {}
+        try:
+            if "probabilities" in arow:
+                cand["probabilities"] = _histogram(arow, "probabilities", "candidate", _fmt_key(k))
+            else:
+                cand["outcomes"] = _histogram(arow, field_name, "candidate", _fmt_key(k))
+        except ValueError as ex:
+            col.add(Failure("malformed", kp, f"{field_name} or probabilities", _clip(str(ex))))
+            continue
+        r = _test_case(oh, cand, cfg)
+        cases[_fmt_key(k)] = {"p": round(r["p"], 6), "chi2": None if math.isinf(r["chi2"]) else round(r["chi2"], 4),
+                              "df": r["df"], "tv": round(r["tv"], 4), "mode": r["mode"]}
+        if r["impossible"]:
+            col.add(Failure("impossible_outcome", kp, _clip(r["impossible"]), "probability 0"))
+        elif r["p"] < alpha:
+            col.add(Failure("distribution", kp, f"p >= {alpha}", round(r["p"], 6)))
+        else:
+            passed += 1
+    extra = [k for k in a_idx if k not in e_idx]
+    for k in extra:
+        col.add(Failure("extra", f"/{_esc(_fmt_key(k))}", None, _clip(a_idx[k])))
+    denom = len(e_idx) + len(extra) + len(a_prob)
+    score = 1.0 if denom == 0 else passed / denom
+    return ComparisonResult(score, col.failures, col.total,
+                            {"oracle_cases": len(e_idx), "passed": passed, "extra": len(extra),
+                             "alpha": alpha, "cases": cases})
+
+
 # --------------------------------------------------------------------------- registry
 
 def _planned(name: str) -> Callable[[Any, Any, dict], ComparisonResult]:
@@ -409,5 +615,5 @@ COMPARATORS: dict[str, Callable[[Any, Any, dict], ComparisonResult]] = {
     "keyed": compare_keyed,
     "sequence": compare_sequence,
     "image": compare_image,
-    "distribution": _planned("distribution"),
+    "distribution": compare_distribution,
 }

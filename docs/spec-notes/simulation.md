@@ -64,9 +64,15 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   [documented: xEdit lists these as valid CNTO targets; flag name from xEdit LIGH DATA].
 - **Value and weight** [documented: xEdit layouts]: WEAP, ARMO, BOOK DATA (`value` i32,
   `weight` f32 among other fields); MISC, KEYM DATA (value i32, weight f32); AMMO value in
-  DATA, weight in DAT2; ALCH weight is DATA (f32), value in ENIT; LIGH DATA. NOTE has no
-  value or weight field; IMOD, CHIP, CCRD, CMNY have no layout in the schema yet
-  (work queue). Five AMMO records, all flagged Non-Playable creature ammunition
+  DATA, weight in DAT2; ALCH weight is DATA (f32), value in ENIT; LIGH DATA; IMOD DATA
+  (value u32, weight f32); CCRD DATA (value u32, no weight). NOTE and CHIP have no value
+  or weight field; CMNY has only DATA "Absolute Value" u32 (byte offsets: §7 `sim
+  items`). CCRD also holds two INTV u32, suit then card value (xEdit enums: suit 1 Hearts,
+  2 Spades, 3 Diamonds, 4 Clubs, 5 Joker; value 1 Ace, 2–10, 12 Jack, 13 Queen, 14 King,
+  15 Joker) [documented: xEdit]; `CardClubs2Tops` ("2 of Clubs") has INTV 4 then 2
+  [observed], consistent with that reading. Schema layouts for IMOD, CHIP, CCRD, CMNY were
+  added 2026-10-07 and decode every instance in the ten masters (`fnvtool esm coverage`)
+  [observed]. Five AMMO records, all flagged Non-Playable creature ammunition
   (e.g. `AmmoBloatflyDart`), have no DAT2 and therefore no weight [observed].
 - **Carried items** (CNTO, repeated: item FormID, count i32) appear on CONT, NPC_ and
   CREA [documented: xEdit]. In the ten masters [observed]: 30,414 entries; 7,365 on
@@ -77,9 +83,33 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   The simulation gives nothing for a count-0 or non-item entry [hypothesis].
 - **CONT DATA**: flags u8 (bit 1 "Respawns"), weight f32 [documented: xEdit]. 3,417
   container bases; 177 respawn; 845 have no CNTO [observed].
-- **Inventory model**: one stack per base item with a count. Removing more than is held
-  removes what is there and reports that number [hypothesis: GECK `RemoveItem` behaviour
-  as commonly described; to be captured].
+- **Inventory model**: one stack per base item, split into groups of identical extra data
+  (condition, owner, equipped). Removing more than is held removes what is there and
+  reports that number [hypothesis: GECK `RemoveItem` behaviour as commonly described; to
+  be captured]. Removal takes plain items first, then unequipped items with extra data in
+  arrival order, equipped items last; items leaving an inventory are unequipped; extra
+  data travels with transferred and dropped items, and a drop makes one reference per
+  group [hypothesis].
+- **Per-item extra data in the data** [observed, six masters]: COED (owner FormID, a u32
+  whose meaning depends on the owner type, condition f32 [documented: xEdit]) appears
+  1,661 times, always directly after a CNTO (1,419 on NPC_, 122 on CONT, 120 on CREA);
+  its condition values are fractions between 0 and 1 (most common 0.5, 0.85, 0.65); only 2
+  set an owner. Placed weapons and armour carry **XHLP** "Health" (460 WEAP, 217 ARMO
+  references in FalloutNV.esm, also fractions), never other types. Condition is therefore
+  a fraction of the item's full health (WEAP/ARMO DATA `health`) [hypothesis]. A COED on
+  an entry that names a leveled list applies to whatever the list yields [hypothesis].
+- **Equipping** [hypothesis: GECK wiki `EquipItem`; to be captured]: weapons replace the
+  equipped weapon; armour replaces equipped armour sharing any body slot (ARMO BMDT biped
+  flags [documented: xEdit]); aid items (ALCH) are consumed; other items cannot be
+  equipped.
+- **Encumbrance**: capacity = `fAVDCarryWeightsBase` + `fAVDCarryWeightMult` × Strength
+  (150 + 10 × Strength in the masters [observed values; formula hypothesis]); carried
+  weight includes equipped items; over-encumbered when weight exceeds capacity;
+  ammunition weighs nothing outside Hardcore mode [hypothesis: commonly described game
+  rule; AMMO DAT2 holds the weights]. Strength comes from NPC_ DATA attributes
+  (S.P.E.C.I.A.L. as seven u8 in that order [documented: xEdit]); the player base form
+  authors 5 for every attribute [observed]. NPCs that take stats from a template are not
+  followed yet.
 
 ## 4. Leveled item lists (LVLI)
 
@@ -154,6 +184,20 @@ lab item, spec §8.1):
 3. Write the values into the golden `sim/<scenario>.trace.json` with the same `label`s.
 Until then the scenarios report `error` (missing golden), as Layer 1's xEdit scenarios did.
 
+**Leveled-list samples** (distribution scenarios, golden `sim/<name>.samples.json` in the
+`fnv.sim.samples/1` shape of §7, with `outcomes` only). Per case of the scenario's
+`fnv.sim.cases/1` file, on a test character whose level is set to the case's `level`
+(`player.setlevel <n>`), repeat `samples` times: `player.removeallitems`, then
+`player.additem <list> <count>`, then note every item and count the inventory now holds
+(the inventory screen, or `player.getitemcount <id>` for the list's possible items).
+Record each draw's outcome key (§7) and add up the counts per key. That console
+`AddItem` resolves a leveled list, against the player's level, the way containers and
+actors do is a [hypothesis] [`AddItem` documented: GECK wiki]; a resolution inside a
+spawned container (`placeatme` of a container base holding the list) is the
+cross-check. A few hundred draws per case are enough for the comparator to see
+differences of a few percentage points; an xNVSE logging plugin (spec §8.1) would
+automate this.
+
 ## 7. CLI contract (Layer 4)
 
 All documents are single JSON objects on stdout; FormIDs are strings `"0x%08X"`
@@ -188,14 +232,68 @@ All documents are single JSON objects on stdout; FormIDs are strings `"0x%08X"`
 
 Lab comparator: **keyed** on `formid` over `/containers`, all fields.
 
+### `fnvtool sim items <lo> --schema <dir>` → `fnv.sim.items/1`
+
+```json
+{"format": "fnv.sim.items/1", "count": 2,
+ "items": [
+   {"formid": "0x0000000F", "sig": "MISC", "edid": "Caps001", "name": "Bottle Cap",
+    "value": 1, "weight": 0.0, "health": null, "biped_flags": null}]}
+```
+
+- One object per winning, non-deleted record of an inventory item type (§3: WEAP, ARMO,
+  AMMO, ALCH, BOOK, KEYM, MISC, NOTE, IMOD, CHIP, CCRD, CMNY, and LIGH only with "Can be
+  Carried"), ordered by global FormID. Winners, deletion and FormID globalisation as for
+  `sim containers`.
+- `sig`: the record type. `edid`, `name`: EDID, FULL (NUL-terminated Windows-1252),
+  `null` when absent.
+- `value` (integer), `weight` (f32 widened to a JSON number), `health` (integer) and
+  `biped_flags` (integer) are read from these fields [documented: xEdit
+  `wbDefinitionsFNV.pas`; byte offsets within the subrecord, little-endian]:
+
+  | Type | value | weight | health | biped_flags |
+  |---|---|---|---|---|
+  | WEAP | DATA +0 i32 | DATA +8 f32 | DATA +4 i32 | — |
+  | ARMO | DATA +0 i32 | DATA +8 f32 | DATA +4 i32 | BMDT +0 u32 |
+  | AMMO | DATA +8 i32 | DAT2 +8 f32 | — | — |
+  | ALCH | ENIT +0 i32 | DATA +0 f32 | — | — |
+  | BOOK | DATA +2 i32 | DATA +6 f32 | — | — |
+  | KEYM, MISC | DATA +0 i32 | DATA +4 f32 | — | — |
+  | LIGH | DATA +24 u32 | DATA +28 f32 | — | — |
+  | IMOD | DATA +0 u32 | DATA +4 f32 | — | — |
+  | CCRD | DATA +0 u32 | — | — | — |
+  | NOTE, CHIP, CMNY | — | — | — | — |
+
+  "—" means the record format has no such field: the value is `null`. A field is also
+  `null` when its subrecord is absent or shorter than offset + 4 bytes, and a weight that
+  is not finite (NaN, ±infinity; none occur) is `null`. When a subrecord occurs more than
+  once, the first occurrence is used (none does in the masters). A record that cannot be
+  decoded is still listed, with every field `null`. CMNY DATA is named "Absolute Value"
+  by xEdit and is not treated as the item's value [hypothesis: it is the denomination in
+  the Caravan game].
+- In the ten masters [observed, `oracle_sim.py items`]: 3,972 items (NOTE 1,225, MISC 603,
+  WEAP 496, ARMO 489, CCRD 324, KEYM 313, ALCH 226, AMMO 145, IMOD 112, BOOK 27, CHIP 6,
+  CMNY 6, carriable LIGH 0 — all 728 LIGH lack "Can be Carried"); the only `null` among
+  fields the format has are the five AMMO weights of §3; every CCRD has value 2 and every
+  IMOD weight 0.0.
+
+Lab comparator: **keyed** on `formid` over `/items`, all fields (`L4.sim.items`, against
+the independent oracle).
+
 ### `fnvtool sim run <lo> --schema <dir> --actions <file>` → `fnv.sim.trace/1`
 
 Input `fnv.sim.actions/1` (`parity-lab/inputs/layer4/*.actions.json`): `seed`,
 `player_level`, `actions` (ops: `activate`, `add_item`, `remove_item`, `transfer`,
 `transfer_all`, `drop_item`, `remove_all_items`, `get_item_count`, `get_pos`,
-`get_disabled`, `get_global`, `set_global`, `advance_time`, `lock`, `unlock`, `enable`,
-`disable`), optional `report`. Queries (`get_*`) produce observations; `get_disabled`
-reports `disabled` (the in-game `GetDisabled`), `get_global` reports `value`. References and forms are named by
+`get_disabled`, `get_global`, `set_global`, `advance_time`, `equip_item`,
+`unequip_item`, `get_av`, `set_av`, `get_weight`, `lock`, `unlock`, `enable`, `disable`),
+optional `hardcore` (default false) and `report`. Queries (`get_*`) produce
+observations; `get_disabled` reports `disabled` (the in-game `GetDisabled`),
+`get_global` and `get_av` report `value`, `get_weight` reports `weight`, `capacity` and
+`over` (in-game: `GetAV InventoryWeight`, `GetAV CarryWeight` [hypothesis on the actor
+value names]). `drop_item` reports `references` (one per group of identical extra data).
+In `final`, a stack without extra data is a count; otherwise
+`{"count": n, "groups": [{"count": k, "condition": c, "owner": id, "equipped": true}]}`. References and forms are named by
 global FormID, Editor ID, or `"player"`.
 
 ```json
@@ -210,6 +308,44 @@ global FormID, Editor ID, or `"player"`.
 Lab comparator: **keyed** on `label` over `/observations` (`count`, `cell`, `pos` with an
 absolute tolerance). `steps` and `final` are diagnostics, not compared: their outcome
 names are this engine's own.
+
+### `fnvtool sim sample <lo> --schema <dir> --cases <file>` → `fnv.sim.samples/1`
+
+Leveled-list outcome histograms: the candidate side of the distribution scenarios
+(spec section 8.1). Input `fnv.sim.cases/1` (`parity-lab/inputs/layer4/*.cases.json`):
+
+```json
+{"format": "fnv.sim.cases/1", "seed": 0,
+ "cases": [{"label": "stimpak 50 %", "list": "LootChemsStimpak50", "level": 1,
+            "count": 1, "samples": 20000}]}
+```
+
+(Counts in the examples are illustrative.) `list` is an LVLI named by Editor ID or global FormID (`"0x…"`); `level` (default 1) is
+the requesting level; `count` (default 1) the number requested, as in a CNTO entry or
+`AddItem`; `samples` (> 0) the number of independent draws. Output:
+
+```json
+{"format": "fnv.sim.samples/1", "seed": 0,
+ "cases": [{"label": "stimpak 50 %", "list": "0x00177FAF", "level": 1, "count": 1,
+            "samples": 20000,
+            "outcomes": {"nothing": 10012, "0x00015169 x1": 9988}}]}
+```
+
+- Cases in input order; `list` as a global FormID string.
+- One draw resolves `count` of `list` at `level` with the leveled-list rules of §4
+  (nested lists included). The items drawn are added up per item FormID; the outcome key
+  is the items in ascending FormID order, each written `"0x%08X x<n>"`, joined by `", "`;
+  a draw that yields no item is `"nothing"`.
+- `outcomes` maps each key that occurred to its number of draws (their sum is `samples`).
+- Determinism: one RNG stream seeded with `seed`, consumed by the cases in order and the
+  draws in order, so the same file gives the same document.
+- A case whose `list` is not an LVLI, or whose resolution fails (nesting too deep), gets
+  `"error": "<text>"` and no `outcomes`; the other cases still run (exit code 0).
+- Optional, not required: `"probabilities": {key: p}` with the exact distribution; when
+  present, the comparator tests goodness of fit against it instead of comparing samples.
+
+Lab comparator: **distribution** over `/cases`, keyed on `label`, `field` `outcomes`
+(parity-lab/README.md). Goldens are in-game samples (§6).
 
 ### `fnvtool sim forms <lo> --schema <dir>` → `fnv.sim.forms/1`
 
