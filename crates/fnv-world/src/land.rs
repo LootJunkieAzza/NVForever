@@ -156,6 +156,30 @@ pub fn load_land(lo: &LoadOrder, schema: &Schema, fid: u32, parts: LandParts) ->
     Some(land)
 }
 
+/// A landscape texture (LTEX) resolved through its texture set (TXST).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LandTexture {
+    pub form_id: u32,
+    pub edid: Option<String>,
+    /// TXST TX00 / TX01 as stored (relative to `textures\`).
+    pub diffuse: Option<String>,
+    pub normal: Option<String>,
+}
+
+pub fn land_texture(lo: &LoadOrder, schema: &Schema, ltex: u32) -> Option<LandTexture> {
+    let (pi, r) = winner(lo, ltex)?;
+    let f = Fields::new(r, pi, schema).ok()?;
+    let mut t = LandTexture { form_id: ltex, edid: f.string(b"EDID"), ..Default::default() };
+    if let Some(ts) = f.formid(b"TNAM", lo) {
+        let (tpi, tr) = winner(lo, ts)?;
+        let tf = Fields::new(tr, tpi, schema).ok()?;
+        let nonempty = |s: Option<String>| s.filter(|s| !s.trim().is_empty());
+        t.diffuse = nonempty(tf.string(b"TX00"));
+        t.normal = nonempty(tf.string(b"TX01"));
+    }
+    Some(t)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
