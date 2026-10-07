@@ -3,8 +3,8 @@
 Spec section 5 Layer 3 and milestone M3 ("walk a free camera through the Mojave with
 correct terrain and objects"), in the section 9 format. Status 2026-10-07: **world data
 layer done and checked on the owner's install; the world renderer draws terrain, static
-objects, a weather-driven sky with time of day, and water around a free camera; clouds,
-LOD, SpeedTree and screenshot parity not started.**
+objects, a weather-driven sky with time of day, water and distant LOD around a free
+camera; world-data parity 92/92; clouds, SpeedTree and screenshot parity not started.**
 
 ## 1. Summary and assumptions
 
@@ -86,6 +86,13 @@ What it does now:
   sky dome (sky-lower / horizon / sky-upper), a directional light with the weather's
   sunlight colour along a sun path, a sun disc with the climate's sun texture, ambient and
   fog colours (world.md §6). Light levels are tuned by eye until screenshots exist.
+- Distant LOD (`--lod-radius`, default 8 chunks = 32 cells; `--no-lod`): the game's
+  level-4 terrain chunks and object LOD blocks (world.md §7) around the camera. Terrain
+  LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
+  entirely inside are dropped and the vertices inside are sunk 2,000 units so the
+  border triangles slope under the loaded terrain. Object blocks are drawn only over
+  squares with no loaded cell. Interim rules, to compare with screenshots; small dark
+  boxes on distant ridges (probably rock formations in the object LOD) to check.
 - Water: one plane per "has water" cell at its water height with the water type's
   colour, opacity and noise normal map (no reflection or refraction yet).
 
@@ -131,7 +138,7 @@ game units unchanged.
 8. **SpeedTree**: TREE references (18,050 in WastelandNV, e.g. the desert shrubs) use
    SpeedTree `.spt` models from `trees\`, a non-NIF format; needs its own clean-room
    format study before they can be drawn.
-9. **LOD**: distant terrain and object LOD from the game's LOD meshes and textures
+9. **LOD** (level-4 terrain and object blocks done; levels 8-32 and switching to do): distant terrain and object LOD from the game's LOD meshes and textures
    (layout to be surveyed).
 10. **Image parity**: an image comparator in the lab (perceptual metric with region masks,
    standard library only), a capture procedure for the original game, and fixed-camera
