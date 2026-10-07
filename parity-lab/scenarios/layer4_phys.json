@@ -1,0 +1,1295 @@
+{
+ "scenarios": [
+  {
+   "id": "L4.phys.heights.TestMap01",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in TestMap01.",
+   "oracle": {
+    "golden": "phys/TestMap01.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TestMap01"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.WastelandNV",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in WastelandNV.",
+   "oracle": {
+    "golden": "phys/WastelandNV.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.FreesideWorld",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in FreesideWorld.",
+   "oracle": {
+    "golden": "phys/FreesideWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.GamorrahWorld",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in GamorrahWorld.",
+   "oracle": {
+    "golden": "phys/GamorrahWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "GamorrahWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.GreenhouseWorld01",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in GreenhouseWorld01.",
+   "oracle": {
+    "golden": "phys/GreenhouseWorld01.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "GreenhouseWorld01"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.FreesideNorthWorld",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in FreesideNorthWorld.",
+   "oracle": {
+    "golden": "phys/FreesideNorthWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideNorthWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.FreesideFortWorld",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in FreesideFortWorld.",
+   "oracle": {
+    "golden": "phys/FreesideFortWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "FreesideFortWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.TheStripWorldNew",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in TheStripWorldNew.",
+   "oracle": {
+    "golden": "phys/TheStripWorldNew.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TheStripWorldNew"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.TheFortWorld",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in TheFortWorld.",
+   "oracle": {
+    "golden": "phys/TheFortWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "TheFortWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.WastelandNVmini",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in WastelandNVmini.",
+   "oracle": {
+    "golden": "phys/WastelandNVmini.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNVmini"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.BoulderCityWorld",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in BoulderCityWorld.",
+   "oracle": {
+    "golden": "phys/BoulderCityWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "BoulderCityWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.Lucky38World",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in Lucky38World.",
+   "oracle": {
+    "golden": "phys/Lucky38World.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "Lucky38World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC01Villa",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC01Villa.",
+   "oracle": {
+    "golden": "phys/NVDLC01Villa.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01Villa"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC01WestTownN",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC01WestTownN.",
+   "oracle": {
+    "golden": "phys/NVDLC01WestTownN.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01WestTownN"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC01EastTownS",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC01EastTownS.",
+   "oracle": {
+    "golden": "phys/NVDLC01EastTownS.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01EastTownS"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC01WestTownS",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC01WestTownS.",
+   "oracle": {
+    "golden": "phys/NVDLC01WestTownS.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01WestTownS"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC01VillaDean",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC01VillaDean.",
+   "oracle": {
+    "golden": "phys/NVDLC01VillaDean.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01VillaDean"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC01VillaChristine",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC01VillaChristine.",
+   "oracle": {
+    "golden": "phys/NVDLC01VillaChristine.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01VillaChristine"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC01EastTownN",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC01EastTownN.",
+   "oracle": {
+    "golden": "phys/NVDLC01EastTownN.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01EastTownN"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC02ZionCanyon",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC02ZionCanyon.",
+   "oracle": {
+    "golden": "phys/NVDLC02ZionCanyon.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC02ZionCanyon"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L4.phys.heights.NVDLC03BigMT",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC03BigMT.",
+   "oracle": {
+    "golden": "phys/NVDLC03BigMT.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC03BigMT"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC03Higgs",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC03Higgs.",
+   "oracle": {
+    "golden": "phys/NVDLC03Higgs.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC03Higgs"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC04Road01World",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC04Road01World.",
+   "oracle": {
+    "golden": "phys/NVDLC04Road01World.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04Road01World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC04DivideWorld",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC04DivideWorld.",
+   "oracle": {
+    "golden": "phys/NVDLC04DivideWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04DivideWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC04Road02World",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC04Road02World.",
+   "oracle": {
+    "golden": "phys/NVDLC04Road02World.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04Road02World"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC04DivideVistaWorld",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC04DivideVistaWorld.",
+   "oracle": {
+    "golden": "phys/NVDLC04DivideVistaWorld.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04DivideVistaWorld"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC04NukeNCR",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC04NukeNCR.",
+   "oracle": {
+    "golden": "phys/NVDLC04NukeNCR.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeNCR"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC04NukeLegion",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC04NukeLegion.",
+   "oracle": {
+    "golden": "phys/NVDLC04NukeLegion.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeLegion"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC04NukeSilo2",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC04NukeSilo2.",
+   "oracle": {
+    "golden": "phys/NVDLC04NukeSilo2.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC04NukeSilo2"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.phys.heights.NVDLC01TestMap01",
+   "layer": 4,
+   "description": "Physics terrain height under eight fixed points of every landscape cell in NVDLC01TestMap01.",
+   "oracle": {
+    "golden": "phys/NVDLC01TestMap01.heights.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "heights",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "NVDLC01TestMap01"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/cells",
+    "key": "grid",
+    "abs_tol": 0.5,
+    "rel_tol": 0.0
+   },
+   "tags": [
+    "physics",
+    "terrain",
+    "M4"
+   ]
+  }
+ ]
+}

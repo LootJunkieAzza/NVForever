@@ -66,6 +66,15 @@ is unknown; to be checked by standing a probe on a steep square in-game, §6].
   [observed: test program in this workstream]. Ground probes at whole
   multiples of 128 are common, so terrain is a triangle mesh with internal-edge fixing
   (`TriMeshFlags::FIX_INTERNAL_EDGES`).
+  A different heightfield set-up did not miss [observed, branch `claude/layer4-phys-alt`]:
+  heights passed with rows along world x (parry row `i`, column `j` = LAND row `j`,
+  column `i`), the collider rotated so parry's x → world y, y → world z, z → world x, every
+  cell set to parry's zig-zag split (south-west → north-east in that frame), in game units
+  rather than metres: vertical rays at all 33 × 33 vertices of every cell of WastelandNV,
+  BigMT, Zion and Freeside (about 27 million rays, all on grid lines) hit, with the
+  answering cell's height equal to LAND exactly. The misses above may come from the axis
+  mapping or the metre scaling; a heightfield needs less memory than a mesh, should that
+  matter for streaming.
 - **Check on the data** (`fnvtool phys terrain`, §7): for every landscape cell of every
   worldspace of the ten masters, 126 vertical rays per cell (64 scattered points, the 31
   interior vertices on the cell's diagonal and 31 points on grid lines) against
@@ -316,6 +325,43 @@ inputs give byte-identical output [observed: the Goodsprings script below, run t
 `crates/fnv-phys/scripts/goodsprings_walk.json` is such a script (synthetic input, not a
 capture); once the owner records a real walk (§6), a script with the same inputs and the
 recorded positions become a parity scenario.
+
+### `fnvtool phys heights ... --world <edid|formid>` → `fnv.phys.heights/1`
+
+The physics terrain's height under eight fixed points of every landscape cell of a
+worldspace, for comparison with an independent reader of the LAND data (parity lab
+`L4.phys.heights.*`, oracle `tools/capture/oracle_phys.py`).
+
+```json
+{"schema": "fnv.phys.heights/1", "world": "0x000DA726", "edid": "WastelandNV",
+ "points": [[5.0, 9.0], [27.0, 3.0], [13.0, 30.0], [30.0, 22.0],
+            [8.2, 8.6], [24.6, 7.3], [7.7, 23.2], [23.9, 24.4]],
+ "cells": [{"grid": [-64, -64], "heights": [1920.0004, 1951.9989, 1848.0, 1904.0009,
+                                             1881.6007, 1924.8005, 1848.0, 1883.9999]}],
+ "load_order": ["FalloutNV.esm", "..."]}
+```
+
+- **Cells**: every exterior cell of the worldspace's grid (one cell per grid square, the
+  same selection as `fnvtool world heights`, world.md) whose CELL has a LAND record. A
+  LAND without height data (no VHGT) gives `"heights": null`.
+- **Points**: `points[i] = [u, v]` in grid steps (128 units) east and north of the cell's
+  south-west corner `(gx · 4096, gy · 4096)`; the first four are vertices of the 33 × 33
+  grid, the last four lie inside grid squares, away from both diagonals.
+- **Heights**: `heights[i]` is the z where a vertical ray at
+  `x = gx · 4096 + u · 128, y = gy · 4096 + v · 128` hits that cell's terrain collider
+  (each cell alone in a world; `null` on a miss). The surface is the one §3 describes: at a
+  vertex, the vertex height (world.md §3: VHGT integrated, × 8); inside the square with
+  south-west vertex `(c, r)`, with `fu = u − c`, `fv = v − r` and `h00`, `h10` (east),
+  `h01` (north), `h11` (north-east) its corner heights, the square is split along its
+  south-west → north-east diagonal: if `fu ≥ fv`, `h = h00 + fu·(h10 − h00) + fv·(h11 − h10)`;
+  otherwise `h = h00 + fv·(h01 − h00) + fu·(h11 − h01)`.
+- **Precision**: the physics works in f32 at world coordinates up to about 2.6 × 10⁵ units
+  and in metres internally; against the exact surface the rays are off by up to 0.19 units
+  (`phys terrain`, §3). The lab compares with an absolute tolerance of 0.5 units, keyed on
+  `grid`. On the owner's install all 30 `L4.phys.heights.*` scenarios pass; on WastelandNV
+  the largest difference from the oracle is 0.154 units [observed]. Three of the four
+  interior points fall in the south-east triangle of their square and one ([8.2, 8.6]) in
+  the north-west one.
 
 ### `fnvtool phys terrain ... --world <edid|formid> [--samples N]` → `fnv.phys.terrain/1`
 

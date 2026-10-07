@@ -57,6 +57,7 @@ pub fn run(cmd: PhysCmd) -> anyhow::Result<Value> {
                 walk_cmd(lo, schema, ix, centre, radius.max(0), &script, every.max(1), meshes.as_mut())
             })
         }
+        PhysCmd::Heights { w, world } => with_world(&w, |lo, schema, ix| heights_cmd(lo, schema, ix, &world)),
         PhysCmd::Terrain { w, world, samples } => with_world(&w, |lo, schema, ix| terrain_cmd(lo, schema, ix, &world, samples)),
     }
 }
@@ -571,6 +572,48 @@ fn walk_cmd(
     Ok(v)
 }
 
+/// Sample points of `phys heights`, in grid steps (128 units) east and north of a cell's
+/// south-west corner: four interior vertices, then four points inside grid squares away
+/// from both diagonals (physics.md §7).
+pub const HEIGHT_POINTS: [[f32; 2]; 8] =
+    [[5.0, 9.0], [27.0, 3.0], [13.0, 30.0], [30.0, 22.0], [8.2, 8.6], [24.6, 7.3], [7.7, 23.2], [23.9, 24.4]];
+
+/// Every landscape cell of a worldspace: the physics terrain's height under
+/// [`HEIGHT_POINTS`] (vertical rays, each cell in a world of its own).
+fn heights_cmd(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex, wn: &str) -> anyhow::Result<Value> {
+    let ws = ix.world_by_name(wn).ok_or_else(|| anyhow!("no worldspace {wn}"))?;
+    let cells: Vec<((i32, i32), u32)> = ws.grid.iter().filter_map(|(&g, c)| Some((g, ix.cells[c].land?))).collect();
+    let rows: Vec<Value> = cells
+        .par_iter()
+        .map(|&(grid, lf)| {
+            let Some(h) = load_land(lo, schema, lf, LandParts::HEIGHTS).and_then(|l| l.heights) else {
+                return json!({"grid": [grid.0, grid.1], "heights": Value::Null});
+            };
+            let mut world = PhysWorld::new(PhysParams::default());
+            world.add_terrain(grid, &h);
+            let (lo_h, hi_h) = h.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), &v| (a.min(v), b.max(v)));
+            let (x0, y0) = (grid.0 as f32 * CELL_SIZE, grid.1 as f32 * CELL_SIZE);
+            let q = world.queries();
+            let heights: Vec<Value> = HEIGHT_POINTS
+                .iter()
+                .map(|&[u, v]| {
+                    let from = hi_h + 100.0;
+                    let at = [x0 + u * SPACING, y0 + v * SPACING, from];
+                    q.ray(at, [0.0, 0.0, -1.0], from - lo_h + 200.0, &Filter::default()).map_or(Value::Null, |hit| json!(hit.point[2]))
+                })
+                .collect();
+            json!({"grid": [grid.0, grid.1], "heights": heights})
+        })
+        .collect();
+    Ok(json!({
+        "schema": "fnv.phys.heights/1",
+        "world": fid(ws.form_id),
+        "edid": ws.edid,
+        "points": HEIGHT_POINTS,
+        "cells": rows,
+    }))
+}
+
 /// Deterministic sample points in a cell: `n` scattered points (a fixed low-discrepancy
 /// sequence), plus vertices and grid-line midpoints along the diagonal.
 fn samples(n: usize) -> Vec<(f32, f32)> {
@@ -693,6 +736,19 @@ mod tests {
         assert!(Script::parse(&json!({"start": [0, 0], "segments": []})).is_err());
         let bad = json!({"schema": "fnv.phys.walk-script/1", "start": [0, 0], "segments": [], "params": {"nope": 1}});
         assert!(Script::parse(&bad).unwrap().parameters().is_err());
+    }
+
+    #[test]
+    fn height_points_avoid_triangle_edges() {
+        for (i, [u, v]) in HEIGHT_POINTS.iter().enumerate() {
+            assert!(*u > 0.0 && *v > 0.0 && *u < 32.0 && *v < 32.0);
+            let (fu, fv) = (u.fract(), v.fract());
+            if i < 4 {
+                assert_eq!((fu, fv), (0.0, 0.0), "vertex");
+            } else {
+                assert!((fu - fv).abs() > 0.05 && (fu + fv - 1.0).abs() > 0.05, "{u},{v} near a diagonal");
+            }
+        }
     }
 
     #[test]
