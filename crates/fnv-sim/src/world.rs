@@ -1,0 +1,424 @@
+//! Save-agnostic runtime state: references as they are now, stored as a delta over the
+//! authored placement data.
+//!
+//! A reference that nothing has touched has no entry: its state is derived from its
+//! `PlacedRef` when first needed ("materialised"). Only materialised references are
+//! written to a [`Snapshot`], so a snapshot is the set of changes against the plugins,
+//! independent of the original game's savegame format (spec Layer 4 "save-agnostic
+//! game state"; savegame compatibility is Layer 7).
+//!
+//! Everything is deterministic: ordered maps, and one seeded RNG whose position is part
+//! of the snapshot, so a run continued from a snapshot equals an uninterrupted run.
+
+use rand_chacha::ChaCha8Rng;
+use rand_core::SeedableRng;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+use crate::form::FormId;
+use crate::forms::{BaseData, FormStore};
+use crate::inventory::Inventory;
+use crate::leveled::{self, LeveledError};
+use crate::refs::{PlacedRef, RefTable};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SimConfig {
+    pub seed: u64,
+    /// Level used for leveled lists (the player's level). [hypothesis: containers
+    /// resolve against the player's level]
+    pub player_level: u16,
+}
+
+impl Default for SimConfig {
+    fn default() -> Self {
+        SimConfig { seed: 0, player_level: 1 }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LockState {
+    pub level: u8,
+    pub key: Option<FormId>,
+    pub locked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RefState {
+    pub base: FormId,
+    pub cell: Option<FormId>,
+    pub pos: [f32; 3],
+    pub rot: [f32; 3],
+    pub enabled: bool,
+    /// Removed from the world (picked up, or a created reference deleted).
+    pub deleted: bool,
+    /// Stack size for item references; 1 otherwise.
+    pub count: i32,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub inventory: Option<Inventory>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lock: Option<LockState>,
+    pub open: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum SimError {
+    #[error("unknown reference {0}")]
+    UnknownRef(FormId),
+    #[error("unknown base form {0}")]
+    UnknownForm(FormId),
+    #[error("{0} has no inventory")]
+    NoInventory(FormId),
+    #[error("{0} is not an inventory item")]
+    NotAnItem(FormId),
+    #[error("count must be positive, got {0}")]
+    BadCount(i32),
+    #[error("{0} is not in the world (deleted)")]
+    Deleted(FormId),
+    #[error(transparent)]
+    Leveled(#[from] LeveledError),
+}
+
+/// What activating a reference did. [hypothesis for the dispatch by base type:
+/// follows the GECK wiki's description of default activation per object type;
+/// scripted OnActivate blocks are Layer 5 and reported in `script` only]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "result", rename_all = "snake_case")]
+pub enum Outcome {
+    PickedUp { item: FormId, count: i32, owner: Option<FormId> },
+    OpenedContainer { container: FormId },
+    Locked { level: u8 },
+    Teleported { to_door: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3] },
+    DoorToggled { open: bool },
+    Talk { actor: FormId },
+    Activated,
+    Disabled,
+    NoDefault { sig: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Activation {
+    #[serde(flatten)]
+    pub outcome: Outcome,
+    /// The lock was opened with this key from the actor's inventory first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unlocked_with: Option<FormId>,
+    /// The base form's script, which would receive OnActivate (Layer 5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub script: Option<FormId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub format: String,
+    pub config: SimConfig,
+    /// ChaCha8 word position, as a decimal string (u128 does not fit JSON numbers).
+    pub rng_word_pos: String,
+    pub next_dynamic: u32,
+    pub refs: BTreeMap<FormId, RefState>,
+}
+
+pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
+
+pub struct World<'a> {
+    pub forms: &'a FormStore,
+    pub placed: &'a RefTable,
+    cfg: SimConfig,
+    refs: BTreeMap<FormId, RefState>,
+    next_dynamic: u32,
+    rng: ChaCha8Rng,
+}
+
+impl<'a> World<'a> {
+    pub fn new(forms: &'a FormStore, placed: &'a RefTable, cfg: SimConfig) -> World<'a> {
+        World {
+            forms,
+            placed,
+            cfg,
+            refs: BTreeMap::new(),
+            next_dynamic: FormId::FIRST_DYNAMIC.0,
+            rng: ChaCha8Rng::seed_from_u64(cfg.seed),
+        }
+    }
+
+    pub fn config(&self) -> SimConfig {
+        self.cfg
+    }
+
+    /// State of a reference that has already been materialised.
+    pub fn peek(&self, id: FormId) -> Option<&RefState> {
+        self.refs.get(&id)
+    }
+
+    /// Materialised references in FormID order.
+    pub fn changed(&self) -> impl Iterator<Item = (FormId, &RefState)> {
+        self.refs.iter().map(|(&k, v)| (k, v))
+    }
+
+    /// The current state of `id`, creating it from the placement data on first use.
+    pub fn get(&mut self, id: FormId) -> Result<&mut RefState, SimError> {
+        if !self.refs.contains_key(&id) {
+            let s = self.initial(id)?;
+            self.refs.insert(id, s);
+        }
+        Ok(self.refs.get_mut(&id).expect("inserted above"))
+    }
+
+    fn initial(&mut self, id: FormId) -> Result<RefState, SimError> {
+        let (base, placed): (FormId, Option<&PlacedRef>) = match self.placed.get(id) {
+            Some(p) => (p.base, Some(p)),
+            // The player is not placed by any shipped plugin. [hypothesis; reported
+            // by `fnvtool sim forms`] It starts from its base form.
+            None if id == FormId::PLAYER_REF => (FormId::PLAYER_BASE, None),
+            None => return Err(SimError::UnknownRef(id)),
+        };
+        let inventory = match self.forms.entries(base) {
+            Some(entries) => {
+                let mut inv = Inventory::new();
+                let mut out = Vec::new();
+                for e in entries {
+                    leveled::resolve(self.forms, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
+                }
+                for e in out {
+                    if e.count > 0 {
+                        inv.add(e.item, e.count);
+                    }
+                }
+                Some(inv)
+            }
+            None => None,
+        };
+        Ok(RefState {
+            base,
+            cell: placed.and_then(|p| p.cell),
+            pos: placed.map(|p| p.pos).unwrap_or_default(),
+            rot: placed.map(|p| p.rot).unwrap_or_default(),
+            enabled: !placed.is_some_and(|p| p.initially_disabled()),
+            deleted: false,
+            count: placed.and_then(|p| p.count).unwrap_or(1),
+            inventory,
+            // A reference with lock data starts locked. [hypothesis]
+            lock: placed.and_then(|p| p.lock).map(|l| LockState { level: l.level, key: l.key, locked: true }),
+            open: false,
+        })
+    }
+
+    fn inventory(&mut self, id: FormId) -> Result<&mut Inventory, SimError> {
+        let s = self.get(id)?;
+        if s.deleted {
+            return Err(SimError::Deleted(id));
+        }
+        s.inventory.as_mut().ok_or(SimError::NoInventory(id))
+    }
+
+    fn check_item(&self, item: FormId) -> Result<(), SimError> {
+        match self.forms.item(item) {
+            Some(_) => Ok(()),
+            None if self.forms.sig(item).is_some() => Err(SimError::NotAnItem(item)),
+            None => Err(SimError::UnknownForm(item)),
+        }
+    }
+
+    pub fn item_count(&mut self, of: FormId, item: FormId) -> Result<i32, SimError> {
+        Ok(self.inventory(of)?.count(item))
+    }
+
+    /// Add `count` of an item or leveled list; returns the items actually added.
+    pub fn add_item(&mut self, to: FormId, item: FormId, count: i32) -> Result<Vec<(FormId, i32)>, SimError> {
+        if count <= 0 {
+            return Err(SimError::BadCount(count));
+        }
+        if self.forms.leveled(item).is_none() {
+            self.check_item(item)?;
+        }
+        self.inventory(to)?;
+        let mut out = Vec::new();
+        leveled::resolve(self.forms, item, count, self.cfg.player_level, &mut self.rng, &mut out)?;
+        let inv = self.inventory(to)?;
+        Ok(out
+            .into_iter()
+            .filter(|e| e.count > 0)
+            .map(|e| {
+                inv.add(e.item, e.count);
+                (e.item, e.count)
+            })
+            .collect())
+    }
+
+    /// Remove up to `count`; returns how many were removed.
+    pub fn remove_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<i32, SimError> {
+        if count <= 0 {
+            return Err(SimError::BadCount(count));
+        }
+        Ok(self.inventory(from)?.remove(item, count))
+    }
+
+    /// Move up to `count` from one inventory to another; returns how many moved.
+    pub fn transfer(&mut self, from: FormId, to: FormId, item: FormId, count: i32) -> Result<i32, SimError> {
+        if count <= 0 {
+            return Err(SimError::BadCount(count));
+        }
+        self.inventory(to)?;
+        let n = self.inventory(from)?.remove(item, count);
+        if n > 0 {
+            self.inventory(to)?.add(item, n);
+        }
+        Ok(n)
+    }
+
+    /// Move everything; returns the stacks moved.
+    pub fn transfer_all(&mut self, from: FormId, to: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
+        self.inventory(to)?;
+        let stacks: Vec<_> = self.inventory(from)?.iter().collect();
+        for &(item, n) in &stacks {
+            self.inventory(from)?.remove(item, n);
+            self.inventory(to)?.add(item, n);
+        }
+        Ok(stacks)
+    }
+
+    /// Empty an inventory; returns the stacks removed.
+    pub fn remove_all_items(&mut self, from: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
+        let inv = self.inventory(from)?;
+        let stacks: Vec<_> = inv.iter().collect();
+        *inv = Inventory::new();
+        Ok(stacks)
+    }
+
+    /// Drop items from an inventory into the world as a new reference at the owner's
+    /// position. Returns the new reference.
+    pub fn drop_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<Option<FormId>, SimError> {
+        let n = self.remove_item(from, item, count)?;
+        if n == 0 {
+            return Ok(None);
+        }
+        let owner = self.get(from)?.clone();
+        let id = FormId(self.next_dynamic);
+        self.next_dynamic += 1;
+        self.refs.insert(
+            id,
+            RefState {
+                base: item,
+                cell: owner.cell,
+                pos: owner.pos,
+                rot: [0.0; 3],
+                enabled: true,
+                deleted: false,
+                count: n,
+                inventory: None,
+                lock: None,
+                open: false,
+            },
+        );
+        Ok(Some(id))
+    }
+
+    pub fn set_enabled(&mut self, id: FormId, enabled: bool) -> Result<(), SimError> {
+        self.get(id)?.enabled = enabled;
+        Ok(())
+    }
+
+    pub fn lock(&mut self, id: FormId, level: Option<u8>) -> Result<(), SimError> {
+        let s = self.get(id)?;
+        match &mut s.lock {
+            Some(l) => {
+                l.locked = true;
+                if let Some(v) = level {
+                    l.level = v;
+                }
+            }
+            None => s.lock = Some(LockState { level: level.unwrap_or(0), key: None, locked: true }),
+        }
+        Ok(())
+    }
+
+    pub fn unlock(&mut self, id: FormId) -> Result<(), SimError> {
+        if let Some(l) = &mut self.get(id)?.lock {
+            l.locked = false;
+        }
+        Ok(())
+    }
+
+    /// `actor` activates `target`.
+    pub fn activate(&mut self, actor: FormId, target: FormId) -> Result<Activation, SimError> {
+        self.get(actor)?;
+        let t = self.get(target)?.clone();
+        let base = self.forms.get(t.base);
+        let script = base.and_then(|b| b.script);
+        let done = |outcome, unlocked_with| Activation { outcome, unlocked_with, script };
+        if t.deleted || !t.enabled {
+            return Ok(done(Outcome::Disabled, None));
+        }
+        let Some(base) = base else {
+            let sig = self.forms.sig(t.base).ok_or(SimError::UnknownForm(t.base))?;
+            return Ok(done(Outcome::NoDefault { sig: String::from_utf8_lossy(&sig).into_owned() }, None));
+        };
+        // Locks apply to doors and containers. A locked target opens if the actor
+        // carries its key. [hypothesis: matches the GECK wiki's description of
+        // keys; lockpicking is Layer 6]
+        let mut unlocked_with = None;
+        if matches!(base.data, BaseData::Door(_) | BaseData::Container(_)) {
+            if let Some(l) = t.lock.filter(|l| l.locked) {
+                match l.key.filter(|&k| self.inventory(actor).is_ok_and(|inv| inv.count(k) > 0)) {
+                    Some(k) => {
+                        self.unlock(target)?;
+                        unlocked_with = Some(k);
+                    }
+                    None => return Ok(done(Outcome::Locked { level: l.level }, None)),
+                }
+            }
+        }
+        let outcome = match &base.data {
+            BaseData::Item(_) => {
+                self.inventory(actor)?.add(t.base, t.count);
+                self.get(target)?.deleted = true;
+                let owner = self.placed.get(target).and_then(|p| p.owner);
+                Outcome::PickedUp { item: t.base, count: t.count, owner }
+            }
+            BaseData::Container(_) => Outcome::OpenedContainer { container: target },
+            BaseData::Door(_) => match self.placed.get(target).and_then(|p| p.teleport) {
+                Some(tp) => {
+                    let cell = match self.placed.get(tp.door) {
+                        Some(d) => d.cell,
+                        None => self.peek(tp.door).and_then(|d| d.cell),
+                    };
+                    let a = self.get(actor)?;
+                    a.cell = cell;
+                    a.pos = tp.pos;
+                    a.rot = tp.rot;
+                    Outcome::Teleported { to_door: tp.door, cell, pos: tp.pos, rot: tp.rot }
+                }
+                None => {
+                    let s = self.get(target)?;
+                    s.open = !s.open;
+                    Outcome::DoorToggled { open: s.open }
+                }
+            },
+            BaseData::Actor(_) => Outcome::Talk { actor: target },
+            BaseData::Activator | BaseData::Furniture => Outcome::Activated,
+            BaseData::LeveledItem(_) => Outcome::NoDefault { sig: "LVLI".into() },
+        };
+        Ok(done(outcome, unlocked_with))
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            format: SNAPSHOT_FORMAT.into(),
+            config: self.cfg,
+            rng_word_pos: self.rng.get_word_pos().to_string(),
+            next_dynamic: self.next_dynamic,
+            refs: self.refs.clone(),
+        }
+    }
+
+    pub fn restore(forms: &'a FormStore, placed: &'a RefTable, s: &Snapshot) -> Result<World<'a>, String> {
+        if s.format != SNAPSHOT_FORMAT {
+            return Err(format!("unsupported snapshot format {:?}", s.format));
+        }
+        let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
+        let mut w = World::new(forms, placed, s.config);
+        w.rng.set_word_pos(pos);
+        w.next_dynamic = s.next_dynamic;
+        w.refs = s.refs.clone();
+        Ok(w)
+    }
+}

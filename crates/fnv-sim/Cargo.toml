@@ -1,0 +1,20 @@
+[package]
+name = "fnv-sim"
+description = "Headless, deterministic core simulation (Layer 4): forms, references, inventories, containers, activation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-esm = { path = "../fnv-esm" }
+fnv-world = { path = "../fnv-world" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+rand_core = "0.9"
+rand_chacha = "0.9"
+rayon = "1"
+tracing = "0.1"
+
+[dev-dependencies]
+proptest = "1"
