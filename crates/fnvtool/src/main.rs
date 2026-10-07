@@ -170,6 +170,15 @@ pub enum NifCmd {
         #[arg(long)]
         filter: Option<String>,
     },
+    /// Every texture path referenced by every mesh in the virtual file system (default
+    /// archive order + loose files), and whether it resolves (fnv.nif.textures/1).
+    Textures {
+        data_dir: PathBuf,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long, default_value_t = 200)]
+        max_rows: usize,
+    },
     /// Decode one file's blocks with the schema.
     Decode {
         /// A loose file, or a BSA archive together with --path.

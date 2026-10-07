@@ -59,3 +59,26 @@ jobs:
         with:
           name: fnvtool-windows-x64
           path: target/release/fnvtool.exe
+
+  viewer:
+    # The Bevy viewer is its own workspace (docs/adr/0001-bevy-viewer.md).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: viewer
+      - name: Linux system libraries for Bevy
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo test --release --locked
+        working-directory: viewer
+      - run: cargo clippy --release --locked -- -D warnings
+        working-directory: viewer

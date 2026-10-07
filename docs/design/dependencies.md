@@ -30,9 +30,9 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 
 | Layer | Need | Candidates |
 |---|---|---|
-| 2 | NIF parsing driven by niftools `nif.xml` | `quick-xml` + build-script codegen |
-| 2 | DDS / BCn textures | `ddsfile`, `texture2ddecoder` or `bcdec_rs`; GPU upload as BCn directly |
-| 2 | math | `glam` |
+| 2 | NIF parsing | **done**: own schema-as-data interpreter (`schemas/nif`, re-expressed from nif.xml as documentation); `quick-xml` codegen rejected to keep the licence open |
+| 2 | DDS / BCn textures | **done**: own header/layout parser (`fnv-dds`); GPU upload as BCn directly; CPU BCn decoders deferred (ADR-0001) |
+| 2 | math, viewer | **done**: Bevy 0.19.1 (its `glam`), viewer in its own workspace (ADR-0001) |
 | 3 | rendering | `wgpu` (Vulkan/Metal/DX12), `winit` for windows/input |
 | 4 | physics / character controller | `rapier3d` or Jolt bindings |
 | 4 | entity model | `hecs` or `bevy_ecs` |
