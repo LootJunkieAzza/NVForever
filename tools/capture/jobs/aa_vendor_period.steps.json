@@ -1,0 +1,197 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_vendor_period",
+ "title": "Merchant restock period (stay inside, 7 waits)",
+ "start": "Load the same Goodsprings test save and go INSIDE the gas station. Do not open the barter menu or the box.",
+ "steps": [
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P00 start",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P00 start",
+   "field": "stimpaks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P00 start",
+   "field": "days"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nrF.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P01 emptied at start",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P01 emptied at start",
+   "field": "stimpaks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P01 emptied at start",
+   "field": "days"
+  },
+  {
+   "manual": "Stay inside the gas station: wait 24 hours."
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P02 +24h (expect the ~day-7 restock)",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P02 +24h (expect the ~day-7 restock)",
+   "field": "stimpaks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P02 +24h (expect the ~day-7 restock)",
+   "field": "days"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nrF.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM\nref rF\nref rC\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nrF.AddItem rC 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P03 emptied right after that, 1 stimpak put in (a sold item)",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P03 emptied right after that, 1 stimpak put in (a sold item)",
+   "field": "stimpaks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P03 emptied right after that, 1 stimpak put in (a sold item)",
+   "field": "days"
+  },
+  {
+   "manual": "Stay inside: wait 24 hours."
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P04 after another 24 h",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P04 after another 24 h",
+   "field": "stimpaks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P04 after another 24 h",
+   "field": "days"
+  },
+  {
+   "manual": "Stay inside: wait 24 hours."
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P05 after another 24 h",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P05 after another 24 h",
+   "field": "stimpaks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P05 after another 24 h",
+   "field": "days"
+  },
+  {
+   "manual": "Stay inside: wait 12 hours."
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P06 after another 12 h",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P06 after another 12 h",
+   "field": "stimpaks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P06 after another 12 h",
+   "field": "days"
+  },
+  {
+   "manual": "Stay inside: wait 12 hours."
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P07 after another 12 h",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P07 after another 12 h",
+   "field": "stimpaks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P07 after another 12 h",
+   "field": "days"
+  },
+  {
+   "manual": "Stay inside: wait 12 hours."
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P08 after another 12 h",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P08 after another 12 h",
+   "field": "stimpaks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P08 after another 12 h",
+   "field": "days"
+  },
+  {
+   "manual": "Stay inside: wait 12 hours."
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P09 after another 12 h",
+   "field": "count"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 86377\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "P09 after another 12 h",
+   "field": "stimpaks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P09 after another 12 h",
+   "field": "days"
+  }
+ ]
+}

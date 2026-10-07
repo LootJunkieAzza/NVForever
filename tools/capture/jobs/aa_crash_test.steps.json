@@ -1,0 +1,73 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_crash_test",
+ "title": "Crash test: TimeScale, then Strength (a few seconds)",
+ "start": "Any test save.",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "t01 TimeScale before",
+   "field": "v"
+  },
+  {
+   "console": "set TimeScale to 30"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "t02 after console set TimeScale to 30 (same value)",
+   "field": "v"
+  },
+  {
+   "console": "set TimeScale to 10"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "t03 after console set TimeScale to 10",
+   "field": "v"
+  },
+  {
+   "console": "set TimeScale to 30"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "t04 TimeScale restored",
+   "field": "v"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Strength\nSetFunctionValue fV\nEnd\n",
+   "label": "t05 Strength before",
+   "field": "v"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAV Strength 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Strength\nSetFunctionValue fV\nEnd\n",
+   "label": "t06 Strength after SetAV 1 + 60 frames",
+   "field": "v"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAV Strength 5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Strength\nSetFunctionValue fV\nEnd\n",
+   "label": "t07 Strength restored",
+   "field": "v"
+  }
+ ]
+}
