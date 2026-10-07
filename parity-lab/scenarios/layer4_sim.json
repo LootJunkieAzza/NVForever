@@ -40,6 +40,46 @@
    ]
   },
   {
+   "id": "L4.sim.items",
+   "layer": 4,
+   "description": "Value, weight, health and biped flags of every inventory item record over base game + DLC + packs (fnv.sim.items/1, docs/spec-notes/simulation.md section 7) against the independent oracle tools/capture/oracle_sim.py items; checks the item layouts of the Layer 1 schema (incl. IMOD, CHIP, CCRD, CMNY) end to end.",
+   "oracle": {
+    "golden": "sim/items.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "items",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/items",
+    "key": "formid"
+   },
+   "tags": [
+    "sim",
+    "items",
+    "inventory",
+    "schema",
+    "M4"
+   ]
+  },
+  {
    "id": "L4.sim.trace.goodsprings_doc_mitchell",
    "layer": 4,
    "description": "Pick up stimpaks and caps in Doc Mitchell's house, add/remove items, leave through the front door; item counts and the player's cell/position after each step (parity-lab/inputs/layer4/goodsprings_doc_mitchell.actions.json) against an in-game capture (docs/spec-notes/simulation.md section 6). Position tolerance 1 game unit: the XTEL destination is copied, but the engine may settle the actor.",
@@ -78,6 +118,51 @@
     "sim",
     "inventory",
     "activation",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.sim.leveled.basic",
+   "layer": 4,
+   "description": "Leveled-list outcomes (chance none, each-item-in-count, all levels vs highest eligible level, use all, uniform pick) of seven FalloutNV.esm lists: fnvtool sim sample histograms (parity-lab/inputs/layer4/leveled_basic.cases.json) against in-game samples (docs/spec-notes/simulation.md section 6, 'Leveled-list samples'). Chi-square test per case, alpha 0.01.",
+   "oracle": {
+    "golden": "sim/leveled_basic.samples.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "sample",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--cases",
+     "{lab_root}/inputs/layer4/leveled_basic.cases.json"
+    ]
+   },
+   "comparator": {
+    "kind": "distribution",
+    "select": "/cases",
+    "key": "label",
+    "field": "outcomes",
+    "alpha": 0.01,
+    "min_expected": 5
+   },
+   "tags": [
+    "sim",
+    "leveled",
+    "distribution",
     "M4",
     "needs-local-capture"
    ]

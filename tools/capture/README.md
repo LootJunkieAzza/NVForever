@@ -18,6 +18,7 @@ committed**. Recommended layout:
   esm/<Plugin>.xedit.inventory.json   xedit/export_inventory.pas
   bsa/<Archive>.listing.json      oracle_bsa.py   (e.g. "DeadMoney - Main.bsa.listing.json")
   sim/containers.json             oracle_sim.py containers (ten masters)
+  sim/items.json                  oracle_sim.py items (ten masters)
 ```
 
 Point the lab at it through its `goldens_dir` setting in an uncommitted local overlay or an
@@ -274,10 +275,12 @@ Written only from `docs/spec-notes/simulation.md` (§3, §7) and `docs/spec-note
 (not from `crates/` or `schemas/`). Standard library only; it imports the container
 helpers (tolerant zlib, XXXX-aware subrecord iterator, cp1252 strings) from
 `oracle_esm.py` and must sit next to it. One linear pass per plugin; only CONT records are
-parsed in full and LIGH records for their DATA flags, so the ten masters take about a second.
+parsed in full and LIGH records for their DATA flags (plus, for `items`, the records of the
+inventory item types), so the ten masters take about a second.
 
 ```
 python tools/capture/oracle_sim.py containers "<Data>" FalloutNV.esm DeadMoney.esm HonestHearts.esm OldWorldBlues.esm LonesomeRoad.esm GunRunnersArsenal.esm ClassicPack.esm MercenaryPack.esm TribalPack.esm CaravanPack.esm -o C:/fnv-private/goldens/sim/containers.json
+python tools/capture/oracle_sim.py items "<Data>" FalloutNV.esm DeadMoney.esm HonestHearts.esm OldWorldBlues.esm LonesomeRoad.esm GunRunnersArsenal.esm ClassicPack.esm MercenaryPack.esm TribalPack.esm CaravanPack.esm -o C:/fnv-private/goldens/sim/items.json
 ```
 
 - `containers` → `fnv.sim.containers/1` (golden `sim/containers.json`): one object per
@@ -297,6 +300,13 @@ python tools/capture/oracle_sim.py containers "<Data>" FalloutNV.esm DeadMoney.e
   without DATA or with DATA shorter than 16 bytes is not carriable; a CONT whose compressed
   data cannot be decoded is still listed, with null fields and no entries; within one
   plugin a later record with the same FormID replaces an earlier one.
+- `items` → `fnv.sim.items/1` (golden `sim/items.json`): one object per winning,
+  non-deleted inventory item record (LIGH only when carriable) with `sig`, `edid`, `name`,
+  `value`, `weight`, `health`, `biped_flags` at the byte offsets of the contract table.
+  Top-level extras as for `containers` (`summary` counts per type and null fields;
+  warnings `item_field_short`, `item_subrecord_repeated`, `item_data_unreadable`,
+  `item_weight_not_finite`). On the ten masters: 3,972 items, no warnings beyond the
+  GunRunnersArsenal one above.
 
 ## Tests
 
