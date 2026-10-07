@@ -187,7 +187,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
         "player": {"base_0x7": player_base, "ref_0x14_placed": player_ref},
         "references": {
             "total": refs.refs.len(),
-            "deleted_by_later_plugin": refs.deleted,
+            "deleted": refs.deleted,
             "by_record": ref_sigs,
             "by_base_type": ref_base,
             "persistent_flag_vs_group": {

@@ -5,12 +5,15 @@
 //! lock, teleport, ownership, enable parent). Layer 3 owns streaming and drawing the
 //! same references; this table only needs to exist once per load order.
 //!
-//! A reference's cell is the label of the innermost cell-children group around it
-//! [documented: UESP "Tes4Mod:Mod File Format", group types 8–10 carry the parent cell's
-//! FormID; group nesting observed in every shipped master].
+//! Which references exist, and the cell each is in, comes from Layer 3's
+//! [`fnv_world::WorldIndex`] (innermost cell-children group of the winning definition,
+//! docs/spec-notes/world.md), so the renderer and the simulation agree by construction;
+//! this module adds the extra data the simulation needs.
 
-use fnv_esm::raw::{group_type, record_flags, visit_records};
-use fnv_esm::{GroupHeader, LoadOrder, Record, Schema};
+use fnv_esm::raw::record_flags;
+use fnv_esm::{LoadOrder, Record, Schema};
+use fnv_world::{RefEntry, WorldIndex};
+use rayon::prelude::*;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 
@@ -83,51 +86,60 @@ pub struct RefTable {
     pub refs: BTreeMap<FormId, PlacedRef>,
     /// Lower-case Editor ID -> reference.
     pub edids: HashMap<String, FormId>,
-    /// References whose winning definition carries the Deleted flag.
+    /// References whose winning definition carries the Deleted flag (left out).
     pub deleted: u64,
     pub issues: Issues,
 }
 
 impl RefTable {
+    /// Build from scratch (indexes the load order's cells first).
     pub fn build(lo: &LoadOrder, schema: &Schema) -> RefTable {
+        RefTable::from_index(lo, schema, &WorldIndex::build(lo, schema))
+    }
+
+    /// Build on an existing Layer 3 [`WorldIndex`], which decides which references
+    /// exist and which cell each is in (one rule for the renderer and the simulation).
+    pub fn from_index(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex) -> RefTable {
         let mut t = RefTable::default();
-        for (pi, p) in lo.plugins.iter().enumerate() {
-            let mut found: Vec<(&Record, Option<u32>, bool)> = Vec::new();
-            visit_records(&p.nodes[1..], &mut |r, stack: &[&GroupHeader]| {
-                if REF_SIGS.contains(&&r.header.sig) {
-                    let g = stack.iter().rev().find(|g| {
-                        matches!(
-                            g.group_type,
-                            group_type::CELL_PERSISTENT_CHILDREN
-                                | group_type::CELL_TEMPORARY_CHILDREN
-                                | group_type::CELL_VISIBLE_DISTANT_CHILDREN
-                        )
-                    });
-                    let persistent = g.is_some_and(|g| g.group_type == group_type::CELL_PERSISTENT_CHILDREN);
-                    found.push((r, g.map(|g| g.label_u32()), persistent));
-                }
+        for &(pi, fid) in &lo.unmappable {
+            t.issues.note("record FormID outside master list", || {
+                format!("{} 0x{fid:08X}", lo.plugins[pi as usize].name)
             });
-            for (r, cell_local, persistent) in found {
-                let Some(id) = lo.to_global(pi, r.header.form_id).map(FormId) else {
-                    t.issues.note("reference FormID outside master list", || {
-                        format!("{} 0x{:08X}", p.name, r.header.form_id)
-                    });
-                    continue;
-                };
-                if r.header.flags & record_flags::DELETED != 0 {
-                    if t.refs.remove(&id).is_some() {
-                        t.deleted += 1;
-                    }
-                    continue;
-                }
-                if let Some(pr) = load_ref(lo, schema, pi, id, r, cell_local, persistent, &mut t.issues) {
-                    t.refs.insert(id, pr);
-                }
+        }
+        let mut ids: Vec<(u32, &RefEntry)> = Vec::with_capacity(ix.refs.len());
+        for (&fid, e) in &ix.refs {
+            if REF_SIGS.contains(&&e.sig) {
+                ids.push((fid, e));
+            } else {
+                t.issues.note(&format!("{}: placed type not simulated", String::from_utf8_lossy(&e.sig)), || {
+                    format!("0x{fid:08X}")
+                });
             }
         }
-        for (id, r) in &t.refs {
-            if let Some(e) = &r.edid {
-                t.edids.insert(e.to_ascii_lowercase(), *id);
+        ids.sort_unstable_by_key(|x| x.0);
+        let loaded: Vec<(Option<PlacedRef>, bool, Issues)> = ids
+            .par_iter()
+            .map(|&(fid, e)| {
+                let mut issues = Issues::default();
+                let Some(d) = lo.index.get(&fid).and_then(|v| v.last()) else {
+                    return (None, false, issues);
+                };
+                let (pi, r) = (d.plugin as usize, lo.records[d.plugin as usize][d.ordinal as usize]);
+                if r.header.flags & record_flags::DELETED != 0 {
+                    return (None, true, issues);
+                }
+                let pr = load_ref(lo, schema, pi, FormId(fid), r, FormId(e.cell), e.persistent, &mut issues);
+                (pr, false, issues)
+            })
+            .collect();
+        for (pr, deleted, issues) in loaded {
+            t.issues.merge(issues);
+            t.deleted += deleted as u64;
+            if let Some(pr) = pr {
+                if let Some(e) = &pr.edid {
+                    t.edids.insert(e.to_ascii_lowercase(), pr.id);
+                }
+                t.refs.insert(pr.id, pr);
             }
         }
         t
@@ -171,7 +183,7 @@ fn load_ref(
     pi: usize,
     id: FormId,
     r: &Record,
-    cell_local: Option<u32>,
+    cell: FormId,
     in_persistent_group: bool,
     issues: &mut Issues,
 ) -> Option<PlacedRef> {
@@ -181,14 +193,6 @@ fn load_ref(
             issues.note("reference undecodable", || format!("{id}: {e}"));
             return None;
         }
-    };
-    let cell = match cell_local.map(|c| global(lo, pi, c)) {
-        Some(Ok(g)) => g,
-        Some(Err(l)) => {
-            issues.note("FormID outside master list", || format!("{id} cell 0x{l:08X}"));
-            None
-        }
-        None => None,
     };
     let fid = |v: Option<&serde_json::Value>, what: &str, issues: &mut Issues| field_fid(lo, pi, id, v, what, issues);
     let Some(base) = fid(first(&d, b"NAME"), "NAME", issues) else {
@@ -231,7 +235,7 @@ fn load_ref(
         sig: r.header.sig,
         edid: first(&d, b"EDID").and_then(text),
         base,
-        cell,
+        cell: Some(cell),
         plugin: pi as u8,
         flags: r.header.flags,
         in_persistent_group,
