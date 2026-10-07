@@ -52,7 +52,8 @@ def scenarios():
             "description": f"Meshes in {a} whose collision cannot be followed.",
             "oracle": {"golden": golden},
             "candidate": {"argv": argv},
-            "comparator": {"kind": "exact", "select": "/skipped"},
+            # Reasons are free text; only which files are skipped is compared.
+            "comparator": {"kind": "keyed", "select": "/skipped", "key": "path", "fields": ["path"]},
             "tags": ["collision", "M4"]})
     for it in out:
         if any(f"{{data_dir}}/{subj}" in it["candidate"]["argv"] for subj in HOLDOUT_SUBJECTS):

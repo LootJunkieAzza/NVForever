@@ -113,6 +113,9 @@ pub struct Extracted {
     pub render: Option<Aabb>,
     /// Render vertices in mesh-root space (for fit measurements).
     pub render_points: Vec<[f32; 3]>,
+    /// Phantom (trigger) bodies: (collision object block, body type); their shape trees
+    /// are not followed.
+    pub phantoms: Vec<(usize, String)>,
     /// Anything that could not be followed (dangling ref, unknown shape type).
     pub problems: Vec<String>,
 }
@@ -135,7 +138,10 @@ fn quat_to_rot(q: [f32; 4]) -> [f32; 9] {
 impl RawCollision {
     /// The body transform as stored (rotation from the quaternion, x y z w).
     pub fn body_iso(&self) -> Iso {
-        Iso { translation: self.body_translation, rotation: quat_to_rot(self.body_rotation) }
+        let q = self.body_rotation;
+        let n = q.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let q = if n > 1e-6 { q.map(|v| v / n) } else { [0.0, 0.0, 0.0, 1.0] };
+        Iso { translation: self.body_translation, rotation: quat_to_rot(q) }
     }
 }
 
@@ -147,14 +153,19 @@ fn material(s: &Struct) -> u32 {
     s.strukt("material").and_then(|m| m.int("material")).unwrap_or(0) as u32
 }
 
-/// Iso from a stored 4×4 matrix, reading the translation from elements 12–14 and the
-/// rotation as the transpose of the upper 3×3 (i.e. the matrix stored column by
-/// column). [observed: vertex-level fits, collision.md §3]
-pub fn iso_from_mat44(m: &[f32; 16]) -> Iso {
-    Iso {
-        translation: [m[12], m[13], m[14]],
-        rotation: [m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10]],
+/// A stored 4×4 matrix as rigid placement plus uniform scale: translation from elements
+/// 12–14, the upper 3×3 stored column by column [observed: vertex-level fits,
+/// collision.md §3]. Some matrices carry a uniform scale in the 3×3 part (1/7, all over
+/// MOPP trees [observed]); it is factored out so that the `Iso` stays a rotation, and the
+/// caller applies it to the child shape. `None` for a non-uniform or degenerate 3×3.
+pub fn iso_from_mat44(m: &[f32; 16]) -> Option<(Iso, f32)> {
+    let r = [m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10]];
+    let col = |j: usize| (r[j] * r[j] + r[3 + j] * r[3 + j] + r[6 + j] * r[6 + j]).sqrt();
+    let (a, b, c) = (col(0), col(1), col(2));
+    if a.is_nan() || a <= 1e-6 || (a - b).abs() > 1e-3 * a || (a - c).abs() > 1e-3 * a {
+        return None;
     }
+    Some((Iso { translation: [m[12], m[13], m[14]], rotation: r.map(|v| v / a) }, a))
 }
 
 struct Walk<'a> {
@@ -222,8 +233,13 @@ impl Walk<'_> {
             "bhkTransformShape" | "bhkConvexTransformShape" => {
                 let m: [f32; 16] = s.floats("transform")?.try_into().ok()?;
                 self.mats.push(m);
+                let Some((iso, scale)) = iso_from_mat44(&m) else {
+                    self.problems.push(format!("transform matrix in block {i} is not rotation × uniform scale"));
+                    return None;
+                };
                 let child = self.shape(s.block_ref("shape")?)?;
-                Some(Shape::Compound { children: vec![(iso_from_mat44(&m), child)] })
+                let child = if (scale - 1.0).abs() > 1e-6 { child.scaled(scale) } else { child };
+                Some(Shape::Compound { children: vec![(iso, child)] })
             }
             "bhkMoppBvTreeShape" => self.shape(s.block_ref("shape")?),
             "bhkPackedNiTriStripsShape" => self.packed(s),
@@ -314,7 +330,8 @@ impl Walk<'_> {
     }
 }
 
-/// Node-to-root transforms of every scene node and shape, plus the render bounds.
+/// Transforms of every scene node and shape into the mesh root's frame (the root's own
+/// transform excluded), plus the render bounds and vertices in that frame.
 fn scene_space(file: &NifFile, dec: &Decoded) -> (HashMap<usize, Similarity>, Option<Aabb>, Vec<[f32; 3]>) {
     let objs = scene_objects(file, dec);
     let by_block: HashMap<usize, usize> = objs.iter().enumerate().map(|(k, o)| (o.block, k)).collect();
@@ -330,7 +347,10 @@ fn scene_space(file: &NifFile, dec: &Decoded) -> (HashMap<usize, Similarity>, Op
             cur = by_block.get(&p).and_then(|&k| objs[k].parent);
         }
         let mut acc = Similarity::IDENTITY;
-        for b in chain.iter().rev() {
+        // The topmost ancestor (the mesh root) contributes nothing: a placed reference's
+        // transform replaces the root's own transform [observed: docs/spec-notes/world.md
+        // §4], so collision lives in the root's frame, like the drawn geometry.
+        for b in chain.iter().rev().skip(1) {
             if let Some(&k) = by_block.get(b) {
                 acc = acc.compose(&Similarity::from_local(&objs[k].transform));
             }
@@ -376,6 +396,10 @@ pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
             continue;
         };
         let body_type = file.blocks[body_ref as usize].type_name.clone();
+        if PHANTOM_TYPES.contains(&body_type.as_str()) {
+            out.phantoms.push((co as usize, body_type));
+            continue;
+        }
         let info = body.strukt("rigid_body_info");
         let f4 = |n: &str| info.and_then(|s| s.floats(n)).map(|v| [v[0], v[1], v[2], v.get(3).copied().unwrap_or(0.0)]);
         let mut w = Walk {
@@ -472,7 +496,7 @@ impl RawCollision {
 /// problems met while reading.
 pub fn collision_objects(file: &NifFile, dec: &Decoded) -> (Vec<crate::shape::CollisionObject>, Vec<String>) {
     let ex = extract(file, dec);
-    let objs = ex.objects.iter().filter(|o| !o.is_phantom()).map(RawCollision::to_object).collect();
+    let objs = ex.objects.iter().map(RawCollision::to_object).collect();
     (objs, ex.problems)
 }
 
@@ -504,9 +528,21 @@ mod tests {
     fn mat44_reading() {
         // Column-by-column storage of a 90° Z rotation with translation (1, 2, 3).
         let m = [0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 2.0, 3.0, 1.0];
-        let iso = iso_from_mat44(&m);
-        assert_eq!(iso.translation, [1.0, 2.0, 3.0]);
+        let (iso, s) = iso_from_mat44(&m).unwrap();
+        assert_eq!((iso.translation, s), ([1.0, 2.0, 3.0], 1.0));
         assert_eq!(iso.apply([1.0, 0.0, 0.0]), [1.0, 3.0, 3.0]);
+        // A uniform scale of 1/7 in the 3×3 part is factored out.
+        let k = 1.0 / 7.0;
+        let mut ms = m;
+        for i in [0, 1, 2, 4, 5, 6, 8, 9, 10] {
+            ms[i] *= k;
+        }
+        let (iso, s) = iso_from_mat44(&ms).unwrap();
+        assert!((s - k).abs() < 1e-7 && (iso.rotation[3] - 1.0).abs() < 1e-6);
+        // A non-uniform scale is refused.
+        let mut bad = m;
+        bad[1] = 2.0;
+        assert!(iso_from_mat44(&bad).is_none());
     }
 
     #[test]

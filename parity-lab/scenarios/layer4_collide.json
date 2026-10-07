@@ -73,8 +73,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
@@ -154,8 +158,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
@@ -235,8 +243,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
@@ -318,8 +330,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
@@ -400,8 +416,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
@@ -481,8 +501,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
@@ -562,8 +586,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
@@ -643,8 +671,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
@@ -724,8 +756,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
@@ -805,8 +841,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
@@ -886,8 +926,12 @@
     ]
    },
    "comparator": {
-    "kind": "exact",
-    "select": "/skipped"
+    "kind": "keyed",
+    "select": "/skipped",
+    "key": "path",
+    "fields": [
+     "path"
+    ]
    },
    "tags": [
     "collision",
