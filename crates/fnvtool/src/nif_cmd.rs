@@ -26,6 +26,10 @@ pub fn run(cmd: NifCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(&schema)?;
             anim(&archive, &schema, filter.as_deref())
         }
+        NifCmd::Textures { data_dir, schema, max_rows } => {
+            let schema = Schema::load_dir(&schema)?;
+            textures(&data_dir, &schema, max_rows)
+        }
         NifCmd::Decode { source, path, schema, block } => {
             let schema = Schema::load_dir(&schema)?;
             let (label, data) = read_one(&source, path.as_deref())?;
@@ -415,4 +419,76 @@ fn anim(archive: &std::path::Path, schema: &Schema, filter: Option<&str>) -> any
             "far_from_unit_by_kind": total.bad_by_kind,
             "rotation_norm_min": float_json(total.quat_norm_min), "rotation_norm_max": float_json(total.quat_norm_max)},
         "files": files}))
+}
+
+/// Texture paths named by a decoded file: texture-set entries and `file_name` fields.
+pub fn texture_refs(dec: &Decoded) -> Vec<String> {
+    let mut out = Vec::new();
+    for s in dec.blocks.iter().flatten() {
+        if let Some(list) = s.list("textures") {
+            for v in list {
+                if let fnv_nif::Value::Str { text: Some(t), .. } = v {
+                    if !t.is_empty() {
+                        out.push(t.clone());
+                    }
+                }
+            }
+        }
+        for (name, v) in &s.fields {
+            if &**name == "file_name" {
+                if let fnv_nif::Value::Str { text: Some(t), .. } = v {
+                    if !t.is_empty() {
+                        out.push(t.clone());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn textures(data_dir: &std::path::Path, schema: &Schema, max_rows: usize) -> anyhow::Result<Value> {
+    use rayon::prelude::*;
+    let vfs = fnv_vfs::Vfs::open_default(data_dir)?;
+    let meshes = vfs.paths(|p| p.starts_with("meshes\\") && p.ends_with(".nif"));
+    let per_file: Vec<(String, Result<Vec<String>, String>)> = meshes
+        .par_iter()
+        .map(|m| {
+            let r = match vfs.read(m) {
+                Some(Ok(data)) => NifFile::parse(&data, Some(schema))
+                    .map(|f| texture_refs(&Decoded::new(&f, &data, schema)))
+                    .map_err(|e| e.to_string()),
+                Some(Err(e)) => Err(e.to_string()),
+                None => Err("not found".into()),
+            };
+            (m.clone(), r)
+        })
+        .collect();
+    let (mut refs, mut resolved, mut prefixed) = (0u64, 0u64, BTreeMap::<String, u64>::new());
+    let mut missing = Vec::new();
+    let mut errors = Vec::new();
+    for (mesh, r) in per_file {
+        match r {
+            Ok(list) => {
+                for raw in list {
+                    refs += 1;
+                    let norm = fnv_vfs::normalize(&raw);
+                    let first = norm.split('\\').next().unwrap_or_default().to_string();
+                    *prefixed.entry(if norm.contains('\\') { first } else { "(bare file name)".into() }).or_default() += 1;
+                    let path = fnv_vfs::texture_path(&raw);
+                    if vfs.exists(&path) {
+                        resolved += 1;
+                    } else {
+                        missing.push(json!({"mesh": mesh, "texture": raw, "resolved_path": path}));
+                    }
+                }
+            }
+            Err(e) => errors.push(json!({"mesh": mesh, "error": e})),
+        }
+    }
+    Ok(json!({"schema": "fnv.nif.textures/1", "archives": vfs.archives().collect::<Vec<_>>(),
+        "summary": {"meshes": meshes.len(), "mesh_errors": errors.len(), "references": refs, "resolved": resolved,
+                    "missing": missing.len(), "first_path_component": prefixed},
+        "missing": missing.into_iter().take(max_rows).collect::<Vec<_>>(),
+        "mesh_errors": errors.into_iter().take(max_rows).collect::<Vec<_>>()}))
 }

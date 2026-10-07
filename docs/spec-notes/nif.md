@@ -144,7 +144,73 @@ exact consumption on every such block in the corpus, observed]:
 Havok rigid-body rotations are stored x, y, z, w — unlike the w, x, y, z order of scene
 quaternions [documented: nif.xml hkQuaternion vs Quaternion].
 
-## 5. Coverage status
+## 5. Animation (KF files and embedded sequences)
+
+- A KF file's root is a controller sequence (NiControllerSequence): a name, a list of
+  controlled blocks, weight, text-key reference, cycle type (0 loop, 1 reverse
+  (ping-pong), 2 clamp), frequency, start and stop times, and an accumulation root name
+  [documented: nif.xml]. Each controlled block names the target node, the controller
+  type and an interpolator [documented]. In 20.0.0.4 files those names are byte offsets
+  into a string palette block (NUL-separated text); in 20.2.0.7 files they are strings
+  [documented, observed: the five old KF files decode with the palette].
+- Corpus counts in `Fallout - Meshes.bsa` [observed: `fnvtool nif anim`]: 4,360
+  sequences, 219,033 controlled blocks; 213,701 drive transforms (88,683 B-spline,
+  58,459 linear keys, 13,365 Euler XYZ keys, 180 TBC, 96 constant, 52,918 static poses);
+  the rest drive floats, booleans and points.
+- Key groups store an interpolation kind per group: 1 linear, 2 quadratic (Hermite with
+  stored tangents), 3 TBC (Kochanek–Bartels tension/bias/continuity), 4 XYZ rotation (three
+  float key groups, Euler angles), 5 constant [documented: nif.xml KeyType]. Rotation
+  keys are quaternions stored w, x, y, z [documented]. Interpolating them component-wise
+  gives non-unit results where consecutive keys lie in opposite hemispheres (356 of
+  1.59 M samples); spherical interpolation along the shorter arc removes all of them
+  [observed].
+- B-spline interpolators [documented: nif.xml]: an open uniform B-spline per channel; a
+  control-point data block holds float and compact (i16) points; the basis block holds the
+  number of control points; each channel has a handle (start index, 0xFFFF = channel not
+  animated), and for compact points an offset and half-range. Decompression
+  `value = offset + (point / 32767) × half_range` and degree 3 are **[hypothesis]**,
+  supported by the data: evaluated rotation quaternions have unit length within 10% in
+  all but 241 of ~900,000 B-spline samples (cause of the 241 unknown; they are
+  normalised) [observed]. Time maps linearly from [start, stop] to the parameter range.
+- Text keys (NiTextKeyExtraData): (time, string) pairs such as `start`, `end`, sound and
+  hit events [documented; event meaning is engine behaviour, Layer 6].
+
+## 6. Conventions verified on the data
+
+- **Rotation matrices** are stored row by row and rotate column vectors (p' = R·p); a
+  child's world transform is parent ∘ child with uniform scale [observed: the skin check
+  below holds for 401 of 417 sampled skinned shapes under this convention and for 15
+  under the transposed one; scene node matrices also equal the rotation of the
+  quaternions animating them in all 8 unambiguous cases].
+- **Skinning**: for each bone of a skin instance, the stored bone skin transform equals
+  inverse(bone world transform) ∘ (shape world transform) in the file's bind pose
+  [observed, same sample]. So it is directly the inverse bind matrix in shape space.
+- **Body meshes store bones flat**: in creature and character body meshes (e.g.
+  `deathclaw.nif`, `upperbody.nif`) every bone node is a direct child of the root and
+  carries its bind-pose world transform; the bone hierarchy lives in the creature's
+  `skeleton.nif` [observed]. Animations are relative to the skeleton: for
+  `deathclaw\mtidle.kf` against `deathclaw\skeleton.nif`, every keyed translation at the
+  start time equals the skeleton's local translation (within 1e-5) and every static
+  rotation is identical, while against the body mesh's flat bones everything differs by
+  ~90° and ~100 units [observed, `crates/fnv-nif/examples/kf_bind_check.rs`]. So skinned
+  shapes bind to the skeleton's bones by name. The same check confirms the w, x, y, z
+  order of B-spline rotation control points (other orders are ~140° off) [observed].
+- **Winding**: triangles (and unrolled strips, alternate triangles reversed) are
+  counter-clockwise seen from the side their vertex normals point to: 44,932 of 44,960
+  triangles in 40 random meshes [observed].
+- **Up axis**: Z is up [observed: rendered with Z mapped to up, bottles, weapons, creatures
+  and bodies stand upright and label text reads correctly, so UVs need no flip].
+- **Texture paths** in meshes [observed, `fnvtool nif textures`, 137,908 references in
+  20,542 meshes]: 94% start with `textures\`, 6% with `data\textures\`, 7 are
+  absolute (`d:\...`) and 7 bare file names; case varies. Normalising (lower case,
+  backslashes, cut everything before `textures\`) resolves 98.1%; the remaining 2,607
+  name textures that exist in no archive (e.g. `hospital*.nif`), presumably meshes the
+  game never loads [hypothesis].
+- **Texture-set slots** (BSShaderTextureSet): 0 diffuse, 1 normal (+ gloss in alpha),
+  2 glow / skin / hair, 3 height, 4 environment cube, 5 environment mask [documented:
+  nif.xml].
+
+## 7. Coverage status
 
 Measured with `fnvtool nif coverage` (exact consumption of every block's stored size and
 byte-identical re-encoding). See `docs/design/layer2.md` for current numbers.
