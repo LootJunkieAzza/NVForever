@@ -439,10 +439,12 @@ name = "fnv-phys"
 version = "0.1.0"
 dependencies = [
  "fnv-collide",
+ "fnv-esm",
  "fnv-world",
  "proptest",
  "rapier3d",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

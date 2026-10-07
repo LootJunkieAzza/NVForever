@@ -89,6 +89,12 @@ pub enum PhysCmd {
         /// Simulated seconds per probe.
         #[arg(long, default_value_t = 5.0)]
         seconds: f32,
+        /// NIF schema directory for mesh collision (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Leave mesh collision out (terrain and collision primitives only).
+        #[arg(long)]
+        no_meshes: bool,
     },
     /// Vertical rays on every landscape cell of a worldspace against the analytic
     /// terrain surface (fnv.phys.terrain/1).

@@ -85,6 +85,9 @@ pub struct Character {
     /// Vertical speed, units/s (positive up).
     pub vertical_speed: f32,
     pub grounded: bool,
+    /// Reference colliders on these layers do not block the character; default
+    /// [`crate::layers::character_ignores`] [hypothesis].
+    pub ignore_layers: crate::layers::LayerSet,
 }
 
 impl Character {
@@ -128,7 +131,16 @@ impl PhysWorld {
     pub fn add_character(&mut self, id: u32, params: CharacterParams, feet: [f32; 3]) -> Character {
         let shape = capsule(&params, self.k);
         let owner = Owner::Character { id };
-        let mut c = Character { id, params, body: RigidBodyHandle::invalid(), shape, feet, vertical_speed: 0.0, grounded: false };
+        let mut c = Character {
+            id,
+            params,
+            body: RigidBodyHandle::invalid(),
+            shape,
+            feet,
+            vertical_speed: 0.0,
+            grounded: false,
+            ignore_layers: crate::layers::character_ignores(),
+        };
         let body =
             self.insert_body(RigidBodyBuilder::kinematic_position_based().translation(c.center(self.k)).user_data(owner.encode()));
         self.w.insert_collider(ColliderBuilder::new(c.shape.clone()).user_data(owner.encode()), Some(body));
@@ -169,7 +181,12 @@ impl PhysWorld {
         let kcc = c.controller(k);
         let pos = Pose::from_translation(c.center(k));
         let mut collisions: Vec<CharacterCollision> = Vec::new();
-        let filter = QueryFilter::default().exclude_sensors().exclude_rigid_body(c.body);
+        let ignore = c.ignore_layers;
+        let solid = move |_: ColliderHandle, co: &Collider| match Owner::decode(co.user_data) {
+            Some(Owner::Ref { layer, .. }) => !ignore.contains(layer),
+            _ => true,
+        };
+        let filter = QueryFilter::default().exclude_sensors().exclude_rigid_body(c.body).predicate(&solid);
         let moved = {
             let q = self.w.query_pipeline_with_filter(filter);
             kcc.move_shape(dt, &q, c.shape.as_ref(), &pos, desired * k, |hit| collisions.push(hit))

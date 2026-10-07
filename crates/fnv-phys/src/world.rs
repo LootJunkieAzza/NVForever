@@ -474,6 +474,8 @@ pub struct Filter {
     pub no_terrain: bool,
     /// Ignore dynamic bodies.
     pub no_dynamic: bool,
+    /// Ignore reference colliders on these Havok layers (`crate::layers`).
+    pub exclude_layers: crate::layers::LayerSet,
 }
 
 impl Filter {
@@ -488,6 +490,11 @@ impl Filter {
         }
         if self.no_dynamic && c.parent().is_some_and(|b| bodies[b].is_dynamic()) {
             return false;
+        }
+        if let Owner::Ref { layer, .. } = owner {
+            if self.exclude_layers.contains(layer) {
+                return false;
+            }
         }
         !self.exclude.contains(&owner.key())
     }
