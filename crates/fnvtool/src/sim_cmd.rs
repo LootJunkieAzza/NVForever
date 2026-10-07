@@ -19,11 +19,26 @@ pub fn run(cmd: SimCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(&schema)?;
             Ok(forms_report(&lo, &FormStore::build(&lo, &schema), &RefTable::build(&lo, &schema)))
         }
+        SimCmd::Items { lo, schema } => {
+            let plugins = open_load_order(&lo)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            Ok(items(&FormStore::build(&lo, &schema)))
+        }
         SimCmd::Containers { lo, schema } => {
             let plugins = open_load_order(&lo)?;
             let lo = LoadOrder::new(&plugins)?;
             let schema = Schema::load_dir(&schema)?;
             Ok(containers(&FormStore::build(&lo, &schema)))
+        }
+        SimCmd::Sample { lo, schema, cases } => {
+            let text = std::fs::read_to_string(&cases).with_context(|| cases.display().to_string())?;
+            let cases: fnv_sim::sample::Cases =
+                serde_json::from_str(&text).with_context(|| cases.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            fnv_sim::sample::run(&FormStore::build(&lo, &schema), &cases).map_err(anyhow::Error::msg)
         }
         SimCmd::Run { lo, schema, actions } => {
             let text = std::fs::read_to_string(&actions).with_context(|| actions.display().to_string())?;
@@ -247,6 +262,28 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
         },
         "issues": issues.to_json(),
     })
+}
+
+/// Every inventory item base (fnv.sim.items/1), contract in docs/spec-notes/simulation.md.
+fn items(forms: &FormStore) -> Value {
+    let out: Vec<Value> = forms
+        .bases
+        .values()
+        .filter_map(|b| {
+            let BaseData::Item(i) = &b.data else { return None };
+            Some(json!({
+                "formid": b.id,
+                "sig": sig_str(&b.sig),
+                "edid": b.edid,
+                "name": b.name,
+                "value": i.value,
+                "weight": i.weight,
+                "health": i.health,
+                "biped_flags": i.slots,
+            }))
+        })
+        .collect();
+    json!({"format": "fnv.sim.items/1", "count": out.len(), "items": out})
 }
 
 /// Every container base with its authored contents (fnv.sim.containers/1). Leveled

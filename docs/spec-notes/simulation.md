@@ -30,8 +30,14 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
 - Besides REFR, ACHR and ACRE, cell groups hold 297 placed explosives (PGRE) across
   FalloutNV, DeadMoney, HonestHearts, OldWorldBlues and LonesomeRoad; their bases are
   projectiles (PROJ), e.g. `MineFragProjectile` "Frag Mine", `MinePlasmaProjectile`,
-  `MineNVPowderChargeProjectile`, a C4 projectile [observed]. They are armed mines and
-  charges [hypothesis]; the simulation does not model them yet (reported).
+  `MineNVPowderChargeProjectile`, a C4 projectile [observed]. All 297 decode completely
+  with the REFR subrecord layout [observed]. Each projectile is fired by a weapon (WEAP
+  DNAM `projectile` [documented: xEdit]); for 290 placed explosives exactly one weapon
+  fires the base projectile — Frag Mine 219, Powder Charge 33, Satchel Charge 25, Plasma
+  Mine 10, Bottlecap Mine 3, all with the Land Mine or Mine Drop animation type — and 7
+  use projectiles that several weapons fire [observed]. They are armed mines and charges;
+  activating one disarms it and yields that weapon [hypothesis; the Explosives check and
+  the chance to set it off are Layer 6].
 - **Enable parents** (XESP: parent reference, flag bit 0 "Set Enable State to Opposite of
   Parent" [documented: xEdit]): 5,171 references have one, 759 with the opposite flag;
   162 chains are two deep, none deeper; no chain loops or names a missing reference
@@ -83,6 +89,13 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   The simulation gives nothing for a count-0 or non-item entry [hypothesis].
 - **CONT DATA**: flags u8 (bit 1 "Respawns"), weight f32 [documented: xEdit]. 3,417
   container bases; 177 respawn; 845 have no CNTO [observed].
+- **Respawn** [hypothesis: cell reset as commonly described for this engine generation]:
+  when a cell is loaded again after staying unloaded for at least the respawn delay, its
+  containers whose base has the Respawns flag return to their authored state (new
+  leveled roll, lock restored, anything left inside lost). No game setting holds the
+  delay in the masters (§5b); the simulation uses 72 game hours by default
+  (`SimConfig.respawn_hours`), a figure to be captured. Other references are not reset
+  yet. The engine reports unloading/loading (`detach_cell` / `attach_cell` ops).
 - **Inventory model**: one stack per base item, split into groups of identical extra data
   (condition, owner, equipped). Removing more than is held removes what is there and
   reports that number [hypothesis: GECK `RemoveItem` behaviour as commonly described; to
