@@ -184,6 +184,16 @@ lab item, spec §8.1):
 3. Write the values into the golden `sim/<scenario>.trace.json` with the same `label`s.
 Until then the scenarios report `error` (missing golden), as Layer 1's xEdit scenarios did.
 
+**Console equivalents of the trace ops** [documented: GECK wiki function pages; the
+mapping itself is this project's]: `remove_all_items` → `player.removeallitems`;
+`add_item` → `player.additem <id> <n>`; `set_av … Strength v` → `player.setav strength
+<v>`; `get_weight` → `player.getav InventoryWeight` (`weight`) and `player.getav
+CarryWeight` (`capacity`); `equip_item` → `player.equipitem <id>`; `set_global` → `set
+<Global> to <v>`; `get_global` → `show <Global>`; `advance_time h` → waiting h hours
+(Wait menu, at most 24 at a time); `get_disabled` → `<ref>.getdisabled`. Use a new
+level-1 character without perks or implants, so no modifier changes carry weight
+(`goodsprings_weight_and_time`).
+
 **Leveled-list samples** (distribution scenarios, golden `sim/<name>.samples.json` in the
 `fnv.sim.samples/1` shape of §7, with `outcomes` only). Per case of the scenario's
 `fnv.sim.cases/1` file, on a test character whose level is set to the case's `level`
