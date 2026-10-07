@@ -177,6 +177,20 @@ nesting, levels between entries' levels with the all-levels flag set.
   refuse activation unless the activator carries the key, in which case they unlock
   first. A base form's script (SCRI) receives OnActivate; whether an OnActivate block
   suppresses the default is Layer 5 [hypothesis].
+- **In game** [observed 2026-10-07, `L4.sim.trace.goodsprings_doc_mitchell`, scripted
+  `Activate` with the player as activator, Doc Mitchell's house]: three stimpak and five
+  cap references each gave their item (counts 3 and 5); **activating an already-taken
+  stimpak reference (0x00105BF3) again gave a fourth stimpak** — so after a scripted
+  pick-up the reference can still be activated (whether it stays enabled in the world is
+  not captured yet); `AddItem` 10 then `RemoveItem` 3 caps gave 12 (from 5);
+  `RemoveItem` 5 stimpaks with 4 held left 0. The front door
+  (`GSDocMitchellHouseIntDoorREF`) put the player at x −73162.92, y 1312.39 (the XTEL
+  position within 0.05) but **z 8693.87, 7.44 above the XTEL z 8686.43**, and in cell
+  **0x000DAEBB "Goodsprings" (WastelandNV grid −18, 0)**, not in 0x000846EA, the
+  WastelandNV persistent cell that holds the destination door: after a teleport into a
+  worldspace the actor is in the exterior grid cell containing its position. The z offset
+  is presumably the character controller settling the actor [hypothesis; physics
+  workstream].
 - **Created references** (dropped items) get FormIDs from 0xFF000000 upwards, a load
   slot no plugin can use [hypothesis for the original engine's numbering].
 
