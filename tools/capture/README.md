@@ -299,6 +299,36 @@ python tools/capture/oracle_collide.py objects "<Data>/Update.bsa" --filter clut
 Goldens layout: `collide/<Archive>.collide.objects.json`, e.g.
 `collide/Fallout - Meshes.bsa.collide.objects.json`.
 
+## 10. `oracle_phys.py` — independent terrain heights (Layer 4 physics)
+
+Written only from `docs/spec-notes/physics.md` (§3 and the `phys heights` contract in §7),
+`world.md`, `esm.md` and `docs/cli-contract.md` (not from `crates/`, `engine/`, `schemas/`
+or `parity-lab/`). Standard library only; imports `oracle_world.py` (plugin walking,
+load-order FormIDs, cell and LAND selection, VHGT integration) and through it
+`oracle_esm.py`, so all three must sit together. `heights --world WastelandNV` over the ten
+masters takes about 3 s (warm file cache).
+
+```
+python tools/capture/oracle_phys.py heights "<Data>" FalloutNV.esm DeadMoney.esm ... --world WastelandNV -o "C:/fnv-private/goldens/phys/WastelandNV.heights.json"
+```
+
+- `heights` → `fnv.phys.heights/1`: one entry per exterior grid cell of the worldspace
+  whose CELL has a LAND record (the persistent cell is not a grid cell), sorted by (x, y);
+  `heights` holds the terrain height under the eight fixed points of the contract, or
+  `null` when the LAND has no (valid) VHGT. Unlike `oracle_world.py heights`, cells without
+  heights are listed.
+- The surface is stated analytically from the 33 × 33 integrated VHGT grid: each grid
+  square is split along its south-west → north-east diagonal (`fu ≥ fv` south-east
+  triangle, else north-west); at a vertex the height is the vertex height. Computed in
+  Python floats; the lab compares with an absolute tolerance of 0.5 units, keyed on `grid`.
+- Plugins are given in load order and echoed as `load_order`; `--world` takes an Editor ID
+  (case-insensitive) or a load-order FormID `0x%08X`; `--schema` is accepted and ignored.
+- Points where the notes leave a choice open are marked `# SPEC-AMBIGUITY` in the source.
+- Diagnostics go to stderr; exit code 1 when a plugin cannot be read or the worldspace does
+  not exist, 2 for usage errors.
+
+Goldens layout: `phys/<World>.heights.json`, e.g. `phys/WastelandNV.heights.json`.
+
 ## Tests
 
 ```
