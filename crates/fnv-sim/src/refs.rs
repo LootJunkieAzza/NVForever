@@ -66,6 +66,8 @@ pub struct PlacedRef {
     pub scale: Option<f32>,
     /// XCNT: stack size of an item reference.
     pub count: Option<i32>,
+    /// XHLP: condition of a placed weapon or armour as a fraction of full health.
+    pub health: Option<f32>,
     pub owner: Option<FormId>,
     pub lock: Option<Lock>,
     pub teleport: Option<Teleport>,
@@ -243,6 +245,7 @@ fn load_ref(
         rot: rot.unwrap_or_default(),
         scale: first(&d, b"XSCL").and_then(serde_json::Value::as_f64).map(|s| s as f32),
         count: first(&d, b"XCNT").and_then(serde_json::Value::as_i64).map(|c| c as i32),
+        health: first(&d, b"XHLP").and_then(serde_json::Value::as_f64).map(|h| h as f32),
         owner: fid(first(&d, b"XOWN"), "XOWN", issues),
         lock,
         teleport,
