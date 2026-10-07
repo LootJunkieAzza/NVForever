@@ -119,7 +119,25 @@ confirmed in the renderer that placements and terrain heights look as in the ori
 game (visual check, 2026-10-07) [observed].
 
 A reference's world transform is then translation = position, rotation as above, uniform
-scale = XSCL, applied to the model's root (whose own transform composes beneath it).
+scale = XSCL. **It replaces the transform of the model's root node**; the root's own
+translation, rotation and scale are not applied, while every node below the root composes
+as usual [observed]. 442 models placed by 12,687 references (9,517 exterior, 3,170 interior)
+have a non-identity root, almost always a rotation about z (modular kit pieces such as the
+`nv_craftsmanhomesinterior` walls, sidewalk and retaining-wall corners). Evidence: modular
+pieces are built so that the open (boundary) edges of neighbouring pieces coincide.
+Placing every reference of every cell that holds a rotated-root model both ways and counting
+open edges shared by two references (one of them rotated-root): exterior cells 30,223 with
+the root replaced against 10,655 with it composed (250 cells favour replaced, 11 composed),
+interior cells 17,749 against 4,616 (82 against 1). GSDocMitchellHouse alone: 374 against
+40; with the root composed its walls stand on the wrong sides of their floor squares, and
+with it replaced the layout matches the owner's GECK screenshot (2026-10-07). Caveat:
+static-collection combined meshes do compose the root (all 44 SCOL parts whose model has a
+rotated root carry placement ∘ root on their node); the collection mesh is the drawn
+model, so this does not change how a SCOL reference is drawn [hypothesis: the combined
+meshes were baked by a tool that composed the root]. Reproduce with
+`crates/fnv-world/examples/root_transform.rs`. Geometry drawn without a reference (LOD
+blocks and chunks) keeps the root transform [hypothesis: their roots are identity in
+practice].
 
 ## 5. Field layouts used by the world commands
 
