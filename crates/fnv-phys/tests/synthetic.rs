@@ -4,6 +4,7 @@
 use fnv_collide::{CollisionObject, Iso, Motion, Shape};
 use fnv_phys::terrain::height_at;
 use fnv_phys::*;
+use fnv_phys::layers;
 use fnv_world::land::SIDE;
 use fnv_world::CELL_SIZE;
 use proptest::prelude::*;
@@ -482,4 +483,46 @@ fn snapshot_continues_identically() {
         assert_eq!(sa, sb);
         assert_eq!(a.state_digest(), b.state_digest(), "step {i}");
     }
+}
+
+fn on_layer(shape: Shape, layer: u8) -> CollisionObject {
+    CollisionObject { layer, ..object(shape, Motion::Static) }
+}
+
+#[test]
+fn queries_skip_excluded_layers() {
+    let mut w = ground();
+    w.add_ref(&at(1, [0.0, 0.0, 50.0]), &[on_layer(boxed([20.0, 20.0, 20.0]), layers::TRIGGER)]);
+    let hit = down(&mut w, 0.0, 0.0).unwrap();
+    assert_eq!(hit.owner, Owner::Ref { form_id: 1, object: 0, layer: layers::TRIGGER });
+    let f = Filter { exclude_layers: LayerSet::from_layers(&[layers::TRIGGER]), ..Default::default() };
+    let hit = w.queries().ray([0.0, 0.0, 1_000.0], [0.0, 0.0, -1.0], 2_000.0, &f).unwrap();
+    assert_eq!(hit.owner, Owner::Terrain { x: 0, y: 0 });
+}
+
+#[test]
+fn character_passes_through_non_solid_layers() {
+    for (layer, blocks) in [(layers::TRIGGER, false), (layers::STATIC, true), (layers::INVISIBLE_WALL, true)] {
+        let mut w = ground();
+        // A wall across the path, west face at x = 100.
+        w.add_ref(&at(1, [110.0, 0.0, 100.0]), &[on_layer(boxed([10.0, 300.0, 100.0]), layer)]);
+        let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+        settle(&mut w, &mut c, 30);
+        walk(&mut w, &mut c, [150.0, 0.0], 90);
+        let through = c.feet[0] > 200.0;
+        assert_eq!(through, !blocks, "layer {layer} ({:?}): {:?}", layers::name(layer as u32), c.feet);
+    }
+}
+
+#[test]
+fn collision_marker_primitives_become_boxes() {
+    use fnv_phys::primitive::{primitive_object, BoundsMeaning, Primitive, PrimitiveKind};
+    let p = Primitive { bounds: [100.0, 10.0, 200.0], kind: PrimitiveKind::PortalBox, layer: None };
+    let o = primitive_object(&p, BoundsMeaning::HalfExtents).unwrap();
+    let mut w = ground();
+    // A reference turned 90° about z: the long x bound lies along world y.
+    let r = w.add_ref(&RefPose { rotation: rz(std::f32::consts::FRAC_PI_2), ..at(0x21_0001, [500.0, 500.0, 150.0]) }, &[o]);
+    assert_eq!((r.bodies, r.colliders, r.errors.len()), (1, 1, 0));
+    assert!(down(&mut w, 500.0, 595.0).is_some_and(|h| h.owner.key() == Key::Ref(0x21_0001)));
+    assert!(down(&mut w, 515.0, 500.0).is_some_and(|h| h.owner.key() == Key::Terrain(0, 0)));
 }

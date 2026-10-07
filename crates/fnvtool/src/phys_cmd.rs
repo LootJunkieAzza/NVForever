@@ -6,19 +6,26 @@ use crate::{PhysCmd, WorldArgs};
 use anyhow::{anyhow, bail, Context};
 use fnv_esm::decode::formid_str;
 use fnv_esm::{LoadOrder, Schema};
+use fnv_collide::CollisionObject;
+use fnv_nif::file::NifFile;
+use fnv_nif::scene::Decoded;
+use fnv_phys::primitive::{primitive, primitive_object, BoundsMeaning, COLLISION_MARKER};
 use fnv_phys::terrain::height_at;
-use fnv_phys::{CharacterInput, CharacterParams, Filter, Owner, PhysParams, PhysWorld};
+use fnv_phys::{layers, CharacterInput, CharacterParams, Filter, Owner, PhysParams, PhysWorld, RefPose};
 use fnv_world::land::{load_land, LandParts, SIDE, SPACING};
 use fnv_world::placed::{base_object, placement};
 use fnv_world::{cell_of, Cell, WorldIndex, CELL_SIZE};
 use rayon::prelude::*;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub fn run(cmd: PhysCmd) -> anyhow::Result<Value> {
     match cmd {
-        PhysCmd::Cell { w, cell, world, x, y, radius, drops, seconds } => {
+        PhysCmd::Cell { w, cell, world, x, y, radius, drops, seconds, nif_schema, no_meshes } => {
             let drops = drops.iter().map(|d| parse_point(d)).collect::<anyhow::Result<Vec<_>>>()?;
+            let mut meshes = if no_meshes { None } else { Meshes::open(&w.lo.data_dir, &w.schema, nif_schema.as_deref())? };
             with_world(&w, |lo, schema, ix| {
                 let centre = match (cell, world, x, y) {
                     (Some(c), None, None, None) => ix.cell_by_name(&c).ok_or_else(|| anyhow!("no cell {c}"))?,
@@ -29,7 +36,7 @@ pub fn run(cmd: PhysCmd) -> anyhow::Result<Value> {
                     }
                     _ => bail!("give --cell, or --world with --x and --y"),
                 };
-                cell_cmd(lo, schema, ix, centre, radius.max(0), &drops, seconds)
+                cell_cmd(lo, schema, ix, centre, radius.max(0), (&drops, seconds), meshes.as_mut())
             })
         }
         PhysCmd::Terrain { w, world, samples } => with_world(&w, |lo, schema, ix| terrain_cmd(lo, schema, ix, &world, samples)),
@@ -49,6 +56,9 @@ fn with_world(
     Ok(v)
 }
 
+/// A probe drop point: x, y and optionally z, world units.
+type DropPoint = (f32, f32, Option<f32>);
+
 /// "x,y" or "x,y,z" in world units.
 fn parse_point(s: &str) -> anyhow::Result<(f32, f32, Option<f32>)> {
     let v: Vec<f32> =
@@ -67,8 +77,56 @@ fn fid(v: u32) -> Value {
 fn owner_json(o: &Owner) -> Value {
     match *o {
         Owner::Terrain { x, y } => json!({"kind": "terrain", "grid": [x, y]}),
-        Owner::Ref { form_id, object, layer } => json!({"kind": "ref", "formid": fid(form_id), "object": object, "layer": layer}),
+        Owner::Ref { form_id, object, layer } => json!({
+            "kind": "ref",
+            "formid": fid(form_id),
+            "object": object,
+            "layer": layer,
+            "layer_name": layers::name(layer as u32),
+        }),
         Owner::Character { id } => json!({"kind": "character", "id": id}),
+    }
+}
+
+/// Collision objects of models, read through workstream 1's converter
+/// (`fnv_collide::nif::collision_objects`) from the game's archives and loose files.
+/// fnv-phys itself never reads NIF blocks (docs/design/layer4.md §7).
+struct Meshes {
+    vfs: fnv_vfs::Vfs,
+    schema: fnv_nif::Schema,
+    cache: BTreeMap<String, Result<Arc<Vec<CollisionObject>>, String>>,
+}
+
+impl Meshes {
+    /// `None` when no NIF schema is given and none sits next to the ESM schema.
+    fn open(data_dir: &Path, esm_schema: &Path, nif_schema: Option<&Path>) -> anyhow::Result<Option<Meshes>> {
+        let dir: PathBuf = match nif_schema {
+            Some(d) => d.to_path_buf(),
+            None => match esm_schema.parent().map(|p| p.join("nif")).filter(|d| d.is_dir()) {
+                Some(d) => d,
+                None => return Ok(None),
+            },
+        };
+        let schema = fnv_nif::Schema::load_dir(&dir).with_context(|| dir.display().to_string())?;
+        let vfs = fnv_vfs::Vfs::open_default(data_dir).with_context(|| data_dir.display().to_string())?;
+        Ok(Some(Meshes { vfs, schema, cache: BTreeMap::new() }))
+    }
+
+    /// The solid collision objects of a model (empty when it has none).
+    fn objects(&mut self, path: &str) -> Result<Arc<Vec<CollisionObject>>, String> {
+        if let Some(r) = self.cache.get(path) {
+            return r.clone();
+        }
+        let r = match self.vfs.read(path) {
+            None => Err("not found".to_string()),
+            Some(Err(e)) => Err(e.to_string()),
+            Some(Ok(data)) => NifFile::parse(&data, Some(&self.schema)).map_err(|e| e.to_string()).map(|file| {
+                let dec = Decoded::new(&file, &data, &self.schema);
+                Arc::new(fnv_collide::nif::collision_objects(&file, &dec).0)
+            }),
+        };
+        self.cache.insert(path.to_string(), r.clone());
+        r
     }
 }
 
@@ -80,8 +138,8 @@ fn cell_cmd(
     ix: &WorldIndex,
     centre: &Cell,
     radius: i32,
-    drops: &[(f32, f32, Option<f32>)],
-    seconds: f32,
+    (drops, seconds): (&[DropPoint], f32),
+    mut meshes: Option<&mut Meshes>,
 ) -> anyhow::Result<Value> {
     let params = PhysParams::default();
     let mut world = PhysWorld::new(params);
@@ -144,15 +202,55 @@ fn cell_cmd(
             continue;
         };
         *by_base.entry(String::from_utf8_lossy(&base.sig).into_owned()).or_default() += 1;
-        if base.model_path().is_none() {
-            *counts.entry("no_model").or_default() += 1;
+        let mut objects: Vec<CollisionObject> = Vec::new();
+        // A CollisionMarker carries its own box or sphere (physics.md §4.1).
+        if pl.base == Some(COLLISION_MARKER) {
+            match primitive(lo, schema, r).and_then(|p| primitive_object(&p, BoundsMeaning::HalfExtents)) {
+                Some(o) => {
+                    objects.push(o);
+                    *counts.entry("collision_primitive").or_default() += 1;
+                }
+                None => *counts.entry("bad_primitive").or_default() += 1,
+            }
+        }
+        match base.model_path() {
+            None if objects.is_empty() => {
+                *counts.entry("no_model").or_default() += 1;
+                continue;
+            }
+            None => {}
+            // SpeedTree models hold no Havok blocks (physics.md §4).
+            Some(m) if m.ends_with(".spt") => *counts.entry("speedtree").or_default() += 1,
+            Some(m) => match meshes.as_deref_mut() {
+                None => *counts.entry("awaiting_collision").or_default() += 1,
+                Some(ms) => match ms.objects(&m) {
+                    Ok(o) if o.is_empty() => *counts.entry("model_without_collision").or_default() += 1,
+                    Ok(o) => objects.extend(o.iter().cloned()),
+                    Err(_) => *counts.entry("model_unreadable").or_default() += 1,
+                },
+            },
+        }
+        if objects.is_empty() {
             continue;
         }
-        // Collision objects come from fnv-collide's conversion of the model's Havok
-        // blocks (workstream 1), which is not delivered yet: such references are counted
-        // here and added with `PhysWorld::add_ref` once it is (physics.md §4).
-        *counts.entry("awaiting_collision").or_default() += 1;
+        let rep = world.add_ref(&RefPose::from_placement(&pl), &objects);
+        *counts.entry("with_collision").or_default() += 1;
+        *counts.entry("colliders").or_default() += rep.colliders;
+        if !rep.errors.is_empty() {
+            *counts.entry("object_errors").or_default() += rep.errors.len();
+        }
     }
+    let collision_source = meshes.as_deref().map(|ms| {
+        let unreadable: Vec<Value> =
+            ms.cache.iter().filter_map(|(p, r)| r.as_ref().err().map(|e| json!({"model": p, "error": e}))).take(20).collect();
+        json!({
+            "kind": "fnv_collide::nif",
+            "models": ms.cache.len(),
+            "models_with_collision": ms.cache.values().filter(|r| r.as_ref().is_ok_and(|o| !o.is_empty())).count(),
+            "models_unreadable": ms.cache.values().filter(|r| r.is_err()).count(),
+            "unreadable_examples": unreadable,
+        })
+    });
 
     let character = CharacterParams::default();
     let probes: Vec<Value> = if drops.is_empty() {
@@ -184,7 +282,7 @@ fn cell_cmd(
         "refs": {
             "counts": counts,
             "by_base_type": by_base,
-            "collision_source": Value::Null,
+            "collision_source": collision_source,
         },
         "world_stats": serde_json::to_value(world.stats())?,
         "probes": probes,
