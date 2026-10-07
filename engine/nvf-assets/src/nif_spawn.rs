@@ -65,14 +65,14 @@ pub fn to_bevy(t: &NifTransform) -> Transform {
     Transform { translation: Vec3::from_array(t.translation), rotation: Quat::from_mat3(&m).normalize(), scale: Vec3::splat(t.scale) }
 }
 
-fn affine(t: &NifTransform) -> Affine3A {
+pub(crate) fn affine(t: &NifTransform) -> Affine3A {
     let m = Mat3::from_cols_array(&t.rotation).transpose();
     Affine3A::from_mat3_translation(m * t.scale, Vec3::from_array(t.translation))
 }
 
 /// Rendering-relevant properties accumulated from an object and its ancestors.
 #[derive(Debug, Clone, Default)]
-struct Props {
+pub(crate) struct Props {
     textures: Vec<String>,
     alpha: Option<(i64, i64)>,
     material_alpha: Option<f32>,
@@ -80,6 +80,8 @@ struct Props {
     glossiness: Option<f32>,
     double_sided: bool,
     vertex_colors_tint: bool,
+    /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
+    unlit: bool,
 }
 
 fn text_list(s: &Struct, name: &str) -> Vec<String> {
@@ -101,6 +103,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     }
     match ty {
         "BSShaderNoLightingProperty" => {
+            p.unlit = true;
             if let Some(f) = s.text("file_name") {
                 p.textures = vec![f.to_string()];
             }
@@ -127,7 +130,90 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     }
 }
 
-fn build_mesh(data: &Struct) -> Option<(Mesh, usize)> {
+/// Editor-only geometry: nodes named `EditorMarker...` [documented: nif.xml BSXFlags bit
+/// 5 "EditorMarkers present"; observed: 327 meshes in Fallout - Meshes.bsa, 155 of them
+/// effects, mostly without the hidden flag; hypothesis: the game never draws them].
+pub fn is_editor_marker(name: Option<&str>) -> bool {
+    name.is_some_and(|n| n.len() >= 12 && n[..12].eq_ignore_ascii_case("editormarker"))
+}
+
+/// Blend mode for NiAlphaProperty flags [documented: nif.xml AlphaFlags: bit 0 blend,
+/// bits 1-4 source and 5-8 destination factor (AlphaFunction: 0 ONE, 1 ZERO, 2 SRC_COLOR,
+/// 4 DEST_COLOR, 6 SRC_ALPHA, 7 INV_SRC_ALPHA, ...), bit 9 alpha test]. Bevy offers fixed
+/// modes, so factors map to the nearest: destination ONE is additive, a source of ZERO
+/// or DEST_COLOR multiplies. When both test and blend are set (foliage, fences) the test
+/// is used, except for additive blending [hypothesis: avoids order-dependent blending of
+/// foliage; matches the look so far, to confirm against screenshots].
+pub(crate) fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
+    let (src, dst) = ((flags >> 1) & 0xF, (flags >> 5) & 0xF);
+    let (blend, test) = (flags & 1 != 0, flags & 0x200 != 0);
+    match (blend, test, src, dst) {
+        (true, _, _, 0) => AlphaMode::Add,
+        (_, true, _, _) => AlphaMode::Mask(threshold as f32 / 255.0),
+        (true, _, 1 | 4, _) => AlphaMode::Multiply,
+        (true, ..) => AlphaMode::Blend,
+        _ => AlphaMode::Opaque,
+    }
+}
+
+/// Properties of a shape: its ancestors' first, then its own.
+pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_block: &HashMap<usize, &SceneObject>) -> Props {
+    let mut chain = vec![o.block];
+    let mut cur = o.parent;
+    while let Some(p) = cur {
+        if chain.len() > 512 {
+            break;
+        }
+        chain.push(p);
+        cur = by_block.get(&p).and_then(|x| x.parent);
+    }
+    let mut props = Props::default();
+    for b in chain.iter().rev() {
+        if let Some(refs) = dec.blocks[*b].as_ref().ok().and_then(|s| s.refs("properties")) {
+            for &r in refs {
+                apply_property(file, dec, r, &mut props);
+            }
+        }
+    }
+    props
+}
+
+/// The material for a shape's properties; also returns the base texture path when it
+/// could not be loaded. Adds tangents to `mesh` when a normal map is used.
+pub(crate) fn shape_material(
+    props: &Props,
+    mesh: &mut Mesh,
+    textures: &mut TextureCache,
+    data: &GameData,
+    images: &mut Assets<Image>,
+    formats: Option<&CompressedImageFormatSupport>,
+) -> (StandardMaterial, Option<String>) {
+    let base = props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.get(t, true, data, images, formats));
+    let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.get(t, false, data, images, formats));
+    let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
+    let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
+    let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
+    let alpha_mode = props.alpha.map_or(AlphaMode::Opaque, |(flags, threshold)| alpha_mode(flags, threshold));
+    let gloss = props.glossiness.unwrap_or(10.0);
+    let material = StandardMaterial {
+        base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
+        base_color_texture: base,
+        normal_map_texture: normal,
+        // Approximation until Layer 3 emulates the original shaders [hypothesis].
+        perceptual_roughness: (1.0 - (gloss / 100.0).clamp(0.0, 0.9)).clamp(0.3, 1.0),
+        metallic: 0.0,
+        reflectance: 0.3,
+        emissive: props.emissive.map(|e| LinearRgba::rgb(e[0], e[1], e[2])).unwrap_or(LinearRgba::BLACK),
+        alpha_mode,
+        double_sided: props.double_sided,
+        cull_mode: if props.double_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
+        unlit: props.unlit,
+        ..default()
+    };
+    (material, missing)
+}
+
+pub(crate) fn build_mesh(data: &Struct) -> Option<(Mesh, usize)> {
     let md = mesh_data(data);
     if md.positions.is_empty() || md.triangles.is_empty() {
         return None;
@@ -251,7 +337,7 @@ impl SpawnCtx<'_, '_> {
                 to_bevy(&o.transform),
                 Visibility::default(),
             ));
-            if flags & 1 != 0 {
+            if flags & 1 != 0 || is_editor_marker(o.name.as_deref()) {
                 e.insert((NifHidden, Visibility::Hidden));
             }
             let id = e.id();
@@ -289,64 +375,16 @@ impl SpawnCtx<'_, '_> {
             let Some(data) = dec.get(data_ref) else { continue };
             let Some((mut mesh, tris)) = build_mesh(data) else { continue };
 
-            // Properties: ancestors first, then the shape's own.
-            let mut chain = vec![o.block];
-            let mut cur = o.parent;
-            while let Some(p) = cur {
-                if chain.len() > 512 {
-                    break;
-                }
-                chain.push(p);
-                cur = by_block.get(&p).and_then(|x| x.parent);
-            }
-            let mut props = Props::default();
-            for b in chain.iter().rev() {
-                if let Some(refs) = dec.blocks[*b].as_ref().ok().and_then(|s| s.refs("properties")) {
-                    for &r in refs {
-                        apply_property(&file, &dec, r, &mut props);
-                    }
-                }
-            }
-
-            let formats = self.formats.as_deref();
-            let base = props
-                .textures
-                .first()
-                .filter(|t| !t.is_empty())
-                .and_then(|t| self.textures.get(t, true, &self.data, &mut self.images, formats));
-            let normal = props
-                .textures
-                .get(1)
-                .filter(|t| !t.is_empty())
-                .and_then(|t| self.textures.get(t, false, &self.data, &mut self.images, formats));
-            if base.is_none() {
-                if let Some(t) = props.textures.first().filter(|t| !t.is_empty()) {
-                    report.textures_missing.push(t.clone());
-                }
-            }
-            let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
-            let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
-            let alpha_mode = match props.alpha {
-                // nif.xml AlphaFlags: bit 9 alpha test, bit 0 alpha blend.
-                Some((flags, threshold)) if flags & 0x200 != 0 => AlphaMode::Mask(threshold as f32 / 255.0),
-                Some((flags, _)) if flags & 1 != 0 => AlphaMode::Blend,
-                _ => AlphaMode::Opaque,
-            };
-            let gloss = props.glossiness.unwrap_or(10.0);
-            let material = StandardMaterial {
-                base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
-                base_color_texture: base,
-                normal_map_texture: normal,
-                // Approximation until Layer 3 emulates the original shaders [hypothesis].
-                perceptual_roughness: (1.0 - (gloss / 100.0).clamp(0.0, 0.9)).clamp(0.3, 1.0),
-                metallic: 0.0,
-                reflectance: 0.3,
-                emissive: props.emissive.map(|e| LinearRgba::rgb(e[0], e[1], e[2])).unwrap_or(LinearRgba::BLACK),
-                alpha_mode,
-                double_sided: props.double_sided,
-                cull_mode: if props.double_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
-                ..default()
-            };
+            let props = shape_props(&file, &dec, o, &by_block);
+            let (material, missing) = shape_material(
+                &props,
+                &mut mesh,
+                &mut self.textures,
+                &self.data,
+                &mut self.images,
+                self.formats.as_deref(),
+            );
+            report.textures_missing.extend(missing);
 
             // Skinning.
             let mut skinned = None;
@@ -414,5 +452,26 @@ impl SpawnCtx<'_, '_> {
             report.triangles += tris;
         }
         Ok(report)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blend_modes() {
+        let flags = |blend: bool, src: i64, dst: i64, test: bool| (blend as i64) | (src << 1) | (dst << 5) | ((test as i64) << 9);
+        assert!(matches!(alpha_mode(flags(true, 6, 7, false), 0), AlphaMode::Blend));
+        assert!(matches!(alpha_mode(flags(true, 6, 0, false), 0), AlphaMode::Add));
+        assert!(matches!(alpha_mode(flags(true, 4, 1, false), 0), AlphaMode::Multiply));
+        assert!(matches!(alpha_mode(flags(false, 6, 7, true), 128), AlphaMode::Mask(t) if (t - 128.0 / 255.0).abs() < 1e-6));
+        assert!(matches!(alpha_mode(flags(false, 6, 7, false), 0), AlphaMode::Opaque));
+        assert!(matches!(alpha_mode(flags(true, 6, 7, true), 128), AlphaMode::Mask(_)));
+        assert!(matches!(alpha_mode(flags(true, 6, 0, true), 128), AlphaMode::Add));
+        assert!(is_editor_marker(Some("EditorMarker01")) && is_editor_marker(Some("editormarker")));
+        assert!(!is_editor_marker(Some("C_EditorMarker01")) && !is_editor_marker(None));
+        // nif.xml default flags 4844 = 0x12EC: blend off, test on.
+        assert!(matches!(alpha_mode(4844, 128), AlphaMode::Mask(_)));
     }
 }

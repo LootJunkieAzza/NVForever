@@ -46,7 +46,8 @@ scenario argv and golden paths.
 | `exact` | deep diff | `select` (pointer), `abs_tol`, `rel_tol`, `ignore_paths`, `subset` (extra candidate keys allowed) |
 | `keyed` | record sets | `select`, `key` (field or list), `fields` (default: all oracle fields), tolerances; reports missing / extra / changed |
 | `sequence` | ordered traces | `select`, `fields`, tolerances; score = matching prefix, reports first divergence |
-| `image`, `distribution` | planned | currently report `error` |
+| `image` | rendered frames | `min_ssim` (required), `max_mae`, `max_mean_color_delta`, `width` (working width, default 192); oracle `{"image", "masks"}`, candidate `{"image"}`; PNG and BMP; reports SSIM, colour error and a 4 × 4 tile breakdown (`fnvlab/image.py`) |
+| `distribution` | planned | currently reports `error` |
 
 Scores are in [0, 1]. Status: `pass` (no failures), `fail`, `error` (oracle, candidate or
 harness problem — never a crash). Each failure has a stable ID: SHA-1 of
