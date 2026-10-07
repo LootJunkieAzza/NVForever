@@ -1,0 +1,86 @@
+{
+ "scenarios": [
+  {
+   "id": "L4.sim.containers",
+   "layer": 4,
+   "description": "Authored contents of every container base form over base game + DLC + packs (fnv.sim.containers/1) against the independent oracle tools/capture/oracle_sim.py.",
+   "oracle": {
+    "golden": "sim/containers.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "containers",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/containers",
+    "key": "formid"
+   },
+   "tags": [
+    "sim",
+    "containers",
+    "inventory",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.sim.trace.goodsprings_doc_mitchell",
+   "layer": 4,
+   "description": "Pick up stimpaks and caps in Doc Mitchell's house, add/remove items, leave through the front door; item counts and the player's cell/position after each step (parity-lab/inputs/layer4/goodsprings_doc_mitchell.actions.json) against an in-game capture (docs/spec-notes/simulation.md section 6). Position tolerance 1 game unit: the XTEL destination is copied, but the engine may settle the actor.",
+   "oracle": {
+    "golden": "sim/goodsprings_doc_mitchell.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/goodsprings_doc_mitchell.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 1.0
+   },
+   "tags": [
+    "sim",
+    "inventory",
+    "activation",
+    "M4",
+    "needs-local-capture"
+   ]
+  }
+ ]
+}

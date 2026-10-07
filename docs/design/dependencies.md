@@ -34,8 +34,8 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 | 2 | DDS / BCn textures | **done**: own header/layout parser (`fnv-dds`); GPU upload as BCn directly; CPU BCn decoders deferred (ADR-0001) |
 | 2 | math, viewer | **done**: Bevy 0.19.1 (its `glam`), viewer in its own workspace (ADR-0001) |
 | 3 | rendering | `wgpu` (Vulkan/Metal/DX12), `winit` for windows/input |
-| 4 | physics / character controller | `rapier3d` or Jolt bindings |
-| 4 | entity model | `hecs` or `bevy_ecs` |
+| 4 | physics / character controller | planned: `rapier3d` with `enhanced-determinism` (layer4.md §2.8); Jolt bindings and `avian3d` rejected |
+| 4 | entity model | **decided**: plain ordered maps in `fnv-sim`, no ECS in the core (layer4.md §2.2); `rand_chacha` for the seeded, reproducible RNG |
 | 5 | script runtime | in-house bytecode interpreter (no off-the-shelf fit) |
 | 7 | audio decode / playback | `symphonia` (WAV/MP3/OGG), `kira` or `cpal` |
 | 7 | UI (Bethesda XML menus) | `quick-xml` + own layout engine; `egui` for dev tools |
