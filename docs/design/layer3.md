@@ -95,6 +95,11 @@ What it does now:
   boxes on distant ridges (probably rock formations in the object LOD) to check.
 - SpeedTree trees (TREE): interim billboards, two crossed alpha-tested quads with the
   tree's billboard texture at its BNAM size (world.md §2); full `.spt` geometry later.
+- Interiors: `--cell <interior Editor ID>` loads that one cell with its own lighting
+  (XCLL merged with its lighting template, world.md §8) instead of sky, LOD and terrain;
+  the camera starts at the middle of its references. Lights: every enabled LIGH
+  reference becomes a point (or spot) light, indoors and out (`--light-scale`, tuned by
+  eye in GSDocMitchellHouse).
 - Water: one plane per "has water" cell at its water height with the water type's
   colour, opacity and noise normal map (no reflection or refraction yet).
 
