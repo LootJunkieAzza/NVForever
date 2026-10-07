@@ -109,10 +109,20 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   6.377, the player stayed inside 24 h → full at 7.379 (no cell unload needed); emptied
   at 7.379, 5 h away across midnight (back at 8.095) → empty; 10 h away without
   midnight (back at 9.476) → empty, i.e. empty for 50 h [observed]. Not hours away, not
-  hours since emptying, not midnight. Consistent with all captures: a per-container
-  restock schedule, a period after the previous restock (≥ 2.1 days; 72 h is the natural
-  guess), checked when the container is accessed [hypothesis; the period is being
-  captured]. Merchant containers can be identified from the data: an
+  hours since emptying, not midnight. `aa_vendor_period` (player inside the whole time,
+  never opening a menu; only scripted `GetItemCount` reads): full again at 7.379
+  (emptied at 6.377); emptied at 7.379 and one stimpak put in (a sold item); still empty
+  with the stimpak at 8.380, 9.382, 9.883; **full (200 caps) and the stimpak gone at
+  10.384**, and full at 10.886 and 11.387 [observed]. So a restock **replaces** the
+  contents (sold items are lost), needs no barter menu, and the second restock came
+  between 2.50 and 3.01 days after the restock observed at 7.379; a fixed 3-day grid from
+  day 0 is ruled out (no refill at day 9). Rule consistent with every capture
+  [hypothesis]: when a merchant container is accessed and at least 72 game hours
+  (`iHoursToRespawnCell`, 72 in game) have passed since its last restock, it is reset to a
+  fresh roll of its base contents and the restock time becomes the access time. A save
+  carries each container's last restock time, which the plugins do not, so captures that
+  start from a save depend on that hidden state (`L4.sim.trace.goodsprings_respawn`'s 24 h
+  case does). Merchant containers can be identified from the data: an
   ACHR/ACRE `XMRC` "Merchant Container" names them [documented: xEdit]; Ringo's
   reference 0x00104C7D points at 0x001629C0, and FalloutNV.esm has 77 XMRC links
   [observed].
