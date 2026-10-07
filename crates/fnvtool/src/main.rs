@@ -89,17 +89,22 @@ pub enum WorldCmd {
         #[arg(long)]
         world: Option<String>,
     },
-    /// References placed in one cell (fnv.world.refs/1).
-    #[command(group(clap::ArgGroup::new("which").required(true).args(["cell", "world"])))]
+    /// References placed in one cell, every cell of a worldspace, or every interior cell
+    /// (fnv.world.refs/1).
+    #[command(group(clap::ArgGroup::new("which").required(true).args(["cell", "world", "interiors"])))]
     Refs {
         #[command(flatten)]
         w: WorldArgs,
         /// Cell Editor ID or load-order FormID.
         #[arg(long)]
         cell: Option<String>,
-        /// Exterior cell by worldspace and grid (with --x and --y).
-        #[arg(long, requires_all = ["x", "y"])]
+        /// Every cell of this worldspace (its persistent cell included); with --x and
+        /// --y only the exterior cell at that grid position.
+        #[arg(long)]
         world: Option<String>,
+        /// Every interior cell.
+        #[arg(long)]
+        interiors: bool,
         #[arg(long, allow_hyphen_values = true)]
         x: Option<i32>,
         #[arg(long, allow_hyphen_values = true)]

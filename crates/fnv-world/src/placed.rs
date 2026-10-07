@@ -74,9 +74,12 @@ impl BaseObject {
         if m.is_empty() {
             return None;
         }
+        // TREE models are stored with a leading separator, e.g. "\WastelandShrub01.spt"
+        // [observed]; the file is trees\wastelandshrub01.spt.
         let m = m.replace('/', "\\").to_ascii_lowercase();
+        let m = m.trim_start_matches('\\');
         let root = if m.ends_with(".spt") { "trees\\" } else { "meshes\\" };
-        Some(if m.starts_with(root) { m } else { format!("{root}{m}") })
+        Some(if m.starts_with(root) { m.to_string() } else { format!("{root}{m}") })
     }
 
     pub fn is_speedtree(&self) -> bool {
@@ -101,6 +104,7 @@ mod tests {
         assert_eq!(b("meshes/a.nif").model_path().unwrap(), "meshes\\a.nif");
         assert_eq!(b("  ").model_path(), None);
         assert_eq!(b("WastelandShrub01.spt").model_path().unwrap(), "trees\\wastelandshrub01.spt");
+        assert_eq!(b("\\WastelandShrub01.spt").model_path().unwrap(), "trees\\wastelandshrub01.spt");
         assert!(b("WastelandShrub01.spt").is_speedtree() && !b("a.nif").is_speedtree());
     }
 }

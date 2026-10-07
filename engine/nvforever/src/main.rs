@@ -6,11 +6,11 @@
 //! F12 screenshot, Esc quit.
 
 mod fly;
+mod sky;
 mod terrain;
 mod world;
 
 use bevy::image::{ImageAddressMode, ImageSamplerDescriptor};
-use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use clap::Parser;
@@ -68,6 +68,15 @@ struct Args {
     /// Cells loaded around the camera's cell in each direction.
     #[arg(long, default_value_t = 2)]
     radius: i32,
+    /// Time of day in hours (0-24).
+    #[arg(long, default_value_t = 12.0)]
+    hour: f32,
+    /// Weather Editor ID or load-order FormID (default: the climate's most likely).
+    #[arg(long)]
+    weather: Option<String>,
+    /// Override the weather's fog distances: "near,far" in game units.
+    #[arg(long)]
+    fog: Option<String>,
     /// World units per terrain texture repeat [hypothesis; docs/design/layer3.md].
     #[arg(long, default_value_t = 4096.0 / 6.0)]
     terrain_tile: f32,
@@ -131,6 +140,16 @@ fn main() -> AppExit {
             Vec3::new((grid.0 as f32 + 0.5) * s, (grid.1 as f32 + 0.5) * s, ground + 400.0)
         }
     };
+    let mut sky_state = match sky::SkyState::new(&world, args.weather.as_deref(), args.hour) {
+        Ok(s) => s,
+        Err(e) => return fail(e),
+    };
+    if let Some(f) = args.fog.as_deref() {
+        match parse_vec::<2>(f) {
+            Some([n, fa]) => sky_state.fog_override = Some((n, fa)),
+            None => return fail(format!("--fog {f}: expected near,far")),
+        }
+    }
     let Some([w, h]) = args.size.split_once('x').and_then(|(w, h)| Some([w.parse::<u32>().ok()?, h.parse::<u32>().ok()?])) else {
         return fail(format!("--size {}: expected WxH", args.size));
     };
@@ -153,6 +172,7 @@ fn main() -> AppExit {
     .add_plugins(ArchivePlugin(game))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
+    .insert_resource(sky_state)
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
     .insert_resource(Streamer {
@@ -165,8 +185,8 @@ fn main() -> AppExit {
     .insert_resource(world)
     .insert_resource(StartPose { position: start, heading: args.heading, pitch: args.pitch })
     .insert_resource(args.clone())
-    .add_systems(Startup, (world::setup_root, setup))
-    .add_systems(Update, (fly::fly, world::stream, overlay, keys).chain());
+    .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
+    .add_systems(Update, (fly::fly, sky::sky_keys, sky::update_sky, world::stream, overlay, keys).chain());
     if args.screenshot.is_some() {
         app.add_systems(Update, screenshot_and_exit);
     }
@@ -188,16 +208,7 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         Projection::Perspective(PerspectiveProjection { far: 100_000.0, near: 5.0, ..default() }),
         Transform::from_translation(pos).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)),
         FlyCam { yaw, pitch, speed: 800.0 },
-        DistanceFog {
-            color: Color::srgb(0.62, 0.72, 0.85),
-            falloff: FogFalloff::Linear { start: 8_000.0, end: 20_000.0 },
-            ..default()
-        },
-    ));
-    // Placeholder sun until weather and climate drive the lighting (work item 6).
-    commands.spawn((
-        DirectionalLight { illuminance: 9000.0, shadow_maps_enabled: false, ..default() },
-        Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, 0.6, -1.0, 0.0)),
+        sky::initial_fog(),
     ));
     commands.spawn((
         Text::new(""),
@@ -212,6 +223,7 @@ fn overlay(
     models: Res<ModelCache>,
     terrain: Res<TerrainCache>,
     textures: Res<TextureCache>,
+    sky: Res<sky::SkyState>,
     cam: Query<&GlobalTransform, With<FlyCam>>,
     mut text: Query<&mut Text, With<Overlay>>,
 ) {
@@ -220,11 +232,12 @@ fn overlay(
     let c = fnv_world::cell_of(g.x, g.y);
     let s = &streamer.stats;
     t.0 = format!(
-        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {}  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}\nWASD/QE move  Shift fast  right-drag look  wheel speed  F12 screenshot  Esc quit",
+        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {}  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
         g.x, g.y, g.z, c.0, c.1,
         streamer.loaded.len(), s.cells_loaded, s.load_ms,
         s.refs_drawn, s.refs_skipped_disabled, s.refs_skipped_type, s.refs_speedtree, s.refs_no_model, s.shapes,
         models.len(), models.failures.len(), textures.failures.len(), terrain.layers, terrain.quadrants_without_base,
+        s.water_planes, sky.describe(),
     );
 }
 

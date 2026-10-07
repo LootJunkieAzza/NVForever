@@ -40,10 +40,18 @@ pub struct PreparedModel {
 #[derive(Resource, Default)]
 pub struct ModelCache {
     map: HashMap<String, Option<Arc<PreparedModel>>>,
+    /// Shared materials keyed by a record FormID (e.g. water types).
+    water: HashMap<u32, Handle<StandardMaterial>>,
     pub failures: Vec<String>,
 }
 
 impl ModelCache {
+    pub fn water_material(&self, id: u32) -> Option<Handle<StandardMaterial>> {
+        self.water.get(&id).cloned()
+    }
+    pub fn set_water_material(&mut self, id: u32, m: Handle<StandardMaterial>) {
+        self.water.insert(id, m);
+    }
     pub fn len(&self) -> usize {
         self.map.len()
     }

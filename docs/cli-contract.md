@@ -206,17 +206,23 @@ visible-distant (10) cell-children groups labelled with that cell, except LAND a
 When several plugins define the same reference FormID, the last one in load order wins,
 including which cell's group it is in. The same rule picks the cell's LAND.
 
-## `fnvtool world refs ... (--cell <edid|formid> | --world <edid|formid> --x X --y Y)` → `fnv.world.refs/1`
+## `fnvtool world refs ... (--cell <edid|formid> | --world <edid|formid> [--x X --y Y] | --interiors)` → `fnv.world.refs/1`
+
+Selects one cell (`--cell`, or `--world` with `--x/--y` for an exterior grid cell), every
+cell of a worldspace (`--world` alone, its persistent cell included), or every interior
+cell (`--interiors`).
 
 ```json
 {
   "schema": "fnv.world.refs/1",
-  "cell": {"formid": "0x0000ABCD", "edid": "Goodsprings", "name": null, "world": "0x000DA726",
-           "grid": [-18, 0], "interior": false, "water_height": 3.4028234663852886e38,
-           "refs": 159, "land": "0x0000ABCE"},
+  "cells": [
+    {"formid": "0x0000ABCD", "edid": "Goodsprings", "name": null, "world": "0x000DA726",
+     "grid": [-18, 0], "interior": false, "water_height": 3.4028234663852886e38,
+     "refs": 159, "land": "0x0000ABCE"}
+  ],
   "refs": [
-    {"formid": "0x00012345", "type": "REFR", "base": "0x00012300", "base_type": "STAT",
-     "base_edid": "Rock01", "model": "meshes\rocks\rock01.nif",
+    {"formid": "0x00012345", "type": "REFR", "cell": "0x0000ABCD", "base": "0x00012300",
+     "base_type": "STAT", "base_edid": "Rock01", "model": "meshes\rocks\rock01.nif",
      "position": [1.0, 2.0, 3.0], "rotation": [0.0, 0.0, 1.5707964], "scale": 1.0,
      "flags": 0, "persistent": false, "initially_disabled": false, "deleted": false,
      "enable_parent": null}
@@ -224,21 +230,35 @@ including which cell's group it is in. The same rule picks the cell's LAND.
 }
 ```
 
-- `refs` sorted by `formid`. `type` = record signature of the winning definition.
+Membership: a cell belongs to a worldspace when its winning CELL record sits inside that
+worldspace's world-children group (type 1; the label is the WRLD FormID, local to the
+plugin); interior cells are inside no world-children group. The persistent cell is the
+CELL directly inside the world-children group (not inside a block group).
+
+- `cells` sorted by `formid`; `refs` = the references of all selected cells, sorted by
+  `formid`. `cell` = the cell whose group holds the winning definition.
+- `type` = record signature of the winning definition.
 - `base` = NAME mapped to the load order (`null` if absent or 0). `base_type`, `base_edid`
   come from the base's winning record; `null` when the base is not defined in the load
-  order (engine-defined forms). `model` = the base's MODL, lower case, `/` → `\`,
-  prefixed with `meshes\` unless already present (`trees\` for `.spt` SpeedTree
-  models); `null` if absent or blank.
+  order (engine-defined forms). `model` = the base's MODL with surrounding whitespace
+  removed, `null` if that leaves it empty; otherwise ASCII letters lower-cased, `/` → `\`,
+  leading `\` removed (TREE models are stored as e.g. `\WastelandShrub01.spt`), then
+  prefixed with `trees\` if it ends in `.spt` (SpeedTree), else with `meshes\`, unless it
+  already starts with that prefix.
 - `position`, `rotation` = DATA (rotation in radians, as stored); `[0,0,0]` if DATA is
   absent. `scale` = XSCL, else 1.0. `flags` = record header flags of the winning
   definition; `initially_disabled` = bit 0x800, `deleted` = bit 0x20. `persistent` = the
   winning definition is in a type 8 group.
-- `enable_parent` = XESP as `{"ref": formid, "opposite": bool (flag bit 0)}`, else `null`.
-- Cell fields: `water_height` = XCLW (`null` if absent), `grid` = XCLC (x, y) or `null`,
-  `interior` = DATA bit 0, `refs` = count, `land` = the cell's LAND FormID or `null`.
+- `enable_parent` = XESP as `{"ref": formid, "opposite": bool (flag bit 0)}`, else `null`;
+  the reference FormID is mapped like `base` (a null reference gives `null` for the whole
+  field).
+- Cell fields come from the winning CELL record: `edid` (EDID), `name` (FULL), `world`,
+  `water_height` = XCLW (`null` if absent), `grid` = XCLC (x, y) or `null`, `interior` =
+  DATA bit 0, `refs` = number of references whose winning definition is in this cell,
+  `land` = the cell's LAND FormID or `null`.
+- Field layouts: docs/spec-notes/world.md §5.
 
-Lab comparator: **keyed** on `formid` for `/refs` (all fields), **exact** on `/cell`.
+Lab comparator: **keyed** on `formid` for `/refs` and for `/cells` (all fields).
 
 ## `fnvtool world heights ... --world <edid|formid>` → `fnv.world.heights/1`
 
