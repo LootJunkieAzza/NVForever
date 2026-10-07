@@ -191,6 +191,17 @@ nesting, levels between entries' levels with the all-levels flag set.
   worldspace the actor is in the exterior grid cell containing its position. The z offset
   is presumably the character controller settling the actor [hypothesis; physics
   workstream].
+- **Scripted `Activate` on item references** [observed 2026-10-07, two follow-up captures
+  in Doc Mitchell's house]: `ref.Activate player` adds the item's stack every time — three
+  activations of stimpak 0x00105BF3 gave 1, 2, 3 stimpaks; a stimpak taken by hand
+  (0x00105BF5) still gave one more; a cap reference that was never taken but disabled with
+  `Disable` (GetDisabled 1) also gave its cap and stayed disabled. `GetDisabled` stays 0
+  and `GetParentCell` keeps reporting the original cell after a pick-up by script or by
+  hand, so neither shows whether an item was taken. (The player found 2 of the 3
+  stimpaks still on the shelf after the scripted activations, i.e. the scripted pick-up
+  did take the first one [to be confirmed by the owner].) `GetParentCell` of a persistent
+  exterior reference (door 0x00103E69) asked from an interior returns no cell
+  ("00000000"); whether it reports the grid cell when asked outdoors is not captured yet.
 - **Created references** (dropped items) get FormIDs from 0xFF000000 upwards, a load
   slot no plugin can use [hypothesis for the original engine's numbering].
 
