@@ -115,10 +115,13 @@ Scripts given to `CompileScript` on the owner's install (xNVSE 6.4.9, game 1.4.0
   `GSDocMitchellHouseIntDoorREF`) — the runtime does not keep those names
   [hypothesis for the reason]; hex literals (`0x38F7`); `ref` and `string_var` variables
   declared inside the block; any `string_var` assignment (`let`, or `set … sv_Construct`).
-- **Crash the game**: `set TimeScale to <n>` in a compiled script, with 0 and with 1 (access
-  violation in FalloutNV.exe at the same address both times, right after that step);
-  `set GameHour to 8` the same way did not crash. Globals are therefore set with console
-  lines (`set <Global> to <n>`), as a player would.
+- Globals are set with console lines (`set <Global> to <n>`), as a player would.
+- **Crash after a burst of changes**: the weight/time job crashed the game (same address in
+  FalloutNV.exe, three runs) a few frames after equipping two outfits and changing
+  Strength one frame apart; in isolation, console TimeScale changes (30, 10, 5, 2, 1)
+  and `SetAV Strength 1` did not crash. Jobs therefore pause after every action (10
+  game loops, 30 after equipping, activating, actor-value and bulk inventory changes)
+  [hypothesis that the burst is the cause].
 - **Call reported as failed**: a function that sets no return value, even when its
   statements ran (`player.RemoveAllItems`, `set GameHour to 8.0` alone); every action
   script therefore ends with `SetFunctionValue 1`.

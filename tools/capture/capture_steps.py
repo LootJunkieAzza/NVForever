@@ -178,14 +178,31 @@ def query(script, label, field):
     return {"query": script, "label": label, "field": field}
 
 
+# Game loops to wait after an action. A job that equipped two outfits and changed
+# Strength one frame apart crashed the game a few frames later, while each step on its
+# own did not [observed 2026-10-07]; the game is given time to finish (models, inventory
+# and actor-value updates) before the next step [hypothesis for the cause].
+SETTLE_FRAMES = 10
+SETTLE_FRAMES_LONG = 30
+SLOW_OPS = {"activate", "equip_item", "unequip_item", "set_av", "drop_item", "remove_all_items", "transfer_all"}
+
+
 def action_steps(i, a, ctx):
-    """Steps for one fnv.sim.actions/1 action (index i)."""
+    """Steps for one fnv.sim.actions/1 action (index i), followed by a pause after
+    anything that changes the game."""
+    steps = _action_steps(i, a, ctx)
+    if not any("query" in s or "manual" in s for s in steps):
+        steps.append({"frames": SETTLE_FRAMES_LONG if a.get("op") in SLOW_OPS else SETTLE_FRAMES})
+    return steps
+
+
+def _action_steps(i, a, ctx):
     op = a.get("op")
     label = a.get("label") or f"step{i}"
     g = lambda k, default=None: a.get(k, default)  # noqa: E731
     rs = lambda stmts, *names: {"script": run_script(stmts, ctx, names)}  # noqa: E731
     if op == "activate":
-        return [rs(["{0}.Activate {1}"], g("target"), g("actor", "player")), {"frames": 30}]
+        return [rs(["{0}.Activate {1}"], g("target"), g("actor", "player"))]
     if op == "add_item":
         return [rs([f"{{0}}.AddItem {{1}} {int(g('count'))} 1"], g("to"), g("item"))]
     if op == "remove_item":
@@ -204,9 +221,7 @@ def action_steps(i, a, ctx):
     if op in ("unlock", "enable", "disable"):
         return [rs(["{0}." + op.capitalize()], g("target"))]
     if op == "set_global":
-        # A console line, as a player would type it: setting TimeScale from a compiled
-        # script crashed the game (twice, same address), the console form is the usual
-        # way to change it [observed 2026-10-07].
+        # A console line, as a player would type it.
         name = plain_name(g("name"), "set_global: the global")
         return [{"console": f"set {name} to {number(g('value'))}"}]
     if op == "set_av":
