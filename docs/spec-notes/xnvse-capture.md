@@ -93,15 +93,39 @@ hex text; needs a ref variable), `GetNumItems`, `GetInventoryObject`,
   "nvse_version", "runtime_version"}`, then one `{"kind": "result", "step", "label",
   "field", "value" | "error"}` per query (`value`: number, string or null), then
   `{"kind": "end", "steps"}`; a job is moved to `jobs\done\` only after its end line.
-- Every job starts with a query `__load_order__` returning the loaded plugin names
-  separated by `|`, so FormID strings in the output can be mapped back to plugin + local
-  FormID (`capture_steps.py`).
+- Every job starts with one query per master, label `__modindex__`, field = plugin
+  name, value = `GetModIndex` (255 = not loaded), so load-order FormIDs in the output can
+  be mapped back to plugin + local FormID (`capture_steps.py`).
 
-## 5. Open points
+## 5. What the runtime compiler accepts [observed, three diagnostic jobs, 2026-10-07]
 
-- Whether `CompileScript` scripts may call every function above from the main game loop
-  is [hypothesis] until the first run on the owner's install; failures are recorded per
-  step, not fatal.
+Scripts given to `CompileScript` on the owner's install (xNVSE 6.4.9, game 1.4.0.525):
+
+- **Compile and run**: `float`/`int` variables; `while … loop`; globals read, `set`/`let`
+  on globals; `player.` calls with numeric results (`GetAV`, `GetPos`, `GetNumItems`,
+  `GetItemCount <ref var>`); `GetModIndex "<plugin>"` (OldWorldBlues.esm = 3);
+  `GetNumLoadedMods` (10); `ref` variables **declared before `Begin Function`**, set with
+  `BuildRef <mod index> <decimal local FormID>`; `AddItem`, `RemoveItem`, `SetAV`
+  statements with ref-variable arguments; returning strings directly:
+  `SetFunctionValue (GetFormIDString rC)` ("00103DF9" for Doc Mitchell's house; slots
+  beyond the inventory give "00000000"), `(GetNthModName 0)` ("FalloutNV.esm"), `($ 3)`
+  ("3"), `("a" + "b")`; comparing refs (`rC == rD`). Console lines (`RunScriptLine`) with
+  hex FormIDs: `player.additem 0000000F 3` added 3 caps.
+- **Do not compile**: any Editor ID of a base form or a reference (`Caps001`,
+  `GSDocMitchellHouseIntDoorREF`) — the runtime does not keep those names
+  [hypothesis for the reason]; hex literals (`0x38F7`); `ref` and `string_var` variables
+  declared inside the block; any `string_var` assignment (`let`, or `set … sv_Construct`).
+- **Call reported as failed**: a function that sets no return value, even when its
+  statements ran (`player.RemoveAllItems`, `set GameHour to 8.0` alone); every action
+  script therefore ends with `SetFunctionValue 1`.
+
+`capture_steps.py` writes jobs to these rules and resolves Editor IDs to FormIDs from the
+masters itself (`--data`, read-only). Still untested in game: `if <ref var>`, `$` of a
+float variable (inventory slots), `Activate`, `EquipItem`, `Lock`, `Drop`; failures are
+recorded per step, not fatal.
+
+## 6. Open points
+
 - `advance_time`, `detach_cell` / `attach_cell` and `transfer` of single items have no
   console equivalent and become manual steps (Wait menu, walking through a door, the
   container menu).

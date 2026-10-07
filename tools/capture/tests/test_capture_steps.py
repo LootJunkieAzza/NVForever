@@ -14,16 +14,25 @@ sys.path.insert(0, os.path.dirname(HERE))
 import capture_steps as cs  # noqa: E402
 
 LAB_INPUTS = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
+# Editor IDs the lab inputs use, with made-up FormIDs (no game data here).
+EDIDS = {e.lower(): 0x00010000 + i for i, e in enumerate([
+    "Stimpak", "Caps001", "GSDocMitchellHouseIntDoorREF", "WeapNV9mmPistol", "ArmorLeather",
+    "OutfitWasteland01", "Ammo9mm", "LootChemsStimpak50", "LL0NPCWastelandCaps35", "VFactionSquadStimpaks",
+    "VendorChestStimpaksBoomer", "ClutterHouseholdJunkNV"])}
 
 
 def actions(*acts):
     return {"format": "fnv.sim.actions/1", "seed": 0, "player_level": 1, "actions": list(acts)}
 
 
-def out_lines(plugins, results, end=True):
-    lines = [{"kind": "start", "job": "t"},
-             {"kind": "result", "step": 0, "label": cs.LOAD_ORDER_LABEL, "field": "plugins", "value": "|".join(plugins) + "|"}]
-    lines += [{"kind": "result", "step": i + 1, **r} for i, r in enumerate(results)]
+def head(mods):
+    return [{"kind": "result", "label": cs.MODINDEX_LABEL, "field": m, "value": float(i)} for m, i in mods]
+
+
+def out_lines(results, mods=None, end=True):
+    mods = mods if mods is not None else [(m, i) for i, m in enumerate(cs.MASTERS)]
+    lines = [{"kind": "start", "job": "t"}] + head(mods)
+    lines += [{"kind": "result", "step": i, **r} for i, r in enumerate(results)]
     if end:
         lines.append({"kind": "end", "steps": len(lines)})
     return [json.dumps(x) for x in lines]
@@ -32,83 +41,101 @@ def out_lines(plugins, results, end=True):
 class JobTests(unittest.TestCase):
     def test_every_lab_input_translates(self):
         for f in sorted(os.listdir(LAB_INPUTS)):
-            path = os.path.join(LAB_INPUTS, f)
-            with open(path, encoding="utf-8") as fh:
+            with open(os.path.join(LAB_INPUTS, f), encoding="utf-8") as fh:
                 doc = json.load(fh)
             if f.endswith(".actions.json"):
-                job = cs.actions_job(doc, "x", "start")
+                job = cs.actions_job(doc, "x", "start", EDIDS)
             else:
-                job = cs.cases_job(doc, "x", "start", 3)
+                job = cs.cases_job(doc, "x", "start", 2, EDIDS)
             self.assertEqual(job["format"], cs.STEPS_FORMAT)
-            self.assertEqual(job["steps"][0]["label"], cs.LOAD_ORDER_LABEL)
+            self.assertEqual([s["field"] for s in job["steps"][:len(cs.MASTERS)]], cs.MASTERS)
 
-    def test_forms_by_plugin_and_local_id(self):
+    def test_forms_by_mod_index_and_decimal_local_id(self):
         job = cs.actions_job(actions({"op": "disable", "target": "0x0300DE81"},
                                      {"op": "get_item_count", "of": "player", "item": "Caps001", "label": "caps"}),
-                             "x", "s")
-        script = job["steps"][1]["script"]
-        self.assertIn('let rF1 := BuildRef (GetModIndex "OldWorldBlues.esm") 0x00DE81', script)
-        self.assertIn("rF1.Disable", script)
-        self.assertTrue(script.startswith("Begin Function { }\n") and script.endswith("End\n"))
-        q = job["steps"][2]
+                             "x", "s", EDIDS)
+        script = job["steps"][10]["script"]
+        self.assertEqual(script, 'float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex "OldWorldBlues.esm"\n'
+                                 'let rF1 := BuildRef fM1 56961\nrF1.Disable\nSetFunctionValue 1\nEnd\n')
+        q = job["steps"][11]
         self.assertEqual((q["label"], q["field"]), ("caps", "count"))
-        self.assertIn("let fV := player.GetItemCount Caps001", q["query"])
+        self.assertIn(f"let rF1 := BuildRef fM1 {0x10001}", q["query"])
+        self.assertIn("let fV := player.GetItemCount rF1", q["query"])
+        self.assertTrue(q["query"].index("float fV") < q["query"].index("Begin Function"))
+
+    def test_actions_return_a_value_and_avoid_string_variables(self):
+        job = cs.actions_job(actions({"op": "set_global", "name": "GameHour", "value": 8},
+                                     {"op": "remove_all_items", "from": "player"},
+                                     {"op": "get_pos", "of": "player"}), "x", "s", EDIDS)
+        for s in job["steps"]:
+            text = s.get("script") or s.get("query") or ""
+            self.assertNotIn("string_var", text)
+            if "script" in s:
+                self.assertIn("SetFunctionValue 1", text)
+        self.assertIn("SetFunctionValue (GetFormIDString rC)", job["steps"][12]["query"])
 
     def test_queries_fields_and_default_labels(self):
         job = cs.actions_job(actions({"op": "get_pos", "of": "player"},
                                      {"op": "get_weight", "of": "player", "label": "w"},
                                      {"op": "get_global", "name": "GameHour", "label": "h"}), "x", "s")
-        fields = [(s["label"], s["field"]) for s in job["steps"][1:]]
+        fields = [(s["label"], s["field"]) for s in job["steps"][len(cs.MASTERS):]]
         self.assertEqual(fields, [("step0", "cell"), ("step0", "pos.x"), ("step0", "pos.y"), ("step0", "pos.z"),
                                   ("w", "weight"), ("w", "capacity"), ("h", "value")])
-        self.assertIn("GetFormIDString rC", job["steps"][1]["query"])
-        self.assertIn("player.GetAV CarryWeight", job["steps"][6]["query"])
 
-    def test_manual_steps_and_errors(self):
-        job = cs.actions_job(actions({"op": "advance_time", "hours": 24}, {"op": "detach_cell", "cell": "GSGasStation"},
-                                     {"op": "transfer", "from": "a", "to": "b", "item": "c", "count": 2}), "x", "s")
-        self.assertTrue(all("manual" in s for s in job["steps"][1:]))
+    def test_errors(self):
         with self.assertRaises(cs.InputError):
-            cs.actions_job(actions({"op": "teleport_somewhere"}), "x", "s")
+            cs.actions_job(actions({"op": "teleport_somewhere"}), "x", "s", EDIDS)
         with self.assertRaises(cs.InputError):
-            cs.actions_job(actions({"op": "get_global", "name": "0x00000038"}), "x", "s")
+            cs.actions_job(actions({"op": "get_global", "name": "0x00000038"}), "x", "s", EDIDS)
         with self.assertRaises(cs.InputError):
-            cs.actions_job(actions({"op": "disable", "target": "0x0B000001"}), "x", "s")  # index 11: not a master
+            cs.actions_job(actions({"op": "disable", "target": "0x0B000001"}), "x", "s", EDIDS)
         with self.assertRaises(cs.InputError):
-            cs.actions_job(actions({"op": "disable", "target": "Bad Name;"}), "x", "s")
+            cs.actions_job(actions({"op": "disable", "target": "NoSuchRef"}), "x", "s", EDIDS)
+        with self.assertRaises(cs.InputError) as e:
+            cs.actions_job(actions({"op": "disable", "target": "Caps001"}), "x", "s", None)
+        self.assertIn("--data", str(e.exception))
         with self.assertRaises(cs.InputError):
             cs.actions_job({"format": "other", "actions": []}, "x", "s")
 
+    def test_manual_steps(self):
+        job = cs.actions_job(actions({"op": "advance_time", "hours": 24}, {"op": "detach_cell", "cell": "GSGasStation"},
+                                     {"op": "transfer", "from": "a", "to": "b", "item": "c", "count": 2}), "x", "s")
+        self.assertTrue(all("manual" in s for s in job["steps"][len(cs.MASTERS):]))
+
     def test_cases_job(self):
-        doc = {"format": "fnv.sim.cases/1", "cases": [{"label": "a", "list": "LL1", "level": 10, "count": 3},
+        doc = {"format": "fnv.sim.cases/1", "cases": [{"label": "a", "list": "LootChemsStimpak50", "level": 10, "count": 3},
                                                        {"label": "b", "list": "0x00177FAF"}]}
-        job = cs.cases_job(doc, "x", "s", 4)
-        draws = [s for s in job["steps"] if s.get("field") == cs.DRAW_FIELD]
-        self.assertEqual(len(draws), 8)
+        job = cs.cases_job(doc, "x", "s", 4, EDIDS)
+        fields = [s.get("field") for s in job["steps"] if s.get("label") == "a"]
+        self.assertEqual(fields.count("draw3.num"), 1)
+        self.assertEqual(len([f for f in fields if f.startswith("base.slot")]), cs.SLOTS)
         self.assertIn({"console": "player.setlevel 10"}, job["steps"])
-        self.assertIn("player.AddItem LL1 3 1", draws[0]["query"])
-        self.assertIn('BuildRef (GetModIndex "FalloutNV.esm") 0x177FAF', draws[4]["query"])
+        draws = [s["script"] for s in job["steps"] if "AddItem" in s.get("script", "")]
+        self.assertEqual(len(draws), 8)
+        self.assertIn("player.AddItem rF1 3 1", draws[0])
+        self.assertIn(f"BuildRef fM1 {0x177FAF}", draws[4])
         with self.assertRaises(cs.InputError):
-            cs.cases_job(doc, "x", "s", 0)
+            cs.cases_job(doc, "x", "s", 0, EDIDS)
 
 
 class OutputTests(unittest.TestCase):
-    def test_to_global_follows_the_recorded_load_order(self):
-        plugins = ["FalloutNV.esm", "SomeMod.esp", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm"]
-        self.assertEqual(cs.to_global("0400DE81", plugins), "0x0300DE81")  # OWB is 03 among the masters
-        self.assertEqual(cs.to_global("000846EA", plugins), "0x000846EA")
-        self.assertEqual(cs.to_global("FF000801", plugins), "0xFF000801")
+    def test_to_global_follows_the_recorded_mod_indices(self):
+        mods = {0: "FalloutNV.esm", 2: "DeadMoney.esm", 4: "OldWorldBlues.esm"}  # a mod sits at 01
+        self.assertEqual(cs.to_global("0400DE81", mods), "0x0300DE81")
+        self.assertEqual(cs.to_global("000846EA", mods), "0x000846EA")
+        self.assertEqual(cs.to_global("FF000801", mods), "0xFF000801")
         with self.assertRaises(cs.InputError):
-            cs.to_global("01000800", plugins)  # SomeMod.esp is not a master
-        with self.assertRaises(cs.InputError):
-            cs.to_global("09000800", plugins)
+            cs.to_global("01000800", mods)
+
+    def test_not_loaded_masters_are_left_out(self):
+        mods, _ = cs.read_output(out_lines([], mods=[("FalloutNV.esm", 0), ("DeadMoney.esm", 255)]))
+        self.assertEqual(mods, {0: "FalloutNV.esm"})
 
     def test_trace_golden(self):
-        plugins = cs.MASTERS
-        lines = out_lines(plugins, [
+        lines = out_lines([
             {"label": "caps", "field": "count", "value": 5.0},
             {"label": "dis", "field": "disabled", "value": 1.0},
-            {"label": "p", "field": "cell", "value": "000846EA"},
+            {"label": "p", "field": "cell", "value": "00103DF9"},
             {"label": "p", "field": "pos.x", "value": 1.5},
             {"label": "p", "field": "pos.y", "value": -2.0},
             {"label": "p", "field": "pos.z", "value": 3.25},
@@ -117,54 +144,55 @@ class OutputTests(unittest.TestCase):
             {"label": "bad", "field": "value", "error": "script did not compile"},
         ])
         g = cs.trace_golden(*cs.read_output(lines))
-        self.assertEqual(g["format"], "fnv.sim.trace/1")
         obs = {o["label"]: o for o in g["observations"]}
         self.assertEqual(obs["caps"], {"label": "caps", "count": 5})
         self.assertIs(obs["dis"]["disabled"], True)
-        self.assertEqual(obs["p"], {"label": "p", "cell": "0x000846EA", "pos": [1.5, -2.0, 3.25]})
+        self.assertEqual(obs["p"], {"label": "p", "cell": "0x00103DF9", "pos": [1.5, -2.0, 3.25]})
         self.assertEqual(obs["w"], {"label": "w", "weight": 18.5, "capacity": 200.0})
         self.assertEqual(obs["bad"]["error"], "script did not compile")
 
     def test_unfinished_or_aborted_output_is_refused(self):
         with self.assertRaises(cs.InputError):
-            cs.read_output(out_lines(cs.MASTERS, [], end=False))
+            cs.read_output(out_lines([], end=False))
         with self.assertRaises(cs.InputError):
-            cs.read_output(out_lines(cs.MASTERS, [])[:1] + ['{"kind": "end"}'])  # no load order
+            cs.read_output(['{"kind": "start"}', '{"kind": "end"}'])  # no mod indices
         with self.assertRaises(cs.InputError):
-            cs.read_output(out_lines(cs.MASTERS, []) + ['{"kind": "aborted"}'])
+            cs.read_output(out_lines([]) + ['{"kind": "aborted"}'])
 
     def test_samples_golden(self):
-        plugins = cs.MASTERS
-        pip = "00015038x1;"  # an item that stays in the inventory
-        draws = [
-            pip + "#" + pip + "00015169x1;",
-            pip + "#" + pip + "00015169x1.0000;",
-            pip + "#" + pip,
-            pip + "#" + pip + "0000000Fx10;00015169x2;",
-        ]
-        res = [{"label": "a", "field": cs.DRAW_FIELD, "value": v} for v in draws]
-        res.append({"label": "a", "field": cs.DRAW_FIELD, "error": "script call failed"})
+        def dump(prefix, items, num=None):
+            slots = [f"{fid}x{n}" for fid, n in items] + ["00000000x0"] * (cs.SLOTS - len(items))
+            rows = [{"label": "a", "field": f"{prefix}.slot{i}", "value": v} for i, v in enumerate(slots)]
+            return rows + [{"label": "a", "field": f"{prefix}.num", "value": float(len(items) if num is None else num)}]
+        pip = ("00015038", 1)  # stays in the inventory
+        res = dump("base", [pip])
+        res += dump("draw0", [pip, ("00015169", "1")])
+        res += dump("draw1", [pip, ("00015169", "1.0000")])
+        res += dump("draw2", [pip])
+        res += dump("draw3", [pip, ("0000000F", 10), ("00015169", 2)])
+        res += dump("draw4", [pip], num=cs.SLOTS + 1)  # overflow: more stacks than slots read
+        res += dump("draw5", [pip])
+        res[-2] = {"label": "a", "field": "draw5.slot11", "error": "script call failed"}
         cases = {"format": "fnv.sim.cases/1", "cases": [{"label": "a", "list": "LootChemsStimpak50"},
                                                          {"label": "b", "list": "X", "level": 5}]}
-        g = cs.samples_golden(*cs.read_output(out_lines(plugins, res)), cases)
+        g = cs.samples_golden(*cs.read_output(out_lines(res)), cases)
         a, b = g["cases"]
-        self.assertEqual(a["samples"], 4)
         self.assertEqual(a["outcomes"], {"0x0000000F x10, 0x00015169 x2": 1, "0x00015169 x1": 2, "nothing": 1})
-        self.assertEqual(a["failed_draws"], 1)
+        self.assertEqual((a["samples"], a["failed_draws"]), (4, 2))
         self.assertEqual((b["samples"], b["outcomes"], b["level"]), (0, {}, 5))
 
     def test_cli_round_trip(self):
         with tempfile.TemporaryDirectory() as d:
             act = os.path.join(d, "demo.actions.json")
             with open(act, "w", encoding="utf-8") as f:
-                json.dump(actions({"op": "get_item_count", "of": "player", "item": "Caps001", "label": "caps"}), f)
+                json.dump(actions({"op": "get_item_count", "of": "player", "item": "0x0000000F", "label": "caps"}), f)
             job = os.path.join(d, "job.json")
             self.assertEqual(cs.main(["actions", act, "--start", "Load a save.", "-o", job]), 0)
             with open(job, encoding="utf-8") as f:
                 self.assertEqual(json.load(f)["name"], "demo")
             out = os.path.join(d, "out.jsonl")
             with open(out, "w", encoding="utf-8") as f:
-                f.write("\n".join(out_lines(cs.MASTERS, [{"label": "caps", "field": "count", "value": 7}])) + "\n")
+                f.write("\n".join(out_lines([{"label": "caps", "field": "count", "value": 7}])) + "\n")
             buf = io.StringIO()
             with redirect_stdout(buf):
                 self.assertEqual(cs.main(["trace", out]), 0)
