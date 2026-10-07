@@ -96,8 +96,10 @@ in the schema (NOTE, IMOD, CHIP, CCRD, CMNY) instead of guessing.
 Rules in docs/spec-notes/simulation.md §4, all [hypothesis]. One seeded ChaCha8 stream
 (`rand_chacha`, reproducible across platforms and versions by that crate's contract)
 makes runs repeatable; matching the original game's outcomes is a *distribution*
-question (spec section 8.1), so these get distribution scenarios once that comparator
-exists.
+question (spec section 8.1). The lab's `distribution` comparator (2026-10-07) compares
+sampled outcome counts from the original game with the candidate's samples (chi-square
+test of homogeneity) or exact probabilities (goodness of fit), per case, pooling rare
+outcomes; the candidate side is `fnvtool sim sample` (docs/spec-notes/simulation.md §7).
 
 ### 2.7 Activation
 
@@ -136,20 +138,20 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
   leveled lists, uniformity of the RNG helper, action trace, snapshot resume).
 - `fnvtool sim forms | containers | run` (`crates/fnvtool/src/sim_cmd.rs`); contract in
   docs/spec-notes/simulation.md §7.
-- Independent oracle: `tools/capture/oracle_sim.py` (containers), written from the spec
-  notes only.
-- Parity lab: `parity-lab/scenarios/layer4_sim.json` — `L4.sim.containers` (keyed vs the
-  oracle) and `L4.sim.trace.goodsprings_doc_mitchell` (observations vs an in-game
+- Independent oracle: `tools/capture/oracle_sim.py` (`containers`, `items`), written from
+  the spec notes only.
+- Parity lab: `parity-lab/scenarios/layer4_sim.json` — `L4.sim.containers` and
+  `L4.sim.items` (keyed vs the oracle) and `L4.sim.trace.goodsprings_doc_mitchell` (observations vs an in-game
   capture; `needs-local-capture`); action scripts in `parity-lab/inputs/layer4/`.
 
 ## 4. Validation plan and exit criterion (M4)
 
 1. Loaders: zero unexplained issues on the ten masters; every anomaly documented in the
    spec notes — done for this cut (remaining issues are schema gaps, listed in §5).
-2. Static contents: `L4.sim.containers` against the independent oracle.
+2. Static contents: `L4.sim.containers` and `L4.sim.items` against the independent oracle.
 3. Behaviour: action traces against in-game captures (Goodsprings first, then a locked
    container with its key, a lock without key, a teleport pair, dropping and re-taking).
-4. Leveled lists: distribution scenarios (needs the distribution comparator).
+4. Leveled lists: distribution scenarios (comparator done; needs in-game samples).
 5. Collision: shape conversion vs oracle; Havok scale measured; then movement traces.
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
@@ -163,10 +165,15 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    inventory: does it open directly (our hypothesis) or prompt?
 3. Count-0 carried items on NPCs (e.g. the Vault 21 gamblers): do those NPCs carry
    anything for those entries?
-4. Schema gaps that block weight/value: NOTE (no field), IMOD, CHIP, CCRD, CMNY (no
-   layouts yet) — Layer 1 work queue.
+4. ~~Schema gaps that block weight/value~~ — closed 2026-10-07: IMOD, CHIP, CCRD, CMNY
+   layouts added from xEdit and decoding every instance; NOTE and CHIP have no value or
+   weight field and CMNY only an "Absolute Value" (docs/spec-notes/simulation.md §3). Do
+   notes, casino chips and caravan money weigh anything in-game (inventory screen)?
 5. Placed grenades (PGRE, 297 in OldWorldBlues.esm) are not simulated yet: are they
    live explosives in-game, or decoration?
+6. Cell respawn delay: `iHoursToRespawnCell` is not in any master (an engine default).
+   Please read it in-game with the console: `GetGameSetting iHoursToRespawnCell` (a
+   secondary source suggests 73 hours; unverified).
 
 ## 6. Updated spec notes
 
@@ -185,6 +192,13 @@ PR.
 | 2 | Physics and character controller | `claude/layer4-phys` | `crates/fnv-phys`, `crates/fnvtool/src/phys_cmd.rs`, `docs/spec-notes/physics.md`, the physics row of `dependencies.md` | rapier3d world from placed references + LAND terrain; ray and shape queries; kinematic capsule controller; dynamic clutter; deterministic stepping | 1's shape API (stub first), `fnv-world` |
 | 3 | Simulation core | `claude/layer4-sim-*` | `crates/fnv-sim`, `crates/fnvtool/src/sim_cmd.rs`, `parity-lab/scenarios/layer4_sim.json`, `parity-lab/inputs/layer4/`, `docs/spec-notes/simulation.md`, this file (except §2.8 detail owned by 1/2 in their spec notes), README Layer 4 row | per-stack extra data, equip, encumbrance, game clock, respawn, enable-parent propagation, PGRE, schema gaps (IMOD, CHIP, CCRD, CMNY, NOTE), distribution comparator for leveled lists | — |
 | 4 | Engine integration | `claude/layer4-play` | new Bevy crate `engine/nvf-play`; one registration line in `engine/nvforever` | player controller in the game, crosshair activation, container/inventory screen | 2 and 3; coordinate with the renderer owner of `engine/` |
+
+Workstream 3 runs as two sessions since 2026-10-07 (owner's split by agreement between
+them): **3-core** (`claude/layer4-sim-core`: `crates/fnv-sim`, `crates/fnvtool/src/sim_cmd.rs`)
+and **3-lab** (`claude/layer4-sim-lab`: Layer 1 schema layouts for the simulation,
+`tools/capture/oracle_sim.py`, the `distribution` comparator in `parity-lab/fnvlab`,
+`parity-lab/scenarios/layer4_sim.json`, `parity-lab/inputs/layer4/`, contracts and capture
+procedures in docs/spec-notes/simulation.md, this file). Each merges the other's branch.
 
 Rules: shared files get additions only — one workspace member, one `mod` + one dispatch
 line in `crates/fnvtool/src/main.rs`, one pointer paragraph in `docs/cli-contract.md`
