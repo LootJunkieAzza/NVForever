@@ -294,12 +294,16 @@ impl<'a> World<'a> {
     /// once `respawn_hours` have passed since its last restock, its contents are replaced
     /// by a fresh roll of its base's carried items (anything sold into it is lost) and
     /// the restock time becomes now. A container never restocked counts from the
-    /// simulation's start (the authored GameDaysPassed). [hypothesis consistent with the
-    /// in-game captures, docs/spec-notes/simulation.md §3: Ringo's cash box refilled
-    /// while the player stayed in the cell, not after 5 h or 10 h absences, and between
-    /// GetItemCount checks at 9.883 and 10.384 days after a restock at 7.379 — a fixed
-    /// day-0 grid is ruled out — and a stimpak added to it was gone after the restock;
-    /// the start of the first period in a new game is not captured]
+    /// simulation's start (the authored GameDaysPassed).
+    /// [observed in game for Ringo's cash box, docs/spec-notes/simulation.md §3,
+    /// `L4.sim.trace.goodsprings_merchant_restock` passes 4/4: it restocks while the
+    /// player stays in the cell (no cell event needed), not after 5 h or 10 h absences;
+    /// emptied, it reads 200 caps again 72 h and 84 h later; a restock replaces the
+    /// contents (an added stimpak was gone); a fixed day-0 grid is ruled out.
+    /// Still only bounded or open: the period (second restock 2.50–3.01 days after the
+    /// first observed one, consistent with 72 h), "on access" vs "on a schedule" (both
+    /// look the same through GetItemCount), other merchants, and the start of the first
+    /// period in a new game (hypothesis here)]
     fn restock_if_due(&mut self, id: FormId) -> Result<(), SimError> {
         if !self.placed.is_merchant_container(id) {
             return Ok(());
