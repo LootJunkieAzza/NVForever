@@ -1,0 +1,238 @@
+{
+  "format": "fnv.nif.schema/1",
+  "_comment": "Core scene graph, extra data, basic properties and triangle geometry. Layouts re-expressed from niftools nif.xml (https://github.com/niftools/nifxml, read as documentation) for the versions in the FNV corpus only: 20.2.0.7 with user version 11 and bs_version 14-34, and 20.0.0.4 with user version 11. Fields that cannot occur in those versions are omitted. Every block is checked against the user's install with `fnvtool nif coverage` (exact consumption + byte-identical re-encode).",
+  "enums": {
+    "AlphaFlags": {
+      "storage": "u16",
+      "bits": {"0": "alpha_blend", "1-4": "source_blend_mode", "5-8": "destination_blend_mode", "9": "alpha_test", "10-12": "test_func", "13": "no_sorter", "14": "clone_unique", "15": "editor_alpha_threshold"}
+    },
+    "ConsistencyType": {
+      "storage": "u16",
+      "values": {"0": "CT_MUTABLE", "16384": "CT_STATIC", "32768": "CT_VOLATILE"}
+    }
+  },
+  "structs": {
+    "NiBound": {
+      "fields": [
+        {"name": "center", "type": "vec3"},
+        {"name": "radius", "type": "f32"}
+      ]
+    },
+    "MatchGroup": {
+      "fields": [
+        {"name": "num_vertices", "type": "u16"},
+        {"name": "vertex_indices", "type": "u16", "length": "num_vertices"}
+      ]
+    },
+    "MaterialData": {
+      "fields": [
+        {"name": "has_shader", "type": "bool", "until": "20.1.0.3"},
+        {"name": "shader_name", "type": "string", "cond": "has_shader", "until": "20.1.0.3"},
+        {"name": "shader_extra_data", "type": "i32", "cond": "has_shader", "until": "20.1.0.3"},
+        {"name": "num_materials", "type": "u32", "since": "20.2.0.5"},
+        {"name": "material_name", "type": "string", "length": "num_materials", "since": "20.2.0.5"},
+        {"name": "material_extra_data", "type": "i32", "length": "num_materials", "since": "20.2.0.5"},
+        {"name": "active_material", "type": "i32", "since": "20.2.0.5"},
+        {"name": "material_needs_update", "type": "bool", "since": "20.2.0.7"}
+      ]
+    }
+  },
+  "blocks": {
+    "NiObject": {"abstract": true},
+    "NiObjectNET": {
+      "abstract": true,
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "num_extra_data", "type": "u32"},
+        {"name": "extra_data", "type": "ref", "length": "num_extra_data"},
+        {"name": "controller", "type": "ref"}
+      ]
+    },
+    "NiAVObject": {
+      "abstract": true,
+      "inherit": "NiObjectNET",
+      "fields": [
+        {"name": "flags", "type": "u32", "cond": "bs_version > 26"},
+        {"name": "flags", "type": "u16", "cond": "bs_version <= 26"},
+        {"name": "translation", "type": "vec3"},
+        {"name": "rotation", "type": "mat33"},
+        {"name": "scale", "type": "f32"},
+        {"name": "num_properties", "type": "u32"},
+        {"name": "properties", "type": "ref", "length": "num_properties"},
+        {"name": "collision_object", "type": "ref"}
+      ]
+    },
+    "NiNode": {
+      "inherit": "NiAVObject",
+      "fields": [
+        {"name": "num_children", "type": "u32"},
+        {"name": "children", "type": "ref", "length": "num_children"},
+        {"name": "num_effects", "type": "u32"},
+        {"name": "effects", "type": "ref", "length": "num_effects"}
+      ]
+    },
+    "BSFadeNode": {"inherit": "NiNode", "note": "No fields of its own; a NiNode the engine fades with distance."},
+    "NiExtraData": {
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "name", "type": "string"}
+      ]
+    },
+    "NiStringExtraData": {
+      "inherit": "NiExtraData",
+      "fields": [
+        {"name": "string_data", "type": "string"}
+      ]
+    },
+    "NiIntegerExtraData": {
+      "inherit": "NiExtraData",
+      "fields": [
+        {"name": "integer_data", "type": "u32"}
+      ]
+    },
+    "BSXFlags": {"inherit": "NiIntegerExtraData", "note": "Bethesda behaviour flags in integer_data."},
+    "NiProperty": {"abstract": true, "inherit": "NiObjectNET"},
+    "NiMaterialProperty": {
+      "inherit": "NiProperty",
+      "fields": [
+        {"name": "ambient_color", "type": "color3", "cond": "bs_version < 26"},
+        {"name": "diffuse_color", "type": "color3", "cond": "bs_version < 26"},
+        {"name": "specular_color", "type": "color3"},
+        {"name": "emissive_color", "type": "color3"},
+        {"name": "glossiness", "type": "f32"},
+        {"name": "alpha", "type": "f32"},
+        {"name": "emissive_mult", "type": "f32", "cond": "bs_version > 21"}
+      ]
+    },
+    "NiAlphaProperty": {
+      "inherit": "NiProperty",
+      "fields": [
+        {"name": "flags", "type": "AlphaFlags"},
+        {"name": "threshold", "type": "u8"}
+      ]
+    },
+    "NiGeometry": {
+      "abstract": true,
+      "inherit": "NiAVObject",
+      "fields": [
+        {"name": "data", "type": "ref"},
+        {"name": "skin_instance", "type": "ref"},
+        {"name": "material_data", "type": "MaterialData"}
+      ]
+    },
+    "NiTriBasedGeom": {"abstract": true, "inherit": "NiGeometry"},
+    "NiTriShape": {"inherit": "NiTriBasedGeom"},
+    "NiTriStrips": {"inherit": "NiTriBasedGeom"},
+    "NiGeometryData": {
+      "abstract": true,
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "group_id", "type": "i32"},
+        {"name": "num_vertices", "type": "u16"},
+        {"name": "keep_flags", "type": "u8"},
+        {"name": "compress_flags", "type": "u8"},
+        {"name": "has_vertices", "type": "bool"},
+        {"name": "vertices", "type": "vec3", "length": "num_vertices", "cond": "has_vertices"},
+        {"name": "data_flags", "type": "u16", "note": "nif.xml NiGeometryDataFlags: bits 0-5 UV set count, 12-15 tangent method.", "cond": "!(version == 0x14020007 && bs_version > 0)"},
+        {"name": "bs_data_flags", "type": "u16", "note": "nif.xml BSGeometryDataFlags: bit 0 has UV, bits 6-11 Havok material, bit 12 has tangents.", "cond": "version == 0x14020007 && bs_version > 0"},
+        {"name": "has_normals", "type": "bool"},
+        {"name": "normals", "type": "vec3", "length": "num_vertices", "cond": "has_normals"},
+        {"name": "tangents", "type": "vec3", "length": "num_vertices", "cond": "has_normals && ((data_flags | bs_data_flags) & 4096) != 0"},
+        {"name": "bitangents", "type": "vec3", "length": "num_vertices", "cond": "has_normals && ((data_flags | bs_data_flags) & 4096) != 0"},
+        {"name": "bounding_sphere", "type": "NiBound"},
+        {"name": "has_vertex_colors", "type": "bool"},
+        {"name": "vertex_colors", "type": "color4", "length": "num_vertices", "cond": "has_vertex_colors"},
+        {"name": "uv_sets", "type": "vec2", "length": "(data_flags & 63) | (bs_data_flags & 1)", "width": "num_vertices"},
+        {"name": "consistency_flags", "type": "ConsistencyType"},
+        {"name": "additional_data", "type": "ref"}
+      ]
+    },
+    "NiTriBasedGeomData": {
+      "abstract": true,
+      "inherit": "NiGeometryData",
+      "fields": [
+        {"name": "num_triangles", "type": "u16"}
+      ]
+    },
+    "NiTriShapeData": {
+      "inherit": "NiTriBasedGeomData",
+      "fields": [
+        {"name": "num_triangle_points", "type": "u32"},
+        {"name": "has_triangles", "type": "bool"},
+        {"name": "triangles", "type": "triangle", "length": "num_triangles", "cond": "has_triangles"},
+        {"name": "num_match_groups", "type": "u16"},
+        {"name": "match_groups", "type": "MatchGroup", "length": "num_match_groups"}
+      ]
+    },
+    "NiTriStripsData": {
+      "inherit": "NiTriBasedGeomData",
+      "fields": [
+        {"name": "num_strips", "type": "u16"},
+        {"name": "strip_lengths", "type": "u16", "length": "num_strips"},
+        {"name": "has_points", "type": "bool"},
+        {"name": "points", "type": "u16", "length": "num_strips", "width": "strip_lengths", "cond": "has_points"}
+      ]
+    },
+    "NiTimeController": {
+      "abstract": true,
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "next_controller", "type": "ref"},
+        {"name": "flags", "type": "u16", "note": "nif.xml TimeControllerFlags (bitfield, u16)."},
+        {"name": "frequency", "type": "f32"},
+        {"name": "phase", "type": "f32"},
+        {"name": "start_time", "type": "f32"},
+        {"name": "stop_time", "type": "f32"},
+        {"name": "target", "type": "ptr"}
+      ]
+    },
+    "NiInterpController": {"abstract": true, "inherit": "NiTimeController", "note": "nif.xml's only own field (manager controlled) exists only in 10.1.0.104-10.1.0.108."},
+    "NiSingleInterpController": {
+      "abstract": true,
+      "inherit": "NiInterpController",
+      "fields": [
+        {"name": "interpolator", "type": "ref"}
+      ]
+    },
+    "NiInterpolator": {"abstract": true, "inherit": "NiObject"},
+    "NiKeyBasedInterpolator": {"abstract": true, "inherit": "NiInterpolator"},
+    "NiCollisionObject": {
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "target", "type": "ptr"}
+      ]
+    },
+    "NiDynamicEffect": {
+      "abstract": true,
+      "inherit": "NiAVObject",
+      "fields": [
+        {"name": "switch_state", "type": "bool"},
+        {"name": "num_affected_nodes", "type": "u32"},
+        {"name": "affected_nodes", "type": "ptr", "length": "num_affected_nodes"}
+      ]
+    },
+    "NiLight": {
+      "abstract": true,
+      "inherit": "NiDynamicEffect",
+      "fields": [
+        {"name": "dimmer", "type": "f32"},
+        {"name": "ambient_color", "type": "color3"},
+        {"name": "diffuse_color", "type": "color3"},
+        {"name": "specular_color", "type": "color3"}
+      ]
+    },
+    "NiParticles": {"inherit": "NiGeometry"},
+    "NiAVObjectPalette": {"abstract": true, "inherit": "NiObject"},
+    "NiSkinInstance": {
+      "inherit": "NiObject",
+      "fields": [
+        {"name": "data", "type": "ref"},
+        {"name": "skin_partition", "type": "ref"},
+        {"name": "skeleton_root", "type": "ptr"},
+        {"name": "num_bones", "type": "u32"},
+        {"name": "bones", "type": "ptr", "length": "num_bones"}
+      ]
+    }
+  }
+}

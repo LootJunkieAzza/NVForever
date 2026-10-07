@@ -5,6 +5,8 @@
 mod bsa_cmd;
 mod esm_cmd;
 mod install_cmd;
+mod nif_cmd;
+mod source;
 
 use clap::{Args, Parser, Subcommand};
 use serde_json::Value;
@@ -40,6 +42,9 @@ enum Cmd {
     /// ESM/ESP plugins.
     #[command(subcommand)]
     Esm(EsmCmd),
+    /// NIF meshes and KF animations.
+    #[command(subcommand)]
+    Nif(NifCmd),
 }
 
 #[derive(Args)]
@@ -118,6 +123,40 @@ pub enum EsmCmd {
     },
 }
 
+#[derive(Subcommand)]
+pub enum NifCmd {
+    /// Schema coverage over many files: per block type, how many decode exactly and
+    /// re-encode byte-identically (the Layer 2 work queue).
+    Coverage {
+        /// BSA archives, loose .nif/.kf files or directories.
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Only files whose path contains this text (case-insensitive).
+        #[arg(long)]
+        filter: Option<String>,
+        #[arg(long, default_value_t = 200)]
+        max_rows: usize,
+        /// Skip the re-encode check (faster).
+        #[arg(long)]
+        no_reencode: bool,
+    },
+    /// Decode one file's blocks with the schema.
+    Decode {
+        /// A loose file, or a BSA archive together with --path.
+        source: PathBuf,
+        /// Path inside the archive.
+        #[arg(long)]
+        path: Option<String>,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Only this block index.
+        #[arg(long)]
+        block: Option<usize>,
+    },
+}
+
 #[derive(Args)]
 pub struct LoadOrderArgs {
     pub data_dir: PathBuf,
@@ -159,6 +198,7 @@ fn main() -> ExitCode {
         Cmd::Paths { home } => install_cmd::paths(&home),
         Cmd::Bsa(c) => bsa_cmd::run(c),
         Cmd::Esm(c) => esm_cmd::run(c),
+        Cmd::Nif(c) => nif_cmd::run(c),
     };
     match res {
         Ok(v) => {
