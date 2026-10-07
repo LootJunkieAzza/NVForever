@@ -706,3 +706,25 @@ fn respawning_containers_refill_after_the_delay() {
     let snap = w.snapshot();
     assert!(snap.detached_cells.contains_key(&cell));
 }
+
+#[test]
+fn leveled_sampling_histograms() {
+    let f = fixture();
+    let cases: fnv_sim::sample::Cases = serde_json::from_str(
+        r#"{"format": "fnv.sim.cases/1", "seed": 4, "cases": [
+            {"label": "loot at 10", "list": "TestLoot", "level": 10, "count": 2, "samples": 50},
+            {"label": "never", "list": "0x00000111", "samples": 10},
+            {"label": "not a list", "list": "TestCaps", "samples": 10},
+            {"label": "loop", "list": "TestLoop", "samples": 10}]}"#,
+    )
+    .unwrap();
+    let out = fnv_sim::sample::run(&f.forms, &cases).unwrap();
+    assert_eq!(out["format"], "fnv.sim.samples/1");
+    let c = out["cases"].as_array().unwrap();
+    assert_eq!(c[0]["list"], "0x00000110");
+    assert_eq!(c[0]["outcomes"], serde_json::json!({"0x00000101 x20": 50}));
+    assert_eq!(c[1]["outcomes"], serde_json::json!({"nothing": 10}));
+    assert!(c[2]["error"].as_str().unwrap().contains("not a leveled item list"));
+    assert!(c[3]["error"].as_str().unwrap().contains("nesting"));
+    assert_eq!(fnv_sim::sample::run(&f.forms, &cases).unwrap(), out);
+}
