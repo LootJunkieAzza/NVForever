@@ -81,7 +81,7 @@
     {
       "op": "set_global",
       "name": "TimeScale",
-      "value": 0
+      "value": 1
     },
     {
       "op": "set_global",
