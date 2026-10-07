@@ -72,6 +72,9 @@ pub struct Item {
     /// WEAP DNAM: the projectile the weapon fires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub projectile: Option<FormId>,
+    /// WEAP/ARMO DATA: full health (condition 1.0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -326,7 +329,19 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
         Ok(d) => d,
         Err(e) => {
             issues.note("record undecodable", || format!("{id} {sig_s}: {e}"));
-            return Loaded::Skip;
+            // An undecodable item is still an item (fields unknown); an undecodable LIGH
+            // cannot be shown to be carriable.
+            return match ItemKind::from_sig(&sig).filter(|k| *k != ItemKind::Light) {
+                Some(kind) => Loaded::Base(Box::new(BaseForm {
+                    id,
+                    sig,
+                    edid: None,
+                    name: None,
+                    script: None,
+                    data: BaseData::Item(Item { kind, value: None, weight: None, slots: None, projectile: None, health: None }),
+                })),
+                None => Loaded::Skip,
+            };
         }
     };
     let edid = first(&d, b"EDID").and_then(text);
@@ -367,6 +382,9 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
     let data = if let Some(kind) = ItemKind::from_sig(&sig) {
         match item(kind, &d) {
             Some(mut i) => {
+                if (i.value.is_none() || i.weight.is_none()) && kind_has_value_weight(kind) {
+                    issues.note(&format!("{sig_s}: value/weight not decoded"), || format!("{id}"));
+                }
                 i.projectile = match i.projectile.map(|p| global(lo, pi, p.0)) {
                     Some(Ok(g)) => g,
                     Some(Err(l)) => {
@@ -375,9 +393,6 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     }
                     None => None,
                 };
-                if i.value.is_none() || i.weight.is_none() {
-                    issues.note(&format!("{sig_s}: no value/weight layout in the schema"), || format!("{id}"));
-                }
                 BaseData::Item(i)
             }
             None => return Loaded::Skip, // non-carriable light
@@ -409,6 +424,11 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
     Loaded::Base(Box::new(BaseForm { id, sig, edid, name, script, data }))
 }
 
+/// Item types whose records have both a value and a weight field [documented: xEdit].
+fn kind_has_value_weight(kind: ItemKind) -> bool {
+    !matches!(kind, ItemKind::Note | ItemKind::CasinoChip | ItemKind::CaravanMoney | ItemKind::CaravanCard)
+}
+
 fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
     let data = first(d, b"DATA");
     let (value, weight) = match kind {
@@ -424,9 +444,16 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
             }
             (int(data, "value"), num(data, "weight"))
         }
-        // No value/weight layout in the schema yet (NOTE has none at all; IMOD, CHIP,
-        // CCRD, CMNY have no record layout). Reported by the caller.
+        ItemKind::ItemMod => (data.and_then(|v| int(v, "value")), data.and_then(|v| num(v, "weight"))),
+        // CCRD DATA is the card's value alone [documented: xEdit].
+        ItemKind::CaravanCard => (data.and_then(Value::as_i64), None),
+        // NOTE, CHIP and CMNY have no value or weight field [documented: xEdit]; CMNY
+        // DATA "Absolute Value" is not the item's value [hypothesis: the denomination].
         _ => (None, None),
+    };
+    let health = match kind {
+        ItemKind::Weapon | ItemKind::Armor => data.and_then(|v| int(v, "health")).map(|h| h as i32),
+        _ => None,
     };
     let projectile = match kind {
         ItemKind::Weapon => first(d, b"DNAM").and_then(|v| v.get("projectile")).and_then(local_fid),
@@ -439,10 +466,11 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
     Some(Item {
         kind,
         value: value.map(|v| v as i32),
-        weight: weight.map(|w| w as f32),
+        weight: weight.map(|w| w as f32).filter(|w| w.is_finite()),
         slots: slots.map(|s| s as u32),
         // File-local here; made global by the caller.
         projectile: projectile.map(FormId),
+        health,
     })
 }
 
