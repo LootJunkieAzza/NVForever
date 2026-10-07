@@ -142,7 +142,14 @@ game units unchanged.
    format study before they can be drawn.
 9. **LOD** (level-4 terrain and object blocks done; levels 8-32 and switching to do): distant terrain and object LOD from the game's LOD meshes and textures
    (layout to be surveyed).
-10. **Image parity**: an image comparator in the lab (perceptual metric with region masks,
+10. **Image parity** (tooling done, waiting for reference frames): the lab's `image`
+   comparator (`parity-lab/fnvlab/image.py`: PNG/BMP decoding, SSIM, colour error, masks,
+   tile breakdown; self-tests), `nvforever --fov --eye-height --frame-json --no-overlay`
+   (window scale factor pinned to 1 so frames are exactly `--size`),
+   `parity-lab/tools/gen_layer3_frames.py` (owner's manifest → private scenarios), and
+   the capture procedure in `tools/capture/README.md` §7. Rendering is deterministic:
+   two runs of the same camera give identical images (SSIM 1.0, MAE 0) [observed].
+   Originally planned: an image comparator in the lab (perceptual metric with region masks,
    standard library only), a capture procedure for the original game, and fixed-camera
    scenarios.
 
