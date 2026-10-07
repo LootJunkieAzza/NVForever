@@ -643,7 +643,19 @@ impl<'a> World<'a> {
         let base = self.forms.get(t.base);
         let script = base.and_then(|b| b.script);
         let done = |outcome, unlocked_with| Activation { outcome, unlocked_with, script };
-        if t.deleted || !self.is_enabled(target)? {
+        // Activating an item reference that was already taken gives its stack again.
+        // [observed in game: a scripted `Activate` with the player as activator on a
+        // picked-up stimpak reference added another stimpak (L4.sim.trace.
+        // goodsprings_doc_mitchell); whether the reference is disabled after the first
+        // pick-up is not captured yet]
+        if t.deleted {
+            if let Some(BaseData::Item(_)) = base.map(|b| &b.data) {
+                self.inventory(actor)?.add_extra(t.base, t.count, t.extra);
+                return Ok(done(Outcome::PickedUp { item: t.base, count: t.count, owner: t.extra.owner }, None));
+            }
+            return Ok(done(Outcome::Disabled, None));
+        }
+        if !self.is_enabled(target)? {
             return Ok(done(Outcome::Disabled, None));
         }
         let Some(base) = base else {
@@ -674,10 +686,16 @@ impl<'a> World<'a> {
             BaseData::Container(_) => Outcome::OpenedContainer { container: target },
             BaseData::Door(_) => match self.placed.get(target).and_then(|p| p.teleport) {
                 Some(tp) => {
-                    let cell = match self.placed.get(tp.door) {
+                    let door_cell = match self.placed.get(tp.door) {
                         Some(d) => d.cell,
                         None => self.peek(tp.door).and_then(|d| d.cell),
                     };
+                    // Into a worldspace, the actor ends up in the exterior cell that
+                    // contains the destination, not the (often persistent) cell that
+                    // stores the destination door. [observed in game: leaving Doc
+                    // Mitchell's house puts the player in Goodsprings, WastelandNV grid
+                    // -18,0, while the door is stored in WastelandNV's persistent cell]
+                    let cell = door_cell.map(|c| self.placed.exterior_cell_at(c, tp.pos).unwrap_or(c));
                     let a = self.get(actor)?;
                     a.cell = cell;
                     a.pos = tp.pos;
