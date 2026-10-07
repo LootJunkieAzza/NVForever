@@ -168,6 +168,7 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 1. **In-game capture** for `L4.sim.trace.goodsprings_doc_mitchell` (procedure in
    docs/spec-notes/simulation.md §6). Can you run console commands on a pinned save in
    Doc Mitchell's house, or do you prefer that we build the xNVSE logging plugin first?
+   → Owner 2026-10-07: build the plugin (`nvf_capture`, tools/capture/README.md §10).
 2. What happens in-game when activating a locked container *with* its key in the
    inventory: does it open directly (our hypothesis) or prompt?
 3. Count-0 carried items on NPCs (e.g. the Vault 21 gamblers): do those NPCs carry
@@ -186,7 +187,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    `goodsprings_doc_mitchell`, `goodsprings_weight_and_time` (new level-1 character, no
    perks), `goodsprings_respawn` (test save; Ringo's cash container), `x13_enable_parents`
    (test save in Old World Blues' X-13) and `leveled_basic.samples` (a few hundred
-   `AddItem` draws per case). Would an xNVSE logging plugin be acceptable to automate them?
+   `AddItem` draws per case). They can now be run with the `nvf_capture` plugin (needs
+   xNVSE 6.4.9+ installed by you; tools/capture/README.md §10). Not yet tried in-game.
 
 ## 6. Updated spec notes
 

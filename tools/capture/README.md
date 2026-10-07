@@ -308,6 +308,49 @@ python tools/capture/oracle_sim.py items "<Data>" FalloutNV.esm DeadMoney.esm Ho
   `item_weight_not_finite`). On the ten masters: 3,972 items, no warnings beyond the
   GunRunnersArsenal one above.
 
+## 10. `nvf_capture` + `capture_steps.py` — in-game captures (Layer 4+)
+
+An xNVSE plugin for the **original game** (not part of NVForever) that runs a scenario's
+steps inside FNV and records what the game reports, so trace and leveled-list goldens need
+no hand-typed console sessions. Interface, protocol and file formats:
+`docs/spec-notes/xnvse-capture.md`. The plugin reads no game memory (only xNVSE's plugin
+interface and the game's script language) and writes only to the capture directory.
+
+**One-time setup (owner, by hand — tools never write into the game folder):**
+1. Install xNVSE 6.4.9 or later following its own instructions (github.com/xNVSE/NVSE,
+   Steam version). The plugin declines to load on older xNVSE or other game versions.
+2. Build the plugin (32-bit):
+   ```
+   rustup target add i686-pc-windows-msvc
+   cd tools/capture/nvf_capture && cargo build --release
+   ```
+   and copy `target/i686-pc-windows-msvc/release/nvf_capture.dll` to
+   `<FNV>\Data\NVSE\Plugins\`. Optional: `nvf_capture.ini` there with `dir=<path>` to move
+   the capture directory away from `C:\fnv-private\capture\`.
+3. Use a **test character** (and back up saves): jobs remove items, change levels,
+   attributes and globals.
+
+**Per scenario:**
+```
+python tools/capture/capture_steps.py actions parity-lab/inputs/layer4/goodsprings_weight_and_time.actions.json --start "Load the pinned save in Doc Mitchell's house (new level-1 character, no perks)." -o C:/fnv-private/capture/jobs/goodsprings_weight_and_time.steps.json
+python tools/capture/capture_steps.py cases parity-lab/inputs/layer4/leveled_basic.cases.json --draws 300 --start "Load a test save in a quiet interior." -o C:/fnv-private/capture/jobs/leveled_basic.steps.json
+```
+Start the game, load the save named in `--start`; the plugin announces the first pending
+job (top left). **End** starts it, **Home** skips it; manual steps (waiting, walking
+through a door) show their instruction and continue on **End**. Output:
+`C:\fnv-private\capture\out\<job>.<time>.jsonl`; finished jobs move to `jobs\done\`; a log
+is in `nvf_capture.log`. Then build the golden:
+```
+python tools/capture/capture_steps.py trace   C:/fnv-private/capture/out/goodsprings_weight_and_time.<time>.jsonl -o C:/fnv-private/goldens/sim/goodsprings_weight_and_time.trace.json
+python tools/capture/capture_steps.py samples C:/fnv-private/capture/out/leveled_basic.<time>.jsonl --cases parity-lab/inputs/layer4/leveled_basic.cases.json -o C:/fnv-private/goldens/sim/leveled_basic.samples.json
+```
+Forms in jobs are named by plugin file and local FormID, so the game's own load order
+does not matter; output FormIDs are mapped back through the load order recorded at the
+start of every job. A step that fails (e.g. a script that does not compile) is recorded
+as an error and the job continues; check the golden for `error` fields before using it.
+Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, layouts) and
+`tests/test_capture_steps.py`.
+
 ## Tests
 
 ```

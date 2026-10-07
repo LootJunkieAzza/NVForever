@@ -76,6 +76,7 @@ Goldens are produced by `tools/capture/` and must stay out of any public reposit
 ## Open items
 
 - Image comparator (perceptual metric + region masks) for Layer 3 frames.
-- Behavioural capture plugin (xNVSE, JSON lines) for Layer 4–6 traces.
+- Behavioural capture plugin: first version `tools/capture/nvf_capture` (xNVSE, JSON lines;
+  tools/capture/README.md §10), not yet run in-game.
 - Parallel scenario execution (`--jobs`).
 - Moving holdout scenario files and goldens to a location the agent cannot read.
