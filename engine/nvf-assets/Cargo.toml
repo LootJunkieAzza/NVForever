@@ -1,0 +1,13 @@
+[package]
+name = "nvf-assets"
+description = "NVForever Bevy asset plugins: archives, NIF meshes, DDS textures, KF playback"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bevy.workspace = true
+fnv-nif.workspace = true
+fnv-dds.workspace = true
+fnv-vfs.workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "nvf-viewer"
+description = "NVForever asset viewer: renders NIF meshes with their DDS textures and plays KF animations (Bevy)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bevy.workspace = true
+nvf-assets.workspace = true
+fnv-nif.workspace = true
+fnv-vfs.workspace = true
+clap.workspace = true

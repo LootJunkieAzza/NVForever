@@ -228,7 +228,8 @@ including which cell's group it is in. The same rule picks the cell's LAND.
 - `base` = NAME mapped to the load order (`null` if absent or 0). `base_type`, `base_edid`
   come from the base's winning record; `null` when the base is not defined in the load
   order (engine-defined forms). `model` = the base's MODL, lower case, `/` → `\`,
-  prefixed with `meshes\` unless already present; `null` if absent or blank.
+  prefixed with `meshes\` unless already present (`trees\` for `.spt` SpeedTree
+  models); `null` if absent or blank.
 - `position`, `rotation` = DATA (rotation in radians, as stored); `[0,0,0]` if DATA is
   absent. `scale` = XSCL, else 1.0. `flags` = record header flags of the winning
   definition; `initially_disabled` = bit 0x800, `deleted` = bit 0x20. `persistent` = the

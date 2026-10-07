@@ -59,7 +59,10 @@ entry in the schemas.
   model), TREE 18,050, MSTT 3,235, MISC 2,225, ACTI 2,135, CREA 1,956, NPC_ 1,253, FURN
   1,108, CONT 1,032, SCOL 954, IDLM 590 (no model), DOOR 484, SOUN 410 (no model),
   LIGH 361 (115 with a model), plus small counts of items. The model path (`MODL`) is
-  relative to `meshes\`.
+  relative to `meshes\`, except TREE models: SpeedTree `.spt` files named without a
+  folder, which live in `trees\` [observed: all ten `.spt` files in the archives are
+  there, e.g. `trees\wastelandshrub01.spt`; WastelandNV has 18,050 TREE references].
+  `.spt` is SpeedTree's own format, not NIF; it is not decoded yet.
 - **Engine-defined base objects** [observed]: 102 WastelandNV references name a base
   FormID below 0x800 that no master defines (e.g. 0x17 on references carrying portal /
   occlusion box data in XPRM/XOCP). These are built into the engine [hypothesis] and are

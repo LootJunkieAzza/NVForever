@@ -12,7 +12,7 @@ NVForever is an open-source, clean-room reimplementation of the Fallout: New Veg
   Never invent offsets, opcodes or field meanings.
 - Ship no game data. Goldens and game-derived dumps stay private and are never committed
   (`.gitignore` blocks game files).
-- Work in layer order (docs/design/layer1.md, layer2.md; Layer 3 = world/rendering is next).
+- Work in layer order (docs/design/layer1.md, layer2.md, layer3.md; Layer 3 = world/rendering is in progress).
 - nv-rs (slaterain/nv-rs) is a source of format facts only: never copy its code (its
   policy admits leaked Xbox symbols and translated decompiled code; owner decision
   2026-10-07). nif.xml is documentation only (no codegen) to keep the licence open.
@@ -33,7 +33,7 @@ cargo test --workspace --release
 cargo clippy --workspace --all-targets --release -- -D warnings
 python -m unittest discover -s parity-lab/tests
 python -m unittest discover -s tools/capture/tests
-(cd viewer && cargo clippy --release -- -D warnings)   # Bevy viewer, own workspace
+(cd engine && cargo clippy --release --all-targets -- -D warnings)   # Bevy workspace (viewer + game)
 ```
 
 With game data available (owner's install, read-only): build `fnvtool`, set
