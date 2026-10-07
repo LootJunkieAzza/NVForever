@@ -1,0 +1,162 @@
+{
+  "format": "fnv.sim.actions/1",
+  "seed": 0,
+  "player_level": 1,
+  "actions": [
+    {
+      "op": "remove_all_items",
+      "from": "player"
+    },
+    {
+      "op": "set_av",
+      "of": "player",
+      "name": "Strength",
+      "value": 5
+    },
+    {
+      "op": "get_weight",
+      "of": "player",
+      "label": "empty inventory at strength 5"
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "WeapNV9mmPistol",
+      "count": 1
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "ArmorLeather",
+      "count": 1
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "OutfitWasteland01",
+      "count": 1
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "Ammo9mm",
+      "count": 100
+    },
+    {
+      "op": "get_weight",
+      "of": "player",
+      "label": "pistol, leather armor, brahmin-skin outfit, 100 9mm rounds"
+    },
+    {
+      "op": "equip_item",
+      "actor": "player",
+      "item": "ArmorLeather"
+    },
+    {
+      "op": "get_weight",
+      "of": "player",
+      "label": "after equipping the leather armor"
+    },
+    {
+      "op": "equip_item",
+      "actor": "player",
+      "item": "OutfitWasteland01"
+    },
+    {
+      "op": "get_weight",
+      "of": "player",
+      "label": "after equipping the outfit (same body slot)"
+    },
+    {
+      "op": "set_av",
+      "of": "player",
+      "name": "Strength",
+      "value": 1
+    },
+    {
+      "op": "get_weight",
+      "of": "player",
+      "label": "at strength 1"
+    },
+    {
+      "op": "set_global",
+      "name": "GameHour",
+      "value": 8
+    },
+    {
+      "op": "set_global",
+      "name": "GameDay",
+      "value": 18
+    },
+    {
+      "op": "set_global",
+      "name": "GameMonth",
+      "value": 9
+    },
+    {
+      "op": "set_global",
+      "name": "GameYear",
+      "value": 2281
+    },
+    {
+      "op": "set_global",
+      "name": "GameDaysPassed",
+      "value": 5
+    },
+    {
+      "op": "advance_time",
+      "hours": 24
+    },
+    {
+      "op": "advance_time",
+      "hours": 6
+    },
+    {
+      "op": "get_global",
+      "name": "GameHour",
+      "label": "GameHour after waiting 24 + 6 hours from 8:00"
+    },
+    {
+      "op": "get_global",
+      "name": "GameDay",
+      "label": "GameDay after waiting 30 hours from day 18"
+    },
+    {
+      "op": "get_global",
+      "name": "GameMonth",
+      "label": "GameMonth after waiting 30 hours"
+    },
+    {
+      "op": "get_global",
+      "name": "GameDaysPassed",
+      "label": "GameDaysPassed after waiting 30 hours from 5"
+    },
+    {
+      "op": "set_global",
+      "name": "GameDay",
+      "value": 31
+    },
+    {
+      "op": "set_global",
+      "name": "GameHour",
+      "value": 20
+    },
+    {
+      "op": "advance_time",
+      "hours": 6
+    },
+    {
+      "op": "get_global",
+      "name": "GameDay",
+      "label": "GameDay after crossing midnight on day 31"
+    },
+    {
+      "op": "get_global",
+      "name": "GameMonth",
+      "label": "GameMonth after crossing midnight on day 31"
+    }
+  ],
+  "report": [
+    "player"
+  ]
+}
