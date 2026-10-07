@@ -96,6 +96,13 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   delay in the masters (§5b); the simulation uses 72 game hours by default
   (`SimConfig.respawn_hours`), a figure to be captured. Other references are not reset
   yet. The engine reports unloading/loading (`detach_cell` / `attach_cell` ops).
+  **In game** [observed 2026-10-07, `L4.sim.trace.goodsprings_respawn`]: Ringo's cash
+  container 0x001629C0 (base CaravanCashRingo, Respawns, 200 caps) in GSGasStation, emptied
+  with `RemoveAllItems`, held **200 caps again after the player left, waited 24 hours
+  outside and came back**, and again after 96 hours. So the delay for this container is at
+  most about 24 game hours (plus the minutes spent walking), well under the 72 h default;
+  whether merchant cash boxes follow a different rule from other respawning containers,
+  and the setting's value, are not captured yet.
 - **Inventory model**: one stack per base item, split into groups of identical extra data
   (condition, owner, equipped). Removing more than is held removes what is there and
   reports that number [hypothesis: GECK `RemoveItem` behaviour as commonly described; to
@@ -199,9 +206,12 @@ nesting, levels between entries' levels with the all-levels flag set.
   and `GetParentCell` keeps reporting the original cell after a pick-up by script or by
   hand, so neither shows whether an item was taken. (The player found 2 of the 3
   stimpaks still on the shelf after the scripted activations, i.e. the scripted pick-up
-  did take the first one [to be confirmed by the owner].) `GetParentCell` of a persistent
+  did take the first one [observed, owner].) `GetParentCell` of a persistent
   exterior reference (door 0x00103E69) asked from an interior returns no cell
-  ("00000000"); whether it reports the grid cell when asked outdoors is not captured yet.
+  ("00000000"); asked outdoors it returns **0x000DAEBB, the WastelandNV grid cell (−18, 0)
+  containing the door's position** (x −73349.5, y 1296.9), not the persistent cell that
+  stores the door; the player's own cell outdoors was likewise the grid cell containing
+  their position (0x000DAEBD, grid −19, 0, at x −73989.5, y 3750.2) [observed].
 - **Created references** (dropped items) get FormIDs from 0xFF000000 upwards, a load
   slot no plugin can use [hypothesis for the original engine's numbering].
 
