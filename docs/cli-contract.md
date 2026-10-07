@@ -294,3 +294,10 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
 - `world check [--world W]` → `fnv.world.check/1`: the observational checks behind
   world.md (cell membership of references, shared LAND edges, normals against heights,
   base object types).
+
+## `fnvtool phys ...` (Layer 4 physics)
+
+`phys cell` (`fnv.phys.cell/1`: the physics world around a cell and probe characters
+dropped in it) and `phys terrain` (`fnv.phys.terrain/1`: terrain colliders checked
+against the LAND heights of a worldspace). Their contract lives in
+docs/spec-notes/physics.md §7.
