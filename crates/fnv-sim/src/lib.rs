@@ -10,6 +10,7 @@
 //! - [`inventory`], [`leveled`]: item stacks and leveled-list resolution
 //! - [`world`]: runtime state as a delta over the plugins, activation, snapshots
 //! - [`actions`]: scripted action sequences and traces (the parity scenario format)
+//! - [`sample`]: leveled-list outcome histograms (distribution scenarios)
 //!
 //! Design and status: `docs/design/layer4.md`; behaviour notes with confidence tags:
 //! `docs/spec-notes/simulation.md`.
@@ -22,6 +23,7 @@ pub mod forms;
 pub mod inventory;
 pub mod leveled;
 pub mod refs;
+pub mod sample;
 pub mod settings;
 pub mod world;
 
