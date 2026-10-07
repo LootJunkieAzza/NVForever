@@ -29,22 +29,12 @@
       "value": 8
     },
     {
-      "op": "set_global",
-      "name": "TimeScale",
-      "value": 1
-    },
-    {
       "op": "advance_time",
       "hours": 24
     },
     {
       "op": "advance_time",
       "hours": 6
-    },
-    {
-      "op": "get_global",
-      "name": "GameHour",
-      "label": "GameHour after waiting 24 + 6 hours from 8:00"
     },
     {
       "op": "get_global",
@@ -55,11 +45,6 @@
       "op": "get_global",
       "name": "GameMonth",
       "label": "GameMonth after waiting 30 hours"
-    },
-    {
-      "op": "get_global",
-      "name": "GameDaysPassed",
-      "label": "GameDaysPassed after waiting 30 hours from 5"
     },
     {
       "op": "set_global",
@@ -84,11 +69,6 @@
       "op": "get_global",
       "name": "GameMonth",
       "label": "GameMonth after crossing midnight on day 31"
-    },
-    {
-      "op": "set_global",
-      "name": "TimeScale",
-      "value": 30
     },
     {
       "op": "remove_all_items",

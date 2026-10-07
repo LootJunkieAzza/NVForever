@@ -116,15 +116,17 @@ Scripts given to `CompileScript` on the owner's install (xNVSE 6.4.9, game 1.4.0
   [hypothesis for the reason]; hex literals (`0x38F7`); `ref` and `string_var` variables
   declared inside the block; any `string_var` assignment (`let`, or `set … sv_Construct`).
 - Globals are set with console lines (`set <Global> to <n>`), as a player would.
-- **Crash on setting the clock back at a low TimeScale**: with TimeScale 1, `set GameHour to
-  8` from 8.33 crashed the game (access violation, FalloutNV.exe+0x477C6D) on a freshly
-  loaded save; the jump from TimeScale 30 to 1 just before it did not (crash test 3).
-  The same address ended four earlier runs that set TimeScale to 0 or 1 and then the
-  clock. At TimeScale 30 the clock was set back without a crash (first run), and console
-  TimeScale changes alone (30, 10, 5, 2, 1) never crashed. The weight/time scenario
-  therefore sets the date and hour first and lowers TimeScale afterwards; later clock
-  changes only move it forward. Jobs also pause after every action (10 game loops, 30
-  after equipping, activating, actor-value and bulk inventory changes).
+- **Crash when the clock moves at a low TimeScale**: with TimeScale 1 the game crashed
+  (access violation, FalloutNV.exe+0x477C6D, every time) when `set GameHour` moved the
+  clock back (crash test 3, freshly loaded save) and at the end of a 6-hour Wait (a 24-hour
+  Wait just before had worked); TimeScale 0 crashed the same way. Lowering TimeScale
+  alone (30, 10, 5, 2, 1) never crashed, and at TimeScale 30 setting the clock back and
+  waiting worked (first run). Jobs therefore leave TimeScale alone. Consequence: the game
+  clock keeps running (×30) while the player is in menus, so a capture cannot reproduce
+  fractional time exactly (the first run read GameHour 14.136 for 14 and GameDaysPassed
+  6.2558 for 6.25); scenarios observe whole-number calendar values only (§6).
+- Jobs pause after every action (10 game loops, 30 after equipping, activating,
+  actor-value and bulk inventory changes); cheap insurance, not a proven need.
 - **Call reported as failed**: a function that sets no return value, even when its
   statements ran (`player.RemoveAllItems`, `set GameHour to 8.0` alone); every action
   script therefore ends with `SetFunctionValue 1`.
@@ -135,6 +137,9 @@ float variable (inventory slots), `Activate`, `EquipItem`, `Lock`, `Drop`; failu
 recorded per step, not fatal.
 
 ## 6. Open points
+
+- Fractional game time (GameHour, GameDaysPassed after waiting) needs a capture that can
+  stop or account for the running clock without crashing the game; not observed yet.
 
 - `advance_time`, `detach_cell` / `attach_cell` and `transfer` of single items have no
   console equivalent and become manual steps (Wait menu, walking through a door, the
