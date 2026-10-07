@@ -1,6 +1,7 @@
 # ADR-0001: Bevy version and how Layer 2 assets reach Bevy
 
-- **Status:** Accepted (2026-10-07), revisit when Layer 3 starts
+- **Status:** Accepted (2026-10-07); paths and decision 3 revisited in ADR-0002 (the
+  viewer now lives in the `engine/` workspace)
 - **Context:** spec §7.1 asks for one pinned Bevy version, format crates without Bevy,
   and a recorded decision (with rejected alternatives) for every engine-side choice.
 
