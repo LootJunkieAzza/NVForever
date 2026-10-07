@@ -16,10 +16,10 @@ use fnv_world::sky::{climate, default_weather, global_value, sun_direction, weat
 use nvf_assets::{GameData, TextureCache};
 
 /// Dome radius in Bevy units (inside the camera's far plane).
-const DOME_RADIUS: f32 = 90_000.0;
+const DOME_RADIUS: f32 = 350_000.0;
 /// Distance of the sun disc and its size [hypothesis: about 4 degrees across].
-const SUN_DISTANCE: f32 = 80_000.0;
-const SUN_SIZE: f32 = 5_600.0;
+const SUN_DISTANCE: f32 = 300_000.0;
+const SUN_SIZE: f32 = 21_000.0;
 /// Southward tilt of the sun's path in radians [hypothesis].
 const SUN_TILT: f32 = 0.45;
 /// Light levels for colour 1.0 (Bevy units; tuned by eye, see layer3.md).

@@ -6,6 +6,7 @@
 //! F12 screenshot, Esc quit.
 
 mod fly;
+mod lod;
 mod sky;
 mod terrain;
 mod world;
@@ -77,6 +78,12 @@ struct Args {
     /// Override the weather's fog distances: "near,far" in game units.
     #[arg(long)]
     fog: Option<String>,
+    /// Distant LOD (terrain chunks, object blocks) within this many 4-cell chunks.
+    #[arg(long, default_value_t = 8)]
+    lod_radius: i32,
+    /// Do not draw distant LOD.
+    #[arg(long)]
+    no_lod: bool,
     /// World units per terrain texture repeat [hypothesis; docs/design/layer3.md].
     #[arg(long, default_value_t = 4096.0 / 6.0)]
     terrain_tile: f32,
@@ -173,6 +180,7 @@ fn main() -> AppExit {
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
+    .insert_resource(lod::LodState::new(&world, args.lod_radius, !args.no_lod))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
     .insert_resource(Streamer {
@@ -186,7 +194,7 @@ fn main() -> AppExit {
     .insert_resource(StartPose { position: start, heading: args.heading, pitch: args.pitch })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly, sky::sky_keys, sky::update_sky, world::stream, overlay, keys).chain());
+    .add_systems(Update, (fly::fly, sky::sky_keys, sky::update_sky, world::stream, lod::update_lod, overlay, keys).chain());
     if args.screenshot.is_some() {
         app.add_systems(Update, screenshot_and_exit);
     }
@@ -205,7 +213,7 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
     let (yaw, pitch) = (-start.heading.to_radians(), start.pitch.to_radians());
     commands.spawn((
         Camera3d::default(),
-        Projection::Perspective(PerspectiveProjection { far: 100_000.0, near: 5.0, ..default() }),
+        Projection::Perspective(PerspectiveProjection { far: 400_000.0, near: 5.0, ..default() }),
         Transform::from_translation(pos).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)),
         FlyCam { yaw, pitch, speed: 800.0 },
         sky::initial_fog(),
@@ -218,12 +226,14 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
     ));
 }
 
+#[allow(clippy::too_many_arguments)]
 fn overlay(
     streamer: Res<Streamer>,
     models: Res<ModelCache>,
     terrain: Res<TerrainCache>,
     textures: Res<TextureCache>,
     sky: Res<sky::SkyState>,
+    lod: Res<lod::LodState>,
     cam: Query<&GlobalTransform, With<FlyCam>>,
     mut text: Query<&mut Text, With<Overlay>>,
 ) {
@@ -232,12 +242,12 @@ fn overlay(
     let c = fnv_world::cell_of(g.x, g.y);
     let s = &streamer.stats;
     t.0 = format!(
-        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {}  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
+        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {}  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  LOD chunks {} blocks {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
         g.x, g.y, g.z, c.0, c.1,
         streamer.loaded.len(), s.cells_loaded, s.load_ms,
         s.refs_drawn, s.refs_skipped_disabled, s.refs_skipped_type, s.refs_speedtree, s.refs_no_model, s.shapes,
         models.len(), models.failures.len(), textures.failures.len(), terrain.layers, terrain.quadrants_without_base,
-        s.water_planes, sky.describe(),
+        s.water_planes, lod.chunks, lod.blocks, sky.describe(),
     );
 }
 
