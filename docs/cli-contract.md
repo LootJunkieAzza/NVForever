@@ -117,3 +117,78 @@ decoded (decompressed) contents and are omitted with `--no-content-hash`. Lab co
 - `fnv.esm.survey/1`: `records` {type: count}, `pairs` [{record, sub, count,
   distinct_sizes, top_sizes, zstring_like, formid_array_like, first_u32_formid,
   max_per_record}], `errors`.
+
+# Layer 2 (meshes, animations, textures)
+
+Inputs are BSA archives; every `.nif` / `.kf` (or `.dds`) file inside is reported, in
+archive order. Paths are as stored in the archive (lower case, backslashes). Floats are
+f32 values widened to JSON numbers without rounding; NaN and infinities are `null`
+(two node translations in the game are NaN). -0.0 and 0.0 compare equal. Block references
+are block indices. `error` / `reason` texts are diagnostics: tools should agree on whether
+one is present, and the lab compares them, but none occur in the game data.
+
+## `fnvtool nif stats <archive>` → `fnv.nif.stats/1`
+
+```json
+{
+  "schema": "fnv.nif.stats/1",
+  "archive": "Fallout - Meshes.bsa",
+  "files": [
+    {"path": "meshes\clutter\x.nif", "version": "20.2.0.7", "user_version": 11,
+     "bs_version": 34, "num_blocks": 12, "strings": 9,
+     "block_types": {"BSFadeNode": 1, "NiTriStrips": 2, "...": 0}, "error": null}
+  ]
+}
+```
+
+Everything here comes from the file header (docs/spec-notes/nif.md §2), so it is defined
+for every version. `strings` is the string-table entry count (`null` for versions without
+a string table). `block_types` counts blocks per type name (keys sorted). `error` is a
+message when the header cannot be read, and then the other fields are `null`. Lab
+comparator: **keyed** on `path`, fields `["version", "user_version", "bs_version",
+"num_blocks", "strings", "block_types", "error"]`.
+
+## `fnvtool nif scene <archive>` → `fnv.nif.scene/1`
+
+```json
+{
+  "schema": "fnv.nif.scene/1",
+  "archive": "Fallout - Meshes.bsa",
+  "skipped": [{"path": "...", "reason": "no block-size table (version 20.0.0.4)"}],
+  "objects": [
+    {"key": "meshes\clutter\x.nif#0", "type": "BSFadeNode", "name": "x", "parent": null,
+     "translation": [0.0, 0.0, 0.0], "rotation": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+     "scale": 1.0}
+  ],
+  "shapes": [
+    {"key": "meshes\clutter\x.nif#3", "type": "NiTriStripsData", "vertices": 24,
+     "triangles": 30, "has_normals": true, "has_tangents": true, "uv_sets": 1,
+     "has_vertex_colors": false, "bound_center": [0.0, 0.0, 1.5], "bound_radius": 3.2,
+     "aabb_min": [-1.0, -1.0, 0.0], "aabb_max": [1.0, 1.0, 3.0]}
+  ]
+}
+```
+
+Only files with a block-size table are analysed; the others are listed in `skipped` (and
+also files whose container cannot be read). `key` is `path#block`.
+
+- `objects`: every block whose type is NiNode, a type derived from it (spec notes §3), or
+  NiTriShape, NiTriStrips, BSSegmentedTriShape, in block order. `name` is the object name
+  (`null` for "no string"). `parent` is the index of the first node (lowest block index)
+  whose child list contains this block, else `null`. `rotation` is row-major.
+- A file in which any block cannot be decoded is listed in `skipped` and contributes no
+  objects or shapes.
+- `shapes`: every NiTriShapeData and NiTriStripsData block. `vertices` is the stored vertex
+  count. `has_tangents` means tangents are actually stored (normals present and the
+  tangent bit set). `triangles` = triangle count
+  if the has-triangles byte is set (lists), or the sum over strips of
+  max(length − 2, 0) if the has-points byte is set (strips), else 0. `uv_sets` = the
+  number of UV sets actually stored. `aabb_min`/`aabb_max` = component-wise min/max over
+  the stored vertices (`null` when there are none).
+
+Lab comparator: **keyed** on `key` for `/objects` and for `/shapes` (all fields), plus
+**exact** on `/skipped`.
+
+## `fnvtool dds list <archive>` → `fnv.dds.listing/1`
+
+Defined in docs/spec-notes/dds.md together with the texture notes.
