@@ -25,6 +25,11 @@ def actions(*acts):
     return {"format": "fnv.sim.actions/1", "seed": 0, "player_level": 1, "actions": list(acts)}
 
 
+def body(job):
+    """The steps after the mod-index header, without settle pauses."""
+    return [s for s in job["steps"][len(cs.MASTERS):] if "frames" not in s]
+
+
 def head(mods):
     return [{"kind": "result", "label": cs.MODINDEX_LABEL, "field": m, "value": float(i)} for m, i in mods]
 
@@ -54,10 +59,10 @@ class JobTests(unittest.TestCase):
         job = cs.actions_job(actions({"op": "disable", "target": "0x0300DE81"},
                                      {"op": "get_item_count", "of": "player", "item": "Caps001", "label": "caps"}),
                              "x", "s", EDIDS)
-        script = job["steps"][10]["script"]
+        script = body(job)[0]["script"]
         self.assertEqual(script, 'float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex "OldWorldBlues.esm"\n'
                                  'let rF1 := BuildRef fM1 56961\nrF1.Disable\nSetFunctionValue 1\nEnd\n')
-        q = job["steps"][11]
+        q = body(job)[1]
         self.assertEqual((q["label"], q["field"]), ("caps", "count"))
         self.assertIn(f"let rF1 := BuildRef fM1 {0x10001}", q["query"])
         self.assertIn("let fV := player.GetItemCount rF1", q["query"])
@@ -72,16 +77,27 @@ class JobTests(unittest.TestCase):
             self.assertNotIn("string_var", text)
             if "script" in s:
                 self.assertIn("SetFunctionValue 1", text)
-        self.assertIn("SetFunctionValue (GetFormIDString rC)", job["steps"][12]["query"])
+        self.assertIn("SetFunctionValue (GetFormIDString rC)", body(job)[2]["query"])
 
     def test_whole_numbers_have_no_decimal_point(self):
         job = cs.actions_job(actions({"op": "set_av", "of": "player", "name": "Strength", "value": 5.0},
                                      {"op": "set_global", "name": "GameHour", "value": 8},
                                      {"op": "set_global", "name": "GameHour", "value": 8.5}), "x", "s")
-        steps = job["steps"][len(cs.MASTERS):]
+        steps = body(job)
         self.assertIn("player.SetAV Strength 5\n", steps[0]["script"])
         self.assertEqual(steps[1], {"console": "set GameHour to 8"})
         self.assertEqual(steps[2], {"console": "set GameHour to 8.5"})
+
+    def test_actions_are_followed_by_a_pause(self):
+        job = cs.actions_job(actions({"op": "equip_item", "actor": "player", "item": "0x00020423"},
+                                     {"op": "add_item", "to": "player", "item": "0x0000000F", "count": 1},
+                                     {"op": "get_weight", "of": "player"},
+                                     {"op": "advance_time", "hours": 1}), "x", "s")
+        steps = job["steps"][len(cs.MASTERS):]
+        kinds = [next(iter(st)) for st in steps]
+        self.assertEqual(kinds, ["script", "frames", "script", "frames", "query", "query", "manual"])
+        self.assertEqual(steps[1]["frames"], cs.SETTLE_FRAMES_LONG)
+        self.assertEqual(steps[3]["frames"], cs.SETTLE_FRAMES)
 
     def test_queries_fields_and_default_labels(self):
         job = cs.actions_job(actions({"op": "get_pos", "of": "player"},
