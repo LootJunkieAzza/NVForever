@@ -343,7 +343,10 @@ fn references_load_with_cells_and_extra_data() {
     let f = fixture();
     assert!(f.refs.issues.is_empty(), "{:?}", f.refs.issues.to_json());
     assert_eq!(f.refs.refs.len(), 14);
-    assert_eq!(f.refs.get(id(EXT_DOOR)).unwrap().cell, Some(id(WORLD_PERSISTENT)));
+    // Stored in the persistent cell, parented to the grid cell containing it.
+    assert_eq!(f.refs.get(id(EXT_DOOR)).unwrap().stored_in, Some(id(WORLD_PERSISTENT)));
+    assert_eq!(f.refs.get(id(EXT_DOOR)).unwrap().cell, Some(id(WORLD_CELL)));
+    assert!(f.refs.by_cell[&id(WORLD_CELL)].contains(&id(EXT_DOOR)));
     assert_eq!(f.refs.exterior_cell_at(id(WORLD_PERSISTENT), [-73162.9, 1312.4, 0.0]), Some(id(WORLD_CELL)));
     assert_eq!(f.refs.exterior_cell_at(id(WORLD_PERSISTENT), [0.0, 0.0, 0.0]), None);
     assert_eq!(f.refs.exterior_cell_at(id(CELL_A), [-73162.9, 1312.4, 0.0]), None);
