@@ -1926,6 +1926,78 @@
      "note": "xEdit wbDefinitionsFNV.pas SCOL record (wbStaticPart) and wbDefinitionsCommon.pas wbStaticPartPlacements"
     }
    }
+  },
+  "TREE": {
+   "name": "Tree",
+   "confidence": "documented",
+   "subrecords": {
+    "SNAM": {
+     "name": "SpeedTree Seeds",
+     "type": {
+      "array": "u32"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TREE record"
+    },
+    "CNAM": {
+     "name": "Tree Data",
+     "type": {
+      "struct": [
+       {
+        "name": "leaf_curvature",
+        "type": "f32"
+       },
+       {
+        "name": "min_leaf_angle",
+        "type": "f32"
+       },
+       {
+        "name": "max_leaf_angle",
+        "type": "f32"
+       },
+       {
+        "name": "branch_dimming",
+        "type": "f32"
+       },
+       {
+        "name": "leaf_dimming",
+        "type": "f32"
+       },
+       {
+        "name": "shadow_radius",
+        "type": "i32"
+       },
+       {
+        "name": "rock_speed",
+        "type": "f32"
+       },
+       {
+        "name": "rustle_speed",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TREE record"
+    },
+    "BNAM": {
+     "name": "Billboard Dimensions",
+     "type": {
+      "struct": [
+       {
+        "name": "width",
+        "type": "f32"
+       },
+       {
+        "name": "height",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TREE record"
+    }
+   }
   }
  }
 }

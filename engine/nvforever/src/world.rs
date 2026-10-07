@@ -212,6 +212,13 @@ fn load_cell(
             continue;
         };
         if base.is_speedtree() {
+            // SpeedTree geometry is not decoded yet: draw the tree's billboard as two
+            // crossed quads (interim; docs/design/layer3.md).
+            if let Some((mesh, mat)) = billboard(world, base.form_id, models) {
+                let rt = to_cell * ref_affine(&p);
+                commands.entity(cell_e).with_child((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_matrix(Mat4::from(rt))));
+                stats.shapes += 1;
+            }
             stats.refs_speedtree += 1;
             continue;
         }
@@ -309,6 +316,44 @@ fn spawn_water(
         Transform::from_xyz(s / 2.0, s / 2.0, height),
     ));
     stats.water_planes += 1;
+}
+
+/// Crossed-quad billboard mesh and material for a TREE base (cached per base).
+fn billboard(world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<(Handle<Mesh>, Handle<StandardMaterial>)> {
+    if let Some(b) = models.cache.billboard(tree) {
+        return b;
+    }
+    let made = (|| {
+        let ([w, h], tex) = fnv_world::placed::tree_billboard(&world.lo, world.schema, tree)?;
+        let a = &mut *models;
+        let image = a.textures.get(&tex, true, &a.data, &mut a.images, a.formats.as_deref())?;
+        let hw = w / 2.0;
+        // Two vertical quads crossing at the origin, bottom at z = 0 (game space).
+        let mut pos = Vec::new();
+        let mut nor = Vec::new();
+        let mut uv = Vec::new();
+        for (dx, dy, n) in [(hw, 0.0, [0.0, -1.0, 0.0]), (0.0, hw, [1.0, 0.0, 0.0])] {
+            pos.extend([[-dx, -dy, 0.0], [dx, dy, 0.0], [dx, dy, h], [-dx, -dy, h]]);
+            nor.extend([n; 4]);
+            uv.extend([[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
+        }
+        let mut mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::RENDER_WORLD);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nor);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+        mesh.insert_indices(bevy::mesh::Indices::U32(vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]));
+        let mat = a.materials.add(StandardMaterial {
+            base_color_texture: Some(image),
+            alpha_mode: AlphaMode::Mask(0.5),
+            double_sided: true,
+            cull_mode: None,
+            perceptual_roughness: 0.9,
+            ..default()
+        });
+        Some((a.meshes.add(mesh), mat))
+    })();
+    models.cache.set_billboard(tree, made.clone());
+    made
 }
 
 fn base_type_name(b: Option<&BaseObject>) -> String {

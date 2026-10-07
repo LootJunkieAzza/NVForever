@@ -36,12 +36,17 @@ pub struct PreparedModel {
     pub skipped_skinned: usize,
 }
 
+/// A mesh with its material, ready to spawn.
+pub type MeshAndMaterial = (Handle<Mesh>, Handle<StandardMaterial>);
+
 /// Prepared models by archive path; `None` remembers a failure.
 #[derive(Resource, Default)]
 pub struct ModelCache {
     map: HashMap<String, Option<Arc<PreparedModel>>>,
     /// Shared materials keyed by a record FormID (e.g. water types).
     water: HashMap<u32, Handle<StandardMaterial>>,
+    /// Tree billboards keyed by TREE FormID; `None` remembers a failure.
+    billboards: HashMap<u32, Option<MeshAndMaterial>>,
     pub failures: Vec<String>,
 }
 
@@ -51,6 +56,12 @@ impl ModelCache {
     }
     pub fn set_water_material(&mut self, id: u32, m: Handle<StandardMaterial>) {
         self.water.insert(id, m);
+    }
+    pub fn billboard(&self, id: u32) -> Option<Option<MeshAndMaterial>> {
+        self.billboards.get(&id).cloned()
+    }
+    pub fn set_billboard(&mut self, id: u32, b: Option<MeshAndMaterial>) {
+        self.billboards.insert(id, b);
     }
     pub fn len(&self) -> usize {
         self.map.len()

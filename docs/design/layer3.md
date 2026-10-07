@@ -93,6 +93,8 @@ What it does now:
   border triangles slope under the loaded terrain. Object blocks are drawn only over
   squares with no loaded cell. Interim rules, to compare with screenshots; small dark
   boxes on distant ridges (probably rock formations in the object LOD) to check.
+- SpeedTree trees (TREE): interim billboards, two crossed alpha-tested quads with the
+  tree's billboard texture at its BNAM size (world.md §2); full `.spt` geometry later.
 - Water: one plane per "has water" cell at its water height with the water type's
   colour, opacity and noise normal map (no reflection or refraction yet).
 
@@ -135,7 +137,7 @@ game units unchanged.
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
 7. **Water** (first version done; reflections to do): worldspace / cell water height, WATR records, placeable water (PWAT).
-8. **SpeedTree**: TREE references (18,050 in WastelandNV, e.g. the desert shrubs) use
+8. **SpeedTree** (interim: billboards): TREE references (18,050 in WastelandNV, e.g. the desert shrubs) use
    SpeedTree `.spt` models from `trees\`, a non-NIF format; needs its own clean-room
    format study before they can be drawn.
 9. **LOD** (level-4 terrain and object blocks done; levels 8-32 and switching to do): distant terrain and object LOD from the game's LOD meshes and textures
