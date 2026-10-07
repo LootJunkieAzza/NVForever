@@ -105,8 +105,14 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   (an engine default; no master defines it) [observed], and the same box stayed empty
   after 1 h and after 6 h away and was full after 12 h away (about 19 h after it was first
   emptied). So this merchant cash box restocks on a rule of its own, faster than the
-  72-hour cell respawn [observed]; which rule (hours away, day change, time since
-  emptying) is being captured. Merchant containers can be identified from the data: an
+  72-hour cell respawn [observed]. `aa_vendor_restock` (clock = GameDaysPassed): emptied at
+  6.377, the player stayed inside 24 h → full at 7.379 (no cell unload needed); emptied
+  at 7.379, 5 h away across midnight (back at 8.095) → empty; 10 h away without
+  midnight (back at 9.476) → empty, i.e. empty for 50 h [observed]. Not hours away, not
+  hours since emptying, not midnight. Consistent with all captures: a per-container
+  restock schedule, a period after the previous restock (≥ 2.1 days; 72 h is the natural
+  guess), checked when the container is accessed [hypothesis; the period is being
+  captured]. Merchant containers can be identified from the data: an
   ACHR/ACRE `XMRC` "Merchant Container" names them [documented: xEdit]; Ringo's
   reference 0x00104C7D points at 0x001629C0, and FalloutNV.esm has 77 XMRC links
   [observed].
