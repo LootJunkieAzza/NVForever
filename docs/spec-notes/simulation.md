@@ -188,14 +188,19 @@ distribution comparator:
 Layer 4 scenarios compare *observations* (item counts, position, cell) that the original
 game can report through console functions [documented: GECK wiki function pages
 `GetItemCount`, `GetPos`, `GetParentCell`, `AddItem`, `RemoveItem`, `RemoveAllItems`,
-`Activate`]. Procedure (to be settled with the owner; the xNVSE logging plugin is an open
-lab item, spec §8.1):
+`Activate`]. Procedure by hand (or automated, below):
 1. Load the pinned save at the scenario's start location (Goodsprings: inside Doc
    Mitchell's house).
 2. Run the scenario's steps as console commands (`player.removeallitems`,
    `<ref>.activate player`, `player.additem <id> n`, …); record each query's value.
 3. Write the values into the golden `sim/<scenario>.trace.json` with the same `label`s.
 Until then the scenarios report `error` (missing golden), as Layer 1's xEdit scenarios did.
+
+**Automated capture**: the `nvf_capture` xNVSE plugin runs a scenario's steps in the
+original game and records the query results (docs/spec-notes/xnvse-capture.md;
+tools/capture/README.md §10). `capture_steps.py` writes its jobs from the files in
+`parity-lab/inputs/layer4/` using the console equivalents below (ops without one, such as
+waiting or changing cells, become prompts) and turns its output into the goldens.
 
 **Console equivalents of the trace ops** [documented: GECK wiki function pages; the
 mapping itself is this project's]: `remove_all_items` → `player.removeallitems`;
@@ -224,8 +229,8 @@ Record each draw's outcome key (§7) and add up the counts per key. That console
 actors do is a [hypothesis] [`AddItem` documented: GECK wiki]; a resolution inside a
 spawned container (`placeatme` of a container base holding the list) is the
 cross-check. A few hundred draws per case are enough for the comparator to see
-differences of a few percentage points; an xNVSE logging plugin (spec §8.1) would
-automate this.
+differences of a few percentage points; `capture_steps.py cases` makes this a job for the
+`nvf_capture` plugin.
 
 ## 7. CLI contract (Layer 4)
 
