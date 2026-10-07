@@ -133,7 +133,7 @@ fn check_record(r: &fnv_esm::Record) -> RecordCheck {
     RecordCheck { trailer_anomaly, subrecords: Ok(subrecords) }
 }
 
-fn open_load_order(args: &LoadOrderArgs) -> anyhow::Result<Vec<Plugin>> {
+pub(crate) fn open_load_order(args: &LoadOrderArgs) -> anyhow::Result<Vec<Plugin>> {
     args.plugins
         .iter()
         .map(|n| {
