@@ -144,6 +144,9 @@ const SUIT: u32 = 0x174; // ARMO, slot Upper Body, weight 15
 const AID: u32 = 0x175; // ALCH, weight 0.5
 const BULLETS: u32 = 0x176; // AMMO, weight 0.1 (Hardcore only)
 const LOCKER: u32 = 0x121; // CONT: PISTOL x1 with COED condition 0.75
+const MINE: u32 = 0x177; // WEAP firing MINE_PROJ
+const MINE_PROJ: u32 = 0x180; // PROJ
+const MINE_REF: u32 = 0x30B; // PGRE of MINE_PROJ
 
 fn plugin_bytes() -> Vec<u8> {
     let misc = cat(&[
@@ -179,7 +182,18 @@ fn plugin_bytes() -> Vec<u8> {
     // S.P.E.C.I.A.L. 5,6,7,4,3,2,1 after base health.
     let npc_data = cat(&[&100i32.to_le_bytes(), &[5u8, 6, 7, 4, 3, 2, 1]]);
     let npc = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), cnto(CAPS, 5), sub(b"DATA", npc_data)]);
-    let weaps = cat(&[&weap(PISTOL, "TestPistol", 100, 3.0), &weap(RIFLE, "TestRifle", 300, 8.0)]);
+    let mut dnam = vec![0u8; 120]; // required part of WEAP DNAM; projectile at +36
+    dnam[36..40].copy_from_slice(&MINE_PROJ.to_le_bytes());
+    let mine = {
+        let mut m = weap(MINE, "TestMine", 25, 0.5);
+        let extra = write_subrecords(&[sub(b"DNAM", dnam)]);
+        let size = u32::from_le_bytes(m[4..8].try_into().unwrap()) + extra.len() as u32;
+        m[4..8].copy_from_slice(&size.to_le_bytes());
+        m.extend(extra);
+        m
+    };
+    let weaps = cat(&[&weap(PISTOL, "TestPistol", 100, 3.0), &weap(RIFLE, "TestRifle", 300, 8.0), &mine]);
+    let proj = record(b"PROJ", 0, MINE_PROJ, &[sub(b"EDID", z("TestMineProjectile"))]);
     let armos = cat(&[&armo(HELMET, "TestHelmet", 0b11, 2.0), &armo(HAT, "TestHat", 0b10, 1.0), &armo(SUIT, "TestSuit", 0b100, 15.0)]);
     let enit = cat(&[&20i32.to_le_bytes(), &[0u8, 0, 0, 0], &0u32.to_le_bytes(), &0f32.to_le_bytes(), &0u32.to_le_bytes()]);
     let alch = record(b"ALCH", 0, AID, &[sub(b"EDID", z("TestAid")), sub(b"DATA", 0.5f32.to_le_bytes().to_vec()), sub(b"ENIT", enit)]);
@@ -205,6 +219,12 @@ fn plugin_bytes() -> Vec<u8> {
         &refr(CHILD_OPPOSITE, 0, STIMPAK, [0.0; 3], vec![xesp(KEY_REF, true)]),
         &refr(GRANDCHILD, 0, STIMPAK, [0.0; 3], vec![xesp(CHILD_OPPOSITE, false)]),
         &refr(GUN_REF, 0, PISTOL, [0.0; 3], vec![sub(b"XHLP", 0.25f32.to_le_bytes().to_vec())]),
+        &{
+            // A placed explosive: same subrecords as REFR, record type PGRE.
+            let mut v = refr(MINE_REF, 0, MINE_PROJ, [0.0; 3], vec![]);
+            v[..4].copy_from_slice(b"PGRE");
+            v
+        },
     ]);
     let pers_a = refr(KEY_REF, 0x400 | 0x800, KEY, [7.0, 8.0, 9.0], vec![sub(b"EDID", z("TestKeyRef"))]);
     let temp_b = refr(DOOR_B, 0, DOOR, [0.0; 3], vec![xtel(DOOR_A, [-100.0, 0.0, 0.0])]);
@@ -247,6 +267,7 @@ fn plugin_bytes() -> Vec<u8> {
         &top(b"ARMO", &armos),
         &top(b"ALCH", &alch),
         &top(b"AMMO", &ammo),
+        &top(b"PROJ", &proj),
         &top(b"DOOR", &door),
         &top(b"NPC_", &npc),
         &cells,
@@ -302,7 +323,10 @@ fn forms_load_through_the_schema() {
 fn references_load_with_cells_and_extra_data() {
     let f = fixture();
     assert!(f.refs.issues.is_empty(), "{:?}", f.refs.issues.to_json());
-    assert_eq!(f.refs.refs.len(), 11);
+    assert_eq!(f.refs.refs.len(), 12);
+    assert!(f.refs.issues.is_empty(), "{:?}", f.refs.issues.to_json());
+    assert_eq!(f.refs.cell_by_edid("testcella"), Some(id(CELL_A)));
+    assert!(f.refs.by_cell[&id(CELL_A)].contains(&id(SAFE_REF)));
     let safe = f.refs.get(id(SAFE_REF)).unwrap();
     assert_eq!((safe.base, safe.cell, safe.pos), (id(SAFE), Some(id(CELL_A)), [1.0, 2.0, 3.0]));
     assert_eq!(safe.lock.unwrap().key, Some(id(KEY)));
@@ -321,7 +345,7 @@ fn references_load_with_cells_and_extra_data() {
 #[test]
 fn locked_container_needs_its_key() {
     let f = fixture();
-    let mut w = World::new(&f.forms, &f.refs, SimConfig { seed: 1, player_level: 1, hardcore: false });
+    let mut w = World::new(&f.forms, &f.refs, SimConfig { seed: 1, ..SimConfig::default() });
     let p = FormId::PLAYER_REF;
     assert_eq!(w.item_count(p, id(CAPS)).unwrap(), 5, "player starts with the base form's items");
     let r = w.activate(p, id(SAFE_REF)).unwrap();
@@ -487,7 +511,7 @@ fn action_script_trace() {
 #[test]
 fn snapshot_resumes_identically() {
     let f = fixture();
-    let cfg = SimConfig { seed: 99, player_level: 5, hardcore: false };
+    let cfg = SimConfig { seed: 99, player_level: 5, ..SimConfig::default() };
     let ops = |w: &mut World| {
         let p = FormId::PLAYER_REF;
         for _ in 0..20 {
@@ -633,4 +657,52 @@ fn encumbrance_uses_strength_and_settings() {
     hc.add_item(p, id(BULLETS), 100).unwrap();
     assert!((hc.encumbrance(p).unwrap().weight - 10.0).abs() < 1e-4);
     assert!(matches!(w.encumbrance(id(SAFE_REF)), Err(SimError::NoActorValues(_))));
+}
+
+#[test]
+fn placed_mines_disarm_into_their_weapon() {
+    let f = fixture();
+    assert_eq!(f.forms.item(id(MINE)).unwrap().projectile, Some(id(MINE_PROJ)));
+    assert_eq!(f.forms.get(id(MINE_PROJ)).unwrap().data, BaseData::Projectile { item: Some(id(MINE)) });
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    assert_eq!(w.activate(p, id(MINE_REF)).unwrap().outcome, Outcome::Disarmed { item: id(MINE) });
+    assert_eq!(w.item_count(p, id(MINE)).unwrap(), 1);
+    assert_eq!(w.activate(p, id(MINE_REF)).unwrap().outcome, Outcome::Disabled);
+}
+
+#[test]
+fn respawning_containers_refill_after_the_delay() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.unlock(id(SAFE_REF)).unwrap();
+    w.transfer_all(id(SAFE_REF), p).unwrap();
+    w.add_item(id(SAFE_REF), id(PISTOL), 1).unwrap(); // left behind by the player
+    let cell = id(CELL_A);
+    // Not long enough: nothing resets.
+    w.detach_cell(cell).unwrap();
+    w.advance_hours(71.0).unwrap();
+    assert!(w.attach_cell(cell).unwrap().is_empty());
+    assert_eq!(w.item_count(id(SAFE_REF), id(CAPS)).unwrap(), 0);
+    // A second absence long enough: the safe (Respawns flag) is back to its authored
+    // state, the pistol is gone, the lock is back.
+    w.detach_cell(cell).unwrap();
+    w.advance_hours(72.0).unwrap();
+    assert_eq!(w.attach_cell(cell).unwrap(), vec![id(SAFE_REF)]);
+    assert!(w.peek(id(SAFE_REF)).is_none());
+    assert_eq!(w.item_count(id(SAFE_REF), id(CAPS)).unwrap(), 3);
+    assert_eq!(w.item_count(id(SAFE_REF), id(PISTOL)).unwrap(), 0);
+    assert!(w.peek(id(SAFE_REF)).unwrap().lock.unwrap().locked);
+    // Attaching a cell that was never detached does nothing; the config is honoured.
+    assert!(w.attach_cell(id(CELL_B)).unwrap().is_empty());
+    let mut quick = World::new(&f.forms, &f.refs, SimConfig { respawn_hours: 1.0, ..SimConfig::default() });
+    quick.get(id(SAFE_REF)).unwrap();
+    quick.detach_cell(cell).unwrap();
+    quick.advance_hours(1.0).unwrap();
+    assert_eq!(quick.attach_cell(cell).unwrap(), vec![id(SAFE_REF)]);
+    // Detached cells survive a snapshot.
+    w.detach_cell(cell).unwrap();
+    let snap = w.snapshot();
+    assert!(snap.detached_cells.contains_key(&cell));
 }
