@@ -181,6 +181,12 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 6. Cell respawn delay: `iHoursToRespawnCell` is not in any master (an engine default).
    Please read it in-game with the console: `GetGameSetting iHoursToRespawnCell` (a
    secondary source suggests 73 hours; unverified).
+7. **Captures waiting for you** (procedures and console equivalents in
+   docs/spec-notes/simulation.md §6; goldens go to `C:/fnv-private/goldens/sim/`):
+   `goodsprings_doc_mitchell`, `goodsprings_weight_and_time` (new level-1 character, no
+   perks), `goodsprings_respawn` (test save; Ringo's cash container), `x13_enable_parents`
+   (test save in Old World Blues' X-13) and `leveled_basic.samples` (a few hundred
+   `AddItem` draws per case). Would an xNVSE logging plugin be acceptable to automate them?
 
 ## 6. Updated spec notes
 

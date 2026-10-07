@@ -204,7 +204,10 @@ mapping itself is this project's]: `remove_all_items` → `player.removeallitems
 CarryWeight` (`capacity`); `equip_item` → `player.equipitem <id>`; `set_global` → `set
 <Global> to <v>`; `get_global` → `show <Global>`; `advance_time h` → waiting h hours
 (Wait menu, at most 24 at a time); `get_disabled` → `<ref>.getdisabled`; `enable` /
-`disable` → `<ref>.enable` / `<ref>.disable`. FormIDs in the inputs are load-order
+`disable` → `<ref>.enable` / `<ref>.disable`; `detach_cell` / `attach_cell` → leaving
+the cell through its door / coming back (wait outside, in another cell, in between);
+`get_item_count` on a container → `<ref>.getitemcount <id>`; `remove_all_items` on a
+container → `<ref>.removeallitems`. FormIDs in the inputs are load-order
 FormIDs of the ten masters in the order of this note, which is also the console's
 numbering when the game loads them in that order (Old World Blues = 03). Use a new
 level-1 character without perks or implants, so no modifier changes carry weight
