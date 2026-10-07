@@ -115,6 +115,10 @@ Scripts given to `CompileScript` on the owner's install (xNVSE 6.4.9, game 1.4.0
   `GSDocMitchellHouseIntDoorREF`) — the runtime does not keep those names
   [hypothesis for the reason]; hex literals (`0x38F7`); `ref` and `string_var` variables
   declared inside the block; any `string_var` assignment (`let`, or `set … sv_Construct`).
+- **Crash the game**: `set TimeScale to <n>` in a compiled script, with 0 and with 1 (access
+  violation in FalloutNV.exe at the same address both times, right after that step);
+  `set GameHour to 8` the same way did not crash. Globals are therefore set with console
+  lines (`set <Global> to <n>`), as a player would.
 - **Call reported as failed**: a function that sets no return value, even when its
   statements ran (`player.RemoveAllItems`, `set GameHour to 8.0` alone); every action
   script therefore ends with `SetFunctionValue 1`.

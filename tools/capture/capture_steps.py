@@ -204,8 +204,11 @@ def action_steps(i, a, ctx):
     if op in ("unlock", "enable", "disable"):
         return [rs(["{0}." + op.capitalize()], g("target"))]
     if op == "set_global":
+        # A console line, as a player would type it: setting TimeScale from a compiled
+        # script crashed the game (twice, same address), the console form is the usual
+        # way to change it [observed 2026-10-07].
         name = plain_name(g("name"), "set_global: the global")
-        return [{"script": function([], [f"set {name} to {number(g('value'))}"], returns_value=False)}]
+        return [{"console": f"set {name} to {number(g('value'))}"}]
     if op == "set_av":
         return [rs([f"{{0}}.SetAV {plain_name(g('name'), 'set_av: the actor value')} {number(g('value'))}"], g("of"))]
     if op == "equip_item":
