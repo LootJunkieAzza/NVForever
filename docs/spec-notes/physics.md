@@ -8,8 +8,10 @@ docs/design/layer4.md §2.8 and §7. Code: `crates/fnv-phys`, `crates/fnvtool/sr
 Status 2026-10-07: the world (terrain, reference bodies, characters), queries, the
 character controller, dynamic bodies and fixed-step stepping are implemented and tested on
 synthetic data; terrain is built from the real LAND data of every worldspace. Placed
-references get collision as soon as workstream 1's NIF conversion (`fnv-collide`) is
-delivered; until then `fnvtool phys cell` counts them as awaiting collision.
+references get their mesh collision through workstream 1's converter
+(`fnv_collide::nif::collision_objects`, merged from `claude/layer4-collide`) and
+CollisionMarker references their placed box or sphere (§4.1); `fnvtool phys cell` builds
+both from the owner's install (§7).
 
 ## 1. Engine choice
 
@@ -84,15 +86,71 @@ is unknown; to be checked by standing a probe on a steep square in-game, §6].
 | `Motion::Dynamic` | dynamic; collider densities scaled so the body mass equals `mass` (volume-derived mass kept when `mass` ≤ 0) | [hypothesis] |
 
 Friction and restitution are passed to rapier unchanged [hypothesis: Havok's coefficients
-and combine rules may differ from rapier's averaging]. The Havok collision layer is kept
-on every collider (`Owner::Ref::layer`) but not interpreted yet; which layers block the
-player, which are triggers, and which ignore each other are workstream 1's findings
-(collision.md §4). Triangle-mesh colliders keep their per-triangle Havok material code,
-returned by ray hits (footstep sounds, impact effects later).
+and combine rules may differ from rapier's averaging]. Triangle-mesh colliders keep their
+per-triangle Havok material code, returned by ray hits (footstep sounds, impact effects
+later).
+
+**Collision layers.** Every reference collider keeps its Havok layer
+(`Owner::Ref::layer`). The layer numbers 0–42 and their names (0 Unidentified, 1 Static,
+2 AnimStatic, 3 Transparent, 4 Clutter, ... 12 Trigger, 13 Terrain, 15 Non Collidable,
+27 Invisible Wall, 30 Char Controller, 32 Collision Box, ... 42 Dropping Pick) are those of
+the REFR XTRI field [documented: xEdit wbDefinitionsFNV.pas, re-expressed in
+`schemas/fnv/world.json`; `fnv_phys::layers` checks its table against the schema]. That
+mesh collision objects use the same numbering is [hypothesis] (collision.md §4). The
+original's layer matrix (which layers collide with which) is unknown. Queries take
+`Filter::exclude_layers`; the character controller ignores, by default, the layers whose
+names describe volumes or picks rather than obstacles: Water, Trigger, Non Collidable,
+Portal, Acoustic Space, Actor Zone, Projectile Zone, Cloud/Gas Trap, Avoid Box, Camera
+Sphere, Door Detection, the pick layers, Spell Explosion, Debris Small and Shell Casing
+(`layers::character_ignores`) [hypothesis: chosen from the names; capture question §6].
 
 `fnvtool phys cell` skips deleted references and initially disabled ones [hypothesis:
 disabled references have no collision until enabled; the enable state belongs to
-`fnv-sim`, which will add and remove bodies as references change state].
+`fnv-sim`, which will add and remove bodies as references change state]. Models come from
+the game's archives and loose files (`fnv_vfs`, default archive order) and are converted
+once per model; SpeedTree models (`.spt`, trees) hold no Havok blocks and get no collision
+[observed: they are not NIF files; whether trees block the player in-game is a capture
+question, §6].
+
+On the owner's install, Goodsprings with the cells around it (radius 1): 1,136 placed
+references; 849 get collision (1,430 colliders from 167 of the 194 distinct models, none
+unreadable), 211 use a model without collision objects, 43 are trees, 25 have no model, 8
+are initially disabled, 8 CollisionMarker primitives [observed: `fnvtool phys cell --cell
+Goodsprings`]. 64 probe characters dropped on an 8 × 8 grid over the cell all come to
+rest, 21 of them on references (rocks, buildings), the others on terrain [observed].
+
+### 4.1 Placed collision primitives (CollisionMarker)
+
+Some references carry their own shape instead of a model: REFR XPRM holds bounds (three
+floats), a colour and a type (1 box, 2 sphere, 3 "portal box"), and XTRI a collision
+layer [documented: xEdit wbDefinitionsFNV.pas REFR]. In the ten masters [observed:
+census of the winning REFR records]:
+
+| Base object | XPRM type | References |
+|---|---|---|
+| STAT 0x00000021 "CollisionMarker" | 3 | 2,901 |
+| STAT 0x00000021 "CollisionMarker" | 1 (box) | 1,155 |
+| STAT 0x00000021 "CollisionMarker" | 2 (sphere) | 149 |
+| 0x00000020 (no record; portal) | 3 | 1,228 |
+| STAT 0x0000001F "RoomMarker" | 1 | 1,044 |
+| 0x00000017 (no record; occlusion plane) | 3 | 264 |
+| ACTI trigger activators (e.g. `NVDLC01ToxicCloudTrigger`) | 1 | ~1,000 |
+
+8,819 references have XPRM; only 3 have XTRI. So primitives cannot be selected by layer:
+`fnv-phys` turns the primitives of **CollisionMarker** references into static colliders
+(types 1 and 3 as boxes, type 2 as a sphere) [hypothesis: CollisionMarkers are the invisible
+walls; the name suggests it], and leaves portals, rooms, occlusion planes and trigger
+activators out (they are culling volumes and script triggers by their bases [hypothesis];
+triggers will become sensors when scripts need them, Layer 5). A primitive without XTRI
+gets layer 0.
+
+**Bounds are read as half extents** (sphere: the first value is the radius). Evidence
+[observed]: for the 3,007 exterior CollisionMarker boxes without x/y rotation, the box
+bottom against the terrain under the reference: read as half extents, 24.4% of the boxes
+float above the ground (median bottom 115 units *below* it); read as full extents, 76.9%
+float (median bottom 160 units *above* it), which would leave walls the player could walk
+under. Still a [hypothesis] until checked in game (§6). Reproduce:
+`cargo run --release -p fnv-phys --example primitive_bounds -- <Data> schemas/fnv`.
 
 ## 5. Determinism and precision
 
@@ -145,6 +203,8 @@ Every value below is a placeholder [hypothesis]; none is a measured game value:
 | jump apex | 64 | `player.getpos z` sampled during a standing jump on flat ground |
 | max fall speed | none | `getpos z` during a long fall |
 | push mass | 80 | how far walking pushes a known clutter item |
+| layers the player passes through | §4 list | walk into a trigger volume / water / a tree (TCL off) and note whether it blocks |
+| CollisionMarker bounds | half extents | stand against a CollisionMarker wall whose placement is known (`fnvtool phys cell` lists them) and compare `getpos` with the box face |
 
 Settings stored in FalloutNV.esm whose names suggest movement or falling (values
 [observed] from the GMST records; meanings [hypothesis] from the names only):
@@ -195,10 +255,17 @@ coordinates need `--drop=-1,2` or `--x=-18`.
 ```
 
 `refs.counts` keys appear only when non-zero: `placed`, `unreadable`, `deleted`,
-`initially_disabled`, `no_base`, `no_model`, `awaiting_collision` (and, once workstream 1
-delivers, counts of references added). `by_base_type` counts references with a readable
-base by its record type. Owners are `{"kind": "terrain", "grid": [x, y]}`,
-`{"kind": "ref", "formid", "object", "layer"}` or `{"kind": "character", "id"}`.
+`initially_disabled`, `no_base`, `no_model`, `collision_primitive` (CollisionMarker
+primitives added), `bad_primitive`, `speedtree`, `model_without_collision`,
+`model_unreadable`, `awaiting_collision` (meshes not loaded), `with_collision`
+(references added to the world), `colliders` (their collider count) and `object_errors`.
+`by_base_type` counts references with a readable base by its record type.
+`collision_source` is null without mesh collision, else `{"kind": "fnv_collide::nif",
+"models", "models_with_collision", "models_unreadable", "unreadable_examples"}`. Mesh
+collision needs the NIF schema: `--nif-schema <dir>`, by default `nif` next to the
+`--schema` directory (skipped when absent); `--no-meshes` leaves it out. Owners are
+`{"kind": "terrain", "grid": [x, y]}`, `{"kind": "ref", "formid", "object", "layer",
+"layer_name"}` or `{"kind": "character", "id"}`.
 `terrain_z` is `height_at` at the drop point (null outside loaded land);
 `rest_above_terrain` = final feet z − `terrain_z` (the capsule rests `skin` above the
 surface along the contact normal, so slightly more than `skin` on slopes).
@@ -223,8 +290,9 @@ A self-consistency check of the terrain colliders against the LAND data (no orac
 
 - `fnv-phys` consumes `fnv_collide::{Shape, Iso, CollisionObject, Motion}` unchanged.
   It keeps its own uniform-scale helper (`convert::leaves` with a scale) rather than
-  depending on a `Shape::scaled` method.
-- Please confirm whether `node_transform` includes the root node's own transform (§2).
-- Needed from the conversion, to wire `fnvtool phys cell`: a function from a model path
-  (or decoded NIF) to `Vec<CollisionObject>`, and the meaning of the layer codes that do
-  not collide with the player (triggers, no-collision layers), to filter them.
+  depending on `Shape::scaled`.
+- Resolved: `fnv_collide::nif::collision_objects` gives node transforms in the mesh root's
+  frame with the root's own transform excluded (collision.md), which is what §2 assumes;
+  `fnvtool phys cell` calls it per model (fnv-phys itself reads no NIF blocks).
+- Open: whether mesh collision objects use the XTRI layer numbering (§4), and which
+  layers the original lets the player pass.
