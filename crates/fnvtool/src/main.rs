@@ -7,6 +7,7 @@ mod dds_cmd;
 mod esm_cmd;
 mod install_cmd;
 mod nif_cmd;
+mod sim_cmd;
 mod source;
 mod world_cmd;
 
@@ -53,6 +54,9 @@ enum Cmd {
     /// Worldspaces, cells, placed references and landscape across a load order.
     #[command(subcommand)]
     World(WorldCmd),
+    /// Layer 4 core simulation: forms, references, inventories, activation.
+    #[command(subcommand)]
+    Sim(SimCmd),
 }
 
 #[derive(Args)]
@@ -134,6 +138,34 @@ pub enum WorldCmd {
         /// Worldspace to check (default: every worldspace).
         #[arg(long)]
         world: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SimCmd {
+    /// What the simulation loaders understood, with consistency checks (fnv.sim.forms/1).
+    Forms {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+    },
+    /// Every container base form with its authored contents (fnv.sim.containers/1).
+    Containers {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+    },
+    /// Run a scripted action sequence (fnv.sim.actions/1) and print its trace
+    /// (fnv.sim.trace/1).
+    Run {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long)]
+        actions: PathBuf,
     },
 }
 
@@ -324,6 +356,7 @@ fn main() -> ExitCode {
         Cmd::Nif(c) => nif_cmd::run(c),
         Cmd::Dds(c) => dds_cmd::run(c),
         Cmd::World(c) => world_cmd::run(c),
+        Cmd::Sim(c) => sim_cmd::run(c),
     };
     match res {
         Ok(v) => {
