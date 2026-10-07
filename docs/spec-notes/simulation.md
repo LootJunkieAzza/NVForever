@@ -116,10 +116,13 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   flags [documented: xEdit]); aid items (ALCH) are consumed; other items cannot be
   equipped.
 - **Encumbrance**: capacity = `fAVDCarryWeightsBase` + `fAVDCarryWeightMult` × Strength
-  (150 + 10 × Strength in the masters [observed values; formula hypothesis]); carried
-  weight includes equipped items; over-encumbered when weight exceeds capacity;
-  ammunition weighs nothing outside Hardcore mode [hypothesis: commonly described game
-  rule; AMMO DAT2 holds the weights]. Strength comes from NPC_ DATA attributes
+  (150 + 10 × Strength in the masters); carried weight includes equipped items;
+  ammunition weighs nothing outside Hardcore mode — all three [observed in game,
+  2026-10-07, `L4.sim.trace.goodsprings_weight_and_time`: GetAV CarryWeight 200 at
+  Strength 5 and 160 at Strength 1; GetAV InventoryWeight 18.5 for a 9mm pistol (1.5),
+  leather armour (15), brahmin-skin outfit (2) and 100 9mm rounds (0.029 each), unchanged
+  by equipping]. Over-encumbered when weight exceeds capacity [hypothesis]; Hardcore
+  ammunition weight not captured yet. Strength comes from NPC_ DATA attributes
   (S.P.E.C.I.A.L. as seven u8 in that order [documented: xEdit]); the player base form
   authors 5 for every attribute [observed]. NPCs that take stats from a template are not
   followed yet.
@@ -180,7 +183,14 @@ distribution comparator:
   0x36 = 9, GameDay 0x37 = 18, GameHour 0x38 = 12, GameDaysPassed 0x39 = 5.0, TimeScale
   0x3A = 30. Advancing time [hypothesis]: TimeScale is game seconds per real second;
   h game hours add h to GameHour and h/24 to GameDaysPassed; each wrap past 24 hours
-  advances GameDay with Gregorian month lengths, GameMonth counting from 0.
+  advances GameDay with Gregorian month lengths, GameMonth counting from 0. In game
+  [observed, same scenario]: waiting 24 + 6 hours from day 18, month 9 gives day 19,
+  month 9; from day 31, month 9 at 20:00, waiting 6 hours gives day 1, month 10. This
+  fits month 9 = October (31 days) but does not yet distinguish it from a rollover of an
+  out-of-range day 31 in a 30-day month; a capture across the end of a 30-day month would.
+  While the player is in menus the clock keeps running at TimeScale (a first capture read
+  GameHour 14.136 for 14), so fractional time is not compared
+  (docs/spec-notes/xnvse-capture.md §5).
 - Globals changed at run time are part of the simulation state (`Snapshot.globals`).
 
 ## 6. Capturing the oracle (in-game)
