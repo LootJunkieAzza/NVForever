@@ -192,3 +192,9 @@ Lab comparator: **keyed** on `key` for `/objects` and for `/shapes` (all fields)
 ## `fnvtool dds list <archive>` → `fnv.dds.listing/1`
 
 Defined in docs/spec-notes/dds.md together with the texture notes.
+
+# Layer 4 (core simulation)
+
+`fnvtool sim containers` (`fnv.sim.containers/1`), `fnvtool sim run`
+(`fnv.sim.actions/1` → `fnv.sim.trace/1`) and `fnvtool sim forms` (`fnv.sim.forms/1`)
+are defined in docs/spec-notes/simulation.md §7 together with the simulation notes.
