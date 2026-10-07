@@ -129,7 +129,9 @@
       "inherit": "NiObject",
       "fields": [
         {"name": "group_id", "type": "i32"},
-        {"name": "num_vertices", "type": "u16"},
+        {"name": "num_vertices", "type": "u16", "exclude": ["NiPSysData"]},
+        {"name": "num_vertices", "type": "u16", "only": ["NiPSysData"], "cond": "bs_version < 34"},
+        {"name": "bs_max_vertices", "type": "u16", "only": ["NiPSysData"], "cond": "version == 0x14020007 && bs_version >= 34", "note": "nif.xml: Bethesda 20.2 particle data stores a maximum count here and no per-vertex arrays."},
         {"name": "keep_flags", "type": "u8"},
         {"name": "compress_flags", "type": "u8"},
         {"name": "has_vertices", "type": "bool"},
