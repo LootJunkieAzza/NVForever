@@ -17,7 +17,7 @@ viewer renders meshes with textures, skinning and animation
 | 1 | BSA reader, ESM/ESP parser, load order, schemas | container + load order complete; layouts for 40/107 record types; xEdit cross-check pending |
 | 2 | NIF, DDS, KF assets, viewer | 160/160 block types, 1,036,695 blocks exact; 56/56 parity scenarios; viewer (owner visual check pending) |
 | 3 | World and rendering | in progress: world data checked on the full load order; free-camera explorer draws terrain and objects (no LOD, sky, water or SpeedTree yet) |
-| 4 | Core simulation | started: headless `fnv-sim` (forms, references, inventories, leveled lists, activation, delta state, action traces); container contents match an independent oracle; collision next ([docs/design/layer4.md](docs/design/layer4.md)) |
+| 4 | Core simulation | started: headless `fnv-sim` (forms, references, inventories with per-item extra data and equipping, encumbrance, leveled lists, activation, game clock, container respawn, enable parents, placed explosives, delta state, action traces); container contents and item value/weight match an independent oracle; leveled-list distribution and in-game trace scenarios await captures; collision and physics in parallel workstreams ([docs/design/layer4.md](docs/design/layer4.md)) |
 | 5–7 | Scripting, gameplay, UI/audio/saves | not started |
 
 ## Where things go (separate from the game)

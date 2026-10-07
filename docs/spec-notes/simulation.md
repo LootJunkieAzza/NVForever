@@ -203,7 +203,10 @@ mapping itself is this project's]: `remove_all_items` → `player.removeallitems
 <v>`; `get_weight` → `player.getav InventoryWeight` (`weight`) and `player.getav
 CarryWeight` (`capacity`); `equip_item` → `player.equipitem <id>`; `set_global` → `set
 <Global> to <v>`; `get_global` → `show <Global>`; `advance_time h` → waiting h hours
-(Wait menu, at most 24 at a time); `get_disabled` → `<ref>.getdisabled`. Use a new
+(Wait menu, at most 24 at a time); `get_disabled` → `<ref>.getdisabled`; `enable` /
+`disable` → `<ref>.enable` / `<ref>.disable`. FormIDs in the inputs are load-order
+FormIDs of the ten masters in the order of this note, which is also the console's
+numbering when the game loads them in that order (Old World Blues = 03). Use a new
 level-1 character without perks or implants, so no modifier changes carry weight
 (`goodsprings_weight_and_time`).
 
@@ -293,7 +296,10 @@ Lab comparator: **keyed** on `formid` over `/containers`, all fields.
   once, the first occurrence is used (none does in the masters). A record that cannot be
   decoded is still listed, with every field `null`. CMNY DATA is named "Absolute Value"
   by xEdit and is not treated as the item's value [hypothesis: it is the denomination in
-  the Caravan game].
+  the Caravan game]. Known difference, not exercised by the data: `fnvtool` reads fields
+  through the Layer 1 schema, which decodes a subrecord whole or not at all, so a
+  truncated subrecord makes *all* its fields `null` there, not only those past the end
+  (no truncated item subrecord exists in the ten masters [observed]).
 - In the ten masters [observed, `oracle_sim.py items`]: 3,972 items (NOTE 1,225, MISC 603,
   WEAP 496, ARMO 489, CCRD 324, KEYM 313, ALCH 226, AMMO 145, IMOD 112, BOOK 27, CHIP 6,
   CMNY 6, carriable LIGH 0 — all 728 LIGH lack "Can be Carried"); the only `null` among
@@ -309,14 +315,19 @@ Input `fnv.sim.actions/1` (`parity-lab/inputs/layer4/*.actions.json`): `seed`,
 `player_level`, `actions` (ops: `activate`, `add_item`, `remove_item`, `transfer`,
 `transfer_all`, `drop_item`, `remove_all_items`, `get_item_count`, `get_pos`,
 `get_disabled`, `get_global`, `set_global`, `advance_time`, `equip_item`,
-`unequip_item`, `get_av`, `set_av`, `get_weight`, `lock`, `unlock`, `enable`, `disable`),
-optional `hardcore` (default false) and `report`. Queries (`get_*`) produce
-observations; `get_disabled` reports `disabled` (the in-game `GetDisabled`),
-`get_global` and `get_av` report `value`, `get_weight` reports `weight`, `capacity` and
-`over` (in-game: `GetAV InventoryWeight`, `GetAV CarryWeight` [hypothesis on the actor
-value names]). `drop_item` reports `references` (one per group of identical extra data).
-In `final`, a stack without extra data is a count; otherwise
-`{"count": n, "groups": [{"count": k, "condition": c, "owner": id, "equipped": true}]}`. References and forms are named by
+`unequip_item`, `get_av`, `set_av`, `get_weight`, `detach_cell`, `attach_cell`, `lock`,
+`unlock`, `enable`, `disable`), optional `hardcore` (default false) and `report`.
+Queries (`get_*`) produce observations; `get_disabled` reports `disabled` (the in-game
+`GetDisabled`), `get_global` and `get_av` report `value` (`get_av` knows the seven
+S.P.E.C.I.A.L. attributes), `get_weight` reports `weight`, `capacity` and `over`
+(in-game: `GetAV InventoryWeight`, `GetAV CarryWeight` [hypothesis on the actor value
+names]). `drop_item` reports `references` (one per group of identical extra data).
+`detach_cell {cell}` / `attach_cell {cell}` (cell by global FormID or Editor ID) mark the
+cell unloaded / loaded again; `attach_cell` reports `reset`, the references whose
+contents respawned (§3 "Respawn"). `activate` on a placed explosive (PGRE) reports
+`"result": "disarmed"` with the `item` (weapon) added to the activator (§1). In `final`, a
+stack without extra data is a count; otherwise `{"count": n, "groups": [{"count": k,
+"condition": c, "owner": id, "equipped": true}]}`. References and forms are named by
 global FormID, Editor ID, or `"player"`.
 
 ```json
