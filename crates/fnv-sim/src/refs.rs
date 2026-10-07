@@ -93,6 +93,10 @@ pub struct RefTable {
     pub by_cell: BTreeMap<FormId, Vec<FormId>>,
     /// Lower-case cell Editor ID -> cell.
     pub cell_edids: HashMap<String, FormId>,
+    /// Cells that belong to a worldspace (exterior cells and the persistent cell).
+    pub cell_world: HashMap<FormId, FormId>,
+    /// Each worldspace's exterior cells by grid coordinate.
+    pub world_grid: HashMap<FormId, BTreeMap<(i32, i32), FormId>>,
     /// References whose winning definition carries the Deleted flag (left out).
     pub deleted: u64,
     pub issues: Issues,
@@ -156,8 +160,22 @@ impl RefTable {
             if let Some(e) = &c.edid {
                 t.cell_edids.insert(e.to_ascii_lowercase(), FormId(c.form_id));
             }
+            if let Some(w) = c.world {
+                t.cell_world.insert(FormId(c.form_id), FormId(w));
+            }
+        }
+        for (w, ws) in &ix.worldspaces {
+            t.world_grid.insert(FormId(*w), ws.grid.iter().map(|(g, c)| (*g, FormId(*c))).collect());
         }
         t
+    }
+
+    /// The exterior cell at `pos` in the worldspace that `cell` belongs to, if `cell` is
+    /// a worldspace cell and a cell exists at that grid square.
+    pub fn exterior_cell_at(&self, cell: FormId, pos: [f32; 3]) -> Option<FormId> {
+        let world = self.cell_world.get(&cell)?;
+        let (gx, gy) = fnv_world::cell_of(pos[0], pos[1]);
+        self.world_grid.get(world)?.get(&(gx, gy)).copied()
     }
 
     /// A cell by Editor ID (case-insensitive).

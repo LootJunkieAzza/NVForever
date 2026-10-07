@@ -147,6 +147,11 @@ const LOCKER: u32 = 0x121; // CONT: PISTOL x1 with COED condition 0.75
 const MINE: u32 = 0x177; // WEAP firing MINE_PROJ
 const MINE_PROJ: u32 = 0x180; // PROJ
 const MINE_REF: u32 = 0x30B; // PGRE of MINE_PROJ
+const WORLD: u32 = 0x400; // WRLD
+const WORLD_PERSISTENT: u32 = 0x401; // the worldspace's persistent cell
+const WORLD_CELL: u32 = 0x402; // exterior cell at grid (-18, 0)
+const EXT_DOOR: u32 = 0x30C; // persistent door in WORLD_PERSISTENT
+const IN_DOOR: u32 = 0x30D; // door in CELL_B -> EXT_DOOR, destination inside grid (-18, 0)
 
 fn plugin_bytes() -> Vec<u8> {
     let misc = cat(&[
@@ -227,7 +232,20 @@ fn plugin_bytes() -> Vec<u8> {
         },
     ]);
     let pers_a = refr(KEY_REF, 0x400 | 0x800, KEY, [7.0, 8.0, 9.0], vec![sub(b"EDID", z("TestKeyRef"))]);
-    let temp_b = refr(DOOR_B, 0, DOOR, [0.0; 3], vec![xtel(DOOR_A, [-100.0, 0.0, 0.0])]);
+    let temp_b = cat(&[
+        &refr(DOOR_B, 0, DOOR, [0.0; 3], vec![xtel(DOOR_A, [-100.0, 0.0, 0.0])]),
+        &refr(IN_DOOR, 0, DOOR, [0.0; 3], vec![xtel(EXT_DOOR, [-73162.9, 1312.4, 8686.4])]),
+    ]);
+    let wrld = {
+        let wrec = record(b"WRLD", 0, WORLD, &[sub(b"EDID", z("TestWorld"))]);
+        let pcell = record(b"CELL", 0, WORLD_PERSISTENT, &[sub(b"DATA", vec![0])]);
+        let pdoor = refr(EXT_DOOR, 0x400, DOOR, [-73100.0, 1300.0, 8680.0], vec![xtel(IN_DOOR, [0.0; 3])]);
+        let xclc = cat(&[&(-18i32).to_le_bytes(), &0i32.to_le_bytes()]);
+        let ecell = record(b"CELL", 0, WORLD_CELL, &[sub(b"EDID", z("TestGrid")), sub(b"DATA", vec![0]), sub(b"XCLC", xclc)]);
+        let block = group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &cat(&[&ecell, &cell_children(WORLD_CELL, &[], &[])])));
+        let children = cat(&[&pcell, &cell_children(WORLD_PERSISTENT, &[], &pdoor), &block]);
+        top(b"WRLD", &cat(&[&wrec, &group(WORLD.to_le_bytes(), 1, &children)]))
+    };
     let cells = top(
         b"CELL",
         &group(
@@ -271,6 +289,7 @@ fn plugin_bytes() -> Vec<u8> {
         &top(b"DOOR", &door),
         &top(b"NPC_", &npc),
         &cells,
+        &wrld,
     ])
 }
 
@@ -323,7 +342,11 @@ fn forms_load_through_the_schema() {
 fn references_load_with_cells_and_extra_data() {
     let f = fixture();
     assert!(f.refs.issues.is_empty(), "{:?}", f.refs.issues.to_json());
-    assert_eq!(f.refs.refs.len(), 12);
+    assert_eq!(f.refs.refs.len(), 14);
+    assert_eq!(f.refs.get(id(EXT_DOOR)).unwrap().cell, Some(id(WORLD_PERSISTENT)));
+    assert_eq!(f.refs.exterior_cell_at(id(WORLD_PERSISTENT), [-73162.9, 1312.4, 0.0]), Some(id(WORLD_CELL)));
+    assert_eq!(f.refs.exterior_cell_at(id(WORLD_PERSISTENT), [0.0, 0.0, 0.0]), None);
+    assert_eq!(f.refs.exterior_cell_at(id(CELL_A), [-73162.9, 1312.4, 0.0]), None);
     assert!(f.refs.issues.is_empty(), "{:?}", f.refs.issues.to_json());
     assert_eq!(f.refs.cell_by_edid("testcella"), Some(id(CELL_A)));
     assert!(f.refs.by_cell[&id(CELL_A)].contains(&id(SAFE_REF)));
@@ -372,7 +395,10 @@ fn picking_up_and_dropping_items() {
     let r = w.activate(p, id(STIM_REF)).unwrap();
     assert_eq!(r.outcome, Outcome::PickedUp { item: id(STIMPAK), count: 3, owner: None });
     assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 3);
-    assert_eq!(w.activate(p, id(STIM_REF)).unwrap().outcome, Outcome::Disabled);
+    // Activating the taken reference again gives its stack again (observed in game).
+    assert_eq!(w.activate(p, id(STIM_REF)).unwrap().outcome, Outcome::PickedUp { item: id(STIMPAK), count: 3, owner: None });
+    assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 6);
+    w.remove_item(p, id(STIMPAK), 3).unwrap();
     let dropped = w.drop_item(p, id(STIMPAK), 2).unwrap()[0];
     assert_eq!(dropped, FormId::FIRST_DYNAMIC);
     assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 1);
@@ -727,4 +753,27 @@ fn leveled_sampling_histograms() {
     assert!(c[2]["error"].as_str().unwrap().contains("not a leveled item list"));
     assert!(c[3]["error"].as_str().unwrap().contains("nesting"));
     assert_eq!(fnv_sim::sample::run(&f.forms, &cases).unwrap(), out);
+}
+
+#[test]
+fn teleporting_into_a_worldspace_lands_in_the_grid_cell() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    let r = w.activate(p, id(IN_DOOR)).unwrap();
+    // The destination door is stored in the persistent cell; the player lands in the
+    // exterior cell containing the destination position.
+    assert_eq!(
+        r.outcome,
+        Outcome::Teleported {
+            to_door: id(EXT_DOOR),
+            cell: Some(id(WORLD_CELL)),
+            pos: [-73162.9, 1312.4, 8686.4],
+            rot: [0.0, 0.0, 1.5]
+        }
+    );
+    assert_eq!(w.peek(p).unwrap().cell, Some(id(WORLD_CELL)));
+    // Back inside: an interior door keeps its own cell.
+    w.activate(p, id(EXT_DOOR)).unwrap();
+    assert_eq!(w.peek(p).unwrap().cell, Some(id(CELL_B)));
 }
