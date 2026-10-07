@@ -1,0 +1,88 @@
+{
+  "format": "fnv.sim.actions/1",
+  "seed": 0,
+  "player_level": 1,
+  "actions": [
+    {
+      "op": "get_disabled",
+      "of": "0x0300DE81",
+      "label": "force field 0x0300DE81 (child of 0x030038F7) at start"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x030038F2",
+      "label": "light 0x030038F2 (grandchild, same state) at start"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x0300DE7B",
+      "label": "light-off 0x0300DE7B (grandchild, opposite state) at start"
+    },
+    {
+      "op": "disable",
+      "target": "0x030038F7"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x0300DE81",
+      "label": "force field 0x0300DE81 after disabling 0x030038F7"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x030038F2",
+      "label": "light 0x030038F2 after disabling 0x030038F7"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x0300DE7B",
+      "label": "light-off 0x0300DE7B after disabling 0x030038F7"
+    },
+    {
+      "op": "enable",
+      "target": "0x030038F7"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x0300DE81",
+      "label": "force field 0x0300DE81 after re-enabling 0x030038F7"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x0300DE7B",
+      "label": "light-off 0x0300DE7B after re-enabling 0x030038F7"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x03011433",
+      "label": "nightstalker 0x03011433 (opposite of trigger 0x03011439, flagged initially disabled) at start"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x03011423",
+      "label": "nightstalker 0x03011423 (child of 0x03011433) at start"
+    },
+    {
+      "op": "disable",
+      "target": "0x03011439"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x03011433",
+      "label": "nightstalker 0x03011433 after disabling trigger 0x03011439"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x03011423",
+      "label": "nightstalker 0x03011423 after disabling trigger 0x03011439"
+    },
+    {
+      "op": "enable",
+      "target": "0x03011439"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x03011423",
+      "label": "nightstalker 0x03011423 after re-enabling trigger 0x03011439"
+    }
+  ]
+}
