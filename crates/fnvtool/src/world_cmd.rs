@@ -17,13 +17,22 @@ pub fn run(cmd: WorldCmd) -> anyhow::Result<Value> {
     match cmd {
         WorldCmd::List { w } => with_world(&w, |lo, schema, ix| Ok(list(lo, schema, ix))),
         WorldCmd::Cells { w, world } => with_world(&w, |_, _, ix| cells(ix, world.as_deref())),
-        WorldCmd::Refs { w, cell, world, x, y } => with_world(&w, |lo, schema, ix| {
-            let c = match (cell, world, x, y) {
-                (Some(c), ..) => ix.cell_by_name(&c).ok_or_else(|| anyhow!("no cell {c}"))?,
-                (None, Some(wn), Some(x), Some(y)) => grid_cell(ix, &wn, x, y)?,
-                _ => unreachable!("clap requires --cell or --world with --x/--y"),
+        WorldCmd::Refs { w, cell, world: wn, x, y, interiors } => with_world(&w, |lo, schema, ix| {
+            let mut cs: Vec<&Cell> = match (cell, wn, x, y) {
+                (Some(c), ..) => vec![ix.cell_by_name(&c).ok_or_else(|| anyhow!("no cell {c}"))?],
+                (None, Some(wn), Some(x), Some(y)) => vec![grid_cell(ix, &wn, x, y)?],
+                (None, Some(_), _, Some(_)) | (None, Some(_), Some(_), None) => {
+                    return Err(anyhow!("--x and --y go together"))
+                }
+                (None, Some(wn), None, None) => {
+                    let id = world(ix, &wn)?.form_id;
+                    ix.cells.values().filter(|c| c.world == Some(id)).collect()
+                }
+                _ if interiors => ix.cells.values().filter(|c| c.world.is_none()).collect(),
+                _ => unreachable!("clap requires --cell, --world or --interiors"),
             };
-            Ok(refs(lo, schema, ix, c))
+            cs.sort_by_key(|c| c.form_id);
+            Ok(refs(lo, schema, ix, &cs))
         }),
         WorldCmd::Land { w, g, full } => with_world(&w, |lo, schema, ix| land(lo, schema, ix, &g, full)),
         WorldCmd::Heights { w, world } => with_world(&w, |lo, schema, ix| heights(lo, schema, ix, &world)),
@@ -134,19 +143,21 @@ fn cells(ix: &WorldIndex, wn: Option<&str>) -> anyhow::Result<Value> {
     }))
 }
 
-fn refs(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex, c: &Cell) -> Value {
-    let rows: Vec<Value> = c
-        .refs
+fn refs(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex, cells: &[&Cell]) -> Value {
+    let mut ids: Vec<u32> = cells.iter().flat_map(|c| c.refs.iter().copied()).collect();
+    ids.sort_unstable();
+    let rows: Vec<Value> = ids
         .par_iter()
         .map(|&r| {
             let e = ix.refs[&r];
             let Some(p) = placement(lo, schema, r) else {
-                return json!({"formid": fid(r), "type": sig(&e.sig), "error": "unreadable"});
+                return json!({"formid": fid(r), "type": sig(&e.sig), "cell": fid(e.cell), "error": "unreadable"});
             };
             let base = p.base.and_then(|b| base_object(lo, schema, b));
             json!({
                 "formid": fid(r),
                 "type": sig(&p.sig),
+                "cell": fid(e.cell),
                 "base": opt_fid(p.base),
                 "base_type": base.as_ref().map(|b| sig(&b.sig)),
                 "base_edid": base.as_ref().and_then(|b| b.edid.clone()),
@@ -162,7 +173,7 @@ fn refs(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex, c: &Cell) -> Value {
             })
         })
         .collect();
-    json!({"schema": "fnv.world.refs/1", "cell": cell_json(c), "refs": rows})
+    json!({"schema": "fnv.world.refs/1", "cells": cells.iter().map(|c| cell_json(c)).collect::<Vec<_>>(), "refs": rows})
 }
 
 fn rows<T: Copy>(v: &[T]) -> Vec<Vec<T>> {

@@ -129,7 +129,8 @@ cargo run --release --bin nvforever -- --data $D --cell Goodsprings
 ```
 
 Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
-F12 screenshot, Esc quit. `--world`, `--cell x,y`, `--pos x,y,z`, `--heading`, `--radius`.
+`[`/`]` hour, F12 screenshot, Esc quit. `--world`, `--cell x,y`, `--pos x,y,z`, `--heading`,
+`--radius`, `--hour`, `--weather`.
 
 ## Rules of the project
 

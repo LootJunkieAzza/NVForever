@@ -2,9 +2,9 @@
 
 Spec section 5 Layer 3 and milestone M3 ("walk a free camera through the Mojave with
 correct terrain and objects"), in the section 9 format. Status 2026-10-07: **world data
-layer done and checked on the owner's install; first world renderer draws terrain and
-static objects around a free camera (Goodsprings renders recognisably); sky, water, LOD,
-SpeedTree and screenshot parity not started.**
+layer done and checked on the owner's install; the world renderer draws terrain, static
+objects, a weather-driven sky with time of day, and water around a free camera; clouds,
+LOD, SpeedTree and screenshot parity not started.**
 
 ## 1. Summary and assumptions
 
@@ -81,7 +81,13 @@ What it does now:
 - Materials as in the viewer, plus: nodes named `EditorMarker*` are skipped, additive and
   multiplicative NIF blend modes are honoured, alpha test wins over blending, and
   BSShaderNoLightingProperty is unlit (nif.md §6).
-- Placeholder sun, ambient light, sky colour and distance fog.
+- Sky, sun, ambient light and fog from the worldspace's climate and weather at a time
+  of day (`--hour`, `[`/`]` keys; `--weather`; `--fog near,far` override): a vertex-coloured
+  sky dome (sky-lower / horizon / sky-upper), a directional light with the weather's
+  sunlight colour along a sun path, a sun disc with the climate's sun texture, ambient and
+  fog colours (world.md §6). Light levels are tuned by eye until screenshots exist.
+- Water: one plane per "has water" cell at its water height with the water type's
+  colour, opacity and noise normal map (no reflection or refraction yet).
 
 Measured on the owner's machine (i7-7700HQ, GTX 1050): 5 × 5 cells around Goodsprings
 (1,948 references drawn, 3,085 shapes, 224 models, 506 terrain layers) load in 2.5 s;
@@ -118,10 +124,10 @@ game units unchanged.
    square of `uGridsToLoad` cells, default 5 [documented: Fallout.ini default, to be
    confirmed from the owner's INI]); load on background tasks; despawn outside a
    hysteresis margin.
-6. **Lighting, sky, weather**: sun direction and colours from the climate/weather records
+6. **Lighting, sky, weather** (first version done; clouds, stars, interiors to do): sun direction and colours from the climate/weather records
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
-7. **Water**: worldspace / cell water height, WATR records, placeable water (PWAT).
+7. **Water** (first version done; reflections to do): worldspace / cell water height, WATR records, placeable water (PWAT).
 8. **SpeedTree**: TREE references (18,050 in WastelandNV, e.g. the desert shrubs) use
    SpeedTree `.spt` models from `trees\`, a non-NIF format; needs its own clean-room
    format study before they can be drawn.

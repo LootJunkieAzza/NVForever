@@ -118,12 +118,77 @@ game (visual check, 2026-10-07) [observed].
 A reference's world transform is then translation = position, rotation as above, uniform
 scale = XSCL, applied to the model's root (whose own transform composes beneath it).
 
-## 5. Open questions
+## 5. Field layouts used by the world commands
+
+All little-endian; text is Windows-1252, NUL-terminated (esm.md). FormIDs inside a record
+are local to the plugin that holds the record and are mapped to the load order through
+that plugin's master list (esm.md). Layouts are [documented: xEdit] and decode exactly
+for every occurrence in the ten masters [observed: `fnvtool esm coverage`]. A subrecord
+whose size does not match its layout is treated as absent.
+
+| Record | Subrecord | Layout |
+|---|---|---|
+| any | `EDID` | Editor ID, zstring |
+| CELL, WRLD | `FULL` | display name, zstring |
+| CELL | `DATA` | u8 flags; bit 0 = interior (size 1) |
+| CELL | `XCLC` | i32 x, i32 y, then optionally u8 land flags + 3 unused bytes (size 8 or 12) |
+| CELL | `XCLW` | f32 water height (size 4) |
+| REFR, ACHR, ACRE, PGRE | `NAME` | u32 base FormID (size 4) |
+| REFR, ACHR, ACRE, PGRE | `DATA` | f32 position x, y, z, f32 rotation x, y, z in radians (size 24) |
+| any reference | `XSCL` | f32 scale (size 4) |
+| any reference | `XESP` | u32 enable-parent FormID, u8 flags (bit 0 opposite), 3 unused (size 8) |
+| base objects | `MODL` | model path, zstring |
+| LAND | `VHGT` | f32 offset, 33 × 33 i8 steps (row by row), 3 unused (size 1096) |
+
+When a record has several subrecords with the same signature, the first one counts.
+
+## 6. Climate, weather and water
+
+Layouts: `schemas/fnv/sky.json` [documented: xEdit], checked with `fnvtool esm coverage`
+on the ten masters: every CLMT, WTHR and WATR subrecord decodes exactly, except the
+six per-time-of-day image-space adapter links in WTHR (signatures starting with a 0x00..0x05
+byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layout
+(visual data plus damage) [observed].
+
+- **Worldspace → climate and water**: WRLD `CNAM` (climate) and `NAM2` (water type);
+  child worldspaces may take them from their parent (PNAM flags) [documented]. The
+  Mojave uses NVDefaultClimate [observed].
+- **Climate (CLMT)**: `WLST` = list of (weather, chance i32, global variable) [documented];
+  `FNAM`/`GNAM` sun and glare textures; `TNAM` = sunrise begin/end, sunset begin/end,
+  volatility, moons, with times in 10-minute units (value / 6 = hours) [documented]. The
+  Mojave: sunrise 6:00-8:00, sunset 18:00-20:00 [observed].
+- **Choosing a weather** [hypothesis]: NVDefaultClimate lists NVWastelandClearNight (chance
+  100, gated by the global `VNight`, value 0 in the masters) and NVWastelandClear (chance
+  100, no global). Reading a global as a condition that must be non-zero gives the clear
+  weather by day. The renderer uses the highest chance among eligible entries; the real
+  selection is random over chances (Layer 4+).
+- **Weather colours (WTHR NAM0)**: ten colour types in the order sky-upper, fog, unused,
+  ambient, sunlight, sun, stars, sky-lower, horizon, effect lighting [documented]; each
+  has one RGBA byte colour per time of day: sunrise, day, sunset, night and, in the
+  6-time layout, high noon and midnight [documented]. 90 weathers store 6 times (240
+  bytes), 8 store 4 (160 bytes) [observed]. Cloud colours (`PNAM`) follow the same
+  pattern per cloud layer (96 or 64 bytes) [observed]. Cloud textures: `DNAM`, `CNAM`,
+  `ANAM`, `BNAM` (layers 0-3) [documented].
+- **Fog (WTHR FNAM)**: day near/far, night near/far, day/night power [documented].
+  NVWastelandClear: near -10, far 200,000, power 0.6 / 0.5 [observed].
+- **Time-of-day blending** [hypothesis, `fnv_world::sky::time_keys`]: piecewise linear
+  between keys at 0 h (midnight), sunrise begin (night), mid-sunrise (sunrise), sunrise end
+  (day), 12 h (high noon), sunset begin (day), mid-sunset (sunset), sunset end (night),
+  24 h (midnight). Sun: rises due east at mid-sunrise, sets due west at mid-sunset, path
+  tilted south. Verify against in-game screenshots at several hours.
+- **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
+  the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
+  [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600
+  [observed]. WATR: noise texture `NNAM`, opacity `ANAM`, visual data `DNAM` (colours
+  shallow/deep/reflection at bytes 48/52/56 among 49 fields) [documented].
+
+## 7. Open questions
 
 1. Engine-defined base objects (FormIDs < 0x800): which are visible? (Assumed none.)
 2. Texture-layer details: quadrant order, blending of `layer` numbers, the default
    texture when `BTXT` is absent, and how the 17 × 17 alpha grid maps to vertices.
    Verify by comparing renders with in-game screenshots.
 3. XCLW sentinel 3.4028235e38: confirm that the worldspace water height applies.
-4. The engine's handling of SCOL references: whether it draws the combined mesh (assumed)
+4. Weather selection rule and the meaning of WLST globals (see §6).
+5. The engine's handling of SCOL references: whether it draws the combined mesh (assumed)
    or the parts.
