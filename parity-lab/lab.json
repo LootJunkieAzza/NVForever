@@ -6,6 +6,7 @@
     "data_dir": "SET_ME: path to the game's Data folder",
     "goldens_dir": "SET_ME: private goldens directory outside the repo",
     "schema_dir": "{lab_root}/../schemas/fnv",
+    "nif_schema_dir": "{lab_root}/../schemas/nif",
     "baseline_path": "{lab_root}/runs/baseline.json"
   },
   "goldens_dir": "{goldens_dir}",
