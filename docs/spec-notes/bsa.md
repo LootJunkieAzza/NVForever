@@ -52,7 +52,7 @@ All integers little-endian.
 | 0x8, 0x10, 0x20 | "retain names/offsets" hints | [documented], no layout effect seen |
 | 0x40 | Xbox 360 (big-endian) | [documented]; not supported |
 | 0x80 | set on all mesh/texture-type archives (`0x83`) | meaning unknown; **not** "embedded names": data in those archives starts directly with file contents [observed] |
-| 0x100 | file data prefixed by a length-prefixed full path | [documented for later archives]; never set in FNV [observed] |
+| 0x100 | file data prefixed by the file's full path as a u8-length string (no NUL), before any compression header | [documented]; set (flags 0x107) on `Fallout - Textures.bsa` and `Fallout - Textures2.bsa`, where all 22,054 files carry their own path [observed 2026-10-07 on the full install; an earlier note said "never set", written before those two archives were available] |
 
 ## Compressed file data
 

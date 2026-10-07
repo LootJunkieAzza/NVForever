@@ -1,0 +1,576 @@
+{
+  "format": "fnv.nif.schema/1",
+  "_comment": "Animation: controllers, interpolators, keyframe data and KF sequences, plus the generic keyframe structs (Key, QuatKey, KeyGroup, TBC) shared by other groups. Layouts re-expressed from niftools nif.xml (https://github.com/niftools/nifxml, GPL-3.0, read as documentation only; no text copied) for the versions in the FNV corpus only: 20.2.0.7 with user version 11 and bs_version 14-34, and 20.0.0.4 with user version 11 (old-format KF files with a string palette). Facts cross-checked against nv-rs crates/nif (MIT/Apache) without copying code. Every block is checked against the user's install with `fnvtool nif coverage` (exact consumption + byte-identical re-encode).",
+  "enums": {
+    "KeyType": {
+      "storage": "u32",
+      "values": {"1": "LINEAR_KEY", "2": "QUADRATIC_KEY", "3": "TBC_KEY", "4": "XYZ_ROTATION_KEY", "5": "CONST_KEY"}
+    },
+    "CycleType": {
+      "storage": "u32",
+      "values": {"0": "CYCLE_LOOP", "1": "CYCLE_REVERSE", "2": "CYCLE_CLAMP"}
+    },
+    "InterpBlendFlags": {
+      "storage": "u8",
+      "bits": {"0": "manager_controlled", "1": "only_highest_weight"}
+    },
+    "MaterialColor": {
+      "storage": "u16",
+      "values": {"0": "TC_AMBIENT", "1": "TC_DIFFUSE", "2": "TC_SPECULAR", "3": "TC_SELF_ILLUM"}
+    },
+    "LightColor": {
+      "storage": "u16",
+      "values": {"0": "LC_DIFFUSE", "1": "LC_AMBIENT"}
+    },
+    "TexType": {
+      "storage": "u32",
+      "values": {"0": "BASE_MAP", "1": "DARK_MAP", "2": "DETAIL_MAP", "3": "GLOSS_MAP", "4": "GLOW_MAP", "5": "BUMP_MAP", "6": "NORMAL_MAP", "7": "PARALLAX_MAP", "8": "DECAL_0_MAP", "9": "DECAL_1_MAP", "10": "DECAL_2_MAP", "11": "DECAL_3_MAP"}
+    },
+    "TransformMember": {
+      "storage": "u32",
+      "values": {"0": "TT_TRANSLATE_U", "1": "TT_TRANSLATE_V", "2": "TT_ROTATE", "3": "TT_SCALE_U", "4": "TT_SCALE_V"}
+    },
+    "GeomMorpherFlags": {
+      "storage": "u16",
+      "values": {"0": "UPDATE_NORMALS_DISABLED", "1": "UPDATE_NORMALS_ENABLED"}
+    },
+    "PathFlags": {
+      "storage": "u16",
+      "bits": {"0": "cv_data_needs_update", "1": "curve_type_open", "2": "allow_flip", "3": "bank", "4": "constant_velocity", "5": "follow", "6": "flip"}
+    },
+    "LookAtFlags": {
+      "storage": "u16",
+      "bits": {"0": "look_flip", "1": "look_y_axis", "2": "look_z_axis"}
+    },
+    "AnimNoteType": {
+      "storage": "u32",
+      "values": {"0": "ANT_INVALID", "1": "ANT_GRABIK", "2": "ANT_LOOKIK"}
+    }
+  },
+  "structs": {
+    "TBC": {
+      "note": "nif.xml <struct name=\"TBC\">: tension, bias, continuity.",
+      "fields": [
+        {"name": "tension", "type": "f32"},
+        {"name": "bias", "type": "f32"},
+        {"name": "continuity", "type": "f32"}
+      ]
+    },
+    "Key": {
+      "note": "nif.xml <struct name=\"Key\">. arg = KeyType of the owning group; T = value type.",
+      "fields": [
+        {"name": "time", "type": "f32"},
+        {"name": "value", "type": "T"},
+        {"name": "forward", "type": "T", "cond": "arg == 2"},
+        {"name": "backward", "type": "T", "cond": "arg == 2"},
+        {"name": "tbc", "type": "TBC", "cond": "arg == 3"}
+      ]
+    },
+    "QuatKey": {
+      "note": "nif.xml <struct name=\"QuatKey\">. arg = rotation KeyType; T = quat.",
+      "fields": [
+        {"name": "time", "type": "f32", "cond": "arg != 4"},
+        {"name": "value", "type": "T", "cond": "arg != 4"},
+        {"name": "tbc", "type": "TBC", "cond": "arg == 3"}
+      ]
+    },
+    "KeyGroup": {
+      "note": "nif.xml <struct name=\"KeyGroup\">: key count, interpolation type (only when there are keys), keys.",
+      "fields": [
+        {"name": "num_keys", "type": "u32"},
+        {"name": "interpolation", "type": "KeyType", "cond": "num_keys != 0"},
+        {"name": "keys", "type": "Key", "length": "num_keys", "arg": "interpolation", "template": "T"}
+      ]
+    },
+    "NiQuatTransform": {
+      "note": "nif.xml <struct name=\"NiQuatTransform\">; the TRS-valid flags end at 10.1.0.109.",
+      "fields": [
+        {"name": "translation", "type": "vec3"},
+        {"name": "rotation", "type": "quat"},
+        {"name": "scale", "type": "f32"}
+      ]
+    },
+    "ControlledBlock": {
+      "note": "nif.xml <struct name=\"ControlledBlock\">. 20.0.0.4 names targets through offsets into a NiStringPalette; 20.1.0.1+ uses strings. The priority byte is Bethesda-only (bs_version > 0, true for every file in this corpus).",
+      "fields": [
+        {"name": "interpolator", "type": "ref"},
+        {"name": "controller", "type": "ref"},
+        {"name": "priority", "type": "u8"},
+        {"name": "string_palette", "type": "ref", "until": "20.1.0.0"},
+        {"name": "node_name_offset", "type": "u32", "until": "20.1.0.0"},
+        {"name": "property_type_offset", "type": "u32", "until": "20.1.0.0"},
+        {"name": "controller_type_offset", "type": "u32", "until": "20.1.0.0"},
+        {"name": "controller_id_offset", "type": "u32", "until": "20.1.0.0"},
+        {"name": "interpolator_id_offset", "type": "u32", "until": "20.1.0.0"},
+        {"name": "node_name", "type": "string", "since": "20.1.0.1"},
+        {"name": "property_type", "type": "string", "since": "20.1.0.1"},
+        {"name": "controller_type", "type": "string", "since": "20.1.0.1"},
+        {"name": "controller_id", "type": "string", "since": "20.1.0.1"},
+        {"name": "interpolator_id", "type": "string", "since": "20.1.0.1"}
+      ]
+    },
+    "InterpBlendItem": {
+      "note": "nif.xml <struct name=\"InterpBlendItem\"> (byte priority from 10.1.0.110).",
+      "fields": [
+        {"name": "interpolator", "type": "ref"},
+        {"name": "weight", "type": "f32"},
+        {"name": "normalized_weight", "type": "f32"},
+        {"name": "priority", "type": "u8"},
+        {"name": "ease_spinner", "type": "f32"}
+      ]
+    },
+    "AVObject": {
+      "note": "nif.xml <struct name=\"AVObject\">: always-inline name and a pointer to the object.",
+      "fields": [
+        {"name": "name", "type": "sized_string"},
+        {"name": "av_object", "type": "ptr"}
+      ]
+    },
+    "MorphWeight": {
+      "note": "nif.xml <struct name=\"MorphWeight\">.",
+      "fields": [
+        {"name": "interpolator", "type": "ref"},
+        {"name": "weight", "type": "f32"}
+      ]
+    },
+    "Morph": {
+      "note": "nif.xml <struct name=\"Morph\">; arg = vertex count of the owning NiMorphData.",
+      "fields": [
+        {"name": "frame_name", "type": "string"},
+        {"name": "legacy_weight", "type": "f32", "until": "20.1.0.2", "cond": "bs_version < 10"},
+        {"name": "vectors", "type": "vec3", "length": "arg"}
+      ]
+    },
+    "NodeSet": {
+      "note": "nif.xml <struct name=\"NodeSet\">.",
+      "fields": [
+        {"name": "num_nodes", "type": "u32"},
+        {"name": "nodes", "type": "ptr", "length": "num_nodes"}
+      ]
+    },
+    "BSTreadTransform": {
+      "note": "nif.xml <struct name=\"BSTreadTransform\">.",
+      "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "transform_1", "type": "NiQuatTransform"},
+        {"name": "transform_2", "type": "NiQuatTransform"}
+      ]
+    }
+  },
+  "blocks": {
+    "NiKeyframeData": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"NiKeyframeData\">: quaternion keys unless the rotation type is XYZ (4), then three float key groups.",
+      "fields": [
+        {"name": "num_rotation_keys", "type": "u32"},
+        {"name": "rotation_type", "type": "KeyType", "cond": "num_rotation_keys != 0"},
+        {"name": "quaternion_keys", "type": "QuatKey", "length": "num_rotation_keys", "arg": "rotation_type", "template": "quat", "cond": "rotation_type != 4"},
+        {"name": "xyz_rotations", "type": "KeyGroup", "length": 3, "template": "f32", "cond": "rotation_type == 4"},
+        {"name": "translations", "type": "KeyGroup", "template": "vec3"},
+        {"name": "scales", "type": "KeyGroup", "template": "f32"}
+      ]
+    },
+    "NiTransformData": {"inherit": "NiKeyframeData", "note": "nif.xml <niobject name=\"NiTransformData\">; no own fields."},
+    "NiFloatData": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"NiFloatData\">.",
+      "fields": [
+        {"name": "data", "type": "KeyGroup", "template": "f32"}
+      ]
+    },
+    "NiBoolData": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"NiBoolData\">: byte-valued keys.",
+      "fields": [
+        {"name": "data", "type": "KeyGroup", "template": "u8"}
+      ]
+    },
+    "NiPosData": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"NiPosData\">.",
+      "fields": [
+        {"name": "data", "type": "KeyGroup", "template": "vec3"}
+      ]
+    },
+    "NiColorData": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"NiColorData\">.",
+      "fields": [
+        {"name": "data", "type": "KeyGroup", "template": "color4"}
+      ]
+    },
+    "NiMorphData": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"NiMorphData\">.",
+      "fields": [
+        {"name": "num_morphs", "type": "u32"},
+        {"name": "num_vertices", "type": "u32"},
+        {"name": "relative_targets", "type": "u8"},
+        {"name": "morphs", "type": "Morph", "length": "num_morphs", "arg": "num_vertices"}
+      ]
+    },
+    "NiBSplineData": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"NiBSplineData\">.",
+      "fields": [
+        {"name": "num_float_control_points", "type": "u32"},
+        {"name": "float_control_points", "type": "f32", "length": "num_float_control_points"},
+        {"name": "num_compact_control_points", "type": "u32"},
+        {"name": "compact_control_points", "type": "i16", "length": "num_compact_control_points"}
+      ]
+    },
+    "NiBSplineBasisData": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"NiBSplineBasisData\">.",
+      "fields": [
+        {"name": "num_control_points", "type": "u32"}
+      ]
+    },
+    "NiStringPalette": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"NiStringPalette\"> / <struct name=\"StringPalette\">: NUL-separated strings plus their total length. Only in 20.0.0.4 KF files.",
+      "fields": [
+        {"name": "palette", "type": "sized_string"},
+        {"name": "length", "type": "u32"}
+      ]
+    },
+    "NiTextKeyExtraData": {
+      "inherit": "NiExtraData",
+      "note": "nif.xml <niobject name=\"NiTextKeyExtraData\">: linear keys with string values.",
+      "fields": [
+        {"name": "num_text_keys", "type": "u32"},
+        {"name": "text_keys", "type": "Key", "length": "num_text_keys", "arg": 1, "template": "string"}
+      ]
+    },
+    "BSAnimNotes": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"BSAnimNotes\">.",
+      "fields": [
+        {"name": "num_anim_notes", "type": "u16"},
+        {"name": "anim_notes", "type": "ref", "length": "num_anim_notes"}
+      ]
+    },
+    "BSAnimNote": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"BSAnimNote\">.",
+      "fields": [
+        {"name": "note_type", "type": "AnimNoteType"},
+        {"name": "time", "type": "f32"},
+        {"name": "arm", "type": "u32", "cond": "note_type == 1"},
+        {"name": "gain", "type": "f32", "cond": "note_type == 2"},
+        {"name": "state", "type": "u32", "cond": "note_type == 2"}
+      ]
+    },
+
+    "NiTransformInterpolator": {
+      "inherit": "NiKeyBasedInterpolator",
+      "note": "nif.xml <niobject name=\"NiTransformInterpolator\">.",
+      "fields": [
+        {"name": "transform", "type": "NiQuatTransform"},
+        {"name": "data", "type": "ref"}
+      ]
+    },
+    "BSRotAccumTransfInterpolator": {"inherit": "NiTransformInterpolator", "note": "nif.xml <niobject name=\"BSRotAccumTransfInterpolator\">; no own fields."},
+    "NiFloatInterpolator": {
+      "inherit": "NiKeyBasedInterpolator",
+      "note": "nif.xml <niobject name=\"NiFloatInterpolator\">.",
+      "fields": [
+        {"name": "value", "type": "f32"},
+        {"name": "data", "type": "ref"}
+      ]
+    },
+    "NiBoolInterpolator": {
+      "inherit": "NiKeyBasedInterpolator",
+      "note": "nif.xml <niobject name=\"NiBoolInterpolator\">; value is an 8-bit bool (2 = invalid).",
+      "fields": [
+        {"name": "value", "type": "bool"},
+        {"name": "data", "type": "ref"}
+      ]
+    },
+    "NiBoolTimelineInterpolator": {"inherit": "NiBoolInterpolator", "note": "nif.xml <niobject name=\"NiBoolTimelineInterpolator\">; no own fields."},
+    "NiPoint3Interpolator": {
+      "inherit": "NiKeyBasedInterpolator",
+      "note": "nif.xml <niobject name=\"NiPoint3Interpolator\">.",
+      "fields": [
+        {"name": "value", "type": "vec3"},
+        {"name": "data", "type": "ref"}
+      ]
+    },
+    "NiPathInterpolator": {
+      "inherit": "NiKeyBasedInterpolator",
+      "note": "nif.xml <niobject name=\"NiPathInterpolator\">.",
+      "fields": [
+        {"name": "flags", "type": "PathFlags"},
+        {"name": "bank_dir", "type": "i32"},
+        {"name": "max_bank_angle", "type": "f32"},
+        {"name": "smoothing", "type": "f32"},
+        {"name": "follow_axis", "type": "i16"},
+        {"name": "path_data", "type": "ref"},
+        {"name": "percent_data", "type": "ref"}
+      ]
+    },
+    "NiLookAtInterpolator": {
+      "inherit": "NiInterpolator",
+      "note": "nif.xml <niobject name=\"NiLookAtInterpolator\">.",
+      "fields": [
+        {"name": "flags", "type": "LookAtFlags"},
+        {"name": "look_at", "type": "ptr"},
+        {"name": "look_at_name", "type": "string"},
+        {"name": "transform", "type": "NiQuatTransform"},
+        {"name": "translation_interpolator", "type": "ref"},
+        {"name": "roll_interpolator", "type": "ref"},
+        {"name": "scale_interpolator", "type": "ref"}
+      ]
+    },
+    "BSTreadTransfInterpolator": {
+      "inherit": "NiInterpolator",
+      "note": "nif.xml <niobject name=\"BSTreadTransfInterpolator\">.",
+      "fields": [
+        {"name": "num_tread_transforms", "type": "u32"},
+        {"name": "tread_transforms", "type": "BSTreadTransform", "length": "num_tread_transforms"},
+        {"name": "data", "type": "ref"}
+      ]
+    },
+
+    "NiBlendInterpolator": {
+      "abstract": true,
+      "inherit": "NiInterpolator",
+      "note": "nif.xml <niobject name=\"NiBlendInterpolator\">, 10.1.0.112+ layout: the blend state is stored only when the manager-controlled flag (bit 0) is clear.",
+      "fields": [
+        {"name": "flags", "type": "InterpBlendFlags"},
+        {"name": "array_size", "type": "u8"},
+        {"name": "weight_threshold", "type": "f32"},
+        {"name": "interp_count", "type": "u8", "cond": "(flags & 1) == 0"},
+        {"name": "single_index", "type": "u8", "cond": "(flags & 1) == 0"},
+        {"name": "high_priority", "type": "i8", "cond": "(flags & 1) == 0"},
+        {"name": "next_high_priority", "type": "i8", "cond": "(flags & 1) == 0"},
+        {"name": "single_time", "type": "f32", "cond": "(flags & 1) == 0"},
+        {"name": "high_weights_sum", "type": "f32", "cond": "(flags & 1) == 0"},
+        {"name": "next_high_weights_sum", "type": "f32", "cond": "(flags & 1) == 0"},
+        {"name": "high_ease_spinner", "type": "f32", "cond": "(flags & 1) == 0"},
+        {"name": "interp_array_items", "type": "InterpBlendItem", "length": "array_size", "cond": "(flags & 1) == 0"}
+      ]
+    },
+    "NiBlendBoolInterpolator": {
+      "inherit": "NiBlendInterpolator",
+      "note": "nif.xml <niobject name=\"NiBlendBoolInterpolator\">.",
+      "fields": [
+        {"name": "value", "type": "u8"}
+      ]
+    },
+    "NiBlendFloatInterpolator": {
+      "inherit": "NiBlendInterpolator",
+      "note": "nif.xml <niobject name=\"NiBlendFloatInterpolator\">.",
+      "fields": [
+        {"name": "value", "type": "f32"}
+      ]
+    },
+    "NiBlendPoint3Interpolator": {
+      "inherit": "NiBlendInterpolator",
+      "note": "nif.xml <niobject name=\"NiBlendPoint3Interpolator\">.",
+      "fields": [
+        {"name": "value", "type": "vec3"}
+      ]
+    },
+
+    "NiBSplineInterpolator": {
+      "abstract": true,
+      "inherit": "NiInterpolator",
+      "note": "nif.xml <niobject name=\"NiBSplineInterpolator\">.",
+      "fields": [
+        {"name": "start_time", "type": "f32"},
+        {"name": "stop_time", "type": "f32"},
+        {"name": "spline_data", "type": "ref"},
+        {"name": "basis_data", "type": "ref"}
+      ]
+    },
+    "NiBSplineTransformInterpolator": {
+      "inherit": "NiBSplineInterpolator",
+      "note": "nif.xml <niobject name=\"NiBSplineTransformInterpolator\">; handles index into the spline data (0xFFFF = static).",
+      "fields": [
+        {"name": "transform", "type": "NiQuatTransform"},
+        {"name": "translation_handle", "type": "u32"},
+        {"name": "rotation_handle", "type": "u32"},
+        {"name": "scale_handle", "type": "u32"}
+      ]
+    },
+    "NiBSplineCompTransformInterpolator": {
+      "inherit": "NiBSplineTransformInterpolator",
+      "note": "nif.xml <niobject name=\"NiBSplineCompTransformInterpolator\">: offset/half-range pairs for decompressing the i16 control points.",
+      "fields": [
+        {"name": "translation_offset", "type": "f32"},
+        {"name": "translation_half_range", "type": "f32"},
+        {"name": "rotation_offset", "type": "f32"},
+        {"name": "rotation_half_range", "type": "f32"},
+        {"name": "scale_offset", "type": "f32"},
+        {"name": "scale_half_range", "type": "f32"}
+      ]
+    },
+    "NiBSplinePoint3Interpolator": {
+      "abstract": true,
+      "inherit": "NiBSplineInterpolator",
+      "note": "nif.xml <niobject name=\"NiBSplinePoint3Interpolator\">.",
+      "fields": [
+        {"name": "value", "type": "vec3"},
+        {"name": "handle", "type": "u32"}
+      ]
+    },
+    "NiBSplineCompPoint3Interpolator": {
+      "inherit": "NiBSplinePoint3Interpolator",
+      "note": "nif.xml <niobject name=\"NiBSplineCompPoint3Interpolator\">.",
+      "fields": [
+        {"name": "position_offset", "type": "f32"},
+        {"name": "position_half_range", "type": "f32"}
+      ]
+    },
+    "NiBSplineFloatInterpolator": {
+      "abstract": true,
+      "inherit": "NiBSplineInterpolator",
+      "note": "nif.xml <niobject name=\"NiBSplineFloatInterpolator\">.",
+      "fields": [
+        {"name": "value", "type": "f32"},
+        {"name": "handle", "type": "u32"}
+      ]
+    },
+    "NiBSplineCompFloatInterpolator": {
+      "inherit": "NiBSplineFloatInterpolator",
+      "note": "nif.xml <niobject name=\"NiBSplineCompFloatInterpolator\">.",
+      "fields": [
+        {"name": "float_offset", "type": "f32"},
+        {"name": "float_half_range", "type": "f32"}
+      ]
+    },
+
+    "NiKeyframeController": {"inherit": "NiSingleInterpController", "note": "nif.xml <niobject name=\"NiKeyframeController\">; its data ref ends at 10.1.0.103."},
+    "NiTransformController": {"inherit": "NiKeyframeController", "note": "nif.xml <niobject name=\"NiTransformController\">; no own fields."},
+    "NiFloatInterpController": {"abstract": true, "inherit": "NiSingleInterpController", "note": "nif.xml <niobject name=\"NiFloatInterpController\">."},
+    "NiBoolInterpController": {"abstract": true, "inherit": "NiSingleInterpController", "note": "nif.xml <niobject name=\"NiBoolInterpController\">."},
+    "NiPoint3InterpController": {"abstract": true, "inherit": "NiSingleInterpController", "note": "nif.xml <niobject name=\"NiPoint3InterpController\">."},
+    "NiVisController": {"inherit": "NiBoolInterpController", "note": "nif.xml <niobject name=\"NiVisController\">; data ref ends at 10.1.0.103."},
+    "NiAlphaController": {"inherit": "NiFloatInterpController", "note": "nif.xml <niobject name=\"NiAlphaController\">; data ref ends at 10.1.0.103."},
+    "NiLightDimmerController": {"inherit": "NiFloatInterpController", "note": "nif.xml <niobject name=\"NiLightDimmerController\">."},
+    "BSMaterialEmittanceMultController": {"inherit": "NiFloatInterpController", "note": "nif.xml <niobject name=\"BSMaterialEmittanceMultController\">."},
+    "BSRefractionStrengthController": {"inherit": "NiFloatInterpController", "note": "nif.xml <niobject name=\"BSRefractionStrengthController\">."},
+    "BSFrustumFOVController": {"inherit": "NiFloatInterpController", "note": "nif.xml <niobject name=\"BSFrustumFOVController\">."},
+    "NiTextureTransformController": {
+      "inherit": "NiFloatInterpController",
+      "note": "nif.xml <niobject name=\"NiTextureTransformController\">.",
+      "fields": [
+        {"name": "shader_map", "type": "bool"},
+        {"name": "texture_slot", "type": "TexType"},
+        {"name": "operation", "type": "TransformMember"}
+      ]
+    },
+    "NiMaterialColorController": {
+      "inherit": "NiPoint3InterpController",
+      "note": "nif.xml <niobject name=\"NiMaterialColorController\">.",
+      "fields": [
+        {"name": "target_color", "type": "MaterialColor"}
+      ]
+    },
+    "NiLightColorController": {
+      "inherit": "NiPoint3InterpController",
+      "note": "nif.xml <niobject name=\"NiLightColorController\">.",
+      "fields": [
+        {"name": "target_color", "type": "LightColor"}
+      ]
+    },
+    "NiExtraDataController": {
+      "abstract": true,
+      "inherit": "NiSingleInterpController",
+      "note": "nif.xml <niobject name=\"NiExtraDataController\">.",
+      "fields": [
+        {"name": "extra_data_name", "type": "string"}
+      ]
+    },
+    "NiFloatExtraDataController": {"inherit": "NiExtraDataController", "note": "nif.xml <niobject name=\"NiFloatExtraDataController\">; its own fields end at 10.1.0.103."},
+    "BSRefractionFirePeriodController": {
+      "inherit": "NiTimeController",
+      "note": "nif.xml <niobject name=\"BSRefractionFirePeriodController\">.",
+      "fields": [
+        {"name": "interpolator", "type": "ref"}
+      ]
+    },
+    "NiMultiTargetTransformController": {
+      "inherit": "NiInterpController",
+      "note": "nif.xml <niobject name=\"NiMultiTargetTransformController\">.",
+      "fields": [
+        {"name": "num_extra_targets", "type": "u16"},
+        {"name": "extra_targets", "type": "ptr", "length": "num_extra_targets"}
+      ]
+    },
+    "NiGeomMorpherController": {
+      "inherit": "NiInterpController",
+      "note": "nif.xml <niobject name=\"NiGeomMorpherController\">: a plain interpolator list (with Bethesda extra ints) up to 20.0.0.5, interpolator/weight pairs from 20.1.0.3.",
+      "fields": [
+        {"name": "morpher_flags", "type": "GeomMorpherFlags"},
+        {"name": "data", "type": "ref"},
+        {"name": "always_update", "type": "u8"},
+        {"name": "num_interpolators", "type": "u32"},
+        {"name": "interpolators", "type": "ref", "length": "num_interpolators", "until": "20.0.0.5"},
+        {"name": "interpolator_weights", "type": "MorphWeight", "length": "num_interpolators", "since": "20.1.0.3"},
+        {"name": "num_unknown_ints", "type": "u32", "until": "20.0.0.5", "cond": "bs_version > 9"},
+        {"name": "unknown_ints", "type": "u32", "length": "num_unknown_ints", "until": "20.0.0.5", "cond": "bs_version > 9"}
+      ]
+    },
+    "NiBoneLODController": {
+      "inherit": "NiTimeController",
+      "note": "nif.xml <niobject name=\"NiBoneLODController\">; the shape-group arrays exist only in non-Bethesda streams.",
+      "fields": [
+        {"name": "lod", "type": "u32"},
+        {"name": "num_lods", "type": "u32"},
+        {"name": "num_node_groups", "type": "u32"},
+        {"name": "node_groups", "type": "NodeSet", "length": "num_lods"}
+      ]
+    },
+    "NiBSBoneLODController": {"inherit": "NiBoneLODController", "note": "nif.xml <niobject name=\"NiBSBoneLODController\">; no own fields."},
+    "NiControllerManager": {
+      "inherit": "NiTimeController",
+      "note": "nif.xml <niobject name=\"NiControllerManager\">.",
+      "fields": [
+        {"name": "cumulative", "type": "bool"},
+        {"name": "num_controller_sequences", "type": "u32"},
+        {"name": "controller_sequences", "type": "ref", "length": "num_controller_sequences"},
+        {"name": "object_palette", "type": "ref"}
+      ]
+    },
+    "NiDefaultAVObjectPalette": {
+      "inherit": "NiAVObjectPalette",
+      "note": "nif.xml <niobject name=\"NiDefaultAVObjectPalette\">.",
+      "fields": [
+        {"name": "scene", "type": "ptr"},
+        {"name": "num_objs", "type": "u32"},
+        {"name": "objs", "type": "AVObject", "length": "num_objs"}
+      ]
+    },
+
+    "NiSequence": {
+      "inherit": "NiObject",
+      "note": "nif.xml <niobject name=\"NiSequence\">.",
+      "fields": [
+        {"name": "name", "type": "string"},
+        {"name": "num_controlled_blocks", "type": "u32"},
+        {"name": "array_grow_by", "type": "u32"},
+        {"name": "controlled_blocks", "type": "ControlledBlock", "length": "num_controlled_blocks"}
+      ]
+    },
+    "NiControllerSequence": {
+      "inherit": "NiSequence",
+      "note": "nif.xml <niobject name=\"NiControllerSequence\">: string palette ref only up to 20.1.0.0; Bethesda anim notes by bs_version (one ref for 24-28, an array above 28).",
+      "fields": [
+        {"name": "weight", "type": "f32"},
+        {"name": "text_keys", "type": "ref"},
+        {"name": "cycle_type", "type": "CycleType"},
+        {"name": "frequency", "type": "f32"},
+        {"name": "start_time", "type": "f32"},
+        {"name": "stop_time", "type": "f32"},
+        {"name": "manager", "type": "ptr"},
+        {"name": "accum_root_name", "type": "string"},
+        {"name": "string_palette", "type": "ref", "until": "20.1.0.0"},
+        {"name": "anim_notes", "type": "ref", "since": "20.2.0.7", "cond": "bs_version >= 24 && bs_version <= 28"},
+        {"name": "num_anim_note_arrays", "type": "u16", "since": "20.2.0.7", "cond": "bs_version > 28"},
+        {"name": "anim_note_arrays", "type": "ref", "length": "num_anim_note_arrays", "since": "20.2.0.7", "cond": "bs_version > 28"}
+      ]
+    }
+  }
+}
