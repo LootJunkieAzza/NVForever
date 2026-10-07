@@ -105,6 +105,9 @@ struct Args {
     /// With --screenshot: also write the lab's frame document (fnv.frame/1) here.
     #[arg(long, requires = "screenshot")]
     frame_json: Option<PathBuf>,
+    /// Light intensity per squared unit of LIGH radius (Bevy lumens) [tuned by eye].
+    #[arg(long, default_value_t = 20_000.0)]
+    light_scale: f32,
     /// Do not draw the text overlay (implied by --frame-json).
     #[arg(long)]
     no_overlay: bool,
@@ -135,12 +138,25 @@ fn main() -> AppExit {
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
 
+    // Interior mode when --cell names an interior cell.
+    let interior = world.index.cell_by_name(&args.cell).filter(|c| c.world.is_none()).map(|c| c.form_id);
     // Start position (game space).
     let start = match args.pos.as_deref() {
         Some(p) => match parse_vec::<3>(p) {
             Some(v) => Vec3::from_array(v) + Vec3::Z * args.eye_height,
             None => return fail(format!("--pos {p}: expected x,y,z")),
         },
+        None if interior.is_some() => {
+            // The middle of the cell's references, a little above.
+            let ps: Vec<Vec3> = world.index.cells[&interior.unwrap()]
+                .refs
+                .iter()
+                .filter_map(|&r| fnv_world::placed::placement(&world.lo, world.schema, r))
+                .map(|p| Vec3::from_array(p.position))
+                .collect();
+            let n = ps.len().max(1) as f32;
+            ps.iter().copied().sum::<Vec3>() / n + Vec3::Z * 150.0
+        }
         None => {
             let grid = match parse_vec::<2>(&args.cell) {
                 Some([x, y]) => (x as i32, y as i32),
@@ -163,6 +179,9 @@ fn main() -> AppExit {
         Ok(s) => s,
         Err(e) => return fail(e),
     };
+    if let Some(id) = interior {
+        sky_state.interior = fnv_world::lighting::cell_lighting(&world.lo, world.schema, id);
+    }
     if let Some(f) = args.fog.as_deref() {
         match parse_vec::<2>(f) {
             Some([n, fa]) => sky_state.fog_override = Some((n, fa)),
@@ -202,7 +221,7 @@ fn main() -> AppExit {
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
-    .insert_resource(lod::LodState::new(&world, args.lod_radius, !args.no_lod))
+    .insert_resource(lod::LodState::new(&world, args.lod_radius, !args.no_lod && interior.is_none()))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
     .insert_resource(Streamer {
@@ -210,6 +229,8 @@ fn main() -> AppExit {
         loaded: Default::default(),
         per_frame: 1,
         hide: args.hide.iter().map(|h| h.to_ascii_lowercase()).collect(),
+        interior,
+        light_scale: args.light_scale,
         stats: Default::default(),
     })
     .insert_resource(world)
@@ -288,12 +309,12 @@ fn overlay(
     let c = fnv_world::cell_of(g.x, g.y);
     let s = &streamer.stats;
     t.0 = format!(
-        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {}  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  LOD chunks {} blocks {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
+        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {}  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  LOD chunks {} blocks {}  lights {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
         g.x, g.y, g.z, c.0, c.1,
         streamer.loaded.len(), s.cells_loaded, s.load_ms,
         s.refs_drawn, s.refs_skipped_disabled, s.refs_skipped_type, s.refs_speedtree, s.refs_no_model, s.shapes,
         models.len(), models.failures.len(), textures.failures.len(), terrain.layers, terrain.quadrants_without_base,
-        s.water_planes, lod.chunks, lod.blocks, sky.describe(),
+        s.water_planes, lod.chunks, lod.blocks, s.lights, sky.describe(),
     );
 }
 
@@ -344,7 +365,8 @@ fn screenshot_and_exit(
     *frames += 1;
     *elapsed += time.delta_secs();
     let side = (2 * streamer.radius + 1) as usize;
-    if ready_at.is_none() && streamer.loaded.len() >= side * side {
+    let want = if streamer.interior.is_some() { 1 } else { side * side };
+    if ready_at.is_none() && streamer.loaded.len() >= want {
         *ready_at = Some(*elapsed);
         let s = &streamer.stats;
         info!(
