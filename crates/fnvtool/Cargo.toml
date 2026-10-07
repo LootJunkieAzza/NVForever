@@ -20,6 +20,7 @@ fnv-nif = { path = "../fnv-nif" }
 fnv-dds = { path = "../fnv-dds" }
 fnv-vfs = { path = "../fnv-vfs" }
 fnv-world = { path = "../fnv-world" }
+fnv-collide = { path = "../fnv-collide" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 rayon = "1"

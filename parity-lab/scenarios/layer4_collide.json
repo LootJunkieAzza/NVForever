@@ -1,0 +1,898 @@
+{
+ "scenarios": [
+  {
+   "id": "L4.collide.objects.Fallout - Meshes",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in Fallout - Meshes.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/Fallout - Meshes.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/Fallout - Meshes.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.phantoms.Fallout - Meshes",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in Fallout - Meshes.bsa.",
+   "oracle": {
+    "golden": "collide/Fallout - Meshes.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/Fallout - Meshes.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.skipped.Fallout - Meshes",
+   "layer": 4,
+   "description": "Meshes in Fallout - Meshes.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/Fallout - Meshes.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/Fallout - Meshes.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.objects.Update",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in Update.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/Update.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/Update.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.phantoms.Update",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in Update.bsa.",
+   "oracle": {
+    "golden": "collide/Update.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/Update.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.skipped.Update",
+   "layer": 4,
+   "description": "Meshes in Update.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/Update.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/Update.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.objects.DeadMoney - Main",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in DeadMoney - Main.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/DeadMoney - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/DeadMoney - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.phantoms.DeadMoney - Main",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in DeadMoney - Main.bsa.",
+   "oracle": {
+    "golden": "collide/DeadMoney - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/DeadMoney - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.skipped.DeadMoney - Main",
+   "layer": 4,
+   "description": "Meshes in DeadMoney - Main.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/DeadMoney - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/DeadMoney - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.objects.HonestHearts - Main",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in HonestHearts - Main.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/HonestHearts - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/HonestHearts - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L4.collide.phantoms.HonestHearts - Main",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in HonestHearts - Main.bsa.",
+   "oracle": {
+    "golden": "collide/HonestHearts - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/HonestHearts - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L4.collide.skipped.HonestHearts - Main",
+   "layer": 4,
+   "description": "Meshes in HonestHearts - Main.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/HonestHearts - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/HonestHearts - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L4.collide.objects.OldWorldBlues - Main",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in OldWorldBlues - Main.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/OldWorldBlues - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/OldWorldBlues - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.phantoms.OldWorldBlues - Main",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in OldWorldBlues - Main.bsa.",
+   "oracle": {
+    "golden": "collide/OldWorldBlues - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/OldWorldBlues - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.skipped.OldWorldBlues - Main",
+   "layer": 4,
+   "description": "Meshes in OldWorldBlues - Main.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/OldWorldBlues - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/OldWorldBlues - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.objects.LonesomeRoad - Main",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in LonesomeRoad - Main.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/LonesomeRoad - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/LonesomeRoad - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.phantoms.LonesomeRoad - Main",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in LonesomeRoad - Main.bsa.",
+   "oracle": {
+    "golden": "collide/LonesomeRoad - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/LonesomeRoad - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.skipped.LonesomeRoad - Main",
+   "layer": 4,
+   "description": "Meshes in LonesomeRoad - Main.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/LonesomeRoad - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/LonesomeRoad - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.objects.GunRunnersArsenal - Main",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in GunRunnersArsenal - Main.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/GunRunnersArsenal - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/GunRunnersArsenal - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.phantoms.GunRunnersArsenal - Main",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in GunRunnersArsenal - Main.bsa.",
+   "oracle": {
+    "golden": "collide/GunRunnersArsenal - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/GunRunnersArsenal - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.skipped.GunRunnersArsenal - Main",
+   "layer": 4,
+   "description": "Meshes in GunRunnersArsenal - Main.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/GunRunnersArsenal - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/GunRunnersArsenal - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.objects.CaravanPack - Main",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in CaravanPack - Main.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/CaravanPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/CaravanPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.phantoms.CaravanPack - Main",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in CaravanPack - Main.bsa.",
+   "oracle": {
+    "golden": "collide/CaravanPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/CaravanPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.skipped.CaravanPack - Main",
+   "layer": 4,
+   "description": "Meshes in CaravanPack - Main.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/CaravanPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/CaravanPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.objects.ClassicPack - Main",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in ClassicPack - Main.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/ClassicPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/ClassicPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.phantoms.ClassicPack - Main",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in ClassicPack - Main.bsa.",
+   "oracle": {
+    "golden": "collide/ClassicPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/ClassicPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.skipped.ClassicPack - Main",
+   "layer": 4,
+   "description": "Meshes in ClassicPack - Main.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/ClassicPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/ClassicPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.objects.MercenaryPack - Main",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in MercenaryPack - Main.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/MercenaryPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/MercenaryPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.phantoms.MercenaryPack - Main",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in MercenaryPack - Main.bsa.",
+   "oracle": {
+    "golden": "collide/MercenaryPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/MercenaryPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.skipped.MercenaryPack - Main",
+   "layer": 4,
+   "description": "Meshes in MercenaryPack - Main.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/MercenaryPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/MercenaryPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.objects.TribalPack - Main",
+   "layer": 4,
+   "description": "Every solid collision object of every mesh in TribalPack - Main.bsa: body, motion, layer, physical constants, leaf shapes and counts, and bounds in mesh-root game units.",
+   "oracle": {
+    "golden": "collide/TribalPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/TribalPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/objects",
+    "key": "key",
+    "abs_tol": 0.01,
+    "rel_tol": 1e-05
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.phantoms.TribalPack - Main",
+   "layer": 4,
+   "description": "Phantom (trigger) bodies in TribalPack - Main.bsa.",
+   "oracle": {
+    "golden": "collide/TribalPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/TribalPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/phantoms"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  },
+  {
+   "id": "L4.collide.skipped.TribalPack - Main",
+   "layer": 4,
+   "description": "Meshes in TribalPack - Main.bsa whose collision cannot be followed.",
+   "oracle": {
+    "golden": "collide/TribalPack - Main.bsa.collide.objects.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "collide",
+     "objects",
+     "{data_dir}/TribalPack - Main.bsa",
+     "--schema",
+     "{nif_schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "exact",
+    "select": "/skipped"
+   },
+   "tags": [
+    "collision",
+    "M4"
+   ]
+  }
+ ]
+}

@@ -60,6 +60,65 @@ pub enum Shape {
     Compound { children: Vec<(Iso, Shape)> },
 }
 
+impl Shape {
+    /// Every length multiplied by `f` (stored units → game units).
+    pub fn scaled(&self, f: f32) -> Shape {
+        let s3 = |p: &[f32; 3]| p.map(|v| v * f);
+        match self {
+            Shape::Box { half_extents } => Shape::Box { half_extents: s3(half_extents) },
+            Shape::Sphere { radius } => Shape::Sphere { radius: radius * f },
+            Shape::Capsule { a, b, radius } => Shape::Capsule { a: s3(a), b: s3(b), radius: radius * f },
+            Shape::ConvexHull { points } => Shape::ConvexHull { points: points.iter().map(s3).collect() },
+            Shape::TriMesh { vertices, triangles, materials } => Shape::TriMesh {
+                vertices: vertices.iter().map(s3).collect(),
+                triangles: triangles.clone(),
+                materials: materials.clone(),
+            },
+            Shape::Compound { children } => Shape::Compound {
+                children: children
+                    .iter()
+                    .map(|(iso, s)| (Iso { translation: s3(&iso.translation), rotation: iso.rotation }, s.scaled(f)))
+                    .collect(),
+            },
+        }
+    }
+
+    /// Call `f` with points whose bounding box equals the shape's bounds under `iso`
+    /// (box corners, sphere/capsule extremes, hull and mesh vertices).
+    pub fn bound_points(&self, iso: &Iso, f: &mut impl FnMut([f32; 3])) {
+        match self {
+            Shape::Box { half_extents: h } => {
+                for i in 0..8 {
+                    let s = |b: usize, v: f32| if i & (1 << b) != 0 { v } else { -v };
+                    f(iso.apply([s(0, h[0]), s(1, h[1]), s(2, h[2])]));
+                }
+            }
+            Shape::Sphere { radius } => sphere_points(iso.translation, *radius, f),
+            Shape::Capsule { a, b, radius } => {
+                sphere_points(iso.apply(*a), *radius, f);
+                sphere_points(iso.apply(*b), *radius, f);
+            }
+            Shape::ConvexHull { points } => points.iter().for_each(|p| f(iso.apply(*p))),
+            Shape::TriMesh { vertices, .. } => vertices.iter().for_each(|p| f(iso.apply(*p))),
+            Shape::Compound { children } => {
+                for (c, s) in children {
+                    s.bound_points(&iso.compose(c), f);
+                }
+            }
+        }
+    }
+}
+
+fn sphere_points(c: [f32; 3], r: f32, f: &mut impl FnMut([f32; 3])) {
+    for axis in 0..3 {
+        for sign in [-1.0, 1.0] {
+            let mut p = c;
+            p[axis] += sign * r;
+            f(p);
+        }
+    }
+}
+
 /// How a body moves. [hypothesis until mapped from the Havok motion system /
 /// quality fields on the data, collision.md]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

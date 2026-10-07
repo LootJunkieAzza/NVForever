@@ -294,3 +294,9 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
 - `world check [--world W]` → `fnv.world.check/1`: the observational checks behind
   world.md (cell membership of references, shared LAND edges, normals against heights,
   base object types).
+
+# Layer 4 (collision geometry)
+
+`fnvtool collide objects` (`fnv.collide.objects/1`) and `fnvtool collide survey`
+(`fnv.collide.survey/1`) are defined in docs/spec-notes/collision.md §5 together with the
+collision notes.
