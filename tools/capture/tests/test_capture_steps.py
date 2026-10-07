@@ -122,6 +122,15 @@ class JobTests(unittest.TestCase):
         with self.assertRaises(cs.InputError):
             cs.actions_job({"format": "other", "actions": []}, "x", "s")
 
+    def test_confirm_after(self):
+        acts = actions({"op": "activate", "actor": "player", "target": "0x00010000"},
+                       {"op": "get_pos", "of": "player"})
+        steps = body(cs.actions_job(acts, "x", "s", confirm_after={0}))
+        self.assertIn("activate", steps[1]["manual"])
+        self.assertEqual(steps[2]["field"], "cell")
+        with self.assertRaises(cs.InputError):
+            cs.actions_job(acts, "x", "s", confirm_after={5})
+
     def test_manual_steps(self):
         job = cs.actions_job(actions({"op": "advance_time", "hours": 24}, {"op": "detach_cell", "cell": "GSGasStation"},
                                      {"op": "transfer", "from": "a", "to": "b", "item": "c", "count": 2}), "x", "s")

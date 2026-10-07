@@ -261,12 +261,21 @@ def job(name, start, steps, masters):
     return {"format": STEPS_FORMAT, "name": name, "title": name, "start": start, "steps": head + steps}
 
 
-def actions_job(doc, name, start, edids=None, masters=MASTERS):
+def actions_job(doc, name, start, edids=None, masters=MASTERS, confirm_after=()):
+    """confirm_after: action indices after which the player confirms with End that the
+    game is ready (e.g. a door's loading screen has finished)."""
     if doc.get("format") != "fnv.sim.actions/1":
         raise InputError("not a fnv.sim.actions/1 document")
+    acts = doc.get("actions", [])
+    bad = [i for i in confirm_after if not 0 <= i < len(acts)]
+    if bad:
+        raise InputError(f"--confirm-after {bad}: no such action (0..{len(acts) - 1})")
     steps = []
-    for i, a in enumerate(doc.get("actions", [])):
+    for i, a in enumerate(acts):
         steps.extend(action_steps(i, a, (masters, edids)))
+        if i in confirm_after:
+            steps.append({"manual": f"Wait until the game has settled after action {i} ({a.get('op')}), "
+                                    "e.g. a loading screen has finished."})
     return job(name, start, steps, masters)
 
 
@@ -440,6 +449,9 @@ def main(argv=None):
         p.add_argument("--name")
         p.add_argument("--start", required=True, help="what to load before starting (shown in game)")
         p.add_argument("-o", "--output")
+        if cmd == "actions":
+            p.add_argument("--confirm-after", type=int, action="append", default=[], metavar="ACTION",
+                           help="action index after which to wait for End (repeatable)")
         if cmd == "cases":
             p.add_argument("--draws", type=int, required=True)
     t = sub.add_parser("trace")
@@ -455,7 +467,8 @@ def main(argv=None):
             name = args.name or os.path.basename(args.input).split(".")[0]
             doc = load_json(args.input)
             edids = edid_index(args.data) if args.data else None
-            out = actions_job(doc, name, args.start, edids) if args.cmd == "actions" else \
+            out = actions_job(doc, name, args.start, edids, confirm_after=set(args.confirm_after)) \
+                if args.cmd == "actions" else \
                 cases_job(doc, name, args.start, args.draws, edids)
         else:
             with open(args.input, encoding="utf-8") as f:
