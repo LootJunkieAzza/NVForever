@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/fnv-util", "crates/fnv-install", "crates/fnv-inflate", "crates/fnv-bsa", "crates/fnv-esm", "crates/fnvtool"]
+members = ["crates/fnv-util", "crates/fnv-install", "crates/fnv-inflate", "crates/fnv-bsa", "crates/fnv-esm", "crates/fnv-nif", "crates/fnvtool"]
 
 [workspace.package]
 version = "0.1.0"

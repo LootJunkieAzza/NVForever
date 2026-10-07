@@ -16,6 +16,7 @@ fnv-inflate = { path = "../fnv-inflate" }
 serde_json.workspace = true
 fnv-bsa = { path = "../fnv-bsa" }
 fnv-esm = { path = "../fnv-esm" }
+fnv-nif = { path = "../fnv-nif" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 rayon = "1"
