@@ -150,12 +150,30 @@ pub enum SimCmd {
         #[arg(long)]
         schema: PathBuf,
     },
+    /// Every inventory item base form with value, weight, health and body slots
+    /// (fnv.sim.items/1).
+    Items {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+    },
     /// Every container base form with its authored contents (fnv.sim.containers/1).
     Containers {
         #[command(flatten)]
         lo: LoadOrderArgs,
         #[arg(long)]
         schema: PathBuf,
+    },
+    /// Leveled-list outcome histograms for the cases in a fnv.sim.cases/1 file
+    /// (fnv.sim.samples/1).
+    Sample {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long)]
+        cases: PathBuf,
     },
     /// Run a scripted action sequence (fnv.sim.actions/1) and print its trace
     /// (fnv.sim.trace/1).
