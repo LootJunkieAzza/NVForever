@@ -193,6 +193,108 @@ Lab comparator: **keyed** on `key` for `/objects` and for `/shapes` (all fields)
 
 Defined in docs/spec-notes/dds.md together with the texture notes.
 
+# Layer 3 (world data)
+
+All `world` commands take the Data folder, the plugins in load order, and
+`--schema <schemas/fnv>`; they print the load order back as `load_order`. FormIDs are
+**load-order (global) FormIDs** as `"0x%08X"`: the top byte is the index of the defining
+plugin in the given load order (docs/spec-notes/esm.md). Floats are f32 values widened to
+JSON numbers. Facts behind the fields: docs/spec-notes/world.md.
+
+A cell's references are the records in persistent (8), temporary (9) and
+visible-distant (10) cell-children groups labelled with that cell, except LAND and NAVM.
+When several plugins define the same reference FormID, the last one in load order wins,
+including which cell's group it is in. The same rule picks the cell's LAND.
+
+## `fnvtool world refs ... (--cell <edid|formid> | --world <edid|formid> [--x X --y Y] | --interiors)` → `fnv.world.refs/1`
+
+Selects one cell (`--cell`, or `--world` with `--x/--y` for an exterior grid cell), every
+cell of a worldspace (`--world` alone, its persistent cell included), or every interior
+cell (`--interiors`).
+
+```json
+{
+  "schema": "fnv.world.refs/1",
+  "cells": [
+    {"formid": "0x0000ABCD", "edid": "Goodsprings", "name": null, "world": "0x000DA726",
+     "grid": [-18, 0], "interior": false, "water_height": 3.4028234663852886e38,
+     "refs": 159, "land": "0x0000ABCE"}
+  ],
+  "refs": [
+    {"formid": "0x00012345", "type": "REFR", "cell": "0x0000ABCD", "base": "0x00012300",
+     "base_type": "STAT", "base_edid": "Rock01", "model": "meshes\rocks\rock01.nif",
+     "position": [1.0, 2.0, 3.0], "rotation": [0.0, 0.0, 1.5707964], "scale": 1.0,
+     "flags": 0, "persistent": false, "initially_disabled": false, "deleted": false,
+     "enable_parent": null}
+  ]
+}
+```
+
+Membership: a cell belongs to a worldspace when its winning CELL record sits inside that
+worldspace's world-children group (type 1; the label is the WRLD FormID, local to the
+plugin); interior cells are inside no world-children group. The persistent cell is the
+CELL directly inside the world-children group (not inside a block group).
+
+- `cells` sorted by `formid`; `refs` = the references of all selected cells, sorted by
+  `formid`. `cell` = the cell whose group holds the winning definition.
+- `type` = record signature of the winning definition.
+- `base` = NAME mapped to the load order (`null` if absent or 0). `base_type`, `base_edid`
+  come from the base's winning record; `null` when the base is not defined in the load
+  order (engine-defined forms). `model` = the base's MODL with surrounding whitespace
+  removed, `null` if that leaves it empty; otherwise ASCII letters lower-cased, `/` → `\`,
+  leading `\` removed (TREE models are stored as e.g. `\WastelandShrub01.spt`), then
+  prefixed with `trees\` if it ends in `.spt` (SpeedTree), else with `meshes\`, unless it
+  already starts with that prefix.
+- `position`, `rotation` = DATA (rotation in radians, as stored); `[0,0,0]` if DATA is
+  absent. `scale` = XSCL, else 1.0. `flags` = record header flags of the winning
+  definition; `initially_disabled` = bit 0x800, `deleted` = bit 0x20. `persistent` = the
+  winning definition is in a type 8 group.
+- `enable_parent` = XESP as `{"ref": formid, "opposite": bool (flag bit 0)}`, else `null`;
+  the reference FormID is mapped like `base` (a null reference gives `null` for the whole
+  field).
+- Cell fields come from the winning CELL record: `edid` (EDID), `name` (FULL), `world`,
+  `water_height` = XCLW (`null` if absent), `grid` = XCLC (x, y) or `null`, `interior` =
+  DATA bit 0, `refs` = number of references whose winning definition is in this cell,
+  `land` = the cell's LAND FormID or `null`.
+- Field layouts: docs/spec-notes/world.md §5.
+
+Lab comparator: **keyed** on `formid` for `/refs` and for `/cells` (all fields).
+
+## `fnvtool world heights ... --world <edid|formid>` → `fnv.world.heights/1`
+
+```json
+{
+  "schema": "fnv.world.heights/1",
+  "world": "0x000DA726",
+  "cells": [
+    {"grid": [-18, 0], "min": 4012.0, "max": 4410.0, "mean": 4201.37,
+     "corners": [4012.0, 4100.0, 4300.0, 4410.0], "centre": 4200.0}
+  ]
+}
+```
+
+One entry per exterior grid cell of the worldspace whose LAND has VHGT, sorted by
+(x, y). The worldspace's persistent cell (the CELL directly in the world-children group)
+is not a grid cell. Heights are the 33 × 33 integrated VHGT values in world units
+(world.md §3); `corners` = [south-west, south-east, north-west, north-east] =
+h[0][0], h[0][32], h[32][0], h[32][32] with h[row][col], rows south → north;
+`centre` = h[16][16]; `mean` is the mean of all 1089 values.
+
+Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e-3).
+
+## Other world commands (not yet scenarios)
+
+- `world list` → `fnv.world.list/1`: per worldspace FormID, EDID, name, parent, persistent
+  cell, cell / grid-cell / land-cell / reference counts, grid bounds, default heights;
+  interior cell count; orphan groups; unreadable records.
+- `world cells [--world W]` → `fnv.world.cells/1`: the cell objects above, for one
+  worldspace or (without `--world`) all interior cells.
+- `world land --world W --x X --y Y [--full]` → `fnv.world.land/1`: the 33 × 33 heights
+  (rows south → north); with `--full` also normals (signed), colours and texture layers.
+- `world check [--world W]` → `fnv.world.check/1`: the observational checks behind
+  world.md (cell membership of references, shared LAND edges, normals against heights,
+  base object types).
+
 # Layer 4 (core simulation)
 
 `fnvtool sim containers` (`fnv.sim.containers/1`), `fnvtool sim run`
