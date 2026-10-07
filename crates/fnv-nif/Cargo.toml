@@ -1,0 +1,15 @@
+[package]
+name = "fnv-nif"
+description = "Gamebryo NIF/KF reader for Fallout: New Vegas with schema-as-data block decoding"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-util = { path = "../fnv-util" }
+serde_json.workspace = true
+thiserror.workspace = true
+tracing = "0.1"
+
+[dev-dependencies]
+proptest = "1"

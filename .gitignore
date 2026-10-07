@@ -13,3 +13,12 @@
 lab.local.json
 baseline.json
 *.bundle
+*.kf
+*.egm
+*.egt
+*.tri
+*.lip
+*.ogg
+*.wav
+*.mp3
+*.fos

@@ -355,6 +355,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-nif"
+version = "0.1.0"
+dependencies = [
+ "fnv-util",
+ "proptest",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "fnv-util"
 version = "0.1.0"
 dependencies = [
@@ -375,6 +386,7 @@ dependencies = [
  "fnv-esm",
  "fnv-inflate",
  "fnv-install",
+ "fnv-nif",
  "fnv-util",
  "rayon",
  "serde_json",
