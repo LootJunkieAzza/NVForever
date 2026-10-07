@@ -1,5 +1,8 @@
 # Record schemas (schema-as-data)
 
+(`script/` holds the script-function catalogue, not record layouts; see
+`script/README.md`.)
+
 `fnv/*.json` describe Fallout: New Vegas record layouts in the `fnv.schema/1` format
 (documented at the top of `crates/fnv-esm/src/schema.rs`). They are loaded at runtime,
 so a wrong layout is fixed by editing JSON, not code.
