@@ -636,26 +636,30 @@ impl<'a> World<'a> {
         Ok(())
     }
 
-    /// `actor` activates `target`.
+    /// `actor` activates `target`, as the scripted `Activate` function does (the parity
+    /// traces are captured with `<ref>.Activate player`). Interactive activation can only
+    /// reach what the player can see, so keeping taken or disabled references out of
+    /// reach is the engine's job, not this function's.
     pub fn activate(&mut self, actor: FormId, target: FormId) -> Result<Activation, SimError> {
         self.get(actor)?;
         let t = self.get(target)?.clone();
         let base = self.forms.get(t.base);
         let script = base.and_then(|b| b.script);
         let done = |outcome, unlocked_with| Activation { outcome, unlocked_with, script };
-        // Activating an item reference that was already taken gives its stack again.
-        // [observed in game: a scripted `Activate` with the player as activator on a
-        // picked-up stimpak reference added another stimpak (L4.sim.trace.
-        // goodsprings_doc_mitchell); whether the reference is disabled after the first
-        // pick-up is not captured yet]
-        if t.deleted {
-            if let Some(BaseData::Item(_)) = base.map(|b| &b.data) {
-                self.inventory(actor)?.add_extra(t.base, t.count, t.extra);
-                return Ok(done(Outcome::PickedUp { item: t.base, count: t.count, owner: t.extra.owner }, None));
-            }
-            return Ok(done(Outcome::Disabled, None));
+        // Scripted activation of an item gives its stack on every call, whether the
+        // reference was already taken or is disabled, and leaves the reference's enabled
+        // state alone. [observed in game, docs/spec-notes/simulation.md §5: one stimpak
+        // reference activated three times gave 1, 2, 3 stimpaks; a hand-taken one gave
+        // another; a never-taken cap disabled with `Disable` still gave a cap and stayed
+        // disabled; GetDisabled and GetParentCell do not change after a pick-up]
+        if let Some(BaseData::Item(_)) = base.map(|b| &b.data) {
+            self.inventory(actor)?.add_extra(t.base, t.count, t.extra);
+            self.get(target)?.deleted = true;
+            return Ok(done(Outcome::PickedUp { item: t.base, count: t.count, owner: t.extra.owner }, None));
         }
-        if !self.is_enabled(target)? {
+        // Other types: a taken or disabled reference does nothing. [hypothesis: doors,
+        // containers and activators on disabled references are not captured yet]
+        if t.deleted || !self.is_enabled(target)? {
             return Ok(done(Outcome::Disabled, None));
         }
         let Some(base) = base else {
@@ -678,11 +682,7 @@ impl<'a> World<'a> {
             }
         }
         let outcome = match &base.data {
-            BaseData::Item(_) => {
-                self.inventory(actor)?.add_extra(t.base, t.count, t.extra);
-                self.get(target)?.deleted = true;
-                Outcome::PickedUp { item: t.base, count: t.count, owner: t.extra.owner }
-            }
+            BaseData::Item(_) => unreachable!("items are handled above"),
             BaseData::Container(_) => Outcome::OpenedContainer { container: target },
             BaseData::Door(_) => match self.placed.get(target).and_then(|p| p.teleport) {
                 Some(tp) => {

@@ -404,10 +404,14 @@ fn picking_up_and_dropping_items() {
     assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 1);
     assert_eq!(w.activate(p, dropped).unwrap().outcome, Outcome::PickedUp { item: id(STIMPAK), count: 2, owner: None });
     assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 3);
-    // The initially disabled key cannot be taken until enabled.
-    assert_eq!(w.activate(p, id(KEY_REF)).unwrap().outcome, Outcome::Disabled);
-    w.set_enabled(id(KEY_REF), true).unwrap();
+    // Scripted activation of a disabled item still gives it and leaves it disabled
+    // (observed in game).
     assert!(matches!(w.activate(p, id(KEY_REF)).unwrap().outcome, Outcome::PickedUp { .. }));
+    assert!(!w.is_enabled(id(KEY_REF)).unwrap());
+    assert_eq!(w.item_count(p, id(KEY)).unwrap(), 1);
+    // A disabled door does nothing (hypothesis).
+    w.set_enabled(id(PLAIN_DOOR), false).unwrap();
+    assert_eq!(w.activate(p, id(PLAIN_DOOR)).unwrap().outcome, Outcome::Disabled);
 }
 
 #[test]
@@ -571,7 +575,9 @@ fn enable_parent_chains() {
     assert!(!w.is_enabled(id(CHILD_SAME)).unwrap());
     assert!(w.is_enabled(id(CHILD_OPPOSITE)).unwrap());
     assert!(w.is_enabled(id(GRANDCHILD)).unwrap());
-    assert_eq!(w.activate(p, id(CHILD_SAME)).unwrap().outcome, Outcome::Disabled);
+    // Item activation ignores the enabled state (observed in game), the state stays.
+    assert!(matches!(w.activate(p, id(CHILD_SAME)).unwrap().outcome, Outcome::PickedUp { .. }));
+    assert!(!w.is_enabled(id(CHILD_SAME)).unwrap());
     w.set_enabled(id(KEY_REF), true).unwrap();
     assert!(w.is_enabled(id(CHILD_SAME)).unwrap());
     assert!(!w.is_enabled(id(CHILD_OPPOSITE)).unwrap());
