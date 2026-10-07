@@ -63,7 +63,7 @@ entry in the schemas.
   folder, which live in `trees\` [observed: all ten `.spt` files in the archives are
   there, e.g. `trees\wastelandshrub01.spt`; WastelandNV has 18,050 TREE references].
   `.spt` is SpeedTree's own format, not NIF; it is not decoded yet. Each `.spt` has a
-  billboard texture with the same stem, `textures	reesillboards\<stem>.dds` (square,
+  billboard texture with the same stem, `textures\trees\billboards\<stem>.dds` (square,
   256 or 512 px, DXT3/DXT5) [observed], and TREE `BNAM` gives the billboard width and
   height in game units (WastelandShrub01: 175 × 175) [documented: xEdit; observed].
 - **Engine-defined base objects** [observed]: 102 WastelandNV references name a base
@@ -200,9 +200,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   `textures\landscape\lod\<world>\{diffuse,normals}\<world>.n.level<L>.x<X>.y<Y>.dds`
   (1,360 of each, one per chunk). The geometry also
   carries an NiAdditionalGeometryData stream of one f32 per vertex (meaning unknown).
-- **Objects**: `...\<world>locks\<world>.level4.x<X>.y<Y>.nif` (289 for WastelandNV,
+- **Objects**: `...\<world>\blocks\<world>.level4.x<X>.y<Y>.nif` (289 for WastelandNV,
   plus 6 `.high.` variants), merged geometry of distant buildings and landmarks over the
-  same 4 × 4-cell squares, textured from one atlas `...locks\<world>.buildings.dds`
+  same 4 × 4-cell squares, textured from one atlas `...\blocks\<world>.buildings.dds`
   (+ `_n`). Separately, 692 `*_lod.nif` meshes sit next to their full models.
 - **Settings**: `lodsettings\<world>.dlodsettings`, 24 bytes. For WastelandNV:
   u32 4, u32 32, u32 128, i16 −64, i16 −64, i16 63, i16 63, u32 4 [observed], read as
