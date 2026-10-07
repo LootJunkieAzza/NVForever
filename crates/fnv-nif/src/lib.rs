@@ -7,6 +7,7 @@
 //!
 //! Format notes with confidence tags: `docs/spec-notes/nif.md`.
 
+pub mod anim;
 pub mod codec;
 pub mod expr;
 pub mod file;

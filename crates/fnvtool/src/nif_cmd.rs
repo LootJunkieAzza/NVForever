@@ -22,6 +22,10 @@ pub fn run(cmd: NifCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(&schema)?;
             scene(&archive, &schema)
         }
+        NifCmd::Anim { archive, schema, filter } => {
+            let schema = Schema::load_dir(&schema)?;
+            anim(&archive, &schema, filter.as_deref())
+        }
         NifCmd::Decode { source, path, schema, block } => {
             let schema = Schema::load_dir(&schema)?;
             let (label, data) = read_one(&source, path.as_deref())?;
@@ -266,6 +270,9 @@ fn scene_rows(path: &str, data: &[u8], schema: &Schema) -> Result<(Vec<Value>, V
         return Err(format!("no block-size table (version {})", version_string(f.header.version)));
     }
     let dec = Decoded::new(&f, data, schema);
+    if let Some((i, Err(st))) = dec.blocks.iter().enumerate().find(|(_, b)| b.is_err()) {
+        return Err(format!("block {i} ({}): {}", f.blocks[i].type_name, st.code()));
+    }
     let objects = scene_objects(&f, &dec)
         .into_iter()
         .map(|o| {
@@ -305,4 +312,107 @@ fn scene(archive: &std::path::Path, schema: &Schema) -> anyhow::Result<Value> {
     }
     Ok(json!({"schema": "fnv.nif.scene/1", "archive": archive_name(archive), "skipped": skipped,
               "objects": objects, "shapes": shapes}))
+}
+
+#[derive(Default)]
+struct AnimStats {
+    sequences: u64,
+    tracks: u64,
+    by_interpolator: BTreeMap<String, u64>,
+    by_key_kind: BTreeMap<String, u64>,
+    quat_norm_min: f32,
+    quat_norm_max: f32,
+    quat_samples: u64,
+    bad_quat_samples: u64,
+    bad_by_kind: BTreeMap<String, u64>,
+}
+
+fn anim_file(data: &[u8], schema: &Schema) -> Result<(Vec<Value>, AnimStats), String> {
+    use fnv_nif::anim::{sequences, Channel, TrackData};
+    let f = NifFile::parse(data, Some(schema)).map_err(|e| e.to_string())?;
+    let dec = Decoded::new(&f, data, schema);
+    let mut st = AnimStats { quat_norm_min: f32::MAX, quat_norm_max: 0.0, ..Default::default() };
+    let mut rows = Vec::new();
+    for s in sequences(&f, &dec) {
+        st.sequences += 1;
+        let mut transform_tracks = 0;
+        for t in &s.tracks {
+            st.tracks += 1;
+            let kind = match &t.data {
+                TrackData::Transform(tt) => {
+                    transform_tracks += 1;
+                    let label = match (&tt.rotation, &tt.translation) {
+                        (Channel::BSpline { .. }, _) | (_, Channel::BSpline { .. }) => "bspline".to_string(),
+                        (Channel::Keys(k), _) => format!("keys:{:?}", k.kind),
+                        _ if tt.euler.is_some() => "keys:XyzRotation".to_string(),
+                        _ => "static".to_string(),
+                    };
+                    *st.by_key_kind.entry(label.clone()).or_default() += 1;
+                    if tt.rotation.is_animated() && tt.euler.is_none() {
+                        for i in 0..=10 {
+                            let time = s.start_time + (s.stop_time - s.start_time) * i as f32 / 10.0;
+                            let q = match &tt.rotation {
+                                Channel::Keys(k) => fnv_nif::anim::sample_quat_keys(k, time),
+                                other => other.sample(time),
+                            };
+                            if let Some(q) = q {
+                                let n = q.iter().map(|x| x * x).sum::<f32>().sqrt();
+                                st.quat_norm_min = st.quat_norm_min.min(n);
+                                st.quat_norm_max = st.quat_norm_max.max(n);
+                                st.quat_samples += 1;
+                                if !(0.9..=1.1).contains(&n) {
+                                    st.bad_quat_samples += 1;
+                                    *st.bad_by_kind.entry(label.clone()).or_default() += 1;
+                                }
+                            }
+                        }
+                    }
+                    "transform"
+                }
+                TrackData::Other(n) => n.as_str(),
+                TrackData::None => "none",
+            };
+            *st.by_interpolator.entry(kind.to_string()).or_default() += 1;
+        }
+        rows.push(json!({"block": s.block, "name": s.name, "start_time": float_json(s.start_time),
+            "stop_time": float_json(s.stop_time), "cycle_type": s.cycle_type, "text_keys": s.text_keys.len(),
+            "tracks": s.tracks.len(), "transform_tracks": transform_tracks}));
+    }
+    Ok((rows, st))
+}
+
+fn anim(archive: &std::path::Path, schema: &Schema, filter: Option<&str>) -> anyhow::Result<Value> {
+    let items = process(&[archive.to_path_buf()], &["kf"], filter, |_, d| anim_file(d, schema))?;
+    let mut total = AnimStats { quat_norm_min: f32::MAX, ..Default::default() };
+    let mut files = Vec::new();
+    for it in items {
+        match it.result {
+            Ok(Ok((rows, st))) => {
+                total.sequences += st.sequences;
+                total.tracks += st.tracks;
+                for (k, v) in st.by_interpolator {
+                    *total.by_interpolator.entry(k).or_default() += v;
+                }
+                for (k, v) in st.by_key_kind {
+                    *total.by_key_kind.entry(k).or_default() += v;
+                }
+                total.quat_norm_min = total.quat_norm_min.min(st.quat_norm_min);
+                total.quat_norm_max = total.quat_norm_max.max(st.quat_norm_max);
+                total.quat_samples += st.quat_samples;
+                total.bad_quat_samples += st.bad_quat_samples;
+                for (k, v) in st.bad_by_kind {
+                    *total.bad_by_kind.entry(k).or_default() += v;
+                }
+                files.push(json!({"path": it.path, "sequences": rows, "error": null}));
+            }
+            Ok(Err(e)) | Err(e) => files.push(json!({"path": it.path, "sequences": [], "error": e})),
+        }
+    }
+    Ok(json!({"schema": "fnv.nif.anim/1", "archive": archive_name(archive),
+        "summary": {"files": files.len(), "sequences": total.sequences, "tracks": total.tracks,
+            "by_interpolator": total.by_interpolator, "transform_tracks_by_kind": total.by_key_kind,
+            "rotation_samples": total.quat_samples, "rotation_samples_far_from_unit": total.bad_quat_samples,
+            "far_from_unit_by_kind": total.bad_by_kind,
+            "rotation_norm_min": float_json(total.quat_norm_min), "rotation_norm_max": float_json(total.quat_norm_max)},
+        "files": files}))
 }

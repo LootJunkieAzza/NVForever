@@ -62,7 +62,10 @@ explicitly, so rendering does not rely on the naming convention.
 ```
 
 `mip_count` is the stored value; `levels` the number used (§3). `format` is a name from
-§2, or `unknown(flags=0x..,fourcc=..,bits=..,masks=..)` for anything else. Sizes count the
+§2 (a row matches on the whole pixel-format flags value), or, for anything else,
+`unknown(flags=0x%x,fourcc=<4 ASCII chars, or 0x + 8 hex digits>,bits=%d,masks=0x%08x/0x%08x/0x%08x/0x%08x)`
+with `expected_size` `null`. `cubemap` = capabilities-2 bit 0x200; `faces` = number of the
+six face bits set (1 when not a cube map). Sizes count the
 bytes after the 128-byte header. `error` is set when the file is not a valid DDS (bad
 magic, short header); then the other fields are `null`. Lab comparator: **keyed** on
 `path`, all fields.
