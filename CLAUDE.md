@@ -38,6 +38,10 @@ python -m unittest discover -s tools/capture/tests
 
 With game data available (owner's install, read-only): build `fnvtool`, set
 `parity-lab/lab.local.json`, run `python -m fnvlab run` and report the summary.
+After renderer changes, also run the moving-camera smoke test (cell streaming and LOD
+rebuilds; fixed-camera screenshots do not exercise them):
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --auto-fly 4000 --run-seconds 40`
+(expect exit 0 and "run finished").
 
 ## Commits
 

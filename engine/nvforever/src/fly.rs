@@ -4,6 +4,10 @@
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 
+/// Test aid: move the camera forward (horizontally) at this many units per second.
+#[derive(Resource, Default)]
+pub struct AutoFly(pub f32);
+
 #[derive(Component)]
 pub struct FlyCam {
     pub yaw: f32,
@@ -18,6 +22,7 @@ pub fn fly(
     buttons: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
+    auto: Res<AutoFly>,
     mut cams: Query<(&mut Transform, &mut FlyCam)>,
 ) {
     let Ok((mut t, mut c)) = cams.single_mut() else { return };
@@ -51,4 +56,8 @@ pub fn fly(
     }
     let boost = if keys.pressed(KeyCode::ShiftLeft) { 5.0 } else { 1.0 };
     t.translation += dir.normalize_or_zero() * c.speed * boost * time.delta_secs();
+    if auto.0 != 0.0 {
+        let f = Vec3::new(fwd.x, 0.0, fwd.z).normalize_or_zero();
+        t.translation += f * auto.0 * time.delta_secs();
+    }
 }

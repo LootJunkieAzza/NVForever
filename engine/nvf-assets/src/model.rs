@@ -25,6 +25,10 @@ pub struct PreparedShape {
     /// Shape-to-model transform in NIF (game) space.
     pub transform: Affine3A,
     pub name: Option<String>,
+    /// CPU copy of the mesh, kept only for models loaded with
+    /// [`ModelCtx::model_with_cpu`]. GPU meshes are render-world only: once uploaded,
+    /// their vertex data can no longer be read from the main world.
+    pub cpu: Option<Arc<Mesh>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -85,11 +89,22 @@ pub struct ModelCtx<'w> {
 impl ModelCtx<'_> {
     /// The prepared model at `path` (loaded on first use).
     pub fn model(&mut self, path: &str) -> Option<Arc<PreparedModel>> {
+        self.load(path, false)
+    }
+
+    /// Like [`Self::model`], also keeping a CPU copy of every shape's mesh (for code that
+    /// derives new meshes from it later). Use it consistently for a given path: the
+    /// first load decides whether copies are kept.
+    pub fn model_with_cpu(&mut self, path: &str) -> Option<Arc<PreparedModel>> {
+        self.load(path, true)
+    }
+
+    fn load(&mut self, path: &str, keep_cpu: bool) -> Option<Arc<PreparedModel>> {
         let key = fnv_vfs::normalize(path);
         if let Some(m) = self.cache.map.get(&key) {
             return m.clone();
         }
-        let m = match self.prepare(&key) {
+        let m = match self.prepare(&key, keep_cpu) {
             Ok(m) => Some(Arc::new(m)),
             Err(e) => {
                 self.cache.failures.push(format!("{key}: {e}"));
@@ -100,7 +115,7 @@ impl ModelCtx<'_> {
         m
     }
 
-    fn prepare(&mut self, path: &str) -> Result<PreparedModel, String> {
+    fn prepare(&mut self, path: &str, keep_cpu: bool) -> Result<PreparedModel, String> {
         let bytes = self.data.read(path).ok_or("not in any archive")?;
         let schema = self.data.schema.clone();
         let file = NifFile::parse(&bytes, Some(&schema)).map_err(|e| e.to_string())?;
@@ -157,7 +172,9 @@ impl ModelCtx<'_> {
                     });
                 }
             }
+            let cpu = keep_cpu.then(|| Arc::new(mesh.clone()));
             out.shapes.push(PreparedShape {
+                cpu,
                 mesh: self.meshes.add(mesh),
                 material: self.materials.add(material),
                 transform: t,

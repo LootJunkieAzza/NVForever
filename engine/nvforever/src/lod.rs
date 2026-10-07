@@ -133,11 +133,12 @@ pub fn update_lod(
             let mut spawned = Vec::new();
             let (tp, bp) = (lod.terrain_path(cx, cy), lod.block_path(cx, cy));
             // Chunks exist only inside the worldspace's LOD grid; skip the rest quietly.
-            let terrain = models.data.vfs.exists(&tp).then(|| models.model(&tp)).flatten();
+            let terrain = models.data.vfs.exists(&tp).then(|| models.model_with_cpu(&tp)).flatten();
             if let Some(model) = terrain {
                 for s in &model.shapes {
                     let mesh = if overlaps {
-                        let Some(m) = models.meshes.get(&s.mesh) else { continue };
+                        // The GPU mesh cannot be read back once uploaded; trim the CPU copy.
+                        let Some(m) = s.cpu.as_deref() else { continue };
                         let Some(t) = trim_mesh(m, &s.transform, lo, hi) else { continue };
                         models.meshes.add(t)
                     } else {
