@@ -237,9 +237,9 @@ impl Inventory {
         true
     }
 
-    /// Weight and value. Ammunition weighs nothing outside Hardcore mode.
-    /// [hypothesis: the in-game rule as commonly described; AMMO DAT2 weights are
-    /// authored for Hardcore]
+    /// Weight and value. Ammunition weighs nothing outside Hardcore mode [observed in
+    /// game: 100 9mm rounds left the carried weight unchanged, non-Hardcore —
+    /// `L4.sim.trace.goodsprings_weight_and_time`; the Hardcore side is still hypothesis].
     pub fn totals(&self, forms: &FormStore, hardcore: bool) -> Totals {
         let mut t = Totals::default();
         for (id, n) in self.iter() {
