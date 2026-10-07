@@ -380,6 +380,18 @@
     }
    }
   },
+  "GMST": {
+   "name": "Game Setting",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Value",
+     "type": "bytes",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas GMST record: a union decided by the Editor ID's first letter (f: f32, i: i32, s: zstring; observed: 459 f and 61 i settings are all 4 bytes). Schema v1 has no unions, so the bytes are kept and interpreted by fnv-sim (settings.rs)."
+    }
+   }
+  },
   "SCPT": {
    "name": "Script",
    "confidence": "documented",

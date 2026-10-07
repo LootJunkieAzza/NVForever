@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::extract::{self, first, global, has_flag, int, local_fid, num, text, Decoded, Issues};
 use crate::form::FormId;
+use crate::settings::{unhex, Setting};
 
 /// Kinds of form that can sit in an inventory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -140,6 +141,9 @@ pub(crate) fn ser_sig<S: serde::Serializer>(sig: &[u8; 4], s: S) -> Result<S::Ok
     s.serialize_str(&String::from_utf8_lossy(sig))
 }
 
+/// Other record types the simulation reads: globals and game settings.
+pub const OTHER_SIGS: &[&[u8; 4]] = &[b"GLOB", b"GMST"];
+
 /// Record types interpreted as base forms.
 pub const BASE_SIGS: &[&[u8; 4]] = &[
     b"WEAP", b"ARMO", b"AMMO", b"ALCH", b"BOOK", b"KEYM", b"MISC", b"NOTE", b"LIGH", b"IMOD", b"CHIP", b"CCRD",
@@ -153,8 +157,10 @@ pub struct FormStore {
     pub sigs: HashMap<FormId, [u8; 4]>,
     /// Lower-case Editor ID -> FormID, for the base forms and globals.
     pub edids: HashMap<String, FormId>,
-    /// GLOB values.
+    /// GLOB values as authored.
     pub globals: HashMap<FormId, f32>,
+    /// GMST values by lower-case Editor ID.
+    pub settings: HashMap<String, Setting>,
     pub issues: Issues,
 }
 
@@ -167,13 +173,13 @@ impl FormStore {
             let r = lo.records[d.plugin as usize][d.ordinal as usize];
             if r.header.flags & record_flags::DELETED != 0 {
                 // Deleted references are counted by `RefTable`; report base forms only.
-                if BASE_SIGS.contains(&&r.header.sig) || &r.header.sig == b"GLOB" {
+                if BASE_SIGS.contains(&&r.header.sig) || OTHER_SIGS.contains(&&r.header.sig) {
                     store.issues.note("winning record is deleted", || format!("0x{g:08X} {}", r.sig_str()));
                 }
                 continue;
             }
             store.sigs.insert(FormId(g), r.header.sig);
-            if BASE_SIGS.contains(&&r.header.sig) || &r.header.sig == b"GLOB" {
+            if BASE_SIGS.contains(&&r.header.sig) || OTHER_SIGS.contains(&&r.header.sig) {
                 wanted.push((FormId(g), d.plugin as usize, r));
             }
         }
@@ -200,6 +206,12 @@ impl FormStore {
                         store.edids.insert(e.to_ascii_lowercase(), id);
                     }
                     store.globals.insert(id, v);
+                }
+                Loaded::Setting(edid, v) => {
+                    if let Setting::Raw(_) = v {
+                        store.issues.note("GMST with unknown prefix or size", || edid.clone());
+                    }
+                    store.settings.insert(edid.to_ascii_lowercase(), v);
                 }
                 Loaded::Skip => {}
             }
@@ -238,6 +250,17 @@ impl FormStore {
         self.edids.get(&edid.to_ascii_lowercase()).copied()
     }
 
+    /// A numeric game setting by Editor ID.
+    pub fn setting_f32(&self, edid: &str) -> Option<f32> {
+        self.settings.get(&edid.to_ascii_lowercase())?.as_f32()
+    }
+
+    /// A global's authored value by Editor ID.
+    pub fn global_by_edid(&self, edid: &str) -> Option<(FormId, f32)> {
+        let id = self.by_edid(edid)?;
+        Some((id, *self.globals.get(&id)?))
+    }
+
     pub fn sig(&self, id: FormId) -> Option<[u8; 4]> {
         self.sigs.get(&id).copied()
     }
@@ -246,6 +269,7 @@ impl FormStore {
 enum Loaded {
     Base(Box<BaseForm>),
     Global(Option<String>, f32),
+    Setting(String, Setting),
     Skip,
 }
 
@@ -260,6 +284,19 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
         }
     };
     let edid = first(&d, b"EDID").and_then(text);
+    if &sig == b"GMST" {
+        let Some(edid) = edid else {
+            issues.note("GMST without EDID", || format!("{id}"));
+            return Loaded::Skip;
+        };
+        return match first(&d, b"DATA").and_then(Value::as_str).and_then(unhex) {
+            Some(bytes) => Loaded::Setting(edid.clone(), Setting::from_bytes(&edid, &bytes)),
+            None => {
+                issues.note("GMST without DATA", || edid.clone());
+                Loaded::Skip
+            }
+        };
+    }
     if &sig == b"GLOB" {
         return match first(&d, b"FLTV").and_then(Value::as_f64) {
             Some(v) => Loaded::Global(edid, v as f32),

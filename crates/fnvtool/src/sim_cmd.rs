@@ -128,6 +128,8 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
     let mut lock_on: BTreeMap<String, u64> = BTreeMap::new();
     let mut tel: BTreeMap<String, u64> = BTreeMap::new();
     let mut tel_samples: Vec<String> = Vec::new();
+    let mut ep: BTreeMap<String, u64> = BTreeMap::new();
+    let mut ep_samples: Vec<String> = Vec::new();
     for r in refs.refs.values() {
         bump(&mut ref_sigs, sig_str(&r.sig));
         let base_sig = forms.sig(r.base).map(|s| sig_str(&s));
@@ -154,6 +156,35 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
                     },
                 },
             );
+        }
+        if let Some(e) = r.enable_parent {
+            bump(&mut ep, if e.opposite { "opposite" } else { "same" });
+            // Depth of the chain, and whether it ends at a missing reference or loops.
+            let (mut cur, mut depth, mut seen) = (e.reference, 1u32, vec![r.id]);
+            let end = loop {
+                if seen.contains(&cur) {
+                    break "loop";
+                }
+                seen.push(cur);
+                match refs.get(cur) {
+                    None if cur == FormId::PLAYER_REF => break "player",
+                    None => break "missing parent",
+                    Some(p) => match p.enable_parent {
+                        None => break "ok",
+                        Some(pp) => {
+                            cur = pp.reference;
+                            depth += 1;
+                        }
+                    },
+                }
+            };
+            bump(&mut ep, format!("depth {depth}"));
+            if end != "ok" {
+                bump(&mut ep, end);
+                if ep_samples.len() < 10 {
+                    ep_samples.push(format!("{} -> {}: {end}", r.id, e.reference));
+                }
+            }
         }
         if let Some(t) = r.teleport {
             let class = match refs.get(t.door) {
@@ -184,6 +215,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
         "carried_items": {"targets": cnto_targets, "counts": cnto_counts, "unusual_samples": odd_entries},
         "leveled_items": {"lists": lvl_lists, "entries": lvl_entries, "flags": lvl_flags, "targets": lvlo_targets},
         "globals": forms.globals.len(),
+        "settings": forms.settings.len(),
         "player": {"base_0x7": player_base, "ref_0x14_placed": player_ref},
         "references": {
             "total": refs.refs.len(),
@@ -201,6 +233,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
             "owned": owned,
             "locks": {"levels": lock_levels, "keys": lock_keys, "on_base_type": lock_on},
             "teleports": {"classes": tel, "samples": tel_samples},
+            "enable_parents": {"classes": ep, "samples": ep_samples},
         },
         "issues": issues.to_json(),
     })

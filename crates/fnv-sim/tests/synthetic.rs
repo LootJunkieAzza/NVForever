@@ -84,6 +84,14 @@ fn xtel(door: u32, pos: [f32; 3]) -> Subrecord {
     sub(b"XTEL", cat(&[&door.to_le_bytes(), &posrot(pos, [0.0, 0.0, 1.5]), &0u32.to_le_bytes()]))
 }
 
+fn xesp(parent: u32, opposite: bool) -> Subrecord {
+    sub(b"XESP", cat(&[&parent.to_le_bytes(), &[opposite as u8, 0, 0, 0]]))
+}
+
+fn glob_rec(fid: u32, edid: &str, ty: u8, v: f32) -> Vec<u8> {
+    record(b"GLOB", 0, fid, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![ty]), sub(b"FLTV", v.to_le_bytes().to_vec())])
+}
+
 fn cell_children(cell: u32, temp: &[u8], persistent: &[u8]) -> Vec<u8> {
     let label = cell.to_le_bytes();
     let mut body = Vec::new();
@@ -113,6 +121,9 @@ const DOOR_B: u32 = 0x303; // -> DOOR_A, in CELL_B
 const PLAIN_DOOR: u32 = 0x304;
 const KEY_REF: u32 = 0x305; // persistent, initially disabled
 const CHAIR_REF: u32 = 0x306;
+const CHILD_SAME: u32 = 0x307; // XESP -> KEY_REF (initially disabled)
+const CHILD_OPPOSITE: u32 = 0x308; // XESP -> KEY_REF, opposite
+const GRANDCHILD: u32 = 0x309; // XESP -> CHILD_OPPOSITE
 
 fn plugin_bytes() -> Vec<u8> {
     let misc = cat(&[
@@ -154,6 +165,9 @@ fn plugin_bytes() -> Vec<u8> {
         &refr(DOOR_A, 0, DOOR, [0.0; 3], vec![xtel(DOOR_B, [100.0, 0.0, 0.0])]),
         &refr(PLAIN_DOOR, 0, DOOR, [0.0; 3], vec![]),
         &refr(CHAIR_REF, 0, CHAIR, [0.0; 3], vec![]),
+        &refr(CHILD_SAME, 0, STIMPAK, [0.0; 3], vec![xesp(KEY_REF, false)]),
+        &refr(CHILD_OPPOSITE, 0, STIMPAK, [0.0; 3], vec![xesp(KEY_REF, true)]),
+        &refr(GRANDCHILD, 0, STIMPAK, [0.0; 3], vec![xesp(CHILD_OPPOSITE, false)]),
     ]);
     let pers_a = refr(KEY_REF, 0x400 | 0x800, KEY, [7.0, 8.0, 9.0], vec![sub(b"EDID", z("TestKeyRef"))]);
     let temp_b = refr(DOOR_B, 0, DOOR, [0.0; 3], vec![xtel(DOOR_A, [-100.0, 0.0, 0.0])]);
@@ -169,10 +183,23 @@ fn plugin_bytes() -> Vec<u8> {
             ),
         ),
     );
-    let glob = record(b"GLOB", 0, 0x150, &[sub(b"EDID", z("TestGlobal")), sub(b"FNAM", vec![b'f']), sub(b"FLTV", 42f32.to_le_bytes().to_vec())]);
+    let glob = cat(&[
+        &glob_rec(0x35, "GameYear", b's', 2281.0),
+        &glob_rec(0x36, "GameMonth", b's', 9.0),
+        &glob_rec(0x37, "GameDay", b's', 31.0),
+        &glob_rec(0x38, "GameHour", b's', 12.0),
+        &glob_rec(0x39, "GameDaysPassed", b'f', 5.0),
+        &glob_rec(0x3A, "TimeScale", b's', 30.0),
+        &glob_rec(0x150, "TestGlobal", b'f', 42.0),
+    ]);
+    let gmst = cat(&[
+        &record(b"GMST", 0, 0x160, &[sub(b"EDID", z("fAVDCarryWeightsBase")), sub(b"DATA", 150f32.to_le_bytes().to_vec())]),
+        &record(b"GMST", 0, 0x161, &[sub(b"EDID", z("sOverEncumbered")), sub(b"DATA", z("Too heavy"))]),
+    ]);
     cat(&[
         &tes4(),
         &top(b"GLOB", &glob),
+        &top(b"GMST", &gmst),
         &top(b"MISC", &misc),
         &top(b"KEYM", &keym),
         &top(b"FURN", &furn),
@@ -225,13 +252,15 @@ fn forms_load_through_the_schema() {
     assert_eq!((l.entries[1].level, l.entries[1].item, l.entries[1].count), (5, id(CAPS), 10));
     assert_eq!(f.forms.leveled(id(LL_NONE)).unwrap().chance_none, 100);
     assert!(matches!(f.forms.get(id(0x7)).unwrap().data, BaseData::Actor(_)));
+    assert_eq!(f.forms.setting_f32("FAVDCARRYWEIGHTSBASE"), Some(150.0));
+    assert_eq!(f.forms.settings["soverencumbered"], fnv_sim::settings::Setting::Str("Too heavy".into()));
 }
 
 #[test]
 fn references_load_with_cells_and_extra_data() {
     let f = fixture();
     assert!(f.refs.issues.is_empty(), "{:?}", f.refs.issues.to_json());
-    assert_eq!(f.refs.refs.len(), 7);
+    assert_eq!(f.refs.refs.len(), 10);
     let safe = f.refs.get(id(SAFE_REF)).unwrap();
     assert_eq!((safe.base, safe.cell, safe.pos), (id(SAFE), Some(id(CELL_A)), [1.0, 2.0, 3.0]));
     assert_eq!(safe.lock.unwrap().key, Some(id(KEY)));
@@ -438,4 +467,48 @@ fn snapshot_resumes_identically() {
     let mut bad = snap.clone();
     bad.format = "other".into();
     assert!(World::restore(&f.forms, &f.refs, &bad).is_err());
+}
+
+#[test]
+fn enable_parent_chains() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    // KEY_REF starts disabled: the same-state child is disabled, the opposite child
+    // enabled, and the grandchild follows the opposite child.
+    assert!(!w.is_enabled(id(CHILD_SAME)).unwrap());
+    assert!(w.is_enabled(id(CHILD_OPPOSITE)).unwrap());
+    assert!(w.is_enabled(id(GRANDCHILD)).unwrap());
+    assert_eq!(w.activate(p, id(CHILD_SAME)).unwrap().outcome, Outcome::Disabled);
+    w.set_enabled(id(KEY_REF), true).unwrap();
+    assert!(w.is_enabled(id(CHILD_SAME)).unwrap());
+    assert!(!w.is_enabled(id(CHILD_OPPOSITE)).unwrap());
+    assert!(!w.is_enabled(id(GRANDCHILD)).unwrap());
+    // A child's own flag does not matter while it has a parent.
+    w.set_enabled(id(CHILD_SAME), false).unwrap();
+    assert!(w.is_enabled(id(CHILD_SAME)).unwrap());
+    // Queries do not materialise references.
+    let fresh = World::new(&f.forms, &f.refs, SimConfig::default());
+    fresh.is_enabled(id(GRANDCHILD)).unwrap();
+    assert_eq!(fresh.changed().count(), 0);
+}
+
+#[test]
+fn clock_lives_in_the_time_globals() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let c = w.advance_hours(13.0).unwrap();
+    assert_eq!((c.month, c.day, c.hour), (10.0, 1.0, 1.0));
+    assert_eq!(w.global(id(0x38)).unwrap(), 1.0);
+    // 120 real seconds at TimeScale 30 = 1 game hour.
+    let c = w.advance_real_seconds(120.0).unwrap();
+    assert_eq!(c.hour, 2.0);
+    w.set_global(id(0x150), 7.0).unwrap();
+    assert_eq!(w.global(id(0x150)).unwrap(), 7.0);
+    assert!(w.set_global(id(STIMPAK), 1.0).is_err());
+    // Changed globals are part of the snapshot.
+    let snap = w.snapshot();
+    assert_eq!(snap.globals[&id(0x150)], 7.0);
+    let back = World::restore(&f.forms, &f.refs, &snap).unwrap();
+    assert_eq!(back.calendar().unwrap(), w.calendar().unwrap());
 }
