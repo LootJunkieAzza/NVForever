@@ -136,10 +136,11 @@ pub fn update_lod(
             let terrain = models.data.vfs.exists(&tp).then(|| models.model_with_cpu(&tp)).flatten();
             if let Some(model) = terrain {
                 for s in &model.shapes {
+                    let st = model.root * s.transform;
                     let mesh = if overlaps {
                         // The GPU mesh cannot be read back once uploaded; trim the CPU copy.
                         let Some(m) = s.cpu.as_deref() else { continue };
-                        let Some(t) = trim_mesh(m, &s.transform, lo, hi) else { continue };
+                        let Some(t) = trim_mesh(m, &st, lo, hi) else { continue };
                         models.meshes.add(t)
                     } else {
                         s.mesh.clone()
@@ -151,7 +152,7 @@ pub fn update_lod(
                         }
                     }
                     let e = commands
-                        .spawn((Mesh3d(mesh), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform))))
+                        .spawn((Mesh3d(mesh), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(st))))
                         .id();
                     commands.entity(root).add_child(e);
                     spawned.push(e);
@@ -162,8 +163,9 @@ pub fn update_lod(
                 let block = models.data.vfs.exists(&bp).then(|| models.model(&bp)).flatten();
                 if let Some(model) = block {
                     for s in &model.shapes {
+                        let st = model.root * s.transform;
                         let e = commands
-                            .spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform))))
+                            .spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(st))))
                             .id();
                         commands.entity(root).add_child(e);
                         spawned.push(e);
