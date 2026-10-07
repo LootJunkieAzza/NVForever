@@ -6,6 +6,7 @@
 //! - [`forms`]: base forms the simulation needs (items, containers, doors, actors,
 //!   leveled lists, globals), read through the Layer 1 schema
 //! - [`refs`]: placed references with their extra data
+//! - [`settings`]: game settings (GMST); [`clock`]: game time in the time globals
 //! - [`inventory`], [`leveled`]: item stacks and leveled-list resolution
 //! - [`world`]: runtime state as a delta over the plugins, activation, snapshots
 //! - [`actions`]: scripted action sequences and traces (the parity scenario format)
@@ -14,12 +15,14 @@
 //! `docs/spec-notes/simulation.md`.
 
 pub mod actions;
+pub mod clock;
 pub mod extract;
 pub mod form;
 pub mod forms;
 pub mod inventory;
 pub mod leveled;
 pub mod refs;
+pub mod settings;
 pub mod world;
 
 pub use form::FormId;
