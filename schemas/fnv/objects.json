@@ -1998,6 +1998,125 @@
      "note": "xEdit wbDefinitionsFNV.pas TREE record"
     }
    }
+  },
+  "IMOD": {
+   "name": "Item Mod",
+   "confidence": "documented",
+   "subrecords": {
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMOD record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMOD record (wbZNAM)"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "value",
+        "type": "u32"
+       },
+       {
+        "name": "weight",
+        "type": "f32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMOD record: wbStruct(DATA) Value itU32, Weight float"
+    }
+   }
+  },
+  "CHIP": {
+   "name": "Casino Chip",
+   "confidence": "documented",
+   "subrecords": {
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CHIP record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CHIP record (wbZNAM)"
+    }
+   }
+  },
+  "CCRD": {
+   "name": "Caravan Card",
+   "confidence": "documented",
+   "subrecords": {
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CCRD record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CCRD record (wbZNAM)"
+    },
+    "TX00": {
+     "name": "High Res Image - Face",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CCRD record (wbRStruct 'High Res Image')"
+    },
+    "TX01": {
+     "name": "High Res Image - Back",
+     "type": "zstring",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CCRD record (wbRStruct 'High Res Image')"
+    },
+    "INTV": {
+     "name": "Card - Suit / Value",
+     "type": "u32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CCRD record: wbRStruct 'Card' holds two INTV u32 subrecords, the first the suit (enum 1 Hearts, 2 Spades, 3 Diamonds, 4 Clubs, 5 Joker), the second the value (enum 1 Ace, 2-10, 12 Jack, 13 Queen, 14 King, 15 Joker); schema v1 keys subrecords by signature only, so both decode as plain u32"
+    },
+    "DATA": {
+     "name": "Value",
+     "type": "u32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CCRD record: wbInteger(DATA, 'Value', itU32)"
+    }
+   }
+  },
+  "CMNY": {
+   "name": "Caravan Money",
+   "confidence": "documented",
+   "subrecords": {
+    "YNAM": {
+     "name": "Sound - Pick Up",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CMNY record (wbYNAM)"
+    },
+    "ZNAM": {
+     "name": "Sound - Drop",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CMNY record (wbZNAM)"
+    },
+    "DATA": {
+     "name": "Absolute Value",
+     "type": "u32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CMNY record: wbInteger(DATA, 'Absolute Value', itU32)"
+    }
+   }
   }
  }
 }

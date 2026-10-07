@@ -1,0 +1,55 @@
+{
+  "format": "fnv.sim.cases/1",
+  "seed": 0,
+  "cases": [
+    {
+      "label": "LootChemsStimpak50 x1 (chance none 50)",
+      "list": "LootChemsStimpak50",
+      "level": 1,
+      "count": 1,
+      "samples": 20000
+    },
+    {
+      "label": "LootChemsStimpak50 x3 (each item in count)",
+      "list": "LootChemsStimpak50",
+      "level": 1,
+      "count": 3,
+      "samples": 20000
+    },
+    {
+      "label": "LL0NPCWastelandCaps35 x1 (chance none 65, all levels)",
+      "list": "LL0NPCWastelandCaps35",
+      "level": 1,
+      "count": 1,
+      "samples": 20000
+    },
+    {
+      "label": "VFactionSquadStimpaks x1 at level 10 (highest eligible level)",
+      "list": "VFactionSquadStimpaks",
+      "level": 10,
+      "count": 1,
+      "samples": 20000
+    },
+    {
+      "label": "VFactionSquadStimpaks x1 at level 30",
+      "list": "VFactionSquadStimpaks",
+      "level": 30,
+      "count": 1,
+      "samples": 20000
+    },
+    {
+      "label": "VendorChestStimpaksBoomer x1 (use all)",
+      "list": "VendorChestStimpaksBoomer",
+      "level": 1,
+      "count": 1,
+      "samples": 20000
+    },
+    {
+      "label": "ClutterHouseholdJunkNV x1 (uniform pick of 18)",
+      "list": "ClutterHouseholdJunkNV",
+      "level": 1,
+      "count": 1,
+      "samples": 20000
+    }
+  ]
+}
