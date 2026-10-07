@@ -191,7 +191,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    `AddItem` draws per case). They can now be run with the `nvf_capture` plugin (needs
    xNVSE 6.4.9+ installed by you; tools/capture/README.md §10). First golden captured
    2026-10-07: `goodsprings_weight_and_time` passes 9/9; `leveled_basic` (2,100 in-game
-   draws) passes 7/7 cases.
+   draws) passes 7/7 cases; `goodsprings_merchant_restock` passes 4/4;
+   `goodsprings_doc_mitchell` 5/6 (z after a teleport, waits for the controller).
 
 ## 6. Updated spec notes
 
