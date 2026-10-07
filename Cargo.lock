@@ -319,6 +319,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-collide"
+version = "0.1.0"
+dependencies = [
+ "fnv-nif",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "fnv-dds"
 version = "0.1.0"
 dependencies = [
