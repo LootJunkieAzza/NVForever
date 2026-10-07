@@ -19,6 +19,7 @@ fnv-esm = { path = "../fnv-esm" }
 fnv-nif = { path = "../fnv-nif" }
 fnv-dds = { path = "../fnv-dds" }
 fnv-vfs = { path = "../fnv-vfs" }
+fnv-world = { path = "../fnv-world" }
 fnv-sim = { path = "../fnv-sim" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
