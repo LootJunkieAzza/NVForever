@@ -78,10 +78,10 @@ class JobTests(unittest.TestCase):
         job = cs.actions_job(actions({"op": "set_av", "of": "player", "name": "Strength", "value": 5.0},
                                      {"op": "set_global", "name": "GameHour", "value": 8},
                                      {"op": "set_global", "name": "GameHour", "value": 8.5}), "x", "s")
-        texts = [s["script"] for s in job["steps"][len(cs.MASTERS):]]
-        self.assertIn("player.SetAV Strength 5\n", texts[0])
-        self.assertIn("set GameHour to 8\n", texts[1])
-        self.assertIn("set GameHour to 8.5\n", texts[2])
+        steps = job["steps"][len(cs.MASTERS):]
+        self.assertIn("player.SetAV Strength 5\n", steps[0]["script"])
+        self.assertEqual(steps[1], {"console": "set GameHour to 8"})
+        self.assertEqual(steps[2], {"console": "set GameHour to 8.5"})
 
     def test_queries_fields_and_default_labels(self):
         job = cs.actions_job(actions({"op": "get_pos", "of": "player"},
