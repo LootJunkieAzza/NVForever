@@ -1,0 +1,4940 @@
+{
+ "schema": "fnv.script.notes/1",
+ "about": "Own-words paraphrases of the GECK wiki page of each base-game script function (origin GECK1, VEGAS1, CONSOLENV), written 2026-10-07 from the private Special:Export dump. Tag: [documented] (source: the linked wiki page). bugs = original-engine quirks the page reports. No sentence is copied from the wiki; keep it that way when editing.",
+ "functions": [
+  {
+   "page": "Abs",
+   "summary": "Takes a float and returns its absolute value; not called on a reference.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Activate",
+   "summary": "Triggers the activation event of the calling object, optionally naming the activating reference and choosing whether the script's activation block runs or default activation happens.",
+   "notes": [
+    "ActionRef omitted: the calling reference's existing action ref is used; if it has none, nothing is activated.",
+    "RunOnActivateBlockFlag 0 or omitted gives default activation (NPCs start dialogue, containers and doors open, items are taken by the player) and skips the script's activation block.",
+    "Flag 1 runs the object's activation block instead of default activation and requires an ActionRef; the target script runs immediately, delaying the caller's next line.",
+    "Passing the player as argument does not activate the player; the caller is activated with the player stored as its activator.",
+    "Activating an item with an enabled NPC as activator makes that NPC pick it up, even if unconscious; containers do not."
+   ],
+   "bugs": [
+    "Flag 0 on an object lacking an activation block (or any script) permanently stops normal activation of it, e.g. containers cannot be opened and NPCs cannot be talked to again.",
+    "Showing a message box in a container's activation block then activating it afterwards leaves the player stuck in an unusable inventory screen.",
+    "Activating a stacked item in an inventory with the player as activator moves one item and destroys the rest of the stack."
+   ]
+  },
+  {
+   "page": "AddAchievement",
+   "summary": "Unlocks the achievement with the given index on Steam or GFWL; takes a single integer and is not called on a reference.",
+   "notes": [
+    "The page lists achievement numbers for New Vegas and its DLC (and separately for Fallout 3); index meanings come from that table."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddCardToPlayer",
+   "summary": "Adds the calling playing card reference to the player's Caravan deck.",
+   "notes": [
+    "Called on a card reference."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddCreatureToLeveledList",
+   "summary": "Permanently appends a creature or leveled creature to an existing leveled creature list at a given level, mainly for patching base-game lists at runtime.",
+   "notes": [
+    "Arguments are the list, the creature (or leveled creature) base form, and the level at which it becomes eligible.",
+    "The change is stored in save data and cannot be reverted.",
+    "Intended for rare cases such as DLC altering base-game lists, not routine content."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddFormToFormList",
+   "summary": "Inserts a form at index 0 of a form list, shifting existing entries up by one; the change is baked into the save.",
+   "notes": [
+    "Adding a form already present just moves it to the front rather than duplicating it.",
+    "Any form type works, base objects and runtime-created references included; non-persistent references added are eventually purged from the list.",
+    "For ammo lists, re-adding the original base ammo afterwards restores it to the front; otherwise weapons display and default to the added ammo type."
+   ],
+   "bugs": [
+    "Occasionally an edited form list is reset and the added entries vanish from the save."
+   ]
+  },
+  {
+   "page": "AddItem",
+   "summary": "Adds a given count of an item to the calling actor's or container's inventory, optionally suppressing the on-screen message and sound.",
+   "notes": [
+    "Third parameter SilentlyAdd is optional; when nonzero no message or sound is shown.",
+    "A form list may be given instead of an item; each entry is added in the stated count.",
+    "Triggers the item's add-event script block once per item added.",
+    "On NPCs it makes them re-evaluate inventory and equip best armor and weapon."
+   ],
+   "bugs": [
+    "Calling it from an effect script or an equip block makes the actor's weapon toggle between visible/usable and invisible/unusable; workaround is adding and removing a dummy item in the item's add block.",
+    "On an NPC already wearing armor with object effects, re-equipping stacks the effects each call until the armor is unequipped."
+   ]
+  },
+  {
+   "page": "AddItemHealthPercent",
+   "summary": "Adds items to an actor or container at a specified condition (health) fraction.",
+   "notes": [
+    "Parameters are item, count, health percent as a float (example uses 0.85 for 85%), and optional message-hidden flag.",
+    "When the item comes from a leveled list, the given health percent overrides the list's own value."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddItemToLeveledList",
+   "summary": "Permanently adds a form to an existing leveled item list with level, count and health percent, mainly for patching base-game lists at runtime.",
+   "notes": [
+    "Change persists in save data and cannot be undone.",
+    "ObjectToAdd may be a base object or another leveled item list.",
+    "In New Vegas the health parameter is scaled 0 to 100, whereas Fallout 3 used 0 to 1."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddNote",
+   "summary": "Adds a note to the player's notes and shows a corner message whose text comes from a game setting; not called on a reference.",
+   "notes": [
+    "Message text is controlled by the sComputersAddedNote game setting."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddNPCToLeveledList",
+   "summary": "Permanently adds an NPC or leveled character to an existing leveled character list at a given level, mainly for patching base-game lists at runtime.",
+   "notes": [
+    "Arguments are the leveled character list, the NPC or leveled list to add, and the level.",
+    "Change persists in save data and cannot be undone."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddOcclusionPlane",
+   "summary": "Console-oriented command that creates an occlusion plane of given width and height at the camera; negative values create a portal and a lone zero clears temporary ones.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "AddPerk",
+   "summary": "Increases a perk's rank on the calling actor by one (rank 1 if new); on the player, a nonzero teammates flag targets companions instead.",
+   "notes": [
+    "Optional second parameter forTeammates (0/1) only matters when called on the player; nonzero adds to the player's separate teammate perk list.",
+    "The player holds two perk lists: one for itself, one applied to all current companions.",
+    "Perk prerequisites do not apply to companion perks; conditions such as identity checks should restrict who benefits.",
+    "When companions change, remove and re-add companion perks to force re-evaluation.",
+    "Mod-created perks left in a Fallout 3 save may crash older versions when the mod is gone (FO3)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddReputation",
+   "summary": "Adds fame or infamy with a faction's reputation using a deed-size scale from 1 to 5.",
+   "notes": [
+    "First integer picks infamy (0) or fame (1); the second integer is deed size 1 to 5.",
+    "Actual points per size come from game settings; defaults are 1, 2, 4, 7 and 12 for sizes 1 through 5.",
+    "A negative amount removes reputation but the message still reads as gained."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddReputationExact",
+   "summary": "Adds an exact float amount of fame or infamy to a faction's reputation.",
+   "notes": [
+    "First parameter picks infamy (0) or fame (1); second is the exact amount.",
+    "A negative amount removes reputation but the message still reads as gained."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddScriptPackage",
+   "summary": "Gives the calling actor a script package that overrides all other packages until it finishes.",
+   "notes": [
+    "An actor holds only one script package; a second call replaces the first.",
+    "Without must-complete or must-reach-location constraints, the package is dropped at the next package re-evaluation.",
+    "Affects only that actor reference, not other references or the base form.",
+    "The added package is saved with the game."
+   ],
+   "bugs": [
+    "A package added from inside a dialogue result script might not get attached to the speaker."
+   ]
+  },
+  {
+   "page": "AddSPECIALPoints",
+   "summary": "Opens the character-generation Attributes page so the player can distribute a given number of extra SPECIAL points, implemented via an attribute override.",
+   "notes": [
+    "While the menu is open, SPECIAL values cannot be lowered below their base values.",
+    "If the points cannot all be spent (all stats already at maximum), the menu cannot be exited."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddSpell",
+   "summary": "Gives the calling actor an actor effect (spell, ability or addiction in vanilla) that applies immediately.",
+   "notes": [
+    "On non-unique actors the effect lands on the base object, so references spawned later from it also carry the effect."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddTagSkills",
+   "summary": "Opens the character-generation Skills page letting the player tag a given number of extra skills.",
+   "notes": [
+    "Initial tagged skills cannot be un-tagged in this menu state.",
+    "At most four tagged skills take effect; extra picks beyond four are ignored, also via SetTagSkills."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddToFaction",
+   "summary": "Puts the specific calling actor reference into a faction at the given rank.",
+   "notes": [
+    "Affects only the reference, unlike SetFactionRank which affects the base form."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AddTopic",
+   "summary": "Appends a dialogue topic to another topic's add-topic list, giving that topic an extra selectable choice.",
+   "notes": [
+    "Intended for dialogue result scripts only.",
+    "Using the editor's add-topic list instead is not merged between mods, so scripting is more compatible."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AdvancePCLevel",
+   "summary": "Increments the player's character level and brings up the level-up menu.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "AgeRace",
+   "summary": "Moves the calling actor up or down a number of age steps within its race chain, swapping it to the older or younger linked race.",
+   "notes": [
+    "Positive values age the actor, negative values make it younger, each step following the race's older/younger links; overshooting clamps at the oldest or youngest available.",
+    "Only races with linked age variants are affected; in Fallout 3 only the human races have them, with child, adult and old stages (FO3).",
+    "The actor takes the default face textures of the new race; invalid hair falls back to default, restored on return for the player only.",
+    "Younger-then-older does not reliably return to the original race since links need not be symmetric or already-child values are ignored."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AlwaysShowActorSubtitles",
+   "summary": "Toggles whether the calling actor's dialogue subtitles are always displayed (0 off, 1 on).",
+   "notes": [
+    "The setting is not saved and resets every time a game is loaded."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ApplyImageSpaceModifier",
+   "summary": "Plays the given imagespace modifier as a screen effect.",
+   "notes": [
+    "The blood imagespace modifier is apparently unused in the release data; the screen-blood function is the proper way to show blood."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AttachAshPile",
+   "summary": "Places an ash pile on the calling reference; an optional integer selects the pile type.",
+   "notes": [
+    "Optional iType: 1 is the normal ash pile, 2 is the plasma goo pile; omitting it attaches the default."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "AutoDisplayObjectives",
+   "summary": "Enables (1) or disables (0) automatic on-screen display of the active quest's objectives, used when the Pip-Boy cannot be opened.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Autosave",
+   "summary": "Forces an autosave into the current autosave slot.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Bat",
+   "summary": "Console command that executes a list of console commands read from a text file in the game folder.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "CalcLowPathToPoint",
+   "summary": "Console command that finds the shortest route between the player and the calling reference, printing it and drawing it as a ground line.",
+   "notes": [
+    "First parameter ignoreLocks is 0 or 1; the other two parameters are unused."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Cast",
+   "summary": "Unused leftover from Oblivion that takes an effect and optional target but does nothing when executed.",
+   "notes": [
+    "Scripts still compile with it but nothing happens; the immediate-cast functions are the replacements."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "CastImmediateOnSelf",
+   "summary": "Makes the calling actor apply a self-targeted actor effect or ingestible to itself instantly, skipping the casting animation.",
+   "notes": [
+    "Only works with effects whose range includes Self.",
+    "Effects need a duration above zero; zero duration, even with the no-duration flag, prevents activation. A very long duration can substitute.",
+    "An ingestible's form can be given in place of the effect.",
+    "Unlike AddSpell, affects only the reference rather than the base object, and the effect has a duration."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "CenterOnCell",
+   "summary": "Console command that moves the player to a named interior cell.",
+   "notes": [
+    "The player is placed at the cell's COC marker heading; without one placement may be bad, such as inside a wall."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "CenterOnExterior",
+   "summary": "Console command that moves the player to given exterior grid coordinates in the current worldspace.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "CenterOnWorld",
+   "summary": "Console command that moves the player to given exterior grid coordinates in a chosen worldspace.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ChallengeLocked",
+   "summary": "Condition function returning true when the given challenge has its start-disabled flag set.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ClearActorsFactionsPlayerEnemyFlag",
+   "summary": "Clears the player-enemy crime flag on every crime-tracking faction of the given actor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ClearDestruction",
+   "summary": "Resets all destruction state on the calling reference, including health, model swap, damage stages and self damage, to defaults.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ClearFactionPlayerEnemyFlag",
+   "summary": "Resets the player-enemy flag on a crime-tracking faction, which is set after the player commits a serious crime against it.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ClearLocationMarkers",
+   "summary": "Console debugging command that removes location markers placed in the current cell, paired with PlaceLocationMarker.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ClearNoActivationSound",
+   "summary": "Restores the no-activation sound to its default.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ClearOwnership",
+   "summary": "Removes the owner from the calling reference.",
+   "notes": [
+    "Clearing does not make the player the owner, which can cause side effects such as teleport doors appearing red; SetOwnership is the alternative."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ClearScreenBlood",
+   "summary": "Console-oriented command that clears blood overlaying the screen after the player took damage.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ClearScreenSplatter",
+   "summary": "Clears the screen splatter effect.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "CloseAllMenus",
+   "summary": "Console-only command that closes every open menu; it cannot be used from scripts.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Clr",
+   "summary": "Console command that clears the console's displayed output.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "CompleteAllObjectives",
+   "summary": "Marks every objective of the given quest as completed.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "CompleteAllQuestStages",
+   "summary": "Console-only command marking all stages of all quests as completed.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "CompleteQuest",
+   "summary": "Marks the quest completed, dimming it, moving it below active quests in the Pip-Boy, making it unselectable as active, and showing the quest-completed message.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Cos",
+   "summary": "Returns the cosine of an angle in degrees, or with the optional arc flag set returns the arccosine in degrees.",
+   "notes": [
+    "Optional second integer parameter: nonzero switches to the inverse (arccosine) result in degrees."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "CreateDetectionEvent",
+   "summary": "Generates a detection (noise) event at the calling location reference, owned by an actor, which nearby actors may investigate.",
+   "notes": [
+    "Parameters: owner actor reference, sound level, and optional event type.",
+    "Vanilla loud events cap at 100 but any positive sound level is accepted.",
+    "Optional event type codes: bullet 0, beam 1, explosion 2, generic 3."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "DamageActorValue",
+   "summary": "Lowers the damage modifier of an actor value on the calling actor by the given amount, reducing its current value.",
+   "notes": [
+    "The damage modifier is always zero or negative, so the current value drops by the given amount; accepts floats.",
+    "Changes are not permanent in the way ModActorValue changes are; RestoreActorValue reverses damage.",
+    "Does not work on non-actors; DamageObject is for those."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "DamageObject",
+   "summary": "Applies a float amount of damage to a destructible, not-yet-destroyed object reference.",
+   "notes": [
+    "Does not work on objects with their own health such as weapons, nor on actors."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "DeactivateAllHighlights",
+   "summary": "Console-only command that turns off all VATS body-part highlights.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Delete",
+   "summary": "Console command that unloads a menu from memory by its menu class name.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "DeleteReference",
+   "summary": "Console-only debugging command that immediately removes a reference and releases its memory.",
+   "notes": [
+    "Deletion is baked into the save, but the memory release lasts for the session, so reloading an earlier save in the same session leaves it gone.",
+    "Outside debugging, MarkForDelete should be used or the game may crash."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Depth",
+   "summary": "Console command reporting menu stack depth for the top menu and the cursor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "DetonatePlacedExplosives",
+   "summary": "Detonates all C4 placed by the calling actor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Disable",
+   "summary": "Disables the calling reference, so it is not rendered and disabled actors stop AI processing; takes an optional fade-out flag defaulting to 0.",
+   "notes": [
+    "Scripts on disabled non-actor references still run; scripts on disabled actors keep running until the area is left and then stop, so check GetDisabled.",
+    "Disabling a reference that has an enable parent has no effect; the fade-out does not apply to children of an enable parent.",
+    "Does not remove the reference from the game or reduce save size; MarkForDelete does that.",
+    "No effect on inventory references, and disabled actors cannot be made to activate objects.",
+    "Disabling the target of a spell during its script-effect start block makes later spell blocks unpredictable."
+   ],
+   "bugs": [
+    "Disabling an object inside the add-event block does not work; the activation block works instead.",
+    "Disabling a spell's target in the effect start block makes update blocks fire several times for less than the full duration and the finish block sometimes never runs."
+   ]
+  },
+  {
+   "page": "DisableAllActors",
+   "summary": "Disables all actors; needs a calling reference and may only take effect on already-loaded actors after a cell change.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "DisableAllMines",
+   "summary": "Disables every mine in the cell the player currently occupies.",
+   "notes": [
+    "To disable one specific mine reference, activating it works."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "DisableHardcoreTracking",
+   "summary": "Sets the flag recording that the player has ever turned off Hardcore mode, which permanently blocks the Hardcore achievement for that playthrough.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "DisableNavmesh",
+   "summary": "Disables the given navmesh.",
+   "notes": [
+    "Works only with raw form IDs, since navmeshes are not references and load-order index fixups do not apply in compiled scripts."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "DisablePlayerControls",
+   "summary": "Disables chosen groups of player controls via seven optional 0/1 flags (movement, Pip-Boy, fighting, point of view, looking, rollover text, sneaking).",
+   "notes": [
+    "With no parameters it disables movement, Pip-Boy, fighting and view toggling, while looking, rollover text and sneaking stay enabled.",
+    "Movement flag also blocks activating world objects and partly disables the HUD (action points, health, crosshair).",
+    "Pip-Boy flag also disables the wait menu; fighting flag holsters a drawn weapon; POV flag forces first person; sneaking flag forces the player out of sneak.",
+    "Looking flag locks the camera; rollover flag hides rollover text on world objects.",
+    "Resets image space adapters as a side effect."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Dispel",
+   "summary": "Removes a specified actor effect currently affecting the calling actor.",
+   "notes": [
+    "Dispelling the spell whose own script is executing acts like a return, ending the script at that point.",
+    "Used that way in an effect-update block placed before the finish block, the finish block never runs and the effect lasts its full duration."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "DispelAllSpells",
+   "summary": "Removes all magic effects currently on the calling actor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "DrawSkeleton",
+   "summary": "Debug console function making the actor's root node half transparent when any argument is nonzero.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Drop",
+   "summary": "Makes the calling actor drop a given count of an item at its feet.",
+   "notes": [
+    "The function does not hand back a usable reference to the dropped item.",
+    "Apparently does not trigger the drop event block when called on the player.",
+    "Dropped item stats such as charges and script variables reset as if new.",
+    "When dropping part of a stack, which instances (by condition) are dropped is unclear."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "DropMe",
+   "summary": "Drops the calling item out of the container it sits in; has no effect if it is not in a container.",
+   "notes": [
+    "Acts as a return: lines after it do not execute, since the item destroys itself while leaving inventory.",
+    "Unlike RemoveMe, does not keep health, charges or script variables.",
+    "Does not trigger the item's drop block.",
+    "Dropped item appears beside the container or owner; an item with no model stops running scripts but stays, bloating saves."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "DumpModelMap",
+   "summary": "Console command writing the model map to a dump file whose name includes an optional suffix argument.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "DuplicateAllItems",
+   "summary": "Copies all items from the calling actor or container into a target container.",
+   "notes": [
+    "Scripted duplicates get their script variables zeroed and a new form ID, so checks against the original form fail and scripts referencing it break.",
+    "The default game does not use it."
+   ],
+   "bugs": [
+    "Fallout 3 version creates new unsaved base objects for scripted items, so duplicated scripted items disappear after reloading a save (FO3)."
+   ]
+  },
+  {
+   "page": "DuplicateNPCStats",
+   "summary": "Copies another actor's stats, including class and level, onto the calling actor reference, with skills and attributes recalculated.",
+   "notes": [
+    "The target actor must have its auto-calculate stats flag set."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Enable",
+   "summary": "Enables a previously disabled reference so it renders and actors resume AI; optional fade-in flag defaults to 1.",
+   "notes": [
+    "Calling it on a reference that has an enable parent has no effect.",
+    "On an enable parent the fade-in argument is not forwarded; children are enabled with the default fade-in unless set to pop in individually."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "EnableFastTravel",
+   "summary": "Allows or forbids player fast travel, with optional flags for waiting and for keeping the setting across cell changes.",
+   "notes": [
+    "Arguments: canFastTravel, canWait, keepOnCellChange; wait is forced on whenever fast travel is set to 1.",
+    "If keepOnCellChange is not 1, entering an interior and returning to an exterior restores fast travel to enabled.",
+    "Setting 1 only permits travel if normal conditions allow, e.g. not over-encumbered or in certain interiors.",
+    "Calling with 0 0 1 then 0 0 0 leaves the keep behavior in place, since the second call is effectively ignored.",
+    "canWait and keepOnCellChange exist only in New Vegas; Fallout 3 takes one flag (FO3)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "EnableLoadingMenu",
+   "summary": "Forces a generic loading screen, not location-specific, to appear for a few seconds.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "EnableNavMesh",
+   "summary": "Enables the given navmesh.",
+   "notes": [
+    "Works only with raw form IDs, since navmeshes are not references and load-order index fixups do not apply in compiled scripts."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "EnablePlayerControls",
+   "summary": "Re-enables player controls turned off by DisablePlayerControls using seven optional 0/1 flags; with no parameters everything is enabled.",
+   "notes": [
+    "Flag meanings are the same as in DisablePlayerControls."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "EnterTrigger",
+   "summary": "Forces a trigger-enter event on the calling trigger reference, with the argument naming the reference that entered.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "EquipItem",
+   "summary": "Forces the calling actor to equip an item, with optional flags to prevent unequipping and to hide the equip message.",
+   "notes": [
+    "NoUnequipFlag 1 stops the actor unequipping the item until UnequipItem is used; a slot holding such an item blocks further equips there.",
+    "Ingestibles can be passed so the actor consumes them normally, including skill scaling and addiction chance.",
+    "Does not run the item's equip block; EquipItemAlt is the variant that does.",
+    "With several copies, the lowest-condition one is equipped, unless called the same frame as an add, then the last added is used.",
+    "Equipping armor on an NPC does not automatically unequip the item it replaces, unlike for the player.",
+    "May fail on items added just before; a delay of several frames after adding helps."
+   ],
+   "bugs": [
+    "Equipping a playable item with NoUnequipFlag on an NPC, or a playable non-quest item on the player, then calling RemoveAllItems crashes the game."
+   ]
+  },
+  {
+   "page": "EssentialDeathReload",
+   "summary": "Forces a game reload as on player death, showing a given message first and then the reload menu.",
+   "notes": [],
+   "bugs": [
+    "Does not display the chosen message and shows a blank one instead."
+   ]
+  },
+  {
+   "page": "EvaluatePackage",
+   "summary": "Forces the calling actor to re-evaluate its list of AI packages.",
+   "notes": [
+    "Even a must-complete or must-reach-location package is dropped and the list re-evaluated.",
+    "Does not touch other AI behavior such as combat or pathing; ResetAI resets everything.",
+    "Can be slow with long package lists, so use sparingly.",
+    "Calling it while the actor is already updating AI, e.g. right after removing a script package or forcing a flee, may crash."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "EvaluateSpellConditions",
+   "summary": "Tests actor and activator references to check they can be condition-tested; apparently forces spell or effect conditions to be re-evaluated in that frame.",
+   "notes": [
+    "Exact effect is unclear on the page; the page assumes it re-checks effect conditions."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Exists",
+   "summary": "Condition function returning 1 when the self and target references in the condition differ, else 0; used in combat dialogue to detect a distinct second speaker.",
+   "notes": [
+    "In combat dialogue the target is a nearby group member, or the speaker itself when none is near.",
+    "The function parameter should be left as the target placeholder.",
+    "Used on self in dialogue conditions so a response only plays when another group member is available."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ExitGame",
+   "summary": "Plays the credits and returns to the main menu.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "FadeSFX",
+   "summary": "Fades out all sound except music over the given number of seconds, useful around video playback.",
+   "notes": [
+    "The float is the fade duration in seconds.",
+    "Sound seems to come back only after a video plays and ends; otherwise it appears irreversible."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "FireWeapon",
+   "summary": "Fires a projectile of the given weapon from the calling reference, which need not be an actor.",
+   "notes": [
+    "Projectile spawns at the reference's center heading straight out, unless the model has a projectile node, in which case it exits there.",
+    "On the player, one shot of the equipped weapon's ammo is consumed and the equipped weapon's spread is used.",
+    "Enchantments and on-hit script blocks of the fired weapon do not take effect."
+   ],
+   "bugs": [
+    "When the player fires a grenade-class weapon whose ammo use is 1, the held weapon model disappears until it is re-equipped."
+   ]
+  },
+  {
+   "page": "FlushNonPersistActors",
+   "summary": "Flushes non-persistent actors from memory.",
+   "notes": [],
+   "bugs": [
+    "Leaks memory, so it is best avoided."
+   ]
+  },
+  {
+   "page": "ForceActiveQuest",
+   "summary": "Makes the given quest the player's active quest.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ForceActorValue",
+   "summary": "Sets the actor's current value of a stat to a target by adjusting the modifier, rather than changing the base value like SetActorValue.",
+   "notes": [
+    "Equivalent to a modify call by the difference between the target and the current value, which includes effects and damage, so results vary over time.",
+    "Like ModActorValue, the change from a script is permanent; UnforceAV undoes it.",
+    "Should not be used on the player since combining with other adjustments can leave the stat permanently wrong."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ForceFlee",
+   "summary": "Makes the calling actor assess threats and flee if one is found, optionally toward a cell or reference.",
+   "notes": [
+    "With no arguments the actor picks where to flee and when to stop; with no threat it stands briefly then resumes its package.",
+    "Given a cell, it flees until it reaches that cell.",
+    "Given a reference, it flees until reaching it; the cell is then ignored but a valid cell is still needed to compile.",
+    "Calling with no arguments on an actor in conversation ends the conversation immediately."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ForceGroupStrategy",
+   "summary": "Console-oriented command forcing a combat group strategy (fallback, advance, flank or ambush) on an actor in combat with allies; an empty string clears it.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ForceRadioStationUpdate",
+   "summary": "Forces a radio update.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ForceSave",
+   "summary": "Writes a fresh save into a new slot, just like a manual player save.",
+   "notes": [
+    "Has the usual save limitations, e.g. fails while a message box is shown."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ForceTakeCover",
+   "summary": "Unused in New Vegas; makes an actor retreat from a target actor for a set number of seconds.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ForceTerminalBack",
+   "summary": "When run from a terminal menu item's result script, moves the terminal back one level, or closes it from the top level.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ForceWeather",
+   "summary": "Immediately switches weather to the given weather, skipping the normal transition, with an optional flag to hold it until released.",
+   "notes": [
+    "If the override flag is 1, weather stays until ReleaseWeatherOverride is called; otherwise weather returns to normal progression."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "FriendDispositionBoost",
+   "summary": "Modifies the calling actor's disposition so it reaches friend level with the player.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Front",
+   "summary": "Console command that prints which menu is topmost.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetActionRef",
+   "summary": "Returns the reference that most recently interacted with the calling scripted object (activator or trigger).",
+   "notes": [
+    "Only valid during the frame after the interaction, so useful inside activation or trigger enter/leave/stay blocks.",
+    "With several interacting objects, only the latest is returned.",
+    "Comparing the result to a reference is equivalent to IsActionRef."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetActorCrimePlayerEnemy",
+   "summary": "Returns 1 if the calling actor is the player's enemy because of crimes against that actor itself.",
+   "notes": [
+    "Always 0 if the player has committed no crimes against this actor, even if its factions treat the player as an enemy (see GetActorFactionPlayerEnemy)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetActorFactionPlayerEnemy",
+   "summary": "Returns 1 if the player is flagged as an enemy, due to crime, of any faction the calling actor belongs to, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetActorsInHigh",
+   "summary": "Returns the count of actors currently at the high AI/script processing level, such as those in the loaded interior or the loaded exterior cells around the player.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetActorValue",
+   "summary": "Returns the current, modified value of an actor value on the calling actor, covering any stat available to actors and the player.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetActorValueInfo",
+   "summary": "Console command, not for scripts, that prints a detailed breakdown of one actor value on the calling actor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetAlarmed",
+   "summary": "Returns 1 if the calling actor is alarmed.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetAmountSoldStolen",
+   "summary": "Unused function returning the total value of stolen goods the player has sold, counted as money actually received rather than base value.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetAngle",
+   "summary": "Returns the calling object's rotation in degrees about the chosen axis (X, Y or Z) relative to the world.",
+   "notes": [
+    "On the player, X ranges about -89 to 89, negative when looking up and positive when looking down.",
+    "On the player, Z is a heading from 0 to 360, 0 along the positive Y axis, increasing clockwise.",
+    "Z matches compass north only in the Wasteland worldspace; interiors use the coordinate system while the compass uses a cell north marker.",
+    "Values are bearings, clockwise from north, not counterclockwise trigonometric angles; a conversion is needed for trigonometry."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetAnimAction",
+   "summary": "Returns an index for the special animation action the calling actor is performing, or -1 if none; works as a script function and condition.",
+   "notes": [
+    "The page gives separate index tables for Fallout 3 and New Vegas; they differ from index 6 on, e.g. reload is 8 in FO3 and 9 in New Vegas.",
+    "In New Vegas, 2 is full-auto fire or a melee swing, 3 semi-auto fire, 5 winding up a throw, and 13 covers most other scripted or forced animations.",
+    "Not every value is understood; some of 10 to 12 may be leftovers."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetArmorRating",
+   "summary": "Returns the total damage resistance of armor the calling actor currently has equipped.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetArmorRatingUpperBody",
+   "summary": "Returns the weight class of the calling actor's equipped upper-body armor: 0 none, 1 light, 2 medium or heavy.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetAttacked",
+   "summary": "Gives 1 once the calling actor has been attacked; the state resets when it leaves combat.",
+   "notes": [],
+   "bugs": [
+    "Using it on the player may crash the game."
+   ]
+  },
+  {
+   "page": "GetBaseActorValue",
+   "summary": "Returns the base value of a stat for the calling actor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetBroadcastState",
+   "summary": "Returns 1 when the calling radio station broadcasts nonstop, 0 when that is off and it only plays static.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetButtonPressed",
+   "summary": "Returns the zero-based index of the message box button just chosen after a ShowMessage call, otherwise -1.",
+   "notes": [
+    "Reports the choice only once after the press; subsequent calls give -1, so store the result in a variable.",
+    "Only reacts to a ShowMessage made from the same script.",
+    "Works in quest scripts if the script processing delay is 0.1 or lower.",
+    "Index follows the button's position in the message definition even when conditional buttons are hidden."
+   ],
+   "bugs": [
+    "Calling it in successive if conditions fails for all but the first, because the first call consumes the stored result."
+   ]
+  },
+  {
+   "page": "GetCannibal",
+   "summary": "Returns 1 while the calling actor is in the cannibalism animation.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetCasinoWinningsLevel",
+   "summary": "Returns the player's winnings level, 0 to 4, for the given casino form; script-function form used in casino scripts for the achievement and ban dialogue.",
+   "notes": [
+    "GetCasinoWinningStage is the equivalent condition-function form."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetCasinoWinningStage",
+   "summary": "Condition-function form returning the player's winnings level, 0 to 4, for the given casino form, used in casino NPC dialogue.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetCauseofDeath",
+   "summary": "Returns an integer code for how the calling actor died.",
+   "notes": [
+    "The page lists codes: -1 none, 0 explosion, 2 gun, 3 blunt weapon, 4 hand to hand, 5 object impact, 6 poison, 7 radiation."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetChallengeCompleted",
+   "summary": "Returns 1 if the given challenge has been completed; a recurring challenge counts once completed at least once.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetClothingValue",
+   "summary": "Returns the clothing value, from 0 to 100 as a float, of the armor the calling actor is wearing.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetCombatTarget",
+   "summary": "Returns a reference to whomever the calling actor is currently fighting.",
+   "notes": [
+    "Works on the player, giving whichever actor is being aimed at when within auto-aim range.",
+    "Yields a value right after the player's thrown or fired explosive or melee attack strikes an actor, or when auto-aim locks on.",
+    "Seems to use the same data that drives the HUD target health bar."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetConcussed",
+   "summary": "Returns 1 if the calling actor is concussed.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetContainer",
+   "summary": "Returns a reference to the container holding the calling object, if any.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetContainerInventoryCount",
+   "summary": "Returns how many items the calling container holds in total, useful for emptiness checks.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetCurrentAIPackage",
+   "summary": "Returns an integer identifying the AI package type the calling actor is currently running.",
+   "notes": [
+    "The page lists codes 0 to 37 (explore, follow, combat, dialogue, wander, travel, sandbox, patrol and others); not all numbers are used."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetCurrentAIProcedure",
+   "summary": "Returns an integer identifying the AI procedure the calling actor is currently performing.",
+   "notes": [
+    "The page lists codes 0 to 50 for procedures such as travel, wait, combat, flee and sandbox.",
+    "Procedure differs from package; one package can pass through several procedures, and procedures can switch without any package change."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetCurrentTime",
+   "summary": "Returns the current game time of day as a decimal float in hours, e.g. 4.5 for 4:30 am and 19.75 for 7:45 pm.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetCurrentWeatherPercent",
+   "summary": "Returns a float from 0.0 to 1.0 for how far the weather transition has progressed; a value strictly between means a transition is under way.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetDayOfWeek",
+   "summary": "Gives the weekday as an integer, Sunday being 0 and Saturday 6.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetDead",
+   "summary": "Returns 1 if the calling actor reference is dead, else 0.",
+   "notes": [
+    "More reliable than checking health, since an actor can die without losing all health, e.g. via KillActor.",
+    "Not 1 for an actor disabled while alive, but stays 1 if deleted or disabled after death.",
+    "An essential actor reduced to zero health and made unconscious is not dead; KnockedState checks that."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetDeadCount",
+   "summary": "Returns the total number of actors of the given base actor type that have been killed.",
+   "notes": [
+    "Because it takes a base actor ID, it cannot tell whether one specific named reference died.",
+    "On a templated actor it counts only the specified reference.",
+    "Resurrecting an actor does not reduce the count."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetDefaultOpen",
+   "summary": "Returns 1 if the calling object's default state is open.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetDestroyed",
+   "summary": "Returns 1 if the calling reference is destroyed, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetDestructionStage",
+   "summary": "Returns the current damage stage of the calling reference, or -1 if it has no destruction data or has taken no object health damage.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetDetected",
+   "summary": "Returns 1 if the calling actor currently detects the target reference, usable as script or condition function.",
+   "notes": [
+    "Can remain true for a dead actor, since the detection value is not updated after death until the area reloads.",
+    "After a fire event with a hidden caller, detection may lag a few frames, so check later with a delayed call."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetDetectionLevel",
+   "summary": "Returns the calling actor's detection level of a target actor, 0 to 3: lost, unseen, noticed, seen.",
+   "notes": [
+    "Usable as script or condition function."
+   ],
+   "bugs": [
+    "In testing it returns only 0 when the target is the player, and only 0 or 3 for other targets."
+   ]
+  },
+  {
+   "page": "GetDialogueEmotion",
+   "summary": "Gives an integer from 0 to 7 naming the emotion an actor currently shows during dialogue.",
+   "notes": [
+    "Codes listed: neutral 0, anger 1, disgust 2, fear 3, sad 4, happy 5, surprise 6, pained 7."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetDialogueEmotionValue",
+   "summary": "Unused function meant to return the intensity of an actor's dialogue emotion as a float.",
+   "notes": [],
+   "bugs": [
+    "Does not work and always returns 0."
+   ]
+  },
+  {
+   "page": "GetDisabled",
+   "summary": "Returns 1 if the calling reference is disabled, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetDisposition",
+   "summary": "Returns the calling actor's current disposition toward a target actor, including all active modifiers.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetDistance",
+   "summary": "Returns the distance in game units, as a float, between the calling reference and a target reference.",
+   "notes": [],
+   "bugs": [
+    "Passing a null reference, or one outside the current cell, crashes the script."
+   ]
+  },
+  {
+   "page": "GetEquipped",
+   "summary": "Returns 1 if the calling actor has the given object equipped.",
+   "notes": [
+    "Only checks armor and weapon objects; armor addons such as built-in gloves or weapon parts are not detected.",
+    "A form list may be passed; true if any listed item is equipped by the character."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetFactionCombatReaction",
+   "summary": "Returns the combat reaction between two factions as an integer.",
+   "notes": [
+    "Codes: 0 neutral (default for unspecified pairs), 1 enemy, 2 ally, 3 friend.",
+    "Very aggressive actors attack neutral factions; enemy factions get attacked immediately by aggressive and very aggressive actors.",
+    "Allies and friends never attack each other; the assistance setting decides whether they help each other."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetFactionRank",
+   "summary": "Gives the calling actor's rank within a faction, -1 when it is not a member.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetFactionRankDifference",
+   "summary": "Returns the rank difference in a given faction between the calling actor and a target actor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetFactionReaction",
+   "summary": "Gives a float disposition modifier that applies between two factions.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetFactionRelation",
+   "summary": "Returns the faction relation between the calling actor and another actor as an integer: 0 neutral, 1 enemy, 2 ally, 3 friend.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetFatiguePercentage",
+   "summary": "Returns the calling actor's current fatigue actor value divided by its base fatigue, as a float.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetForceHitReaction",
+   "summary": "Condition function giving 1 when the actor is flagged to play a forced hit reaction, otherwise 0.",
+   "notes": [
+    "The base game hardcodes it to 1 after certain power attacks (two custom power attacks and the uppercut), used to select idles normally for crippled limbs."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetForceRun",
+   "summary": "Returns 1 if the calling actor is currently in a forced-run state.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetForceSneak",
+   "summary": "Returns 1 if the calling actor is currently in a forced-sneak state.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetFriendHit",
+   "summary": "Returns how many friendly hits the target actor has made on the calling actor.",
+   "notes": [
+    "Typically used in dialogue conditions to detect the player attacking a friend and trigger a warning."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetFurnitureMarkerID",
+   "summary": "Returns the type of furniture the calling actor is currently using: 0 none, 1 to 10 beds, 11 to 20 chairs; the idle manager uses it to pick animations.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetGameSetting",
+   "summary": "Returns the current value of the named game setting.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetGlobalValue",
+   "summary": "Gives the current value stored in a global variable.",
+   "notes": [
+    "Mainly useful in dialogue conditions, since scripts can read a global directly by name.",
+    "In scripts it accepts a variable name directly, effectively a typed-in form ID, but not string variables, only reference variables."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetGold",
+   "summary": "Unused function that would return the player's gold amount; checking the item count of the caps item is the alternative.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetGroupMemberCount",
+   "summary": "Returns how many members are in the calling actor's combat group; 0 if not an actor or not in combat, 1 if fighting alone.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetGroupTargetCount",
+   "summary": "Returns how many targets are in the calling actor's combat group; yields 0 for non-actors, actors not in combat, or groups with no targets.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetHasNote",
+   "summary": "Tests whether the player's Pip-Boy holds a given note, giving 1 if so and 0 otherwise; no calling reference, with the note form as the sole argument.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetHeadingAngle",
+   "summary": "Returns, as a float from -180 to 180, the angle between the calling reference's facing and the given object; returns 0 if the caller is not an actor.",
+   "notes": [
+    "The caller's facing direction counts as zero; clockwise offsets are positive, counter-clockwise ones negative.",
+    "Differs from the world-relative Z angle getter; adding the result to the caller's current Z angle makes it face the target."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetHealthPercentage",
+   "summary": "Returns an actor's current health as a fraction of its base health, as a float where 1.0 means full health.",
+   "notes": [
+    "Health-increasing base effects can push the result above 1.",
+    "Computed as current Health actor value divided by base Health; if the base value is zero, the result is 1.0."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetHitLocation",
+   "summary": "Returns an integer index for the body location struck by an actor's most recent hit, with -1 meaning none.",
+   "notes": [
+    "Page lists the index table: -1 none, 0 torso, 1-2 heads, 3-6 arms, 7-12 legs, 13 brain, 14 hand or weapon.",
+    "Always -1 when the hit came from an explosion.",
+    "A typical human actor only uses locations 0, 1, 3, 5, 7 and 10, as set by the default body part data.",
+    "Inside a GameMode block it is only correct on the frame the reference dies."
+   ],
+   "bugs": [
+    "Value is not available inside OnHit and OnHitWith blocks.",
+    "Fails inside a weapon's object effect, though the weapon's critical effect can use it."
+   ]
+  },
+  {
+   "page": "GetIgnoreCrime",
+   "summary": "Reports 1 when the actor is set to disregard crimes, and 0 when it reports crimes by the player (the default).",
+   "notes": [
+    "Flag values: 0 reports crimes, 1 does not report them."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetIgnoreFriendlyHits",
+   "summary": "Returns 1 if the actor is set to ignore friendly hits, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetInCell",
+   "summary": "Returns 1 if the actor's current cell name begins with the given cell name, else 0.",
+   "notes": [
+    "Only interior cell names are accepted as the argument; exterior cells do not work.",
+    "To cover related interior and exterior cells under one prefix, a dummy interior cell with that name may be needed."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetInCellParam",
+   "summary": "Like GetInCell but not called on a reference: returns 1 if the actor passed as the second argument is in a cell matching the given cell name.",
+   "notes": [
+    "Only interior cell names are accepted as the cell argument; exteriors do not work.",
+    "Matching is by name prefix, so one name can cover many related interior cells."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetInCharGen",
+   "summary": "Returns 1 if the character-generation state has been set (via the matching setter), else 0.",
+   "notes": [
+    "Not usable as a condition on actor effects."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetInFaction",
+   "summary": "Returns 1 if the calling actor belongs to the given faction, else 0.",
+   "notes": [
+    "When used as a dialogue condition, it overrides the Allow Default Dialogue flag restriction."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetINISetting",
+   "summary": "Outputs the current value of an INI setting given as setting name and section; console-only, with no return value.",
+   "notes": [],
+   "bugs": [
+    "Does not work correctly for some renderer-related INI settings, such as the full-screen flag."
+   ]
+  },
+  {
+   "page": "GetInSameCell",
+   "summary": "Returns 1 when the calling reference and the target actor occupy one cell, else 0.",
+   "notes": [
+    "In exteriors it returns false for adjacent actors separated by a cell boundary, so a grid-based check is better.",
+    "Passing an NPC or creature base form is accepted but makes the script fail; use a reference."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetInWorldspace",
+   "summary": "Returns 1 when the calling actor stands in an exterior cell of the given worldspace; always 0 inside interiors.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetInZone",
+   "summary": "Returns 1 if the calling reference is in a cell attached to the given encounter zone, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsAlerted",
+   "summary": "Returns 1 when the actor is in its alerted state; that state only drives animation and leaves real combat status untouched.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsAlignment",
+   "summary": "Returns 1 if the calling actor has the given alignment, else 0.",
+   "notes": [
+    "Valid alignment names: VeryGood, Good, Neutral, Evil, VeryEvil."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetIsClass",
+   "summary": "Returns 1 if the calling actor's class is the given class form.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsCreature",
+   "summary": "Returns 1 if the calling actor is a creature, meaning form type 43.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsCreatureType",
+   "summary": "Returns 1 if the calling creature is of the creature type given by integer parameter.",
+   "notes": [
+    "Page includes a creature type table mapping numbers to types."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetIsCurrentPackage",
+   "summary": "Returns 1 if the calling actor is currently running the given AI package, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsCurrentWeather",
+   "summary": "Returns 1 if the given weather form is the currently active weather, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsFormType",
+   "summary": "Returns 1 if the calling object has the given form type, passed as its four-character signature (e.g. ACTI, CONT, CREA).",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsGhost",
+   "summary": "Returns 1 if the calling actor reference is flagged as a ghost, else 0.",
+   "notes": [
+    "The ghost state's effects are described under the setter for it."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetIsID",
+   "summary": "Returns 1 when the caller is a placed instance of the given base object, else 0.",
+   "notes": [
+    "Cannot test the player by editor ID; compare against the player's form ID (7) instead."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetIsLockBroken",
+   "summary": "Returns 1 when the caller's lock has been broken, else 0.",
+   "notes": [
+    "A perk entry point making the player ignore broken locks (nonzero) grants a second lockpick chance after the first break, so the result stays 0 then."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetIsObjectType",
+   "summary": "Returns 1 if the calling object is of the given form type, passed as the full type name (e.g. Activator, Container).",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsPlayableRace",
+   "summary": "Returns 1 if the calling NPC's race is a playable race, 0 for races such as ghouls or raider-specific races; takes no parameter.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsRace",
+   "summary": "Returns 1 if the calling actor's race is the given race form.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsReference",
+   "summary": "Returns 1 when the calling object is exactly the reference passed in, unlike GetIsID, which compares base objects.",
+   "notes": [
+    "The reference passed must be persistent."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetIsSex",
+   "summary": "Returns 1 when the calling actor's sex matches the argument, Male or Female.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsUsedItem",
+   "summary": "Returns 1 if the actor is using the given item form, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsUsedItemEquipType",
+   "summary": "Returns 1 if the item currently being used or activated has the given equip type, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetIsUsedItemType",
+   "summary": "Returns 1 if the item currently being used or activated has the given form type, else 0.",
+   "notes": [
+    "Argument must be the form type's full name, not its numeric ID."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetIsVoiceType",
+   "summary": "Returns 1 when the calling actor uses the given voice type.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetItemCount",
+   "summary": "Returns how many of the given item the calling container, actor or creature holds.",
+   "notes": [
+    "The item may be a reference variable.",
+    "If a form list is passed, the result is the sum of counts across the listed items.",
+    "Does not work for notes; the note-specific check should be used instead."
+   ],
+   "bugs": [
+    "Sometimes returns a nonzero count for items not really present when they came from leveled lists."
+   ]
+  },
+  {
+   "page": "GetKillingBlowLimb",
+   "summary": "Returns an integer naming the limb struck last (dismembered, exploded or still whole) at the moment the calling actor died.",
+   "notes": [
+    "Page lists the limb index table: -1 none, 0 torso, 1-2 heads, 3-6 arms, 7-12 legs, 13 brain, 14 hand or weapon."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetKnockedState",
+   "summary": "Returns the calling actor's knocked state as an integer.",
+   "notes": [
+    "Values: -1 fatigue knockout, 0 normal, 1 knocked out (incl. unconscious essential, paralyzed, negative-fatigue), 2 knocked down.",
+    "Returns 0 for actors knocked down by the push-away command."
+   ],
+   "bugs": [
+    "An essential actor knocked out before recovering from a push-away still reports 0, as though the push were ongoing."
+   ]
+  },
+  {
+   "page": "GetLastHitCritical",
+   "summary": "Returns whether the actor's most recent hit was a critical; the data can be read inside on-hit script blocks.",
+   "notes": [
+    "Readable from OnHit and OnHitWith blocks.",
+    "Offered in the condition menu, but whether it works correctly as a condition is unclear."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetLastPlayerAction",
+   "summary": "Returns the index of the player's most recent action; the page includes an action index table.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetLevel",
+   "summary": "Returns the current level of the calling actor as an integer.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetLineOfSight",
+   "summary": "Returns true when the calling actor can see the given object; only valid on actors.",
+   "notes": [
+    "On a non-player actor, the target must itself be an actor or the result is false even when visible.",
+    "On the player, any object may be tested, but non-actor targets are slow; and the test uses the camera's view, not the character's.",
+    "Field of view is about 95 degrees either side of straight ahead, identical for every non-player actor regardless of eye placement.",
+    "Trigger and collision volumes in view count as visible; disabled references never do."
+   ],
+   "bugs": [
+    "Calling it on a disabled actor, or one disabled the previous frame, can crash; a short delay after enabling avoids it."
+   ]
+  },
+  {
+   "page": "GetLinkedRef",
+   "summary": "Returns the reference linked to the calling reference (for example a switch's linked door); takes no parameters.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetLocked",
+   "summary": "Returns the access state of a door, container or terminal as an integer.",
+   "notes": [
+    "Doors and containers: 0 unlocked or not locked, 1 locked but openable with key or lockpick, 2 locked out (impossible lock level or broken).",
+    "Terminals: 0 unlocked (note held, no lock data, or script-unlocked), 1 has lock data, 2 locked out (failed hack or impossible level)."
+   ],
+   "bugs": [
+    "Hacking a terminal does not change its state; any terminal that is or was locked reports 1 unless a script unlocks it."
+   ]
+  },
+  {
+   "page": "GetLockLevel",
+   "summary": "Gives the lock difficulty of a terminal, or of a door or container lock, as an integer.",
+   "notes": [
+    "Lock values: 0, 25, 50, 75, 100 for very easy to very hard, and 255 impossible.",
+    "Terminal values: 0 to 4 for very easy to very hard, and 5 impossible.",
+    "Describes pick or hack difficulty only, not access state; leveled locks and terminals return their leveled value."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetMajorCrimeCount",
+   "summary": "Gives the count of serious offences the player has racked up against the calling NPC.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetMapMarkerVisible",
+   "summary": "Returns how visible the calling map marker is, as an integer.",
+   "notes": [
+    "Values: 0 not visible on map, 1 visible but not fast-travel enabled, 2 visible and fast-travel enabled."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetMinorCrimeCount",
+   "summary": "Gives the count of petty offences the player has racked up against the calling NPC.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetObjectiveCompleted",
+   "summary": "Returns 1 if the given quest objective index is marked completed, else 0; takes quest and objective index.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetObjectiveDisplayed",
+   "summary": "Returns 1 if the given quest objective index is currently displayed, else 0; takes quest and objective index.",
+   "notes": [
+    "Stays 1 while shown in the Pip-Boy even if the objective or quest is completed; combine with the completed check to test active ones."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetOffersServicesNow",
+   "summary": "Returns true when the calling actor's present package lets it offer services.",
+   "notes": [
+    "Returns false while the NPC is in conversation with another NPC or moving to a destination.",
+    "Setting up a travel package mid-journey, even one offering services, leaves the NPC temporarily non-offering while it walks."
+   ],
+   "bugs": [
+    "As a vendor dialogue condition it may crash New Vegas when a further vendor is set up via a talking activator."
+   ]
+  },
+  {
+   "page": "GetOpenState",
+   "summary": "Returns an animating door's open state as an integer; also valid for some objects with open and closed animations.",
+   "notes": [
+    "Values: none 0, open 1, opening 2, closed 3, closing 4.",
+    "Also meaningful for some radios and containers.",
+    "These values do not match those used by the matching setter."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetOwnerLastTarget",
+   "summary": "Gives the most recent target of whoever owns the calling reference; may be called on a form.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPackageTarget",
+   "summary": "Returns the reference that is the calling actor's current AI package target, if any.",
+   "notes": [
+    "For an actor in conversation, returns the conversation partner."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetParentRef",
+   "summary": "Returns the enable parent reference set in the reference dialog; a reference follows its parent's enable and disable state.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPCEnemyOfFaction",
+   "summary": "Tells whether the player counts as an enemy of the faction passed.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPCExpelled",
+   "summary": "Returns 1 when the player has been expelled from the faction passed.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPCInFaction",
+   "summary": "Returns 1 if the player is a member of the given faction, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPCIsClass",
+   "summary": "Returns 1 if the player's class matches the given class form.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPCIsRace",
+   "summary": "Returns 1 if the player's race matches the given race; the player-only version of GetIsRace.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPCIsSex",
+   "summary": "Tests the player's gender against Male or Female and returns 1 on a match, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPCMiscStat",
+   "summary": "Returns the value of a named player miscellaneous statistic, given as a string.",
+   "notes": [
+    "Page lists the valid stat names separately for Fallout 3 and New Vegas, with New Vegas adding many (e.g. gambling and crafting stats)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetPCSleepHours",
+   "summary": "Gives the hours of sleep the player picked in the menu, or 0 when the player is awake.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPermanentActorValue",
+   "summary": "Returns an actor value's permanent value, like the base value but also including permanent modifiers such as skill books.",
+   "notes": [
+    "Excludes temporary bonuses from perks with entry points, equipped items and drugs.",
+    "The Tag! perk is reflected only because it permanently modifies the skill through its own function."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetPlantedExplosive",
+   "summary": "Tells whether an armed explosive is attached to the calling actor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPlayerControlsDisabled",
+   "summary": "Returns 1 if any of the selected player controls are disabled, else 0; each optional flag picks a control group.",
+   "notes": [
+    "Optional flags: movement, Pip-Boy, fighting, point of view, looking, rollover text, sneaking.",
+    "With no arguments it behaves as if every flag were set.",
+    "Result is true when any one of the selected controls is disabled."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetPlayerGrabbedRef",
+   "summary": "Returns the reference of the object held by the player's grab at the moment, or none.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPlayerName",
+   "summary": "Opens the player's name entry menu; despite the name it does not return the player's name.",
+   "notes": [
+    "Same behaviour as the show-name-menu function."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetPlayerTeammate",
+   "summary": "Returns 1 when the calling actor has been made a teammate of the player.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPlayerTeammateCount",
+   "summary": "Returns how many actors are currently set as player teammates.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetPos",
+   "summary": "Returns the calling object's world position on the given axis (X, Y or Z) as a float.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetQuestCompleted",
+   "summary": "Returns 1 if the quest was marked complete or failed, else 0; the quest argument is optional.",
+   "notes": [
+    "Does not need the quest to be running; stays true after the quest is stopped if it was also marked complete.",
+    "True for failed quests too; a separate failed check tells the two apart."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetQuestRunning",
+   "summary": "Returns 1 if the named quest is currently running, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetQuestVariable",
+   "summary": "Returns the value of a named variable in a quest's script; takes quest and variable name.",
+   "notes": [
+    "Condition function only; scripts read quest variables with dotted quest.variable syntax."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetRadiationLevel",
+   "summary": "Returns the radiation level of the calling actor's current surroundings as a float.",
+   "notes": [
+    "Proportional to the rads-per-second meter: level 3 gives 3 rads per second.",
+    "An actor's own accumulated radiation is a separate actor value."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetRandomPercent",
+   "summary": "Returns a random integer from 0 to 99 inclusive.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetReputation",
+   "summary": "Returns the player's fame or infamy with a reputation faction; the second argument selects infamy (0) or fame (1).",
+   "notes": [],
+   "bugs": [
+    "Does not reliably return a value unless used inside a conditional expression."
+   ]
+  },
+  {
+   "page": "GetReputationPct",
+   "summary": "Returns the player's fame or infamy with a reputation as a 0 to 1 fraction of that reputation's maximum; second argument 0 is infamy, 1 fame.",
+   "notes": [
+    "Equals the raw fame or infamy value divided by the reputation's scale."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetReputationThreshold",
+   "summary": "Returns the player's reputation tier (0 to 6) with a reputation, given an axis argument: 0 mixed, 1 good, 2 bad.",
+   "notes": [
+    "Only one axis is nonzero at a time; with zero fame and infamy, all three axes return 1.",
+    "Higher fame returns 2 to 6 on the good axis and 0 on the others, and similarly for infamy.",
+    "Page lists the tier names per axis, with 0 meaning none of the tiers, 1 neutral."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetRestrained",
+   "summary": "Returns 1 if the actor was set restrained with the matching setter, else 0.",
+   "notes": [
+    "Restrained actors stay in place but still run AI, detection and dialogue."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetSandman",
+   "summary": "Returns 1 if the calling actor is currently carrying out a Sandman action, the silent sleeping-NPC kill tied to the Mister Sandman perk.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetScale",
+   "summary": "Returns the raw scale of the calling reference as a float, where 1.0 is normal size.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetScriptVariable",
+   "summary": "Gives the value of a local variable declared in the given object's script; takes the object and the variable name.",
+   "notes": [
+    "Condition function only; in scripts, read such variables with dotted object.variable syntax."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetSecondsPassed",
+   "summary": "Returns the real-time seconds elapsed since this same script last called the function, as a float.",
+   "notes": [
+    "Scaled by the global time multiplier; divide by that multiplier for true real-world time.",
+    "Each script tracks its last call independently.",
+    "Multiple calls in one script within one frame give the same value.",
+    "Unreliable in script effects during sleep, wait or fast travel; a dedicated elapsed-seconds function exists for that."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetSelf",
+   "summary": "Returns the reference ID of the calling reference, mainly for passing that reference as a parameter; also usable under the alias this.",
+   "notes": [
+    "Returns null with no valid calling reference, or when the caller is a non-persistent item.",
+    "Should not be used in scripts on items that can be in inventory.",
+    "Returns 0 for dynamically created references, such as those from PlaceAtMe or dropped from inventory."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetSitting",
+   "summary": "Returns the calling actor's sitting state as an integer.",
+   "notes": [
+    "Values: 0 not sitting, 1 loading sitting idle, 2 getting ready to sit, 3 sitting, 4 getting ready to stand."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetSleeping",
+   "summary": "Returns the calling actor's sleeping state as an integer.",
+   "notes": [
+    "Values: 0 not sleeping, 1 loading sleeping idle, 2 getting ready to sleep, 3 sleeping, 4 getting ready to wake.",
+    "Does not work on the player; use the player-specific sleeping check."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetSpellUsageNum",
+   "summary": "Returns how many times an actor has used a given ingestible while its effects are active, scaled by effect magnitude; needs a usage monitor effect on the ingestible.",
+   "notes": [
+    "Yields a usage value only during the ingestible's active effect period."
+   ],
+   "bugs": [
+    "Does not handle usage monitor effects configured to decrease over time."
+   ]
+  },
+  {
+   "page": "GetStage",
+   "summary": "Returns the highest completed stage of a quest, regardless of the order stages were completed in.",
+   "notes": [
+    "For checking whether one particular stage was done, the stage-done function is the right one."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetStageDone",
+   "summary": "Returns 1 if the given stage of the given quest has been completed, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetStartingAngle",
+   "summary": "Returns the original rotation of the calling object on the chosen axis (X, Y or Z), as placed in the editor rather than its current angle.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetStartingPos",
+   "summary": "Returns the original position of the calling object on the chosen axis (X, Y or Z), as placed in the editor rather than its current position.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetTalkedToPC",
+   "summary": "Returns 1 when the calling NPC has at any time conversed with the player, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetTalkedToPCParam",
+   "summary": "Same as GetTalkedToPC but takes the NPC as an argument instead of a calling reference; returns 1 if it has ever spoken to the player.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetThreatRatio",
+   "summary": "Returns the computed threat ratio between the calling actor and the actor passed as the argument, as a float.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetTimeDead",
+   "summary": "Returns how many hours the calling actor has been dead, as a float; 0 if invalid, not dead, not loaded or disabled.",
+   "notes": [
+    "Disabling a dead actor discards its death-time info, so it still returns 0 after re-enabling."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetTrespassWarningLevel",
+   "summary": "Returns how many warnings the calling actor (guard-package, trespass or aggro-radius responder) has given the specified reference.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetUnconscious",
+   "summary": "Returns 1 if the actor was put into an unconscious state through the matching setter, else 0.",
+   "notes": [
+    "Does not detect unconsciousness from fatigue damage or an essential actor losing all health; the knocked-state check covers those."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetUsedItemActivate",
+   "summary": "Returns whether the actor is currently using or activating an item; the page marks this as uncertain.",
+   "notes": [
+    "Only used in the base game as a condition on idle animations."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetVampire",
+   "summary": "Unused leftover that checks whether an actor is a vampire; it never returns anything but 0.",
+   "notes": [
+    "Customarily used as an always-false condition to disable content such as topic infos."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetVATSMode",
+   "summary": "Returns the player's current VATS view mode as an integer.",
+   "notes": [
+    "Values: 0 none, 1 target select, 2 menu mode, 3 scan mode, 4 playback."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetVATSTargetHeight",
+   "summary": "Gives the Z offset between the player and the center of the targeted limb or bounding volume in VATS, as a float.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetVATSValue",
+   "summary": "Condition function taking a query name and optional parameter that reports VATS attack details, usable only for camera path selection or the to-hit chance entry point.",
+   "notes": [
+    "Gives no meaningful value outside VATS playback or the to-hit entry point.",
+    "In the to-hit entry point, outcomes such as success, critical, dismemberment and damage are not yet computed; the weapon, target and aimed limb are already known.",
+    "Page lists queries: weapon, weapon-list, weapon-type and target checks, target distance, targeted part, VATS action, success, critical, crit effect, fatal, explode, dismember and cripple.",
+    "Most queries return 1 or 0; target distance returns the distance in units."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetWalkSpeed",
+   "summary": "Returns the calling actor's walk speed as a float.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetWeaponAnimType",
+   "summary": "Returns an integer for the calling actor's current weapon animation type, which the page tabulates.",
+   "notes": [
+    "Distinguishes only 11 animation types plus a catch-all, merging several of the 13 (FO3) or 14 (New Vegas) internal types.",
+    "Created for VATS camera conditions."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "GetWeaponHealthPerc",
+   "summary": "Returns the condition (health) of the calling actor's equipped weapon as a float percentage of its base condition.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetWindSpeed",
+   "summary": "Returns the wind speed of the current weather as a float between 0.0 and 1.0, defined on the weather record.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "GetXPForNextLevel",
+   "summary": "Returns the amount of experience the player needs to reach the next level.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "HasBeenEaten",
+   "summary": "Returns 1 when the player has eaten the calling actor, possible only with cannibalism; used as a condition in the Cannibal perk.",
+   "notes": [
+    "Usable in scripts, but whether it stays valid long after the actor was consumed is untested."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "HasFriendDisposition",
+   "summary": "Returns 1 if the calling actor's disposition is at or above the friend disposition game setting, else 0; also a condition function.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "HasLoaded3D",
+   "summary": "Returns 1 when the calling reference has 3D currently loaded.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "HasMagicEffect",
+   "summary": "Returns 1 when the calling reference is under the influence of the given magic base effect.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "HasPerk",
+   "summary": "Returns whether the calling actor has the given perk; an optional flag makes it test the player's teammates instead.",
+   "notes": [
+    "On the player, a nonzero second argument asks about the player's teammates rather than the player."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Help",
+   "summary": "Console-only command that lists console commands, script functions, game settings and INI settings containing a search word.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "HighlightAdditionalReference",
+   "summary": "Console-only command that draws a flickering VATS-style highlight on the calling reference; persists for the session.",
+   "notes": [
+    "Many references can be highlighted, with a hardcoded cap of 32.",
+    "The most recently highlighted one is the one that flashes."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "HighlightBodyPart",
+   "summary": "Console-only command that highlights a chosen body part on the calling reference, whether object, item or living actor; persists for the session.",
+   "notes": [
+    "Without an index it highlights everything except the weapon.",
+    "A single body part highlight is active at once."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IgnoreCrime",
+   "summary": "Sets whether the calling NPC ignores crimes, stopping it from attacking or reporting the player for them.",
+   "notes": [
+    "Flag 0 means crimes are reported (default); 1 means they are not.",
+    "Non-friend, non-ally actors still react to being attacked directly, but do not report it as a crime."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IncrementScriptedChallenge",
+   "summary": "Advances progress toward the threshold of the given challenge; used by the Dead Money add-on.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsActionRef",
+   "summary": "Inside an OnActivate block, returns 1 if the given reference was the one that activated the calling object.",
+   "notes": [
+    "Meaningful only inside an OnActivate block."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsActor",
+   "summary": "Returns 1 when the calling reference is a creature or NPC, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsActorAVictim",
+   "summary": "Returns 1 when the caller is the NPC currently designated as crime victim; only one at a time, mostly gating crime dialogue.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsActorDetected",
+   "summary": "Returns 1 when any other actor currently detects the caller, else 0.",
+   "notes": [
+    "Always 0 when called on the player.",
+    "Cannot tell whether the player has detected an actor; a line-of-sight check is the alternative for that."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsActorEvil",
+   "summary": "Returns 1 when the caller is in one or more evil factions and in no non-evil ones.",
+   "notes": [
+    "Works only on NPCs; creatures are never considered evil whatever their factions."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsActorRefEssential",
+   "summary": "Returns 1 or 0 for whether the actor reference is essential; the page is a stub.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsActorsAIOff",
+   "summary": "Returns 1 when AI has been switched off for the caller, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsActorTalkingThroughActivator",
+   "summary": "Returns true if the actor is speaking via an activator; the actor must first be registered through the talking-activator setter.",
+   "notes": [
+    "As a dialogue condition it must run on the linked reference, with no second parameter.",
+    "Practically a condition function, since it is true only during dialogue through the activator.",
+    "Also true while the actor sits in a dialogue package, e.g. awaiting a reply in a conversation with another actor.",
+    "False if the talking actor was assigned by script."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsAlwaysHardcore",
+   "summary": "Returns 1 if hardcore mode has been on throughout the game; used to verify the hardcore achievement requirements.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsAnimPlaying",
+   "summary": "Returns 1 if the calling object is playing an animation; with an optional animation group it only counts animations of that group's sequence type.",
+   "notes": [
+    "The group-filtered form is less reliable; extended and alternate variants are more dependable."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsCellOwner",
+   "summary": "Returns 1 if the named cell is owned by the given NPC or faction; with the second argument omitted it tests for player ownership.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsChild",
+   "summary": "Returns 1 if the calling actor is a child, taken from the child flag of its race.",
+   "notes": [
+    "Unrelated to the player-young setting function."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsCloudy",
+   "summary": "Reports whether the current weather is cloudy: 0 not cloudy, a fraction between 0 and 1 while transitioning to cloudy, 1 when stable and cloudy.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsCombatTarget",
+   "summary": "Returns 1 if the given actor is a combat target of the calling reference, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsContinuingPackagePCNear",
+   "summary": "Returns 1 if the calling actor wants a new package but is held on its current one because that package continues while the player is near.",
+   "notes": [
+    "Depends on the Continue-if-PC-near flag of the current package and the player being in the same cell."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsCurrentFurnitureObj",
+   "summary": "Returns 1 when the calling NPC is seated on a furniture reference of the given furniture base type.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsCurrentFurnitureRef",
+   "summary": "Returns 1 if the calling NPC is sitting on the specific furniture reference given.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsEssential",
+   "summary": "Returns 1 when the caller carries the essential flag, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsFacingUp",
+   "summary": "Idle-manager check returning 1 when a knocked-down creature lies facing upward.",
+   "notes": [
+    "For quadrupeds, the left-side-up check should be used instead."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsGoreDisabled",
+   "summary": "Returns 1 if gore is disabled, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsHardcore",
+   "summary": "Returns 1 if hardcore mode is currently active, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsIdlePlaying",
+   "summary": "Returns 1 if the calling actor is playing a special idle animation, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsImageSpaceActive",
+   "summary": "Returns 1 if the given image space modifier is currently active, else 0.",
+   "notes": [
+    "Despite its name, it takes a modifier rather than an image space, and cannot be called on image spaces."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsInCombat",
+   "summary": "Returns 1 when the caller is in combat now, else 0.",
+   "notes": [
+    "Also 1 while enemies are in active search for the player.",
+    "If the caller never entered combat but changed cells through a load door with enemies near, it may keep returning 1 for a couple of seconds."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsInCriticalStage",
+   "summary": "Returns 1 when the reference is at the given critical effect stage.",
+   "notes": [
+    "Valid stages: None, GooStart, GooEnd, DisintegrateStart, DisintegrateEnd."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsInDangerousWater",
+   "summary": "Returns 1 when the calling actor is standing in damaging water.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsInInterior",
+   "summary": "Returns 1 when the caller lies in an interior cell, else 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsInList",
+   "summary": "Returns 1 if the calling reference's base object is in the given form list, else 0.",
+   "notes": [
+    "Returns 0 if the list holds the reference itself instead of its base form."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsInMyOwnedCell",
+   "summary": "Returns 1 when the caller is within a cell it owns.",
+   "notes": [
+    "True if the actor itself or one of its factions owns the cell."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsKiller",
+   "summary": "Returns 1 when the given actor killed the calling actor, else 0.",
+   "notes": [
+    "Killer data is lost if the actor has been disabled."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsKillerObject",
+   "summary": "Presumably like IsKiller but for an object that can kill things; the page is uncertain and sparse.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsLeftUp",
+   "summary": "Idle-manager check returning 1 when a knocked-down quadruped has its left flank up.",
+   "notes": [
+    "Bipeds should use the facing-up check instead."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsLimbGone",
+   "summary": "Returns whether the calling actor has a given limb dismembered; a second optional index makes it test any limb across a range.",
+   "notes": [
+    "Limb indices follow the same body location table as the hit-location getter (0 torso through 13 brain).",
+    "With two indices, it tests whether any limb from the first to the second is missing."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsMoving",
+   "summary": "Returns the direction in which the calling actor is currently requesting to move, as an integer.",
+   "notes": [
+    "Codes: no movement is 0; forward, backward, left and right are 1, 2, 3 and 4 respectively."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Iso",
+   "summary": "Passing 1 hides every menu and the console; the Pip-Boy restores them when opened.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsOwner",
+   "summary": "Returns 1 when the given faction or NPC directly owns the calling object, or the player when no argument is passed.",
+   "notes": [
+    "Checks only ownership set on the reference, not ownership inherited from the cell.",
+    "Returns 0 when the owner is NONE, so it cannot detect public ownership."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsPC1stPerson",
+   "summary": "Returns 1 for a first-person camera and 0 for third-person.",
+   "notes": [],
+   "bugs": [
+    "Can return 1 for a single frame in third person when aiming or un-aiming a scoped weapon, opening or closing the Pip-Boy, or entering or leaving VATS.",
+    "On scoped-weapon aim frames, the scope-use check returns 0, and for VATS transition frames the VATS mode check returns 0, so those cannot filter the false positives."
+   ]
+  },
+  {
+   "page": "IsPCAMurderer",
+   "summary": "Returns 1 once the player has murdered any non-evil NPC.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsPCSleeping",
+   "summary": "Returns 1 while the player is asleep in a bed, excluding waiting.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsPlayerActionActive",
+   "summary": "Returns 1 if the player is currently performing the action selected by a numeric action index (values 1 to 10), otherwise 0.",
+   "notes": [
+    "Several actions may be active simultaneously, and each one reports true.",
+    "Some actions stay active on a timer, others only while being performed; weapon firing lingers about two game minutes, while standing on furniture clears immediately.",
+    "The fire-weapon action turns on when the attack button is pressed, not when the projectile leaves, for every ranged type, even with no ammo.",
+    "The page includes an action index table of valid values."
+   ],
+   "bugs": [
+    "The iron-sights action (9), and perhaps others, does not report true during combat, probably because the function was meant for dialogue comments."
+   ]
+  },
+  {
+   "page": "IsPlayerGrabbedRef",
+   "summary": "Returns 1 if the player is currently holding (grabbing) the given object reference, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsPlayerInRegion",
+   "summary": "Yields 1 when the player stands within the named region, otherwise 0; an interior cell always gives 0.",
+   "notes": [
+    "Nested regions both count: a player in a child region also tests true for the parent."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsPlayerMovingIntoNewSpace",
+   "summary": "Yields 1 during the transition into a new space (fast travel or load door passage), otherwise 0.",
+   "notes": [
+    "Followers are relocated before the player arrives, so using this as a follow-package condition lets them re-evaluate location conditions during the load.",
+    "It reads 1 only while the loading screen is shown, so scripts may only see it inside MenuMode, OnLoad or comparable blocks."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsPlayerTagSkill",
+   "summary": "Returns 1 if the given skill occupies any of the player's tag skill slots, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsPleasant",
+   "summary": "Returns 0 if current weather is not pleasant, a fraction between 0 and 1 while transitioning to pleasant weather, and 1 when pleasant weather is stable.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsPS3",
+   "summary": "Yields 1 when the game runs on a PlayStation 3, otherwise 0.",
+   "notes": [
+    "On the PC game this always yields false, since a PS3 controller cannot be correctly detected."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsRaining",
+   "summary": "Yields 1 when the current weather is settled rain, otherwise 0.",
+   "notes": [
+    "Unlike the Oblivion version, it only ever returns 0 or 1, so rain transitions must be detected by combining it with the current weather percent (FO3)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsRunning",
+   "summary": "Returns 1 if the calling actor's movement speed mode is currently set to run rather than walk.",
+   "notes": [
+    "Actors have only walk and run speeds; run is the default player pace unless toggle walk is used.",
+    "It reports the selected speed mode even when the actor is standing still, so pair it with IsMoving to detect real running."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsSneaking",
+   "summary": "Returns 1 if the calling actor is sneaking (crouched), otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsSnowing",
+   "summary": "Yields 1 when the current weather is settled snow, otherwise 0.",
+   "notes": [
+    "Unlike the Oblivion version, it only ever returns 0 or 1, so snow transitions must be detected by combining it with the current weather percent (FO3)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsSpellTarget",
+   "summary": "Returns 1 if the calling actor is currently affected by the given magic item (spell, enchantment or ingestible such as food, drink or chem).",
+   "notes": [
+    "Passing an addiction effect returns 1 whenever the actor is addicted, even when not currently in withdrawal.",
+    "Passing a chem item itself can show whether the actor is currently under its influence, which helps tell if an addiction was just satisfied."
+   ],
+   "bugs": [
+    "The page marks this function as deprecated and unreliable; the alternative versions that list active effects are recommended instead."
+   ]
+  },
+  {
+   "page": "IsSwimming",
+   "summary": "Yields 1 when the calling actor is swimming, otherwise 0.",
+   "notes": [
+    "The Z coordinate can substitute in the Wasteland worldspace, but only for the main auto-generated water body, not placed water."
+   ],
+   "bugs": [
+    "Always returns 0 when called on the player."
+   ]
+  },
+  {
+   "page": "IsTalking",
+   "summary": "Returns 1 if the calling actor is currently speaking, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsTalkingActivatorActor",
+   "summary": "Called on a talking activator reference with an actor argument; returns 1 if that actor is the one currently speaking through the activator.",
+   "notes": [
+    "Returns false when the activator's actor was assigned through a script."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsTimePassing",
+   "summary": "Returns 1 while time is passing in menu mode because the player is sleeping, waiting or travelling, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsTorchOut",
+   "summary": "Returns 1 if the actor currently has a torch out; an unused leftover from Oblivion.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsTrespassing",
+   "summary": "Returns 1 if the calling actor is currently trespassing, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsTurning",
+   "summary": "Reports whether the calling actor is turning, using a three-valued result: none, left or right.",
+   "notes": [
+    "Results are 0 for no turn, 1 for a left turn and 2 for a right turn."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsWaiting",
+   "summary": "Yields 1 when the calling actor is in the waiting state set by the wait function, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsWaterObject",
+   "summary": "Yields 1 when whatever is being activated is placeable water; the base game uses it for the drinking animation.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsWeaponInList",
+   "summary": "Returns 1 if the weapon the calling actor currently has equipped is a member of the given form list, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsWeaponOut",
+   "summary": "Yields 1 when the calling actor has a weapon drawn, otherwise 0.",
+   "notes": [
+    "The value flips when the weapon attaches to the weapon node; for NPCs this is the end of the equip or unequip animation.",
+    "Creatures without a weapon always return 0.",
+    "It turns 1 only about midway through the equip animation; checking the animation action for -1 reveals when the animation is over."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsWeaponSkillType",
+   "summary": "Yields 1 when the calling reference is a weapon that uses the given skill, otherwise 0.",
+   "notes": [
+    "Available only as a condition, not in scripts; the weapon-skill getter is the scripting alternative (FO3)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "IsWin32",
+   "summary": "Yields 1 when the game runs on a PC, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "IsXBox",
+   "summary": "Yields 1 when the game runs on the Xbox, otherwise 0.",
+   "notes": [
+    "On PC it also returns true when an Xbox controller (or Steam controller) is used, so it is unsuitable for blocking content from players."
+   ],
+   "bugs": [
+    "Reports true on PC whenever an Xbox-style controller is in use."
+   ]
+  },
+  {
+   "page": "KillActor",
+   "summary": "Kills the calling actor, with optional arguments naming the killer, which body part to dismember, and how death is categorised.",
+   "notes": [
+    "Dismembering a part also dismembers every severable or explodable part sharing its actor value; non-explodable parts will not explode.",
+    "Can be used on already dead actors to dismember limbs; the page lists numeric limb locations 0 to 14.",
+    "Essential actors only fall unconscious for a few seconds; scaled-down (child-sized) actors may be immune.",
+    "If the actor is outside the player's cell, all their items get unequipped.",
+    "Destruction data effects such as turret death explosions are not triggered. Passing the player as killer shows limb crippled messages."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "KillAllActors",
+   "summary": "Kills every actor in the loaded area: the grid of cells around the player in an exterior, or the player's current cell in an interior; optional killer argument.",
+   "notes": [
+    "Essential actors are put into their usual temporary unconscious state rather than being killed."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "LoadGame",
+   "summary": "Loads the named savegame if it exists; an optional integer of 1 writes debug information about the save to a text file.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Lock",
+   "summary": "Locks the calling terminal, container or door, optionally setting a new lock level via the integer argument.",
+   "notes": [
+    "Level 0 (the default) locks without altering the existing level, so the very-easy level cannot be set this way; 1 to 255 sets the level and locks.",
+    "Lock level codes differ between doors/containers (0 to 255 scale) and terminals (0 to 5 scale); page lists both tables.",
+    "It overrides any previous lock level including unlocked, and overrides an earlier Unlock call.",
+    "It cannot revoke terminal access gained through a password note or a successful hack, and a failed hack stays locked out; only the level changes.",
+    "The given level is a base value; a leveled terminal may end up with an adjusted level."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Log",
+   "summary": "Math function returning the natural logarithm of its first argument, or the logarithm in the base given by an optional second argument.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Look",
+   "summary": "Makes the calling actor keep its head turned toward a target reference, optionally turning the whole body as well.",
+   "notes": [
+    "The forced tracking overrides normal head tracking until StopLook runs, or until the target is no longer in the loaded area.",
+    "The optional second integer (0 or 1) makes the actor turn its entire body when set."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "LoopGroup",
+   "summary": "Plays a named animation group on the calling actor for a given number of loops, then returns to the idle animation; optional flags select how it starts.",
+   "notes": [
+    "Flag 0 lets the current animation finish its cycle before the new one starts from its beginning.",
+    "Flag 1 stops the current animation immediately and starts the new one from its beginning.",
+    "Flag 2 stops the current animation immediately and starts the new one at the beginning of its loop section."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "MarkForDelete",
+   "summary": "Sets the delete flag on a reference so it is queued for removal a few frames later, which also stops its script from running.",
+   "notes": [
+    "Runtime-created references (dropped items, PlaceAtMe results) are fully deleted; references defined in plugins are not truly removed, but their scripts stop running.",
+    "It works on enabled references too, but the object stays visible and frozen until the area is left, so disable visible ones first.",
+    "Meant for references never to be enabled again; handy for cleaning up unneeded trigger volumes.",
+    "On inventory references it can crash, and in an OnAdd block it crashes; OnActivate works but the prompt may linger. It works with items that have OnDrop blocks.",
+    "Disabled objects stay in memory and keep running scripts, which is why deletion is useful."
+   ],
+   "bugs": [
+    "Marking an actor together with several objects in the same moment can cause a crash to desktop."
+   ]
+  },
+  {
+   "page": "MatchFaceGeometry",
+   "summary": "Morphs the calling actor's face geometry toward a source actor's face by a percentage from 0 to 100.",
+   "notes": [
+    "100 means identical geometry; 50 is a half morph from the current face.",
+    "Only the geometry changes, not the face texture."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "MatchRace",
+   "summary": "Changes the calling actor's race to the race currently held by another actor.",
+   "notes": [
+    "The affected actor receives the default face textures of the new race."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "MenuMode (Function)",
+   "summary": "Returns 1 if any menu is open, or, with an integer menu type argument, if that specific menu is open, otherwise 0.",
+   "notes": [
+    "Without an argument it is true whenever the game is not in normal gameplay mode.",
+    "Usable as a condition in perks and object effects, but there it may only reliably indicate whether game mode is active rather than specific menus.",
+    "In effect scripts it never returns true while the pause menu is open.",
+    "In Fallout 3 the main menu has no code of its own; only three menu codes return true (FO3).",
+    "The race, plastic surgeon and barber menus all share one menu code."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ModActorValue",
+   "summary": "Permanently changes the calling actor's chosen actor value by a positive or negative amount.",
+   "notes": [
+    "Meant for lasting changes; the damage and restore functions are for temporary changes.",
+    "The resulting value can go beyond the usual cap of some values, for example skills."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ModBarterGold",
+   "summary": "Adjusts the barter gold stored on the calling actor by the given amount.",
+   "notes": [
+    "Fallout 3 merchants do not use barter gold; their caps live in the merchant container (FO3)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ModDisposition",
+   "summary": "Changes the calling actor's disposition toward the specified actor by the given amount.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ModFactionRank",
+   "summary": "Adds the given amount to the calling actor's rank in a faction.",
+   "notes": [
+    "Nothing happens if the actor is not in that faction.",
+    "The rank can never be lowered below 0."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ModFactionReaction",
+   "summary": "Adjusts how one faction reacts toward a second faction by a given amount.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ModifyFaceGen",
+   "summary": "Applies facial expression, phoneme or modifier morphs to the calling character; takes a type, an ID and an intensity.",
+   "notes": [
+    "Three kinds: expressions (full-face, one at a time), phonemes (mouth only) and modifiers (eyes and brow); a reset type clears them. Page lists the ID tables.",
+    "The effect takes a second or two to appear rather than being instant."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ModPCAttribute",
+   "summary": "Raises or lowers one of the player's SPECIAL attributes by an amount treated as permanent, like a level-up increase.",
+   "notes": [
+    "Works on SPECIAL attributes only, not skills."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ModPCMiscStat",
+   "summary": "Modifies one of the player's miscellaneous statistics, identified by its name string, by an integer amount.",
+   "notes": [
+    "The page lists valid stat names separately for Fallout 3 and New Vegas."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ModPCSkill",
+   "summary": "Meant to add skill points that count toward leveling like earned ones, but it is unused in New Vegas and changes nothing there.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ModScale",
+   "summary": "Adds the given amount to the calling reference's current scale; the argument may range from 0.5 to 2.0.",
+   "notes": [
+    "The change is additive: from scale 1.2, passing 0.5 yields 1.7."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ModWeaponHealthPerc",
+   "summary": "Adds a positive or negative amount to the condition of the weapon the calling actor currently has equipped.",
+   "notes": [
+    "Negative values reduce condition.",
+    "It seems not to update the weapon's condition for the player while god mode is on."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "MovePipboyKnob",
+   "summary": "Turns a chosen knob or dial on the player's Pip-Boy by a signed distance; not every knob ID is known.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "MoveTo",
+   "summary": "Moves the calling object or actor to the position of the given marker reference, with optional X, Y and Z offsets.",
+   "notes": [
+    "It can fire the object's OnLoad block, since the object is effectively unloaded and reloaded.",
+    "When moving the player, a movement request is queued; it is not immediate and the script keeps running.",
+    "Actors snap to navmesh and generally cannot be placed off it unless flagged immobile; furniture markers must be persistent to move actors onto them.",
+    "For non-actor objects the coordinates change but the visual does not; a disable, move, enable, Update3D sequence is needed. Ragdolls drop to the floor below.",
+    "Actors flagged for no low-level processing cannot return home once outside the loaded area."
+   ],
+   "bugs": [
+    "Moving a container with the respawn flag makes its contents respawn immediately and again on every return to that cell."
+   ]
+  },
+  {
+   "page": "MoveToMarkerWithFade",
+   "summary": "Fades the calling object out, moves it to the given marker reference (with optional X, Y, Z offsets), then fades it back in.",
+   "notes": [
+    "Not suited to instant moves, because it waits for the fade-out to complete.",
+    "Can be used to imitate an actor using a door."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "MoveToQuestTarget",
+   "summary": "Moves the player to the current Pip-Boy quest objective; an optional integer index selects among several markers of a quest.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ObjectUnderReticle",
+   "summary": "Casts a ray from the crosshairs between a minimum and maximum range and returns the first object hit, which can be far beyond activation range.",
+   "notes": [
+    "Range is capped at 50000 units; distances are in game units (128 is about 1.8 m).",
+    "Like the crosshair reference function, it also returns statics and other collidable objects, not just activatable ones, so results usually need filtering by type."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "OpenTeammateContainer",
+   "summary": "Opens the teammate-style container menu, letting the player freely swap inventory with the calling actor.",
+   "notes": [
+    "Optional IgnoreTeammate defaults to 0, restricting it to the player's teammates; passing 1 makes it work on any actor."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "OutputLocalMapPictures",
+   "summary": "Writes the local map to disk as a set of PNG images, forcibly changing the grids-to-load setting so only the local area is output.",
+   "notes": [
+    "Changing the grid setting can break scripted sequences, so the page advises using it for testing only."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PersistentRefCount",
+   "summary": "Prints how many persistent references currently exist in the game.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "PickIdle",
+   "summary": "Makes the calling actor choose and play an idle animation whose conditions currently match.",
+   "notes": [
+    "Does nothing when no idle animation satisfies its conditions; the forced-idle function plays one regardless of conditions."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PickRefByID",
+   "summary": "Selects a reference by ID as the current target for console commands.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "PipBoyRadio",
+   "summary": "Controls the Pip-Boy radio: turn off (0), turn on (1), or tune (via the tune keyword) to a station given as the broadcasting talking-activator reference.",
+   "notes": [
+    "Stations are named by passing the talking activator reference that broadcasts them.",
+    "A disabled or out-of-range station cannot be chosen with tune.",
+    "Tune only works while the radio is already on; otherwise the station is unchanged and command 1 resumes the last-played station.",
+    "Command 1 without a station triggers one wrong song before the correct station resumes, so a station should always be given."
+   ],
+   "bugs": [
+    "Turning the radio on without naming a station plays one incorrect song first, and the same glitch affects a tune issued right after."
+   ]
+  },
+  {
+   "page": "PipBoyRadioOff",
+   "summary": "Turns the Pip-Boy radio off.",
+   "notes": [
+    "Equivalent to the radio function with command 0."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PlaceAtMe",
+   "summary": "Spawns a number of the given object at the calling reference, with optional distance and direction offsets; for leveled actors a second optional value acts as a level modifier.",
+   "notes": [
+    "The new object copies the caller's XYZ angles, so things placed at a player looking up or down will be tilted.",
+    "Scripts on the new object may not be addressable in the same frame; wait a few frames. Script variables on placed objects reset on reload or game load.",
+    "Works with leveled creature lists but not leveled items, which show an error marker.",
+    "Runtime-created actors survive cell reset unless killed (then removed after about three days); projectiles survive resets; picked-up placed items are destroyed; explosions unload after one animation.",
+    "The returned reference is reliable only for non-pickable objects; using one after pickup can crash, and the self-reference getter misbehaves on such objects.",
+    "Unneeded placed references should be disabled and marked for delete to prevent save bloat."
+   ],
+   "bugs": [
+    "The distance and direction arguments have no effect; the object always lands in a safe spot near the caller.",
+    "Spawning an actor with zero health produces a living actor, so a kill call is needed.",
+    "Objects with destruction data and the disable-object flag can remain disabled after loading a save from before destruction."
+   ]
+  },
+  {
+   "page": "PlaceAtMeHealthPercent",
+   "summary": "Spawns an injured actor or item near the calling reference, at a given fraction of full health, with count and optional distance and direction.",
+   "notes": [
+    "Direction values: front is 0, back 1, left 2, right 3.",
+    "When the form comes from a leveled list, this health percentage replaces the list's own health setting."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PlaceAtReticle",
+   "summary": "Places the given object at the point the crosshair is aimed at, with a count and an optional maximum distance between 1 and 50000.",
+   "notes": [
+    "The minimum-distance argument is marked unused."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PlaceLeveledActorAtMe",
+   "summary": "Spawns a leveled actor from a base form at the calling reference using the same options as editor placement; returns the new reference, or a null form on failure.",
+   "notes": [
+    "Level modifier codes: easy 0, medium 1, hard 2, boss 3, none 4; default is 4.",
+    "If no encounter zone is given, it takes the zone of the cell where the actor is created."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PlaceLocationMarker",
+   "summary": "Places a small debug box at given coordinates with floating name text visible through walls; defaults to coordinates as name, optional colour 0 to 9.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "PlayBink",
+   "summary": "Plays a Bink video file, with optional flags for interruptability, muting game audio, pausing music and letterboxing.",
+   "notes": [
+    "Defaults: interruptable 0, mute audio 1, pause music 1, letterboxed 1; filename is quoted and relative to the data video folder.",
+    "Files must be loose on disk, not inside a BSA archive.",
+    "A non-zero interruptable flag lets the player skip with escape; zero for letterbox avoids letterboxing a widescreen video on a 4:3 screen.",
+    "Playback appears to halt game time even if flags keep sounds going."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PlayerInRegion",
+   "summary": "Condition function returning 1 if the player is in the given region, otherwise 0.",
+   "notes": [
+    "Inside a child region, the parent region also tests true.",
+    "It is condition-only; the script-usable counterpart is IsPlayerInRegion."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PlayGroup",
+   "summary": "Plays a named animation group on the calling reference, with an init flag controlling how the transition starts.",
+   "notes": [
+    "Flag 0 lets the current animation finish then starts the new one from its start; 1 interrupts and starts from the beginning; 2 interrupts and starts at the loop point.",
+    "Some groups need conditions, e.g. combat reactions like recoil need a drawn weapon.",
+    "Some animations can leave actors misbehaving; playing the idle group with flag 1 restores normal control.",
+    "The stagger group has no animation files and does nothing; use a hit-reaction idle instead."
+   ],
+   "bugs": [
+    "Certain animation groups on the player or NPCs can cause freezing, backwards running, walking through solids or inability to attack."
+   ]
+  },
+  {
+   "page": "PlayIdle",
+   "summary": "Makes the calling actor play a specified idle animation; the page recommends the forced or extended variants instead.",
+   "notes": [
+    "It takes the idle's editor ID string literal, not a form reference or reference variable.",
+    "On the player it works only in fly-camera mode, or in the frame the player activated the scripted object with default activation suppressed; also via a script effect's implicit reference.",
+    "Placing the animation outside the characters folder removes those limits."
+   ],
+   "bugs": [
+    "Calling it directly on the player is bugged and works only in narrow circumstances."
+   ]
+  },
+  {
+   "page": "PlayMagicEffectVisuals",
+   "summary": "Plays a magic effect's visuals on the calling reference for an optional duration.",
+   "notes": [
+    "Always runs a minimum of one cycle regardless of duration; without a duration it runs once, or indefinitely if the art keeps animating."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PlayMagicShaderVisuals",
+   "summary": "Plays an effect shader's visuals on the calling reference for an optional duration.",
+   "notes": [
+    "Always runs a minimum of one cycle regardless of duration; without a duration it runs until the art stops animating.",
+    "On the player, the shader only shows in the perspective (first or third person) active when it started.",
+    "With no calling reference it defaults to the player."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PlayMusic",
+   "summary": "Plays the specified music type form.",
+   "notes": [
+    "It will not interrupt music already playing from a music marker (New Vegas only)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PlaySound",
+   "summary": "Plays a sound form non-positionally; a non-zero system-sound flag makes it play even in menu mode, otherwise it may be queued until game mode returns.",
+   "notes": [],
+   "bugs": [
+    "Does not work for ambient sounds built from OGG or MP3 files."
+   ]
+  },
+  {
+   "page": "PlaySound3D",
+   "summary": "Plays a sound form positionally at the calling reference's location.",
+   "notes": [
+    "Fails if the reference has no model.",
+    "The sound file must be mono for 3D playback; stereo falls back to 2D."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PlayVATSCameras",
+   "summary": "Sets the camera paths used the next time VATS playback runs to those assigned to the given path.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "PreloadMagicEffect",
+   "summary": "Queues loading of a spell effect's particles if not already loaded; does nothing if they are already loading.",
+   "notes": [
+    "Only useful when a non-actor reference casts the spell, since actors preload their own spells."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "PurgeCellBuffers",
+   "summary": "Forcibly unloads all cells in the cell buffers that are not currently attached.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "PushActorAway",
+   "summary": "Knocks the target actor down (ragdoll) and pushes it away from the calling actor with an integer force; a negative force pulls it toward the caller.",
+   "notes": [
+    "No effect on dead actors, on actors flagged immobile, or on actors with the no-knockdowns flag.",
+    "A pushed actor's inventory can be opened by the player until it gets back up.",
+    "With no calling reference, the target is launched straight up with the given force."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "QuitGame",
+   "summary": "Immediately exits the game to the desktop.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Rbat",
+   "summary": "Records up to 20 console commands into a text file for later replay; no argument starts or cancels recording, a filename saves it.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ReleaseWeatherOverride",
+   "summary": "Lets weather return to normal dynamic behaviour after it was overridden by a set-weather or force-weather call using the override flag.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Reload",
+   "summary": "Reloads a user-interface element from its XML definition; arguments include a UI globals option, a HUD safe zone option, the main menu, or a named menu class.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "RemapWaterType",
+   "summary": "Swaps every occurrence of one water type for a different water type.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "RemoveAllItems",
+   "summary": "Removes everything from the calling reference's inventory, moving it to an optional target container or destroying it; unplayable biped items and, for the player, quest items are exempt.",
+   "notes": [
+    "With a target container, items move there and equipment keeps its condition; without one they are destroyed like RemoveItem. Without a calling container it does nothing.",
+    "A non-zero retain-ownership flag keeps the original ownership; otherwise ownership is cleared.",
+    "A third optional flag suppresses the item messages."
+   ],
+   "bugs": [
+    "Calling it on the player can crash New Vegas under unknown conditions."
+   ]
+  },
+  {
+   "page": "RemoveAllTypedItems",
+   "summary": "Extended RemoveAllItems that removes only items of a chosen form type, optionally skipping members of an exemption form list; unplayable biped items and player quest items are exempt.",
+   "notes": [
+    "Type code omitted or -1 removes everything like RemoveAllItems, 0 removes nothing; other values are form type IDs (page has a code table).",
+    "With a target container the items move there with equipment condition kept; otherwise destroyed like RemoveItem.",
+    "A non-zero retain-ownership flag keeps original ownership, which can count as stealing when handing items to the player; otherwise ownership is cleared.",
+    "A suppress-messages flag of 1 hides the item added pop-up when transferring to the player."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "RemoveFromAllFactions",
+   "summary": "Removes the calling actor from every faction it belongs to.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "RemoveFromFaction",
+   "summary": "Removes the calling actor reference, not its base object, from the given faction.",
+   "notes": [
+    "Differs from the faction-rank setter, which acts on the actor's base form; other instances of the same base actor stay in the faction."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "RemoveImageSpaceModifier",
+   "summary": "Removes the specified imagespace modifier from the screen.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "RemoveItem",
+   "summary": "Destroys a given count of an item from the calling container's inventory, with an optional flag to suppress the on-screen message.",
+   "notes": [
+    "The item argument may be a form list, in which case the count is removed for each item on the list.",
+    "Items are destroyed rather than dropped nearby.",
+    "If the removed item was equipped, its OnUnequip block does not run."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "RemoveMe",
+   "summary": "Removes the calling item from the container holding it; with a target container argument, a copy is moved there instead.",
+   "notes": [
+    "It acts like a return: script lines after it are not executed.",
+    "Preserves health and charge; a copy moved to a target container does not retain the original's script variables; no removal message is shown.",
+    "With stacked items, the one actually removed may be the first in the stack rather than the caller.",
+    "If called in OnEquip it does not run OnUnequip.",
+    "The vanilla game only uses it inside OnAdd blocks; elsewhere it may crash, and the drop function is advised."
+   ],
+   "bugs": [
+    "Called by an item inside a container that is not persistent it crashes; in a persistent container it works unless that container is the player; OnAdd use does not crash.",
+    "The removed object's GameMode block keeps running, and it still reports its old container, for an undetermined time.",
+    "Calling it in a GameMode block without a one-shot guard variable makes the game loop forever and freeze.",
+    "In the barter menu with stackable scripted items it may crash when switching from sell to buy after selling several (page doubts this applies to the GECK)."
+   ]
+  },
+  {
+   "page": "RemoveMerchantContainer",
+   "summary": "Clears the merchant container assigned to an actor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "RemoveNote",
+   "summary": "Removes a note from the player's notes; takes the note form and is not called on a reference.",
+   "notes": [
+    "Unlike the add-note function, it shows no message, so the player must be notified separately."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "RemovePerk",
+   "summary": "Removes a perk from the calling actor; on the player it removes the player's perk, or from all teammates if the optional teammates flag is non-zero.",
+   "notes": [
+    "The player carries two perk lists: one for the player and one applied to all current teammates; perk requirements only gate level-up selection, not companion perks.",
+    "Perk entry points or abilities for companions should be conditioned on being a teammate or a specific ID.",
+    "In Fallout 3, calling it from an effect script on a perk with an ability entry crashes; a scripted token calling it then removing itself is the workaround (FO3)."
+   ],
+   "bugs": [
+    "In Fallout 3, using it in an effect script for a perk with an ability entry crashes the game (FO3)."
+   ]
+  },
+  {
+   "page": "RemoveRecurringFromChallenge",
+   "summary": "Clears the recurring flag of a challenge so it will not restart; a completed challenge becomes greyed out on the challenges screen.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "RemoveReputation",
+   "summary": "Removes preset-sized reputation, fame or infamy, from a faction; despite the page summary saying adds, it subtracts.",
+   "notes": [
+    "First integer picks infamy (0) or fame (1); second picks magnitude 1 to 5, mapped through game settings (defaults 1, 2, 4, 7, 12 points).",
+    "For arbitrary amounts use the exact variant."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "RemoveReputationExact",
+   "summary": "Removes an exact, possibly fractional, amount of fame or infamy from a faction's reputation.",
+   "notes": [
+    "First argument selects infamy (0) or fame (1), then the exact amount.",
+    "Intended for forgiveness events, not for punishing the player; infamy should be added for bad deeds."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "RemoveScriptPackage",
+   "summary": "Removes the script package currently running on the calling actor, so it picks a new package; needed only for packages added to run indefinitely.",
+   "notes": [
+    "With no script package present it can stop the package on every instance of that actor and blocks function-triggered behaviours such as fleeing; it cancels one a function started.",
+    "A parameter is accepted by the compiler but ignored at runtime.",
+    "It cannot remove editor-assigned packages."
+   ],
+   "bugs": [
+    "Running a package evaluation within a few frames of removal may re-add the package."
+   ]
+  },
+  {
+   "page": "RemoveSpell",
+   "summary": "Removes an actor effect from the calling actor; in the vanilla game only addictions and abilities are such effects.",
+   "notes": [],
+   "bugs": [
+    "The page marks it deprecated because of inconsistent behaviour; the dispel function is recommended instead."
+   ]
+  },
+  {
+   "page": "RenderTestCell",
+   "summary": "Runs a render stress test over the cell the player is in, warning about points where geometry, triangle, render pass or light counts exceed thresholds.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Reset3DState",
+   "summary": "Clears saved animation and Havok state for a reference, mainly to reset triggered traps.",
+   "notes": [
+    "It does not restore a moved object's world position."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ResetAI",
+   "summary": "Wipes all of an actor's current AI behaviours, after which combat, pathing and packages are evaluated afresh.",
+   "notes": [
+    "A drastic command; re-evaluating the package is usually enough.",
+    "Packages added by script are stopped and removed."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ResetAllTerminals",
+   "summary": "Clears all variables changed during hacking, resetting terminals as if never hacked.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ResetDialogueFlags",
+   "summary": "Clears variables altered by topics and conversations, resetting dialogue as if it never occurred.",
+   "notes": [
+    "Currently resets the say-once and say-once-per-day flags."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ResetFallDamageTimer",
+   "summary": "Resets the fall damage timer so the calling object takes damage as though it had just started falling.",
+   "notes": [],
+   "bugs": [
+    "The page says the function is broken."
+   ]
+  },
+  {
+   "page": "ResetHealth",
+   "summary": "Restores the calling actor's health and cures crippled limbs.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ResetInterior",
+   "summary": "Marks the given interior cell as expired.",
+   "notes": [
+    "It only flags the cell as expired and performs no cleanup.",
+    "Unlike a time-based reset, the scripted version does not revive actors."
+   ],
+   "bugs": [
+    "Actors are not revived by a scripted interior reset, unlike a normal timed reset."
+   ]
+  },
+  {
+   "page": "ResetInventory",
+   "summary": "Resets the calling reference's inventory, discarding all earlier added, removed or computed contents.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ResetPipboyManager",
+   "summary": "Must be called after the player equips a Pip-Boy for its menus to work; it also resets its external appearance, turning off an active light glow.",
+   "notes": [
+    "Without it the Pip-Boy behaves like an NPC's, with no inventory, stats or data access."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ResetQuest",
+   "summary": "Resets everything tied to a quest: clears stages and objectives, clears quest variables, and returns stage on/off state to defaults.",
+   "notes": [
+    "The once-only and once-per-day response flags on the quest's dialogue are not cleared."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ResetXP",
+   "summary": "Sets the player's experience points back to zero; not called on a reference.",
+   "notes": [
+    "The base game uses it in the character revision script triggered on leaving Goodsprings."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "RestoreActorValue",
+   "summary": "Heals damage on an actor value by raising its damage modifier toward zero by the given (possibly fractional) amount.",
+   "notes": [
+    "The damage modifier is zero or negative and never rises above zero, so restoring an undamaged value changes nothing.",
+    "Accepts floating point amounts."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ResurrectActor",
+   "summary": "Brings the calling actor back from dead or unconscious state; an integer selects whether the revival uses an animation.",
+   "notes": [
+    "Argument 1 makes the actor use an animation to stand up; 0 skips animation and the actor is simply standing.",
+    "With the animate flag set, body data is not refreshed, giving living actors with missing limbs; they reappear in VATS and cannot be removed again.",
+    "For such actors the limb-gone check always reports 1, gibs follow their source actor, behaviour ignores the missing limbs, and a weapon on a removed limb is not drawn.",
+    "Calling with animate false can crash Fallout 3 (FO3)."
+   ],
+   "bugs": [
+    "With animation enabled the actor falls through geometry unless resurrected in the same frame as death."
+   ]
+  },
+  {
+   "page": "Return",
+   "summary": "Stops script processing from that line onward, including all later blocks of the script.",
+   "notes": [
+    "In a block that runs every frame, such as GameMode, the script runs again next frame; useful inside conditionals to skip later lines.",
+    "Cannot be used inside While or ForEach loops."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "RewardKarma",
+   "summary": "Adds an integer amount of karma to the player, or removes it if negative; not called on a reference.",
+   "notes": [
+    "Result is clamped by the karma maximum and minimum game settings.",
+    "A corner message announces the change."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "RewardXP",
+   "summary": "Awards an integer amount of experience points to the player; not called on a reference.",
+   "notes": [
+    "A message normally appears stating the experience gained."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Rotate",
+   "summary": "Rotates the calling object about the world X, Y or Z axis at a speed in degrees per second.",
+   "notes": [
+    "Unreliable for complex or repeated rotations; animation functions are better for those.",
+    "Only one axis can rotate per frame per reference; repeated calls in a frame apply only the last.",
+    "Collision is not updated until the cell reloads or Update3D is used."
+   ],
+   "bugs": [
+    "Often makes the object vanish when loading a save from before the call, though sometimes the change persists."
+   ]
+  },
+  {
+   "page": "SameFaction",
+   "summary": "Returns 1 if the calling actor and the target actor share at least one faction, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SameFactionAsPC",
+   "summary": "Returns 1 if the calling actor belongs to any faction the player also belongs to.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SameRace",
+   "summary": "Yields 1 when the calling actor and the target actor share a race, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SameRaceAsPC",
+   "summary": "Returns 1 if the calling actor has the same race as the player.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SameSex",
+   "summary": "Yields 1 when the calling actor and the target actor are of one gender, otherwise 0.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SameSexAsPC",
+   "summary": "Yields 1 when the calling actor has the player's gender.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SaveGame",
+   "summary": "Creates a named savegame and can optionally write a dump file of the save information.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Say",
+   "summary": "Makes the calling actor speak a single dialogue line from a topic, with optional flags for forced subtitles, speaker actor, 2D playback and voice.",
+   "notes": [],
+   "bugs": [
+    "Inside a package result script it makes the package stall when the player is absent from the cell.",
+    "Inside a dialogue result script it may hang the game."
+   ]
+  },
+  {
+   "page": "SayTo",
+   "summary": "Makes the calling actor speak one dialogue line to a target actor; always returns 0, and a SayToDone block fires when the line finishes.",
+   "notes": [
+    "Optional flags force subtitles and stop the target from being made to look at the speaker.",
+    "The SayToDone block is the way to react when the line completes."
+   ],
+   "bugs": [
+    "Inside a package result script it makes the package stall when the player is absent from the cell."
+   ]
+  },
+  {
+   "page": "ScriptEffectElapsedSeconds",
+   "summary": "Effect-script-only function returning seconds since the previous magic effect update, as a float.",
+   "notes": [
+    "Gives a value above 0 only in a ScriptEffectUpdate block, though it compiles in other blocks."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SendAssaultAlarm",
+   "summary": "Manually creates an assault crime, with optional victim actor and faction arguments.",
+   "notes": [
+    "The player is always treated as the criminal, so it cannot make AI actors attack each other.",
+    "If the player is given as victim (not a valid target), an actor from the supplied faction is chosen instead.",
+    "Actors shout the assault dialogue topic even if already fighting the target."
+   ],
+   "bugs": [
+    "Using it with no calling reference can sometimes crash the game."
+   ]
+  },
+  {
+   "page": "SendTrespassAlarm",
+   "summary": "Raises a trespass alarm as though someone reported the player trespassing; the optional argument is whoever is told.",
+   "notes": [
+    "Appears to accept only the player as the offender.",
+    "Reaches the fully trespassed state in one call, regardless of the guard warnings setting."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetActorAlpha",
+   "summary": "Sets the transparency (alpha) of the calling actor.",
+   "notes": [
+    "Does not affect the weapon the actor carries."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetActorFullName",
+   "summary": "Changes the calling actor's display name to the title of the given message form.",
+   "notes": [
+    "It alters the base object's name, so every instance of that actor or creature gets the new name.",
+    "Also works on talking activators."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetActorRefEssential",
+   "summary": "Sets the essential state of only the calling actor reference, leaving the base untouched; the change is saved with the game.",
+   "notes": [
+    "Cannot clear essential status if the base is essential via the editor or the base-level set-essential function."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetActorRefraction",
+   "summary": "Sets an actor's refraction value between 0 and 10, defaulting to the player when no reference is given; persists for the session.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetActorsAI",
+   "summary": "Turns an actor's processing off (0) or on (any other integer); scripts still run but packages, detection, Havok and animation do not process.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetActorValue",
+   "summary": "Sets the base value of an actor value on the calling actor to a new integer value.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetAlert",
+   "summary": "Sets whether the calling actor is in an alert animation state (weapon drawn), without altering actual combat status.",
+   "notes": [
+    "The state is saved with the game and is not cleared by time or cell reset.",
+    "Combining it with unequip calls in the same moment can leave the actor holding an invisible weapon."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetAllVisible",
+   "summary": "Performance aid: while the flag is set, actors skip line-of-sight checks and assume they can see a target's head.",
+   "notes": [
+    "The flag is reset every frame, so it must be called repeatedly from a script on a reference within the loaded area."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetAlly",
+   "summary": "Sets a friend or ally relationship between two factions, adding the second to the first's reaction list if missing; not called on a reference.",
+   "notes": [
+    "Optional flags for each direction: 0 means ally (default), 1 means friend."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetAngle",
+   "summary": "Sets the calling object's rotation, in degrees, about the world X, Y or Z axis.",
+   "notes": [
+    "On the player and actors only Z rotation turns them; X and Y tilt has no effect, except that X on the player pitches the camera.",
+    "The player's X angle can exceed mouse limits (about -89 to 89); negative values look up, positive look down.",
+    "Some objects keep snapping X back to zero within a few frames; statics may only respond if spawned dynamically."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetBarterGold",
+   "summary": "Assigns the barter gold amount held by an actor; effectively unused.",
+   "notes": [
+    "Fallout 3 merchants do not use barter gold; their caps are placed in their container (FO3)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetBroadcastState",
+   "summary": "Switches a radio station's broadcast mode: 0 stops continuous broadcast, 1 starts it.",
+   "notes": [
+    "State 0 plays static except for scripted radio conversations; state 1 plays generated radio conversations back to back."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetCameraFOV",
+   "summary": "Sets the world and first-person field of view; either argument omitted or 0 gives the default of 75.",
+   "notes": [
+    "Both values are capped at 160.",
+    "A negative value is turned into the reciprocal of its absolute value.",
+    "World FOV controls how close the world seems; first-person FOV controls how close the player's hands and gear look."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetCasinoWinningsLevel",
+   "summary": "Sets the winnings level, an integer from 0 to 4, of a casino.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetCellFullName",
+   "summary": "Changes a cell's display name to the title text of the given message form, affecting load door labels and the local map.",
+   "notes": [
+    "Works only for interior cells."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetCellImageSpace",
+   "summary": "Changes the imagespace assigned to a cell.",
+   "notes": [
+    "On a currently loaded cell the new imagespace is not applied until the cell reloads, such as after leaving and returning or loading a save made there."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetCellOwnership",
+   "summary": "Sets a cell's owner to the given NPC or faction base form; with no second argument the player becomes the owner.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetCellPublicFlag",
+   "summary": "Sets a cell's public flag to 1 or 0; public cells cannot have trespassing, so this changes crime behaviour in the cell.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetClass",
+   "summary": "Changes the calling actor's class to the given class form, running autocalc only if the actor has autocalc enabled.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetClipDist",
+   "summary": "Overrides the far clip distance while in interior cells.",
+   "notes": [
+    "In an exterior the override is dropped at once."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetCombatActionCost",
+   "summary": "Sets the cost of a named combat action; a higher cost makes the AI less likely to choose it.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetCombatStyle",
+   "summary": "Assigns a new combat style form to the calling actor reference.",
+   "notes": [
+    "Changes only the calling reference, not the combat style on the actor's base form."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetConsoleOuputFile",
+   "summary": "Creates a text file that logs console input and output.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetCriticalStage",
+   "summary": "Puts the calling reference into the given critical stage (none, goo start/end, disintegrate start/end) and applies its effects.",
+   "notes": [
+    "Start stages change the ragdoll constraints; end stages finalise it by dropping it from water handling, removing its rendered 3D, and discarding its physics data."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetDefaultOpen",
+   "summary": "Sets the default open state of the calling object, matching the open-by-default option on a placed reference.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetDestroyed",
+   "summary": "Sets the destroyed flag on the calling reference (1) or clears it (0).",
+   "notes": [
+    "Destroyed doors and activators give no rollover text and cannot be activated.",
+    "Avoid on temporary references, since the flag seems to persist if the form ID is reused; not recommended on actors; avoid on spawn markers."
+   ],
+   "bugs": [
+    "On spawn markers it causes assorted bugs, including immunity to explosives.",
+    "On temporary references the flag may not clear when the form ID is reused."
+   ]
+  },
+  {
+   "page": "SetDisposition",
+   "summary": "Sets the calling actor's disposition toward the given actor to an integer value.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetEnemy",
+   "summary": "Sets an enemy or neutral relationship between two factions, adding the second to the first's reaction list if missing; not called on a reference.",
+   "notes": [
+    "Optional flags for each direction: 0 means enemy (default), 1 means neutral."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetEssential",
+   "summary": "Sets the essential state of an actor's base form by its base ID, with a boolean flag.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetFactionRank",
+   "summary": "Sets the calling actor's rank within a faction, joining the faction at that rank if not already a member; a negative rank removes the actor from it.",
+   "notes": [
+    "Rank argument is optional.",
+    "The rank is written to the actor's base object as well as the reference, so later actors spawned from that base already carry the faction and rank."
+   ],
+   "bugs": [
+    "Because the rank lives on the base object, random unnamed actors or creatures sharing a base all inherit the faction membership."
+   ]
+  },
+  {
+   "page": "SetFactionReaction",
+   "summary": "Sets how one faction regards a target faction to the given amount.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetForceRun",
+   "summary": "Turns forced running on or off for the calling actor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetForceSneak",
+   "summary": "Turns forced sneaking on or off for the calling actor.",
+   "notes": [],
+   "bugs": [
+    "When toggled back and forth in quick succession by a script not attached to the affected actor, the actor's visible sneak state can disagree with what IsSneaking and GetForceSneak report.",
+    "With force sneak on, an actor firing via FireWeapon stands up, because animation groups fail to refresh."
+   ]
+  },
+  {
+   "page": "SetGameSetting",
+   "summary": "Sets a named game setting to a new value; numeric or string depending on the setting.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetGhost",
+   "summary": "Puts the calling actor into or out of the ghost state, which makes it unharmable; the change persists in saves.",
+   "notes": [
+    "Ghosts take no damage from weapons or magic effects, and projectiles pass through them.",
+    "A ghost can still deal damage, talk, be activated for dialog, and collides normally with actors and world objects.",
+    "Enemies of a ghost do not detect it or enter combat with it.",
+    "Pickpocketing a ghost is impossible; ordinary activation (dialog) happens instead.",
+    "Applied to the player, it does not stop the player taking damage."
+   ],
+   "bugs": [
+    "The VATS hit chance shown for a ghost is unchanged even though it cannot be hit.",
+    "The pickpocket prompt still appears for a ghost despite pickpocketing being impossible."
+   ]
+  },
+  {
+   "page": "SetGlobalTimeMultiplier",
+   "summary": "Sets the global time scale (1.0 normal, lower is slow motion), optionally leaving sound pitch/speed unaffected.",
+   "notes": [
+    "Second parameter is optional and defaults to 0; when 1, sounds are not sped up or slowed with the time change.",
+    "Passing a multiplier of 0 breaks the game."
+   ],
+   "bugs": [
+    "A multiplier of 0 breaks the game."
+   ]
+  },
+  {
+   "page": "SetHardcore",
+   "summary": "Turns hardcore mode on (1) or off (0).",
+   "notes": [
+    "Reportedly has no effect when the player is the calling reference; calling it from an OnTrigger block with the trigger as reference is suggested."
+   ],
+   "bugs": [
+    "Calling it on the player appears to do nothing."
+   ]
+  },
+  {
+   "page": "SetHUDGlowConstants",
+   "summary": "Sets the HUD glow parameters: blur radius, blur intensity and scanline frequency.",
+   "notes": [
+    "All three float parameters are optional."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetIgnoreFriendlyHits",
+   "summary": "Sets or clears a flag making the calling actor ignore hits from friendly sources.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetInChargen",
+   "summary": "Puts the player into or out of character-generation state, in which level-ups are withheld.",
+   "notes": [
+    "While in this state XP still accumulates but no level is gained.",
+    "On leaving the state, all earned levels are awarded at once."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetINISetting",
+   "summary": "Sets an INI setting to a new value, identified by a setting-name and category string.",
+   "notes": [
+    "The setting string has the form SettingName:CategoryName, where the category is the INI section header."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetItemValue",
+   "summary": "Sets the base value of the calling item reference's base object, so every reference to that base changes value.",
+   "notes": [
+    "The change is stored in save games."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetLastExtDoorActivated",
+   "summary": "Sets which exterior door counts as the last one activated.",
+   "notes": [
+    "Changes which worldspace map the Pip-Boy shows.",
+    "The worldspace that owns the cell now loaded is left as it was."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetLevel",
+   "summary": "Sets an actor's level; when the level-to-player flag is on, the level acts as an offset from the player's level within optional min and max bounds.",
+   "notes": [
+    "Min and max level arguments are optional.",
+    "On non-player actors it regenerates the inventory, re-evaluating leveled lists, even if the level did not change.",
+    "On the player it alters the level number but no stats, and the world does not scale; granting XP is preferred."
+   ],
+   "bugs": [
+    "On NPCs it often sets the level to the minimum level, ignoring the offset and the maximum."
+   ]
+  },
+  {
+   "page": "SetLocationSpecificLoadScreensOnly",
+   "summary": "Restricts load screens to those tied specifically to the current cell when set to 1.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetMaxAniso",
+   "summary": "Sets the anisotropic filtering level.",
+   "notes": [
+    "Page lists six accepted levels, from 1 up to 16; any other value rounds down to the closest lower level."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetMerchantContainer",
+   "summary": "Assigns a merchant container reference to the calling actor.",
+   "notes": [
+    "Fails if the container reference is not persistent."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetMinimalUse",
+   "summary": "Sets or clears the minimal-use flag on the calling door.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetNoActivationSound",
+   "summary": "Overrides the default sound played when activation is refused with a specified sound.",
+   "notes": [
+    "ClearNoActivationSound restores the default."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetNoAvoidance",
+   "summary": "Performance switch that, when enabled, makes actors skip avoid-box movement.",
+   "notes": [
+    "The flag resets each frame, so a script attached to something in the loaded area must keep re-applying it.",
+    "When set, actors neither open doors nor angle away from each other."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetNPCRadio",
+   "summary": "Makes the calling NPC act as a radio playing a given radio station reference, or switches that off.",
+   "notes": [
+    "A first 0/1 parameter turns the radio off or on; 0 turns it off regardless of the station given.",
+    "If the NPC is the speaker of a dialog line it speaks it normally; otherwise the line plays with a filter effect.",
+    "To change the station, the radio must first be turned off, then on with the new station."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetObjectiveCompleted",
+   "summary": "Marks a quest objective as completed or not completed.",
+   "notes": [
+    "An Objective Completed message appears only when the objective is on display and its quest has not itself been completed.",
+    "If the quest is already complete no message appears, though the objective is still marked.",
+    "Completed objectives that are displayed show greyed out in the interface."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetObjectiveDisplayed",
+   "summary": "Turns a quest objective's display on or off.",
+   "notes": [
+    "The first displayed objective of a quest triggers a Quest Added message.",
+    "Displaying an objective starts the quest if it is not running.",
+    "Only indices defined on the quest's objectives list work; undefined indices do nothing."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetOpenState",
+   "summary": "Opens or closes the calling door.",
+   "notes": [
+    "The states used do not correspond to those returned by GetOpenState.",
+    "Also works on activators that have open and close animations."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetOwnership",
+   "summary": "Sets the calling reference's owner to an NPC or faction base form; with no argument the player becomes owner.",
+   "notes": [
+    "Owner argument is optional and defaults to the player's base form."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetPackDuration",
+   "summary": "Sets how long the actor's current AI package runs, in minutes of game time.",
+   "notes": [
+    "Useful for packages that should last less than an hour."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetPCCanUsePowerArmor",
+   "summary": "Sets the flag that lets the player use power armor.",
+   "notes": [
+    "The power armor training perk is only a display dummy; the real flag is set by a stage of a generic quest."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetPCEnemyOfFaction",
+   "summary": "Sets or clears the flag marking the player as an enemy of a crime-tracking faction after a major crime.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetPCExpelled",
+   "summary": "Expels the player from a faction and sets the expelled flag, or clears the flag when the second argument is 0.",
+   "notes": [
+    "If the player is inside a cell owned by that faction, they are moved outside through the nearest door."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetPCSleepHours",
+   "summary": "Forces the player to sleep for the given number of hours.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetPCToddler",
+   "summary": "Switches the player to the toddler walk animation set (1) or back to normal (0).",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetPCYoung",
+   "summary": "Flags the player as young, which limits the player to the race's default hair and suppresses loading of face attachments.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetPlayerTagSkill",
+   "summary": "Assigns a named skill as the player's tag skill at index 0 to 3, granting the starting tag bonus in that skill.",
+   "notes": [
+    "The game supports at most four tagged skills; indices above 3 appear to do nothing.",
+    "Tagging extra skills through SetTagSkills or AddTagSkills beyond four has no effect past the first four."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetPlayerTeammate",
+   "summary": "Makes the calling actor behave as the player's combat teammate (1) or clears it (0), so others treat it as in the player faction.",
+   "notes": [
+    "Increments the player teammate count; the state is cleared on the actor's death and the count decremented.",
+    "Teammate imitates the player's sneak state and can be activated during combat.",
+    "Changing cells teleports the teammate to the player.",
+    "Enables OpenTeammateContainer, even when the parameter is 1.",
+    "Enables the companion wheel and shows a Pip-Boy map marker for the teammate (New Vegas).",
+    "In Hardcore mode a teammate flagged essential loses that protection (New Vegas)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetPos",
+   "summary": "Sets the calling object's world position along one chosen axis (X, Y or Z).",
+   "notes": [
+    "MoveTo is recommended for placing objects in remote cells.",
+    "Works on activators, but static, static collection, tree, flora and furniture forms are unaffected unless dynamically spawned, e.g. via PlaceAtMe.",
+    "Moving an object that supports dynamic navmesh cutting leaves the cutout stale until Update3D is called."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetQuestDelay",
+   "summary": "Sets how often the quest's scripts are processed, in seconds; the change is stored in saves.",
+   "notes": [
+    "Default interval is 5 seconds, taken from an INI setting.",
+    "A delay of 0 restores the INI default interval.",
+    "Short delays should be used only temporarily for a specific purpose, then reset to the default, to avoid wasting processing time."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetQuestObject",
+   "summary": "Sets or clears the quest-item flag on a form (object or actor).",
+   "notes": [
+    "Flagged NPCs and creatures get update priority when the player changes process state, following through load doors faster, and corpses are not cleaned up on cell expiry.",
+    "Flagged inventory items cannot be dropped or sold by the player.",
+    "Only some form types can be quest items: talking activator, armor, book, misc, weapon, ammo, NPC, creature, key, ingestible and weapon mod."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetRadioToDialogueOnlyMode",
+   "summary": "Puts the Pip-Boy radio into dialogue-only mode (1) or out of it (0).",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetReputation",
+   "summary": "Sets the player's fame or infamy with a reputation form to an exact amount, replacing the previous value.",
+   "notes": [
+    "The second argument selects fame versus infamy."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetRestrained",
+   "summary": "Sets or clears a restrained state in which the actor stays in place and does not enter combat but still thinks and can talk.",
+   "notes": [
+    "Restrained actors still pick packages and run detection, so they can raise alarms, and they still go into dialogue.",
+    "Also blocks weapon use from Use Weapon packages and UseWeapon; the actor tries the package and animations but never attacks."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetRigidBodyMass",
+   "summary": "Sets an object's mass, controlling how much it moves when bumped or hit.",
+   "notes": [
+    "Valid values are 0 to 100, where 100 means it does not move at all."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetRumble",
+   "summary": "Sets controller rumble using left motor strength, right motor strength and a duration.",
+   "notes": [
+    "Duration is in seconds."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetScale",
+   "summary": "Sets the calling object's scale, with 1.0 as normal size; the change is stored in saves.",
+   "notes": [
+    "A scale of 0 can pseudo-disable an item while its OnLoad block still runs.",
+    "Actor weight follows scale, so smaller actors are easier to carry.",
+    "Movement speed and damage also vary with scale.",
+    "Visual update is often delayed until the cell is reloaded or a save is loaded; Update3D forces it."
+   ],
+   "bugs": [
+    "On dead actors GetScale updates but the body size does not until ResurrectActor, or Disable then Enable."
+   ]
+  },
+  {
+   "page": "SetSceneIsComplex",
+   "summary": "Enables a simplified-processing mode for scenes with many combatants; the flag clears every frame so must be reapplied each frame.",
+   "notes": [
+    "Flag is wiped every frame, so a script attached to a load door or activator in the loaded area must keep setting it.",
+    "Reduces animation and sound detail, omits disposition checks for actors already fighting when deciding whether to attack, and combat ignores movement restrictions.",
+    "Low and middle-low process levels stop updating, so actors outside the loaded area freeze and cannot pass through load doors.",
+    "Surplus corpses nearby are removed more frequently, and avoidance is switched off."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetSecuritronExpression",
+   "summary": "Sets the monitor expression of a Securitron reference using a face name and an expression name.",
+   "notes": [
+    "Persists across saves and restarts.",
+    "Works from texture filenames in the Securitron creature textures folder, named face then underscore then expression, so custom faces need matching files."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetShowQuestItems",
+   "summary": "Shows (1, default) or hides (0) quest items in the player's inventory.",
+   "notes": [
+    "Hiding must be used carefully, since the player could permanently lose access to quest items."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetSize",
+   "summary": "Sets the calling actor's collision radius to the given size, with 0.0 restoring the original radius.",
+   "notes": [
+    "The value becomes the radius of the actor's collision box."
+   ],
+   "bugs": [
+    "Unreliable or ineffective for non-player actors."
+   ]
+  },
+  {
+   "page": "SetSkyParam",
+   "summary": "Sets the sky's sunlight dimmer and luminance ramp values.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetSPECIALPoints",
+   "summary": "Opens the character-generation attributes page so the player can distribute SPECIAL points up to a specified total.",
+   "notes": [
+    "The argument is the total SPECIAL points the player will have after leaving the menu, not a delta.",
+    "If it exceeds the current total the player may add the difference; if lower, the player must remove the difference."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetStage",
+   "summary": "Marks a quest stage as done and runs its qualifying stage items: results, log entries, and quest completion where applicable.",
+   "notes": [
+    "Starts the quest automatically if it is not running.",
+    "First stage added to the Pip-Boy triggers a Quest Added message.",
+    "Does nothing if the quest has no such stage index.",
+    "Called from the new-game quest it exits the main menu, moving from menu mode to game mode.",
+    "Stage result scripts run immediately and halt the calling script until finished; SetStage may be nested inside result scripts, with at least 250 levels of recursion working."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetTagSkills",
+   "summary": "Opens the character-generation skills page to let the player choose tagged skills up to a given total.",
+   "notes": [
+    "The first argument is the total number of tags to be selected, not an increment.",
+    "Optional second argument defaults to 1; at 0, the player's existing tag skills are hidden and can be overwritten.",
+    "Only the first four tagged skills take effect, even if more are chosen here or via AddTagSkills."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetTalkingActivatorActor",
+   "summary": "Makes a talking activator (such as a computer) use the dialogue of a given actor; with no actor it reverts to normal behaviour.",
+   "notes": [
+    "Actor argument is optional; omitting it restores the activator's own voice and dialogue.",
+    "Talking activators configured by script have no distance attenuation in New Vegas."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetUFOCamSpeedMult",
+   "summary": "Changes the speed multiplier of the player's camera, mainly when detached with the fly camera.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetUnconscious",
+   "summary": "Turns an actor's conscious behaviour off (1) or on (0); unconscious actors run no AI and make no idle sounds.",
+   "notes": [
+    "Activating an unconscious actor shows a message saying it is unconscious.",
+    "Used on a dead actor it resurrects it without a get-up animation, and like ResurrectActor can cause animation problems unless called in the frame of death."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetVatsTarget",
+   "summary": "Enables or disables VATS targetability of the calling destructible object, taking precedence over the base object's own setting.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetVel",
+   "summary": "Sets the velocity of a reference along a chosen axis.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SetWeaponHealthPerc",
+   "summary": "Sets the condition percentage of the actor's currently equipped weapon.",
+   "notes": [
+    "New Vegas hard-limits the result so condition never rises above 99.83 percent, a workaround for a calculation problem at exactly full condition."
+   ],
+   "bugs": [
+    "Condition cannot be raised past 99.83 percent in New Vegas."
+   ]
+  },
+  {
+   "page": "SetWeather",
+   "summary": "Switches to the given weather using the normal transition, optionally overriding the weather system until the override is released.",
+   "notes": [
+    "Transition time depends on the weather's transition-delta setting, or on SetWeatherTransitionTimeOverride if that was used.",
+    "Optional override flag: if 1, weather stays until ReleaseWeatherOverride is called; otherwise it reverts to the normal weather cycle."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SetZoneRespawns",
+   "summary": "Turns respawning on or off for an encounter zone; the change is stored in saves.",
+   "notes": [
+    "Respawn interval for zones is governed by the game setting for hours to respawn a cell (default 72 hours)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "SexChange",
+   "summary": "Changes an actor's gender to a given sex, or flips it if none is given; with no calling reference it affects the player.",
+   "notes": [
+    "Both parameters are optional: target sex, and a reset-appearance flag defaulting to 0.",
+    "Reset-appearance applies only if the actor is the player and the sex really changes; the appearance then becomes the default preset for that race and gender.",
+    "An NPC whose hair is invalid for the new sex gets the default hair."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Show",
+   "summary": "Prints the value of a special or global variable.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Show1stPerson",
+   "summary": "Shows the first-person model while using the third-person camera, showing both in third-person mode.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowAllMapMarkers",
+   "summary": "Shows or removes every map marker on the world map, with optional arguments for fast travel and for leaving out hidden-flagged markers.",
+   "notes": [
+    "Second and third arguments (can travel, skip hidden) are optional and default to 1.",
+    "Removing markers (first argument 0) also removes hidden-flagged ones in the page's example, and hiding markers turns off travel for them regardless of the travel argument.",
+    "Showing with travel 0 does not disable fast travel on markers already enabled for it.",
+    "If the Pip-Boy is open, the map does not refresh until it is closed and reopened."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowAnim",
+   "summary": "Shows animation and actor status information for the calling reference.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowBarberMenu",
+   "summary": "Opens the menu where the player picks hair colour and style; takes no parameters.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowBarterMenu",
+   "summary": "Opens the barter menu with the calling actor as vendor, optionally applying a percentage discount or markup to prices.",
+   "notes": [
+    "Optional parameter ranges from -100 to 100 and gives a percent discount on sell prices and inflation on buy prices.",
+    "Default is 0, meaning no price change."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowBlackJackMenuParams",
+   "summary": "Opens the blackjack menu for a casino form, with optional minimum bet, maximum bet and maximum winnings.",
+   "notes": [
+    "The menu only appears if casino requirements are met, such as having casino chips and not being banned.",
+    "Bet and winnings arguments are optional."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowCaravanMenu",
+   "summary": "Starts a caravan card game with the calling NPC using a given deck, difficulty level and maximum bet fraction of their currency.",
+   "notes": [
+    "Arguments are deck, difficulty (0 to 3 per the page) and maximum bet as a fraction of the opponent's currency.",
+    "Maximum currency for both player and opponent counts the base value of all faction currency held."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowComputersInterface",
+   "summary": "Opens the interface of the calling terminal reference; a locked terminal skips the hacking minigame.",
+   "notes": [],
+   "bugs": [
+    "Crashes the game if the calling reference is missing or not a terminal."
+   ]
+  },
+  {
+   "page": "ShowFullSceneGraph",
+   "summary": "Builds the full scene graph tree and expands the node of the selected item.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowHackingMiniGame",
+   "summary": "Opens the calling terminal reference with the hacking minigame.",
+   "notes": [],
+   "bugs": [
+    "Crashes the game if the calling reference is missing or not a terminal."
+   ]
+  },
+  {
+   "page": "ShowInventory",
+   "summary": "Lists the contents of a targeted reference with counts, IDs and worn status, plus condition values for weapons and armor.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowLockPickMenu",
+   "summary": "Opens the lockpicking interface, with an optional difficulty level.",
+   "notes": [
+    "Optional difficulty has five levels from very easy to very hard; default is the middle, average level."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowLockpickMenuDebug",
+   "summary": "Opens the lockpick menu plus a debug display of sweet spot and pick health, with an optional lock level.",
+   "notes": [
+    "Lock level is optional, from very easy at 0 upward; the page is inconsistent about the upper limit (5 in text, 6 in the argument table)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowLoveTesterMenuParams",
+   "summary": "Opens the Vigor Tester menu so the player can distribute or redistribute SPECIAL points.",
+   "notes": [
+    "Argument gives the full pool of SPECIAL points the player may allocate."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowMap",
+   "summary": "Adds a map marker to the world map, optionally enabling fast travel to it.",
+   "notes": [
+    "Optional second argument enables fast travel; when omitted, the marker is added without fast travel."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowMessage",
+   "summary": "Displays a message form to the player, optionally inserting up to nine variable values into its text.",
+   "notes": [
+    "Number of variable arguments must equal the number of format specifiers in the message; a wrong count makes the message fail to display.",
+    "Variable arguments must be declared variables or globals, not constants, and cannot be placed in button text.",
+    "Message type picks a non-interrupting HUD message or a message box that pauses the game until a button is pressed; buttonless boxes get OK.",
+    "Text supports printf-style float formats with width and flags, scientific notation, a literal percent sign, and control-key name insertion.",
+    "Use GetButtonPressed to detect which button was chosen."
+   ],
+   "bugs": [
+    "The trailing Duration parameter has no effect.",
+    "Showing a message from a MenuMode block in reaction to a button on an on-screen message can fail to appear; using a GameMode block is advised.",
+    "The general number format switches to scientific notation at one million and above."
+   ]
+  },
+  {
+   "page": "ShowNameMenu",
+   "summary": "Opens the menu where the player changes their name.",
+   "notes": [
+    "Menu text comes from the enter-name game setting."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowPlasticSurgeonMenu",
+   "summary": "Opens the menu where the player changes their face; takes no parameters.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowQuests",
+   "summary": "Lists the player's currently running quests.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowQuestStages",
+   "summary": "Lists every stage of a quest along with whether each has been set.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowQuestTargets",
+   "summary": "Reports the active quest's current targets, with each target's reference and load door.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowQuestVars",
+   "summary": "Lists the script variables of a given quest.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowRaceMenu",
+   "summary": "Opens the race menu (Gene Projector in FO3, Reflectron in New Vegas) for choosing sex, race, face and hair; takes no parameters.",
+   "notes": [
+    "Changing race in this menu removes the player's ability and temporary actor effects."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowRecipeMenu",
+   "summary": "Opens the crafting recipe menu for a given recipe category, called on an actor or activator.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowRepairMenu",
+   "summary": "Opens the repair menu so equipment can be repaired for caps, using the calling actor's repair skill.",
+   "notes": [
+    "Caps paid go into the calling actor's inventory.",
+    "Called with no reference it compiles but does nothing.",
+    "On the player, spent caps return to the player's inventory, yet the player needs enough caps before repairing."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowRouletteMenuParams",
+   "summary": "Opens the roulette menu for a casino form, with optional minimum bet, maximum bet and maximum winnings.",
+   "notes": [
+    "The menu only appears if casino requirements are met, such as having casino chips and not being banned."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowScenegraph",
+   "summary": "Opens a window with the full scene graph, or just the selected reference's graph.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowSleepWaitMenu",
+   "summary": "Opens the wait or sleep menu, with an optional flag to check sleep/wait preconditions.",
+   "notes": [
+    "First argument chooses wait (0) or sleep (1); second argument is optional and defaults to false.",
+    "Some game settings control the text displayed by the menu."
+   ],
+   "bugs": [
+    "When the precondition flag is 1, the first argument is ignored and the sleep menu always opens, if preconditions pass."
+   ]
+  },
+  {
+   "page": "ShowSlotMachineMenuParams",
+   "summary": "Opens the slot machine menu for a casino form, with optional minimum bet, maximum bet and maximum winnings.",
+   "notes": [
+    "The menu only appears if casino requirements are met, such as having casino chips and not being banned."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowSPECIALBookMenuParams",
+   "summary": "Opens the SPECIAL book menu so the player can distribute or redistribute SPECIAL points.",
+   "notes": [
+    "Argument gives the full pool of SPECIAL points the player may allocate."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowTraitMenu",
+   "summary": "Opens the traits menu for the player to choose traits.",
+   "notes": [
+    "How many traits can be chosen is set by a game setting for the trait menu maximum."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ShowTutorialMenu",
+   "summary": "Displays a message form as a message box in the manual-book visual style.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowVars",
+   "summary": "Shows all variable names and values of an object.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowViewerStrings",
+   "summary": "Prints assorted debug information about the calling reference.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ShowWarning",
+   "summary": "Writes a warning message string to the warnings log, useful for debugging script flow.",
+   "notes": [
+    "Also pops up a message box unless the user chose the yes-to-all option on an earlier warning."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Sin",
+   "summary": "Returns the sine of an angle given in degrees, or with the optional arc flag the arcsine in degrees.",
+   "notes": [
+    "Optional second argument selects the arcsine form."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Sqrt",
+   "summary": "Returns the square root of a value.",
+   "notes": [
+    "Math functions like this, especially pow and log, are slow and should not run in per-frame blocks."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Stack",
+   "summary": "Outputs the IDs of the currently displayed menu stack.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "StartAllQuests",
+   "summary": "Starts every quest in the game.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "StartCannibal",
+   "summary": "Makes the calling actor the victim of a cannibalism act by a given actor, who regains some health.",
+   "notes": [
+    "Cannibalizing is a hostile act.",
+    "Works on living actors too, which can look odd since the animation is meant for corpses."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "StartCombat",
+   "summary": "Forces the calling actor to start combat with a target actor, or with the target's combat group if it is already fighting.",
+   "notes": [
+    "Has no effect when the caller belongs to a faction that makes it friendly or allied toward the target.",
+    "Combat state is not always immediate; unless the target is visible, the caller searches toward its position.",
+    "The search aborts if the target is too far or evades detection too long, returning the caller to non-hostile (if it was not hostile before)."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "StartConversation",
+   "summary": "Forces the calling NPC to seek out a target actor and start a conversation, optionally with a chosen topic; targeting the player makes the NPC force-greet.",
+   "notes": [
+    "Topic argument is optional and replaces the normal greeting topic when given, so dialogue can open on any topic.",
+    "Optional speaker and target location references presumably help pathing, e.g. across cell transitions.",
+    "Optional flags (1 or 0) enable head tracking and movement during the conversation.",
+    "The caller walks to the target wherever they are.",
+    "If either actor is disabled, nothing happens."
+   ],
+   "bugs": [
+    "If the NPC is in combat with the player, it opens with the greeting topic instead of the chosen one."
+   ]
+  },
+  {
+   "page": "StartQuest",
+   "summary": "Starts a quest, enabling its dialogue and beginning its quest script if there is one.",
+   "notes": [],
+   "bugs": [
+    "Starting an already running quest should be avoided: its script variables reset to 0 when a saved game is reloaded."
+   ]
+  },
+  {
+   "page": "StartRadioConversation",
+   "summary": "Triggers a conversation on the calling radio station, optionally beginning with a specific topic; otherwise normal conversation rules choose.",
+   "notes": [
+    "If the station is broadcasting, the conversation interrupts it and looping broadcasts then resume.",
+    "If the station is not broadcasting, the single conversation plays and broadcasting stays off, so the broadcast state is unchanged."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "StopCombat",
+   "summary": "Ends the calling actor's combat state so it stops fighting.",
+   "notes": [
+    "The actor can return to combat if it has low disposition or stays aggressive toward nearby actors.",
+    "Most useful for actors placed in combat by StartCombat; StopCombatAlarmOnActor is the alternative to stop every enemy of one actor."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "StopCombatAlarmOnActor",
+   "summary": "Clears the fighting flag on every enemy targeting the calling actor, returning them to normal routines.",
+   "notes": [
+    "Forcefully affects all hostile actors and creatures aimed at the actor; StopCombat handles a single actor."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "StopLook",
+   "summary": "Cancels forced head tracking set by Look so the actor goes back to normal head tracking.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "StopMagicEffectVisuals",
+   "summary": "Stops playing the visuals of a given magic effect on the calling reference.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "StopMagicShaderVisuals",
+   "summary": "Stops a given effect shader playing on the calling actor.",
+   "notes": [
+    "No need to stop a shader that was started with a duration.",
+    "Particle shaders using full particle birth count are not forcibly halted; only those using persistent particle count are stopped."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "StopQuest",
+   "summary": "Stops a quest, disabling its dialogue and halting its script after the current iteration.",
+   "notes": [
+    "Called from the quest's own script it does not act like a return; the script runs to the end of the last block."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "StopWaiting",
+   "summary": "Returns an actor to normal package behaviour after it was put into the wait state by Wait.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "SwapTextureOnRef",
+   "summary": "Replaces the texture on a named NIF block of a reference with a new texture path.",
+   "notes": [
+    "Texture path omits any data or textures folder prefix and the file extension.",
+    "Block name need not start with the double hash unless the block's real name does.",
+    "Not saved: unloading the reference or loading a save reverts altered textures to their originals."
+   ],
+   "bugs": [
+    "An invalid texture or path either does nothing or turns that block pink."
+   ]
+  },
+  {
+   "page": "SystemSave",
+   "summary": "Creates a single special system save, shown only in the load list and overwritten by each later call.",
+   "notes": [
+    "The base game calls it only just before the player can start the Hoover Dam battle."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Tan",
+   "summary": "Returns the tangent of an angle given in degrees, or with the optional arc flag the arctangent in degrees.",
+   "notes": [
+    "Optional second argument selects the arctangent form."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "TestAllCells",
+   "summary": "Runs a render test over cells, controlled by an optional mode argument.",
+   "notes": [
+    "Optional status argument starts or stops testing and picks which cells to cover; the page lists the values.",
+    "Cells with navmesh are sampled above each triangle; cells without are sampled at each reference's bound center.",
+    "At each sample point it renders eight compass directions looking level, up and down, and warns when geometry, triangle, render-pass or light counts exceed thresholds."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "TestCode",
+   "summary": "Reports memory usage for the current cell.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "TestRaceSexTerimnal",
+   "summary": "Opens the race menu (Gene Projector in FO3, Reflectron in New Vegas), equivalent to ShowRaceMenu.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleActorsAI",
+   "summary": "Toggles the calling actor's AI on and off.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleCellNode",
+   "summary": "Toggles culling of one cell scene node chosen by ID.",
+   "notes": [
+    "The page lists seven node IDs, covering actor, marker, land, static, dynamic, multibound and water nodes."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ToggleCollision",
+   "summary": "Toggles collision detection, letting the player float and pass through walls and ceilings when off.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleDemigodMode",
+   "summary": "Like god mode but without unlimited ammo.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleDetection",
+   "summary": "Toggles whether actors are able to detect each other.",
+   "notes": [
+    "An actor already in combat when detection is toggled stays in combat until it is toggled again."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ToggleEmotions",
+   "summary": "Disables or enables facial emotions on all actors.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleFlyCam",
+   "summary": "Toggles the free-fly debug camera, with an optional mode selecting one of three behaviours.",
+   "notes": [
+    "Mode 1 freezes the game fully while the camera moves freely.",
+    "Mode 2 freezes everything including the display, showing the last rendered frame until exit.",
+    "Mode 3 freezes the camera pose for occlusion and accumulation, with a free camera, while the game keeps running."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ToggleFogOfWar",
+   "summary": "Switches fog of war on the local map on or off.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleGodMode",
+   "summary": "Makes the player immune to damage, free of AP cost in VATS and free of ammo use.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleGrass",
+   "summary": "Toggles rendering of grass on an exterior cell's terrain.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleLeaves",
+   "summary": "Disables or enables the leaves of all speedtrees.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleLiteBrite",
+   "summary": "Toggles a bright-lights mode that ignores cell lighting and brightens everything.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleLODLand",
+   "summary": "Disables or enables the display of all LOD.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleLookIK",
+   "summary": "Disables or enables actors turning their heads to face other actors.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleMagicStats",
+   "summary": "Toggles debug output when a spell is applied to an actor, covering resistance, invalid targets and per-effect magnitude and duration values.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleMaterialGeometry",
+   "summary": "Toggles a colour-coded view of material geometry around objects with material data.",
+   "notes": [
+    "The page lists the display colour for each material type."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ToggleMenus",
+   "summary": "Hides or shows all menus and HUD elements.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleNavmesh",
+   "summary": "Toggles a display of navmesh in game.",
+   "notes": [],
+   "bugs": [
+    "Crashes the game in the unmodified game."
+   ]
+  },
+  {
+   "page": "TogglePrimitives",
+   "summary": "Toggles a colour-coded display of primitive shapes, for example trigger volumes.",
+   "notes": [],
+   "bugs": [
+    "Most of the original rendering code was removed, so release builds draw only spheres."
+   ]
+  },
+  {
+   "page": "ToggleRefractionDebug",
+   "summary": "Shows the refraction render target in the top-left corner of the screen.",
+   "notes": [
+    "The preview only appears when a refraction shader is in the camera's view."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ToggleScripts",
+   "summary": "Disables or enables all scripts.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleSky",
+   "summary": "Turns sky effects on or off; with them off the horizon is dull grey or black.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "ToggleTrees",
+   "summary": "Disables or enables the animated parts of all speedtrees.",
+   "notes": [
+    "Only animated portions such as leaves are affected, not the whole tree."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ToggleWaterSystem",
+   "summary": "Disables or enables water rendering.",
+   "notes": [
+    "The effect is not permanent; water renders again on entering it or when seen from certain angles."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "ToggleWireframe",
+   "summary": "Shows the world as wireframe.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "TriggerHitShader",
+   "summary": "Manually triggers the screen-blur hit effect normally used when the player staggers, with a given strength.",
+   "notes": [
+    "Strength has no hard upper bound but values above about 4 or 5 lose the intended effect."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "TriggerHUDShudder",
+   "summary": "Triggers a shudder effect on the HUD, using four optional float parameters for intensity and duration.",
+   "notes": [
+    "All four float arguments are optional."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "TriggerScreenBlood",
+   "summary": "Shows a screen blood effect that fades slowly; the count sets the amount.",
+   "notes": [
+    "Count ranges from 1 to 100, a higher count showing more blood."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "UnequipItem",
+   "summary": "Forces the calling actor to unequip an item, with optional flags to block re-equipping and to hide the unequip message.",
+   "notes": [
+    "If the no-equip flag is 1, the actor cannot equip the item until it is equipped via EquipItem.",
+    "If the hide-message flag is 1, the unequipped message is not shown.",
+    "Does not fire the OnUnequip script event; UnequipItemAlt does.",
+    "The no-equip flag is effectively ignored by companions, who re-equip the item if it is their best option."
+   ],
+   "bugs": [
+    "On the player with the inventory open, the equipped indicator updates immediately only if the hide-message flag is 0; otherwise it lags until another graphic refreshes."
+   ]
+  },
+  {
+   "page": "Unlock",
+   "summary": "Unlocks the calling terminal or lock.",
+   "notes": [
+    "Player gets access regardless of lock level or an earlier lockout."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "UnlockChallenge",
+   "summary": "Enables a challenge that was flagged to start disabled so it can progress on the challenges screen.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Use workbook",
+   "summary": "Sets the content of an open book menu to a workbook HTML file in the menus folder.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "UseWeapon (Function)",
+   "summary": "Makes the calling actor use a weapon from a given spot against a target for a number of shots, with optional behaviour flags.",
+   "notes": [
+    "Required arguments: weapon, where to stand, target, number of shots.",
+    "Optional flags: crouch to reload and hold fire when blocked both default true.",
+    "Optional always-hit (for scripted kills) and no-damage (for fake combat) default false.",
+    "Optional last argument restricts where the target must stand; default or null means anywhere."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "Usz",
+   "summary": "Sets the UI safe zone margins using an x and y value.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Verbose",
+   "summary": "Toggles verbose debug messages such as damage dealt, deaths, condition damage, blocking, dodging, power attacks and package choices.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Visible",
+   "summary": "Prints whether the menu with a given ID is visible.",
+   "notes": [],
+   "bugs": []
+  },
+  {
+   "page": "Wait",
+   "summary": "Puts an actor into wait behaviour for a given package.",
+   "notes": [
+    "Takes effect only when the named package is the actor's active one and is of the Follow or Accompany type."
+   ],
+   "bugs": []
+  },
+  {
+   "page": "WakeUpPC",
+   "summary": "Dismisses the sleep menu exactly like the player choosing cancel, interrupting sleep.",
+   "notes": [
+    "Has no effect when the player is waiting instead of sleeping."
+   ],
+   "bugs": []
+  }
+ ]
+}
