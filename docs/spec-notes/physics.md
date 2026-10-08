@@ -772,6 +772,71 @@ bed 800 below S with god mode off: Health drops after a breath time of some tens
 and then keeps dropping [hypothesis]; the 700 fall stops 100–117 below S [hypothesis: one
 step of 16.5 past the line at most, by the controller's rule below].
 
+`sw_breath` (2026-10-08) [observed]:
+
+- **Drowning** (f): the player dived (89° down, forward held) to the bed 800 below S
+  within 2.2 s and was held against it. Health (5200 after `ModAV Health 5000`, god mode
+  off) stayed at 5200 for **10.0 s** after the dive started (the head was under water
+  within a tenth of a second: the eye is about 123 above the feet, §6.3, and the feet
+  started at S − 102.5), then fell linearly at **40.0 Health per second** (fit over 100 s,
+  39.97) to 1.17, then 0.57, when the player shot 60 units up and rose at about 100
+  units/s (dead, [hypothesis]). Whether the 10 s and the 40 per second depend on the
+  character (Endurance, level, the 200 base Health) is not known (one character).
+  Released at the bed after 128 s the player stayed there (no rise) while drowning.
+- The 700-unit fall into the water stopped at exactly the same place as in
+  `sw_fall_breath` (2485.21, 114.79 below S; same last steps 2518.52, 2501.86, 2485.21).
+
+**The swim rules in `fnv-phys`** (`CharacterParams::swim_depth` 100, `float_depth` 102.5,
+`swim_sink_speed` 12.1, `swim_jump_mult` 2; `crates/fnv-phys/src/character.rs`,
+`swim_vertical`; water areas `crates/fnv-phys/src/water.rs`). Water is a flat surface over
+each loaded exterior cell's square with `Cell::water_surface` (CELL XCLW, else the
+worldspace default, for cells flagged "has water": the renderer's rule), or over the whole
+interior; no collider. A character **starts swimming** after a step that ends with it off
+the ground, falling, with its feet `swim_depth` or more below the surface: its fall stops
+there, with no landing (so no fall damage) [observed]; the stop is after that step, not
+clamped to the line (the game's extra step at high speed, above, is not modelled). While
+swimming there is no gravity; the caller's horizontal velocity applies and its
+`vertical` velocity (forward speed × sine of the view pitch in `nvf-play`) applies when
+diving, and when rising only from the floating height or deeper; above the floating
+height the character otherwise sinks at 12.1 units/s and stops at it; below it nothing
+moves it vertically (no buoyancy) [all observed]. Jump works only above the floating
+height and gives a jump of `swim_jump_mult` × `jump_height` that leaves the water
+[observed: the two cases above]. Swimming **ends** when the swimmer moves down onto
+walkable ground (it then walks) [observed: leaving the lake], when it jumps, or where no
+water is above its feet [hypothesis]. A character on the ground never starts swimming,
+however deep [observed: walking in]. The swimming state survives `place_character`, as
+the game's does across `SetPos` [observed]. Walking speeds are the caller's: `nvf-play`
+swims at 348 (Always Run) and 100.8 (walk) in every direction, along the view
+(`SWIM_SPEEDS`, `swim_velocity`) [observed: fits 341–352; walking 100.8]. Not modelled:
+breath and drowning damage (no health in the controller), the hanging after the jump in
+`sw_trial`, swimming state reported to scripts (`IsSwimming` reads 0 in the game).
+
+`fnvtool phys walk` scripts take `swim_velocity` ([x, y, z], used instead of `velocity`
+while the character swims) per segment and the swim parameters in `params`; traces and
+observations report `swimming`, `phys cell`/`walk` documents list `water` (§7).
+
+**Held-out scenarios** (designed after the Boulder Beach captures, at two other waters;
+inputs `parity-lab/inputs/layer4/swim_*.walk.json`, job `sw_scenarios` made by
+`make_swim_jobs.py` through `capture_moves.py` with the new `reset_at` and `pitch_deg`
+capture fields; the player first stands on land near the water, so it is not swimming
+when placed at the surface). **Predictions of the candidate** (written 2026-10-08, before
+the capture), feet (x, y, z):
+
+- `swim_cove_dive` (Cottonwood Cove, surface −2300 from the worldspace default; start
+  [70200, −91264, −2300], heading 0, pitch 40° down, forward held): t0.25 (70200.0,
+  −91197.3, −2458.4); t0.50 (70200.0, −91130.6, −2514.3); t0.75 (70200.0, −91064.0,
+  −2570.3); t1.00 (70200.0, −90997.3, −2626.2); t1.25 (70200.0, −90930.6, −2682.1); t1.50
+  (70200.0, −90863.9, −2738.0). Before the keys: floating at −2402.5.
+- `swim_lake_shore` (Lake Las Vegas, XCLW 3000; start [25784, 55100, 3000], heading 270,
+  forward held): t0.25 (25697.0, 55100.0, 2897.5); t0.50 (25610.0, 55100.0, 2897.5); t0.75
+  (25523.0, 55100.0, 2897.5); t1.00 (25436.0, 55100.0, 2897.5); t1.25 (25348.9, 55100.0,
+  2897.5); t1.50 (25261.9, 55100.0, 2897.5, walking from here); t1.75 (25185.6, 55099.7,
+  2932.9); t2.00 (25109.8, 55099.4, 2970.7).
+
+Watch: whether the Cottonwood Cove water is at −2300 (the worldspace-default
+[hypothesis]); the swim speed 348 against the run's 344 (the onset alignment); where the
+swimmer meets the shore and how fast it walks up a 27° bank out of water.
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>
