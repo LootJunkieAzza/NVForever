@@ -1,0 +1,48 @@
+{
+ "schema": "fnv.phys.drops/1",
+ "name": "swim_h2o_drops",
+ "description": "Interior water, held out (physics.md 6.6): the player dropped 5 units above the water surface of the Old World Blues interior NVDLC03SLH2OINT (CELL XCLW -232, has-water flag) over floors 456-496 (deep), 136 (deeper than the swimming depth of 100, shallower than the floating height plus a body) and 38 below the surface (shallow), each with at least 300 units clear above: does the interior's water stop the fall and float the player as the lake did. Points chosen 2026-10-08 from vertical rays of `fnvtool phys cell --cell NVDLC03SLH2OINT` (down and up from the surface on a 100-unit grid).",
+ "seconds": 10,
+ "drops": [
+  {
+   "label": "deep_a",
+   "at": [
+    -300.0,
+    -1000.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "deep_b",
+   "at": [
+    -300.0,
+    -800.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "mid_a",
+   "at": [
+    -500.0,
+    -200.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "mid_b",
+   "at": [
+    -700.0,
+    -200.0,
+    -227.0
+   ]
+  },
+  {
+   "label": "shallow_a",
+   "at": [
+    -1100.0,
+    -550.0,
+    -227.0
+   ]
+  }
+ ]
+}
