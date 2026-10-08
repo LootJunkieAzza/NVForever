@@ -187,8 +187,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    not modelled.
    Swimming (physics.md §6.6):
    swim_dam_forward 10/10, swim_bay_back 8/8; placed water modelled (Water-layer
-   phantoms), held-out swim_guardian 6/6 and swim_h2o 1/5 (three rows need the capture's
-   carried swimming state, shallow_a is the stair edge of §6.4.1); swim_cove_dive and
+   phantoms), held-out swim_guardian 6/6 and swim_h2o_fresh 8/9 (replacing swim_h2o, retired
+   2026-10-09; shallow_a is the stair edge of §6.4.1); swim_cove_dive and
    swim_lake_shore retired 2026-10-09 and replaced by swim_cove_stroke 8/8 and
    swim_lake_exit 10/10 (held out, below); banks of 12–58° (`sw_banks*`) agree while swimming and on leaving
    the water [observed 2026-10-08].
@@ -294,6 +294,10 @@ game never does (the speed follows a stroke cycle averaging 339), and the shore'
 were captured with the cell not loaded (travel by a long SetPos); replaced by
 `L4.phys.walk.swim_cove_stroke` and `.swim_lake_exit` at new places, captured with the cell
 loaded by `cow` (physics.md §6.6).
+Also retired (owner decision 2026-10-09): `L4.phys.drops.swim_h2o` — its capture placed
+the player while it still swam from the previous drop, which fresh probes cannot reproduce;
+replaced by `L4.phys.drops.swim_h2o_fresh` (a fresh `coc` before each drop, four new points
+around the swimming depth).
 
 Workstream 3 runs as two sessions since 2026-10-07 (owner's split by agreement between
 them): **3-core** (`claude/layer4-sim-core`: `crates/fnv-sim`, `crates/fnvtool/src/sim_cmd.rs`)

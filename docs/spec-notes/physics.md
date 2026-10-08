@@ -1555,6 +1555,18 @@ stair edge, §6.4.1); past_depth_a −433.2 and past_depth_b −433.2 (swimming,
 their floors); short_depth_a −402.2 and short_depth_b −405.7 (standing in water, on floors
 75–79 below the surface).
 
+**`sw_h2o_fresh` results** (2026-10-09; golden `phys/swim_h2o_fresh.drops.json`; MenuMode 0
+before every drop) [observed]: deep_a −432.36, deep_b −432.87, past_depth_a −432.87,
+past_depth_b −435.40 (swimming; within 2.2 of the candidate), mid_a and mid_b −366.45 (on
+their floors, 40 below the surface; within 0.2), short_depth_a −402.29 and short_depth_b
+−405.81 (on their floors 75–79 below the surface, not swimming; within 0.1): lab 8/9. So the
+game's swimming depth lies between 79 and 122 below the surface (the candidate's 100 is
+inside), and a fresh drop into placed water stops 104.4–107.4 below its surface.
+shallow_a, beside the stair riser: −238.07 in this fresh drop (−236.04 when the old
+capture's swimmer sank onto it at 12 units/s); the candidate −246.3 with the cone-bottomed
+body, 8.2 off (tolerance 8). A step-edge question with a fall-speed dependence (§6.4.1),
+not water.
+
 **Predictions for `sw_guardian`** (held-out scenario `L4.phys.drops.swim_guardian`,
 input `parity-lab/inputs/layer4/swim_guardian_drops.drops.json`; written 2026-10-08 before
 the run). `CampGuardianCaves` holds `NVCleanWater2048x2048` (0x0013F31A) at scale 3 and
