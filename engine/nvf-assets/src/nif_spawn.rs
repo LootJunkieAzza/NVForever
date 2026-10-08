@@ -82,6 +82,8 @@ pub(crate) struct Props {
     /// or hair flag (docs/spec-notes/nif.md §6, "Emissive light").
     glow: Option<String>,
     glossiness: Option<f32>,
+    /// BSShaderFlags bit 0 "Specular" of the shader property [documented: nif.xml].
+    specular: bool,
     double_sided: bool,
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
@@ -137,6 +139,9 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     }
     if shader || ty == "NiTexturingProperty" {
         p.glow = None;
+    }
+    if shader {
+        p.specular = s.int("shader_flags").is_some_and(|f| f & 1 != 0);
     }
     match ty {
         "BSShaderPPLightingProperty" => p.glow = glow_map(s.int("shader_flags").unwrap_or(0), &p.textures),
@@ -217,6 +222,28 @@ pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_blo
     props
 }
 
+/// Perceptual roughness for a NiMaterialProperty glossiness, read as a Blinn-Phong
+/// exponent n: Beckmann slope m = sqrt(2 / (n + 2)) [documented: Walter et al. 2007,
+/// "Microfacet Models for Refraction through Rough Surfaces"], used as the GGX alpha,
+/// and Bevy's perceptual roughness is sqrt(alpha) [hypothesis: the game's highlight
+/// size follows glossiness as a Phong exponent].
+pub(crate) fn gloss_roughness(gloss: f32) -> f32 {
+    (2.0 / (gloss.max(0.0) + 2.0)).sqrt().sqrt()
+}
+
+/// Reflectance for a shape, and whether its normal map's alpha (the specular mask,
+/// docs/spec-notes/nif.md §6 "Specular") scales it. Bevy maps mask alpha a to
+/// reflectance × a × 0.5, so 2.0 lets the mask span the full [0, 1] range: a mask of
+/// 0.5 gives the usual dielectric F0 of 0.04 [hypothesis]. Shaders without the specular
+/// flag get none; shapes without a normal map keep the earlier constant.
+pub(crate) fn specular(props: &Props, has_normal_map: bool) -> (f32, bool) {
+    match (has_normal_map, props.specular) {
+        (true, true) => (2.0, true),
+        (true, false) => (0.0, false),
+        (false, _) => (0.3, false),
+    }
+}
+
 /// The material for a shape's properties; also returns the base texture path when it
 /// could not be loaded. Adds tangents to `mesh` when a normal map is used.
 pub(crate) fn shape_material(
@@ -242,14 +269,18 @@ pub(crate) fn shape_material(
         LinearRgba::rgb(e[0] * m, e[1] * m, e[2] * m)
     });
     let glow = emissive.and(props.glow.as_deref()).and_then(|t| textures.get(t, true, data, images, formats));
+    let (reflectance, masked) = specular(props, normal.is_some());
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
         base_color_texture: base,
+        specular_texture: normal.clone().filter(|_| masked),
         normal_map_texture: normal,
-        // Approximation until Layer 3 emulates the original shaders [hypothesis].
-        perceptual_roughness: (1.0 - (gloss / 100.0).clamp(0.0, 0.9)).clamp(0.3, 1.0),
+        // Green points down the image (DirectX style), Bevy expects up [observed,
+        // docs/spec-notes/nif.md §6 "Normal maps"].
+        flip_normal_map_y: true,
+        perceptual_roughness: gloss_roughness(gloss),
         metallic: 0.0,
-        reflectance: 0.3,
+        reflectance,
         emissive: emissive.unwrap_or(LinearRgba::BLACK),
         emissive_texture: glow,
         alpha_mode,
@@ -561,5 +592,17 @@ mod tests {
         assert_eq!(glow_map(0, &set[..2]), None);
         let empty: Vec<String> = ["d.dds", "d_n.dds", ""].iter().map(|s| s.to_string()).collect();
         assert_eq!(glow_map(0, &empty), None);
+    }
+
+    #[test]
+    fn specular_from_mask() {
+        let flagged = Props { specular: true, ..Default::default() };
+        assert_eq!(specular(&flagged, true), (2.0, true));
+        assert_eq!(specular(&Props::default(), true), (0.0, false));
+        assert_eq!(specular(&flagged, false), (0.3, false));
+        // Phong exponent → roughness: 0 is fully rough, higher is smoother.
+        assert!((gloss_roughness(0.0) - 1.0).abs() < 1e-6);
+        assert!((gloss_roughness(67.0) - 0.41).abs() < 0.01);
+        assert!(gloss_roughness(10.0) > gloss_roughness(67.0) && gloss_roughness(-5.0) == 1.0);
     }
 }

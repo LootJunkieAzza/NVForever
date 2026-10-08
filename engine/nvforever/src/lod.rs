@@ -325,11 +325,14 @@ fn spawn_chunk(
                     let Some(Some(m)) = lod.meshes[&(cx, cy)].get(i) else { continue };
                     m.clone()
                 };
-                // Push LOD terrain behind loaded terrain where both exist.
+                // Push LOD terrain behind loaded terrain where both exist. Its normal map is
+                // in model space (green = north, module docs), so it must not get the
+                // green flip that tangent-space NIF normal maps need.
                 if let Some(mut mat) = models.materials.get_mut(&s.material) {
                     if mat.depth_bias == 0.0 {
                         mat.depth_bias = -50.0;
                     }
+                    mat.flip_normal_map_y = false;
                 }
                 add(commands, mesh, s.material.clone(), Transform::from_matrix(Mat4::from(st)));
             }

@@ -11,7 +11,8 @@ license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 # Pinned exactly: upgrade deliberately, in its own commit, with a full parity-lab run.
-bevy = "=0.19.1"
+# pbr_specular_textures: normal-map alpha as the specular mask (docs/spec-notes/nif.md §6).
+bevy = { version = "=0.19.1", features = ["pbr_specular_textures"] }
 fnv-nif = { path = "../crates/fnv-nif" }
 fnv-dds = { path = "../crates/fnv-dds" }
 fnv-vfs = { path = "../crates/fnv-vfs" }
