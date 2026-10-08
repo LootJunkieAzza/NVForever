@@ -238,11 +238,23 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   `Idle` sequence in a loop from load [hypothesis: consistent with waving flags and
   circling vultures in game] and draws skinned shapes without a sequence in their bind
   pose. Morph controllers are not evaluated yet.
-- **Alpha** (NiAlphaProperty flags, layout documented in nif.xml): foliage and fences set
-  both blending and alpha testing; drawing them as blended causes order-dependent
-  artefacts, drawing them alpha-tested matches the expected look, so the test wins.
-  Destination factor ONE (additive) is kept as additive [hypothesis, to confirm against
-  screenshots].
+- **Alpha** (NiAlphaProperty flags, layout documented in nif.xml; bits 10-12 hold the
+  test function, 4 = GREATER, the nif.xml default). Survey of visible shapes in
+  `Fallout - Meshes.bsa` and every `* - Main.bsa` [observed,
+  `crates/fnv-nif/examples/alpha_survey.rs`]: 18,934 only alpha-test (foliage, fences),
+  7,422 only blend, and 1,554 set both, all with TEST_GREATER. Of those, 855 have a
+  threshold of 64 or more (mostly weapon parts, e.g. `lasergatlingcfframe.nif`). The other
+  699 have 0-63, e.g. scope glass, the Vit-o-matic's glowing labels and the dirty glass
+  of the NV poster marquees. `Marquee.dds` keeps grime as partial alpha with a fully
+  transparent break.
+
+  The renderers draw blend+test as alpha-tested from threshold 64 and as blended below
+  [hypothesis: below that the test only trims nearly transparent texels]. Drawn
+  alpha-tested, the marquee glass covered the posters with an opaque grey panel
+  [observed: Prospector Saloon]. Destination factor ONE (additive) is kept as additive.
+  TEST_GREATER keeps alpha strictly above the threshold; Bevy's mask keeps alpha ≥ the
+  cutoff, so the cutoff moves half a step up [hypothesis]. Order-dependent blending
+  remains possible for the blended shapes.
 - **Emissive light** [observed, `crates/fnv-nif/examples/glow_survey.rs` over
   `Fallout - Meshes.bsa`]: of 42,074 visible shapes drawn by a
   BSShaderPPLightingProperty, 2,687 have a non-black NiMaterialProperty emissive colour;
@@ -253,17 +265,63 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   Face-gen and hair shapes use slot 2 for `_sk`/hair maps, all with a black emissive
   colour. Emissive multipliers range from 0 to 12 (906 at 1.0, 484 at 2.0, 463 at 10.0).
   The renderers emit emissive colour × emissive multiplier × glow map (slot 2, unless the
-  face-gen or hair flag is set), uniformly when there is no glow map [hypothesis].
-  This matches the in-game sign: neon tubes coloured as in the glow map on a dark
-  board. Applying the emissive colour to the whole surface (the earlier rule) turned the
-  sign white. The Prospector Saloon's string lights put their *normal* map in slot 2
-  (`NVQueenPalmLights_n.dds`, emissive white); as a glow map it makes the bulbs lavender,
-  which is also how they look in game [observed, owner's screenshot].
+  face-gen or hair flag is set) × the diffuse texture and vertex colour, i.e. emissive
+  light is modulated by the surface like lit light is [hypothesis; classic Gamebryo adds
+  the material emissive to the lighting sum that multiplies the texture]. Evidence: the
+  Prospector Saloon's string lights (`nv_prospectorsaloon.nif`, shapes `QueenPalm03:06:0`
+  and `Shape03:0`, emissive white) put their *normal* map in slot 2
+  (`NVQueenPalmLights_n.dds`, flat (128, 128, 254)); their diffuse
+  `NVQueenPalmLights.dds` holds pastel bulbs (peach, lilac, green, pink, teal, yellow,
+  white, blue) and a dark cord, vertex colours are white. Emitting glow alone made the
+  whole string, cord included, lavender; in game the cord is dark and the bulbs glow
+  white, light blue and purple [observed, owner's close-up screenshot], which is pastel
+  × lavender. The OPEN 24 HOURS tubes (diffuse red/blue/yellow under an alpha-tested tube
+  outline, glow map the same colours) and the SALOON sign's glowing O keep their look.
+  Applying the emissive colour to the whole surface, untextured (the first rule), turned
+  the OPEN sign white. The two string-light shapes are the only visible shapes with a
+  `_n` texture in slot 2 and a non-black emissive colour; their shader flags equal the
+  OPEN sign's (0x82000101), so no flag tells them apart [observed].
   BSShaderNoLightingProperty shapes are drawn unlit and ignore the emissive colour: 2,663
   of them have a black emissive colour (hangar lights, casino stairs) yet show in game,
   so it is not a plain colour multiplier there. How their multipliers (up to 10, e.g.
   the saloon's neon tubes ×7.5) and the 717 NiMaterialColorController / 317
   BSMaterialEmittanceMultController blocks (blinking bulbs) affect brightness is open.
+- **View-angle falloff** (BSShaderNoLightingProperty, stream version > 26) is stored as
+  four floats: a start angle and a stop angle, each the cosine of an angle, and an
+  "alpha falloff multiplier" opacity for each [documented: nif.xml].
+
+  A survey of the 7,373 visible shapes drawn by this property in `Fallout - Meshes.bsa`
+  and every `* - Main.bsa` found the following
+  [observed, `crates/fnv-nif/examples/falloff_survey.rs`]:
+  - 5,676 keep the nif.xml defaults (1 → 0 over cosines 1 → 0).
+  - 1,528 use other values. They include light beams such as
+    `effects\ambient\fxlightbeambrtw02.nif`, the lamp beam on the Prospector Saloon porch
+    (0.985 → 0.174, opacity 1 → 0: full within 10° of facing the camera, gone past 80°).
+    Force fields, dust storms and light rays also use them. Some fade *in* towards the
+    edges (0.866 → 0.174, opacity 0 → 1).
+  - 169 have an empty range (start = stop). For 166 of these all four fields are 0,
+    e.g. the vertex-coloured quads in `dungeons\office\pit`.
+
+  By blending: 6,230 set the NiAlphaProperty blend bit (2,311 of them with destination
+  factor ONE), 183 only alpha-test, and 960 have no NiAlphaProperty.
+
+  How the renderers apply it [hypothesis]: they multiply alpha by the opacity for |N·V|.
+  The opacity is linear in the cosine between the two angles and holds its end values
+  outside them. It is applied to blended materials only. An empty range or a constant
+  opacity of 1 means no falloff; read literally, the all-zero shapes would be invisible.
+
+  Without falloff, the Saloon lamp beam drew as a solid grey cone with hard edges. In
+  game it is a faint haze [observed, owner's screenshots].
+- **Vertex colours** [observed, `crates/fnv-nif/examples/vertex_alpha_survey.rs` over
+  `Fallout - Meshes.bsa`, visible shapes with vertex colours and a shader property]:
+  with BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml] set, 2,445 shapes have
+  some vertex alpha below 1, 393 all 1 and 12 non-finite or out-of-range values; without
+  it, 587 have some alpha below 1, 29,882 all 1 and 331 non-finite or out-of-range values.
+  Example: Victor's shack (`nv_shackvictor.nif`, shape `NV_ShackVictor:2`, no
+  vertex-alpha flag, alpha-tested) has sane colours but alphas of NaN on 104 of its
+  1,173 vertices, about −3e38 on 476, denormals on 129 and 1.0 on 464; drawn with them its trim boards came out flat
+  pale blue (owner's fly-cam screenshot). The renderers use vertex alpha only with the
+  flag, clamp colours to 0..1 and replace non-finite values by 1 [hypothesis].
 - **Normal maps** use DirectX-style green: +G points *down* the image (towards
   increasing v), +R to the right [observed]. Seven texture sets in `Fallout -
   Textures.bsa` ship a parallax height map (`_p`) beside the normal map (`_n`): McCarran
@@ -290,6 +348,15 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   is presumably unused]. Reading glossiness 67 as a plain roughness of 0.33 and
   ignoring the mask made the canyon rocks look wet (owner's screenshot, Goodsprings
   rain); with the mask they are matte. To confirm against in-game captures.
+  Ambient light is diffuse only in the renderers: Bevy adds a specular part for its
+  ambient light whenever F0 ≥ 0.02, which the NIF material shader subtracts again
+  [hypothesis: the game's ambient is a flat colour term, highlights come from lights and
+  environment maps]. Without that, the Prospector Saloon's glass
+  (`NV_StoreGlass.dds`, diffuse ≈ (34, 37, 34), specular mask in the normal-map alpha
+  with bright cracked regions, mean 80/255) showed the mask as a frosted grey-white
+  sheen, brighter at night with the brighter night ambient; in game the panes are dark
+  [observed, owner's screenshot]. The windows' environment map (slot 4
+  `shinybright_e.dds`, mask slot 5 `_m`, window-environment flag) is not drawn yet.
 
 ## 7. Coverage status
 
