@@ -7,7 +7,7 @@
 //! Models are read by the caller too ([`ModelCollision`]); fnv-phys never reads NIF
 //! blocks (docs/design/layer4.md §7).
 
-use crate::primitive::{primitive, primitive_object, BoundsMeaning, PrimitiveKind, COLLISION_MARKER};
+use crate::primitive::{primitive, primitive_object, BoundsMeaning, COLLISION_MARKER};
 use fnv_collide::CollisionObject;
 use fnv_esm::{LoadOrder, Schema};
 use fnv_world::placed::base_object;
@@ -40,8 +40,7 @@ pub struct RefCollision {
 /// `tally` is called once for each outcome, with the names of the `refs.counts` of
 /// `fnv.phys.cell/1` (physics.md §7): `no_base`, `collision_primitive`, `bad_primitive`,
 /// `no_model`, `speedtree`, `awaiting_collision`, `model_without_collision`,
-/// `model_unreadable`, `collision_marker_portal_box` (a "Portal Box" CollisionMarker, left
-/// out), `open_door_moving_parts` (an open-by-default door whose keyframed
+/// `model_unreadable`, `open_door_moving_parts` (an open-by-default door whose keyframed
 /// parts were left out).
 pub fn ref_collision(
     lo: &LoadOrder,
@@ -56,18 +55,15 @@ pub fn ref_collision(
     };
     let mut out = RefCollision { base_sig: Some(base.sig), objects: Vec::new() };
     if pl.base == Some(COLLISION_MARKER) {
-        match primitive(lo, schema, pl.form_id) {
-            // A "Portal Box" CollisionMarker did not stop a player dropped onto it, where
-            // two "Box" ones did [observed: B11, 0x0011E6E6 against 0x0010AE97 and
-            // 0x00176AD0; physics.md §4.2]; left out [hypothesis for the 2,901 others].
-            Some(p) if p.kind == PrimitiveKind::PortalBox => tally("collision_marker_portal_box"),
-            p => match p.and_then(|p| primitive_object(&p, BoundsMeaning::HalfExtents)) {
-                Some(o) => {
-                    out.objects.push(o);
-                    tally("collision_primitive");
-                }
-                None => tally("bad_primitive"),
-            },
+        // Box and Portal Box markers alike: a run into a Portal Box marker stopped at the
+        // wall [observed: L4.phys.walk.portal_wall], although a drop onto the 2-unit top
+        // of another fell through (physics.md §4.2, open).
+        match primitive(lo, schema, pl.form_id).and_then(|p| primitive_object(&p, BoundsMeaning::HalfExtents)) {
+            Some(o) => {
+                out.objects.push(o);
+                tally("collision_primitive");
+            }
+            None => tally("bad_primitive"),
         }
     }
     match base.model_path() {
