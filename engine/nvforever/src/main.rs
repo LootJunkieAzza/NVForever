@@ -8,8 +8,10 @@
 //! and Esc in a menu closes the menu.
 
 mod actors;
+mod emittance;
 mod facegen;
 mod fly;
+mod lights;
 mod lod;
 mod lodgen;
 mod reflection;
@@ -21,6 +23,7 @@ mod tree;
 mod underwater;
 mod water;
 mod world;
+mod worldspace;
 
 use bevy::image::{ImageAddressMode, ImageSamplerDescriptor};
 use bevy::prelude::*;
@@ -139,8 +142,8 @@ struct Args {
     /// With --screenshot: also write the lab's frame document (fnv.frame/1) here.
     #[arg(long, requires = "screenshot")]
     frame_json: Option<PathBuf>,
-    /// Light intensity per squared unit of LIGH radius (Bevy lumens) [tuned by eye].
-    #[arg(long, default_value_t = 20_000.0)]
+    /// Multiplier on every light's brightness (LIGH colour × fade; 1 = as stored).
+    #[arg(long, default_value_t = 1.0)]
     light_scale: f32,
     /// Test aid: fly forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0)]
@@ -285,6 +288,7 @@ fn main() -> AppExit {
     }
     if let Some(id) = interior {
         sky_state.interior = fnv_world::lighting::cell_lighting(world.lo, world.schema, id);
+        sky_state.interior_grade = sky::SkyState::cell_grade(world.lo, world.schema, id);
     }
     if let Some(f) = args.fog.as_deref() {
         match parse_vec::<2>(f) {
@@ -347,7 +351,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins((ArchivePlugin(game), water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins(imagespace::ImageSpacePlugin)
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
@@ -386,7 +390,7 @@ fn main() -> AppExit {
         // nvf-play's own sets.
         // Streaming follows the camera, which the player systems move: stream after them.
         app.add_plugins(nvf_play::PlayPlugin(data))
-            .add_systems(Update, world::travel.before(world::stream))
+            .add_systems(Update, (worldspace::switch, world::travel).chain().before(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
     }
     if let Some(a) = actor_world {
