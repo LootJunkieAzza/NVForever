@@ -506,6 +506,23 @@ Still open, designs not made yet: the step-height limit (needs ledges of graded 
 in reach of a save), the slope limit (a run up LAND squares of known steepness), the
 capsule height (owner), push mass (owner).
 
+### 6.4 Follow-up captures: predictions (written 2026-10-08 before the runs)
+
+After the first scenario captures (results in §4.2 and §6.3) the candidate changed: probes
+load the cells around their own square, open-by-default doors lose their keyframed parts,
+Portal Box CollisionMarkers are left out, and the speed up walkable slopes is kept along
+the surface. Predictions of that candidate for the next jobs (`mv_followup_traces`,
+held-out scenarios `L4.phys.walk.hill_run` and `.portal_wall`; `mv_diag_trees_rocks`,
+diagnostic, final feet z):
+
+- `move_hill_run` (start [-76900.0, -3840.0, 8330.75] ): t0.25 (-76979.4, -3851.2, 8360.9); t0.50 (-77058.3, -3865.0, 8389.4); t0.75 (-77137.2, -3878.7, 8417.9); t1.00 (-77214.3, -3893.9, 8449.9); t1.25 (-77288.4, -3913.1, 8486.3); t1.50 (-77363.9, -3931.6, 8520.3)
+- `move_portal_wall` (start [-77757.7, 4910.6, 10651.98] ): t0.25 (-77699.7, 4847.0, 10592.9); t0.50 (-77641.7, 4783.5, 10500.2); t0.75 (-77583.7, 4720.0, 10370.6); t1.00 (-77525.7, 4656.5, 10330.5); t1.25 (-77467.7, 4593.0, 10247.6); t1.50 (-77409.7, 4529.5, 10121.7)
+- `diag_trees_rocks`: tree_a_-30_-30 8575.0; tree_a_-30_+0 8582.7; tree_a_-30_+30 8582.7; tree_a_+0_-30 8588.8; tree_a_+0_+0 8582.7; tree_a_+0_+30 8368.4; tree_a_+30_-30 8545.8; tree_a_+30_+0 8545.4; tree_a_+30_+30 8358.7; rock_b_-30_-30 8515.3; rock_b_-30_+0 8516.1; rock_b_-30_+30 8480.5; rock_b_+0_-30 8514.6; rock_b_+0_+0 8515.1; rock_b_+0_+30 8482.2; rock_b_+30_-30 8509.1; rock_b_+30_+0 8496.4; rock_b_+30_+30 8498.6; tree_a_high 8582.7
+
+`mv_air` (calibration, no prediction used): horizontal motion when forward is pressed in
+mid-air, when jumping out of a run at full speed, when forward is released in mid-air,
+and in a walking jump.
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>

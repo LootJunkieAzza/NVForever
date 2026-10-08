@@ -208,7 +208,7 @@ impl PhysWorld {
             c.vertical_speed = c.vertical_speed.max(-max);
         }
         let k = self.k;
-        let desired = Vector::new(input.velocity[0] * dt, input.velocity[1] * dt, c.vertical_speed * dt);
+        let mut desired = Vector::new(input.velocity[0] * dt, input.velocity[1] * dt, c.vertical_speed * dt);
         let ignore = c.ignore_layers;
         let solid = move |_: ColliderHandle, co: &Collider| match Owner::decode(co.user_data) {
             Some(Owner::Ref { layer, .. }) => !ignore.contains(layer),
@@ -249,6 +249,19 @@ impl PhysWorld {
             }
         }
 
+        // Up a walkable slope the character keeps its speed along the surface: the game
+        // ran up a 32-degree ramp at 288 units/s horizontally, its run speed times the
+        // cosine, where sliding the flat velocity along the slope gives the cosine
+        // squared (244) [observed: L4.phys.walk.porch_steps capture, physics.md §6.3].
+        // Down a slope the flat velocity is kept, as before [hypothesis: not captured].
+        if let Some((_, _, n)) = support.filter(|&(_, toi, n)| c.grounded && c.vertical_speed <= 0.0 && n.z >= walkable && n.z < LEVEL && toi < c.gap / n.z + 1.0) {
+            let v = Vector::new(desired.x, desired.y, 0.0);
+            let along = v - n * v.dot(n);
+            if along.z > 0.0 && along.length() > 1e-9 {
+                let t = along * (v.length() / along.length());
+                desired = Vector::new(t.x, t.y, t.z + desired.z);
+            }
+        }
         let kcc = c.controller(k);
         let pos = Pose::from_translation(c.center(k));
         let mut collisions: Vec<CharacterCollision> = Vec::new();

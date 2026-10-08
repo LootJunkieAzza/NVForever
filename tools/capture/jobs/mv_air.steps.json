@@ -1,0 +1,2235 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "mv_air",
+ "title": "Air control calibration: four jumps with held keys (about 1 min, no input)",
+ "start": "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GetCurrentTime\nSetFunctionValue fV\nEnd\n",
+   "as": "t0"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward pre 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward pre 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward pre 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward pre 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward pre 004",
+   "field": "sample"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 12\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward up 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward up 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward up 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward up 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward up 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward up 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward up 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward up 007",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 019",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 020",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 021",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 022",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 023",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 024",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 025",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 026",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 027",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 028",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 029",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 030",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 031",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 032",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 033",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 034",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 035",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 036",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 037",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 038",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 039",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 040",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 041",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 042",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 043",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 044",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 045",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 046",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 047",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 048",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 049",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 050",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 051",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 052",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 053",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 054",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 055",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 056",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 057",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 058",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 059",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 060",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 061",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 062",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 063",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 064",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 065",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 066",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 067",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 068",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 069",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 070",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 071",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 072",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 073",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 074",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 075",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 076",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 077",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 078",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "air late forward held 079",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GetCurrentTime\nSetFunctionValue fV\nEnd\n",
+   "as": "t0"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump pre 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump pre 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump pre 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump pre 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump pre 004",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 019",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 020",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 021",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 022",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 023",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump run 024",
+   "field": "sample"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 12\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 019",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 020",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 021",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 022",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 023",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 024",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 025",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 026",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 027",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 028",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 029",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 030",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 031",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 032",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 033",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 034",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 035",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 036",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 037",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 038",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 039",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 040",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 041",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 042",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 043",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 044",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 045",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 046",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 047",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 048",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 049",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 050",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 051",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 052",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 053",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 054",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 055",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 056",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 057",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 058",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 059",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 060",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 061",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 062",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 063",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 064",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 065",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 066",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 067",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 068",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 069",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 070",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 071",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 072",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 073",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 074",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 075",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 076",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 077",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 078",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 079",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 080",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 081",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 082",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 083",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 084",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 085",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 086",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 087",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 088",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run then jump air 089",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GetCurrentTime\nSetFunctionValue fV\nEnd\n",
+   "as": "t0"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release pre 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release pre 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release pre 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release pre 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release pre 004",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release run 019",
+   "field": "sample"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 12\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release air 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release air 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release air 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release air 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release air 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release air 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release air 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release air 007",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 019",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 020",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 021",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 022",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 023",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 024",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 025",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 026",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 027",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 028",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 029",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 030",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 031",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 032",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 033",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 034",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 035",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 036",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 037",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 038",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 039",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 040",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 041",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 042",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 043",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 044",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 045",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 046",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 047",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 048",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 049",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 050",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 051",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 052",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 053",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 054",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 055",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 056",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 057",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 058",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 059",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 060",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 061",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 062",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 063",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 064",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 065",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 066",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 067",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 068",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "run jump release after 069",
+   "field": "sample"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GetCurrentTime\nSetFunctionValue fV\nEnd\n",
+   "as": "t0"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump pre 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump pre 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump pre 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump pre 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump pre 004",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 9\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump walk 019",
+   "field": "sample"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 12\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 000",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 001",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 002",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 003",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 004",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 005",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 006",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 007",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 008",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 009",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 010",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 011",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 012",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 013",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 014",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 015",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 016",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 017",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 018",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 019",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 020",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 021",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 022",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 023",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 024",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 025",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 026",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 027",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 028",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 029",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 030",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 031",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 032",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 033",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 034",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 035",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 036",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 037",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 038",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 039",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 040",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 041",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 042",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 043",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 044",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 045",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 046",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 047",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 048",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 049",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 050",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 051",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 052",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 053",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 054",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 055",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 056",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 057",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 058",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 059",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 060",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 061",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 062",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 063",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 064",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 065",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 066",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 067",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 068",
+   "field": "sample"
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fS\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fS := GetSecondsPassed\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fS))\nEnd\n",
+   "label": "walk jump air 069",
+   "field": "sample"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 9\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  }
+ ]
+}

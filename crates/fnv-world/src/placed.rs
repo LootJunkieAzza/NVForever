@@ -24,6 +24,8 @@ pub struct Placement {
     /// XESP: the reference whose enabled state this one follows, and whether it is the
     /// opposite of the parent's.
     pub enable_parent: Option<(u32, bool)>,
+    /// ONAM "Open by Default" (doors) [documented: xEdit wbDefinitionsFNV.pas REFR].
+    pub open_by_default: bool,
 }
 
 impl Placement {
@@ -53,7 +55,8 @@ pub fn placement(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Placement>
         let opposite = v.get("flags").and_then(|f| num(f, "value")).is_some_and(|b| b as u32 & 1 != 0);
         Some((parent, opposite))
     });
-    Some(Placement { form_id: fid, sig: r.header.sig, flags: r.header.flags, base, position, rotation, scale, enable_parent })
+    let open_by_default = f.get(b"ONAM").is_some();
+    Some(Placement { form_id: fid, sig: r.header.sig, flags: r.header.flags, base, position, rotation, scale, enable_parent, open_by_default })
 }
 
 #[derive(Debug, Clone, PartialEq)]
