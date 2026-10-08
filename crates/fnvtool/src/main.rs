@@ -3,6 +3,7 @@
 //! Exit codes: 0 success, 1 the input could not be processed, 2 usage error.
 
 mod bsa_cmd;
+mod collide_cmd;
 mod dds_cmd;
 mod esm_cmd;
 mod install_cmd;
@@ -54,9 +55,37 @@ enum Cmd {
     /// Worldspaces, cells, placed references and landscape across a load order.
     #[command(subcommand)]
     World(WorldCmd),
+    /// Layer 4 collision geometry: Havok collision blocks of meshes.
+    #[command(subcommand)]
+    Collide(CollideCmd),
     /// Layer 4 core simulation: forms, references, inventories, activation.
     #[command(subcommand)]
     Sim(SimCmd),
+}
+
+#[derive(Subcommand)]
+pub enum CollideCmd {
+    /// Statistics of every collision object and the measured stored-to-game scale
+    /// (fnv.collide.survey/1).
+    Survey {
+        /// BSA archives, loose .nif files or directories.
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Only files whose path contains this text (case-insensitive).
+        #[arg(long)]
+        filter: Option<String>,
+    },    /// Every solid collision object of every mesh in an archive, in game units
+    /// (fnv.collide.objects/1).
+    Objects {
+        archive: PathBuf,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Only files whose path contains this text (case-insensitive).
+        #[arg(long)]
+        filter: Option<String>,
+    },
 }
 
 #[derive(Args)]
@@ -356,6 +385,7 @@ fn main() -> ExitCode {
         Cmd::Nif(c) => nif_cmd::run(c),
         Cmd::Dds(c) => dds_cmd::run(c),
         Cmd::World(c) => world_cmd::run(c),
+        Cmd::Collide(c) => collide_cmd::run(c),
         Cmd::Sim(c) => sim_cmd::run(c),
     };
     match res {
