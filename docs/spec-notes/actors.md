@@ -79,11 +79,21 @@ actor meshes`]:
   `Prn` whose string names the parent bone (`Bip01 Head` for hair, beards and eyes); 19
   headgear models (cowboy hats, fiend helmets, NCR trooper helmets, berets) and the
   child-female mouth parts have none.
-- A rigid part's vertices are in the **skeleton's axes** with the origin at the parent
-  bone: hair spans z −0.7…15.3 and a cowboy hat z 3.8…17.5 above `Bip01 Head`
+- A rigid part's vertices end up in the **skeleton's axes** with the origin at the
+  parent bone: hair spans z −0.7…15.3 and a cowboy hat z 3.8…17.5 above `Bip01 Head`
   (bind position (0, 0.4, 112.8) in `skeleton.nif`), while the head bone's own x axis
-  points up. Attached to the bone, a rigid part therefore takes the inverse of the
-  bone's bind rotation.
+  points up. Node rotations of the 206 rigid shapes placed NPCs use: all identity 112
+  (hats, helmets, beards); root and shape rotations that cancel 66 (most hair, e.g.
+  `hairbun.nif`); a root equal to the inverse of `Bip01 Head`'s bind rotation with
+  identity below 16 (eyes and the other race head parts); identity root with real
+  offsets below 12 (Pip-Boy arm parts). Rule [observed, all four kinds render in place]:
+  a part whose root stores the bone's inverse bind rotation is an ordinary child of the
+  bone; any other part gets that inverse rotation from the attachment; node transforms
+  are kept in both cases.
+- Hair-shader shapes (BSShaderFlags bit 18) carry a mask in their vertex colours, not a
+  colour: red 0.04–0.39 with green and blue at 1 in `hairbase.nif` and
+  `beardmustachecurly.nif` [observed]; multiplied in, hair turns cyan. They are not
+  applied [hypothesis: what the mask does in the game's hair shader is open].
 - Every hair model has a `NoHat` and a `Hat` shape (58 of 58). Upper bodies and armour
   carry dismemberment caps (`meatneck01`, `meathead01`, `bodycaps`, `limbcaps`,
   `MeatCap*`).
@@ -187,9 +197,14 @@ similar helmets) 132, Hair alone (a wig) 2 [observed].
 
 One entity per actor: the skeleton's node hierarchy is spawned once; skinned part shapes
 bind their skins to the skeleton's bones by name (the part's own bone copies are not
-spawned); rigid parts are parented to their attachment bone (§1.2) with the inverse of
-that bone's bind rotation. Hair shows `NoHat` or `Hat` (§2.4); dismemberment caps are
+spawned); rigid parts are parented to their attachment bone by the rule of §1.2 (`Prn`,
+else `Bip01 Head`). Hair shows `NoHat` or `Hat` (§2.4); dismemberment caps — shapes none
+of whose partitions sets part flag bit 0 ("editor visible", nif.xml BSPartFlag) — are
 hidden [hypothesis: an intact actor shows none]. Pose: the skeleton's bind pose, frozen.
+The race's height scales the actor [hypothesis]. Texture overrides: the race part ICONs,
+the EYES texture and the HAIR texture replace the model's diffuse. Hair colour: texture ×
+2 × HCLR in gamma space [hypothesis: a plain multiply leaves Sunny Smiles' hair dark
+brown where the owner's screenshot shows auburn; doubled, it matches by eye].
 
 ## 4. FaceGen (part C)
 
@@ -212,11 +227,23 @@ https://facegen.com/dl/sdk/doc/manual/fileformats.html; all values little-endian
   standard deviations, usually within ±5 [documented: FaceGen SDK manual, "Overview"].
   This matches NPC_ FGGS/FGGA/FGTS (4,218 of 4,220 NPC_ have 50/30/50 [observed]).
 
-How the game combines them [hypothesis, to compare against the owner's screenshots]:
-a morphed vertex = base vertex + Σ coefficientᵢ × deltaᵢ over the symmetric and
-asymmetric modes (the EGM's V must equal the mesh's vertex count); the face texture =
-base texture + Σ FGTSᵢ × EGT modeᵢ. The roles of the race FaceGen data and of the RACE
-"FaceGen - Main clamp" / "Face clamp" values are open.
+Observed on the files [observed]: `headhuman.egm` has V 1,449, S 50, A 30 and
+`headhuman.egt` 256 × 256, S 50, A 0, both of exactly the documented sizes; the EGM's V
+equals `headhuman.tri`'s V + K (1,211 + 238), and `headhuman.nif`'s 1,211 vertices are
+the TRI's first 1,211 in the same order (nearest-vertex index identical). For Doc
+Mitchell's FGTS the EGT offset spans about −60…+20 colour units; one EGM mode moves a
+vertex by at most 0.29 units per unit of coefficient. The EGT's first row is the face
+texture's bottom row: taken top-down, the offset puts the mouth above the eyes.
+
+How the game combines them [hypothesis; matches the owner's screenshot of Sunny Smiles
+by eye]: a morphed vertex = base vertex + Σ coefficientᵢ × scaleᵢ × deltaᵢ over the
+symmetric (FGGS) and asymmetric (FGGA) modes, for every part with an `.egm` beside its
+model whose vertex count covers the shape; the face texture = the head's texture (the
+race ICON) + Σ FGTSᵢ × scaleᵢ × EGT modeᵢ, upsampled bilinearly and flipped vertically.
+The race FaceGen data, the RACE "FaceGen - Main clamp" / "Face clamp" values and the
+body's "Upper Body Texture" `.egt` are not used yet. In the Goodsprings flight
+(`--auto-fly 4000`, 40 s) 267 shapes were morphed and 34 faces textured, with no EGM
+mismatching its shape.
 
 ## 5. CLI contract
 
