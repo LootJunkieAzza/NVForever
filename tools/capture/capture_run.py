@@ -45,6 +45,9 @@ LOADER_EXE = "nvse_loader.exe"
 # Time allowed between starting the game and the plugin renaming auto.json; it is read
 # while plugins load, before the main menu.
 PLUGIN_READ_SECONDS = 120
+# Time the game may stay "Not Responding" (Windows' window status) before the run is
+# given up; loading screens can show it briefly.
+HUNG_SECONDS = 120
 # Time allowed for the quit lines to close the game once every job has ended.
 QUIT_SECONDS = 90
 
@@ -190,6 +193,12 @@ class Game:
                            capture_output=True, text=True, check=False)
         return GAME_EXE.lower() in r.stdout.lower()
 
+    def responding(self):
+        """False if Windows reports the game's window as not responding."""
+        r = subprocess.run(["tasklist", "/V", "/FI", f"IMAGENAME eq {GAME_EXE}", "/FO", "CSV", "/NH"],
+                           capture_output=True, text=True, check=False)
+        return "not responding" not in r.stdout.lower()
+
     def launch(self):
         loader = os.path.join(self.game_dir, LOADER_EXE)
         # The loader starts the game and injects xNVSE; it may exit straight away, so
@@ -218,6 +227,7 @@ def run(jobs, names, capture_dir, game, save, timeout, menu_console=None, quit_c
     report = {"format": REPORT_FORMAT, "save": save, "started": start, "jobs": {}, "problems": []}
     seen_game = False
     all_ended_at = None
+    hung_since = None
     outcome = None
     try:
         game.launch()
@@ -244,6 +254,13 @@ def run(jobs, names, capture_dir, game, save, timeout, menu_console=None, quit_c
             if ended and now - all_ended_at > QUIT_SECONDS:
                 outcome = "every job ended but the game is still running (the quit console line did not close it)"
                 break
+            if alive and not game.responding():
+                hung_since = now if hung_since is None else hung_since
+                if now - hung_since > HUNG_SECONDS:
+                    outcome = f"the game stopped responding for {HUNG_SECONDS} s (hung; see the log for the last step)"
+                    break
+            else:
+                hung_since = None
             if not ended and now - start > timeout:
                 outcome = f"timed out after {timeout} s"
                 break
@@ -253,7 +270,7 @@ def run(jobs, names, capture_dir, game, save, timeout, menu_console=None, quit_c
             os.remove(auto_path)  # never leave an unattended run armed
     if outcome:
         report["problems"].append(outcome)
-    if outcome and outcome.startswith("timed out") and kill_on_timeout and game.running():
+    if outcome and outcome.startswith(("timed out", "the game stopped responding")) and kill_on_timeout and game.running():
         game.kill()
         report["problems"].append("the game was closed (--kill-on-timeout)")
     report["jobs"] = jobs_state(capture_dir, names, start)
@@ -302,7 +319,7 @@ def main(argv=None, game=None, clock=time.time, sleep=time.sleep):
     ap.add_argument("--quit-console", action="append", metavar="LINE",
                     help="console line run when no job is left (repeatable; default: qqq)")
     ap.add_argument("--no-quit", action="store_true", help="leave the game running at the end")
-    ap.add_argument("--kill-on-timeout", action="store_true", help="close the game if the run times out")
+    ap.add_argument("--kill-on-timeout", action="store_true", help="close the game if the run times out or the game hangs")
     ap.add_argument("--trace-dir", help="also write <job>.trace.json goldens (fnv.sim.trace/1) for ended jobs here")
     ap.add_argument("-o", "--output", help="report file (default: stdout)")
     args = ap.parse_args(argv)

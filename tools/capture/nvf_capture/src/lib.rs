@@ -15,7 +15,8 @@ use std::fs;
 use std::io::Write;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Mutex, TryLockError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use auto::{Auto, AutoAction, AutoState, AUTO_FILE, AUTO_USED_FILE};
@@ -92,6 +93,26 @@ fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
+/// Runs one console line. The game may do a lot inside the call: `load <save>` loads
+/// the save before returning and sends this plugin messages meanwhile [observed
+/// 2026-10-08: the call did not return while the plugin held its lock; the game hung].
+fn console_line(console: &ConsoleInterface, line: &str) -> Result<(), String> {
+    let c = CString::new(line).map_err(|_| "console line contains NUL".to_string())?;
+    // SAFETY: interface pointer from xNVSE; null calling reference is allowed.
+    let ok = unsafe {
+        if console.version >= 3 {
+            (console.run_script_line2)(c.as_ptr(), std::ptr::null_mut(), false)
+        } else {
+            (console.run_script_line)(c.as_ptr(), std::ptr::null_mut())
+        }
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err("console line failed".into())
+    }
+}
+
 struct GameHost {
     console: &'static ConsoleInterface,
     script: &'static ScriptInterface,
@@ -139,20 +160,7 @@ impl Host for GameHost {
     }
 
     fn console(&mut self, line: &str) -> Result<(), String> {
-        let c = CString::new(line).map_err(|_| "console line contains NUL".to_string())?;
-        // SAFETY: interface pointer from xNVSE; null calling reference is allowed.
-        let ok = unsafe {
-            if self.console.version >= 3 {
-                (self.console.run_script_line2)(c.as_ptr(), std::ptr::null_mut(), false)
-            } else {
-                (self.console.run_script_line)(c.as_ptr(), std::ptr::null_mut())
-            }
-        };
-        if ok {
-            Ok(())
-        } else {
-            Err("console line failed".into())
-        }
+        console_line(self.console, line)
     }
 
     fn key_down(&mut self, scancode: u32) -> bool {
@@ -198,28 +206,40 @@ impl Plugin {
         log_to(&self.dir, msg);
     }
 
-    fn run_console(&mut self, what: &str, lines: &[String]) {
-        for line in lines {
-            self.log(&format!("automatic run: {what} console {line:?}"));
-            let r = self.host.console(line);
-            self.log(&format!("automatic run: {what} console {line:?}: {}", if r.is_ok() { "ok" } else { "failed" }));
+    /// The automatic run's console lines due in this game loop, if any. They are run by
+    /// the caller after the plugin's lock is released (see `console_line`).
+    fn auto_tick(&mut self) -> Option<(&'static str, Vec<String>)> {
+        let a = self.auto.as_mut()?;
+        match a.tick()? {
+            AutoAction::RunMenuConsole => Some(("menu", a.cfg.menu_console.clone())),
+            AutoAction::RunQuitConsole => Some(("quit", a.cfg.quit_console.clone())),
         }
     }
 
-    /// The automatic run's main-menu and quit lines, once per game loop.
-    fn auto_tick(&mut self) {
-        let Some(a) = &mut self.auto else { return };
-        match a.tick() {
-            Some(AutoAction::RunMenuConsole) => {
-                let lines = a.cfg.menu_console.clone();
-                self.run_console("menu", &lines);
-            }
-            Some(AutoAction::RunQuitConsole) => {
-                let lines = a.cfg.quit_console.clone();
-                self.run_console("quit", &lines);
-            }
-            None => {}
+    fn post_load(&mut self, succeeded: bool) {
+        if !succeeded {
+            self.log("save load reported failure; nothing to do");
+            return;
         }
+        let dir = self.dir.clone();
+        let jobs = scan_jobs(&dir, &mut |s| log_to(&dir, &s));
+        self.log(&format!("save loaded; {} pending job(s)", jobs.len()));
+        if let Some(a) = &mut self.auto {
+            a.game_loaded();
+        }
+        let events = self.runner.game_loaded(jobs, &mut self.host);
+        self.handle(events);
+    }
+
+    /// One game loop; returns automatic-run console lines to run without the lock.
+    fn main_loop(&mut self) -> Option<(&'static str, Vec<String>)> {
+        self.loops += 1;
+        if self.loops == 1 {
+            self.log("first game loop");
+        }
+        let events = self.runner.tick(&mut self.host);
+        self.handle(events);
+        self.auto_tick()
     }
 
     fn handle(&mut self, events: Vec<Event>) {
@@ -270,6 +290,10 @@ impl Plugin {
     }
 }
 
+/// A save load reported while the plugin was busy (0 none, 1 succeeded, 2 failed),
+/// handled at the next message.
+static DEFERRED_LOAD: AtomicU8 = AtomicU8::new(0);
+
 unsafe extern "C" fn on_message(msg: *mut Message) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if msg.is_null() {
@@ -279,29 +303,40 @@ unsafe extern "C" fn on_message(msg: *mut Message) {
         if m.kind != MSG_MAIN_GAME_LOOP && m.kind != MSG_POST_LOAD_GAME {
             return;
         }
-        let Ok(mut guard) = PLUGIN.lock() else { return };
-        let Some(p) = guard.as_mut() else { return };
-        let events = if m.kind == MSG_POST_LOAD_GAME {
-            if !post_load_succeeded(m.data) {
-                p.log("save load reported failure; nothing to do");
+        // The game can send messages from inside a call the plugin makes (a console
+        // `load`, perhaps a script); waiting for the lock there would hang the game. A load
+        // is kept for later, a game loop is skipped.
+        let mut guard = match PLUGIN.try_lock() {
+            Ok(g) => g,
+            Err(TryLockError::WouldBlock) => {
+                if m.kind == MSG_POST_LOAD_GAME {
+                    DEFERRED_LOAD.store(if post_load_succeeded(m.data) { 1 } else { 2 }, Ordering::SeqCst);
+                }
                 return;
             }
-            let dir = p.dir.clone();
-            let jobs = scan_jobs(&dir, &mut |s| log_to(&dir, &s));
-            p.log(&format!("save loaded; {} pending job(s)", jobs.len()));
-            if let Some(a) = &mut p.auto {
-                a.game_loaded();
-            }
-            p.runner.game_loaded(jobs, &mut p.host)
-        } else {
-            p.loops += 1;
-            if p.loops == 1 {
-                p.log("first game loop");
-            }
-            p.auto_tick();
-            p.runner.tick(&mut p.host)
+            Err(TryLockError::Poisoned(_)) => return,
         };
-        p.handle(events);
+        let Some(p) = guard.as_mut() else { return };
+        let deferred = DEFERRED_LOAD.swap(0, Ordering::SeqCst);
+        if deferred != 0 {
+            p.log("handling a save load reported while the plugin was busy");
+            p.post_load(deferred == 1);
+        }
+        let lines = if m.kind == MSG_POST_LOAD_GAME {
+            p.post_load(post_load_succeeded(m.data));
+            None
+        } else {
+            p.main_loop()
+        };
+        if let Some((what, lines)) = lines {
+            let (console, dir) = (p.host.console, p.dir.clone());
+            drop(guard);
+            for line in lines {
+                log_to(&dir, &format!("automatic run: {what} console {line:?}"));
+                let r = console_line(console, &line);
+                log_to(&dir, &format!("automatic run: {what} console {line:?}: {}", if r.is_ok() { "ok" } else { "failed" }));
+            }
+        }
     }));
 }
 
