@@ -174,6 +174,12 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    with an early onset; physics.md §4.2, §6.3, §6.4).
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
+   Status 2026-10-08 (`engine/nvf-play`, docs/design/layer4-play.md §6): walking with
+   collision, doors (interior ↔ worldspace), containers and taking items work in
+   unattended in-game checks; items dropped from the inventory are drawn, collide, fall
+   and settle, survive cell unloads and are taken back with E (whether the game's
+   dropped items fall is open, simulation.md §5). Not yet: play by a person with keys
+   and mouse, doors into another worldspace, dialogue and barter.
 
 ## 5. Open questions and verification steps for the owner
 
