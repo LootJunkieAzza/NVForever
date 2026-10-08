@@ -334,6 +334,47 @@ Rerun with plugin version 6 (2026-10-08, same save):
   line of sight count]. The settler stayed in exterior cells (crossed from Goodsprings to
   `0x000DAEBA` at 11:02.92 at y = 4096, a 4096-unit grid line) and within 538 units.
 
+### The Goodsprings gunfight, three runs [observed 2026-10-08]
+
+Campaign `goodsprings_fight` from the owner's save `nvfCombatTown` (player behind
+SunnyRef outside as she heads to the fight; `tgm`; the player follows SunnyRef within
+200 units), `--repeat 3`: every run ended on `until` (2762–2849 samples, a sample every
+5 game loops, median 5 ms each), no crash. Times are GameHour, from 09:49.5–09:49.8.
+
+- **Start**: the fight began by itself about 10 game minutes in, as SunnyRef got there:
+  GSPG03Ref and SunnyRef entered combat within 0.2 game minutes of each other, either
+  first (09:59.17–09:59.45), each the other's target. Then, the same order in all runs:
+  GSJoeCobbRef (10:00.66–10:00.80), GSPG01Ref (10:00.85–10:00.97), GSPG02/05/06Ref
+  (10:01.2–10:01.8); TrudyRef, CheyenneREF and GoodspringsSettler01Ref (10:01.6–10:02.1);
+  RingoRef (10:03.6–10:04.3); EasyPeteRef (10:03.3–10:06.7); GoodspringsSettler03Ref
+  (10:05.8–10:10.1). Every Powder Ganger's first combat target was SunnyRef; the settlers'
+  first target was GSPG03Ref (RingoRef once GSPG02Ref, once GSJoeCobbRef).
+- **Animals joined the settlers' side**: vGSBrahmin02Ref and GSBighorner01–03Ref entered
+  combat with Powder Gangers as targets, and spent much of it in procedure FLEE (58–61
+  actor-minutes per run). No person fled or yielded; their procedure was COMBAT (package
+  type COMBAT) except brief DIALOGUE (barks) and GET_UP.
+- **Retargeting**: when a target died, the actors on it took a new target within 0–0.6
+  game minutes, often several in the same sample and on the same enemy (focus fire).
+  Targets also changed while the old one lived.
+- **Deaths** (in order): run 1 GSPG01, GSPG06, GSPG05, GSPG02, TrudyRef, GSJoeCobbRef,
+  GSPG03; run 2 GSPG01, GSPG05, TrudyRef, GSPG06, GSJoeCobbRef, GSPG02, GSPG03; run 3
+  GSPG01, GoodspringsSettler01Ref, GSPG05, GSJoeCobbRef, GSPG02, GSPG03, GSPG06. The
+  settlers won every time; GSPG01Ref always died first (10:06.9–10:09.4). A dying
+  actor's `in_combat` and target cleared in the sample its `dead` became 1.
+- **End**: every remaining actor left combat in the same sample, 1.00–1.01 game
+  minutes (about 2 real seconds at TimeScale 30) after the last Powder Ganger died
+  (10:27.62 → 10:28.63, 10:25.45 → 10:26.45, 10:29.84 → 10:30.85).
+- **Victor**: GSVictorRef was unconscious (GetUnconscious 1, package
+  VGSVictorCircuitPatrol) from the start and woke in the same sample in which combat
+  ended, in all three runs [hypothesis: the quest script holds him out of the fight].
+- **After the fight**: a dialogue with the player opened in the sample combat ended (the
+  clock stopped there), and another 1.5–3 game minutes later; the `close_menus` hook
+  closed each after 120 samples. SunnyRef then went into GSProspectorSaloonInterior
+  (10:33–10:40), and the follow walk stopped as unreachable (value 2).
+- **Run to run**: start order, first targets, the end delay and Victor's waking were the
+  same; the sequence of retargets and deaths, the fight's length (27.1–31.7 game
+  minutes) and which settler died (TrudyRef twice, GoodspringsSettler01Ref once) varied.
+
 ## 8. Questions the observations are for (Layer 6)
 
 - Schedules: at what game time does each NPC switch package, compared with the
