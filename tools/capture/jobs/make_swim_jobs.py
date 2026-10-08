@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Writes the swimming capture jobs (Layer 4 workstream 2: swimming against the game;
 docs/spec-notes/physics.md section 6.6) into this folder. They run unattended
-(capture_run.py, save `nvftest`; the jobs travel with the console's `coc`). No game data
+(capture_run.py, save `nvfdoc`; the jobs leave Doc Mitchell's house and travel with the console's `coc`). No game data
 is stored here: only script text and positions on the Lake Mead shore at Boulder Beach
 chosen from the LAND heights and `fnvtool phys walk` / `phys cell` (2026-10-08).
 
@@ -21,7 +21,9 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 import capture_steps as cs  # noqa: E402
 
-START = "nvftest (Goodsprings gas station); coc BoulderBeachCampground (god mode, AI detection off)."
+START = "nvfdoc (Doc Mitchell's house); leaves through the front door, then coc BoulderBeachCampground (god mode, AI detection off)."
+DOC_DOOR = "0x00103E61"         # GSDocMitchellHouseIntDoorREF
+CTX = (cs.MASTERS, None)
 CELL = "BoulderBeachCampground"          # WastelandNV (13, 9), Lake Mead shore
 WATER_Z = 2600.0                         # CELL XCLW of the shore cells [observed: masters]
 # Shore: LAND 12 units above the water at (56992, 37536), falling east at about 12 degrees
@@ -52,25 +54,33 @@ def angles(heading, pitch=0.0):
 
 
 def go_there():
-    """coc to the beach cell, then wait until the player stands in the shore cells' x range."""
+    """Out of Doc Mitchell's house (as the movement jobs do), coc to the beach cell, then
+    wait until the player stands in the shore cells' x range, and close the menu that opens
+    there: arriving at the beach by coc or by SetPos left MenuMode 1 and the game clock
+    standing still (GetCurrentTime unchanged over thousands of loops) until the console's
+    CloseAllMenus [observed: sw_diag, sw_diag2, 2026-10-08; which menu is not known]."""
+    leave = [{"script": cs.run_script(["{0}.Activate player"], CTX, [DOC_DOOR])},
+             {"until": cs.left_cell_until(DOC_DOOR, CTX), "max_frames": cs.DOOR_LOOPS},
+             {"frames": cs.AFTER_DOOR_FRAMES}]
     until = cs.function(["float fV"], ["if player.GetPos X > 53248", "  if player.GetPos X < 61440", "    let fV := 1",
                                        "  endif", "endif", "SetFunctionValue fV"])
-    return [{"console": f"coc {CELL}"}, {"until": until, "max_frames": cs.DOOR_LOOPS}, {"frames": cs.AFTER_DOOR_FRAMES}]
+    return leave + [{"console": f"coc {CELL}"}, {"until": until, "max_frames": cs.DOOR_LOOPS}, {"frames": cs.AFTER_DOOR_FRAMES},
+                    {"console": "CloseAllMenus"}, {"frames": 60}, num("MenuMode", "after travel", "menumode")]
 
 
 # One sample per game loop: "x y z t sw pitch" (t: real milliseconds since %{t0} from the
 # game clock at TimeScale 30, as in make_movement_jobs.py; sw: IsSwimming; pitch: GetAngle X).
 SAMPLE = cs.function(
-    ["float fX", "float fY", "float fZ", "float fT", "float fW", "float fP"],
+    ["float fX", "float fY", "float fZ", "float fT", "float fSw", "float fP"],
     ["let fX := player.GetPos X", "let fY := player.GetPos Y", "let fZ := player.GetPos Z",
-     "let fT := (GetCurrentTime - %{t0}) * 120000", "let fW := player.IsSwimming", "let fP := player.GetAngle X",
-     'SetFunctionValue (($ fX) + " " + ($ fY) + " " + ($ fZ) + " " + ($ fT) + " " + ($ fW) + " " + ($ fP))'])
+     "let fT := (GetCurrentTime - %{t0}) * 120000", "let fSw := player.IsSwimming", "let fP := player.GetAngle X",
+     'SetFunctionValue (($ fX) + " " + ($ fY) + " " + ($ fZ) + " " + ($ fT) + " " + ($ fSw) + " " + ($ fP))'])
 # The same with health: "x y z t sw health".
 SAMPLE_H = cs.function(
-    ["float fX", "float fY", "float fZ", "float fT", "float fW", "float fH"],
+    ["float fX", "float fY", "float fZ", "float fT", "float fSw", "float fH"],
     ["let fX := player.GetPos X", "let fY := player.GetPos Y", "let fZ := player.GetPos Z",
-     "let fT := (GetCurrentTime - %{t0}) * 120000", "let fW := player.IsSwimming", "let fH := player.GetAV Health",
-     'SetFunctionValue (($ fX) + " " + ($ fY) + " " + ($ fZ) + " " + ($ fT) + " " + ($ fW) + " " + ($ fH))'])
+     "let fT := (GetCurrentTime - %{t0}) * 120000", "let fSw := player.IsSwimming", "let fH := player.GetAV Health",
+     'SetFunctionValue (($ fX) + " " + ($ fY) + " " + ($ fZ) + " " + ($ fT) + " " + ($ fSw) + " " + ($ fH))'])
 
 
 def samples(prefix, n, every=1, health=False):
@@ -175,8 +185,57 @@ def fall_breath():
     return j
 
 
+def diag():
+    """Which sample scripts compile, and whether the clock runs after the coc."""
+    clock = cs.function(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"])
+    steps = list(PROTECT) + go_there()
+    steps += [cs.query(clock, "clock", "a"), {"frames": 120}, cs.query(clock, "clock", "b"),
+              num("MenuMode", "menumode", "value"), num("player.GetPos X", "pos", "x"), remember_t0()]
+
+    def five(name, extra_decl, extra_let, extra_var):
+        return cs.function(["float fX", "float fY", "float fZ", "float fT", extra_decl],
+                           ["let fX := player.GetPos X", "let fY := player.GetPos Y", "let fZ := player.GetPos Z",
+                            "let fT := (GetCurrentTime - %{t0}) * 120000", extra_let,
+                            f'SetFunctionValue (($ fX) + " " + ($ fY) + " " + ($ fZ) + " " + ($ fT) + " " + ($ {extra_var}))'])
+    variants = {"six": SAMPLE, "health": SAMPLE_H,
+                "seconds": five("s", "float fS", "let fS := GetSecondsPassed", "fS"),
+                "swimming": five("w", "float fSw", "let fSw := player.IsSwimming", "fSw"),
+                "pitch": five("p", "float fP", "let fP := player.GetAngle X", "fP"),
+                "health5": five("h", "float fH", "let fH := player.GetAV Health", "fH"),
+                "packed": five("q", "float fQ", "let fQ := player.IsSwimming * 1000 + player.GetAngle X", "fQ")}
+    for name, sc in variants.items():
+        steps += [cs.query(sc, f"variant {name} {i}", "sample") for i in range(3)]
+    steps += [num("player.GetAV Rads", "rads", "value"), num("player.GetAV RadiationRads", "radiationrads", "value"),
+              num("player.GetAV Health", "health", "value"), num("player.GetBaseAV Health", "base health", "value")]
+    j = cs.job("sw_diag", START, steps, cs.MASTERS)
+    j["title"] = "Swimming diagnostic: sample scripts, clock after coc (under a minute, no input)"
+    return j
+
+
+def diag2():
+    """Why the clock stood still after coc (MenuMode 1 in sw_diag): coc then CloseAllMenus,
+    and travel by SetPos instead of coc."""
+    clock = cs.function(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"])
+    leave = go_there()[:3]  # (written before CloseAllMenus joined go_there)
+
+    def check(tag):
+        return [cs.query(clock, f"{tag} clock", "a"), {"frames": 120}, cs.query(clock, f"{tag} clock", "b"),
+                num("MenuMode", f"{tag} menumode", "value"), num("GetActiveMenuMode", f"{tag} active menu", "value"),
+                num("player.GetPos X", f"{tag} pos", "x"), num("player.GetPos Z", f"{tag} pos", "z")]
+    sx, sy, sz = SHORE
+    steps = list(PROTECT) + leave + check("after door")
+    steps += [setpos(sx, sy, sz + 100), {"frames": 300}] + check("setpos")
+    steps += [{"console": f"coc {CELL}"}, {"frames": 300}] + check("coc")
+    steps += [{"console": "CloseAllMenus"}, {"frames": 60}] + check("closed")
+    steps += [setpos(sx, sy, sz + 100), {"frames": 300}] + check("setpos after coc")
+    steps += [remember_t0()] + [cs.query(SAMPLE, f"sample {i}", "sample") for i in range(3)]
+    j = cs.job("sw_diag2", START, steps, cs.MASTERS)
+    j["title"] = "Swimming diagnostic 2: travel by SetPos or coc, menus (under a minute, no input)"
+    return j
+
+
 def main():
-    for j in (trial(), fall_breath()):
+    for j in (diag(), diag2(), trial(), fall_breath()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)
