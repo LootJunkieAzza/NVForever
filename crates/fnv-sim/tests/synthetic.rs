@@ -98,7 +98,12 @@ fn weap(fid: u32, edid: &str, value: i32, weight: f32) -> Vec<u8> {
 }
 
 fn armo(fid: u32, edid: &str, slots: u32, weight: f32) -> Vec<u8> {
-    let bmdt = cat(&[&slots.to_le_bytes(), &[0u8, 0, 0, 0]]);
+    armo_flags(fid, edid, slots, 0, weight)
+}
+
+/// An ARMO with BMDT general flags (0x40: Non-Playable).
+fn armo_flags(fid: u32, edid: &str, slots: u32, general: u8, weight: f32) -> Vec<u8> {
+    let bmdt = cat(&[&slots.to_le_bytes(), &[general, 0, 0, 0]]);
     let data = cat(&[&10i32.to_le_bytes(), &50i32.to_le_bytes(), &weight.to_le_bytes()]);
     record(b"ARMO", 0, fid, &[sub(b"EDID", z(edid)), sub(b"BMDT", bmdt), sub(b"DATA", data)])
 }
@@ -149,6 +154,7 @@ const NOTE: u32 = 0x178; // NOTE: no weight field
 const CHIP: u32 = 0x179; // CHIP: no weight field
 const CMNY: u32 = 0x17A; // CMNY: no weight field
 const CARD: u32 = 0x17B; // CCRD: value only
+const GLOVE: u32 = 0x17C; // ARMO, slot Left Hand, Non-Playable, weight 0
 const LOCKER: u32 = 0x121; // CONT: PISTOL x1 with COED condition 0.75
 const MINE: u32 = 0x177; // WEAP firing MINE_PROJ
 const MINE_PROJ: u32 = 0x180; // PROJ
@@ -218,7 +224,7 @@ fn plugin_bytes() -> Vec<u8> {
     };
     let weaps = cat(&[&weap(PISTOL, "TestPistol", 100, 3.0), &weap(RIFLE, "TestRifle", 300, 8.0), &mine]);
     let proj = record(b"PROJ", 0, MINE_PROJ, &[sub(b"EDID", z("TestMineProjectile"))]);
-    let armos = cat(&[&armo(HELMET, "TestHelmet", 0b11, 2.0), &armo(HAT, "TestHat", 0b10, 1.0), &armo(SUIT, "TestSuit", 0b100, 15.0)]);
+    let armos = cat(&[&armo(HELMET, "TestHelmet", 0b11, 2.0), &armo(HAT, "TestHat", 0b10, 1.0), &armo(SUIT, "TestSuit", 0b100, 15.0), &armo_flags(GLOVE, "TestGlove", 0b1000, 0x40, 0.0)]);
     let enit = cat(&[&20i32.to_le_bytes(), &[0u8, 0, 0, 0], &0u32.to_le_bytes(), &0f32.to_le_bytes(), &0u32.to_le_bytes()]);
     let alch = record(b"ALCH", 0, AID, &[sub(b"EDID", z("TestAid")), sub(b"DATA", 0.5f32.to_le_bytes().to_vec()), sub(b"ENIT", enit)]);
     let ammo_data = cat(&[&1f32.to_le_bytes(), &[0u8, 0, 0, 0], &2i32.to_le_bytes(), &[10u8]]);
@@ -1121,4 +1127,12 @@ fn scripted_activation_takes_one_item_of_a_stack() {
     // The player's own activation takes the whole stack (hypothesis).
     let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
     assert_eq!(w.activate(p, stack).unwrap().outcome, Outcome::PickedUp { item: id(STIMPAK), count: 3, owner: None });
+}
+
+#[test]
+fn non_playable_armour_is_flagged() {
+    let f = fixture();
+    assert!(f.forms.item(id(GLOVE)).unwrap().non_playable);
+    assert!(!f.forms.item(id(SUIT)).unwrap().non_playable);
+    assert!(!f.forms.item(id(PISTOL)).unwrap().non_playable);
 }

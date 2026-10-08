@@ -130,7 +130,10 @@ pub(super) fn run_drops(
                 (1, Some(m)) if m.mode == Mode::Inventory => {
                     match m.list(Side::Player).rows.iter().position(|r| r.item == job.item) {
                         Some(i) => {
-                            input.write(MenuInput(Command::Select(Side::Player, i)));
+                            // Selecting the selected row would use (equip) it: only when needed.
+                            if m.selected[Side::Player as usize] != i {
+                                input.write(MenuInput(Command::Select(Side::Player, i)));
+                            }
                             input.write(MenuInput(if job.stack { Command::DropStack } else { Command::Drop }));
                         }
                         None => info!("test aid: {} is not carried", job.item),
