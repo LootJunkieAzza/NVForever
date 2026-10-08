@@ -910,6 +910,24 @@ swimmer meets the shore and how fast it walks up a 27° bank out of water.
   reference: [hypothesis], one interior). Exterior cell water is unaffected (four places
   agree). The renderer still draws interior water planes at XCLW (Layer 3, unchanged).
 
+**Should `phys walk` apply the stroke cycle by default?** (decision 2026-10-08) No: a
+segment swims at its `swim_velocity` unless it names a `stroke`. The game's speed follows a
+stroke whenever a movement key is held [observed: every run], but (1) which stroke depends
+on the key (forward, back, sideways cycles differ), and a segment's velocity does not say
+which key the game held; (2) the cycle is a fraction of the game's 339, so applied to a
+segment's own speed it reproduces the game only when that speed is 339; the two old
+inputs ask for 348 (the 2-s average of the first implementation), and treating
+`swim_velocity` as a direction only would make an explicit number meaningless (and the
+walking swim, 86, has no cycle [hypothesis]). So `swim_cove_dive` and `swim_lake_shore`
+cannot express what the game does; with the inputs unchanged they keep failing. Checked
+with scratch copies of the inputs (not in the lab): `"stroke": "forward"` at 339 along the
+same directions brings `swim_cove_dive` to 6/6 (within 2.1 units; **the dive's 23–27-unit
+drift from t0.75 is the stroke cycle**: at t1.00–t1.50 the game is past the stroke's peak
+of 412 units/s) and `swim_lake_shore` to 5/8 before the bank (within 2.3); the stroke at 348
+drifts by 2.7 % (9.3 units at t1.50 of the dive). Question for the owner: retire the two
+scenarios and replace them with inputs that name the stroke at 339 (and, for the shore, a
+capture with the cell loaded; below)?
+
 **Leaving the water: what the two shores show** (re-read of `sw_scenarios` and `sw_trial`
 against the LAND under each sample, `fnvtool phys cell` rays with and without meshes,
 2026-10-08) [observed]:
