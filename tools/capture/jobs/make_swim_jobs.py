@@ -314,6 +314,28 @@ def banks():
     return j
 
 
+GUARDIAN_CELL = "CampGuardianCaves"   # interior with placed water (z 6528) and XCLW 6712
+GUARDIAN_CELL_ID = "0x0013DD63"
+
+
+def guardian():
+    """Placed water, held out: drops in CampGuardianCaves, each after a fresh coc (so the
+    player is not swimming when placed; sw_h2o carried the swimming state from one drop to
+    the next, physics.md 6.6)."""
+    lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
+    doc = cs.load_json(os.path.join(lab, "swim_guardian_drops.drops.json"))
+    steps = list(PROTECT)
+    for d in doc["drops"]:
+        steps += [{"console": f"coc {GUARDIAN_CELL}"}, {"until": cs.in_cell_until(GUARDIAN_CELL_ID, CTX), "max_frames": cs.DOOR_LOOPS},
+                  {"frames": cs.AFTER_DOOR_FRAMES}, {"console": "CloseAllMenus"}, {"frames": 60},
+                  num("MenuMode", f"{d['label']} menumode", "value"), num("player.GetPos Z", f"{d['label']} before", "z")]
+        steps += cm.drop_steps(dict(doc, drops=[d]))
+    j = cs.job("sw_guardian", "nvfdoc (Doc Mitchell's house); coc CampGuardianCaves before each drop (god mode, AI detection off).",
+               steps, cs.MASTERS)
+    j["title"] = "Placed water drops: swim_guardian_drops (no input needed)"
+    return j
+
+
 def diag():
     """Which sample scripts compile, and whether the clock runs after the coc."""
     clock = cs.function(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"])
@@ -364,7 +386,7 @@ def diag2():
 
 
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o(), banks()):
+    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o(), banks(), guardian()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)
