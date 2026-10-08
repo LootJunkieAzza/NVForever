@@ -1039,6 +1039,22 @@ fn drops_land_ahead_of_and_above_the_holder() {
     assert_eq!(pos[2], 30.0 + DROP_ABOVE);
 }
 
+#[test]
+fn created_lists_drops_taken_ones_included() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(STIMPAK), 2).unwrap();
+    assert_eq!(w.created().count(), 0);
+    let a = w.drop_item(p, id(STIMPAK), 1).unwrap()[0];
+    let b = w.drop_item(p, id(STIMPAK), 1).unwrap()[0];
+    w.activate(p, a).unwrap();
+    let listed: Vec<(FormId, bool)> = w.created().map(|(id, s)| (id, s.deleted)).collect();
+    assert_eq!(listed, vec![(a, true), (b, false)]);
+    // The player (materialised, below the created range) is not listed.
+    assert!(w.peek(p).is_some());
+}
+
 const CREATED_SCRIPT: &str = r#"{
   "format": "fnv.sim.actions/1",
   "actions": [

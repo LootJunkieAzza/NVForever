@@ -203,7 +203,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(Update, (grab_cursor, read_input, mouse_look).chain().in_set(PlaySet::Input))
             .add_systems(
                 Update,
-                (place_initial, step, sync_sim, log_status, place_camera)
+                (place_initial, step, crate::phys::settle_created, sync_sim, log_status, place_camera)
                     .chain()
                     .in_set(PlaySet::Physics)
                     .after(crate::phys::PhysSystems),
@@ -230,9 +230,15 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>) {
 
 /// The cursor is grabbed and hidden while playing in a focused window, released in menus.
 /// Not with `--auto-walk` (a test aid: the window must not hold the desktop's mouse).
-fn grab_cursor(state: Res<State<PlayState>>, d: Res<PlayWorld>, mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>) {
+fn grab_cursor(
+    state: Res<State<PlayState>>,
+    d: Res<PlayWorld>,
+    unattended: Option<Res<crate::test_aid::Unattended>>,
+    mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
-    let grab = *state.get() == PlayState::Playing && d.auto_walk <= 0.0 && window.focused;
+    let driven = d.auto_walk > 0.0 || unattended.is_some_and(|u| u.0);
+    let grab = *state.get() == PlayState::Playing && !driven && window.focused;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,

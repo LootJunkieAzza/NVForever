@@ -7,15 +7,21 @@
 //! the rule `fnvtool phys cell` uses; whether it is in the world is the simulation's
 //! call ([`in_world`]). `RefChanged` removes or restores one reference's collision;
 //! `Travel` rebuilds everything for the destination.
+//!
+//! References the simulation created (dropped items, `crate::dropped`) load with the
+//! physics cell containing them: their base form's model collision, dynamic when the
+//! model says so ([`PhysState::add_created`]). While a dynamic one moves, its pose is
+//! written back to the simulation ([`PhysState::settle_created`]).
 
 pub mod cells;
 
+use crate::dropped;
 use crate::player::Player;
 use crate::sim::SimState;
 use crate::{PlayData, PlayWorld, RefChanged, Travel};
 use bevy::prelude::*;
 use cells::{PhysCell, Space};
-use fnv_collide::CollisionObject;
+use fnv_collide::{CollisionObject, Iso, Motion};
 use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
 use fnv_phys::terrain::height_at;
@@ -23,10 +29,11 @@ use fnv_phys::{
     ref_collision, Arrival, Character, CharacterParams, Filter, ModelCollision, PhysParams, PhysWorld, RayHit, RefPose, Stepper,
     WaterArea,
 };
-use fnv_sim::FormId;
+use fnv_sim::{FormId, World};
 use fnv_world::land::{load_land, LandParts};
 use fnv_world::placed::placement;
-use fnv_world::{cell_of, Placement, CELL_SIZE};
+use fnv_world::transform::{max_diff, ref_angles, ref_rotation};
+use fnv_world::{cell_of, Placement, WorldIndex, CELL_SIZE};
 use nvf_assets::GameData;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -50,6 +57,8 @@ pub struct PhysState {
     /// The cell of every reference of the loaded cells, in the world or not (so a
     /// reference the simulation brings back can get its collision again).
     pub ref_cell: HashMap<u32, PhysCell>,
+    /// References created at run time (dropped items) that have collision now.
+    pub created: BTreeMap<u32, CreatedBody>,
     pub stats: PhysStats,
     /// Feet before the last fixed step (the camera interpolates from it).
     pub(crate) prev_feet: [f32; 3],
@@ -68,6 +77,7 @@ impl Default for PhysState {
             space: Space::Exterior,
             cells: BTreeMap::new(),
             ref_cell: HashMap::new(),
+            created: BTreeMap::new(),
             stats: PhysStats::default(),
             prev_feet: [0.0; 3],
             persistent_by_grid: HashMap::new(),
@@ -85,6 +95,28 @@ pub struct LoadedCell {
     /// LAND heights (exterior squares with terrain).
     pub heights: Option<Vec<f32>>,
 }
+
+/// The collision of a reference created at run time (a dropped item).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreatedBody {
+    /// The collision object's node and body transforms, when its model has exactly one
+    /// object and it became one body: that body's pose gives the reference's. Otherwise
+    /// the pose is not written back (a model's bodies are not joined in `fnv-phys`).
+    pub local: Option<Iso>,
+    /// Some object is dynamic (it can fall, be pushed and roll).
+    pub dynamic: bool,
+    /// Its position when its collision was added.
+    pub start: [f32; 3],
+    /// The world's step count then.
+    pub added_step: u64,
+    /// At rest (its body asleep) since it last moved.
+    pub settled: bool,
+}
+
+/// A dynamic created reference that falls this far below where its collision was added
+/// has fallen through the world [engineering choice]: its collision is removed and it is
+/// put back where it started (logged as a warning).
+pub const CREATED_FELL_THROUGH: f32 = 10_000.0;
 
 /// Running totals for logs.
 #[derive(Debug, Clone, Default)]
@@ -243,6 +275,21 @@ impl PhysState {
             self.ref_cell.insert(r, cell);
             with_collision += self.add_ref(ctx, r) as usize;
         }
+        // Dropped items: the simulation's created references standing in this cell
+        // (FormIDs above every placed one, so `refs` stays sorted).
+        let space = self.space;
+        let created: Vec<u32> = ctx
+            .sim
+            .world
+            .created()
+            .filter(|(_, s)| dropped::present(s) && dropped::phys_cell(d.index, d.world, space, s) == Some(cell))
+            .map(|(id, _)| id.0)
+            .collect();
+        for r in created {
+            self.ref_cell.insert(r, cell);
+            with_collision += self.add_created(ctx, r) as usize;
+            refs.push(r);
+        }
         let n = refs.len();
         loaded.refs = refs;
         self.cells.insert(cell, loaded);
@@ -295,6 +342,7 @@ impl PhysState {
         }
         for r in c.refs {
             self.world.remove_ref(r);
+            self.created.remove(&r);
             if self.ref_cell.get(&r) == Some(&cell) {
                 self.ref_cell.remove(&r);
             }
@@ -305,6 +353,10 @@ impl PhysState {
     /// Bring a reference's collision in line with the simulation: removed when it is no
     /// longer present, added back when it is present again and its cell is loaded.
     pub fn sync_ref(&mut self, ctx: &LoadCtx, form_id: u32) {
+        if FormId(form_id).is_dynamic() {
+            self.sync_created(ctx, form_id);
+            return;
+        }
         if !ctx.sim.present(form_id) {
             if self.world.remove_ref(form_id) {
                 debug!("collision of {form_id:08X} removed");
@@ -312,6 +364,151 @@ impl PhysState {
         } else if self.ref_cell.contains_key(&form_id) && !self.has_collision(form_id) && self.add_ref(ctx, form_id) {
             debug!("collision of {form_id:08X} restored");
         }
+    }
+
+    /// A created reference (dropped item): collision while it is present and the physics
+    /// cell containing it is loaded, none otherwise; tracked in that cell so it unloads
+    /// with it.
+    fn sync_created(&mut self, ctx: &LoadCtx, id: u32) {
+        let s = ctx.sim.world.peek(FormId(id)).filter(|s| dropped::present(s));
+        let cell = s.and_then(|s| dropped::phys_cell(ctx.d.index, ctx.d.world, self.space, s)).filter(|c| self.cells.contains_key(c));
+        match cell {
+            None => {
+                if self.world.remove_ref(id) {
+                    debug!("collision of {id:08X} removed");
+                }
+                self.created.remove(&id);
+                self.move_created(id, None);
+            }
+            Some(c) => {
+                self.move_created(id, Some(c));
+                if !self.has_collision(id) {
+                    self.add_created(ctx, id);
+                }
+            }
+        }
+    }
+
+    /// Track a created reference in loaded physics cell `to` (or in none).
+    fn move_created(&mut self, id: u32, to: Option<PhysCell>) {
+        let from = self.ref_cell.get(&id).copied();
+        if from == to {
+            return;
+        }
+        if let Some(c) = from.and_then(|f| self.cells.get_mut(&f)) {
+            c.refs.retain(|&r| r != id);
+        }
+        self.ref_cell.remove(&id);
+        if let Some(c) = to.and_then(|t| self.cells.get_mut(&t).map(|c| (t, c))) {
+            c.1.refs.push(id);
+            self.ref_cell.insert(id, c.0);
+        }
+    }
+
+    /// Add a created reference's collision: its base form's model at the simulation's
+    /// pose, scale 1. Returns whether it now has collision.
+    pub fn add_created(&mut self, ctx: &LoadCtx, id: u32) -> bool {
+        let Some(s) = ctx.sim.world.peek(FormId(id)).filter(|s| dropped::present(s)) else { return false };
+        let counts = &mut self.stats.counts;
+        let Some(path) = dropped::model_path(ctx.d, s.base) else {
+            *counts.entry("created_no_model").or_default() += 1;
+            return false;
+        };
+        let Some(data) = ctx.data else {
+            *counts.entry("awaiting_collision").or_default() += 1;
+            return false;
+        };
+        let objects = match (Models { data, cache: &mut self.models }).objects(&path) {
+            Ok(o) if !o.is_empty() => o,
+            _ => {
+                *self.stats.counts.entry("created_without_collision").or_default() += 1;
+                return false;
+            }
+        };
+        let pose = RefPose { form_id: id, position: s.pos, rotation: ref_rotation(s.rot), scale: 1.0 };
+        let rep = self.world.add_ref(&pose, &objects);
+        if rep.bodies == 0 {
+            *self.stats.counts.entry("object_errors").or_default() += rep.errors.len();
+            return false;
+        }
+        *self.stats.counts.entry("created_with_collision").or_default() += 1;
+        let local = (objects.len() == 1 && rep.bodies == 1).then(|| objects[0].node_transform.compose(&objects[0].body_transform));
+        let dynamic = objects.iter().any(|o| o.motion == Motion::Dynamic);
+        info!(
+            "collision of dropped 0x{id:08X} added: {path}, {} bodies ({}), at ({:.1}, {:.1}, {:.1})",
+            rep.bodies,
+            if dynamic { "dynamic" } else { "not dynamic" },
+            s.pos[0],
+            s.pos[1],
+            s.pos[2]
+        );
+        let added_step = self.world.steps();
+        self.created.insert(id, CreatedBody { local, dynamic, start: s.pos, added_step, settled: false });
+        true
+    }
+
+    /// Write the poses of moving dynamic created references back to the simulation (and,
+    /// outdoors, the grid cell they are now in), so a cell reload, a snapshot or a resume
+    /// finds them where physics put them. Logs each one coming to rest (its body asleep).
+    /// Returns the references whose pose changed.
+    pub fn settle_created(&mut self, index: &WorldIndex, world_id: u32, sim: &mut World) -> Vec<u32> {
+        let mut moved = Vec::new();
+        let mut lost = Vec::new();
+        let elapsed = |since: u64| (self.world.steps() - since) as f32 * self.world.params.dt;
+        for (&id, cb) in self.created.iter_mut() {
+            let Some(local) = cb.local.filter(|_| cb.dynamic) else { continue };
+            let Some(b) = self.world.ref_bodies(id).first().copied() else { continue };
+            let (pos, rot) = dropped::ref_pose_from_body(&b, &local, 1.0);
+            if pos[2] < cb.start[2] - CREATED_FELL_THROUGH {
+                lost.push(id);
+                continue;
+            }
+            let Ok(s) = sim.get(FormId(id)) else { continue };
+            let dist = (0..3).map(|i| (pos[i] - s.pos[i]).powi(2)).sum::<f32>().sqrt();
+            if dist > 0.01 || max_diff(&ref_rotation(s.rot), &rot) > 1e-4 {
+                s.pos = pos;
+                s.rot = ref_angles(&rot);
+                // Outdoors the reference is in the grid cell containing it (as an actor
+                // is after a teleport into a worldspace [observed, simulation.md §5]).
+                let world = s.cell.and_then(|c| index.cells.get(&c.0)).and_then(|c| c.world);
+                if let Some(&cell) = world.and_then(|w| index.worldspaces.get(&w)).and_then(|w| w.grid.get(&cell_of(pos[0], pos[1]))) {
+                    s.cell = Some(FormId(cell));
+                }
+                moved.push(id);
+            }
+            if b.sleeping && !cb.settled {
+                cb.settled = true;
+                info!(
+                    "dropped 0x{id:08X} came to rest at ({:.1}, {:.1}, {:.2}), {:.1} below where its collision was added, {:.2} s after",
+                    pos[0],
+                    pos[1],
+                    pos[2],
+                    cb.start[2] - pos[2],
+                    elapsed(cb.added_step)
+                );
+            } else if !b.sleeping {
+                cb.settled = false;
+            }
+        }
+        for id in lost {
+            let start = self.created.remove(&id).map(|c| c.start);
+            self.world.remove_ref(id);
+            if let (Ok(s), Some(start)) = (sim.get(FormId(id)), start) {
+                s.pos = start;
+            }
+            warn!("dropped 0x{id:08X} fell through the world: collision removed, put back where it was dropped");
+        }
+        // Outdoors a reference that rolled into another grid square moves to that
+        // square's physics cell (when it is loaded), so it unloads with it.
+        if self.space == Space::Exterior {
+            for &id in &moved {
+                let to = sim.peek(FormId(id)).and_then(|p| dropped::phys_cell(index, world_id, self.space, p));
+                if to.is_some_and(|c| self.cells.contains_key(&c)) {
+                    self.move_created(id, to);
+                }
+            }
+        }
+        moved
     }
 
     /// Unload everything and switch to `space`.
@@ -451,6 +648,15 @@ fn ref_changed(
     for id in ids {
         phys.sync_ref(&ctx, id);
     }
+}
+
+/// The settle write-back for dropped items ([`PhysState::settle_created`]) after the
+/// frame's fixed steps (in the player's chain, after its step).
+pub(crate) fn settle_created(d: Res<PlayWorld>, mut sim: ResMut<SimState>, mut phys: ResMut<PhysState>) {
+    if phys.created.is_empty() {
+        return;
+    }
+    phys.settle_created(d.index, d.world, &mut sim.world);
 }
 
 /// Keep the cells around the player loaded (around the start position until the
