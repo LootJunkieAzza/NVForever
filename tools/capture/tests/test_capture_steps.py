@@ -171,6 +171,22 @@ class JobTests(unittest.TestCase):
         self.assertEqual(until[0]["max_frames"], cs.DOOR_LOOPS)
         self.assertEqual(sum(1 for s in steps if s.get("frames") == cs.AFTER_DOOR_FRAMES), 2)
 
+    def test_console_first_and_go_to_cell(self):
+        acts = actions({"op": "get_disabled", "of": "0x00010000"})
+        edids = {"nvdlc03x13": 0x0300328C}
+        steps = cs.actions_job(acts, "x", "s", edids, console_first=["tgm", "tdetect"],
+                               go_to_cell="NVDLC03X13")["steps"][len(cs.MASTERS):]
+        self.assertEqual(steps[:3], [{"console": "tgm"}, {"console": "tdetect"}, {"console": "coc NVDLC03X13"}])
+        self.assertIn('let fM1 := GetModIndex "OldWorldBlues.esm"', steps[3]["until"])
+        self.assertIn("BuildRef fM1 12940", steps[3]["until"])
+        self.assertIn("if rP == rF1", steps[3]["until"])
+        self.assertEqual(steps[4], {"frames": cs.AFTER_DOOR_FRAMES})
+        self.assertIn("query", steps[5])
+        with self.assertRaises(cs.InputError):
+            cs.actions_job(acts, "x", "s", edids, go_to_cell="NVDLC03X13; qqq")
+        with self.assertRaises(cs.InputError):
+            cs.actions_job(acts, "x", "s", edids, go_to_cell="NoSuchCell")
+
     def test_compare_traces(self):
         def trace(*obs):
             return {"format": "fnv.sim.trace/1", "observations": list(obs)}
