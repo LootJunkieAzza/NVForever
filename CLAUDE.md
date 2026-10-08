@@ -42,6 +42,11 @@ After renderer changes, also run the moving-camera smoke test (cell streaming an
 rebuilds; fixed-camera screenshots do not exercise them):
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --auto-fly 4000 --run-seconds 40`
 (expect exit 0 and "run finished").
+After sky or lighting changes, also run the day/night time-lapse (a full day in about
+20 s; one "time-lapse" log line per game hour; `--timelapse <dir>` saves a frame per hour,
+add `--pos -69500,2500,13400 --pitch -89.5` for the aerial view):
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --hour 17 --time-scale 1.2 --run-seconds 26`
+(expect exit 0, "run finished" and 24+ hourly samples).
 
 ## Commits
 

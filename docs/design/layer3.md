@@ -97,7 +97,12 @@ What it does now:
   a white surface to 1.0 on screen (sun π / exposure, ambient 1 / exposure), from the
   game's texture × (ambient + sunlight · N·L) model [hypothesis]; this replaced levels
   tuned by eye that were about 4× too bright in sunlight. Sun shadows: four cascades out to
-  `--shadow-distance` (default 16,000 units; 0 turns them off).
+  `--shadow-distance` (default 16,000 units; 0 turns them off). The directional light
+  fades out within ~6° of the horizon, where it switches between sun and moon
+  [interim]. Observed in the time-lapse: NVWastelandClear's night ambient (luminance
+  0.42) is brighter than its day ambient (0.14), so nights look brighter than late
+  afternoon; the weather's per-time image-space links (world.md §6, not read yet)
+  probably adjust this in game.
 - Distant LOD (`--lod-radius`, default 8 chunks = 32 cells; `--no-lod`): the game's
   level-4 terrain chunks and object LOD blocks (world.md §7) around the camera. Terrain
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
@@ -112,7 +117,10 @@ What it does now:
   the camera starts at the middle of its references. Lights: every enabled LIGH
   reference becomes a point (or spot) light, indoors and out (`--light-scale`, tuned by
   eye in GSDocMitchellHouse).
-- Test aids: `--auto-fly <speed>` flies the camera forward, `--run-seconds <n>` exits
+- Test aids: `--time-scale <h/s>` runs the clock at that many game hours per real second
+  once the start cells are loaded, logging a "time-lapse" sample (sun elevation, light
+  and sky luminance) every game hour; `--timelapse <dir>` also saves a frame per hour
+  (the day/night smoke test in CLAUDE.md). `--auto-fly <speed>` flies the camera forward, `--run-seconds <n>` exits
   after n seconds; together a headless smoke test of streaming and LOD rebuilds (40 s at
   4000 units/s streams 200-260 cells). Meshes on the GPU are render-world only and cannot
   be read back; code that derives meshes later (LOD trimming) asks the model cache for
