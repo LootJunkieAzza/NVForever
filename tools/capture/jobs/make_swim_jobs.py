@@ -224,6 +224,32 @@ def scenarios():
                        leave_door=DOC_DOOR, console_first=["tgm", "tdetect"])
 
 
+H2O_CELL = "NVDLC03SLH2OINT"      # Old World Blues interior with water (CELL XCLW -232)
+H2O_CELL_ID = "0x03006881"
+
+
+def heldout2():
+    """Second held-out swim scenarios, made after the stroke cycle (physics.md 6.6):
+    forward for 2.5 s above Hoover Dam, backwards for 2 s off Callville Bay."""
+    lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
+    docs = [cs.load_json(os.path.join(lab, f)) for f in ("swim_dam_forward.walk.json", "swim_bay_back.walk.json")]
+    return cm.make_job(docs, "sw_heldout2", "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
+                       leave_door=DOC_DOOR, console_first=["tgm", "tdetect"])
+
+
+def h2o():
+    """Interior water (held out): drops in NVDLC03SLH2OINT after coc there."""
+    lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
+    doc = cs.load_json(os.path.join(lab, "swim_h2o_drops.drops.json"))
+    steps = list(PROTECT) + [{"console": f"coc {H2O_CELL}"}, {"until": cs.in_cell_until(H2O_CELL_ID, CTX), "max_frames": cs.DOOR_LOOPS},
+                             {"frames": cs.AFTER_DOOR_FRAMES}, {"console": "CloseAllMenus"}, {"frames": 60},
+                             num("MenuMode", "after travel", "menumode")]
+    steps += cm.drop_steps(doc)
+    j = cs.job("sw_h2o", "nvfdoc (Doc Mitchell's house); coc NVDLC03SLH2OINT (god mode, AI detection off).", steps, cs.MASTERS)
+    j["title"] = "Interior water drops: swim_h2o_drops (no input needed)"
+    return j
+
+
 def diag():
     """Which sample scripts compile, and whether the clock runs after the coc."""
     clock = cs.function(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"])
@@ -274,7 +300,7 @@ def diag2():
 
 
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios()):
+    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)

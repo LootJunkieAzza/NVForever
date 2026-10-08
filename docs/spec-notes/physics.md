@@ -837,6 +837,57 @@ Watch: whether the Cottonwood Cove water is at −2300 (the worldspace-default
 [hypothesis]); the swim speed 348 against the run's 344 (the onset alignment); where the
 swimmer meets the shore and how fast it walks up a 27° bank out of water.
 
+**Held-out results** (`sw_scenarios`, 2026-10-08; goldens `phys/swim_cove_dive.walk.json`,
+`phys/swim_lake_shore.walk.json`) [observed]:
+
+- Cottonwood Cove floats at −2402.52: the surface there is the worldspace default −2300
+  (the fallback of `Cell::water_surface` is confirmed for one place). The dive followed
+  the view at 40°. Lake Las Vegas floated at 2895.22 (104.78 below 3000; the entry from a
+  standing start overshot the floating height there).
+- Against the predictions: `swim_cove_dive` within 1.4 at t0.25 and t0.50, then up to 27
+  in y and 23 in z off; `swim_lake_shore` within 2.3 to t0.50, then up to 35 off, and the
+  exit differs. **Refuted: the constant swim speed.** The game's speed varies with time
+  since the motion started, the same way in both captures and in every forward run of
+  `sw_trial` once looked at in sixteenths of a second: 339 units/s for 6/16 s, then a cycle
+  of 23/16 s rising to 412 and falling to 160 whose mean is 339.1; backward and sideways
+  runs have flatter cycles (313–370–284 and 288–379) of the same period and mean
+  (`sw_trial`: back, right, left, forward-right and sneak-forward runs; the walk at 86
+  units/s varies too, 82–122 over 2 s, no full cycle seen). The constant 348 of the first
+  implementation was a 2-s average over part of a cycle. The candidate now models the
+  cycle (`fnv_phys::swim`, tables from `sw_trial` only: forward = mean of the four forward
+  and diving runs, backward and sideways from their runs; walking constant at 86
+  [hypothesis]); `fnvtool phys walk` applies it to a segment's `swim_velocity` with
+  `"stroke": "forward" | "back" | "side"`, and `nvf-play` from the keys. The two scenario
+  inputs above were left as they were (constant 348, no stroke): they keep failing.
+- **Refuted / open: leaving the water up a steep bank.** At Lake Las Vegas (bank about 27°)
+  the swimmer never walked: it kept the swimming state, its z stayed at the floating
+  height (then sank at 12 units/s) while it moved into the bank until its feet were 22–31
+  below the LAND surface under them, then rose about 30 in one loop to the surface, and
+  repeated (six steps up), ending 74 above the water surface still sinking at 12 units/s
+  and blocked. At Boulder Beach (12°) the swimmer walked out. The candidate, which lets a
+  swimmer that reaches walkable ground walk, walked up the 27° bank. Not modelled (one
+  capture; the feet 30 under the terrain suggest a different collision shape while
+  swimming [hypothesis]).
+
+**Predictions for the second held-out set** (written 2026-10-08 before `sw_heldout2` and
+`sw_h2o`; candidate with the stroke cycle), feet (x, y, z):
+
+- `swim_dam_forward` (Lake Mead above Hoover Dam, XCLW 2600; start [77696, 33024, 2600],
+  north, forward held, stroke forward): t0.25 (77696.0, 33108.7, 2497.5); t0.50 (77696.0,
+  33195.1, 2497.5); t0.75 (77696.0, 33294.4, 2497.5); t1.00 (77696.0, 33396.8, 2497.5);
+  t1.25 (77696.0, 33492.3, 2497.5); t1.50 (77696.0, 33571.1, 2497.5); t1.75 (77696.0,
+  33624.0, 2497.5); t2.00 (77696.0, 33706.6, 2497.5); t2.25 (77696.0, 33807.6, 2497.5); t2.50
+  (77696.0, 33909.2, 2497.5).
+- `swim_bay_back` (Lake Mead off Callville Bay, XCLW 2600; start [50560, 62720, 2600],
+  facing north, Back held, stroke back): t0.25 (50560.0, 62635.3, 2497.5); t0.50 (50560.0,
+  62554.1, 2497.5); t0.75 (50560.0, 62469.1, 2497.5); t1.00 (50560.0, 62379.1, 2497.5); t1.25
+  (50560.0, 62287.3, 2497.5); t1.50 (50560.0, 62200.3, 2497.5); t1.75 (50560.0, 62125.1,
+  2497.5); t2.00 (50560.0, 62044.5, 2497.5).
+- `swim_h2o_drops` (interior NVDLC03SLH2OINT, XCLW −232; drops at −227): deep_a (−300,
+  −1000), deep_b (−300, −800), mid_a (−500, −200), mid_b (−700, −200) all floating at
+  −334.5 (the floors are 456, 496, 136 and 136 below the surface); shallow_a (−1098.0,
+  −550.0, −242.0), standing on the floor 38 below the surface (−270 + its shell).
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>

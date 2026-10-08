@@ -1741,6 +1741,157 @@
     "M4",
     "needs-local-capture"
    ]
+  },
+  {
+   "id": "L4.phys.walk.swim_dam_forward",
+   "layer": 4,
+   "description": "Swimming trace, held out (physics.md 6.6): the player placed at the surface of Lake Mead above Hoover Dam (XCLW 2600) falls in, floats, then swims north at the floating height with forward held for 2.5 s (the forward stroke cycle): feet every 0.25 s after the motion starts (parity-lab/inputs/layer4/swim_dam_forward.walk.json) against an unattended in-game capture with held keys (job sw_heldout2, tools/capture/capture_moves.py). Designed after the stroke cycle was derived from sw_trial and after the first two swim scenarios. Tolerance 10 units as for the other L4.phys.walk scenarios (physics.md 6.3).",
+   "oracle": {
+    "golden": "phys/swim_dam_forward.walk.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "walk",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV",
+     "--script",
+     "{lab_root}/inputs/layer4/swim_dam_forward.walk.json",
+     "--every",
+     "1000"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 10.0
+   },
+   "tags": [
+    "physics",
+    "movement",
+    "swimming",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.phys.walk.swim_bay_back",
+   "layer": 4,
+   "description": "Swimming trace, held out (physics.md 6.6): the player placed at the surface of Lake Mead off Callville Bay (XCLW 2600) falls in, floats, then swims backwards (Back held, facing north) for 2 s (the backward stroke cycle): feet every 0.25 s after the motion starts (parity-lab/inputs/layer4/swim_bay_back.walk.json) against an unattended in-game capture with held keys (job sw_heldout2, tools/capture/capture_moves.py). Designed after the stroke cycle was derived from sw_trial and after the first two swim scenarios. Tolerance 10 units as for the other L4.phys.walk scenarios (physics.md 6.3).",
+   "oracle": {
+    "golden": "phys/swim_bay_back.walk.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "walk",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV",
+     "--script",
+     "{lab_root}/inputs/layer4/swim_bay_back.walk.json",
+     "--every",
+     "1000"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 10.0
+   },
+   "tags": [
+    "physics",
+    "movement",
+    "swimming",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.phys.drops.swim_h2o",
+   "layer": 4,
+   "description": "Interior water, held out (physics.md 6.6): the player dropped 5 units above the water surface of the Old World Blues interior NVDLC03SLH2OINT (CELL XCLW -232) over floors 38 to 496 below it (parity-lab/inputs/layer4/swim_h2o_drops.drops.json): where it comes to rest (floating, or standing in shallow water) against an unattended in-game capture (job sw_h2o, tools/capture/capture_moves.py drop steps after coc). Tolerance 8 units as for the B11 drops.",
+   "oracle": {
+    "golden": "phys/swim_h2o_drops.drops.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "cell",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--cell",
+     "NVDLC03SLH2OINT",
+     "--drops-file",
+     "{lab_root}/inputs/layer4/swim_h2o_drops.drops.json"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 8.0
+   },
+   "tags": [
+    "physics",
+    "swimming",
+    "interior",
+    "M4",
+    "needs-local-capture"
+   ]
   }
  ]
 }
