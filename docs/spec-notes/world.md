@@ -245,6 +245,29 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   shows only within Snell's window (refractive index 1.33) and the surface reflects the
   water body outside it. The under fog "amount" is unused like the above one. Unknown: the roles of ANAM
   opacity, the fog amounts, sun power and the four unnamed leading DNAM floats.
+- **Ripples** [hypothesis, the renderer's model]: DNAM's "rain" and "displacement"
+  groups (starting size, force, velocity, falloff, dampner; NVCleanWater: rain 0.05 /
+  0.1 / 0.6 / 0.985 / 2.0, displacement 0.01 / 0.4 / 0.6 / 0.985 / 10.0) are read as two
+  damped wave simulations: force = how far a drop or a moving body pushes the surface
+  down, velocity = the wave-equation coefficient (kept at the 2-D stability limit 0.5),
+  falloff = damping per step (60 steps a second). Starting size and dampner are unused
+  (unknown). Rain drops fall while the weather is "Rainy"; a body (the player's feet,
+  or the free camera) near the surface leaves a wake and splashes when it crosses it.
+  Grid (256 × 256 cells of 4 units around the camera), drop and wake radii, rain rate and
+  ripple height are tuned by eye; the game's own simulation is not known.
+- **Rain** [observed]: WTHR DATA flags bit 2 "Rainy" is set on exactly two weathers in
+  the masters, Honest Hearts' NVDLC02ZVRainWeather and NVDLC02TheNarrowsRainWeather (none
+  in FalloutNV.esm, Dead Money, Old World Blues, Lonesome Road; no weather sets bit 3
+  "Snow"). The weather record names no rain texture or model: the falling rain is
+  content. Four activators (NVDLC02Rain, NVDLC02Rain2, NVDLC02RainUp, NVDLC02RainUp2,
+  models `meshes\nvdlc02\sky\nvdlc02rain*.nif`) are driven by the quest
+  NVDLC02RainQuest's script NVDLC02rainscript. In plain terms, every frame while it
+  rains and the player is outdoors and above a height of 4878 units (Zion Canyon's
+  default water height is 5000), the script moves two rain references onto the player
+  and enables them (one at an offset given by a global), switches to the "up" variants
+  while the player looks steeply up or down, keeps them going for a few seconds after
+  the rain stops, and toggles the rain ambience sound and an interior rain-sound marker.
+  So drawing Zion rain needs the script engine (Layer 4); the renderer does not draw it.
 
 ## 7. Distant LOD
 

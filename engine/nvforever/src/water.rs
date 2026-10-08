@@ -27,10 +27,14 @@
 //!   water, the unshifted one is used.
 //! - Under water, the camera's fog becomes the water's (underwater.rs).
 //!
-//! Not done: rain and displacement ripples, the ANAM opacity (its role is unknown).
+//! - Ripples from rain and from things moving through the water (ripples.rs) add to
+//!   the wave normal.
+//!
+//! Not done: the ANAM opacity (its role is unknown).
 
 use crate::lod::LodState;
 use crate::reflection::{Reflection, WATER_LAYER};
+use crate::ripples::Ripples;
 use crate::sky::SkyState;
 use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
 use bevy::asset::embedded_asset;
@@ -83,6 +87,8 @@ pub struct WaterParams {
     pub layers: [Vec4; 3],
     /// Bevy y of the plane the reflection texture shows, and 1 when it is in use.
     pub reflection_plane: Vec4,
+    /// Ripple grid: game x, y of its corner, units per cell, height scale (0: none).
+    pub ripple: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -95,6 +101,9 @@ pub struct WaterMaterial {
     #[texture(3)]
     #[sampler(4)]
     pub reflection: Option<Handle<Image>>,
+    /// R32Float ripple heights (not filterable: the shader interpolates).
+    #[texture(5, sample_type = "float", filterable = false)]
+    pub ripples: Option<Handle<Image>>,
 }
 
 impl Material for WaterMaterial {
@@ -150,6 +159,17 @@ impl WaterCache {
             }
         }
     }
+
+    /// Tell every water material where the ripple grid lies.
+    pub fn set_ripples(&self, materials: &mut Assets<WaterMaterial>, ripple: Vec4) {
+        for h in self.materials.values() {
+            if materials.get(h).is_some_and(|m| m.params.ripple != ripple) {
+                if let Some(mut m) = materials.get_mut(h) {
+                    m.params.ripple = ripple;
+                }
+            }
+        }
+    }
 }
 
 /// Water materials and the plane mesh, for spawning water.
@@ -158,6 +178,7 @@ pub struct WaterCtx<'w> {
     materials: ResMut<'w, Assets<WaterMaterial>>,
     cache: ResMut<'w, WaterCache>,
     reflection: Option<Res<'w, Reflection>>,
+    ripples: Option<Res<'w, Ripples>>,
 }
 
 impl WaterCtx<'_> {
@@ -182,7 +203,8 @@ pub fn water_material(world: &WorldData, wid: u32, models: &mut ModelCtx, water:
         a.textures.get(t, false, &a.data, &mut a.images, a.formats.as_deref())
     });
     let reflection = water.reflection.as_ref().map(|r| r.image.clone());
-    let m = water.materials.add(WaterMaterial { params: water_params(&w), noise, reflection });
+    let ripples = water.ripples.as_ref().map(|r| r.image.clone());
+    let m = water.materials.add(WaterMaterial { params: water_params(&w), noise, reflection, ripples });
     water.cache.materials.insert(wid, m.clone());
     Some(m)
 }
@@ -307,6 +329,7 @@ pub fn water_params(w: &Water) -> WaterParams {
         surface: Vec4::new(w.reflectivity, w.fresnel, w.shininess, w.noise_normals_scale * WAVE_HEIGHT_FACTOR),
         layers: [layer(&w.noise_layers[0]), layer(&w.noise_layers[1]), layer(&w.noise_layers[2])],
         reflection_plane: Vec4::ZERO,
+        ripple: Vec4::ZERO,
     }
 }
 
