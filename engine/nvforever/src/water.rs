@@ -3,13 +3,14 @@
 //! what is documented (xEdit names); how the engine combines them is a hypothesis
 //! (docs/spec-notes/world.md §6), checked against in-game screenshots:
 //!
-//! - Seen from above, the surface fogs what lies behind it by that point's distance from
-//!   the camera (from the camera's depth prepass): linear from the above-fog near to far
-//!   distance, up to the above-fog amount, shading from the shallow to the deep colour.
-//!   So water is clear close to the camera and opaque beyond the far distance (850 for
-//!   Lake Mead's NVCleanWater), with hard shorelines seen from afar, as in-game. (The
-//!   alternative, fog by the distance travelled through the water, left the lake bed
-//!   visible far out: compared with an in-game screenshot at Boulder Beach.)
+//! - Seen from above, the surface fogs what lies behind it by the length of the view ray
+//!   inside the water (from the camera's depth prepass): linear from the above-fog near
+//!   to far distance (-80 / 850 for Lake Mead's NVCleanWater) to opaque, shading from the
+//!   shallow to the deep colour. So the bed shows at the waterline and fades out as it
+//!   drops. Compared by eye with in-game screenshots at Boulder Beach: capping the fog
+//!   at the above-fog amount left the lake bed visible far out; fogging by the distance
+//!   from the camera instead turned the water opaque right at the shore when seen from
+//!   a few metres up.
 //! - Reflective types reflect the sky (the weather's sky gradient), others their
 //!   reflection colour, weighted by `reflectivity × mix(1, Schlick fresnel, fresnel amount)`;
 //!   the sun adds a highlight with the type's shininess as exponent.

@@ -72,8 +72,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         up = -up;
     }
 
-    // Fog distance: from above, from the camera to the opaque surface behind the water
-    // (depth prepass); from below, to the water surface.
+    // Fog distance: the length of the view ray inside the water. From above, from the
+    // surface to the opaque surface behind it (depth prepass), so 0 at the waterline;
+    // from below, from the camera to the surface.
     var fog_distance = 1.0e7;
 #ifdef DEPTH_PREPASS
     if above {
@@ -81,7 +82,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if d > 0.0 {
             let ndc = frag_coord_to_ndc(in.position);
             let scene = position_ndc_to_world(vec3(ndc.xy, d));
-            fog_distance = distance(scene, view.world_position.xyz);
+            fog_distance = distance(scene, pos);
         }
     }
 #endif
