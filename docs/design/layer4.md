@@ -174,6 +174,12 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    with an early onset; physics.md §4.2, §6.3, §6.4).
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
+   Status 2026-10-08 (`nvforever --play`, docs/design/layer4-play.md §6): walking with
+   collision, taking items, containers and doors work in unattended runs, including the
+   106 doors into another worldspace (Mojave ↔ Freeside, Freeside ↔ Strip, DLC
+   worldspaces): physics and rendering switch to the destination worldspace. Open:
+   play by a person with keys and mouse, scripted doors (the Strip gate), the remaining
+   movement traces above, dialogue and barter.
 
 ## 5. Open questions and verification steps for the owner
 
