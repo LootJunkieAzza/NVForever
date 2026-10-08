@@ -355,14 +355,8 @@ fn spawn_water(
         return;
     }
     let ws = &world.index.worldspaces[&world.world];
-    let height = match c.water_height {
-        Some(h) if h.is_finite() && h.abs() < 1.0e30 => h,
-        _ if c.is_interior() => return,
-        _ => match ws.default_water_height {
-            Some(h) => h,
-            None => return,
-        },
-    };
+    // The same surface the physics swims in (`Cell::water_surface`, physics.md §6.6).
+    let Some(height) = c.water_surface(ws.default_water_height) else { return };
     let Some(wid) = c.water_type.or(ws.water) else { return };
     let mat = match models.cache.water_material(wid) {
         Some(m) => m,
