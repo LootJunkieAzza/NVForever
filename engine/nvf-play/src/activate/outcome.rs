@@ -104,16 +104,17 @@ pub enum Effect {
     /// The reference left (or came back into) the world: visuals and collision follow
     /// (`crate::RefChanged`).
     RefChanged(u32),
-    /// `crate::Travel`.
-    Travel { interior: Option<u32>, feet: [f32; 3], heading_deg: f32 },
+    /// `crate::Travel`: into an interior (`interior`), or out into the worldspace `world`
+    /// (the one being played or another).
+    Travel { world: Option<u32>, interior: Option<u32>, feet: [f32; 3], heading_deg: f32 },
     OpenContainer(u32),
     /// A short on-screen message.
     Message(String),
 }
 
-/// The effects of activating `target` (whose name is `name`) in worldspace `world`.
-/// `name_of` names other forms (items picked up, keys).
-pub fn effects(a: &Activation, target: u32, name: &str, index: &WorldIndex, world: u32, name_of: impl Fn(FormId) -> String) -> Vec<Effect> {
+/// The effects of activating `target` (whose name is `name`). `name_of` names other
+/// forms (items picked up, keys).
+pub fn effects(a: &Activation, target: u32, name: &str, index: &WorldIndex, name_of: impl Fn(FormId) -> String) -> Vec<Effect> {
     let mut out = Vec::new();
     if let Some(k) = a.unlocked_with {
         out.push(Effect::Message(format!("Unlocked with {}", name_of(k))));
@@ -132,19 +133,17 @@ pub fn effects(a: &Activation, target: u32, name: &str, index: &WorldIndex, worl
         Outcome::OpenedContainer { container } => out.push(Effect::OpenContainer(container.0)),
         Outcome::Locked { level } => out.push(Effect::Message(format!("{name} is locked ({})", lock_text(*level)))),
         Outcome::Teleported { cell, pos, rot, .. } => {
-            let interior = match destination(index, *cell) {
-                Destination::Interior(c) => Some(c),
-                Destination::Exterior { world: w } if w == world => None,
-                Destination::Exterior { .. } => {
-                    out.push(Effect::Message("Travel to another worldspace is not supported yet".into()));
-                    return out;
-                }
+            // Outdoors the destination always names its worldspace; whether that is a
+            // change of worldspace is for the receivers to see (`crate::Travel::destination`).
+            let (world, interior) = match destination(index, *cell) {
+                Destination::Interior(c) => (None, Some(c)),
+                Destination::Exterior { world } => (Some(world), None),
                 Destination::Unknown => {
                     out.push(Effect::Message(format!("{name}: the destination cell is unknown")));
                     return out;
                 }
             };
-            out.push(Effect::Travel { interior, feet: *pos, heading_deg: heading_deg(*rot) });
+            out.push(Effect::Travel { world, interior, feet: *pos, heading_deg: heading_deg(*rot) });
         }
         Outcome::DoorToggled { open } => out.push(Effect::Message(format!("{name} {}", if *open { "opened" } else { "closed" }))),
         Outcome::Talk { .. } => out.push(Effect::Message(format!("{name}: dialogue is not implemented yet"))),
@@ -184,7 +183,7 @@ mod tests {
     }
 
     fn run(a: &Activation) -> Vec<Effect> {
-        effects(a, 0x55, "Thing", &index(), WORLD, names)
+        effects(a, 0x55, "Thing", &index(), names)
     }
 
     #[test]
@@ -216,14 +215,30 @@ mod tests {
     fn doors_travel_into_interiors_and_out() {
         let half_turn = [0.0, 0.0, std::f32::consts::PI];
         let a = act(Outcome::Teleported { to_door: FormId(1), cell: Some(FormId(INTERIOR)), pos: [1.0, 2.0, 3.0], rot: half_turn });
-        assert_eq!(run(&a), vec![Effect::Travel { interior: Some(INTERIOR), feet: [1.0, 2.0, 3.0], heading_deg: 180.0 }]);
+        assert_eq!(run(&a), vec![Effect::Travel { world: None, interior: Some(INTERIOR), feet: [1.0, 2.0, 3.0], heading_deg: 180.0 }]);
         let a = act(Outcome::Teleported { to_door: FormId(1), cell: Some(FormId(EXTERIOR)), pos: [4.0, 5.0, 6.0], rot: [0.1, 0.2, -std::f32::consts::FRAC_PI_2] });
-        assert_eq!(run(&a), vec![Effect::Travel { interior: None, feet: [4.0, 5.0, 6.0], heading_deg: 270.0 }]);
-        // Another worldspace or an unknown cell: no travel, a message.
-        for cell in [Some(FormId(ELSEWHERE)), Some(FormId(0x999)), None] {
+        assert_eq!(run(&a), vec![Effect::Travel { world: Some(WORLD), interior: None, feet: [4.0, 5.0, 6.0], heading_deg: 270.0 }]);
+        // An unknown cell: no travel, a message.
+        for cell in [Some(FormId(0x999)), None] {
             let e = run(&act(Outcome::Teleported { to_door: FormId(1), cell, pos: [0.0; 3], rot: [0.0; 3] }));
             assert!(matches!(e.as_slice(), [Effect::Message(_)]), "{cell:?}: {e:?}");
         }
+    }
+
+    #[test]
+    fn doors_travel_into_another_worldspace() {
+        // A gate whose destination cell belongs to another worldspace (the Mojave's north
+        // gate into FreesideNorthWorld is such a door in FalloutNV.esm).
+        let a = act(Outcome::Teleported { to_door: FormId(2), cell: Some(FormId(ELSEWHERE)), pos: [8288.0, 6896.0, 1008.0], rot: [0.0; 3] });
+        assert_eq!(
+            run(&a),
+            vec![Effect::Travel { world: Some(OTHER_WORLD), interior: None, feet: [8288.0, 6896.0, 1008.0], heading_deg: 0.0 }]
+        );
+        let mut unlocked = a.clone();
+        unlocked.unlocked_with = Some(FormId(0x42));
+        let e = run(&unlocked);
+        assert_eq!(e[0], Effect::Message("Unlocked with form 42".into()));
+        assert!(matches!(e[1], Effect::Travel { world: Some(OTHER_WORLD), interior: None, .. }));
     }
 
     #[test]
