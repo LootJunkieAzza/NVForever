@@ -148,7 +148,7 @@ pub fn stream(
     world: Res<WorldData>,
     mut streamer: ResMut<Streamer>,
     root: Query<Entity, With<WorldRoot>>,
-    camera: Query<&GlobalTransform, With<Camera3d>>,
+    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
     mut models: ModelCtx,
     mut terrain: TerrainMaterials,
     mut water: WaterCtx,
@@ -383,6 +383,7 @@ fn spawn_water(
         Mesh3d(mesh),
         MeshMaterial3d(mat),
         Transform::from_xyz(s / 2.0, s / 2.0, height),
+        bevy::camera::visibility::RenderLayers::layer(crate::reflection::WATER_LAYER),
     ));
     stats.water_planes += 1;
 }

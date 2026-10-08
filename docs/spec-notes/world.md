@@ -225,8 +225,15 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   distance, to opaque, shading from the shallow to the deep colour. Capping the fog at
   the "amount" left the lake bed visible far out; fogging by the distance from the
   camera made the water opaque right at the shoreline when seen from a few metres up
-  (an abrupt clear-to-opaque edge); both unlike the game. The water reflects the sky when reflective
-  (otherwise its reflection colour) with weight reflectivity × mix(1, Schlick fresnel,
+  (an abrupt clear-to-opaque edge); both unlike the game. The water reflects the world when reflective
+  (otherwise its reflection colour): the renderer mirrors the camera in the water plane
+  nearest it, renders what lies above that plane into a texture and samples it at the
+  fragment's screen position, offset along the wave-perturbed reflected ray; water at
+  other heights reflects the weather's sky gradient. Seen in-game: the dock posts and
+  the far hills at Boulder Beach are reflected with a ripple wobble [observed, owner's
+  screenshot]. How far the ripples displace the reflection (the DNAM "distortion
+  amount", 600 for NVCleanWater, may be it) is unknown; the renderer's offset is tuned by
+  eye. The reflection is weighted with weight reflectivity × mix(1, Schlick fresnel,
   fresnel amount); the sun adds a highlight with exponent = shininess. Noise layer i
   repeats every UV scale units (0 → the noise normals UV scale), scrolls at wind speed
   repeats per second towards its compass wind direction, and its height is channel i ×

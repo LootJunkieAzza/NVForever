@@ -8,7 +8,7 @@
     mesh_view_bindings::{view, globals, lights},
     pbr_types,
     pbr_functions,
-    view_transformations::{frag_coord_to_ndc, position_ndc_to_world},
+    view_transformations::{frag_coord_to_ndc, frag_coord_to_uv, ndc_to_uv, position_ndc_to_world},
 }
 #ifdef DEPTH_PREPASS
 #import bevy_pbr::prepass_utils
@@ -28,11 +28,19 @@ struct WaterParams {
     surface: vec4<f32>,
     // per layer: uv velocity (per second), 1 / uv scale (per world unit), amplitude
     layers: array<vec4<f32>, 3>,
+    // x = Bevy y of the plane the reflection texture shows, y = 1 when it is in use
+    reflection_plane: vec4<f32>,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> water: WaterParams;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var noise_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var noise_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(3) var reflection_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(4) var reflection_sampler: sampler;
+
+// Distance along the wavy reflected ray at which the reflection texture is sampled: the
+// texture has no depth, so the wave offset is that of a point this far away [tuned by eye].
+const REFLECTION_SAMPLE_DISTANCE: f32 = 500.0;
 
 // Slope (dh/dx, dh/dy in game space) of one noise layer: height = texture channel `mask`
 // (0..1) times the layer amplitude times the wave height.
@@ -110,15 +118,28 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     pbr.is_orthographic = view.clip_from_view[3].w == 1.0;
     let lit = pbr_functions::apply_pbr_lighting(pbr).rgb;
 
-    // Reflection: the sky (reflective types) or the reflection colour, weighted by a
-    // Schlick fresnel term blended with a constant by the fresnel amount.
+    // Reflection: the world (reflective types: the mirrored camera's texture when it shows
+    // this plane, else the sky gradient) or the reflection colour, weighted by a Schlick
+    // fresnel term blended with a constant by the fresnel amount.
     var fr = 0.0;
     var reflected = vec3(0.0);
     if above {
         let R = reflect(-V, N);
         let schlick = 0.02 + 0.98 * pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0);
         fr = clamp(water.surface.x * mix(1.0, schlick, water.surface.y), 0.0, 1.0);
-        reflected = select(water.reflection.rgb, sky_colour(R.y), water.reflection.a > 0.5);
+        // Sampled unconditionally (uniform control flow), used when it shows this plane.
+        // The mirror image of the wavy reflected ray's point, seen from the camera; for a
+        // flat surface that is this very pixel.
+        let mirrored = pos + vec3(R.x, -R.y, R.z) * REFLECTION_SAMPLE_DISTANCE;
+        let clip = view.clip_from_world * vec4(mirrored, 1.0);
+        var uv = frag_coord_to_uv(in.position.xy);
+        if clip.w > 0.0 {
+            uv = ndc_to_uv(clip.xy / clip.w);
+        }
+        let world_reflection = textureSampleLevel(reflection_texture, reflection_sampler, clamp(uv, vec2(0.0), vec2(1.0)), 0.0).rgb;
+        let mirror_here = water.reflection_plane.y > 0.5 && abs(pos.y - water.reflection_plane.x) < 2.0;
+        let sky = select(sky_colour(R.y), world_reflection, mirror_here);
+        reflected = select(water.reflection.rgb, sky, water.reflection.a > 0.5);
         if lights.n_directional_lights > 0u {
             let sun = lights.directional_lights[0];
             let spec = pow(max(dot(R, sun.direction_to_light), 0.0), max(water.surface.z, 1.0));

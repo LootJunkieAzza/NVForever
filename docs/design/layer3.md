@@ -115,10 +115,14 @@ What it does now:
   cell at its water height, in loaded cells and, out to the LOD range, in every cell
   whose water lies above its lowest landscape point (distant water). A custom material
   fogs what lies behind the surface by the view ray's length in the water (depth prepass),
-  shallow to deep colour, reflects the weather's sky gradient with a fresnel weight,
-  adds a sun highlight and ripples from three scrolling noise layers. The model and
-  its hypotheses: world.md §6. No reflections of the world, refraction or under-water
-  fog of the scene yet.
+  shallow to deep colour, reflects the world with a fresnel weight, adds a sun
+  highlight and ripples from three scrolling noise layers. World reflections
+  (`reflection.rs`): a second camera, the main one mirrored in the water plane nearest
+  it, renders the scene above that plane (oblique near clip plane, as in Bevy's
+  `mirror` example) at half the window size into an HDR texture; water lives on its own
+  render layer, which that camera leaves out; it is off indoors and when no water lies
+  within two cells below the camera. The model and its hypotheses: world.md §6. No
+  refraction or under-water fog of the scene yet.
 
 Measured on the owner's machine (i7-7700HQ, GTX 1050): 5 × 5 cells around Goodsprings
 (1,948 references drawn, 3,085 shapes, 224 models, 506 terrain layers) load in 2.5 s;
@@ -158,7 +162,7 @@ game units unchanged.
 6. **Lighting, sky, weather** (first version done; clouds, stars, interiors to do): sun direction and colours from the climate/weather records
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
-7. **Water** (second version done: WATR fog, fresnel sky reflection, noise layers, distant water; world reflections, refraction and under-water fog to do): worldspace / cell water height, WATR records, placeable water (PWAT).
+7. **Water** (second version done: WATR fog, fresnel world reflections, noise layers, distant water; refraction and under-water fog to do): worldspace / cell water height, WATR records, placeable water (PWAT).
 8. **SpeedTree** (interim: billboards): TREE references (18,050 in WastelandNV, e.g. the desert shrubs) use
    SpeedTree `.spt` models from `trees\`, a non-NIF format; needs its own clean-room
    format study before they can be drawn.
