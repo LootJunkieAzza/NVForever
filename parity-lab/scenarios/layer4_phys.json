@@ -1641,11 +1641,11 @@
    ]
   },
   {
-   "id": "L4.phys.walk.swim_cove_dive",
+   "id": "L4.phys.walk.swim_cove_stroke",
    "layer": 4,
-   "description": "Swimming trace, held out (physics.md 6.6): the player placed at the surface of the Colorado River at Cottonwood Cove (cells flagged has-water with the XCLW sentinel: the worldspace's default water height -2300 [hypothesis]) falls in, floats, then dives north with the view pitched 40 degrees down and forward held: feet every 0.25 s after the motion starts (parity-lab/inputs/layer4/swim_cove_dive.walk.json; swim rules from the sw_trial and sw_fall_breath captures at Boulder Beach) against an unattended in-game capture with held keys (job sw_scenarios, tools/capture/capture_moves.py). Tolerance 10 units as for the other L4.phys.walk scenarios (physics.md 6.3).",
+   "description": "Swimming trace, held out (physics.md 6.6; replaces swim_cove_dive, retired 2026-10-09 by the owner: its input asked for a constant 348 units/s with no stroke, which the game never swims): the player placed at the surface of the Colorado River at Cottonwood Cove falls in, floats, then dives north-east with the view pitched 30 degrees down and forward held, the forward stroke cycle at 339 units/s (parity-lab/inputs/layer4/swim_cove_stroke.walk.json): feet every 0.25 s after the motion starts against an unattended in-game capture with the cell loaded by `cow` first (job sw_redesign, tools/capture/jobs/make_swim_jobs.py). Tolerance 10 units as for the other L4.phys.walk scenarios (physics.md 6.3).",
    "oracle": {
-    "golden": "phys/swim_cove_dive.walk.json"
+    "golden": "phys/swim_cove_stroke.walk.json"
    },
    "candidate": {
     "argv": [
@@ -1668,7 +1668,7 @@
      "--world",
      "WastelandNV",
      "--script",
-     "{lab_root}/inputs/layer4/swim_cove_dive.walk.json",
+     "{lab_root}/inputs/layer4/swim_cove_stroke.walk.json",
      "--every",
      "1000"
     ],
@@ -1692,11 +1692,11 @@
    ]
   },
   {
-   "id": "L4.phys.walk.swim_lake_shore",
+   "id": "L4.phys.walk.swim_lake_exit",
    "layer": 4,
-   "description": "Swimming trace, held out (physics.md 6.6): the player placed at the surface of Lake Las Vegas (XCLW 3000) falls in, floats, then swims west at the floating height with forward held until the bed rises to the feet and walks out up the shore (2 s): feet every 0.25 s after the motion starts (parity-lab/inputs/layer4/swim_lake_shore.walk.json; swim rules from the sw_trial and sw_fall_breath captures at Boulder Beach) against an unattended in-game capture with held keys (job sw_scenarios, tools/capture/capture_moves.py). Tolerance 10 units as for the other L4.phys.walk scenarios (physics.md 6.3).",
+   "description": "Swimming trace, held out (physics.md 6.6; replaces swim_lake_shore, retired 2026-10-09 by the owner: its input asked for a constant 348 units/s with no stroke, and its bank rows were captured with the cell not loaded): the player placed at the surface of Lake Las Vegas falls in, floats, then swims south-east with forward held (forward stroke at 339 units/s) to a 24-degree bank and walks out up it, 2.5 s (parity-lab/inputs/layer4/swim_lake_exit.walk.json): feet every 0.25 s after the motion starts against an unattended in-game capture with the cell loaded by `cow` first (job sw_redesign). Tolerance 10 units as for the other L4.phys.walk scenarios (physics.md 6.3).",
    "oracle": {
-    "golden": "phys/swim_lake_shore.walk.json"
+    "golden": "phys/swim_lake_exit.walk.json"
    },
    "candidate": {
     "argv": [
@@ -1719,7 +1719,7 @@
      "--world",
      "WastelandNV",
      "--script",
-     "{lab_root}/inputs/layer4/swim_lake_shore.walk.json",
+     "{lab_root}/inputs/layer4/swim_lake_exit.walk.json",
      "--every",
      "1000"
     ],

@@ -217,7 +217,8 @@ def breath():
 def scenarios():
     """Held-out swim scenarios (L4.phys.walk.swim_*): the candidate's own inputs; each
     starts on land near its water (`reset_at`), so the player is not swimming when placed
-    at the surface."""
+    at the surface. Historical: both scenarios were retired by the owner on 2026-10-09
+    and their inputs removed (physics.md 6.6); `sw_scenarios.steps.json` stays as run."""
     lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
     docs = [cs.load_json(os.path.join(lab, f)) for f in ("swim_cove_dive.walk.json", "swim_lake_shore.walk.json")]
     return cm.make_job(docs, "sw_scenarios", "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
@@ -352,6 +353,24 @@ def banks_rest(name="sw_banks_b", which=None):
     return j
 
 
+def redesign():
+    """The replacements of the retired swim_cove_dive and swim_lake_shore
+    (L4.phys.walk.swim_cove_stroke, .swim_lake_exit; owner decision 2026-10-09): each
+    loads its start's cell with `cow` before the inputs' own reset and start SetPos moves
+    (a long SetPos alone left cells unloaded, physics.md 6.6)."""
+    lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
+    steps = list(PROTECT) + go_there()
+    for f in ("swim_cove_stroke.walk.json", "swim_lake_exit.walk.json"):
+        doc = cs.load_json(os.path.join(lab, f))
+        gx, gy = int(doc["start"][0] // 4096), int(doc["start"][1] // 4096)
+        steps += [{"console": f"cow WastelandNV {gx} {gy}"}, {"until": in_square_until(gx, gy), "max_frames": cs.DOOR_LOOPS},
+                  {"frames": cs.AFTER_DOOR_FRAMES}, {"console": "CloseAllMenus"}, {"frames": 60}]
+        steps += cm.walk_steps(doc)
+    j = cs.job("sw_redesign", START, steps, cs.MASTERS)
+    j["title"] = "sw_redesign: swim_cove_stroke, swim_lake_exit (no input needed)"
+    return j
+
+
 def diag():
     """Which sample scripts compile, and whether the clock runs after the coc."""
     clock = cs.function(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"])
@@ -402,8 +421,8 @@ def diag2():
 
 
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o(), banks(), banks_rest(),
-              banks_rest("sw_banks_c", {"lm_16", "lm_45", "lm_49", "lm_58", "llv_25"}), guardian()):
+    for j in (diag(), diag2(), trial(), fall_breath(), breath(), heldout2(), h2o(), banks(), banks_rest(),
+              banks_rest("sw_banks_c", {"lm_16", "lm_45", "lm_49", "lm_58", "llv_25"}), guardian(), redesign()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)

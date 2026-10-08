@@ -1356,6 +1356,34 @@ drifts by 2.7 % (9.3 units at t1.50 of the dive). Question for the owner: retire
 scenarios and replace them with inputs that name the stroke at 339 (and, for the shore, a
 capture with the cell loaded; below)?
 
+**Retired and redesigned (owner decision 2026-10-09).** `L4.phys.walk.swim_cove_dive` and
+`.swim_lake_shore` are retired (their inputs removed; the goldens stay private and unused):
+their inputs ask for a constant 348 units/s that the game never swims, and the shore's bank
+rows were captured with the cell not loaded. Replacements, at places no capture has used,
+with the forward stroke at 339 and each capture loading its cell with `cow` first (job
+`sw_redesign`, `make_swim_jobs.py` `redesign()`):
+
+- `L4.phys.walk.swim_cove_stroke`: Cottonwood Cove (surface −2300) from (70250, −90750),
+  heading 45°, view 30° down, forward held 2 s over 604–625 units of water (terrain only).
+- `L4.phys.walk.swim_lake_exit`: Lake Las Vegas (3000) from (29875, 56623), heading 132.3°,
+  level, forward held 2.5 s to the 24.1° bank of cell (7, 13) and up it (terrain only).
+
+**Predictions of the candidate** (written 2026-10-09 before the capture), feet (x, y, z):
+
+- `swim_cove_stroke`: t0.25 (70301.9, −90698.1, −2444.9); t0.50 (70354.8, −90645.2, −2488.1);
+  t0.75 (70415.6, −90584.4, −2537.7); t1.00 (70478.3, −90521.7, −2588.9); t1.25 (70536.8,
+  −90463.2, −2636.7); t1.50 (70585.1, −90414.9, −2676.1); t1.75 (70617.5, −90382.5, −2702.5);
+  t2.00 (70668.0, −90332.0, −2743.8).
+- `swim_lake_exit`: t0.25 (29937.7, 56566.0, 2897.5); t0.50 (30001.6, 56507.9, 2897.5); t0.75
+  (30075.1, 56441.0, 2897.5); t1.00 (30150.8, 56372.1, 2897.5); t1.25 (30220.9, 56308.4,
+  2900.9, walking); t1.50 (30279.0, 56255.4, 2935.6); t1.75 (30337.2, 56202.4, 2970.4); t2.00
+  (30396.1, 56148.8, 3002.6); t2.25 (30452.0, 56098.0, 3043.9); t2.50 (30508.9, 56046.2,
+  3081.3).
+
+Watch: the floating height after a standing-start entry (102.5–105.1 below in earlier
+captures; the candidate 102.5), and the walk up the 24° bank (the candidate climbed the
+steeper banks of `sw_banks*` faster than the game).
+
 **Leaving the water: what the two shores show** (re-read of `sw_scenarios` and `sw_trial`
 against the LAND under each sample, `fnvtool phys cell` rays with and without meshes,
 2026-10-08) [observed]:
