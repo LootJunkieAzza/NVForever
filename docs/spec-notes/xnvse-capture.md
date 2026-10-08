@@ -115,6 +115,7 @@ hex text; needs a ref variable), `GetNumItems`, `GetInventoryObject`,
   span of game time, with an optional per-loop `drive` script (walking the player); step
   format and output lines in docs/spec-notes/ai-observer.md §3. Older plugins skip jobs
   that use it.
+  Version 5 adds the drive's result (`value`) to its `drive` line.
 - Every job starts with one query per master, label `__modindex__`, field = plugin
   name, value = `GetModIndex` (255 = not loaded), so load-order FormIDs in the output can
   be mapped back to plugin + local FormID (`capture_steps.py`).

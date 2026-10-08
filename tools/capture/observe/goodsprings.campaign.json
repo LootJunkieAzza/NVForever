@@ -13,7 +13,8 @@
  "sessions": [
   {"name": "town_day", "go": {"coc": "Goodsprings"}, "hour": 6, "hours": 24},
   {"name": "saloon_evening", "go": {"coc": "GSProspectorSaloonInterior"}, "hour": 18, "hours": 6, "every": 30},
-  {"name": "walk_to_sunny", "go": {"coc": "Goodsprings"}, "hour": 10, "hours": 1, "every": 15,
-   "walk": {"to": "SunnyRef", "within": 150, "max_frames": 3600}}
+  {"name": "walk_to_settler", "go": {"coc": "Goodsprings"}, "hour": 10, "hours": 1, "every": 15,
+   "walk": {"to": "GoodspringsSettler03Ref", "within": 150, "max_frames": 3600}},
+  {"name": "meet_sunny", "go": {"moveto": "SunnyRef"}, "hour": 10, "hours": 1, "every": 15}
  ]
 }

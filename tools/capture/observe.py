@@ -42,7 +42,7 @@ import capture_steps as cs  # noqa: E402
 CAMPAIGN_FORMAT = "fnv.observe.campaign/1"
 TIMELINE_FORMAT = "fnv.observe.timeline/1"
 RUN_FORMAT = "fnv.observe.run/1"
-PLUGIN_VERSION = 4  # the observe step (tools/capture/nvf_capture/src/runner.rs)
+PLUGIN_VERSION = 5  # the observe step (4), drive values (5) (tools/capture/nvf_capture/src/runner.rs)
 
 # Form type code of actors for GetFirstRef / GetNumRefs [documented: GECK wiki
 # GetFirstRef, "200 for actors"].
@@ -181,19 +181,32 @@ def set_hour_script(hour):
                                       "endif", "set GameHour to fH"], returns_value=False)
 
 
+# Values a walk drive returns when it stops (recorded as the drive's `value`).
+WALK_ARRIVED = 1
+WALK_UNREACHABLE = 2
+
+
 def walk_script(target, within, ctx):
     """One game loop of walking to `target`: face it (GetAngle Z + GetHeadingAngle, the
     wiki's formula on GetHeadingAngle) and hold the key bound to Forward (GetControl 0,
-    HoldKey); 1 and the key released once the player is closer than `within`. The target
-    must be in the loaded area (GetDistance ends the script otherwise; the drive then
-    stops with an error, recorded)."""
+    HoldKey); WALK_ARRIVED and the key released once the player is closer than `within`.
+    WALK_UNREACHABLE at once when the target or the player is in an interior and they
+    are not in the same cell: an outside player once steered toward Sunny's coordinates
+    inside the saloon and walked into an obstacle [observed 2026-10-08]. A target in
+    another exterior cell must be in the loaded area (GetDistance ends the script
+    otherwise; the drive then stops with an error, recorded)."""
     n = cs.Names(*ctx)
     t = n.operand(target)
-    return cs.function(n.decls + ["int iK", "float fA", "float fD"],
-                       n.setup + [f"let iK := GetControl {CONTROL_FORWARD}", f"let fD := player.GetDistance {t}",
-                                  f"if fD < {cs.number(within)}", "  ReleaseKey iK", "  let fA := 1", "else",
-                                  f"  let fA := player.GetAngle Z + player.GetHeadingAngle {t}",
-                                  "  player.SetAngle Z fA", "  HoldKey iK", "  let fA := 0", "endif",
+    return cs.function(n.decls + ["int iK", "float fA", "float fD", "float fI", "float fS"],
+                       n.setup + [f"let iK := GetControl {CONTROL_FORWARD}", "let fA := 0",
+                                  f"let fI := {t}.IsInInterior + player.IsInInterior",
+                                  f"let fS := player.GetInSameCell {t}",
+                                  "if fI > 0", "  if fS == 0", f"    let fA := {WALK_UNREACHABLE}", "  endif", "endif",
+                                  "if fA > 0", "  ReleaseKey iK", "else",
+                                  f"  let fD := player.GetDistance {t}",
+                                  f"  if fD < {cs.number(within)}", "    ReleaseKey iK", f"    let fA := {WALK_ARRIVED}",
+                                  "  else", f"    let fD := player.GetAngle Z + player.GetHeadingAngle {t}",
+                                  "    player.SetAngle Z fD", "    HoldKey iK", "  endif", "endif",
                                   "SetFunctionValue fA"])
 
 
@@ -494,7 +507,8 @@ def read_samples(lines, source=""):
         elif kind == "observed" and current is not None:
             current["end"] = rec.get("reason")
         elif kind == "drive" and current is not None:
-            current.setdefault("drives", []).append({"reason": rec.get("reason"), "loops": rec.get("loops")})
+            current.setdefault("drives", []).append({"reason": rec.get("reason"), "loops": rec.get("loops"),
+                                                     "value": rec.get("value")})
     return mods, observations
 
 
