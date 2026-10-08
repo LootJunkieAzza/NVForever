@@ -125,6 +125,21 @@ pub struct Observe {
     pub drive_frames: u32,
     #[serde(default)]
     pub drive_end: Option<String>,
+    /// Checked once per sample (plugin version 6).
+    #[serde(default)]
+    pub hooks: Vec<Hook>,
+}
+
+/// When `when` has returned non-zero at `after` samples in a row, `then` runs once (and
+/// the count starts again). Used to close a dialogue an NPC opened with the player
+/// (docs/spec-notes/ai-observer.md §3).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Hook {
+    pub name: String,
+    pub when: String,
+    pub after: u32,
+    pub then: String,
 }
 
 /// Subjects of one kind (e.g. actors near the player, or named actors wherever they
@@ -234,6 +249,8 @@ pub struct Runner {
     auto_start: Option<u32>,
     /// Numbers kept by `remember` steps, for the running job.
     vars: HashMap<String, f64>,
+    /// Consecutive samples each hook of the running observe step has been true.
+    hook_counts: Vec<u32>,
     pub plugin_version: u32,
     pub nvse_version: u32,
     pub runtime_version: u32,
@@ -241,7 +258,7 @@ pub struct Runner {
 
 impl Runner {
     pub fn new(plugin_version: u32, nvse_version: u32, runtime_version: u32) -> Runner {
-        Runner { pending: Vec::new(), state: State::Idle, prev: (false, false), auto_start: None, vars: HashMap::new(), plugin_version, nvse_version, runtime_version }
+        Runner { pending: Vec::new(), state: State::Idle, prev: (false, false), auto_start: None, vars: HashMap::new(), hook_counts: Vec::new(), plugin_version, nvse_version, runtime_version }
     }
 
     /// Switch to automatic mode (see `auto_start`).
@@ -396,6 +413,7 @@ impl Runner {
                             line: json!({"kind": "observing", "step": step, "label": o.label, "fields": o.fields,
                                          "every": o.every, "groups": groups}),
                         });
+                        self.hook_counts = vec![0; o.hooks.len()];
                         next = State::Observing { step, sample: 0, wait: 0, drive_on: o.drive.is_some(), drive_loops: 0 };
                     }
                     Step::Remember(r) => match expand(&r.remember, vars).and_then(|t| host.script(&t)) {
@@ -411,7 +429,9 @@ impl Runner {
             }
             State::Observing { step, sample, wait, drive_on, drive_loops } => {
                 let Step::Observe(o) = &job.steps[step] else { unreachable!("observing a step that is not observe") };
-                self.state = self.observe_tick(&job.name, step, &o.observe, (sample, wait, drive_on, drive_loops), end_pressed, host, &mut ev);
+                let mut counts = std::mem::take(&mut self.hook_counts);
+                self.state = self.observe_tick(&job.name, step, &o.observe, (sample, wait, drive_on, drive_loops), end_pressed, host, &mut ev, &mut counts);
+                self.hook_counts = counts;
             }
         }
         ev
@@ -420,7 +440,7 @@ impl Runner {
     /// One game loop of an `observe` step; returns the next state.
     #[allow(clippy::too_many_arguments)]
     fn observe_tick(&self, job: &str, step: usize, o: &Observe, (sample, wait, mut drive_on, mut drive_loops): (u32, u32, bool, u32),
-                    end_pressed: bool, host: &mut dyn Host, ev: &mut Vec<Event>) -> State {
+                    end_pressed: bool, host: &mut dyn Host, ev: &mut Vec<Event>, hook_counts: &mut [u32]) -> State {
         let out = |ev: &mut Vec<Event>, line: Json| ev.push(Event::Output { job: job.to_string(), line });
         let vars = &self.vars;
         let stop_drive = |ev: &mut Vec<Event>, host: &mut dyn Host, loops: u32, reason: &str, value: Option<f64>| {
@@ -480,6 +500,24 @@ impl Runner {
             errors += 1;
             first_error.get_or_insert(e);
         };
+        for (h, count) in o.hooks.iter().zip(hook_counts.iter_mut()) {
+            match expand(&h.when, vars).and_then(|t| host.script(&t)) {
+                Ok(Value::Number(n)) if n != 0.0 => *count += 1,
+                Ok(_) => *count = 0,
+                Err(e) => {
+                    note(format!("hook {} when: {e}", h.name));
+                    *count = 0;
+                }
+            }
+            if *count >= h.after.max(1) {
+                let mut line = json!({"kind": "hook", "step": step, "n": sample, "name": h.name, "samples": *count});
+                if let Err(e) = expand(&h.then, vars).and_then(|t| host.script(&t)) {
+                    line["error"] = json!(e);
+                }
+                out(ev, line);
+                *count = 0;
+            }
+        }
         let mut header = Vec::with_capacity(o.header.len());
         for h in &o.header {
             match expand(h, vars).and_then(|t| host.script(&t)) {
@@ -783,6 +821,30 @@ mod tests {
         m.keys.extend([(true, false)]);
         all.extend(r.tick(&mut m));
         assert!(lines(&all).iter().any(|l| l["kind"] == "observed" && l["reason"] == "end_key"));
+    }
+
+    #[test]
+    fn hooks_fire_after_consecutive_samples() {
+        let mut m = Mock::default();
+        let mut r = Runner::new(6, 0, 0);
+        r.set_auto_start(Some(0));
+        // "ready 3" is non-zero from its 3rd call on: true at samples 2, 3, 4, ...; with
+        // after 2 the hook fires at sample 3 and, counting again, at sample 5.
+        let job = Job::parse(r#"{"format": "fnv.capture.steps/1", "name": "h1", "steps": [
+            {"observe": {"label": "x", "every": 1, "max_samples": 6,
+                         "hooks": [{"name": "menu", "when": "ready 3", "after": 2, "then": "count"},
+                                   {"name": "bad", "when": "nope", "after": 1, "then": "count"}]}}]}"#).unwrap();
+        r.game_loaded(vec![job], &mut m);
+        let mut all = Vec::new();
+        for _ in 0..12 {
+            all.extend(r.tick(&mut m));
+        }
+        let out = lines(&all);
+        let fired: Vec<(u64, &str)> = out.iter().filter(|l| l["kind"] == "hook")
+            .map(|l| (l["n"].as_u64().unwrap(), l["name"].as_str().unwrap())).collect();
+        assert_eq!(fired, [(3, "menu"), (5, "menu")]);
+        assert!(out.iter().filter(|l| l["kind"] == "sample").all(|l| l["errors"] == 1), "a failing hook is an error, not a stop");
+        assert_eq!(m.scripts.iter().filter(|t| *t == "count").count(), 2);
     }
 
     #[test]

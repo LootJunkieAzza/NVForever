@@ -42,7 +42,7 @@ import capture_steps as cs  # noqa: E402
 CAMPAIGN_FORMAT = "fnv.observe.campaign/1"
 TIMELINE_FORMAT = "fnv.observe.timeline/1"
 RUN_FORMAT = "fnv.observe.run/1"
-PLUGIN_VERSION = 5  # the observe step (4), drive values (5) (tools/capture/nvf_capture/src/runner.rs)
+PLUGIN_VERSION = 6  # the observe step (4), drive values (5), hooks (6) (tools/capture/nvf_capture/src/runner.rs)
 
 # Form type code of actors for GetFirstRef / GetNumRefs [documented: GECK wiki
 # GetFirstRef, "200 for actors"].
@@ -56,7 +56,16 @@ MAX_FPS = 240
 # Seconds allowed per session on top of its game time (start-up, load, travel, quit).
 SESSION_MARGIN = 300
 DEFAULTS = {"every": 60, "depth": 1, "settle_frames": 300, "timescale": None, "max_actors": 128,
-            "console_first": []}
+            "console_first": [], "close_menus_after": 600}
+# A walk starts this far from its target (player.MoveTo <target> <offset> 0 0; MoveTo's
+# offsets [documented: GECK wiki MoveTo]): a straight walk from further away ran into a
+# fence and stayed there [observed 2026-10-08, walk_to_settler]. The game loops allowed
+# for the walk itself.
+WALK_APPROACH = 600
+WALK_FRAMES = 1200
+# Game loops to wait after MoveTo moves the player (it queues the move and does not
+# halt the script [documented: GECK wiki MoveTo]).
+MOVETO_FRAMES = 120
 
 # Probe fields. kind "ref": the expression gives a form, recorded as its load-order
 # FormID (GetFormIDString; "00000000" when there is none); "num": a number, recorded with
@@ -210,6 +219,22 @@ def walk_script(target, within, ctx):
                                   "SetFunctionValue fA"])
 
 
+def approach_script(target, offset, ctx):
+    return cs.run_script([f"player.MoveTo {{0}} {cs.number(offset)} 0 0"], ctx, [target])
+
+
+def menu_open_script():
+    """1 while any menu is open: MenuMode without an argument [documented: GECK wiki
+    MenuMode (Function); its example uses `If MenuMode`]."""
+    return cs.function(["float fV"], ["if MenuMode", "  let fV := 1", "endif", "SetFunctionValue fV"])
+
+
+def close_menus_script():
+    """con_CloseAllMenus (xNVSE) [documented: GECK wiki; it must not be used while the
+    Pip-Boy is open, which the bot never opens]."""
+    return cs.function([], ["con_CloseAllMenus"], returns_value=False)
+
+
 def release_script():
     return cs.function(["int iK"], [f"let iK := GetControl {CONTROL_FORWARD}", "ReleaseKey iK"], returns_value=False)
 
@@ -255,7 +280,7 @@ def check_campaign(c):
     if len(set(names)) != len(names):
         raise InputError("session names must be unique")
     known = {"name", "go", "hour", "hours", "walk", "track", "every", "depth", "settle_frames", "timescale",
-             "max_actors", "console_first"}
+             "max_actors", "console_first", "close_menus_after"}
     for s in c["sessions"] + [c.get("defaults", {})]:
         extra = set(s) - known
         if extra:
@@ -319,11 +344,24 @@ def session_job(campaign, session, ctx):
     obs = {"label": s["name"], "fields": fields_doc(tracked), "header": [header_script(k, e) for _, k, e in HEADER],
            "groups": groups(s["depth"], s["max_actors"], tracked, ctx), "every": every,
            "until": until_hours_script("t0", hours), "max_samples": int(math.ceil(loops / every)) + 10}
+    close_after = s.get("close_menus_after")
+    if close_after:
+        # A dialogue an NPC starts with the player stops the game clock, so `until`
+        # would never be met [observed 2026-10-08, meet_sunny]; close it after a while.
+        obs["hooks"] = [{"name": "close_menus", "when": menu_open_script(),
+                         "after": max(1, int(math.ceil(int(close_after) / every))), "then": close_menus_script()}]
     walk = s.get("walk")
     if walk:
+        unknown = set(walk) - {"to", "within", "max_frames", "approach"}
+        if unknown:
+            raise InputError(f"session {s['name']}: unknown walk keys {sorted(unknown)}")
         obs["drive"] = walk_script(walk["to"], float(walk.get("within", 150)), ctx)
-        obs["drive_frames"] = int(walk.get("max_frames", 3600))
+        obs["drive_frames"] = int(walk.get("max_frames", WALK_FRAMES))
         obs["drive_end"] = release_script()
+        approach = float(walk.get("approach", WALK_APPROACH))
+        if approach > 0:
+            steps.insert(-1, {"script": approach_script(walk["to"], approach, ctx)})
+            steps.insert(-1, {"frames": MOVETO_FRAMES})
     steps.append({"observe": obs})
     if walk:
         steps.append({"script": release_script()})
@@ -506,6 +544,8 @@ def read_samples(lines, source=""):
             current["samples"].append(rec)
         elif kind == "observed" and current is not None:
             current["end"] = rec.get("reason")
+        elif kind == "hook" and current is not None:
+            current.setdefault("hooks", []).append({"n": rec.get("n"), "name": rec.get("name"), "error": rec.get("error")})
         elif kind == "drive" and current is not None:
             current.setdefault("drives", []).append({"reason": rec.get("reason"), "loops": rec.get("loops"),
                                                      "value": rec.get("value")})
@@ -561,7 +601,7 @@ def timeline(sources, names=None):
             header_fields = [tuple(h) for h in f.get("header", [])]
             part_fields = [[tuple(x) for x in p] for p in f.get("parts", [])]
             sessions.append({"source": source, "label": ob["label"], "samples": len(ob["samples"]), "end": ob["end"],
-                             "drives": ob.get("drives", [])})
+                             "drives": ob.get("drives", []), "hooks": ob.get("hooks", [])})
             for smp in ob["samples"]:
                 head = {}
                 for (name, kind), v in zip(header_fields, smp.get("header", [])):
