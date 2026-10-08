@@ -3,8 +3,9 @@
 //! camera (docs/design/layer3.md). Read-only: plugins and archives are only read.
 //!
 //! Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
-//! F12 screenshot, Esc quit (with `--play`, Esc in a menu closes the menu). With `--play` the camera is the player instead (Layer 4,
-//! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md).
+//! F12 screenshot, Esc quit. With `--play` the camera is the player instead (Layer 4,
+//! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md),
+//! and Esc in a menu closes the menu.
 
 mod fly;
 mod lod;
