@@ -273,18 +273,31 @@ debug log: 18 references not in the world, the 8 that `fnvtool` also counts as I
 Disabled and 10 that the simulation disables through their enable parents].
 
 Seen in NVForever, not in the game [observed]: walking east into the rock 0x000EDE82
-(layer Terrain) at about (-31043, -18055) the capsule jitters in place (about 85 units/s
-of back-and-forth path) and creeps up 0.2 units/s; `fnvtool phys walk` from
-(-31455, -18200) at velocity (600, 0) reproduces it to the unit, so it is the
-controller's, not the game integration's.
+(layer Terrain) at about (-31043, -18055) the capsule jittered in place (about 85 units/s
+of back-and-forth path) and crept up 0.2 units/s; `fnvtool phys walk` from
+(-31455, -18200) at velocity (600, 0) reproduced it to the unit, so it was the
+controller's, not the game integration's. **Cause** [observed: per-step trace]: the
+capsule was pressed into a concave corner of the rock's mesh; rapier's controller slides
+along one face at a time, the slide along one face pushed it into the other, and the
+position cycled with a period of three steps, about 2 units of y per step. **Fix**
+(`fnv_phys::character::wedged`): the walls hit while sliding, plus the walls the capsule
+already touches (contact manifolds within its gap + 0.5), are collected as horizontal
+normals; when every wall the motion pushes into would, after sliding along it, push into
+another, the step is re-run without horizontal motion (the multi-plane clip of sliding
+controllers: the only free direction is up the crease, which a wall too steep to climb
+does not allow). The same walk now stops at (-31047.1, -18053.9) and stays there to
+0.01 units, z constant within 0.007 (test `character_wedged_in_a_corner_stays_put` uses
+notches of 20°, 30° and 45°; without the rule it fails with 0.5 units of back-and-forth
+per second). A slow settling deeper into a narrow notch (under 1 unit/s, monotone) can
+remain; it is real free space, not oscillation.
 
-A rapier quirk found while testing the contact shells [observed: rapier 0.36.0]: when the sweep meets
+A second rapier quirk found while testing [observed: rapier 0.36.0]: when the sweep meets
 an exactly level surface (normal straight up) its slope tangent direction is degenerate,
 and if the computed tangent dips a hair below horizontal the whole remaining horizontal
 motion of the step is dropped: once in 60 steps of a walk along a terrain cell seam the
 character moved 0.06 units instead of 1.28. `move_character` continues such a step with
 the horizontal motion it lost, only when every hit of the step was level (test
-`walking_on_level_ground_loses_no_step`). Re-check when upgrading rapier.
+`walking_on_level_ground_loses_no_step`). Re-check both when upgrading rapier.
 
 ### 6.2 Rest height after a teleport (arrival rule)
 
