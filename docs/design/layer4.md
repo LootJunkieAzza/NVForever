@@ -181,8 +181,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    target when a key is down at take-off) and the landing speed profiles are modelled from
    the `mv_air` / `mv_air2` calibrations: running_jump 6/6. The body is now a radius-22
    cylinder on a cone bottom fitted to fence-edge drops, and a falling body no longer
-   slides off steep contacts: B11 16/20 (the rock rows pass); the Havok tree rows are
-   still 14 and 10 low, against a contradiction between the tree and the fence edge that
+   slides off steep contacts: B11 17/20 against the median golden (rock a now passes);
+   the Havok tree rows are still 14 and 10 low, against a contradiction between the tree and the fence edge that
    is open (physics.md §6.4.1). The sinking on edges depends on the fall speed, which is
    not modelled.
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open

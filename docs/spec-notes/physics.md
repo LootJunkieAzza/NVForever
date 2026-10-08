@@ -381,7 +381,10 @@ Rock a grid (game / candidate z; the game moved 0 at every point): −30/−30 8
   that low" [hypothesis]. Same family as the Havok tree rows (the game rests on steep
   branch faces where rapier's controller slides off, §6.4), which the jump-trees
   workstream owns; a shape measurement at a clean vertical edge is designed as backlog
-  B13 (layer4-captures.md §3).
+  B13 (layer4-captures.md §3). **Update 2026-10-08 (jump-trees workstream)**: B13 was run
+  as `mv_diag_fence_edge` / `_low` (§6.4.1); with the body derived from it (radius 22, cone
+  bottom, no slide while falling) the candidate's rock a centre drop rests at 8333.87,
+  inside the game's five-drop range 8327.10–8336.16, without sliding off the step edge.
 - No change made to the candidate and no tolerance or golden touched. **Question for the
   owner** (scenario design is the owner's): rock b and maize differ from their goldens by
   the game's own spread (rock b 7.8 units over six identical drops; the maize slide in 3
@@ -432,6 +435,18 @@ Rock a grid (game / candidate z; the game moved 0 at every point): −30/−30 8
   | terrain_rock_b | 5 | 8508.04 | 6.10 | 8515.13 | pass (+7.09) |
   | noncollidable_maize | 5 | 8706.48 | 0 | 8706.19 | pass: fell straight all five times |
   | the other seven rows | 5 | | 0 | | pass |
+
+  **With the jump-trees body** (radius 22 on a cone bottom, a falling body that does not
+  slide off steep contacts; §6.4.1) [observed, 2026-10-08]: **17 of 20**. terrain_rock_a
+  8333.87 (+0.60, passes), terrain_rock_b 8512.99 (+4.95, passes), noncollidable_maize
+  8706.41 (−0.07), havok_tree_a / _b 8624.07 / 8869.53 (−14.32 / −9.61, fail),
+  collision_marker_b unchanged (8571.55, fail: the body still stops on the Portal Box),
+  props_crate −5.96, the other rows within 2.7; props_barrel still has no game row. The
+  diagnostics with this body: `mv_diag_rocks` repeats all within the game's spread (rock a
+  +0.42 … +6.77 against four drops spread over 9.1, rock b −1.36 … +2.62), the rock a ±30
+  grid within 2.4 at all eight points, the rock b grid within 3 at seven of nine (+4.9 at
+  −30/+0); `mv_diag_maize`: the straight drops within 0.1, the game's landing slides
+  (3 of 14) and the two hangs not modelled, as before.
 
   Rock b passes with 0.9 to spare: over eleven game drops now (8506.51–8514.35; median
   8510.37) the candidate stays at the top of the range, so the row stays sensitive to which
@@ -986,7 +1001,8 @@ at or above their earlier rests.
 
 **Checks** (candidate after these changes; `fnvtool phys cell` on every drop of the four
 drop files, 88 drops) [observed]: 71 within 8 units (33 with the old capsule of 18 that
-slid off steep contacts). `L4.phys.walk.running_jump` 6/6 (it was 0/6); the other walk
+slid off steep contacts). Against the B11 median golden (merged after these
+numbers were taken) the scenario passes 17 of 20 (§4.2). `L4.phys.walk.running_jump` 6/6 (it was 0/6); the other walk
 scenarios unchanged. Misses: the tree centre rows (below), the 10-unit fence drops (the
 hang), two fence drops where the game slid 5–6 units outwards, `collision_marker_b`
 (unchanged), `noncollidable_maize` (unchanged; another workstream). The B11 rock rows

@@ -25,7 +25,7 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.sim.trace.goodsprings_locked_safe_key` | captured 2026-10-08 unattended (`nvftest`, `--go-to-cell GSHouseInterior02`, tgm, tdetect) | pass 13/13 | key opens the lock for good (GetLocked 0) |
 | `L4.sim.trace.goodsprings_locked_safe_no_key` | captured 2026-10-08 unattended (`nvftest`, player in the gas station, tgm, tdetect) | pass 13/13 after the GetLocked fix (12/13 before: level 255 reads 1, not 2) | a first run made after the key job, with the player in another cell, is not used (activation of a container outside the player's cell opens nothing) |
 | `L4.sim.trace.goodsprings_drop_and_retake` | captured 2026-10-08 unattended (`nvfdoc`, `--confirm-after 2 --settle auto`, tgm, tdetect) | 4/6 after the fixes (2/6 before: scripted pick-up of a stack, drop position); the remaining 2 fail only on z, +7.44 from the player's own settled height after the door (B9, workstream 2); do not tune | dropped refs found with `created:<item>` (GetFirstRef scan) |
-| `L4.phys.drops.b11_goodsprings` | captured 2026-10-08 (`mv_b11_drops`, coordinator, re-made `nvfdoc`); golden rebuilt the same day as the median of five repeats (`mv_b11_drops_rep_a` 3 rounds + `_rep_b` 2 rounds, this workstream; owner decision), new file `phys/b11_goodsprings.median.drops.json` (the first golden kept) | 12/20 at capture, 15/20 after the fixes, 14/20 since Portal Box markers are solid again, 16/20 against the median golden (physics.md §4.2) | B11 player row; open: trees (jump-trees workstream), rock a (lands on a step edge, B13), collision_marker_b (falls through the Portal Box five times of five); props_barrel never falls in game; with the body of the jump-trees workstream (radius 22, cone bottom, no slide when falling) see physics.md §4.2 and §6.4.1 |
+| `L4.phys.drops.b11_goodsprings` | captured 2026-10-08 (`mv_b11_drops`, coordinator, re-made `nvfdoc`); golden rebuilt the same day as the median of five repeats (`mv_b11_drops_rep_a` 3 rounds + `_rep_b` 2 rounds, this workstream; owner decision), new file `phys/b11_goodsprings.median.drops.json` (the first golden kept) | 12/20 at capture, 15/20 after the fixes, 14/20 since Portal Box markers are solid again, 16/20 against the median golden (physics.md §4.2); 17/20 with the jump-trees body (rock a passes) | B11 player row; open: trees (14.3 / 9.6 low, physics.md §6.4.1), rock a solved by the B13 body, collision_marker_b (falls through the Portal Box five times of five); props_barrel never falls in game; with the body of the jump-trees workstream (radius 22, cone bottom, no slide when falling) see physics.md §4.2 and §6.4.1 |
 | `L4.phys.walk.fence_slide`, `.fence_stop` | captured 2026-10-08 (`mv_traces`) | 6/6, 6/6 | held out, passed as predicted |
 | `L4.phys.walk.porch_steps` | captured 2026-10-08 (`mv_traces`) | 5/6 → 6/6 | speed kept along uphill slopes (physics.md §6.3) |
 | `L4.phys.walk.running_jump` | captured 2026-10-08 (`mv_traces`) | 0/6 → 6/6 | air control (gain 0.30, `fJumpMoveMult`) and the landing profile, derived from `mv_air` / `mv_air2` (physics.md §6.4.1) |
@@ -244,8 +244,15 @@ written.
   (step edge, B13). Not settled: what triggers the landing slide (seen only on touchdown
   loops of 31 ms or more, which are not enough); a drop with the maize disabled hung in
   mid-air, so the console `Disable` + drop was only seen once.
-- **B13 the player's shape near the feet** (design; overlaps the jump-trees workstream's
-  tree rows). Rock a showed the game's player passing, while falling, a step edge 12.7
+- **B13 the player's shape near the feet** — **done 2026-10-08** by the jump-trees
+  workstream as `mv_diag_fence_edge` / `mv_diag_fence_low` (drops across the 3.54-wide top
+  of the Doc Mitchell yard fence at offsets 0–34, from 10, 50 and 200 units; physics.md
+  §6.4.1): the player rests on the edge out to 22.6 off it and sinks about 1.5 units per
+  unit off it, more for faster falls — not a capsule (the capsule prediction below is
+  refuted). The candidate's body is now a radius-22 cylinder on a cone bottom that does
+  not slide off while falling: rock a passes (+0.60 against the median golden), B11 17/20.
+  Open: the tree centre (physics.md §6.4.1). Was: (design; overlaps the jump-trees
+  workstream's tree rows). Rock a showed the game's player passing, while falling, a step edge 12.7
   units from its axis and 18 above its feet, where a radius-18 capsule would rest
   (physics.md §4.2); fence stops say 21.9 at the waist (§6.3). Drops beside one straight
   vertical edge of a flat-topped static with clear ground below, the axis at horizontal
