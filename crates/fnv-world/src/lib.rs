@@ -12,6 +12,7 @@
 //! Format facts and confidence tags: `docs/spec-notes/world.md`.
 
 pub mod fields;
+pub mod imagespace;
 pub mod index;
 pub mod land;
 pub mod lighting;
