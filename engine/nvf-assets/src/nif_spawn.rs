@@ -196,15 +196,30 @@ pub fn is_editor_marker(name: Option<&str>) -> bool {
 /// bits 1-4 source and 5-8 destination factor (AlphaFunction: 0 ONE, 1 ZERO, 2 SRC_COLOR,
 /// 4 DEST_COLOR, 6 SRC_ALPHA, 7 INV_SRC_ALPHA, ...), bit 9 alpha test]. Bevy offers fixed
 /// modes, so factors map to the nearest: destination ONE is additive, a source of ZERO
-/// or DEST_COLOR multiplies. When both test and blend are set (foliage, fences) the test
-/// is used, except for additive blending [hypothesis: avoids order-dependent blending of
-/// foliage; matches the look so far, to confirm against screenshots].
+/// or DEST_COLOR multiplies.
+///
+/// When both test and blend are set, a threshold of [`BLEND_TEST_CUT`] or more draws
+/// alpha-tested (the test cuts the shape: weapon parts), a lower one blended (the test only
+/// trims nearly transparent texels: dirty glass) [hypothesis, from
+/// `crates/fnv-nif/examples/alpha_survey.rs`, docs/spec-notes/nif.md §6 "Alpha"].
+/// Additive stays additive. Tested first, the dirty glass of the NV poster marquees
+/// (`clutter/signnv/nvposter01.nif`, flags 0x12ED, threshold 0) hid the poster behind
+/// an opaque grey panel [observed].
+///
+/// The test compares alpha with the threshold by bits 10-12 (TestFunction: 4 GREATER, 6
+/// GREATER_EQUAL, ...) [documented: nif.xml AlphaFlags]. Bevy's mask keeps alpha ≥ cutoff,
+/// so GREATER moves the cutoff half a step above the threshold; other functions keep ≥.
+pub(crate) const BLEND_TEST_CUT: i64 = 64;
+
 pub(crate) fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
     let (src, dst) = ((flags >> 1) & 0xF, (flags >> 5) & 0xF);
     let (blend, test) = (flags & 1 != 0, flags & 0x200 != 0);
+    let strict = (flags >> 10) & 7 == 4;
+    let cutoff = (threshold as f32 + if strict { 0.5 } else { 0.0 }) / 255.0;
     match (blend, test, src, dst) {
         (true, _, _, 0) => AlphaMode::Add,
-        (_, true, _, _) => AlphaMode::Mask(threshold as f32 / 255.0),
+        (false, true, _, _) => AlphaMode::Mask(cutoff),
+        (true, true, _, _) if threshold >= BLEND_TEST_CUT => AlphaMode::Mask(cutoff),
         (true, _, 1 | 4, _) => AlphaMode::Multiply,
         (true, ..) => AlphaMode::Blend,
         _ => AlphaMode::Opaque,
@@ -598,11 +613,20 @@ mod tests {
         assert!(matches!(alpha_mode(flags(false, 6, 7, true), 128), AlphaMode::Mask(t) if (t - 128.0 / 255.0).abs() < 1e-6));
         assert!(matches!(alpha_mode(flags(false, 6, 7, false), 0), AlphaMode::Opaque));
         assert!(matches!(alpha_mode(flags(true, 6, 7, true), 128), AlphaMode::Mask(_)));
+        // Blend + test with a low threshold blends (dirty glass).
+        assert!(matches!(alpha_mode(flags(true, 6, 7, true), 0), AlphaMode::Blend));
+        assert!(matches!(alpha_mode(flags(true, 6, 7, true), 63), AlphaMode::Blend));
         assert!(matches!(alpha_mode(flags(true, 6, 0, true), 128), AlphaMode::Add));
         assert!(is_editor_marker(Some("EditorMarker01")) && is_editor_marker(Some("editormarker")));
         assert!(!is_editor_marker(Some("C_EditorMarker01")) && !is_editor_marker(None));
-        // nif.xml default flags 4844 = 0x12EC: blend off, test on.
-        assert!(matches!(alpha_mode(4844, 128), AlphaMode::Mask(_)));
+        // nif.xml default flags 4844 = 0x12EC: blend off, test on, TEST_GREATER.
+        assert!(matches!(alpha_mode(4844, 128), AlphaMode::Mask(t) if (t - 128.5 / 255.0).abs() < 1e-6));
+        // The poster marquee glass (0x12ED, threshold 0) blends.
+        assert!(matches!(alpha_mode(0x12ED, 0), AlphaMode::Blend));
+        // Test only, TEST_GREATER with threshold 0: alpha 0 fails.
+        assert!(matches!(alpha_mode(0x12EC, 0), AlphaMode::Mask(t) if t > 0.0 && t < 1.0 / 255.0));
+        // GREATER_EQUAL keeps the threshold itself.
+        assert!(matches!(alpha_mode(0x200 | (6 << 10), 128), AlphaMode::Mask(t) if (t - 128.0 / 255.0).abs() < 1e-6));
     }
 
     #[test]
