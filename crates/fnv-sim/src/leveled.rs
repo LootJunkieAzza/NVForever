@@ -20,6 +20,8 @@
 //! 5. An entry naming another leveled list is resolved recursively with
 //!    `entry.count × multiplier`.
 
+use std::collections::BTreeMap;
+
 use rand_core::RngCore;
 
 use crate::form::FormId;
@@ -46,7 +48,8 @@ pub fn below(rng: &mut impl RngCore, n: u32) -> u32 {
     }
 }
 
-/// Resolve `count` of `item` (an item or a leveled list) into concrete entries.
+/// Resolve `count` of `item` (an item or a leveled list) into concrete entries, with
+/// every LVLG global at its authored value.
 pub fn resolve(
     forms: &FormStore,
     item: FormId,
@@ -55,11 +58,31 @@ pub fn resolve(
     rng: &mut impl RngCore,
     out: &mut Vec<Entry>,
 ) -> Result<(), LeveledError> {
-    resolve_at(forms, item, count, level, rng, out, 0)
+    resolve_in(forms, &BTreeMap::new(), item, count, level, rng, out)
+}
+
+/// [`resolve`] with the current values of globals that differ from their authored
+/// values (`globals`; e.g. set by a script or the console). An LVLG global is read at
+/// the moment of resolution.
+pub fn resolve_in(
+    forms: &FormStore,
+    globals: &BTreeMap<FormId, f32>,
+    item: FormId,
+    count: i32,
+    level: u16,
+    rng: &mut impl RngCore,
+    out: &mut Vec<Entry>,
+) -> Result<(), LeveledError> {
+    resolve_at(&Ctx { forms, globals }, item, count, level, rng, out, 0)
+}
+
+struct Ctx<'a> {
+    forms: &'a FormStore,
+    globals: &'a BTreeMap<FormId, f32>,
 }
 
 fn resolve_at(
-    forms: &FormStore,
+    cx: &Ctx,
     item: FormId,
     count: i32,
     level: u16,
@@ -72,14 +95,15 @@ fn resolve_at(
     if count <= 0 {
         return Ok(());
     }
-    let Some(list) = forms.leveled(item) else {
+    let Some(list) = cx.forms.leveled(item) else {
         out.push(Entry::new(item, count));
         return Ok(());
     };
     if depth >= MAX_DEPTH {
         return Err(LeveledError::TooDeep(item));
     }
-    let chance_none = match list.global.and_then(|g| forms.globals.get(&g)) {
+    let global = list.global.and_then(|g| cx.globals.get(&g).or_else(|| cx.forms.globals.get(&g)));
+    let chance_none = match global {
         Some(v) => v.clamp(0.0, 100.0) as u32,
         None => list.chance_none as u32,
     };
@@ -92,7 +116,7 @@ fn resolve_at(
         }
         if list.use_all {
             for e in &eligible {
-                resolve_at(forms, e.item, e.count as i32 * mult, level, rng, out, depth + 1)?;
+                resolve_at(cx, e.item, e.count as i32 * mult, level, rng, out, depth + 1)?;
             }
             continue;
         }
@@ -103,7 +127,7 @@ fn resolve_at(
             eligible.iter().copied().filter(|e| e.level == top).collect()
         };
         let e = pool[below(rng, pool.len() as u32) as usize];
-        resolve_at(forms, e.item, e.count as i32 * mult, level, rng, out, depth + 1)?;
+        resolve_at(cx, e.item, e.count as i32 * mult, level, rng, out, depth + 1)?;
     }
     Ok(())
 }
