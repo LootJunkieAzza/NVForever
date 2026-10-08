@@ -9,10 +9,12 @@
 //!  "report": ["player"]}
 //! ```
 //! References and forms are named by FormID (global, hex), by Editor ID, or
-//! `"player"`. Output `fnv.sim.trace/1`: one result per step (a failed step records
+//! `"player"`; `"created:<item>"` names the newest reference a drop created from that
+//! item that is still in the world (its FormID is not known in advance in game). Output `fnv.sim.trace/1`: one result per step (a failed step records
 //! its error and the run continues, since errors are behaviour too), the
 //! `observations` made by the query ops (`get_item_count`, `get_pos`, `get_disabled`,
-//! `get_global`, `get_av`, `get_weight`), and the final
+//! `get_global`, `get_av`, `get_weight`, `get_locked`) and by `activate` steps that carry
+//! a label (`opened`: the activation opened the target's inventory), and the final
 //! state of the reported references (all changed references when `report` is absent).
 //!
 //! Observations are what the parity scenarios compare: they are the values an in-game
@@ -28,6 +30,8 @@ use crate::world::{SimConfig, World};
 
 pub const ACTIONS_FORMAT: &str = "fnv.sim.actions/1";
 pub const TRACE_FORMAT: &str = "fnv.sim.trace/1";
+/// Prefix of the reference name for the newest dropped reference of a base form.
+pub const CREATED_PREFIX: &str = "created:";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -51,7 +55,7 @@ fn one() -> u16 {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
-    Activate { actor: String, target: String },
+    Activate { actor: String, target: String, #[serde(default)] label: Option<String> },
     AddItem { to: String, item: String, count: i32 },
     RemoveItem { from: String, item: String, count: i32 },
     Transfer { from: String, to: String, item: String, count: i32 },
@@ -68,6 +72,7 @@ pub enum Action {
     GetAv { of: String, name: String, #[serde(default)] label: Option<String> },
     SetAv { of: String, name: String, value: f32 },
     GetWeight { of: String, #[serde(default)] label: Option<String> },
+    GetLocked { of: String, #[serde(default)] label: Option<String> },
     DetachCell { cell: String },
     AttachCell { cell: String },
     RemoveAllItems { from: String },
@@ -97,6 +102,7 @@ impl Action {
             Action::GetAv { .. } => "get_av",
             Action::SetAv { .. } => "set_av",
             Action::GetWeight { .. } => "get_weight",
+            Action::GetLocked { .. } => "get_locked",
             Action::DetachCell { .. } => "detach_cell",
             Action::AttachCell { .. } => "attach_cell",
             Action::RemoveAllItems { .. } => "remove_all_items",
@@ -108,10 +114,16 @@ impl Action {
     }
 }
 
-/// Resolve a reference name: "player", a hex FormID, or a reference's Editor ID.
+/// Resolve a reference name: "player", a hex FormID, a reference's Editor ID, or
+/// `created:<item>` (the newest reference created by a drop from that base form that is
+/// still in the world).
 pub fn resolve_ref(w: &World, s: &str) -> Result<FormId, String> {
     if s.eq_ignore_ascii_case("player") {
         return Ok(FormId::PLAYER_REF);
+    }
+    if let Some(item) = s.strip_prefix(CREATED_PREFIX) {
+        let base = resolve_form(w, item)?;
+        return w.newest_created(base).ok_or_else(|| format!("no created reference of {item:?} is in the world"));
     }
     if let Ok(id) = s.parse::<FormId>() {
         if s.starts_with("0x") || s.starts_with("0X") {
@@ -144,9 +156,9 @@ fn step(w: &mut World, a: &Action) -> Result<Value, String> {
     let f = |w: &World, s: &str| resolve_form(w, s);
     let e = |e: crate::world::SimError| e.to_string();
     Ok(match a {
-        Action::Activate { actor, target } => {
+        Action::Activate { actor, target, .. } => {
             let (a, t) = (r(w, actor)?, r(w, target)?);
-            serde_json::to_value(w.activate(a, t).map_err(e)?).expect("serialisable")
+            serde_json::to_value(w.activate_scripted(a, t).map_err(e)?).expect("serialisable")
         }
         Action::AddItem { to, item, count } => {
             let (to, item) = (r(w, to)?, f(w, item)?);
@@ -210,6 +222,9 @@ fn step(w: &mut World, a: &Action) -> Result<Value, String> {
         Action::GetWeight { of, .. } => {
             serde_json::to_value(w.encumbrance(r(w, of)?).map_err(e)?).expect("serialisable")
         }
+        Action::GetLocked { of, .. } => {
+            json!({"locked": w.lock_status(r(w, of)?).map_err(e)?})
+        }
         Action::DetachCell { cell } => {
             w.detach_cell(resolve_cell(w, cell)?).map_err(e)?;
             json!({})
@@ -259,7 +274,8 @@ pub fn run(w: &mut World, s: &Script) -> Result<Value, String> {
         | Action::GetDisabled { label, .. }
         | Action::GetGlobal { label, .. }
         | Action::GetAv { label, .. }
-        | Action::GetWeight { label, .. } = a
+        | Action::GetWeight { label, .. }
+        | Action::GetLocked { label, .. } = a
         {
             let mut ob = json!({"label": label.clone().unwrap_or_else(|| format!("step{i}")), "step": i});
             match &res {
@@ -268,6 +284,16 @@ pub fn run(w: &mut World, s: &Script) -> Result<Value, String> {
                         ob[k] = x.clone();
                     }
                 }
+                Err(err) => ob["error"] = json!(err),
+            }
+            observations.push(ob);
+        }
+        // A labelled activation is observed by what it opened: in game, whether the
+        // container menu (MenuMode 1008) shows the target's inventory afterwards.
+        if let Action::Activate { label: Some(label), .. } = a {
+            let mut ob = json!({"label": label, "step": i});
+            match &res {
+                Ok(v) => ob["opened"] = json!(v["result"] == "opened_container"),
                 Err(err) => ob["error"] = json!(err),
             }
             observations.push(ob);
