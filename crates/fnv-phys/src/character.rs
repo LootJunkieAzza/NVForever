@@ -27,7 +27,8 @@ pub struct CharacterParams {
     /// Steepest walkable slope, degrees from horizontal; steeper slopes are slid down
     /// [hypothesis].
     pub max_slope_deg: f32,
-    /// Apex height of a standing jump above the take-off point [hypothesis].
+    /// Apex height of a standing jump above the take-off point [observed: 61.6 above the
+    /// standing feet, capture mv_trial, physics.md §6.3].
     pub jump_height: f32,
     /// Gap kept between the capsule and the world (numerical skin; not a game value).
     pub skin: f32,
@@ -38,15 +39,15 @@ pub struct CharacterParams {
 }
 
 impl Default for CharacterParams {
-    /// Placeholders sized for a human at 70 units per metre (physics.md §6); none is a
-    /// measured value.
+    /// Placeholders sized for a human at 70 units per metre (physics.md §6), except the
+    /// jump height, measured in game (§6.3).
     fn default() -> Self {
         CharacterParams {
             radius: 18.0,
             height: 128.0,
             step_height: 24.0,
             max_slope_deg: 45.0,
-            jump_height: 64.0,
+            jump_height: 61.6,
             skin: 0.5,
             max_fall_speed: None,
             push_mass: 80.0,

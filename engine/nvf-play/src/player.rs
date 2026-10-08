@@ -67,6 +67,14 @@ pub struct MoveSpeeds {
 }
 
 impl MoveSpeeds {
+    /// The player's speeds measured in game with no one at the controls: running (Always
+    /// Run on, forward held) 344 units/s, walking (the Run key held as well) 86.8 units/s,
+    /// at full speed from the first loop [observed: capture mv_trial, 2026-10-08, a level-1
+    /// character in Doc Mitchell's save, Speed Mult 100; physics.md §6.3]. They are 11–13%
+    /// above `fMoveBaseSpeed` (77) and `× fMoveRunMult` (308); the game's formula is not
+    /// known [hypothesis: animation, armour, weapon and encumbrance may all enter it].
+    pub const OBSERVED: MoveSpeeds = MoveSpeeds { walk: 86.8, run: 344.0 };
+
     /// Walking at `fMoveBaseSpeed`, running at `fMoveBaseSpeed × fMoveRunMult`
     /// [hypothesis: meanings guessed from the setting names; the game's formula (Speed
     /// Mult, encumbrance, sneaking, weapon drawn) is not known — physics.md §6]. Missing
@@ -177,8 +185,12 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>) {
         eye_height: EYE_HEIGHT,
         feet: [x, y, z - EYE_HEIGHT],
     });
-    let speeds = MoveSpeeds::from_settings(sim.forms.setting_f32("fMoveBaseSpeed"), sim.forms.setting_f32("fMoveRunMult"));
-    info!("player speeds: walk {:.0}, run {:.0} units/s", speeds.walk, speeds.run);
+    let settings = MoveSpeeds::from_settings(sim.forms.setting_f32("fMoveBaseSpeed"), sim.forms.setting_f32("fMoveRunMult"));
+    let speeds = MoveSpeeds::OBSERVED;
+    info!(
+        "player speeds: walk {:.1}, run {:.0} units/s (measured in game; fMoveBaseSpeed and fMoveRunMult give {:.0} and {:.0})",
+        speeds.walk, speeds.run, settings.walk, settings.run
+    );
     commands.insert_resource(speeds);
 }
 
