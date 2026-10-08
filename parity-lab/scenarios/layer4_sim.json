@@ -296,6 +296,50 @@
     "M4",
     "needs-local-capture"
    ]
+  },
+  {
+   "id": "L4.sim.trace.goodsprings_merchant_midnight_restock",
+   "layer": 4,
+   "description": "Merchant restock days: Ringo's cash box 0x001629C0 in GSGasStation (player stays inside, no menus; parity-lab/inputs/layer4/goodsprings_merchant_midnight_restock.actions.json) is emptied and read 72 h later, left full 96 h, emptied at start+7 days and read 24 h later, then emptied at start+8 days with a stimpak put in and read daily for 3 days, against an in-game capture (save nvftest, GameDaysPassed 12.388). Restocks come at midnights whose GameDaysPassed is 0 or 3 modulo 7 (docs/spec-notes/simulation.md section 3), not at a fixed time after the last restock or an access: the box stays empty over start+8 (day 20 in game, 13 in the simulation) and refills over start+9 (21 / 14), stimpak gone. The hidden last-restock time of the save plays no part, but the reads depend on where the start falls in the 7-day cycle: they are the same for any start between 5 and 6 modulo 7, which holds for both the authored clock (5.0) and the save (12.388).",
+   "oracle": {
+    "golden": "sim/goodsprings_merchant_midnight_restock.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/goodsprings_merchant_midnight_restock.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "sim",
+    "respawn",
+    "merchant",
+    "containers",
+    "time",
+    "M4",
+    "needs-local-capture"
+   ]
   }
  ]
 }
