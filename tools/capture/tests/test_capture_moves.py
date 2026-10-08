@@ -49,6 +49,31 @@ class Jobs(unittest.TestCase):
         self.assertEqual(sum(1 for s in body if s.get("field") == "sample"), 25)
         self.assertTrue(any("remember" in s for s in body))
 
+    def test_walk_reset_and_pitch(self):
+        doc = json.loads(json.dumps(WALK))
+        doc["segments"][1]["swim_velocity"] = [0.0, 200.0, -50.0]
+        doc["capture"].update(reset_at=[5.0, 6.0, 7.0], pitch_deg=40)
+        body = cm.make_job([doc], "j", "s")["steps"][len(cs.MASTERS):]
+        self.assertIn("player.SetPos X 5", body[0]["script"])
+        self.assertEqual(body[1], {"frames": cm.RESET_FRAMES})
+        self.assertEqual(body[2], {"console": "CloseAllMenus"})
+        texts = [s.get("script", "") for s in body]
+        self.assertTrue(any("player.SetAngle X 40" in t for t in texts))
+        self.assertIn("player.SetAngle X 0", texts[-1])
+        doc["segments"][1]["swim_velocity"] = [200.0, 0.0, 0.0]
+        with self.assertRaises(cm.InputError):
+            cm.make_job([doc], "j", "s")
+
+    def test_back_key_moves_against_the_view(self):
+        doc = json.loads(json.dumps(WALK))
+        doc["segments"][1]["velocity"] = [0.0, -300.0]
+        doc["capture"]["keys"] = ["back"]
+        body = cm.make_job([doc], "j", "s")["steps"][len(cs.MASTERS):]
+        self.assertTrue(any("GetControl 1" in s.get("script", "") for s in body))
+        doc["capture"]["keys"] = ["forward"]
+        with self.assertRaises(cm.InputError):
+            cm.make_job([doc], "j", "s")
+
     def test_heading_must_match_the_segments(self):
         doc = json.loads(json.dumps(WALK))
         doc["capture"]["heading_deg"] = 90
