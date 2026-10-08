@@ -349,8 +349,28 @@ not know Editor IDs at run time. Forms in jobs are named by plugin file and loca
 so the game's own load order does not matter; output FormIDs are mapped back through the masters' mod indices,
 which every job records first (`GetModIndex`). A step that fails (e.g. a script that does not compile) is recorded
 as an error and the job continues; check the golden for `error` fields before using it.
-Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, layouts) and
-`tests/test_capture_steps.py`.
+**Unattended runs (`capture_run.py`, plugin version 2):** no one needs to be at the game
+for jobs without manual steps. One-time: make a save for captures with a plain name from
+the console (`save nvftest`), and copy the rebuilt DLL as in step 2. Then:
+```
+python tools/capture/capture_run.py --game "<FNV folder>" --save nvftest C:/path/to/<job>.steps.json [...] -o C:/fnv-private/capture/run.json
+```
+It copies the jobs into `jobs\`, writes `auto.json` (the plugin's instruction to load the
+save from the main menu, start jobs by itself and quit when done; xnvse-capture.md §4),
+starts `nvse_loader.exe` (Steam must be running), waits, and writes a report: each job's
+status (`ended`, `aborted`, `running` = cut off, `missing`), its output file and number of
+failed steps, problems (game did not start, crashed, old plugin, timeout) and the
+plugin's log lines from this run. `--trace-dir C:/fnv-private/goldens/sim` also builds the
+trace goldens of ended jobs. Jobs with manual steps are refused unless `--attended`
+(someone presses End after each); other jobs already pending in `jobs\` are refused
+unless `--include-pending`. Exit code 0 means every job ended. The console lines for
+loading and quitting are not yet confirmed in game (xnvse-capture.md §6); run the trial
+first and change them with `--menu-console` / `--quit-console` if needed:
+```
+python tools/capture/capture_run.py --game "<FNV folder>" --save nvftest tools/capture/jobs/aa_auto_trial.steps.json
+```
+Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, automatic mode,
+layouts), `tests/test_capture_steps.py` and `tests/test_capture_run.py`.
 
 ## Tests
 
