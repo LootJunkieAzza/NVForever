@@ -308,7 +308,18 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   diffuse and normal textures,
   `textures\landscape\lod\<world>\{diffuse,normals}\<world>.n.level<L>.x<X>.y<Y>.dds`
   (1,360 of each, one per chunk). The geometry also
-  carries an NiAdditionalGeometryData stream of one f32 per vertex (meaning unknown).
+  carries an NiAdditionalGeometryData stream of one f32 per vertex (meaning unknown;
+  in level4.x12.y8 it equals the vertex's z for all 1,299 vertices [observed]).
+  Level-4 textures are 256 × 256 DXT1 with mips, i.e. 64 texels per cell side
+  [observed: x12.y8 diffuse and normals]. In level4.x12.y8 [observed]: the terrain
+  NiTriShapeData has no vertex normals or tangents; its UVs are u = 1 − x / 16,384,
+  v = y / 16,384 in chunk-local units (all 1,299 vertices), so image row 0 is the
+  south edge and column 0 the east edge; the normal map is in model space, red = +x
+  (east), green = +y (north), blue = +z (up) — the slope triangles' face normals agree
+  with it on average at 0.71 (dot product) against at most 0.52 for any other
+  sign or axis-swap convention. A second shape (BSSegmentedTriShape, 682 vertices, no
+  properties, no UVs, flat at z = 2,600, the Lake Mead water height) follows the
+  terrain shape [hypothesis: a water LOD surface].
 - **Objects**: `...\<world>\blocks\<world>.level4.x<X>.y<Y>.nif` (289 for WastelandNV,
   plus 6 `.high.` variants), merged geometry of distant buildings and landmarks over the
   same 4 × 4-cell squares, textured from one atlas `...\blocks\<world>.buildings.dds`

@@ -110,7 +110,10 @@ What it does now:
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
   entirely inside are dropped and the vertices inside are sunk 2,000 units so the
   border triangles slope under the loaded terrain. Object blocks are drawn only over
-  squares with no loaded cell. Interim rules, to compare with screenshots; small dark
+  squares with no loaded cell. Terrain chunks are shaded by their model-space normal
+  maps alone (world.md §7): each vertex gets an up normal and an east tangent so the
+  standard tangent-space normal mapping reads the map as model-space normals; the
+  untextured water-height shape is skipped (water planes cover it). Interim rules, to compare with screenshots; small dark
   boxes on distant ridges (probably rock formations in the object LOD) to check.
 - SpeedTree trees (TREE): interim billboards, two crossed alpha-tested quads with the
   tree's billboard texture at its BNAM size (world.md §2); full `.spt` geometry later.

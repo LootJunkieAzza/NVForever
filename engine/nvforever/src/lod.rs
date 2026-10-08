@@ -12,6 +12,13 @@
 //! overlaps the loaded cells only its triangles reaching outside them are kept, with the
 //! vertices inside sunk below the loaded terrain; object
 //! blocks are drawn only where no cell of their square is loaded.
+//!
+//! Terrain chunk shading [observed, world.md §7]: the chunk meshes carry no vertex
+//! normals and their normal maps are in model space (red = east, green = north, blue =
+//! up), so each chunk mesh gets a constant up normal and an east tangent, which makes
+//! the renderer's tangent-space normal mapping read the map as model-space normals. The
+//! untextured second shape in each chunk (flat at the water height) is not drawn; the
+//! water planes cover it [hypothesis: a water LOD surface].
 
 use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
 use bevy::asset::RenderAssetUsages;
@@ -36,6 +43,8 @@ pub struct LodState {
     /// were built for.
     built_for: Option<BuiltFor>,
     entities: HashMap<(i32, i32), Vec<Entity>>,
+    /// Shading-fixed meshes of whole (untrimmed) terrain chunks, per chunk and shape.
+    meshes: HashMap<(i32, i32), Vec<Option<Handle<Mesh>>>>,
     pub chunks: usize,
     pub blocks: usize,
 }
@@ -43,7 +52,7 @@ pub struct LodState {
 impl LodState {
     pub fn new(world: &WorldData, radius: i32, enabled: bool) -> LodState {
         let name = world.index.worldspaces[&world.world].edid.clone().unwrap_or_default().to_ascii_lowercase();
-        LodState { radius, enabled, world_name: name, built_for: None, entities: HashMap::new(), chunks: 0, blocks: 0 }
+        LodState { radius, enabled, world_name: name, built_for: None, entities: HashMap::new(), meshes: HashMap::new(), chunks: 0, blocks: 0 }
     }
 
     /// Turn distant LOD on or off (off: its entities are removed now).
@@ -78,35 +87,49 @@ fn in_square(p: Vec3, lo: (i32, i32), hi: (i32, i32)) -> bool {
 /// Depth by which LOD vertices inside the loaded square are sunk (game units).
 const SINK: f32 = 2000.0;
 
-/// A copy of `mesh` without the triangles that lie entirely inside the loaded square;
-/// vertices inside it are sunk by [`SINK`] so the triangles crossing its edge slope
-/// down under the loaded terrain instead of poking through it.
-fn trim_mesh(mesh: &Mesh, to_world: &bevy::math::Affine3A, lo: (i32, i32), hi: (i32, i32)) -> Option<Mesh> {
+/// The loaded square to cut out of a chunk: chunk-to-world transform, min and max cell.
+type Trim<'a> = (&'a bevy::math::Affine3A, Grid, Grid);
+
+/// A drawable copy of a terrain chunk shape: up normals and east tangents so the
+/// model-space normal map shades it (module docs), or `None` for the untextured shape.
+/// With `trim`, the triangles that lie entirely inside the loaded square are dropped and
+/// vertices inside it are sunk by [`SINK`], so the triangles crossing its edge slope down
+/// under the loaded terrain instead of poking through it.
+fn terrain_mesh(mesh: &Mesh, trim: Option<Trim>) -> Option<Mesh> {
     let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { return None };
-    let from_world = to_world.inverse();
-    let mut inside = Vec::with_capacity(pos.len());
-    let mut new_pos = Vec::with_capacity(pos.len());
-    for p in pos {
-        let w = to_world.transform_point3(Vec3::from_array(*p));
-        let i = in_square(w, lo, hi);
-        inside.push(i);
-        let w = if i { w - Vec3::Z * SINK } else { w };
-        new_pos.push(from_world.transform_point3(w).to_array());
-    }
-    let idx: Vec<u32> = match mesh.indices()? {
+    mesh.attribute(Mesh::ATTRIBUTE_UV_0)?;
+    let mut idx: Vec<u32> = match mesh.indices()? {
         Indices::U32(i) => i.clone(),
         Indices::U16(i) => i.iter().map(|&v| v as u32).collect(),
     };
-    let kept: Vec<u32> = idx.chunks(3).filter(|t| t.iter().any(|&v| !inside[v as usize])).flatten().copied().collect();
-    if kept.is_empty() {
-        return None;
+    let mut new_pos = pos.clone();
+    if let Some((to_world, lo, hi)) = trim {
+        let from_world = to_world.inverse();
+        let mut inside = Vec::with_capacity(pos.len());
+        for (p, out) in pos.iter().zip(&mut new_pos) {
+            let w = to_world.transform_point3(Vec3::from_array(*p));
+            let i = in_square(w, lo, hi);
+            inside.push(i);
+            if i {
+                *out = from_world.transform_point3(w - Vec3::Z * SINK).to_array();
+            }
+        }
+        idx = idx.chunks(3).filter(|t| t.iter().any(|&v| !inside[v as usize])).flatten().copied().collect();
+        if idx.is_empty() {
+            return None;
+        }
     }
+    let n = pos.len();
     let mut out = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
     for (id, values) in mesh.attributes() {
         out.insert_attribute(*id, values.clone());
     }
     out.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_pos);
-    out.insert_indices(Indices::U32(kept));
+    // Model space is game space here (the chunk's transforms only translate it).
+    out.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; n]);
+    // Bitangent = w × (normal × tangent) = up × east = north.
+    out.insert_attribute(Mesh::ATTRIBUTE_TANGENT, vec![[1.0, 0.0, 0.0, 1.0]; n]);
+    out.insert_indices(Indices::U32(idx));
     Some(out)
 }
 
@@ -139,6 +162,10 @@ pub fn update_lod(
     lod.chunks = 0;
     lod.blocks = 0;
     let lr = lod.radius;
+    // Forget chunk meshes well outside the drawn area.
+    lod.meshes.retain(|&(x, y), _| {
+        (x.div_euclid(LEVEL) - centre_chunk.0).abs() <= lr + 2 && (y.div_euclid(LEVEL) - centre_chunk.1).abs() <= lr + 2
+    });
     for dx in -lr..=lr {
         for dy in -lr..=lr {
             let (cx, cy) = ((centre_chunk.0 + dx) * LEVEL, (centre_chunk.1 + dy) * LEVEL);
@@ -148,15 +175,24 @@ pub fn update_lod(
             // Chunks exist only inside the worldspace's LOD grid; skip the rest quietly.
             let terrain = models.data.vfs.exists(&tp).then(|| models.model_with_cpu(&tp)).flatten();
             if let Some(model) = terrain {
-                for s in &model.shapes {
+                if !overlaps && !lod.meshes.contains_key(&(cx, cy)) {
+                    // The GPU mesh cannot be read back once uploaded; derive from the CPU copy.
+                    let fixed = model
+                        .shapes
+                        .iter()
+                        .map(|s| s.cpu.as_deref().and_then(|m| terrain_mesh(m, None)).map(|m| models.meshes.add(m)))
+                        .collect();
+                    lod.meshes.insert((cx, cy), fixed);
+                }
+                for (i, s) in model.shapes.iter().enumerate() {
                     let st = model.root * s.transform;
                     let mesh = if overlaps {
-                        // The GPU mesh cannot be read back once uploaded; trim the CPU copy.
                         let Some(m) = s.cpu.as_deref() else { continue };
-                        let Some(t) = trim_mesh(m, &st, lo, hi) else { continue };
+                        let Some(t) = terrain_mesh(m, Some((&st, lo, hi))) else { continue };
                         models.meshes.add(t)
                     } else {
-                        s.mesh.clone()
+                        let Some(Some(m)) = lod.meshes[&(cx, cy)].get(i) else { continue };
+                        m.clone()
                     };
                     // Push LOD terrain behind loaded terrain where both exist.
                     if let Some(mut mat) = models.materials.get_mut(&s.material) {
@@ -201,5 +237,30 @@ mod tests {
         assert!(in_square(Vec3::new(0.0, 0.0, 0.0), lo, hi));
         assert!(in_square(Vec3::new(3.0 * CELL_SIZE - 1.0, -2.0 * CELL_SIZE + 1.0, 0.0), lo, hi));
         assert!(!in_square(Vec3::new(3.0 * CELL_SIZE + 1.0, 0.0, 0.0), lo, hi));
+    }
+
+    fn quad(uv: bool) -> Mesh {
+        let s = CELL_SIZE;
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[1.0, 1.0, 9.0], [s - 1.0, 1.0, 9.0], [s - 1.0, s - 1.0, 9.0], [1.0, s - 1.0, 9.0], [2.0 * s, 1.0, 9.0]]);
+        if uv {
+            m.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0]; 5]);
+        }
+        m.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3, 1, 4, 2]));
+        m
+    }
+
+    #[test]
+    fn terrain_mesh_shading_and_trim() {
+        assert!(terrain_mesh(&quad(false), None).is_none(), "untextured shape is skipped");
+        let m = terrain_mesh(&quad(true), None).unwrap();
+        let Some(VertexAttributeValues::Float32x3(n)) = m.attribute(Mesh::ATTRIBUTE_NORMAL) else { panic!() };
+        assert!(n.iter().all(|v| *v == [0.0, 0.0, 1.0]));
+        let Some(VertexAttributeValues::Float32x4(t)) = m.attribute(Mesh::ATTRIBUTE_TANGENT) else { panic!() };
+        assert!(t.iter().all(|v| *v == [1.0, 0.0, 0.0, 1.0]));
+        // Loaded square = cell (0, 0): the two triangles inside go, the one reaching east stays.
+        let id = bevy::math::Affine3A::IDENTITY;
+        let m = terrain_mesh(&quad(true), Some((&id, (0, 0), (0, 0)))).unwrap();
+        assert_eq!(m.indices().unwrap().len(), 3);
     }
 }
