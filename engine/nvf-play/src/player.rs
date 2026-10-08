@@ -123,6 +123,29 @@ pub fn velocity(intent: &MoveIntent, heading: f32, speeds: MoveSpeeds) -> [f32; 
     [v[0] / len * speed, v[1] / len * speed]
 }
 
+/// Swimming speeds, units/s: run (Always Run) 348, walk (Shift) 100.8, the same forwards,
+/// backwards and sideways [observed: sw_trial at Lake Mead, fits 341–352 in every direction
+/// and 100.8 walking; physics.md §6.6].
+pub const SWIM_SPEEDS: MoveSpeeds = MoveSpeeds { walk: 100.8, run: 348.0 };
+
+/// Velocity (game x, y, z) while swimming: forward and back along the view, pitch
+/// included (the game swims along the view [observed]), sideways level; backwards at the
+/// full speed and diagonals not faster [observed for straight and forward-right runs;
+/// other diagonals hypothesis].
+pub fn swim_velocity(intent: &MoveIntent, heading: f32, pitch: f32, speeds: MoveSpeeds) -> [f32; 3] {
+    let (s, c) = heading.sin_cos();
+    let (ps, pc) = pitch.sin_cos();
+    let f = intent.forward;
+    let r = intent.right;
+    let v = [s * pc * f + c * r, c * pc * f - s * r, ps * f];
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len < 1e-6 {
+        return [0.0, 0.0, 0.0];
+    }
+    let speed = if intent.walk { speeds.walk } else { speeds.run };
+    [v[0] / len * speed, v[1] / len * speed, v[2] / len * speed]
+}
+
 /// New look angles after a mouse motion (counts; +x right, +y down).
 pub fn look(heading: f32, pitch: f32, delta: Vec2) -> (f32, f32) {
     let h = (heading + delta.x * LOOK_RADIANS_PER_COUNT).rem_euclid(std::f32::consts::TAU);
@@ -141,6 +164,7 @@ struct Status {
     elapsed: f32,
     steps: u32,
     grounded_steps: u32,
+    swimming_steps: u32,
     moved: f32,
     commanded: f32,
     touched: BTreeSet<u32>,
@@ -153,6 +177,7 @@ impl Status {
     fn record(&mut self, s: &CharacterStep, from: [f32; 3], vel: [f32; 2], dt: f32) {
         self.steps += 1;
         self.grounded_steps += s.grounded as u32;
+        self.swimming_steps += s.swimming as u32;
         self.moved += (s.feet[0] - from[0]).hypot(s.feet[1] - from[1]);
         self.commanded += vel[0].hypot(vel[1]) * dt;
         for o in &s.touched {
@@ -259,6 +284,21 @@ fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>) {
     if hit.is_none() {
         hit = phys.place_player(start, 100_000.0, 100_000.0);
     }
+    // A start above water deeper than the swimming depth: the character starts where it
+    // was asked to and falls in (into the swimming state), as the game's player does after
+    // a SetPos there [observed: physics.md §6.6], instead of standing on the bed.
+    let swim_depth = phys.player.as_ref().map_or(0.0, |c| c.params.swim_depth);
+    let deep = phys.world.water_surface_at(start[0], start[1]).filter(|&w| {
+        let bed = hit.as_ref().map_or(f32::NEG_INFINITY, |h| h.point[2]);
+        bed < w - swim_depth && start[2] > bed
+    });
+    if let Some(w) = deep {
+        let p = &mut *phys;
+        let c = p.player.as_mut().expect("placed");
+        p.world.place_character(c, start);
+        p.prev_feet = start;
+        info!("player starts above water (surface z {w:.1}): falling in");
+    }
     let feet = phys.player.as_ref().expect("placed").feet;
     player.feet = feet;
     info!(
@@ -303,21 +343,25 @@ fn step(
         warn!("player fell through at ({:.0}, {:.0}, {:.0}), terrain z {t:.0}: back on the ground", feet[0], feet[1], feet[2]);
         phys.place_player([feet[0], feet[1], t], 100_000.0, 100_000.0);
     }
-    let vel = if d.auto_walk > 0.0 {
-        let (s, c) = player.heading.sin_cos();
-        [s * d.auto_walk, c * d.auto_walk]
-    } else {
-        velocity(&intent, player.heading, *speeds)
-    };
     let p = &mut *phys;
     let dt = p.world.params.dt;
     let n = p.stepper.advance(&p.world.params, time.delta_secs());
     let c = p.player.as_mut().expect("placed");
     for i in 0..n {
+        // Swimming or not is the character's state after the last step.
+        let [vx, vy, vz] = if d.auto_walk > 0.0 {
+            let (s, c) = player.heading.sin_cos();
+            [s * d.auto_walk, c * d.auto_walk, 0.0]
+        } else if c.swimming {
+            swim_velocity(&intent, player.heading, player.pitch, SWIM_SPEEDS)
+        } else {
+            let [x, y] = velocity(&intent, player.heading, *speeds);
+            [x, y, 0.0]
+        };
         p.prev_feet = c.feet;
-        let s = p.world.move_character(c, CharacterInput { velocity: vel, jump: intent.jump && i == 0 });
+        let s = p.world.move_character(c, CharacterInput { velocity: [vx, vy], jump: intent.jump && i == 0, vertical: vz });
         p.world.step();
-        status.record(&s, p.prev_feet, vel, dt);
+        status.record(&s, p.prev_feet, [vx, vy], dt);
     }
     if n > 0 {
         intent.jump = false;
@@ -371,13 +415,17 @@ fn log_status(time: Res<Time>, phys: Res<PhysState>, mut status: ResMut<Status>)
     let Some(c) = &phys.player else { return };
     let f = c.feet;
     let terrain = phys.terrain_z(f[0], f[1]);
+    let water = phys.world.water_surface_at(f[0], f[1]);
     let touched: Vec<String> = s.touched.iter().map(|id| format!("{id:08X}")).collect();
     debug!(
-        "player: feet ({:.0}, {:.0}, {:.1}) terrain {} grounded {}/{} sliding {} moved {:.0} of {:.0} units/s commanded, touched{} [{}]; physics: {} cells, {} refs with collision, {} steps{}",
+        "player: feet ({:.0}, {:.0}, {:.1}) terrain {} water {} swimming {}/{} grounded {}/{} sliding {} moved {:.0} of {:.0} units/s commanded, touched{} [{}]; physics: {} cells, {} refs with collision, {} steps{}",
         f[0],
         f[1],
         f[2],
         terrain.map_or("-".to_string(), |t| format!("z {t:.1} (feet {:+.1})", f[2] - t)),
+        water.map_or("-".to_string(), |w| format!("z {w:.1} (feet {:+.1})", f[2] - w)),
+        s.swimming_steps,
+        s.steps,
         s.grounded_steps,
         s.steps,
         s.last.as_ref().is_some_and(|l| l.sliding),
@@ -453,6 +501,22 @@ mod tests {
         assert!(h > 6.0 && h < std::f32::consts::TAU, "headings wrap into [0, 2π)");
         let (_, p) = look(0.0, 0.0, Vec2::new(0.0, 1.0e6));
         assert_eq!(p, -MAX_PITCH, "mouse down looks down, at most straight down");
+    }
+
+    #[test]
+    fn swimming_follows_the_view_at_full_speed_backwards() {
+        let fwd = MoveIntent { forward: 1.0, ..default() };
+        let down30 = -30f32.to_radians();
+        let v = swim_velocity(&fwd, FRAC_PI_2, down30, SWIM_SPEEDS);
+        assert!((v[0] - 348.0 * 30f32.to_radians().cos()).abs() < 1e-2 && v[1].abs() < 1e-3, "{v:?}");
+        assert!((v[2] + 174.0).abs() < 1e-2, "{v:?}");
+        let back = MoveIntent { forward: -1.0, ..default() };
+        let v = swim_velocity(&back, 0.0, 0.0, SWIM_SPEEDS);
+        assert!((v[1] + 348.0).abs() < 1e-3, "{v:?}");
+        let right = MoveIntent { right: 1.0, walk: true, ..default() };
+        let v = swim_velocity(&right, 0.0, down30, SWIM_SPEEDS);
+        assert!((v[0] - 100.8).abs() < 1e-3 && v[2] == 0.0, "{v:?}");
+        assert_eq!(swim_velocity(&MoveIntent::default(), 1.0, 0.5, SWIM_SPEEDS), [0.0, 0.0, 0.0]);
     }
 
     #[test]
