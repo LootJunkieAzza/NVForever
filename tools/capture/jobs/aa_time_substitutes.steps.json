@@ -1,0 +1,298 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_time_substitutes",
+ "title": "Time substitutes for the Wait menu (about 40 s, no input)",
+ "start": "Any save; stays where it is. Moves the clock forward about 61 hours.",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "T0 start",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "T0 start",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "T0 start",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "T0 start",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "T0 start",
+   "field": "year"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "T0 start",
+   "field": "scale"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 24\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "T1 after hour +24",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "T1 after hour +24",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "T1 after hour +24",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "T1 after hour +24",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "T1 after hour +24",
+   "field": "year"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "T1 after hour +24",
+   "field": "scale"
+  },
+  {
+   "script": "float fH\nBegin Function { }\nlet fH := GameHour + 6\nset GameHour to fH\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "T2 after hour +6",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "T2 after hour +6",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "T2 after hour +6",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "T2 after hour +6",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "T2 after hour +6",
+   "field": "year"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "T2 after hour +6",
+   "field": "scale"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "as": "days3"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "as": "scale3"
+  },
+  {
+   "console": "set TimeScale to 3600"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif GameDaysPassed >= %{days3} + 1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 14400
+  },
+  {
+   "console": "set TimeScale to %{scale3}"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "T3 after timescale +24",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "T3 after timescale +24",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "T3 after timescale +24",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "T3 after timescale +24",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "T3 after timescale +24",
+   "field": "year"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "T3 after timescale +24",
+   "field": "scale"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "as": "days4"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "as": "scale4"
+  },
+  {
+   "console": "set TimeScale to 3600"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif GameDaysPassed >= %{days4} + 0.25\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "console": "set TimeScale to %{scale4}"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "T4 after timescale +6",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "T4 after timescale +6",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "T4 after timescale +6",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "T4 after timescale +6",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "T4 after timescale +6",
+   "field": "year"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "T4 after timescale +6",
+   "field": "scale"
+  },
+  {
+   "script": "float fD\nBegin Function { }\nlet fD := GameDaysPassed + 1\nset GameDaysPassed to fD\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "T5 after GameDaysPassed +1 only",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "T5 after GameDaysPassed +1 only",
+   "field": "days"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDay\nSetFunctionValue fV\nEnd\n",
+   "label": "T5 after GameDaysPassed +1 only",
+   "field": "day"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameMonth\nSetFunctionValue fV\nEnd\n",
+   "label": "T5 after GameDaysPassed +1 only",
+   "field": "month"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameYear\nSetFunctionValue fV\nEnd\n",
+   "label": "T5 after GameDaysPassed +1 only",
+   "field": "year"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "label": "T5 after GameDaysPassed +1 only",
+   "field": "scale"
+  }
+ ]
+}
