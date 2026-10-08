@@ -757,6 +757,12 @@ impl<'a> World<'a> {
         })
     }
 
+    /// References created at run time (drops), in FormID order, taken ones included
+    /// (`RefState::deleted`).
+    pub fn created(&self) -> impl Iterator<Item = (FormId, &RefState)> {
+        self.refs.range(FormId::FIRST_DYNAMIC..).map(|(&k, v)| (k, v))
+    }
+
     /// The newest reference created at run time (a drop) whose base is `base` and that
     /// is still present (not taken, enabled). Scenarios name it `created:<item>`
     /// because the FormID the game gives a dropped item is not known in advance.
