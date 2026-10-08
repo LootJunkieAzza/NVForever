@@ -88,10 +88,16 @@ What it does now:
   (`nvf_assets::model::Rig`, `anim_play::Playing`); overlay "animated" counts them.
   Morph controllers (the flags' small ripples) are not evaluated yet.
 - Sky, sun, ambient light and fog from the worldspace's climate and weather at a time
-  of day (`--hour`, `[`/`]` keys; `--weather`; `--fog near,far` override): a vertex-coloured
-  sky dome (sky-lower / horizon / sky-upper), a directional light with the weather's
-  sunlight colour along a sun path, a sun disc with the climate's sun texture, ambient and
-  fog colours (world.md §6). Light levels are tuned by eye until screenshots exist.
+  of day (`--hour`, `[`/`]` keys; `--weather`; `--fog near,far` override): the game's
+  `meshes\sky\atmosphere.nif` dome coloured by its vertex weights (sky-lower / horizon /
+  sky-upper) and the four `clouds.nif` layers with the weather's cloud textures and
+  colours (world.md §6), a directional light with the weather's sunlight colour along a
+  sun path, a sun disc with the climate's sun texture, ambient and fog colours. Colours
+  use the four main times of day only (world.md §6). Light levels: a colour of 1.0 lights
+  a white surface to 1.0 on screen (sun π / exposure, ambient 1 / exposure), from the
+  game's texture × (ambient + sunlight · N·L) model [hypothesis]; this replaced levels
+  tuned by eye that were about 4× too bright in sunlight. Sun shadows: four cascades out to
+  `--shadow-distance` (default 16,000 units; 0 turns them off).
 - Distant LOD (`--lod-radius`, default 8 chunks = 32 cells; `--no-lod`): the game's
   level-4 terrain chunks and object LOD blocks (world.md §7) around the camera. Terrain
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
