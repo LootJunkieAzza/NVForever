@@ -25,8 +25,11 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.sim.trace.goodsprings_locked_safe_key` | captured 2026-10-08 unattended (`nvftest`, `--go-to-cell GSHouseInterior02`, tgm, tdetect) | pass 13/13 | key opens the lock for good (GetLocked 0) |
 | `L4.sim.trace.goodsprings_locked_safe_no_key` | captured 2026-10-08 unattended (`nvftest`, player in the gas station, tgm, tdetect) | pass 13/13 after the GetLocked fix (12/13 before: level 255 reads 1, not 2) | a first run made after the key job, with the player in another cell, is not used (activation of a container outside the player's cell opens nothing) |
 | `L4.sim.trace.goodsprings_drop_and_retake` | captured 2026-10-08 unattended (`nvfdoc`, `--confirm-after 2 --settle auto`, tgm, tdetect) | 4/6 after the fixes (2/6 before: scripted pick-up of a stack, drop position); the remaining 2 fail only on z, +7.44 from the player's own settled height after the door (B9, workstream 2); do not tune | dropped refs found with `created:<item>` (GetFirstRef scan) |
-| `L4.phys.drops.b11_goodsprings` | pending (job `mv_b11_drops`, §5) | predictions in physics.md §4.2 | B11 player row |
-| `L4.phys.walk.fence_slide`, `.fence_stop`, `.running_jump`, `.porch_steps` | pending (job `mv_traces`, §5) | predictions in physics.md §6.3 | movement traces with held keys |
+| `L4.phys.drops.b11_goodsprings` | captured 2026-10-08 (`mv_b11_drops`, coordinator, re-made `nvfdoc`) | 12/20 at capture, 15/20 after the fixes (physics.md §4.2) | B11 player row; trees, rocks, maize push open |
+| `L4.phys.walk.fence_slide`, `.fence_stop` | captured 2026-10-08 (`mv_traces`) | 6/6, 6/6 | held out, passed as predicted |
+| `L4.phys.walk.porch_steps` | captured 2026-10-08 (`mv_traces`) | 5/6 → 6/6 | speed kept along uphill slopes (physics.md §6.3) |
+| `L4.phys.walk.running_jump` | captured 2026-10-08 (`mv_traces`) | 0/6 | air control and landing open (physics.md §6.3) |
+| `L4.phys.walk.hill_run`, `.portal_wall` | captured 2026-10-08 (`mv_followup_traces`, this workstream) | 2/6 and 4/6 as installed; 6/6 and 5/6 against goldens rebuilt with the corrected onset (scratch, physics.md §6.4) | the installed goldens use an onset two loops early |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
 
 Substitute checks (xnvse-capture.md §7): the same scenarios regenerated with
@@ -101,6 +104,10 @@ directory's `jobs\`). Results are in the notes named.
 | `dt_teleport_rest` | rest height after Doc Mitchell's door over time; `SetPos` placements and drops at the destination, on flat and sloped terrain | 3.84 above the LAND surface, a stable height; triangulation confirmed; physics.md §6.2 |
 | `dt_rest_detail` | fall traces, repeated drops, drop grids, Doc Mitchell's porch | `SetPos` drops end 3.5–11 above terrain (unreliable); porch 1.04 above the floor; physics.md §6.2 |
 | `dt_door_arrivals` | eleven door teleports around Goodsprings (predictions of a first rule, shell + 0.35, written before the run; 0x00105228 ran late and 0x0010903F not at all) | rest 0.54–1.05 above statics, 3.32–3.85 above terrain; physics.md §6.2 |
+| `mv_b11_clutter` | B11 clutter row | bottles bounce 50–300 units; only Trees and Terrain readable (they stop clutter); physics.md §4.2 |
+| `mv_values` | eye height, reach, other speeds, long fall | eye about 123 (pick-sphere model), reach 120–123 feet-to-face at 30°, back 272.8, sneak 197.7, g 686.0, no terminal speed to 1,841; physics.md §6 |
+| `mv_air` | air control calibration | in-air momentum kept, decays 0.84/loop when released, 15 units/s from a mid-air press; physics.md §6.3 |
+| `mv_diag_trees_rocks` | ±30 drop grids on the B11 tree and rock | rock agrees within 4 at 7 of 9; tree 43–303 higher everywhere; physics.md §6.4 |
 | `mv_trial` (`make_movement_jobs.py`) | what works unattended for movement: GetSecondsPassed, `$` of floats, bound keys, settings, held keys, a tapped jump, a fall | all of it; gravity 684–686, jump apex 61.6, run 344, walk 86.8, settings; physics.md §6.3 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 

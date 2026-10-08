@@ -1539,6 +1539,106 @@
     "M4",
     "needs-local-capture"
    ]
+  },
+  {
+   "id": "L4.phys.walk.hill_run",
+   "layer": 4,
+   "description": "Movement trace, running west up a LAND slope of about 30 degrees (held out after the porch-ramp finding: speed along a walkable slope): feet every 0.25 s after the run starts (parity-lab/inputs/layer4/move_hill_run.walk.json, run speed 344 units/s observed in mv_trial) against an unattended in-game capture with held keys (job mv_followup_traces, tools/capture/capture_moves.py). Tolerance 10 units as for the other L4.phys.walk scenarios (physics.md 6.3).",
+   "oracle": {
+    "golden": "phys/move_hill_run.walk.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "walk",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV",
+     "--script",
+     "{lab_root}/inputs/layer4/move_hill_run.walk.json",
+     "--every",
+     "1000"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 10.0
+   },
+   "tags": [
+    "physics",
+    "movement",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.phys.walk.portal_wall",
+   "layer": 4,
+   "description": "Movement trace, running down a mountainside through the plane of a Portal Box CollisionMarker (held out after B11: does a Portal Box stop the player): feet every 0.25 s after the run starts (parity-lab/inputs/layer4/move_portal_wall.walk.json, run speed 344 units/s observed in mv_trial) against an unattended in-game capture with held keys (job mv_followup_traces, tools/capture/capture_moves.py). Tolerance 10 units as for the other L4.phys.walk scenarios (physics.md 6.3).",
+   "oracle": {
+    "golden": "phys/move_portal_wall.walk.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "walk",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV",
+     "--script",
+     "{lab_root}/inputs/layer4/move_portal_wall.walk.json",
+     "--every",
+     "1000"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 10.0
+   },
+   "tags": [
+    "physics",
+    "movement",
+    "M4",
+    "needs-local-capture"
+   ]
   }
  ]
 }

@@ -1,0 +1,37 @@
+{
+ "schema": "fnv.phys.walk-script/1",
+ "description": "Run west (heading 270) from flat ground up a LAND slope of about 30 degrees south-west of Goodsprings (squares rising 32, 32, 32 degrees west of x -77184 at y -3840): speed up a walkable slope, held out after the porch-ramp finding (physics.md 6.3).",
+ "start": [
+  -76900.0,
+  -3840.0
+ ],
+ "hz": 60,
+ "segments": [
+  {
+   "steps": 30
+  },
+  {
+   "steps": 90,
+   "velocity": [
+    -344.0,
+    -0.0
+   ]
+  }
+ ],
+ "observe": {
+  "from_step": 30,
+  "every": 15,
+  "count": 6
+ },
+ "capture": {
+  "name": "move_hill_run",
+  "set_z": 8334,
+  "heading_deg": 270,
+  "keys": [
+   "forward"
+  ],
+  "jump": false,
+  "settle_frames": 120,
+  "samples": 150
+ }
+}

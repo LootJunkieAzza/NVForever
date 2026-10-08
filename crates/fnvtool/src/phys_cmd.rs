@@ -282,7 +282,8 @@ pub(crate) fn plugin_in_world<'a>(
 }
 
 /// Build the static world of `centre` (and, for an exterior cell, the exterior cells
-/// within `radius` grid squares), with the references `in_world` admits.
+/// within `radius` grid squares of it and of every point of `around`), with the
+/// references `in_world` admits.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build<'a>(
     lo: &LoadOrder,
@@ -290,6 +291,7 @@ pub(crate) fn build<'a>(
     ix: &'a WorldIndex,
     centre: &'a Cell,
     radius: i32,
+    around: &[(f32, f32)],
     params: PhysParams,
     mut meshes: Option<&mut Meshes>,
     in_world: InWorld,
@@ -298,10 +300,18 @@ pub(crate) fn build<'a>(
     let mut cells: Vec<&Cell> = vec![centre];
     let mut grids: BTreeMap<(i32, i32), Option<Vec<f32>>> = BTreeMap::new();
     let ws = centre.world.and_then(|w| ix.worldspaces.get(&w));
-    if let (Some(ws), Some((gx, gy))) = (ws, centre.grid) {
+    if let (Some(ws), Some(g0)) = (ws, centre.grid) {
         cells.clear();
-        for y in gy - radius..=gy + radius {
-            for x in gx - radius..=gx + radius {
+        let mut squares = std::collections::BTreeSet::new();
+        for (gx, gy) in std::iter::once(g0).chain(around.iter().map(|&(x, y)| cell_of(x, y))) {
+            for y in gy - radius..=gy + radius {
+                for x in gx - radius..=gx + radius {
+                    squares.insert((y, x));
+                }
+            }
+        }
+        for (y, x) in squares {
+            {
                 let Some(id) = ws.grid.get(&(x, y)) else { continue };
                 let c = &ix.cells[id];
                 cells.push(c);
@@ -426,7 +436,10 @@ fn cell_cmd(
     meshes: Option<&mut Meshes>,
     (list_refs, rays): (bool, &[Ray]),
 ) -> anyhow::Result<Value> {
-    let mut b = build(lo, schema, ix, centre, radius, PhysParams::default(), meshes, &plugin_in_world(lo, schema));
+    // The game loads cells around the player wherever it is [hypothesis: uGridsToLoad],
+    // so each probe gets the cells within `radius` of its own square too.
+    let around: Vec<(f32, f32)> = drops.iter().map(|d| (d.0, d.1)).collect();
+    let mut b = build(lo, schema, ix, centre, radius, &around, PhysParams::default(), meshes, &plugin_in_world(lo, schema));
     let ref_list = list_refs.then(|| ref_list(&mut b));
     let ray_hits: Vec<Value> = rays
         .iter()
@@ -687,7 +700,7 @@ fn walk_cmd(
     meshes: Option<&mut Meshes>,
 ) -> anyhow::Result<Value> {
     let (params, character) = script.parameters()?;
-    let mut b = build(lo, schema, ix, centre, radius, params, meshes, &plugin_in_world(lo, schema));
+    let mut b = build(lo, schema, ix, centre, radius, &[], params, meshes, &plugin_in_world(lo, schema));
     let [x, y] = script.start;
     let start_z = match script.start_z {
         Some(z) => z,

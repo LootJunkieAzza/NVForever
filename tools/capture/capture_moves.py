@@ -22,7 +22,7 @@ fell; a drop that did not fall keeps a row with `not_observed` and no `feet` (an
 under `not_observed`); walks -> `observations: [{label: "t0.25", feet}]` at
 the script's `observe` times after the movement onset: the samples are paired with the
 previous loop's clock (positions lag the clock by one loop [observed: fall and jump fits,
-physics.md 6.3]), the onset is the last pair before the first change of position, and
+physics.md 6.3]), the onset is the last pair before the first change of horizontal position, and
 positions are interpolated linearly in time.
 
   capture_moves.py job <input>... --start TEXT [--leave-door FORMID] [--console-first LINE]... -o job.json
@@ -186,7 +186,9 @@ def walk_golden(doc, results):
         raise InputError(f"{name}: too few samples")
     # Pair each position with the previous loop's clock (one-loop lag), times in seconds.
     pairs = [(s[i - 1][3] / 1000.0, s[i][:3]) for i in range(1, len(s))]
-    onset = next((i - 1 for i in range(1, len(pairs)) if pairs[i][1] != pairs[i - 1][1]), None)
+    # The onset is the first horizontal change: the player sometimes settles by a tenth
+    # of a unit in z a few loops before it starts to move [observed: mv_followup_traces].
+    onset = next((i - 1 for i in range(1, len(pairs)) if pairs[i][1][:2] != pairs[i - 1][1][:2]), None)
     if onset is None:
         raise InputError(f"{name}: the player never moved")
     t0 = pairs[onset][0]
