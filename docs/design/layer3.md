@@ -111,8 +111,14 @@ What it does now:
   4000 units/s streams 200-260 cells). Meshes on the GPU are render-world only and cannot
   be read back; code that derives meshes later (LOD trimming) asks the model cache for
   CPU copies (`ModelCtx::model_with_cpu`).
-- Water: one plane per "has water" cell at its water height with the water type's
-  colour, opacity and noise normal map (no reflection or refraction yet).
+- Water (`engine/nvforever/src/water.rs`, `water.wgsl`): one plane per "has water"
+  cell at its water height, in loaded cells and, out to the LOD range, in every cell
+  whose water lies above its lowest landscape point (distant water). A custom material
+  fogs what lies behind the surface by its distance from the camera (depth prepass),
+  shallow to deep colour, reflects the weather's sky gradient with a fresnel weight,
+  adds a sun highlight and ripples from three scrolling noise layers. The model and
+  its hypotheses: world.md §6. No reflections of the world, refraction or under-water
+  fog of the scene yet.
 
 Measured on the owner's machine (i7-7700HQ, GTX 1050): 5 × 5 cells around Goodsprings
 (1,948 references drawn, 3,085 shapes, 224 models, 506 terrain layers) load in 2.5 s;
@@ -152,7 +158,7 @@ game units unchanged.
 6. **Lighting, sky, weather** (first version done; clouds, stars, interiors to do): sun direction and colours from the climate/weather records
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
-7. **Water** (first version done; reflections to do): worldspace / cell water height, WATR records, placeable water (PWAT).
+7. **Water** (second version done: WATR fog, fresnel sky reflection, noise layers, distant water; world reflections, refraction and under-water fog to do): worldspace / cell water height, WATR records, placeable water (PWAT).
 8. **SpeedTree** (interim: billboards): TREE references (18,050 in WastelandNV, e.g. the desert shrubs) use
    SpeedTree `.spt` models from `trees\`, a non-NIF format; needs its own clean-room
    format study before they can be drawn.
