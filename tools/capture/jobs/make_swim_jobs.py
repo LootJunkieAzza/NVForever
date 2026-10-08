@@ -250,6 +250,54 @@ def h2o():
     return j
 
 
+# Banks of graded slope (physics.md 6.6, leaving the water): straight runs of terrain only
+# (no reference within 30 units of the line for 700 units either side of where the LAND
+# reaches the floating height, rays with and without meshes agreeing), found from the LAND
+# heights of the cells with their own water (2026-10-08). Per bank: name, surface, the
+# slope (degrees) and heading (compass, uphill) where the bed meets the floating height,
+# the start 450 units out over deep water, and a reset spot on land 700 units up the bank
+# (12 above the LAND) where the player stands before each entry, so that it enters by
+# falling as in the scenarios.
+BANKS = [
+    ("lm_12", 2600.0, 12.5, 225.0, (53310, 41534), (52497, 40721, 2790)),
+    ("lm_16", 2600.0, 16.4, 212.0, (52974, 41854), (52365, 40878, 2773)),
+    ("lm_25", 2600.0, 25.3, 180.0, (127744, 31682), (127744, 30532, 2814)),
+    ("lm_30", 2600.0, 30.4, 235.5, (126579, 96767), (125631, 96115, 2974)),
+    ("lm_41", 2600.0, 41.5, 186.1, (148528, 30399), (148405, 29256, 3079)),
+    ("lm_45", 2600.0, 45.1, 58.0, (72834, 42770), (73810, 43379, 3968)),
+    ("lm_49", 2600.0, 49.3, 246.4, (126876, 101812), (125823, 101351, 3157)),
+    ("lm_58", 2600.0, 58.3, 32.8, (78604, 37510), (79227, 38477, 3730)),
+    ("llv_14", 3000.0, 14.3, 246.0, (29339, 59063), (28288, 58596, 3098)),
+    ("llv_25", 3000.0, 24.7, 98.1, (31810, 59455), (32949, 59293, 3076)),
+]
+# Repeats of what was seen: the swim_lake_shore line at Lake Las Vegas (its own start and
+# reset) running and walking, and Boulder Beach's run-out line run from the floating height
+# (sw_trial ran it while still sinking and walked it from the floating height).
+LLV_LINE = ("llv_line", 3000.0, 27.3, 270.0, (25784, 55100), (24700, 54400, 3092))
+BB_LINE = ("bb_line", 2600.0, 28.1, 270.0, (57700, 37536), (55500, 37536, 2964))
+
+
+def bank_trial(bank, controls=(0,), n=240, tag=""):
+    """Stand on land, SetPos to the surface over deep water (enter by falling), float, then
+    hold the keys towards the bank, one sample per loop."""
+    name, surface, _slope, heading, (sx, sy), reset = bank
+    label = name + tag
+    return [setpos(*reset), {"console": "CloseAllMenus"}, {"frames": 180}, num("player.GetPos Z", f"{label} reset", "z"),
+            setpos(sx, sy, surface), angles(heading), {"console": "CloseAllMenus"}, remember_t0()] + \
+        samples(f"{label} settle", 30) + [{"frames": 270}] + move(label, list(controls), n=n, after=30)
+
+
+def banks():
+    """Leaving the water up banks of graded slope, and the two shore lines again."""
+    steps = list(PROTECT) + go_there()
+    steps += bank_trial(LLV_LINE) + bank_trial(LLV_LINE, controls=(9, 0), n=480, tag=" walk") + bank_trial(BB_LINE)
+    for b in BANKS:
+        steps += bank_trial(b)
+    j = cs.job("sw_banks", START, steps, cs.MASTERS)
+    j["title"] = "Swimming: out of the water up banks of 12 to 58 degrees, and the Lake Las Vegas and Boulder Beach lines again (about 4 min, no input)"
+    return j
+
+
 def diag():
     """Which sample scripts compile, and whether the clock runs after the coc."""
     clock = cs.function(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"])
@@ -300,7 +348,7 @@ def diag2():
 
 
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o()):
+    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o(), banks()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)
