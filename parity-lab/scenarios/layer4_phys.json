@@ -1639,6 +1639,108 @@
     "M4",
     "needs-local-capture"
    ]
+  },
+  {
+   "id": "L4.phys.walk.swim_cove_dive",
+   "layer": 4,
+   "description": "Swimming trace, held out (physics.md 6.6): the player placed at the surface of the Colorado River at Cottonwood Cove (cells flagged has-water with the XCLW sentinel: the worldspace's default water height -2300 [hypothesis]) falls in, floats, then dives north with the view pitched 40 degrees down and forward held: feet every 0.25 s after the motion starts (parity-lab/inputs/layer4/swim_cove_dive.walk.json; swim rules from the sw_trial and sw_fall_breath captures at Boulder Beach) against an unattended in-game capture with held keys (job sw_scenarios, tools/capture/capture_moves.py). Tolerance 10 units as for the other L4.phys.walk scenarios (physics.md 6.3).",
+   "oracle": {
+    "golden": "phys/swim_cove_dive.walk.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "walk",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV",
+     "--script",
+     "{lab_root}/inputs/layer4/swim_cove_dive.walk.json",
+     "--every",
+     "1000"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 10.0
+   },
+   "tags": [
+    "physics",
+    "movement",
+    "swimming",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.phys.walk.swim_lake_shore",
+   "layer": 4,
+   "description": "Swimming trace, held out (physics.md 6.6): the player placed at the surface of Lake Las Vegas (XCLW 3000) falls in, floats, then swims west at the floating height with forward held until the bed rises to the feet and walks out up the shore (2 s): feet every 0.25 s after the motion starts (parity-lab/inputs/layer4/swim_lake_shore.walk.json; swim rules from the sw_trial and sw_fall_breath captures at Boulder Beach) against an unattended in-game capture with held keys (job sw_scenarios, tools/capture/capture_moves.py). Tolerance 10 units as for the other L4.phys.walk scenarios (physics.md 6.3).",
+   "oracle": {
+    "golden": "phys/swim_lake_shore.walk.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "walk",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV",
+     "--script",
+     "{lab_root}/inputs/layer4/swim_lake_shore.walk.json",
+     "--every",
+     "1000"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 10.0
+   },
+   "tags": [
+    "physics",
+    "movement",
+    "swimming",
+    "M4",
+    "needs-local-capture"
+   ]
   }
  ]
 }

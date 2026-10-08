@@ -19,6 +19,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
+import capture_moves as cm  # noqa: E402
 import capture_steps as cs  # noqa: E402
 
 START = "nvfdoc (Doc Mitchell's house); leaves through the front door, then coc BoulderBeachCampground (god mode, AI detection off)."
@@ -213,6 +214,16 @@ def breath():
     return j
 
 
+def scenarios():
+    """Held-out swim scenarios (L4.phys.walk.swim_*): the candidate's own inputs; each
+    starts on land near its water (`reset_at`), so the player is not swimming when placed
+    at the surface."""
+    lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
+    docs = [cs.load_json(os.path.join(lab, f)) for f in ("swim_cove_dive.walk.json", "swim_lake_shore.walk.json")]
+    return cm.make_job(docs, "sw_scenarios", "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
+                       leave_door=DOC_DOOR, console_first=["tgm", "tdetect"])
+
+
 def diag():
     """Which sample scripts compile, and whether the clock runs after the coc."""
     clock = cs.function(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"])
@@ -263,7 +274,7 @@ def diag2():
 
 
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath(), breath()):
+    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)
