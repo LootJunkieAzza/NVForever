@@ -744,6 +744,34 @@ falls lose health from 700 up (`fJumpFallHeightMin` 600) [hypothesis]; the jump 
 floating height rises 123 [hypothesis]; health falls while held under water after some
 seconds [hypothesis].
 
+`sw_fall_breath` (2026-10-08) [observed]; it ended at its last land fall (3000 units:
+Health 3094.7 → −6324.9, the player died, the game reloaded the save and the plugin aborted
+the job each time until the run was stopped), so the part under water was not reached:
+
+- **Jump at the floating height**: Jump tapped twice with the feet settled at S − 102.5:
+  no motion at all (4 s each). With `sw_trial`'s jump (taken while still sinking 61 below
+  S) the jump works only above the floating height.
+- **Entering from a fall** (`SetPos` from the land to S, standing start, then 300, 700,
+  1500, 3000 above S): the fall stopped with the feet 100.0 below S (from S: the step that
+  crossed ended at 2500.00 exactly, then the 12-units/s sink to S − 102.5), 105.97 (300),
+  114.79 (700), 123.75 (1500) and 149.41 (3000) below S; after the stop the player stayed at
+  that depth (below the floating height: no rise). Falling at 340–2,030 units/s the last
+  steps before the stop were 5.3–33 units; at 1500 and 3000 the player moved one more
+  loop's step after the loop that crossed S − 100 (at 700 it did not), so the stop is not a
+  clamp at the line; which loop the game decides on is open.
+- **No fall damage in water** (e): Health unchanged (5200) after every fall into the lake.
+  On land: 300 → none; 700 → −46.7; 1500 → −1858.6; 3000 → −9419.6 (dead). With h the
+  height fallen (start feet to landing feet: 695.6, 1495.4, 2995.3) the damage fits
+  k·(h − 600)^1.65 with k ≈ 0.0252 within 0.8% (exponent from the three falls 1.647 and
+  1.649): `fJumpFallHeightMin` 600 and `fJumpFallHeightExponent` 1.65 [the link to the
+  settings is a hypothesis]. Two later drops of 40 Health each, 1–3 s after the 700 and
+  1500 landings (once with the player pushed 130 units sideways), are not explained.
+
+**Predictions for `sw_breath`** (written before its run): two minutes pressed against the
+bed 800 below S with god mode off: Health drops after a breath time of some tens of seconds
+and then keeps dropping [hypothesis]; the 700 fall stops 100–117 below S [hypothesis: one
+step of 16.5 past the line at most, by the controller's rule below].
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>
