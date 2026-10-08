@@ -971,6 +971,53 @@ walking 86; feet when swimming ends, seconds after the keys, and after 4 s):
 (The candidate ends swimming on any ground it is pushed onto, walkable or not, and then
 stands at the foot of the 49° and 58° banks.)
 
+**Placed water** (2026-10-08) [observed: the masters and `Fallout - Meshes.bsa`, read-only].
+The reference in `NVDLC03SLH2OINT` is REFR 0x03014467, base PWAT 0x03014465
+(`NVDLC03CleanWater2048x2048`: OBND ±1024 × ±1024 × 0, MODL
+`Water_Placeable\WaterP2048x2048.NIF`, DNAM 8 bytes whose second u32 is the WATR
+0x0301454D `NVDLC03CleanWater`), scale 2, no rotation, at (−584, −656, −328). The model
+holds a 2048 × 2048 quad at z 0 (the visible surface) and a `bhkSimpleShapePhantom` on
+Havok layer 11 (Water) whose shape is a box of half extents (146.3, 146.3, 73.2) Havok units
+moved down by 73.2: in game units (× 7) the column under the quad, 2048 × 2048 and 1024
+deep, its top at the quad. All eight placeable water models (the 11 PWAT bases of the ten
+masters use them) hold the same: a Water-layer phantom box under the quad, top at the quad
+(1024 deep, the bathtub's 13; `WaterPCircle512` has another shape type under its phantom).
+No other mesh of the game's archives has a Water-layer phantom (the 40 phantoms of all
+archives: triggers, traps, the water models). 86 PWAT references stand in interiors, some
+with an XCLW, some without.
+
+Model [hypothesis: the phantom box is the water, its top the surface]: a reference whose
+model holds Water-layer phantoms is water inside each phantom's box, transformed by the
+reference (`fnv_phys::PlacedWater`; `fnv_collide::nif::collision_and_phantoms` reads the
+phantoms, which never collide); the surface is the box's top. For `NVDLC03SLH2OINT`: surface
+−328, footprint x −2632…1464, y −2704…1392, bottom −2376. Checked against `swim_h2o_drops`
+[observed]: deep_a now stops at −433.2 (game −432.36); with the swimming state carried
+from one drop to the next as the capture did (a walk script whose segments start with
+`place`), deep_b, mid_a and mid_b sink from −227 at 12 units/s to −287.5 after 5 s and
+−348.0 after 10 s (game −289.0/−349.6, −290.1/−350.7, −289.3/−349.9). So the golden is
+consistent with water at −328 *and* with the swimming state surviving 101 units above
+the surface; the lab's drops are fresh probes and cannot carry that state, so those three
+rows keep failing (the scenario's design, not the golden; question for the owner below).
+shallow_a: the drop point is 10 units from the 30-unit riser of the catwalk stairs
+0x030144E3 (steps at −240 and −270); the game stood at −236.04, 4 above the upper step,
+the candidate on the step's edge at −241.3 (within the scenario's 8); not a water question.
+**Refuted: "swimming ends when the feet are above the surface"** (the first
+implementation's [hypothesis]): the h2o player swam 101 units above the placed surface,
+and the Lake Las Vegas one 74 above the lake [observed]. Swimming now ends only on ground,
+on a jump, or where there is no water at all [the last: hypothesis].
+
+**Predictions for `sw_guardian`** (held-out scenario `L4.phys.drops.swim_guardian`,
+input `parity-lab/inputs/layer4/swim_guardian_drops.drops.json`; written 2026-10-08 before
+the run). `CampGuardianCaves` holds `NVCleanWater2048x2048` (0x0013F31A) at scale 3 and
+z 6528 (footprint y −8704…−2560) while its XCLW is 6712. Drops 5 above the placed surface,
+each after a fresh `coc` (not swimming): inside the box `in_deep` (−4900, −8450), `in_edge`
+(−4800, −8650), `in_north` (−5250, −7800) → swimming, stopped at 6425.5 (the fall stops
+one step past S − 100); just outside its south edge `out_near` (−4800, −8760), `out_mid`
+(−4800, −8800), `out_far` (−4850, −8850) → no water, standing on the floor at 6206.0,
+6224.9, 6256.1. If the cell's XCLW were the water, every drop would stop at once (the
+drop height is already 179 below 6712); if the water reached past the box, the `out_*`
+drops would swim at about 6425.
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>
