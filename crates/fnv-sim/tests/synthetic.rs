@@ -164,6 +164,11 @@ const WORLD_PERSISTENT: u32 = 0x401; // the worldspace's persistent cell
 const WORLD_CELL: u32 = 0x402; // exterior cell at grid (-18, 0)
 const EXT_DOOR: u32 = 0x30C; // persistent door in WORLD_PERSISTENT
 const IN_DOOR: u32 = 0x30D; // door in CELL_B -> EXT_DOOR, destination inside grid (-18, 0)
+const WORLD2: u32 = 0x410; // a second WRLD, a child of WORLD (WNAM, PNAM "Use Map Data")
+const WORLD2_PERSISTENT: u32 = 0x411;
+const WORLD2_CELL: u32 = 0x412; // exterior cell at grid (2, 1)
+const GATE_OUT: u32 = 0x30E; // persistent door in WORLD_PERSISTENT -> GATE_IN, in WORLD2
+const GATE_IN: u32 = 0x30F; // persistent door in WORLD2_PERSISTENT -> GATE_OUT, in WORLD
 
 fn plugin_bytes() -> Vec<u8> {
     let misc = cat(&[
@@ -264,12 +269,31 @@ fn plugin_bytes() -> Vec<u8> {
     let wrld = {
         let wrec = record(b"WRLD", 0, WORLD, &[sub(b"EDID", z("TestWorld"))]);
         let pcell = record(b"CELL", 0, WORLD_PERSISTENT, &[sub(b"DATA", vec![0])]);
-        let pdoor = refr(EXT_DOOR, 0x400, DOOR, [-73100.0, 1300.0, 8680.0], vec![xtel(IN_DOOR, [0.0; 3])]);
+        let pdoor = cat(&[
+            &refr(EXT_DOOR, 0x400, DOOR, [-73100.0, 1300.0, 8680.0], vec![xtel(IN_DOOR, [0.0; 3])]),
+            &refr(GATE_OUT, 0x400, DOOR, [-73300.0, 1500.0, 8690.0], vec![xtel(GATE_IN, [8288.0, 6896.0, 1008.0])]),
+        ]);
         let xclc = cat(&[&(-18i32).to_le_bytes(), &0i32.to_le_bytes()]);
         let ecell = record(b"CELL", 0, WORLD_CELL, &[sub(b"EDID", z("TestGrid")), sub(b"DATA", vec![0]), sub(b"XCLC", xclc)]);
         let block = group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &cat(&[&ecell, &cell_children(WORLD_CELL, &[], &[])])));
         let children = cat(&[&pcell, &cell_children(WORLD_PERSISTENT, &[], &pdoor), &block]);
-        top(b"WRLD", &cat(&[&wrec, &group(WORLD.to_le_bytes(), 1, &children)]))
+        let world = cat(&[&wrec, &group(WORLD.to_le_bytes(), 1, &children)]);
+        // A second worldspace, a child of the first that uses only its map data, like
+        // FreesideNorthWorld (PNAM 4) [observed in FalloutNV.esm].
+        let wrec2 = record(
+            b"WRLD",
+            0,
+            WORLD2,
+            &[sub(b"EDID", z("TestWorld2")), sub(b"WNAM", WORLD.to_le_bytes().to_vec()), sub(b"PNAM", 4u16.to_le_bytes().to_vec())],
+        );
+        let pcell2 = record(b"CELL", 0, WORLD2_PERSISTENT, &[sub(b"DATA", vec![0])]);
+        let gate_in = refr(GATE_IN, 0x400, DOOR, [8600.0, 7000.0, 1024.0], vec![xtel(GATE_OUT, [-73250.0, 1450.0, 8690.0])]);
+        let xclc2 = cat(&[&2i32.to_le_bytes(), &1i32.to_le_bytes()]);
+        let ecell2 = record(b"CELL", 0, WORLD2_CELL, &[sub(b"EDID", z("TestGrid2")), sub(b"DATA", vec![0]), sub(b"XCLC", xclc2)]);
+        let block2 = group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &cat(&[&ecell2, &cell_children(WORLD2_CELL, &[], &[])])));
+        let children2 = cat(&[&pcell2, &cell_children(WORLD2_PERSISTENT, &[], &gate_in), &block2]);
+        let world2 = cat(&[&wrec2, &group(WORLD2.to_le_bytes(), 1, &children2)]);
+        top(b"WRLD", &cat(&[&world, &world2]))
     };
     let cells = top(
         b"CELL",
@@ -369,7 +393,7 @@ fn forms_load_through_the_schema() {
 fn references_load_with_cells_and_extra_data() {
     let f = fixture();
     assert!(f.refs.issues.is_empty(), "{:?}", f.refs.issues.to_json());
-    assert_eq!(f.refs.refs.len(), 14);
+    assert_eq!(f.refs.refs.len(), 16);
     // Stored in the persistent cell, parented to the grid cell containing it.
     assert_eq!(f.refs.get(id(EXT_DOOR)).unwrap().stored_in, Some(id(WORLD_PERSISTENT)));
     assert_eq!(f.refs.get(id(EXT_DOOR)).unwrap().cell, Some(id(WORLD_CELL)));
@@ -905,6 +929,49 @@ fn teleporting_into_a_worldspace_lands_in_the_grid_cell() {
     // Back inside: an interior door keeps its own cell.
     w.activate(p, id(EXT_DOOR)).unwrap();
     assert_eq!(w.peek(p).unwrap().cell, Some(id(CELL_B)));
+}
+
+#[test]
+fn teleporting_into_another_worldspace_moves_cell_and_worldspace_together() {
+    let f = fixture();
+    assert_eq!(f.refs.world_of(id(WORLD2_CELL)), Some(id(WORLD2)));
+    assert_eq!(f.refs.world_of(id(CELL_B)), None);
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    // Out of the interior into the first worldspace.
+    w.activate(p, id(IN_DOOR)).unwrap();
+    assert_eq!(w.worldspace_of(p), Some(id(WORLD)));
+    // Through the gate: the destination door is persistent in the other worldspace; the
+    // player lands in that worldspace's exterior cell containing the destination.
+    let r = w.activate(p, id(GATE_OUT)).unwrap();
+    assert_eq!(
+        r.outcome,
+        Outcome::Teleported { to_door: id(GATE_IN), cell: Some(id(WORLD2_CELL)), pos: [8288.0, 6896.0, 1008.0], rot: [0.0, 0.0, 1.5] }
+    );
+    let ps = w.peek(p).unwrap();
+    assert_eq!((ps.cell, ps.pos), (Some(id(WORLD2_CELL)), [8288.0, 6896.0, 1008.0]));
+    assert_eq!(w.worldspace_of(p), Some(id(WORLD2)));
+    // The game moves the player on (the physics arrival, walking): cell and position
+    // as the caller writes them, still in that worldspace.
+    let s = w.get(p).unwrap();
+    s.pos = [8300.0, 6900.0, 1010.5];
+    // A snapshot taken here resumes in the same worldspace, cell and position.
+    let text = serde_json::to_string(&w.snapshot()).unwrap();
+    let mut resumed = World::restore(&f.forms, &f.refs, &serde_json::from_str(&text).unwrap()).unwrap();
+    let rs = resumed.peek(p).unwrap();
+    assert_eq!((rs.cell, rs.pos), (Some(id(WORLD2_CELL)), [8300.0, 6900.0, 1010.5]));
+    assert_eq!(resumed.worldspace_of(p), Some(id(WORLD2)));
+    // The door back returns to the first worldspace's grid cell (-18, 0).
+    resumed.activate(p, id(GATE_IN)).unwrap();
+    let rs = resumed.peek(p).unwrap();
+    assert_eq!((rs.cell, rs.pos), (Some(id(WORLD_CELL)), [-73250.0, 1450.0, 8690.0]));
+    assert_eq!(resumed.worldspace_of(p), Some(id(WORLD)));
+    // Indoors there is no worldspace.
+    resumed.activate(p, id(EXT_DOOR)).unwrap();
+    assert_eq!(resumed.worldspace_of(p), None);
+    // References not yet materialised answer from their placement.
+    assert_eq!(resumed.worldspace_of(id(GATE_IN)), Some(id(WORLD2)));
+    assert_eq!(resumed.worldspace_of(id(SAFE_REF)), None);
 }
 
 #[test]

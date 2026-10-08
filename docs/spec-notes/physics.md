@@ -227,17 +227,171 @@ passed 12 of 20 rows; what the differences showed:
 | animstatic_gate | 8691.58 (on the terrain, x/y unchanged) | 8770.10 → 8691.51 | the gate 0x0010757E carries ONAM "Open by Default" [documented: xEdit]: its panel is open in game. The keyframed parts of open-by-default doors are left out (their open pose comes from the door's animation, not read) |
 | collision_marker_b | 8285.81 (fell through, x/y moved 0.1) | 8571.53 (unchanged) | a Portal Box marker whose box is 2 units thick: dropped onto its top the player fell through it; but a run into another Portal Box marker stopped 22 units from its plane (`L4.phys.walk.portal_wall`, §6.4), so Portal Box markers stay solid. Open: why the drop passed |
 | havok_tree_a / _b | 8637.98 / 8879.92 | 8582.72 / 8813.61 | open. The game's player rests 55 and 66 higher in the branches of `treewastelandhardwood01.nif`; a capsule of radius 21 or 24 does not explain it (8590, 8598); a dropped bottle came to rest at 8564.07 on tree a, near our top at the centre (8556.5), so the geometry is probably right and the player's shape against branches differs [hypothesis]. Diagnostic grid `mv_diag_trees_rocks` below |
-| terrain_rock_a / _b | 8333.09 / 8506.51 | 8323.63 / 8515.13 | open: ±9 units on two NVNRockCanyon08 placements; see the grid below |
-| noncollidable_maize | z 8705.24, x/y moved 14 | x/y unchanged | open: something pushed the falling player sideways while it passed the maize (Non Collidable) |
+| terrain_rock_a / _b | 8333.09 / 8506.51 | 8323.63 / 8515.13 | rock b: the game's own spread (six drops over 7.8 units); rock a: the candidate lands on a step's edge and slides down it, open (follow-up below) |
+| noncollidable_maize | z 8705.24, x/y moved 14 | x/y unchanged | a landing slide downhill on the 5° LAND that the game makes in about one landing in four or five; not the maize (follow-up below) |
 | props_barrel | not observed | — | the player did not fall: it hung at 8615.39, 9 units sideways (golden row without feet) |
 
-Now 15 of 20 rows agree. **The player row of the matrix** [observed]: Static, AnimStatic
+Now 15 of 20 rows agree (14 since Portal Box markers became solid again, §6.4, which
+brought back the `collision_marker_b` difference). **The player row of the matrix** [observed]: Static, AnimStatic
 (the mailbox, a closed gate part), Trees (Havok), Terrain (rocks), Transparent Small
 (chain-link fence end, yucca), Props (a crate, at least while landing) and CollisionMarker
 boxes stop the player; Non Collidable plants (static and dynamic) and SpeedTree shrubs do
 not. `layers::character_ignores` already agrees on every layer tested; nothing changed.
 Not tested: Water, Trigger, Invisible Wall, Collision Box, Debris, Biped (placed actors'
 skeleton bodies, §4.2 note).
+
+**Rock and maize follow-up: facts and predictions** (written 2026-10-08 before the captures
+`mv_diag_maize` and `mv_diag_rocks`, `tools/capture/jobs/make_b11_followup_jobs.py`; drops
+in `diag_maize.drops.json` and `diag_rocks.drops.json`; each drop is traced every game
+loop from the moment the player starts to fall, followed by a scan for actors within 600
+units).
+
+Facts gathered for the maize row [observed: `fnvtool phys cell --list-refs`, `fnvtool
+world refs`, `fnvtool collide objects`, `fnvtool nif decode`, rays]:
+
+- The game's player ended at (−74583.1, 1406.89): moved (+9.90, −9.91), exactly along a
+  diagonal. The LAND there is one plane over squares (25, 10)–(26, 12) of cell (−19, 0),
+  sloped 5.05° with its downhill direction (+0.062, −0.062): **the push points straight
+  downhill**. The rest height at the new point is 3.87 above LAND, the usual terrain band
+  (§6.2).
+- But the B11 `noncollidable_agave_pickable` drop landed on LAND of the same 5.05°
+  slope (downhill (−0.062, −0.062)), from 218 units instead of 284, and did not move;
+  the `speedtree_shrub` drop (3.6° slope, 285 units) did not move; `collision_marker_b`
+  fell through onto an 18.6° slope and moved 0.15. So a slope alone does not make the
+  player slide after a `SetPos` drop.
+- `maize_healthy01.nif`'s only collision is a box of 12 triangles (packed strips under a
+  MOPP), 7 × 9 × 87 units, layer 15 (Non Collidable) on the body and on its one sub-shape
+  [documented: sub-shape filter field, nif.xml `hkSubPartData`]; its top is flat at
+  z 8789.2 and covers the drop point (rays every 2 units). The agaves are layer 15 convex
+  hulls (33 × 30 × 16) that the player fell straight through. Were the maize box solid to
+  the player, a drop on its axis would rest on its flat top (8789.9), not on the ground.
+- Placed references within 300 units (any type, also without collision in our world):
+  only plants: `MaizeWitheredGroup1` 0x0017747D (STAT, 67 units north, no collision
+  object in its mesh), six agaves, three honey mesquites and one agave pickable (130–300
+  units away). No markers, SpeedTree shrubs or actors are placed there; actors can walk
+  by (Goodsprings has wandering NPCs and creatures).
+
+Hypotheses and what each predicts for `mv_diag_maize` [hypothesis]:
+
+- **H-actor** (something moving, e.g. an actor, pushed the player): the push does not
+  repeat at the same place; when it happens an actor is within reach (actor scan).
+- **H-slide** (a landing slide on the slope whose occurrence depends on the landing): the
+  trace shows the sideways motion starting at touchdown (feet ≈ 8706) and running downhill
+  (+x, −y); it also happens on the bare slope 49 units away (`slope_bare_*`) and with the
+  maize disabled; larger from higher drops.
+- **H-stalk** (the maize box acts on the player after all): sideways motion starts near
+  the box top (feet ≈ 8790) or, for the drop started below the top (`maize_inside`), at
+  once; drops ±30 from the axis and drops with the maize disabled fall straight.
+- The candidate (Non Collidable ignored, no landing slide) predicts every drop straight
+  down: maize_c1–c3, maize_high, maize_low, maize_inside, maize_disabled_1/2 at
+  (−74593.0, 1416.5, 8706.19); maize_+30x 8704.31; maize_−30x 8708.06; maize_+30y
+  8708.05; maize_−30y 8704.31; slope_bare 8701.82; agave_pickable 8529.83.
+
+For the rocks: the candidate's centre drops end at rock a (−69874.3, 714.7, 8323.62),
+having slid (+3.3, −3.9) on a 10.6° face to a capsule rest 0.6 above the surface, where
+the game's B11 drop stayed at the drop point 9.5 higher; on rock b (−69656.2, 1619.8,
+8515.13), 29 units above the surface under the axis (the capsule's side rests on a higher
+part of the rock), where the game's two drops gave 8506.51 and 8512.78. Open ground
+8355.51 (game 8355.85). Rock a grid (candidate z): −30/−30 8340.90, −30/+0 8347.03,
+−30/+30 8348.76, +0/−30 8336.33, +0/+30 8353.62, +30/−30 8328.27, +30/+0 8318.60,
++30/+30 8318.43. **H-spread**: the four repeats on each rock scatter over several units
+(rock b already 6.3) and the candidate lies inside or near that scatter; **H-systematic**:
+repeats agree within about 1 unit and stay 9.5 above (rock a) / 8.6 below (rock b) the
+candidate; on rock a a systematic difference would come with the game not sliding where
+the candidate slides (the grid shows where the rock's surface rises within the capsule's
+radius). Every drop's trace is checked for the `SetPos` hang (resting 7–11 above the
+support, §6.2).
+
+**Results of the follow-up** (captures `mv_diag_maize`, `mv_diag_rocks`, run unattended by
+this workstream 2026-10-08 on `nvfdoc`, 0 failed steps) [observed]. Two drops are left out:
+`maize_disabled_1` stopped in mid-air 100 units above the ground three loops into its fall
+and stayed there while the clock ran (the `SetPos` hang, §6.2), and `agave_pickable_2`
+stopped 39 units up with the game clock frozen too (the world standing still after a
+`SetPos`, §6.3). No actor was within 600 units at any drop (the nearest 1,743–2,128 units
+away).
+
+Maize (13 usable drops on the same 5.05° LAND plane, plus the B11 drop):
+
+| Drop | Game feet (x, y, z) | Moved (x, y) | Touchdown loop |
+|---|---|---|---|
+| maize_c1 | (−74593.0, 1416.8, 8706.48) | 0 | 32 ms, 8.65 above rest |
+| maize_c2 | (−74593.1, 1416.78, 8706.48) | (−0.10, −0.02) | 31 ms, 11.81 |
+| maize_c3 | (−74580.9, 1403.66, 8704.90) | **(+12.10, −13.14)** | 31 ms, 4.14 |
+| maize_high | (−74591.5, 1414.97, 8706.27) | (+1.50, −1.83) | landed in a 31-ms loop, moved in the next (63 ms) |
+| maize_low | (−74593.0, 1416.8, 8706.48) | 0 | 31 ms, 5.39 |
+| maize_inside | (−74593.0, 1416.8, 8709.53) | 0 | 15 ms, 3.71 (ended 3 above the band) |
+| maize_+30x | (−74552.0, 1404.7, 8703.16) | **(+11.00, −12.10)** | 31 ms, 5.49 |
+| maize_−30x / +30y / −30y | 8708.35 / 8708.35 / 8704.60 | 0 | 31–47 ms |
+| slope_bare_1 / _2 | (−74560.0, 1380.0, 8702.12) both | 0 | 31 ms / 62 ms |
+| agave_pickable_1 | (−67457.0, 7781.1, 8530.12) | 0 | 32 ms (B11: the same) |
+| maize_disabled_2 | (−74593.0, 1416.79, 8706.48) | (0, −0.01) | 15 ms |
+
+- **The push is a landing slide, not the maize**: it came in 3 of 14 drops on that plane
+  (B11, c3, +30x) and a small one in `maize_high`; always downhill (+x, −y), within
+  3° of the slope's direction (the small one 6°); always in the single loop of touchdown (c3: 4.0 down and 16.4 sideways in
+  one loop, then 1.7 more in the next and nothing after; +30x likewise), so the vertical
+  drop plus the sideways move of that loop add up to about the 19 units the fall speed
+  would have carried the player in it. It happened 30 units from the maize's axis
+  (`maize_+30x`, the capsule clear of the 7 × 9 box), so **H-stalk is refuted**; the
+  repeats at the B11 point slid once in three, so whether it happens is the game's own
+  spread, and **H-actor is refuted** (no actor near). A long touchdown loop (31 ms and
+  more) came with every slide but also with seven straight landings; what decides it is
+  not known. One valid drop with the maize disabled fell straight, which says nothing
+  given the rate.
+- So the B11 row's golden (moved 14) shows a slide that the game makes in roughly one
+  landing in four or five here; the candidate falls straight, as the game did in 10 of 14
+  drops. Nothing in the candidate changed [not modelled: a random landing slide; a model
+  would need the rule that triggers it].
+
+Rocks (repeats at the B11 drop points, interleaved; x/y unchanged unless noted):
+
+| Target | Game feet z (drops) | Range | Mean | Candidate |
+|---|---|---|---|---|
+| rock a 0x001075A0 | B11 8333.09; 8333.45, 8329.03 (moved 1.16), 8336.16, 8327.10 (moved 3.46) | 9.06 | 8331.77 | 8323.62 (slid 5.1) |
+| rock b 0x00107587 | B11 8506.51 (moved 2.8); `mv_diag_trees_rocks` 8512.78; 8512.59, 8514.35, 8510.37, 8512.63 | 7.84 | 8511.54 | 8515.13 |
+| open ground (control) | B11 8355.85; 8355.85 four times | 0 | 8355.85 | 8355.51 |
+
+Rock a grid (game / candidate z; the game moved 0 at every point): −30/−30 8339.97 /
+8340.90; −30/+0 8344.17 / 8347.03; −30/+30 8349.07 / 8348.76; +0/−30 8334.76 / 8336.33;
++0/+30 8353.51 / 8353.62; +30/−30 8326.12 / 8328.27; +30/+0 8318.65 / 8318.60; +30/+30
+8324.53 / 8318.43 (the candidate slid 6.3 there). 7 of 8 within 3 units.
+
+- **Geometry, Havok scale and shells are right on both rocks**: the grids agree within 3
+  (rock a, 7 of 8) and 4 (rock b, 7 of 9) units; flat ground repeats to 0.01 and the
+  candidate is 0.34 under it (the band of §6.2); the differences below are 3–20 units,
+  far more than any shell (0.7 on the rock, 3.5 on terrain).
+- **Rock b is within the game's spread**: four drops at the same x/y rested at four
+  heights over 4 units, six drops over 7.8; the candidate is 0.8 above the highest, 3.6
+  above the mean, and the B11 golden is the lowest of the six (the one drop that moved).
+  On flat ground identical drops agree to 0.01, so the spread comes with resting on the
+  rock's uneven surface [observed], not with the drops themselves.
+- **Rock a is partly systematic**: the candidate is 3.5 below the lowest of five game drops
+  and 8.2 below their mean. Cause [observed: `fnvtool phys walk` trace of the same drop]:
+  27 units above the surface under the axis a near-vertical step (face normals with
+  z 0.11–0.19) runs about 12.7 units from the drop axis; the candidate's capsule
+  (radius 18) touches the step's top edge at 8343.15, is flagged sliding, and creeps down
+  the face at about 11 units/s for 1.8 s to 8323.63. The game's player comes to rest at
+  touchdown somewhere on that face (8327.10–8336.16) and does not move in the next 300
+  loops; in drop c1 it passed 8341.34 without being stopped, where the candidate's
+  capsule already stands on the edge. Both the higher first contact and the slow slide
+  differ. No single change fits [hypothesis, checked with `phys walk` radius overrides]:
+  a capsule that stops where it lands would stay at 8343 (10 above the B11 golden), a
+  radius of 12 or less misses the edge and lands at 8323.9; the game's rest heights look
+  like "stops where the touchdown loop ends, on a face the candidate's shape cannot reach
+  that low" [hypothesis]. Same family as the Havok tree rows (the game rests on steep
+  branch faces where rapier's controller slides off, §6.4), which the jump-trees
+  workstream owns; a shape measurement at a clean vertical edge is designed as backlog
+  B13 (layer4-captures.md §3).
+- No change made to the candidate and no tolerance or golden touched. **Question for the
+  owner** (scenario design is the owner's): rock b and maize differ from their goldens by
+  the game's own spread (rock b 7.8 units over six identical drops; the maize slide in 3
+  of 14 landings); with one capture per row and a tolerance of 8, such rows pass or fail
+  by which landing the capture caught. Options: (a) keep the rows and their goldens as
+  they are (they stay red until the candidate models the spread's cause); (b) build drop
+  goldens from repeated drops (e.g. the median of 4–6) with a tolerance set from the
+  observed spread; (c) compare only z for drop rows, or move rows on uneven surfaces
+  (rocks, slopes) to a separate scenario. Rock a would fail under any of these (the
+  candidate is outside the game's range).
 
 **Clutter row** (`mv_b11_clutter`) [observed]: the bottles bounced or rolled 50–300 units
 from the drop point (the control drop on open ground ended 183 units away), so most rows

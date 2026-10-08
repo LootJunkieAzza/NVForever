@@ -40,7 +40,7 @@ pub mod model;
 mod test_aid;
 
 use crate::sim::SimState;
-use crate::{space, OpenContainer, PlaySet, PlayState, PlayWorld, PlayerCamera, RefChanged, Travel};
+use crate::{space, Location, OpenContainer, PlaySet, PlayState, PlayerCamera, RefChanged};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -63,13 +63,6 @@ pub struct OpenInventory;
 #[derive(Message, Clone, Copy, Debug, Default)]
 pub struct OpenNearestContainer;
 
-/// The interior the player is in (`None`: the worldspace), followed through `Travel`;
-/// used by the F9 test aid.
-#[derive(Resource, Default)]
-struct Here {
-    interior: Option<u32>,
-}
-
 #[derive(Component)]
 struct MenuRoot;
 
@@ -86,15 +79,12 @@ pub struct MenuPlugin;
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActiveMenu>()
-            .init_resource::<Here>()
             .add_message::<MenuInput>()
             .add_message::<OpenInventory>()
             .add_message::<OpenNearestContainer>()
-            .add_systems(Startup, |d: Res<PlayWorld>, mut here: ResMut<Here>| here.interior = d.interior)
             .add_systems(
                 Update,
                 (
-                    follow_travel,
                     (tab_opens_inventory, f9_opens_nearest_container).run_if(in_state(PlayState::Playing)),
                     test_aid::run,
                     test_aid::run_drops,
@@ -110,12 +100,6 @@ impl Plugin for MenuPlugin {
     }
 }
 
-fn follow_travel(mut travel: MessageReader<Travel>, mut here: ResMut<Here>) {
-    for t in travel.read() {
-        here.interior = t.interior;
-    }
-}
-
 fn tab_opens_inventory(keys: Res<ButtonInput<KeyCode>>, mut out: MessageWriter<OpenInventory>) {
     if keys.just_pressed(KeyCode::Tab) {
         out.write(OpenInventory);
@@ -125,8 +109,7 @@ fn tab_opens_inventory(keys: Res<ButtonInput<KeyCode>>, mut out: MessageWriter<O
 /// Test aid: F9 opens the nearest container.
 fn f9_opens_nearest_container(
     keys: Res<ButtonInput<KeyCode>>,
-    d: Res<PlayWorld>,
-    here: Res<Here>,
+    here: Res<Location>,
     sim: Res<SimState>,
     cam: Query<&GlobalTransform, With<PlayerCamera>>,
     mut requests: MessageReader<OpenNearestContainer>,
@@ -137,7 +120,7 @@ fn f9_opens_nearest_container(
     }
     let Ok(cam) = cam.single() else { return };
     let pos = space::to_game(cam.translation());
-    match model::nearest_container(&sim.world, sim.refs, here.interior.map(FormId), FormId(d.world), pos) {
+    match model::nearest_container(&sim.world, sim.refs, here.interior.map(FormId), FormId(here.world), pos) {
         Some((id, dist)) => {
             let name = sim.base_of(id.0).and_then(|b| sim.name(b)).unwrap_or("?");
             info!("F9: nearest container {id} ({name}) at {dist:.0} units");

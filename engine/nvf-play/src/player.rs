@@ -594,7 +594,8 @@ fn step(
 /// Feet, cell and heading last written to the simulation.
 type SimPose = ([f32; 3], Option<u32>, f32);
 
-/// The simulation's player reference stands where the character does.
+/// The simulation's player reference stands where the character does, in the cell of the
+/// worldspace being played (`PhysState::worldspace`, which door travel changes) or the interior.
 fn sync_sim(
     phys: Res<PhysState>,
     player: Res<Player>,
@@ -607,7 +608,7 @@ fn sync_sim(
         Space::Interior(id) => Some(id),
         Space::Exterior => {
             let g = cell_of(c.feet[0], c.feet[1]);
-            d.index.worldspaces.get(&d.world).and_then(|w| w.grid.get(&g)).copied()
+            d.index.worldspaces.get(&phys.worldspace).and_then(|w| w.grid.get(&g)).copied()
         }
     };
     let now = (c.feet, cell, player.heading);

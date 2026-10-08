@@ -242,3 +242,19 @@ fn falling_through_the_world_puts_it_back_without_collision() {
     assert!(!phys.created.contains_key(&DROPPED));
     assert_eq!(sim.peek(FormId(DROPPED)).unwrap().pos, start);
 }
+
+#[test]
+fn drops_in_another_worldspace_are_not_drawn_or_colliding() {
+    let ix = index();
+    // Dropped in WORLD's square (0, 0); the player then travels into worldspace 0x99,
+    // whose square (0, 0) is loaded instead.
+    let s = state(Some(CELL_00), [10.0, 10.0, 0.0]);
+    let here = RenderCell::Exterior { world: 0x99, x: 0, y: 0 };
+    let wanted = Placed::wanted(&ix, [(FormId(DROPPED), &s)].into_iter());
+    assert_eq!(wanted[&DROPPED].cell, RenderCell::Exterior { world: WORLD, x: 0, y: 0 });
+    assert_eq!(plan(&wanted, &BTreeMap::new(), |c| c == here), Plan::default());
+    // Drawn before the travel: despawned when only the other worldspace is loaded.
+    assert_eq!(plan(&wanted, &wanted, |c| c == here), Plan { despawn: vec![DROPPED], ..Default::default() });
+    assert_eq!(phys_cell(&ix, 0x99, Space::Exterior, &s), None);
+    assert_eq!(phys_cell(&ix, WORLD, Space::Exterior, &s), Some(PhysCell::Exterior(0, 0)));
+}
