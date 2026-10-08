@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
 use bevy::shader::ShaderRef;
 use nvf_assets::model::ModelCtx;
+use nvf_assets::{nif_material, NifMaterial};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -43,7 +44,7 @@ impl Plugin for TreePlugin {
 
 #[derive(Clone)]
 pub enum PartMaterial {
-    Bark(Handle<StandardMaterial>),
+    Bark(Handle<NifMaterial>),
     Leaves(Handle<LeafMaterial>),
 }
 
@@ -109,13 +110,13 @@ fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &m
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, g.normals);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, g.uvs);
         mesh.insert_indices(bevy::mesh::Indices::U32(g.indices));
-        let mat = models.materials.add(StandardMaterial {
+        let mat = models.materials.add(nif_material(StandardMaterial {
             base_color: if image.is_some() { Color::WHITE } else { Color::srgb(0.3, 0.25, 0.2) },
             base_color_texture: image,
             perceptual_roughness: 0.9,
             reflectance: 0.2,
             ..default()
-        });
+        }));
         parts.push(TreePart { mesh: models.meshes.add(mesh), material: PartMaterial::Bark(mat), aabb });
     }
 
