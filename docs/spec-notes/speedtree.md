@@ -145,6 +145,27 @@ that tall [observed].
   `.spt` name, ICON = leaf texture, SNAM = seeds, CNAM = leaf curvature, leaf angles,
   dimming, shadow radius, rock and rustle speeds, BNAM = billboard size.
 
+### Leaf and branch dimming (CNAM) [hypothesis]
+
+The billboards darken from the top of the crown to the bottom, and the darkening is
+stronger the lower the record's leaf dimming [observed: mean luminance of the opaque
+billboard pixels in four bands, top to bottom, bottom ÷ top]:
+
+| Tree | CNAM leaf dimming | Bands | Bottom ÷ top |
+|---|---|---|---|
+| WastelandShrub01 | 0.05 | 47 38 32 22 | 0.47 |
+| EuonymusBush01 | 0.3 | 63 61 52 37 | 0.59 |
+| WhiteOak01 | 0.7 | 71 67 65 70 | ~1 (bottom band is mostly trunk) |
+
+Reading used: leaf dimming is the brightness of the lowest leaves of the crown;
+brightness = d + (1 − d) · h^(1/3), with h the leaf's height in the crown (0 at the
+lowest leaf, 1 at the highest), applied as a display-space factor (to the power 2.2 in
+the linear renderer). Branch dimming does the same for bark, by vertex height. The
+cube root is fitted: the square root gave a WastelandShrub01 render 0.36 bottom ÷ top
+against the billboard's 0.47, the cube root 0.42 (the rest of the gradient there comes
+from the sun). Leaf normals point horizontally out of the crown, tilted up 45°, so the
+top-to-bottom darkening is not counted twice.
+
 ## 7. Open questions
 
 - Meanings of 2001/2003/2006/2007; the remaining curves (6001-6003, 6017).
@@ -152,5 +173,6 @@ that tall [observed].
 - EuonymusBush01 comes out too wide (§4); WhiteOak01's OBND (1567 high) is twice its
   billboard (768).
 - How SNAM seeds beyond the first are used (WhiteOak01 has five: variants per reference?).
-- Leaf lighting (CNAM dimming, 3000-3010, 9000-9014) and wind (16000s, CNAM speeds).
+- Leaf curvature and leaf angles (CNAM), 3000-3010, 9000-9014; whether dimming also
+  depends on depth into the crown, not only height; wind (16000s, CNAM speeds).
 - Fronds (13000/14000 sections).

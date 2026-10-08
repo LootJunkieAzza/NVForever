@@ -122,6 +122,10 @@ pub struct TreeRecord {
     /// [observed: the opaque part of WastelandShrub01's billboard spans 0.89 of its
     /// width and 0.62 of its height, WhiteOak01's 0.61 and 0.99]), else OBND max z.
     pub size: Option<f32>,
+    /// CNAM leaf and branch dimming [documented: xEdit field names; meaning
+    /// speedtree.md §6, hypothesis].
+    pub leaf_dimming: Option<f32>,
+    pub branch_dimming: Option<f32>,
 }
 
 pub fn tree_record(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<TreeRecord> {
@@ -132,7 +136,9 @@ pub fn tree_record(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<TreeReco
     let leaf_texture = leaf_texture.map(|i| format!("textures\\trees\\leaves\\{}", i.trim_start_matches('\\')));
     let obnd = f.get(b"OBND").and_then(|b| num(b.get("max")?, "z")).map(|z| z as f32).filter(|&z| z > 0.0);
     let bnam = f.get(b"BNAM").and_then(|b| Some(num(&b, "width")?.max(num(&b, "height")?) as f32)).filter(|&s| s > 0.0);
-    Some(TreeRecord { model, leaf_texture, size: bnam.or(obnd) })
+    let cnam = f.get(b"CNAM");
+    let dim = |k: &str| cnam.as_ref().and_then(|c| num(c, k)).map(|v| v as f32);
+    Some(TreeRecord { model, leaf_texture, size: bnam.or(obnd), leaf_dimming: dim("leaf_dimming"), branch_dimming: dim("branch_dimming") })
 }
 
 #[cfg(test)]
