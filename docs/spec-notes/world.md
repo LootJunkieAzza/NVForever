@@ -99,6 +99,20 @@ apart and the last row/column coincides with the neighbour's first.
   default). Each `ATXT` adds a layer (LTEX, quadrant, layer number) whose opacity per
   vertex is given by the following `VTXT`: a list of (position, opacity f32) where
   position indexes a 17 × 17 grid over the quadrant. LTEX names a texture set (TXST).
+- **Alpha grid orientation** [observed]: VTXT position = row × 17 + column, rows south →
+  north, columns west → east. Neighbouring quadrants share an edge of the grid; for a
+  texture layered on both sides, the edge opacities agree (within 1/255) for 38,039 of
+  44,753 edges inside cells and 35,100 of 43,039 across cells in WastelandNV. The best
+  of the other seven orientations of the square agrees for 21,946 and 20,033.
+  Reproduce with `crates/fnv-world/examples/land_layers.rs`.
+- **Default texture** [documented: the game's `Fallout_default.ini`,
+  `SDefaultLandDiffuseTexture=DirtWasteland01.dds`]: 51,000 of 65,552 WastelandNV
+  quadrants have no BTXT (most of them outside the map; cell (−14, −6) south of
+  Goodsprings has one), and some ATXT layers name a null LTEX [observed]. The renderer
+  uses `textures\landscape\dirtwasteland01.dds` for both. It is the only file of that
+  name in the archives, so it is probably the INI's file [hypothesis]. Before this change
+  those quadrants were drawn untextured, which showed as hard-edged patches along quadrant
+  edges (owner's screenshot, 2026-10-08) [observed].
 
 ## 4. Reference rotation convention
 
@@ -402,9 +416,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
 ## 9. Open questions
 
 1. Engine-defined base objects (FormIDs < 0x800): which are visible? (Assumed none.)
-2. Texture-layer details: quadrant order, blending of `layer` numbers, the default
-   texture when `BTXT` is absent, and how the 17 × 17 alpha grid maps to vertices.
-   Verify by comparing renders with in-game screenshots.
+2. Texture-layer details: quadrant order and blending of `layer` numbers. (The alpha
+   grid orientation and the default texture are in §3.) Verify by comparing renders with
+   in-game screenshots.
 3. XCLW sentinel 3.4028235e38: confirm that the worldspace water height applies.
    Water drawing (§6): fog distance measure, the fog amounts and ANAM opacity, noise
    layer units; to settle with in-game captures at Lake Mead at several heights and
