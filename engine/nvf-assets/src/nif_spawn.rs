@@ -77,6 +77,10 @@ pub(crate) struct Props {
     alpha: Option<(i64, i64)>,
     material_alpha: Option<f32>,
     emissive: Option<[f32; 3]>,
+    emissive_mult: Option<f32>,
+    /// Glow map: texture-set slot 2 of a BSShaderPPLightingProperty without the face-gen
+    /// or hair flag (docs/spec-notes/nif.md §6, "Emissive light").
+    glow: Option<String>,
     glossiness: Option<f32>,
     double_sided: bool,
     vertex_colors_tint: bool,
@@ -112,15 +116,30 @@ fn text_list(s: &Struct, name: &str) -> Vec<String> {
         .collect()
 }
 
+/// The glow map of a BSShaderPPLightingProperty: texture-set slot 2, unless the face-gen
+/// (bit 10) or hair (bit 18) shader flag is set [documented: nif.xml BSShaderFlags,
+/// BSShaderTextureSet], in which case slot 2 holds skin or hair maps.
+fn glow_map(shader_flags: i64, textures: &[String]) -> Option<String> {
+    if shader_flags & (1 << 10 | 1 << 18) != 0 {
+        return None;
+    }
+    textures.get(2).filter(|t| !t.is_empty()).cloned()
+}
+
 fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     let Some(s) = dec.get(r) else { return };
     let ty = file.blocks[r as usize].type_name.as_str();
     p.has_properties = true;
-    p.shader |= dec.is_a(r as usize, "BSShaderProperty");
+    let shader = dec.is_a(r as usize, "BSShaderProperty");
+    p.shader |= shader;
     if let Some(ts) = s.block_ref("texture_set").and_then(|t| dec.get(t)) {
         p.textures = text_list(ts, "textures");
     }
+    if shader || ty == "NiTexturingProperty" {
+        p.glow = None;
+    }
     match ty {
+        "BSShaderPPLightingProperty" => p.glow = glow_map(s.int("shader_flags").unwrap_or(0), &p.textures),
         "BSShaderNoLightingProperty" => {
             p.unlit = true;
             if let Some(f) = s.text("file_name") {
@@ -137,6 +156,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         "NiMaterialProperty" => {
             p.material_alpha = s.float("alpha");
             p.emissive = s.floats("emissive_color").and_then(|e| e.try_into().ok());
+            p.emissive_mult = s.float("emissive_mult");
             p.glossiness = s.float("glossiness");
         }
         "NiStencilProperty" => {
@@ -214,6 +234,14 @@ pub(crate) fn shape_material(
     let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
     let alpha_mode = props.alpha.map_or(AlphaMode::Opaque, |(flags, threshold)| alpha_mode(flags, threshold));
     let gloss = props.glossiness.unwrap_or(10.0);
+    // Emitted light = emissive colour × emissive multiplier × glow map, or uniform without
+    // a glow map [hypothesis, docs/spec-notes/nif.md §6 "Emissive light"]. Not scaled by
+    // the camera exposure (Bevy's default emissive_exposure_weight 0).
+    let emissive = props.emissive.filter(|e| e.iter().any(|&c| c > 0.0)).map(|e| {
+        let m = props.emissive_mult.unwrap_or(1.0).max(0.0);
+        LinearRgba::rgb(e[0] * m, e[1] * m, e[2] * m)
+    });
+    let glow = emissive.and(props.glow.as_deref()).and_then(|t| textures.get(t, true, data, images, formats));
     let material = StandardMaterial {
         base_color: Color::srgba(1.0, 1.0, 1.0, props.material_alpha.unwrap_or(1.0)),
         base_color_texture: base,
@@ -222,7 +250,8 @@ pub(crate) fn shape_material(
         perceptual_roughness: (1.0 - (gloss / 100.0).clamp(0.0, 0.9)).clamp(0.3, 1.0),
         metallic: 0.0,
         reflectance: 0.3,
-        emissive: props.emissive.map(|e| LinearRgba::rgb(e[0], e[1], e[2])).unwrap_or(LinearRgba::BLACK),
+        emissive: emissive.unwrap_or(LinearRgba::BLACK),
+        emissive_texture: glow,
         alpha_mode,
         double_sided: props.double_sided,
         cull_mode: if props.double_sided { None } else { Some(bevy::render::render_resource::Face::Back) },
@@ -521,5 +550,16 @@ mod tests {
         // A shader property, or a texture from NiTexturingProperty: drawn.
         assert!(!Props { shader: true, ..material_only.clone() }.is_helper());
         assert!(!Props { textures: vec!["textures\\a.dds".into()], ..material_only }.is_helper());
+    }
+
+    #[test]
+    fn glow_map_slot() {
+        let set: Vec<String> = ["d.dds", "d_n.dds", "d_g.dds", "", "", ""].iter().map(|s| s.to_string()).collect();
+        assert_eq!(glow_map(0x8200_0101, &set).as_deref(), Some("d_g.dds"));
+        assert_eq!(glow_map(1 << 10, &set), None); // face gen: slot 2 is a skin map
+        assert_eq!(glow_map(1 << 18, &set), None); // hair
+        assert_eq!(glow_map(0, &set[..2]), None);
+        let empty: Vec<String> = ["d.dds", "d_n.dds", ""].iter().map(|s| s.to_string()).collect();
+        assert_eq!(glow_map(0, &empty), None);
     }
 }
