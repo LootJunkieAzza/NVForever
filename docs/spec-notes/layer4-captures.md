@@ -18,7 +18,8 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.sim.trace.goodsprings_weight_and_time` | captured | pass 9/9 | GameHour/GameDaysPassed fractions not observed (clock runs in menus) |
 | `L4.sim.leveled.basic` | captured (2,100 draws) | pass 7/7 | 300 `AddItem` draws per case |
 | `L4.sim.trace.goodsprings_doc_mitchell` | captured | 5/6 | fails only on z after the door (+7.44): needs the character controller (workstream 2); do not tune |
-| `L4.sim.trace.goodsprings_merchant_restock` | captured | pass 4/4 | save-independent merchant restock |
+| `L4.sim.trace.goodsprings_merchant_restock` | captured | pass 4/4 | merchant restock; needs no hidden restock time (the start's place in the 7-day cycle matters, simulation.md §3) |
+| `L4.sim.trace.goodsprings_merchant_midnight_restock` | captured 2026-10-08 unattended (`nvftest`, `--time hour`) | pass 11/11 | restock days (GameDaysPassed 0 or 3 mod 7); it refuted the midnight rule it was designed for |
 | `L4.sim.trace.x13_enable_parents` | captured 2026-10-08 (coc into X-13, god mode) | pass 13/13 | B1 done |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
 
@@ -71,6 +72,8 @@ directory's `jobs\`). Results are in the notes named.
 | `bl_primm_restock`, `_ts` (B2) | merchant box without the Respawns flag | never refilled in 7 days; simulation.md §3 |
 | `bl_container_respawn`, `_ts` (B3) | 72 h cell respawn, fridge (Respawns) and toolbox | fridge: empty at 24/70 h, refilled at 74 h; toolbox never; simulation.md §3 |
 | `bl_placed_mines` (B10) | are placed mines live; scripted activation | inert for 600 loops; scripted Activate does nothing; simulation.md §1 |
+| `mr_diag_reads`, `mr_diag_calendar`, `mr_diag_month_short`, `mr_diag_long_untouched`, `mr_diag_ringo`, `mr_diag_untouched_3d`, `_4d` (`make_restock_jobs.py`) | why the midnight rule failed: refill times with 2- or 6-hourly reads, the save's calendar, Ringo's state | restocks only on days 0 or 3 mod 7; simulation.md §3 |
+| `mr_predict_days` (`make_restock_jobs.py`) | held-out check of the restock days, made after the rule was stated | refilled on 31, 35, 38, 42 and no day between; simulation.md §3 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)
@@ -94,7 +97,7 @@ written.
   leveled contents, cell `GSGeneralStore`). Leveled contents are random, so observe the
   number of stacks (`GetNumItems`; needs a trace op or a distribution-style check) or use
   a respawning container with fixed contents. Leave the cell between empty and read.
-- **B4 merchant restock: on access or on a schedule** — **done 2026-10-08**: neither as stated; restocks happen at midnights, at least 3 days after the last one, skipped while the box is untouched (`bl_restock_timing`, `bl_restock_schedule`; simulation.md §3). Open: test the "changed since" condition directly (empty a box, put the original contents back, see whether the next due midnight restocks it). Was: design. All captures fit both.
+- **B4 merchant restock: on access or on a schedule** — **done 2026-10-08**: neither as stated; restocks happen at midnights, at least 3 days after the last one, skipped while the box is untouched (`bl_restock_timing`, `bl_restock_schedule`; simulation.md §3). **Superseded later on 2026-10-08**: restocks come on fixed days, GameDaysPassed 0 or 3 modulo 7, whatever the last restock (`make_restock_jobs.py`; simulation.md §3); the "changed since" condition is dropped. Open: other merchants (is the schedule global?), and whether an untouched box with leveled stock is re-rolled. Was: design. All captures fit both.
   Idea: after an observed restock, empty the box and read it only rarely vs every hour
   around the 72 h mark; under "on access" the restock time follows the reads.
 - **B5 calendar** — **done 2026-10-08** (`bl_calendar`: 0-based Gregorian months, no leap day). Was: is GameMonth 9 October? Set day 30 of month 10 (November if 0-based,

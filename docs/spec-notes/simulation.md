@@ -146,6 +146,41 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   (emptied at 20.658, 4 days after 17) → 24. The "changed since" condition rests on that
   one skipped midnight; "skipped when full" or "skipped when untouched" fit equally. The
   period matches `iHoursToRespawnCell` (72 h) [hypothesis that it is the source].
+  **Refuted the same day; restocks come on fixed days** (later 2026-10-08 captures, all
+  unattended from `nvftest` with the player inside and time moved by `GameHour`; jobs from
+  `tools/capture/jobs/make_restock_jobs.py` and the scenario
+  `L4.sim.trace.goodsprings_merchant_midnight_restock`). The save's calendar: GameDaysPassed
+  12.388 is 25 October 2281 (GameMonth 9), day 19 is 1 November [observed,
+  `mr_diag_calendar`]. Restocked at day 14 and left full and untouched, the box emptied at
+  19.4 was **not** refilled at midnight 20 (6 days after its last restock) but at 21
+  (`goodsprings_merchant_midnight_restock`, and again with 2-hourly reads in
+  `mr_diag_reads`: reads change nothing). Restocked at 17 and emptied at once, it was not
+  refilled at 20 but at 21 (`mr_diag_month_short`, `mr_diag_ringo`), while restocked at 14
+  or 21 and emptied at once it refilled 3 days later (17, 24). Restocked at 21 and left
+  untouched, it was emptied at 24.4, 25.4 or 26.4 and every time refilled at **28**
+  (`mr_diag_untouched_3d`, `_4d`, `mr_diag_long_untouched`). Ringo (0x00104C7D) stayed in
+  GSGasStation, enabled, with the same daily AI packages throughout (`mr_diag_ringo`), so
+  his state does not explain the skipped midnights. Across every capture of both saves
+  (also `bl_restock_timing`, `bl_restock_schedule`, `aa_vendor_restock`,
+  `aa_vendor_period`) refills came only just after midnights 7, 10, 14, 17, 21, 24 and 28,
+  and an emptied box was passed over at midnights 8, 9, 13, 15, 16, 18, 19, 20, 22, 23, 25,
+  26 and 27 [observed]: refills happen exactly on days whose **GameDaysPassed is 0 or 3
+  modulo 7** (twice a week, 3 and 4 days apart; equally, the first midnight at or after
+  each point 3 + 3.5k), whatever the last restock or access. A held-out run made after the
+  rule was stated (`mr_predict_days`: emptied on days 29, 31, 35 and 38, read daily)
+  refilled on exactly 31, 35, 38 and 42 and on none of the nine days between [observed].
+  Rule [hypothesis, consistent with every capture]: **at each midnight that starts a day d
+  with d mod 7 ∈ {0, 3}, every merchant container whose base has the Respawns flag is
+  restocked (contents replaced).** No hidden last-restock time takes part, so a capture
+  depends on the save only through where its start falls in the 7-day cycle (the earlier
+  "save's last restock time" readings were this phase). Open: whether the schedule is
+  global (two saves agree; other merchants not captured), whether an untouched box is
+  re-rolled (invisible with fixed contents; a merchant with leveled stock would tell), and
+  why GameDaysPassed modulo 7 (no week or restock setting appears in the masters;
+  `GetGameSetting "iDaysToRespawnVendor"` returned 0 in game [observed], which may only
+  mean that no such setting exists). The "changed since the last restock" condition and
+  the link to `iHoursToRespawnCell` are dropped: the one skipped midnight they rested on
+  (day 20) is not a restock day.
   A merchant box whose base lacks the Respawns flag (Primm, Prospector's Den,
   0x0017409C, base `VLootSackVendorWastelandT2RSPros`; `bl_primm_restock`, both
   substitutes) was emptied and **never refilled in 7 days** of daily reads [observed]; so
