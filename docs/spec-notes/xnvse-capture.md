@@ -67,11 +67,15 @@ All calls use the C calling convention of 32-bit MSVC (cdecl); `bool` is one byt
 Base game: `AddItem` (third argument: add silently), `RemoveItem`, `RemoveAllItems`
 (optional target container), `GetItemCount`, `Activate`, `Drop`, `EquipItem`,
 `UnequipItem`, `GetActorValue`/`GetAV`, `SetActorValue`/`SetAV`, `GetDisabled`,
-`Enable`, `Disable`, `Lock`, `Unlock`, `GetPos`. xNVSE/FOSE: `BuildRef(modIndex,
+`Enable`, `Disable`, `Lock`, `Unlock`, `GetLocked`, `GetLockLevel`, `GetPos`, `GetAngle`,
+`MenuMode <code>` (1008 container menu, 1014 lockpick menu [documented: GECK wiki
+GetMenuTargetRef]) and the console-only `CloseAllMenus`. xNVSE/FOSE: `BuildRef(modIndex,
 formID)` and `GetModIndex(name)` (forms by plugin name and plugin-local FormID, so jobs
 do not depend on load order), `GetParentCell`, `GetFormIDString` (load-order FormID as
 hex text; needs a ref variable), `GetNumItems`, `GetInventoryObject`,
-`GetNumLoadedMods`, `GetNthModName`, `IsKeyPressed` (DirectX scan code: End = 207),
+`GetNumLoadedMods`, `GetNthModName`, `GetFirstRef` / `GetNextRef` (form type 201 =
+inventory items; third argument: include taken references), `GetBaseObject`,
+`GetSourceModIndex`, `GetRefCount`, `IsKeyPressed` (DirectX scan code: End = 207),
 `MessageEx`, `SetFunctionValue`, `let`, `while … loop`, `$` (ToString).
 
 ## 4. Protocol (this project's design)
@@ -151,8 +155,14 @@ Scripts given to `CompileScript` on the owner's install (xNVSE 6.4.9, game 1.4.0
 
 `capture_steps.py` writes jobs to these rules and resolves Editor IDs to FormIDs from the
 masters itself (`--data`, read-only). Still untested in game: `if <ref var>`, `$` of a
-float variable (inventory slots), `Activate`, `EquipItem`, `Lock`, `Drop`; failures are
-recorded per step, not fatal.
+float variable (inventory slots); failures are recorded per step, not fatal.
+`Activate`, `EquipItem`, `Lock`, `Unlock`, `Drop` run as statements; `while rScan != 0`
+loops over `GetFirstRef` / `GetNextRef`, `rScan.GetBaseObject` compared with a `BuildRef`
+base, `rScan.GetSourceModIndex` and `MenuMode 1008` in an expression all compile and run
+[observed 2026-10-08, the lock and drop captures]. `CloseAllMenus` as a console line
+closes the container menu a scripted `Activate` opened (`MenuMode` 0 afterwards). A
+function called on an empty ref variable is reported by xNVSE ("Attempting to call a
+function on a NULL reference") and the step fails without harm.
 
 ## 6. Open points
 
