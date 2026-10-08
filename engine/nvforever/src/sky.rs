@@ -42,6 +42,8 @@ const SUN_DISTANCE: f32 = 300_000.0;
 const SUN_SIZE: f32 = 21_000.0;
 /// Southward tilt of the sun's path in radians [hypothesis].
 const SUN_TILT: f32 = 0.45;
+/// Elevation (radians) below which the directional light fades out towards the horizon.
+const HORIZON_FADE: f32 = 0.1;
 /// Cloud texture scroll per second per ONAM speed unit, in texture repeats [placeholder
 /// rate, to tune against the game].
 const CLOUD_SCROLL: f32 = 1.0 / 25_600.0;
@@ -68,6 +70,10 @@ pub struct SkyState {
     pub interior: Option<fnv_world::lighting::CellLighting>,
     /// Sun shadows reach this far from the camera (game units); 0 = no shadows.
     pub shadow_distance: f32,
+    /// Test aid: game hours per real second (0: time stands still).
+    pub time_scale: f32,
+    /// The time-lapse clock runs (set once the cells around the start are loaded).
+    pub clock_running: bool,
     changed: bool,
 }
 
@@ -85,13 +91,34 @@ impl SkyState {
             None => default_weather(&clim, |g| global_value(world.lo, world.schema, g)).ok_or("climate lists no weather")?,
         };
         let w = weather(world.lo, world.schema, wid).ok_or("weather unreadable")?;
-        Ok(SkyState { climate: clim, weather: w, hour, fog_override: None, interior: None, shadow_distance: 0.0, changed: true })
+        Ok(SkyState { climate: clim, weather: w, hour, fog_override: None, interior: None, shadow_distance: 0.0, time_scale: 0.0, clock_running: false, changed: true })
     }
 
     /// Switch between interior lighting (`Some`) and the worldspace's sky (`None`).
     pub fn set_interior(&mut self, lighting: Option<fnv_world::lighting::CellLighting>) {
         self.interior = lighting;
         self.changed = true;
+    }
+
+    /// The time, sun elevation and the luminance of the light and sky colours at this
+    /// hour (for the time-lapse log).
+    pub fn sample(&self) -> String {
+        let (c, w, h) = (&self.climate, &self.weather, self.hour);
+        let lum = |ty| {
+            let v = w.color(c, ty, h);
+            0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]
+        };
+        let elevation = sun_direction(c, h, SUN_TILT)[2].clamp(-1.0, 1.0).asin().to_degrees();
+        format!(
+            "{:02}:{:02}  sun elevation {elevation:6.1}°  luminance: sunlight {:.3} ambient {:.3} sky-upper {:.3} horizon {:.3} fog {:.3}",
+            h as u32 % 24,
+            (h.fract() * 60.0) as u32,
+            lum(ColorType::Sunlight),
+            lum(ColorType::Ambient),
+            lum(ColorType::SkyUpper),
+            lum(ColorType::Horizon),
+            lum(ColorType::Fog)
+        )
     }
 
     pub fn describe(&self) -> String {
@@ -344,6 +371,10 @@ pub fn update_sky(
     let cam_pos = cam_t.translation;
     let to_bevy = game_to_bevy();
     let unit = light_unit();
+    if sky.time_scale > 0.0 && sky.clock_running && sky.interior.is_none() {
+        sky.hour = (sky.hour + time.delta_secs() * sky.time_scale).rem_euclid(24.0);
+        sky.changed = true;
+    }
     let changed = std::mem::take(&mut sky.changed);
     if let Some(l) = sky.interior {
         if !changed {
@@ -433,7 +464,9 @@ pub fn update_sky(
         let from = if sun_dir.y >= 0.0 { sun_dir } else { -sun_dir };
         *t = Transform::IDENTITY.looking_to(-from, Vec3::Y);
         light.color = to_color(sunlight);
-        light.illuminance = PI * unit;
+        // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
+        // switch between the two does not flip shadows at full strength [interim].
+        light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0);
     }
     if let Ok((_, m)) = disc.single() {
         if let Some(mut mat) = materials.get_mut(&m.0) {
@@ -448,7 +481,9 @@ pub fn update_sky(
     let (near, far) = sky.fog_override.unwrap_or_else(|| w.fog_at(c, h));
     fog.color = to_color(w.color(c, ColorType::Fog, h));
     fog.falloff = FogFalloff::Linear { start: near.max(0.0), end: far.max(near + 1.0) };
-    info!("sky: {}  fog {near:.0}..{far:.0}", sky.describe());
+    if sky.time_scale <= 0.0 {
+        info!("sky: {}  fog {near:.0}..{far:.0}", sky.describe());
+    }
 }
 
 pub fn initial_fog() -> DistanceFog {
