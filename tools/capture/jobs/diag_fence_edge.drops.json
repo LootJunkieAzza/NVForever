@@ -1,0 +1,168 @@
+{
+ "schema": "fnv.phys.drops/1",
+ "name": "diag_fence_edge",
+ "description": "Diagnostic (no scenario): the player dropped from 200 above the top of the Doc Mitchell yard fence (SCOL 0x00177CA4; top 8422.4, about 3.5 units wide, centre x -72458.75 at y 4100 and 4150 in our collision [observed: fnvtool phys cell --ray]; LAND 8352 on both sides) at offsets across it: the rest height against the offset gives the shape of the player's bottom (a capsule of radius r rests r - sqrt(r^2 - (|d| - 1.75)^2) below the top; a flat bottom does not sink), and the final x shows whether a falling player slides off a steep contact (physics.md 6.4).",
+ "seconds": 10,
+ "drops": [
+  {
+   "label": "fence_y4100_+0",
+   "at": [
+    -72458.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_+4",
+   "at": [
+    -72454.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_-4",
+   "at": [
+    -72462.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_+8",
+   "at": [
+    -72450.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_-8",
+   "at": [
+    -72466.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_+12",
+   "at": [
+    -72446.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_-12",
+   "at": [
+    -72470.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_+16",
+   "at": [
+    -72442.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_-16",
+   "at": [
+    -72474.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_+20",
+   "at": [
+    -72438.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_-20",
+   "at": [
+    -72478.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_+24",
+   "at": [
+    -72434.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_-24",
+   "at": [
+    -72482.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_+28",
+   "at": [
+    -72430.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_-28",
+   "at": [
+    -72486.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_+34",
+   "at": [
+    -72424.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4100_-34",
+   "at": [
+    -72492.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4150_+0",
+   "at": [
+    -72458.75,
+    4150.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4150_+12",
+   "at": [
+    -72446.75,
+    4150.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_y4150_+20",
+   "at": [
+    -72438.75,
+    4150.0,
+    8622.4
+   ]
+  }
+ ]
+}
