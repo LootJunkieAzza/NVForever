@@ -27,22 +27,44 @@ pub(super) fn ms_since(t: Instant) -> f64 {
     t.elapsed().as_secs_f64() * 1000.0
 }
 
-type ModelResult = Result<Arc<Vec<CollisionObject>>, String>;
+type Objects = Arc<Vec<CollisionObject>>;
 
-/// Collision objects per model path (lower case), shared by the loader thread and the
-/// main thread. A model is read once: a second caller waits for the first.
+/// What a model contributes: its solid collision objects and its water volumes (phantoms
+/// on the Water layer, physics.md §6.6), or why it could not be read.
+type ModelResult = Result<(Objects, Objects), String>;
+
+/// Collision per model path (lower case), shared by the loader thread and the main
+/// thread. A model is read once: a second caller waits for the first.
 #[derive(Default)]
 pub struct ModelCache {
     map: Mutex<HashMap<String, Arc<OnceLock<ModelResult>>>>,
 }
 
 impl ModelCache {
-    fn slot(&self, key: String) -> Arc<OnceLock<ModelResult>> {
-        self.map.lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_default().clone()
+    fn slot(&self, path: &str) -> Arc<OnceLock<ModelResult>> {
+        self.map.lock().unwrap_or_else(|e| e.into_inner()).entry(path.to_ascii_lowercase()).or_default().clone()
+    }
+
+    fn read(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult {
+        self.slot(path)
+            .get_or_init(|| {
+                let r = read_model(data, path, times);
+                if let Err(e) = &r {
+                    bevy::log::debug!("collision of {path}: {e}");
+                }
+                r
+            })
+            .clone()
+    }
+
+    /// A model's solid collision objects (empty when it has none), read through
+    /// `fnv_collide::nif` once.
+    pub fn objects(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> Result<Objects, String> {
+        self.read(data, path, times).map(|(solid, _)| solid)
     }
 }
 
-/// Collision objects read from the archives through `fnv_collide::nif`, cached per path.
+/// Collision objects read from the archives through the shared cache.
 struct Models<'a> {
     data: &'a GameData,
     cache: &'a ModelCache,
@@ -50,16 +72,15 @@ struct Models<'a> {
 }
 
 impl ModelCollision for Models<'_> {
-    fn objects(&mut self, path: &str) -> ModelResult {
-        let slot = self.cache.slot(path.to_ascii_lowercase());
-        slot.get_or_init(|| {
-            let r = read_model(self.data, path, self.times);
-            if let Err(e) = &r {
-                bevy::log::debug!("collision of {path}: {e}");
-            }
-            r
-        })
-        .clone()
+    fn objects(&mut self, path: &str) -> Result<Objects, String> {
+        self.cache.objects(self.data, path, self.times)
+    }
+
+    fn water(&mut self, path: &str) -> Objects {
+        match self.cache.slot(path).get() {
+            Some(Ok((_, water))) => water.clone(),
+            _ => Arc::default(),
+        }
     }
 }
 
@@ -79,9 +100,10 @@ fn read_model(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult
     times.parse += ms_since(t);
     let file = file?;
     let t = Instant::now();
-    let o = fnv_collide::nif::collision_objects(&file, dec.as_ref().expect("decoded with the file")).0;
+    let (solid, phantoms, _) = fnv_collide::nif::collision_and_phantoms(&file, dec.as_ref().expect("decoded with the file"));
+    let water: Vec<CollisionObject> = phantoms.into_iter().filter(|o| o.layer == fnv_phys::layers::WATER).collect();
     times.convert += ms_since(t);
-    Ok(Arc::new(o))
+    Ok((Arc::new(solid), Arc::new(water)))
 }
 
 /// What preparing needs: the plugins, the archives and the world's parameters. Cheap to
@@ -110,6 +132,8 @@ pub struct Job {
 pub struct RefShapes {
     /// The `refs.counts` outcomes `ref_collision` reported, in order.
     pub tallies: Vec<&'static str>,
+    /// Water volumes of the model in the reference's frame (`RefCollision::water`).
+    pub water: Vec<CollisionObject>,
     /// The shapes, when the reference has collision objects.
     pub prepared: Option<PreparedRef>,
 }
@@ -182,5 +206,5 @@ pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShap
         times.shapes += ms_since(t);
         p
     });
-    RefShapes { tallies, prepared }
+    RefShapes { tallies, water: rc.water, prepared }
 }
