@@ -8,6 +8,7 @@
 //! by −90° about X.
 
 use crate::data::GameData;
+use crate::falloff::{Falloff, FalloffMaterial, ShapeMaterial};
 use crate::texture::TextureCache;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -53,6 +54,7 @@ pub struct SpawnCtx<'w, 's> {
     pub commands: Commands<'w, 's>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
     pub materials: ResMut<'w, Assets<StandardMaterial>>,
+    pub falloff_materials: ResMut<'w, Assets<FalloffMaterial>>,
     pub images: ResMut<'w, Assets<Image>>,
     pub bindposes: ResMut<'w, Assets<SkinnedMeshInverseBindposes>>,
     pub textures: ResMut<'w, TextureCache>,
@@ -88,6 +90,8 @@ pub(crate) struct Props {
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
+    /// The view-angle falloff of a BSShaderNoLightingProperty.
+    falloff: Option<Falloff>,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -142,6 +146,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     }
     if shader {
         p.specular = s.int("shader_flags").is_some_and(|f| f & 1 != 0);
+        p.falloff = None;
     }
     match ty {
         "BSShaderPPLightingProperty" => p.glow = glow_map(s.int("shader_flags").unwrap_or(0), &p.textures),
@@ -149,6 +154,12 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
             p.unlit = true;
             if let Some(f) = s.text("file_name") {
                 p.textures = vec![f.to_string()];
+            }
+            let f = |n: &str| s.float(n);
+            if let (Some(a), Some(b), Some(c), Some(d)) =
+                (f("falloff_start_angle"), f("falloff_stop_angle"), f("falloff_start_opacity"), f("falloff_stop_opacity"))
+            {
+                p.falloff = Falloff::from_fields(a, b, c, d);
             }
         }
         "NiTexturingProperty" => {
@@ -241,6 +252,27 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool) -> (f32, bool) {
         (true, true) => (2.0, true),
         (true, false) => (0.0, false),
         (false, _) => (0.3, false),
+    }
+}
+
+/// The falloff to draw a shape's material with. Falloff scales alpha, so only blended
+/// materials use it [hypothesis: on alpha-tested or opaque shapes it would only cut holes;
+/// 1,143 of the 7,373 visible BSShaderNoLightingProperty shapes are not blended; observed:
+/// `crates/fnv-nif/examples/falloff_survey.rs`, docs/spec-notes/nif.md §6].
+pub(crate) fn shape_falloff(props: &Props, material: &StandardMaterial) -> Option<Falloff> {
+    props.falloff.filter(|_| matches!(material.alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied))
+}
+
+/// Store a shape's material, with the falloff extension when it has one.
+pub(crate) fn add_material(
+    props: &Props,
+    material: StandardMaterial,
+    materials: &mut Assets<StandardMaterial>,
+    falloff_materials: &mut Assets<FalloffMaterial>,
+) -> ShapeMaterial {
+    match shape_falloff(props, &material) {
+        Some(extension) => ShapeMaterial::Falloff(falloff_materials.add(FalloffMaterial { base: material, extension })),
+        None => ShapeMaterial::Standard(materials.add(material)),
     }
 }
 
@@ -533,15 +565,17 @@ impl SpawnCtx<'_, '_> {
             }
 
             let e = entity_of[&o.block];
+            let material = add_material(&props, material, &mut self.materials, &mut self.falloff_materials);
             let mut cmd = self.commands.entity(e);
+            material.insert(&mut cmd);
             match skinned {
                 Some(s) => {
                     let mesh = mesh.with_generated_skinned_mesh_bounds().unwrap_or_else(|_| Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD));
-                    cmd.insert((Mesh3d(self.meshes.add(mesh)), MeshMaterial3d(self.materials.add(material)), s, DynamicSkinnedMeshBounds));
+                    cmd.insert((Mesh3d(self.meshes.add(mesh)), s, DynamicSkinnedMeshBounds));
                     report.skinned += 1;
                 }
                 None => {
-                    cmd.insert((Mesh3d(self.meshes.add(mesh)), MeshMaterial3d(self.materials.add(material))));
+                    cmd.insert(Mesh3d(self.meshes.add(mesh)));
                 }
             }
             report.shapes += 1;
@@ -581,6 +615,17 @@ mod tests {
         // A shader property, or a texture from NiTexturingProperty: drawn.
         assert!(!Props { shader: true, ..material_only.clone() }.is_helper());
         assert!(!Props { textures: vec!["textures\\a.dds".into()], ..material_only }.is_helper());
+    }
+
+    #[test]
+    fn falloff_only_when_blended() {
+        let props = Props { falloff: Falloff::from_fields(0.985, 0.174, 1.0, 0.0), ..Default::default() };
+        let with = |alpha_mode| StandardMaterial { alpha_mode, ..default() };
+        assert!(shape_falloff(&props, &with(AlphaMode::Add)).is_some());
+        assert!(shape_falloff(&props, &with(AlphaMode::Blend)).is_some());
+        assert!(shape_falloff(&props, &with(AlphaMode::Opaque)).is_none());
+        assert!(shape_falloff(&props, &with(AlphaMode::Mask(0.5))).is_none());
+        assert!(shape_falloff(&Props::default(), &with(AlphaMode::Add)).is_none());
     }
 
     #[test]

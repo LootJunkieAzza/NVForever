@@ -264,6 +264,32 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   so it is not a plain colour multiplier there. How their multipliers (up to 10, e.g.
   the saloon's neon tubes ×7.5) and the 717 NiMaterialColorController / 317
   BSMaterialEmittanceMultController blocks (blinking bulbs) affect brightness is open.
+- **View-angle falloff** (BSShaderNoLightingProperty, stream version > 26) is stored as
+  four floats: a start angle and a stop angle, each the cosine of an angle, and an
+  "alpha falloff multiplier" opacity for each [documented: nif.xml].
+
+  A survey of the 7,373 visible shapes drawn by this property in `Fallout - Meshes.bsa`
+  and every `* - Main.bsa` found the following
+  [observed, `crates/fnv-nif/examples/falloff_survey.rs`]:
+  - 5,676 keep the nif.xml defaults (1 → 0 over cosines 1 → 0).
+  - 1,528 use other values. They include light beams such as
+    `effects\ambient\fxlightbeambrtw02.nif`, the lamp beam on the Prospector Saloon porch
+    (0.985 → 0.174, opacity 1 → 0: full within 10° of facing the camera, gone past 80°).
+    Force fields, dust storms and light rays also use them. Some fade *in* towards the
+    edges (0.866 → 0.174, opacity 0 → 1).
+  - 169 have an empty range (start = stop). For 166 of these all four fields are 0,
+    e.g. the vertex-coloured quads in `dungeons\office\pit`.
+
+  By blending: 6,230 set the NiAlphaProperty blend bit (2,311 of them with destination
+  factor ONE), 183 only alpha-test, and 960 have no NiAlphaProperty.
+
+  How the renderers apply it [hypothesis]: they multiply alpha by the opacity for |N·V|.
+  The opacity is linear in the cosine between the two angles and holds its end values
+  outside them. It is applied to blended materials only. An empty range or a constant
+  opacity of 1 means no falloff; read literally, the all-zero shapes would be invisible.
+
+  Without falloff, the Saloon lamp beam drew as a solid grey cone with hard edges. In
+  game it is a faint haze [observed, owner's screenshots].
 - **Normal maps** use DirectX-style green: +G points *down* the image (towards
   increasing v), +R to the right [observed]. Seven texture sets in `Fallout -
   Textures.bsa` ship a parallax height map (`_p`) beside the normal map (`_n`): McCarran

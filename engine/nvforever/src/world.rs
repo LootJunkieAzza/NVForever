@@ -348,12 +348,8 @@ fn load_cell(
         }
         for s in &model.shapes {
             let m = Mat4::from(rt * s.transform);
-            commands.entity(cell_e).with_child((
-                Mesh3d(s.mesh.clone()),
-                MeshMaterial3d(s.material.clone()),
-                Transform::from_matrix(m),
-                RefVisual(r),
-            ));
+            let mut e = commands.spawn((Mesh3d(s.mesh.clone()), Transform::from_matrix(m), RefVisual(r), ChildOf(cell_e)));
+            s.material.insert(&mut e);
             stats.shapes += 1;
         }
         stats.refs_drawn += 1;

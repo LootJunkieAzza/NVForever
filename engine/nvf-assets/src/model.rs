@@ -12,7 +12,8 @@
 
 use crate::anim_play::{Clip, Playing};
 use crate::data::GameData;
-use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material, shape_props, shape_skin, to_bevy};
+use crate::falloff::{FalloffMaterial, ShapeMaterial};
+use crate::nif_spawn::{add_material, affine, build_mesh, is_editor_marker, shape_material, shape_props, shape_skin, to_bevy};
 use crate::texture::TextureCache;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -31,7 +32,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct PreparedShape {
     pub mesh: Handle<Mesh>,
-    pub material: Handle<StandardMaterial>,
+    pub material: ShapeMaterial,
     /// Shape transform in NIF (game) space relative to the root node's own frame: the
     /// root's transform is not included (see [`PreparedModel::root`]).
     pub transform: Affine3A,
@@ -74,7 +75,7 @@ pub struct RigShape {
     /// The node entity the mesh goes on.
     pub node: usize,
     pub mesh: Handle<Mesh>,
-    pub material: Handle<StandardMaterial>,
+    pub material: ShapeMaterial,
     /// Inverse bind poses and the joint nodes, for skinned shapes.
     pub skin: Option<(Handle<SkinnedMeshInverseBindposes>, Vec<usize>)>,
 }
@@ -111,7 +112,8 @@ impl Rig {
         for s in &self.shapes {
             let e = entities[s.node];
             let mut cmd = commands.entity(e);
-            cmd.insert((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone())));
+            cmd.insert(Mesh3d(s.mesh.clone()));
+            s.material.insert(&mut cmd);
             if let Some((binds, joints)) = &s.skin {
                 let joints = joints.iter().map(|&j| entities[j]).collect();
                 cmd.insert((SkinnedMesh { inverse_bindposes: binds.clone(), joints }, DynamicSkinnedMeshBounds));
@@ -158,6 +160,7 @@ pub struct ModelCtx<'w> {
     pub cache: ResMut<'w, ModelCache>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
     pub materials: ResMut<'w, Assets<StandardMaterial>>,
+    pub falloff_materials: ResMut<'w, Assets<FalloffMaterial>>,
     pub images: ResMut<'w, Assets<Image>>,
     pub textures: ResMut<'w, TextureCache>,
     pub data: Res<'w, GameData>,
@@ -299,7 +302,7 @@ impl ModelCtx<'_> {
             if skin.is_some() {
                 out.skinned += 1;
             }
-            let material = self.materials.add(material);
+            let material = add_material(&props, material, &mut self.materials, &mut self.falloff_materials);
             let cpu = keep_cpu.then(|| Arc::new(mesh.clone()));
             // The rig's copy of a skinned mesh carries the joint attributes; the static
             // copy draws the bind pose without them.
