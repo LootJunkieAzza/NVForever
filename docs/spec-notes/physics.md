@@ -1010,10 +1010,14 @@ pass with this body (the rock investigation belongs to workstream "B11 rocks and
 whose rows these numbers only report). One row moved out of tolerance:
 `L4.phys.drops.swim_h2o` `shallow_a` (the scenario already failed on its other four rows)
 ends at −246.3 against the game's −236.0 (it was −241.4 with the old capsule, inside the
-8-unit tolerance). That drop falls only 14 units onto a ledge; the game rests 3 units
-above even a flat cylinder's first contact there, and slow falls sink least
-(`mv_diag_fence_low`), so the speed-free cone over-sinks it [observed difference; not
-tuned].
+8-unit tolerance). The drop starts 14 units above a step: the 30-unit riser of the
+catwalk stairs 0x030144E3 (top at −240, floor −270) runs about 7 units west of the
+player's axis [observed: vertical rays every 2 units; traced to that riser by the swim
+workstream]. The game rests at −236.0, 4 above the step top, like the 10-unit fence drops
+that also stopped a few units above the usual rest (the `SetPos` hang of §6.2); the
+cone, fitted to falls of 50 and 200 units, sinks about 6 below the top, where slow falls
+sink least (`mv_diag_fence_low`). Open, with the fall-speed dependence [observed
+difference; not tuned].
 
 **Open: the tree centre.** At five tree-a points (the centre, the B11 drop, and three
 grid points) the game rests 10–20 units higher than the model at every fall height
