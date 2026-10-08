@@ -15,6 +15,7 @@ license = "GPL-3.0-or-later"
 bevy = { version = "=0.19.1", features = ["pbr_specular_textures"] }
 fnv-nif = { path = "../crates/fnv-nif" }
 fnv-dds = { path = "../crates/fnv-dds" }
+fnv-spt = { path = "../crates/fnv-spt" }
 fnv-vfs = { path = "../crates/fnv-vfs" }
 fnv-esm = { path = "../crates/fnv-esm" }
 fnv-world = { path = "../crates/fnv-world" }
