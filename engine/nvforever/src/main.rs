@@ -272,7 +272,8 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, world::stream, lod::update_lod, overlay, keys).chain());
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, world::stream, lod::update_lod, overlay, keys).chain())
+    .add_systems(Update, nvf_assets::anim_play::advance_instances);
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
@@ -362,10 +363,10 @@ fn overlay(
     let c = fnv_world::cell_of(g.x, g.y);
     let s = &streamer.stats;
     t.0 = format!(
-        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {}  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  LOD chunks {} blocks {}  lights {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
+        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {} (animated {})  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  LOD chunks {} blocks {}  lights {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
         g.x, g.y, g.z, c.0, c.1,
         streamer.loaded.len(), s.cells_loaded, s.load_ms,
-        s.refs_drawn, s.refs_skipped_disabled, s.refs_skipped_type, s.refs_speedtree, s.refs_no_model, s.shapes,
+        s.refs_drawn, s.refs_animated, s.refs_skipped_disabled, s.refs_skipped_type, s.refs_speedtree, s.refs_no_model, s.shapes,
         models.len(), models.failures.len(), textures.failures.len(), terrain.layers, terrain.quadrants_without_base,
         s.water_planes, lod.chunks, lod.blocks, s.lights, sky.describe(),
     );
@@ -430,8 +431,8 @@ fn screenshot_and_exit(
         *ready_at = Some(*elapsed);
         let s = &streamer.stats;
         info!(
-            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {}, disabled {}, not drawn {} {:?}, no model {}, shapes {}",
-            *elapsed, s.load_ms, s.refs_drawn, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
+            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}), disabled {}, not drawn {} {:?}, no model {}, shapes {}",
+            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
         );
     }
     let Some(r) = *ready_at else { return };
