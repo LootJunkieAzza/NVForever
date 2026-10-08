@@ -19,6 +19,7 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use fnv_world::land::{land_texture, load_land, Land, LandParts, DEFAULT_DIFFUSE, QUAD_SIDE, SIDE, SPACING};
 use nvf_assets::model::ModelCtx;
+use nvf_assets::{nif_material, NifMaterial};
 use std::collections::HashMap;
 
 #[derive(Resource)]
@@ -31,8 +32,8 @@ pub struct TerrainSettings {
 pub struct TerrainCache {
     /// LTEX FormID → diffuse texture path.
     textures: HashMap<u32, Option<String>>,
-    base: HashMap<Option<String>, Handle<StandardMaterial>>,
-    layer: HashMap<(String, usize), Handle<StandardMaterial>>,
+    base: HashMap<Option<String>, Handle<NifMaterial>>,
+    layer: HashMap<(String, usize), Handle<NifMaterial>>,
     pub quadrants_without_base: usize,
     pub layers: usize,
 }
@@ -67,7 +68,7 @@ impl TerrainCtx<'_, '_, '_> {
         a.textures.get(path, true, &a.data, &mut a.images, a.formats.as_deref())
     }
 
-    fn base_material(&mut self, tex: Option<String>) -> Handle<StandardMaterial> {
+    fn base_material(&mut self, tex: Option<String>) -> Handle<NifMaterial> {
         if let Some(h) = self.tm.cache.base.get(&tex) {
             return h.clone();
         }
@@ -79,12 +80,12 @@ impl TerrainCtx<'_, '_, '_> {
             reflectance: 0.2,
             ..default()
         };
-        let h = self.assets.materials.add(m);
+        let h = self.assets.materials.add(nif_material(m));
         self.tm.cache.base.insert(tex, h.clone());
         h
     }
 
-    fn layer_material(&mut self, tex: String, rank: usize) -> Option<Handle<StandardMaterial>> {
+    fn layer_material(&mut self, tex: String, rank: usize) -> Option<Handle<NifMaterial>> {
         if let Some(h) = self.tm.cache.layer.get(&(tex.clone(), rank)) {
             return Some(h.clone());
         }
@@ -98,7 +99,7 @@ impl TerrainCtx<'_, '_, '_> {
             depth_bias: 2.0 * (rank as f32 + 1.0),
             ..default()
         };
-        let h = self.assets.materials.add(m);
+        let h = self.assets.materials.add(nif_material(m));
         self.tm.cache.layer.insert((tex, rank), h.clone());
         Some(h)
     }

@@ -58,7 +58,65 @@ pub fn run(cmd: SimCmd) -> anyhow::Result<Value> {
             let mut settle = PhysSettle { lo: &lo, schema: &schema, ix: None, meshes };
             actions::run_with(&mut world, &script, Some(&mut settle)).map_err(anyhow::Error::msg)
         }
+        SimCmd::Doors { lo, schema } => {
+            let plugins = open_load_order(&lo)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            let ix = fnv_world::WorldIndex::build(&lo, &schema);
+            Ok(doors(&ix, &RefTable::from_index(&lo, &schema, &ix)))
+        }
     }
+}
+
+/// Teleport doors by where they lead. The destination cell is the one `World::activate`
+/// puts the actor in (the exterior cell containing the destination, in a worldspace);
+/// a cell's worldspace is `RefTable::world_of`.
+fn doors(ix: &fnv_world::WorldIndex, refs: &RefTable) -> Value {
+    let world_name = |w: FormId| ix.worldspaces.get(&w.0).and_then(|w| w.edid.clone()).unwrap_or_else(|| w.to_string());
+    let cell_name = |c: FormId| ix.cells.get(&c.0).and_then(|c| c.edid.clone().or_else(|| c.grid.map(|g| format!("{},{}", g.0, g.1))));
+    let mut kinds: BTreeMap<String, u64> = BTreeMap::new();
+    let mut pairs: BTreeMap<String, u64> = BTreeMap::new();
+    let mut cross = Vec::new();
+    for p in refs.refs.values() {
+        let Some(tp) = p.teleport else { continue };
+        let to_cell = refs.teleport_cell(&tp);
+        let (from_w, to_w) = (p.cell.and_then(|c| refs.world_of(c)), to_cell.and_then(|c| refs.world_of(c)));
+        let kind = match (from_w, to_w, to_cell) {
+            (_, _, None) => "unresolved",
+            (None, None, _) => "interior_to_interior",
+            (None, Some(_), _) => "interior_to_world",
+            (Some(_), None, _) => "world_to_interior",
+            (Some(a), Some(b), _) if a == b => "same_world",
+            (Some(_), Some(_), _) => "cross_world",
+        };
+        bump(&mut kinds, kind);
+        if let ("cross_world", Some(a), Some(b)) = (kind, from_w, to_w) {
+            bump(&mut pairs, format!("{} -> {}", world_name(a), world_name(b)));
+            cross.push(json!({
+                "door": p.id.to_string(),
+                "edid": p.edid,
+                "from_world": world_name(a),
+                "from_cell": p.cell.map(|c| c.to_string()),
+                "from_cell_name": p.cell.and_then(cell_name),
+                "pos": p.pos,
+                "to_door": tp.door.to_string(),
+                "to_world": world_name(b),
+                "to_cell": to_cell.map(|c| c.to_string()),
+                "to_cell_name": to_cell.and_then(cell_name),
+                "to_pos": tp.pos,
+                "to_rot": tp.rot,
+                "back": refs.get(tp.door).and_then(|d| d.teleport).is_some_and(|t| t.door == p.id),
+                "lock": p.lock.map(|l| json!({"level": l.level, "key": l.key.map(|k| k.to_string())})),
+            }));
+        }
+    }
+    json!({
+        "schema": "fnv.sim.doors/1",
+        "teleport_doors": kinds.values().sum::<u64>(),
+        "by_kind": kinds,
+        "cross_world_by_pair": pairs,
+        "cross_world": cross,
+    })
 }
 
 fn sig_str(s: &[u8; 4]) -> String {

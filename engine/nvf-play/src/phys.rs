@@ -6,13 +6,15 @@
 //! player's own cell first. What a reference contributes is `fnv_phys::ref_collision`,
 //! the rule `fnvtool phys cell` uses; whether it is in the world is the simulation's
 //! call ([`in_world`]). `RefChanged` removes or restores one reference's collision;
-//! `Travel` rebuilds everything for the destination.
+//! `Travel` rebuilds everything for the destination, which may lie in another worldspace
+//! (its own terrain, persistent references and default water height; [`PhysState::worldspace`]).
+//! The physics world sets [`Location`] when it applies a `Travel`.
 
 pub mod cells;
 
 use crate::player::Player;
 use crate::sim::SimState;
-use crate::{PlayData, PlayWorld, RefChanged, Travel};
+use crate::{Location, PlayData, PlayWorld, RefChanged, Travel};
 use bevy::prelude::*;
 use cells::{PhysCell, Space};
 use fnv_collide::CollisionObject;
@@ -43,6 +45,9 @@ pub struct PhysState {
     pub stepper: Stepper,
     /// The player's character, once placed.
     pub player: Option<Character>,
+    /// The worldspace whose exterior cells and persistent references load outdoors
+    /// (FormID; set with [`PhysState::set_world`]).
+    pub worldspace: u32,
     /// The worldspace or the interior being played.
     pub space: Space,
     /// Loaded cells.
@@ -67,6 +72,7 @@ impl Default for PhysState {
             world: PhysWorld::new(PhysParams::default()),
             stepper: Stepper::default(),
             player: None,
+            worldspace: 0,
             space: Space::Exterior,
             cells: BTreeMap::new(),
             ref_cell: HashMap::new(),
@@ -162,11 +168,28 @@ impl ModelCollision for Models<'_> {
 }
 
 impl PhysState {
-    /// Index the worldspace's persistent references by grid square (the square containing
-    /// the placement, as render streaming and `fnvtool phys` assign them).
-    pub fn index_persistent(&mut self, d: &PlayData) {
+    /// Play outdoors in worldspace `world`: index its persistent references by grid
+    /// square (the square containing the placement, as render streaming and `fnvtool
+    /// phys` assign them). Its terrain, cells and default water height follow from
+    /// `world` as cells load. Loaded exterior cells belong to the previous worldspace:
+    /// [`PhysState::reset`] first.
+    ///
+    /// Each worldspace's own records are used. A child worldspace (WRLD `WNAM`) may take
+    /// land, water and other data from its parent by its `PNAM` flags [documented: xEdit
+    /// names, schemas/fnv/world.json]; every child worldspace in the ten masters sets only
+    /// "Use Map Data" and has its own land, `DNAM` and `NAM2` [observed: `fnvtool world
+    /// list`, `esm decode`], so taking the parent's is not implemented (logged when a
+    /// plugin asks for it).
+    pub fn set_world(&mut self, d: &PlayData, world: u32) {
+        self.worldspace = world;
         self.persistent_by_grid.clear();
-        let ws = d.index.worldspaces.get(&d.world);
+        let ws = d.index.worldspaces.get(&world);
+        if let Some(w) = ws.filter(|w| w.parent.is_some() && w.parent_flags & !PNAM_USE_MAP_DATA != 0) {
+            warn!(
+                "worldspace {world:08X} takes data from its parent (PNAM 0x{:X}); NVForever uses its own records only",
+                w.parent_flags
+            );
+        }
         if let Some(pc) = ws.and_then(|w| w.persistent_cell).and_then(|c| d.index.cells.get(&c)) {
             for &r in &pc.refs {
                 if let Some(p) = placement(d.lo, d.schema, r) {
@@ -227,7 +250,7 @@ impl PhysState {
         let d = ctx.d;
         let (record, persistent) = match cell {
             PhysCell::Exterior(x, y) => {
-                let ws = d.index.worldspaces.get(&d.world);
+                let ws = d.index.worldspaces.get(&self.worldspace);
                 (ws.and_then(|w| w.grid.get(&(x, y))).and_then(|id| d.index.cells.get(id)), self.persistent_by_grid.get(&(x, y)))
             }
             PhysCell::Interior(id) => (d.index.cells.get(&id), None),
@@ -237,7 +260,7 @@ impl PhysState {
         // with); not an interior's XCLW, where the game swam at a placed water object's
         // height instead [observed: physics.md §6.6; placed water not modelled yet].
         if let PhysCell::Exterior(..) = cell {
-            let world_water = d.index.worldspaces.get(&d.world).and_then(|w| w.default_water_height);
+            let world_water = d.index.worldspaces.get(&self.worldspace).and_then(|w| w.default_water_height);
             let surface = record.and_then(|c| c.water_surface(world_water));
             self.world.set_water(water_area(cell), surface);
         }
@@ -391,6 +414,10 @@ impl PhysState {
     }
 }
 
+/// WRLD PNAM bit 2, "Use Map Data" [documented: xEdit, schemas/fnv/world.json]: the map
+/// is not physics' concern.
+const PNAM_USE_MAP_DATA: u16 = 1 << 2;
+
 /// The water area of a physics cell.
 fn water_area(cell: PhysCell) -> WaterArea {
     match cell {
@@ -414,15 +441,17 @@ impl Plugin for PhysPlugin {
 }
 
 fn init_phys(d: Res<PlayWorld>, mut phys: ResMut<PhysState>) {
-    phys.index_persistent(&d);
+    phys.set_world(&d, d.world);
     phys.space = match d.interior {
         Some(id) => Space::Interior(id),
         None => Space::Exterior,
     };
 }
 
-/// Door travel: drop every cell, load the destination's own cell now and put the player
-/// there (the rest streams in over the next frames).
+/// Door travel: drop every cell, switch worldspace if the destination lies in another,
+/// load the destination's own cell now and put the player there by the arrival rule (the
+/// rest streams in over the next frames).
+#[allow(clippy::too_many_arguments)]
 fn travel(
     mut msgs: MessageReader<Travel>,
     d: Res<PlayWorld>,
@@ -430,13 +459,20 @@ fn travel(
     data: Option<Res<GameData>>,
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
+    mut location: ResMut<Location>,
 ) {
     let Some(t) = msgs.read().last().copied() else { return };
-    let space = match t.interior {
+    let to = t.destination(*location);
+    let space = match to.interior {
         Some(id) => Space::Interior(id),
         None => Space::Exterior,
     };
     phys.reset(space);
+    if to.world != phys.worldspace {
+        info!("physics: worldspace {:08X} -> {:08X} ({})", phys.worldspace, to.world, world_name(&d, to.world));
+        phys.set_world(&d, to.world);
+    }
+    *location = to;
     let ctx = LoadCtx { d: &d, sim: &sim, data: data.as_deref() };
     let cell = phys.cell_at(t.feet);
     phys.load(&ctx, cell);
@@ -445,13 +481,19 @@ fn travel(
     player.feet = feet;
     player.heading = t.heading_deg.to_radians();
     info!(
-        "travel to {}: feet ({:.0}, {:.0}, {:.2}), floor {}",
-        t.interior.map_or("the worldspace".to_string(), |c| format!("interior {c:08X}")),
+        "travel to {}: feet ({:.0}, {:.0}, {:.2}), floor {}, terrain {}",
+        to.interior.map_or_else(|| format!("worldspace {:08X} ({})", to.world, world_name(&d, to.world)), |c| format!("interior {c:08X}")),
         feet[0],
         feet[1],
         feet[2],
-        hit.map_or("not found".to_string(), |h| format!("z {:.2} (shell {:.2})", h.point[2], h.shell))
+        hit.map_or("not found".to_string(), |h| format!("z {:.2} (shell {:.2})", h.point[2], h.shell)),
+        phys.terrain_z(feet[0], feet[1]).map_or("-".to_string(), |z| format!("z {z:.2}"))
     );
+}
+
+/// A worldspace's Editor ID for logs.
+fn world_name(d: &PlayData, world: u32) -> &str {
+    d.index.worldspaces.get(&world).and_then(|w| w.edid.as_deref()).unwrap_or("?")
 }
 
 fn ref_changed(

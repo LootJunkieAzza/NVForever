@@ -20,7 +20,8 @@ Assumptions:
   WTHR, CLMT, LGTM, IMGS, TREE, MSTT, ...) are added to `schemas/fnv` from xEdit's
   public definitions as in Layer 1, never hard-coded.
 - Actors (ACHR/ACRE) are placed by Layer 3 only as markers; drawing NPCs and creatures
-  needs records from Layers 4–6 (race, body parts, equipment).
+  needs records from Layers 4–6 (race, body parts, equipment). Static NPCs assembled as
+  one entity per actor are planned as workstream 5 (docs/design/static-actors.md).
 - The first target is static and correct (M3). Physics, scripts and AI stay out.
 
 ## 2. Findings and design
@@ -80,7 +81,9 @@ What it does now:
   normals, vertex colours (sRGB → linear).
 - Materials as in the viewer, plus: nodes named `EditorMarker*` are skipped, additive and
   multiplicative NIF blend modes are honoured, alpha test wins over blending, and
-  BSShaderNoLightingProperty is unlit (nif.md §6). Emissive = colour × multiplier ×
+  BSShaderNoLightingProperty is unlit (nif.md §6). NIF shapes use `NifMaterial`
+  (StandardMaterial + `nif_material.wgsl`): emissive light × diffuse texture and vertex
+  colour, and no ambient specular (nif.md §6 "Emissive light", "Specular"). Emissive = colour × multiplier ×
   glow map from texture-set slot 2 (neon signs, lit windows; nif.md §6 "Emissive
   light"); material colour and emittance controllers are not evaluated yet. Helper shapes (properties but no
   shader property and no texture: bone boxes, collision proxies) are skipped (nif.md §6).

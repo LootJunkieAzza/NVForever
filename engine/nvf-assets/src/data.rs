@@ -35,7 +35,8 @@ pub struct ArchivePlugin(pub GameData);
 
 impl Plugin for ArchivePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(self.0.clone())
+        app.add_plugins(crate::nif_material::NifMaterialPlugin)
+            .insert_resource(self.0.clone())
             .init_resource::<crate::texture::TextureCache>()
             .init_resource::<crate::model::ModelCache>();
     }
