@@ -20,8 +20,9 @@ use std::collections::{BTreeMap, HashMap};
 pub struct PhysParams {
     /// Fixed step in seconds [hypothesis: the original's physics rate is unknown].
     pub dt: f32,
-    /// Downward acceleration in game units/s² [hypothesis: 9.81 m/s² at 70 units per
-    /// metre; to be measured from a timed fall].
+    /// Downward acceleration in game units/s²: 9.81 m/s² at 70 units per metre, which the
+    /// game agrees with [observed: 683.8 from a 300-unit fall and 685.5 from a jump, fitted
+    /// to positions against the game clock, capture mv_trial, physics.md §6.3].
     pub gravity: f32,
     /// Game units per metre. rapier runs in metres internally because several of its
     /// tolerances are absolute and tuned for metres (e.g. the character controller's

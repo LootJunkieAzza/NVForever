@@ -35,7 +35,7 @@ impl PhysWorld {
     pub fn arrival(&mut self, at: [f32; 3], params: &CharacterParams, filter: &Filter) -> Arrival {
         let (up, down) = (params.height / 2.0, 4.0 * params.height);
         let support = self.queries().ray([at[0], at[1], at[2] + up], [0.0, 0.0, -1.0], up + down, filter);
-        let feet = support.as_ref().map_or(at, |h| [at[0], at[1], h.point[2] + h.shell]);
+        let feet = support.as_ref().map_or(at, |h| [at[0], at[1], h.point[2] + params.rest_gap(h.shell)]);
         Arrival { feet, support }
     }
 }
