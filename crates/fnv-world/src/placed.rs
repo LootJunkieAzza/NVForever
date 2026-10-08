@@ -126,6 +126,9 @@ pub struct TreeRecord {
     /// speedtree.md §6, hypothesis].
     pub leaf_dimming: Option<f32>,
     pub branch_dimming: Option<f32>,
+    /// CNAM rock and rustle speeds [documented: xEdit field names; use: tree.rs, by eye].
+    pub rock_speed: Option<f32>,
+    pub rustle_speed: Option<f32>,
 }
 
 pub fn tree_record(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<TreeRecord> {
@@ -138,7 +141,8 @@ pub fn tree_record(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<TreeReco
     let bnam = f.get(b"BNAM").and_then(|b| Some(num(&b, "width")?.max(num(&b, "height")?) as f32)).filter(|&s| s > 0.0);
     let cnam = f.get(b"CNAM");
     let dim = |k: &str| cnam.as_ref().and_then(|c| num(c, k)).map(|v| v as f32);
-    Some(TreeRecord { model, leaf_texture, size: bnam.or(obnd), leaf_dimming: dim("leaf_dimming"), branch_dimming: dim("branch_dimming") })
+    Some(TreeRecord { model, leaf_texture, size: bnam.or(obnd), leaf_dimming: dim("leaf_dimming"), branch_dimming: dim("branch_dimming"),
+        rock_speed: dim("rock_speed"), rustle_speed: dim("rustle_speed") })
 }
 
 #[cfg(test)]

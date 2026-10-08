@@ -111,6 +111,9 @@ pub struct Weather {
     /// DATA flags bit 2 "Rainy" [documented: xEdit]; set on Honest Hearts' two Zion rain
     /// weathers and no other weather in the masters [observed].
     pub rainy: bool,
+    /// DATA wind speed, 0-255 [documented: xEdit]; 50 for most weathers, 127 for
+    /// HVDustStorm, 130 for NVHooverFinalBattle [observed].
+    pub wind_speed: u8,
 }
 
 fn byte_color(v: &Value) -> Option<[u8; 3]> {
@@ -181,6 +184,7 @@ pub fn weather(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Weather> {
         .get(b"DATA")
         .and_then(|d| d.get("flags").and_then(|fl| num(fl, "value")))
         .is_some_and(|v| (v as u64) & 4 != 0);
+    w.wind_speed = f.get(b"DATA").and_then(|d| num(&d, "wind_speed")).map_or(0, |v| v as u8);
     Some(w)
 }
 
