@@ -290,7 +290,8 @@ pub enum SimCmd {
         cases: PathBuf,
     },
     /// Run a scripted action sequence (fnv.sim.actions/1) and print its trace
-    /// (fnv.sim.trace/1).
+    /// (fnv.sim.trace/1). An actor moved by a teleport comes to rest by the physics
+    /// arrival rule in the destination's collision world (simulation.md §7).
     Run {
         #[command(flatten)]
         lo: LoadOrderArgs,
@@ -298,6 +299,12 @@ pub enum SimCmd {
         schema: PathBuf,
         #[arg(long)]
         actions: PathBuf,
+        /// NIF schema directory for mesh collision (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Keep teleported actors at the stored destination (no physics placement).
+        #[arg(long)]
+        no_physics: bool,
     },
 }
 

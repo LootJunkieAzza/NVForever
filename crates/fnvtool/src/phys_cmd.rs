@@ -109,7 +109,7 @@ fn owner_json(o: &Owner) -> Value {
 /// Collision objects of models, read through workstream 1's converter
 /// (`fnv_collide::nif::collision_objects`) from the game's archives and loose files.
 /// fnv-phys itself never reads NIF blocks (docs/design/layer4.md §7).
-struct Meshes {
+pub(crate) struct Meshes {
     vfs: fnv_vfs::Vfs,
     schema: fnv_nif::Schema,
     cache: BTreeMap<String, Result<Arc<Vec<CollisionObject>>, String>>,
@@ -117,7 +117,7 @@ struct Meshes {
 
 impl Meshes {
     /// `None` when no NIF schema is given and none sits next to the ESM schema.
-    fn open(data_dir: &Path, esm_schema: &Path, nif_schema: Option<&Path>) -> anyhow::Result<Option<Meshes>> {
+    pub(crate) fn open(data_dir: &Path, esm_schema: &Path, nif_schema: Option<&Path>) -> anyhow::Result<Option<Meshes>> {
         let dir: PathBuf = match nif_schema {
             Some(d) => d.to_path_buf(),
             None => match esm_schema.parent().map(|p| p.join("nif")).filter(|d| d.is_dir()) {
@@ -151,8 +151,8 @@ impl ModelCollision for Meshes {
 }
 
 /// The physics world of a cell and its surroundings, with what went into it.
-struct Built<'a> {
-    world: PhysWorld,
+pub(crate) struct Built<'a> {
+    pub(crate) world: PhysWorld,
     cells: Vec<&'a Cell>,
     grids: BTreeMap<(i32, i32), Option<Vec<f32>>>,
     no_heights: usize,
@@ -209,9 +209,33 @@ impl Built<'_> {
     }
 }
 
+/// Whether a placed reference is in the world: `Ok`, or the `refs.counts` name of why
+/// not (e.g. `"initially_disabled"`).
+pub(crate) type InWorld<'f> = &'f dyn Fn(&fnv_world::placed::Placement) -> Result<(), &'static str>;
+
+/// The plugins' own rule (a game just started): not deleted, not initially disabled, and
+/// enabled through its enable parent.
+pub(crate) fn plugin_in_world<'a>(
+    lo: &'a LoadOrder,
+    schema: &'a Schema,
+) -> impl Fn(&fnv_world::placed::Placement) -> Result<(), &'static str> + 'a {
+    move |pl| {
+        if pl.deleted() {
+            Err("deleted")
+        } else if pl.initially_disabled() {
+            Err("initially_disabled")
+        } else if !parent_allows(lo, schema, pl, 0) {
+            Err("disabled_by_parent")
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// Build the static world of `centre` (and, for an exterior cell, the exterior cells
-/// within `radius` grid squares).
-fn build<'a>(
+/// within `radius` grid squares), with the references `in_world` admits.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build<'a>(
     lo: &LoadOrder,
     schema: &Schema,
     ix: &'a WorldIndex,
@@ -219,6 +243,7 @@ fn build<'a>(
     radius: i32,
     params: PhysParams,
     mut meshes: Option<&mut Meshes>,
+    in_world: InWorld,
 ) -> Built<'a> {
     let mut world = PhysWorld::new(params);
     let mut cells: Vec<&Cell> = vec![centre];
@@ -274,16 +299,8 @@ fn build<'a>(
             *counts.entry("unreadable").or_default() += 1;
             continue;
         };
-        if pl.deleted() {
-            *counts.entry("deleted").or_default() += 1;
-            continue;
-        }
-        if pl.initially_disabled() {
-            *counts.entry("initially_disabled").or_default() += 1;
-            continue;
-        }
-        if !parent_allows(lo, schema, &pl, 0) {
-            *counts.entry("disabled_by_parent").or_default() += 1;
+        if let Err(why) = in_world(&pl) {
+            *counts.entry(why).or_default() += 1;
             continue;
         }
         let models = meshes.as_deref_mut().map(|m| m as &mut dyn ModelCollision);
@@ -350,7 +367,7 @@ fn cell_cmd(
     (drops, seconds): (&[DropPoint], f32),
     meshes: Option<&mut Meshes>,
 ) -> anyhow::Result<Value> {
-    let mut b = build(lo, schema, ix, centre, radius, PhysParams::default(), meshes);
+    let mut b = build(lo, schema, ix, centre, radius, PhysParams::default(), meshes, &plugin_in_world(lo, schema));
     let character = CharacterParams::default();
     let probes: Vec<Value> = if drops.is_empty() {
         let (cx, cy) = b.default_drop(centre);
@@ -501,7 +518,7 @@ fn walk_cmd(
     meshes: Option<&mut Meshes>,
 ) -> anyhow::Result<Value> {
     let (params, character) = script.parameters()?;
-    let mut b = build(lo, schema, ix, centre, radius, params, meshes);
+    let mut b = build(lo, schema, ix, centre, radius, params, meshes, &plugin_in_world(lo, schema));
     let [x, y] = script.start;
     let start_z = match script.start_z {
         Some(z) => z,
