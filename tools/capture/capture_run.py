@@ -13,9 +13,9 @@ copies the jobs into `jobs/`, starts `nvse_loader.exe` from the game folder, and
 runs out. The game folder is only read (the loader is started there); everything this
 script writes is in the capture directory or the paths given with -o / --trace-dir.
 
-Which console lines load a save and quit the game is a [hypothesis] until the first
-automatic run on the owner's install (`load <save>` and `qqq` by default; both can be
-changed with --menu-console / --quit-console, no plugin rebuild needed). Manual steps
+The default console lines, `load <save>` and `qqq`, loaded the save and closed the game
+on the owner's install [observed 2026-10-08, xnvse-capture.md section 6]; both can be
+changed with --menu-console / --quit-console (no plugin rebuild needed). Manual steps
 (Wait menu, doors, container menu) still wait for End; jobs that have them are refused
 unless --attended is given.
 
