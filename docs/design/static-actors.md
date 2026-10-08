@@ -1,6 +1,8 @@
 # Static actors: NPCs drawn as one assembled entity (workstream 5)
 
-Status 2026-10-08: **parts A and B done**, part C (FaceGen) next. Part A: schema
+Status 2026-10-08: **parts A, B and C done** (C: geometry and face-texture FaceGen;
+the body's skin `.egt` and the race FaceGen data are not used yet); part D (creatures)
+not started. Part A: schema
 layouts, `fnv-actor` resolution, `fnvtool actor forms | appearance | meshes`, the
 independent oracle `tools/capture/oracle_actor.py` and `L3.actors.appearance` (all 1,149
 deterministic actors equal). Part B: `nvf_assets::actor` assembles each placed NPC on

@@ -6,9 +6,11 @@
 //!   (with joint attributes for skinned shapes), materials, inverse bind poses, the
 //!   attachment bone, and a CPU copy of each mesh (for per-actor variants such as
 //!   FaceGen morphs).
-//! - A rigid part's vertices are in the skeleton's axes with the origin at its bone
-//!   [observed, actors.md §1.2]; attached to the bone it takes the inverse of the bone's
-//!   bind rotation.
+//! - A rigid part's vertices end up in the skeleton's axes with the origin at its bone
+//!   [observed, actors.md §1.2]: a part whose root node stores the inverse of the bone's
+//!   bind rotation (eyes, mouth, teeth) is an ordinary child of the bone; any other part
+//!   (hair, beards, hats, whose node rotations are the identity or cancel) gets that
+//!   inverse rotation from the attachment. Node transforms are kept in both cases.
 //! - Dismemberment caps are hidden: shapes none of whose `BSDismemberSkinInstance`
 //!   partitions sets part flag bit 0 [documented: nif.xml BSPartFlag bit 0
 //!   "PF_EDITOR_VISIBLE"; observed: the cap shapes of `upperbody.nif` (`bodycaps`,
@@ -58,11 +60,18 @@ pub struct PartShape {
     pub cpu: Arc<Mesh>,
     /// Inverse bind poses and the names of the bones, for skinned shapes.
     pub skin: Option<(Handle<SkinnedMeshInverseBindposes>, Vec<String>)>,
-    /// Shape transform relative to the part's root, root transform included (NIF space);
-    /// used for rigid shapes.
+    /// Shape transform below the part's root node (the root's own transform excluded,
+    /// see [`PreparedPart::root`]), NIF space; used for rigid shapes.
     pub transform: Affine3A,
     /// A dismemberment cap (not drawn on an intact actor).
     pub cap: bool,
+}
+
+impl PartShape {
+    /// The diffuse texture the model names (NIF texture path), if any.
+    pub fn base_texture(&self) -> Option<&str> {
+        self.props.textures.first().map(String::as_str).filter(|t| !t.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -70,6 +79,8 @@ pub struct PreparedPart {
     pub shapes: Vec<PartShape>,
     /// `Prn`: the bone rigid shapes hang from.
     pub prn: Option<String>,
+    /// The root node's own transform (NIF space).
+    pub root: Affine3A,
 }
 
 impl PreparedPart {
@@ -225,6 +236,9 @@ impl ActorCtx<'_, '_> {
         };
         let mut out = PreparedPart::default();
         // `Prn` on the root node (actors.md §1.2).
+        if let Some(r) = objects.iter().find(|o| o.parent.is_none()) {
+            out.root = affine(&r.transform);
+        }
         if let Some(root) = objects.iter().find(|o| o.parent.is_none()).and_then(|o| dec.blocks[o.block].as_ref().ok()) {
             for &e in root.refs("extra_data").unwrap_or_default() {
                 if let Some(x) = dec.get(e).filter(|x| x.text("name").is_some_and(|n| n.eq_ignore_ascii_case("Prn"))) {
@@ -233,13 +247,16 @@ impl ActorCtx<'_, '_> {
             }
         }
         for o in objects.iter().filter(|o| !o.is_node) {
-            let mut t = affine(&o.transform);
+            // Below the root; the root's own transform is `out.root` (see `rigid_local`).
+            let mut t = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
             let mut hidden = hidden_self(o.block);
             let mut cur = o.parent;
             let mut depth = 0;
             while let Some(p) = cur {
                 let Some(po) = by_block.get(&p) else { break };
-                t = affine(&po.transform) * t;
+                if po.parent.is_some() {
+                    t = affine(&po.transform) * t;
+                }
                 hidden |= hidden_self(p);
                 cur = po.parent;
                 depth += 1;
@@ -257,6 +274,13 @@ impl ActorCtx<'_, '_> {
                 continue;
             }
             let Some((mut mesh, _tris)) = build_mesh(data) else { continue };
+            // Hair-shader shapes (hair, beards, eyebrows) carry a mask in their vertex
+            // colours, not a colour [observed: red 0.04–0.39 with green and blue at 1 in
+            // `hairbase.nif` and `beardmustachecurly.nif`; multiplied in, the hair turns
+            // cyan]; they are not applied [hypothesis: what the mask does is open].
+            if props.hair {
+                mesh.remove_attribute(Mesh::ATTRIBUTE_COLOR);
+            }
             let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
             if let Some(t) = missing {
                 self.cache.failures.push(format!("{path}: texture {t} not loaded"));
@@ -319,11 +343,18 @@ fn prepare_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, Str
     Ok(s)
 }
 
-/// The local transform of a rigid part's shape under bone `b`: the inverse of the bone's
-/// bind rotation and scale (no translation), then the shape's own transform.
-pub fn rigid_local(skel: &PreparedSkeleton, b: usize, shape: &Affine3A) -> Affine3A {
-    let inv = Affine3A::from_mat3(Mat3::from(skel.bind_world[b].matrix3).inverse());
-    inv * *shape
+/// The local transform of a rigid part's shape under bone `b`, given the part's root
+/// transform and the shape's transform below it: root ∘ shape, preceded by the inverse
+/// of the bone's bind rotation and scale unless the root already is that inverse
+/// (actors.md §1.2).
+pub fn rigid_local(skel: &PreparedSkeleton, b: usize, root: &Affine3A, shape: &Affine3A) -> Affine3A {
+    let inv = Mat3::from(skel.bind_world[b].matrix3).inverse();
+    let compensated = (Mat3::from(root.matrix3) - inv).to_cols_array().iter().all(|d| d.abs() < 0.02);
+    if compensated {
+        *root * *shape
+    } else {
+        Affine3A::from_mat3(inv) * *root * *shape
+    }
 }
 
 /// What [`spawn_actor`] spawned.
@@ -384,7 +415,7 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
                 }
                 (None, _) => {
                     let (at, local) = match bone {
-                        Some(b) => (nodes[b], rigid_local(skel, b, &s.transform)),
+                        Some(b) => (nodes[b], rigid_local(skel, b, &u.part.root, &s.transform)),
                         None => (nodes[0], s.transform),
                     };
                     let e = commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::from_matrix(Mat4::from(local)))).id();
@@ -408,9 +439,18 @@ mod tests {
         let rot = Mat3::from_cols(Vec3::Z, Vec3::Y, -Vec3::X);
         let bone = Affine3A::from_mat3_translation(rot, Vec3::new(0.0, 0.4, 112.8));
         let skel = PreparedSkeleton { bind_world: vec![Affine3A::IDENTITY, bone], ..Default::default() };
-        let local = rigid_local(&skel, 1, &Affine3A::IDENTITY);
-        // A vertex 15 units up in the part's space ends 15 units above the bone.
-        let p = (bone * local).transform_point3(Vec3::new(0.0, 0.0, 15.0));
-        assert!((p - Vec3::new(0.0, 0.4, 127.8)).length() < 1e-4, "{p}");
+        let up = Vec3::new(0.0, 0.0, 15.0);
+        let above = Vec3::new(0.0, 0.4, 127.8);
+        // Identity nodes (hats, beards): the attachment compensates the bone's rotation.
+        let p = (bone * rigid_local(&skel, 1, &Affine3A::IDENTITY, &Affine3A::IDENTITY)).transform_point3(up);
+        assert!((p - above).length() < 1e-4, "{p}");
+        // Node rotations that cancel (hair): the same.
+        let r0 = Affine3A::from_mat3(Mat3::from_cols(-Vec3::X, Vec3::Z, Vec3::Y));
+        let p = (bone * rigid_local(&skel, 1, &r0, &r0)).transform_point3(up);
+        assert!((p - above).length() < 1e-4, "{p}");
+        // A root that stores the bone's inverse rotation (eyes): an ordinary child.
+        let inv = Affine3A::from_mat3(rot.inverse());
+        let p = (bone * rigid_local(&skel, 1, &inv, &Affine3A::IDENTITY)).transform_point3(up);
+        assert!((p - above).length() < 1e-4, "{p}");
     }
 }
