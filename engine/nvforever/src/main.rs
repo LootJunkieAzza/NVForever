@@ -86,6 +86,9 @@ struct Args {
     /// Do not draw distant LOD.
     #[arg(long)]
     no_lod: bool,
+    /// Sun shadows reach this far from the camera (game units); 0 turns them off.
+    #[arg(long, default_value_t = 16_000.0)]
+    shadow_distance: f32,
     /// World units per terrain texture repeat [hypothesis; docs/design/layer3.md].
     #[arg(long, default_value_t = 4096.0 / 6.0)]
     terrain_tile: f32,
@@ -113,6 +116,13 @@ struct Args {
     /// Test aid: fly forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0)]
     auto_fly: f32,
+    /// Test aid: game time passes at this many game hours per real second (0: it stands
+    /// still). Logs a "time-lapse" sample of the sun and light colours at every whole hour.
+    #[arg(long, default_value_t = 0.0)]
+    time_scale: f32,
+    /// Test aid with --time-scale: also save a screenshot in this folder at every whole hour.
+    #[arg(long, requires = "time_scale")]
+    timelapse: Option<PathBuf>,
     /// Test aid: exit with success after this many seconds (smoke tests).
     #[arg(long)]
     run_seconds: Option<f32>,
@@ -194,6 +204,13 @@ fn main() -> AppExit {
         Ok(s) => s,
         Err(e) => return fail(e),
     };
+    sky_state.shadow_distance = args.shadow_distance.max(0.0);
+    sky_state.time_scale = args.time_scale.max(0.0);
+    if let Some(dir) = &args.timelapse {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            return fail(format!("--timelapse {}: {e}", dir.display()));
+        }
+    }
     if let Some(id) = interior {
         sky_state.interior = fnv_world::lighting::cell_lighting(world.lo, world.schema, id);
     }
@@ -273,7 +290,8 @@ fn main() -> AppExit {
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, world::stream, lod::update_lod, overlay, keys).chain())
-    .add_systems(Update, nvf_assets::anim_play::advance_instances);
+    .add_systems(Update, nvf_assets::anim_play::advance_instances)
+    .add_systems(Update, timelapse.after(sky::update_sky));
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
@@ -406,6 +424,43 @@ fn write_frame_json(out: &std::path::Path, image: &std::path::Path, args: &Args,
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(out, serde_json::to_vec_pretty(&doc)?)
+}
+
+/// With --time-scale: the clock starts once the cells around the start are loaded; then
+/// one log line per whole game hour, and a screenshot with --timelapse.
+fn timelapse(
+    mut last: Local<Option<i32>>,
+    mut seen: Local<u32>,
+    mut sky: ResMut<sky::SkyState>,
+    streamer: Res<Streamer>,
+    args: Res<Args>,
+    mut commands: Commands,
+) {
+    if sky.time_scale <= 0.0 || sky.interior.is_some() {
+        return;
+    }
+    if !sky.clock_running {
+        let side = (2 * streamer.radius + 1) as usize;
+        if streamer.loaded.len() >= side * side {
+            sky.clock_running = true;
+            info!("time-lapse starts: {}", sky.sample());
+        }
+        return;
+    }
+    let hour = sky.hour.floor() as i32;
+    if *last == Some(hour) {
+        return;
+    }
+    let first = last.is_none();
+    *last = Some(hour);
+    if first {
+        return; // Wait for the first whole hour.
+    }
+    *seen += 1;
+    info!("time-lapse {}  ({} hours passed)", sky.sample(), *seen);
+    if let Some(dir) = &args.timelapse {
+        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(dir.join(format!("{:02}_{hour:02}h.png", *seen))));
+    }
 }
 
 /// --screenshot: wait for the cells around the start and for pipelines and textures, save,
