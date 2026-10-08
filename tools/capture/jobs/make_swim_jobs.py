@@ -277,12 +277,28 @@ LLV_LINE = ("llv_line", 3000.0, 27.3, 270.0, (25784, 55100), (24700, 54400, 3092
 BB_LINE = ("bb_line", 2600.0, 28.1, 270.0, (57700, 37536), (55500, 37536, 2964))
 
 
+def in_square_until(gx, gy):
+    """Until the player stands in the exterior grid square (gx, gy)."""
+    x0, y0 = gx * 4096, gy * 4096
+    return cs.function(["float fV"], [f"if player.GetPos X >= {x0}", f"  if player.GetPos X < {x0 + 4096}",
+                                      f"    if player.GetPos Y >= {y0}", f"      if player.GetPos Y < {y0 + 4096}",
+                                      "        let fV := 1", "      endif", "    endif", "  endif", "endif",
+                                      "SetFunctionValue fV"])
+
+
 def bank_trial(bank, controls=(0,), n=240, tag=""):
-    """Stand on land, SetPos to the surface over deep water (enter by falling), float, then
-    hold the keys towards the bank, one sample per loop."""
+    """Load the bank's own cell with the console's `cow` (CenterOnWorld), as `coc` loads
+    Boulder Beach, stand on land, SetPos to the surface over deep water (enter by falling),
+    float, then hold the keys towards the bank, one sample per loop. A long SetPos alone
+    left the land drawn as distant LOD with the player passing through it and the world
+    sometimes frozen (sw_banks first run, the owner's screenshot; physics.md 6.6)."""
     name, surface, _slope, heading, (sx, sy), reset = bank
     label = name + tag
-    return [setpos(*reset), {"console": "CloseAllMenus"}, {"frames": 180}, num("player.GetPos Z", f"{label} reset", "z"),
+    gx, gy = int(sx // 4096), int(sy // 4096)
+    travel = [{"console": f"cow WastelandNV {gx} {gy}"}, {"until": in_square_until(gx, gy), "max_frames": cs.DOOR_LOOPS},
+              {"frames": cs.AFTER_DOOR_FRAMES}, {"console": "CloseAllMenus"}, {"frames": 60},
+              num("MenuMode", f"{label} menumode", "value")]
+    return travel + [setpos(*reset), {"console": "CloseAllMenus"}, {"frames": 180}, num("player.GetPos Z", f"{label} reset", "z"),
             setpos(sx, sy, surface), angles(heading), {"console": "CloseAllMenus"}, remember_t0()] + \
         samples(f"{label} settle", 30) + [{"frames": 270}] + move(label, list(controls), n=n, after=30)
 
