@@ -14,6 +14,7 @@ license = "GPL-3.0-or-later"
 bevy = "=0.19.1"
 fnv-nif = { path = "../crates/fnv-nif" }
 fnv-dds = { path = "../crates/fnv-dds" }
+fnv-spt = { path = "../crates/fnv-spt" }
 fnv-vfs = { path = "../crates/fnv-vfs" }
 fnv-esm = { path = "../crates/fnv-esm" }
 fnv-world = { path = "../crates/fnv-world" }

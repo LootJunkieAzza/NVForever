@@ -109,6 +109,32 @@ pub fn tree_billboard(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<([f32
     Some((size, format!("textures\\trees\\billboards\\{stem}.dds")))
 }
 
+/// What the renderer needs from a TREE record besides its `.spt` model
+/// (docs/spec-notes/speedtree.md §6).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreeRecord {
+    /// `.spt` archive path ([`BaseObject::model_path`]).
+    pub model: String,
+    /// Combined leaf texture, `textures\trees\leaves\<ICON>` lower case [observed].
+    pub leaf_texture: Option<String>,
+    /// Size of the finished tree: the larger of its width and height, taken from the
+    /// billboard size (BNAM; the billboard is a square side view fitted to the tree
+    /// [observed: the opaque part of WastelandShrub01's billboard spans 0.89 of its
+    /// width and 0.62 of its height, WhiteOak01's 0.61 and 0.99]), else OBND max z.
+    pub size: Option<f32>,
+}
+
+pub fn tree_record(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<TreeRecord> {
+    let (pi, r) = winner(lo, fid)?;
+    let f = Fields::new(r, pi, schema).ok()?;
+    let model = BaseObject { form_id: fid, sig: r.header.sig, edid: None, model: f.string(b"MODL") }.model_path()?;
+    let leaf_texture = f.string(b"ICON").map(|i| i.trim().replace('/', "\\").to_ascii_lowercase()).filter(|i| !i.is_empty());
+    let leaf_texture = leaf_texture.map(|i| format!("textures\\trees\\leaves\\{}", i.trim_start_matches('\\')));
+    let obnd = f.get(b"OBND").and_then(|b| num(b.get("max")?, "z")).map(|z| z as f32).filter(|&z| z > 0.0);
+    let bnam = f.get(b"BNAM").and_then(|b| Some(num(&b, "width")?.max(num(&b, "height")?) as f32)).filter(|&s| s > 0.0);
+    Some(TreeRecord { model, leaf_texture, size: bnam.or(obnd) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
