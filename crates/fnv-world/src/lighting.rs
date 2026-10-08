@@ -118,6 +118,9 @@ pub struct LightData {
     pub falloff_exponent: f32,
     /// Spot cone in degrees.
     pub fov: f32,
+    /// FNAM "Fade value", 1 when absent [documented: xEdit name; hypothesis: a brightness
+    /// multiplier, as the GECK's light "Fade" field].
+    pub fade: f32,
 }
 
 pub fn light_data(lo: &LoadOrder, schema: &Schema, ligh: u32) -> Option<LightData> {
@@ -125,13 +128,15 @@ pub fn light_data(lo: &LoadOrder, schema: &Schema, ligh: u32) -> Option<LightDat
     if &r.header.sig != b"LIGH" {
         return None;
     }
-    let d = Fields::new(r, pi, schema).ok()?.get(b"DATA")?;
+    let f = Fields::new(r, pi, schema).ok()?;
+    let d = f.get(b"DATA")?;
     Some(LightData {
         radius: num(&d, "radius")? as f32,
         color: rgb(&d, "color")?,
         flags: d.get("flags").and_then(|f| num(f, "value")).unwrap_or(0.0) as u32,
         falloff_exponent: num(&d, "falloff_exponent").unwrap_or(1.0) as f32,
         fov: num(&d, "fov").unwrap_or(90.0) as f32,
+        fade: f.get(b"FNAM").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
     })
 }
 

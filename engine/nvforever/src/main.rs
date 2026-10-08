@@ -8,6 +8,7 @@
 //! and Esc in a menu closes the menu.
 
 mod fly;
+mod lights;
 mod lod;
 mod lodgen;
 mod reflection;
@@ -132,8 +133,8 @@ struct Args {
     /// With --screenshot: also write the lab's frame document (fnv.frame/1) here.
     #[arg(long, requires = "screenshot")]
     frame_json: Option<PathBuf>,
-    /// Light intensity per squared unit of LIGH radius (Bevy lumens) [tuned by eye].
-    #[arg(long, default_value_t = 20_000.0)]
+    /// Multiplier on every light's brightness (LIGH colour × fade; 1 = as stored).
+    #[arg(long, default_value_t = 1.0)]
     light_scale: f32,
     /// Test aid: fly forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0)]
@@ -324,7 +325,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins((ArchivePlugin(game), water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
