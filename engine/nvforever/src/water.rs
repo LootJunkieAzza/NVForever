@@ -11,20 +11,24 @@
 //!   at the above-fog amount left the lake bed visible far out; fogging by the distance
 //!   from the camera instead turned the water opaque right at the shore when seen from
 //!   a few metres up.
-//! - Reflective types reflect the sky (the weather's sky gradient), others their
-//!   reflection colour, weighted by `reflectivity × mix(1, Schlick fresnel, fresnel amount)`;
-//!   the sun adds a highlight with the type's shininess as exponent.
+//! - Reflective types reflect the world (reflection.rs: a mirrored camera's image of
+//!   the scene above the water nearest the camera; the weather's sky gradient for water
+//!   at other heights), others their reflection colour, weighted by
+//!   `reflectivity × mix(1, Schlick fresnel, fresnel amount)`; the sun adds a highlight
+//!   with the type's shininess as exponent.
 //! - The noise texture holds three height layers, one per channel (R, G, B: fine to
 //!   coarse) [observed: uncorrelated, tileable channels in WastelandWaterPotomac.dds];
 //!   layer i scrolls with its wind direction and speed and is scaled by its amplitude.
 //!
-//! Not done: reflections of the world, refraction, under-water fog of the scene, rain and
-//! displacement ripples, the ANAM opacity (its role is unknown).
+//! Not done: refraction, under-water fog of the scene, rain and displacement ripples,
+//! the ANAM opacity (its role is unknown).
 
 use crate::lod::LodState;
+use crate::reflection::{Reflection, WATER_LAYER};
 use crate::sky::SkyState;
 use crate::world::{bevy_to_game, Streamer, WorldData, WorldRoot};
 use bevy::asset::embedded_asset;
+use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
@@ -64,6 +68,8 @@ pub struct WaterParams {
     pub under_fog: Vec4,
     pub surface: Vec4,
     pub layers: [Vec4; 3],
+    /// Bevy y of the plane the reflection texture shows, and 1 when it is in use.
+    pub reflection_plane: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -73,6 +79,9 @@ pub struct WaterMaterial {
     #[texture(1)]
     #[sampler(2)]
     pub noise: Option<Handle<Image>>,
+    #[texture(3)]
+    #[sampler(4)]
+    pub reflection: Option<Handle<Image>>,
 }
 
 impl Material for WaterMaterial {
@@ -111,11 +120,25 @@ pub struct WaterCache {
     plane: Option<Handle<Mesh>>,
 }
 
+impl WaterCache {
+    /// Tell every water material which plane the reflection texture shows.
+    pub fn set_reflection_plane(&self, materials: &mut Assets<WaterMaterial>, plane: Vec4) {
+        for h in self.materials.values() {
+            if materials.get(h).is_some_and(|m| m.params.reflection_plane != plane) {
+                if let Some(mut m) = materials.get_mut(h) {
+                    m.params.reflection_plane = plane;
+                }
+            }
+        }
+    }
+}
+
 /// Water materials and the plane mesh, for spawning water.
 #[derive(SystemParam)]
 pub struct WaterCtx<'w> {
     materials: ResMut<'w, Assets<WaterMaterial>>,
     cache: ResMut<'w, WaterCache>,
+    reflection: Option<Res<'w, Reflection>>,
 }
 
 impl WaterCtx<'_> {
@@ -139,7 +162,8 @@ pub fn water_material(world: &WorldData, wid: u32, models: &mut ModelCtx, water:
         let a = &mut *models;
         a.textures.get(t, false, &a.data, &mut a.images, a.formats.as_deref())
     });
-    let m = water.materials.add(WaterMaterial { params: water_params(&w), noise });
+    let reflection = water.reflection.as_ref().map(|r| r.image.clone());
+    let m = water.materials.add(WaterMaterial { params: water_params(&w), noise, reflection });
     water.cache.materials.insert(wid, m.clone());
     Some(m)
 }
@@ -154,6 +178,13 @@ pub struct DistantWater {
     planes: HashMap<(i32, i32), Entity>,
     /// Camera cell and loaded-cell count the planes were placed for.
     built_for: Option<((i32, i32), usize)>,
+}
+
+impl DistantWater {
+    /// The visible water surface of cell `g` (height, water type), computed on first use.
+    pub fn surface(&mut self, world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
+        *self.surfaces.entry(g).or_insert_with(|| visible_surface(world, g))
+    }
 }
 
 fn visible_surface(world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
@@ -183,7 +214,7 @@ pub fn distant_water(
     streamer: Res<Streamer>,
     lod: Res<LodState>,
     root: Query<Entity, With<WorldRoot>>,
-    camera: Query<&GlobalTransform, With<Camera3d>>,
+    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
     mut dw: ResMut<DistantWater>,
     mut models: ModelCtx,
     mut water: WaterCtx,
@@ -213,8 +244,7 @@ pub fn distant_water(
         if dw.planes.contains_key(&c) {
             continue;
         }
-        let surface = *dw.surfaces.entry(c).or_insert_with(|| visible_surface(&world, c));
-        let Some((height, wid)) = surface else { continue };
+        let Some((height, wid)) = dw.surface(&world, c) else { continue };
         let Some(mat) = water_material(&world, wid, &mut models, &mut water) else { continue };
         let mesh = water.plane(&mut models.meshes);
         let s = CELL_SIZE;
@@ -224,6 +254,7 @@ pub fn distant_water(
                 Mesh3d(mesh),
                 MeshMaterial3d(mat),
                 Transform::from_xyz(c.0 as f32 * s + s / 2.0, c.1 as f32 * s + s / 2.0, height),
+                RenderLayers::layer(WATER_LAYER),
             ))
             .id();
         commands.entity(root).add_child(e);
@@ -256,6 +287,7 @@ pub fn water_params(w: &Water) -> WaterParams {
         under_fog: Vec3::from_array(w.under_fog).extend(0.0),
         surface: Vec4::new(w.reflectivity, w.fresnel, w.shininess, w.noise_normals_scale * WAVE_HEIGHT_FACTOR),
         layers: [layer(&w.noise_layers[0]), layer(&w.noise_layers[1]), layer(&w.noise_layers[2])],
+        reflection_plane: Vec4::ZERO,
     }
 }
 
