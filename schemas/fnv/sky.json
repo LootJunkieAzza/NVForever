@@ -510,6 +510,29 @@
      "type": "bytes"
     }
    ]
+  },
+  "RegionDataHeader": {
+   "struct": [
+    {
+     "name": "type",
+     "type": "u32"
+    },
+    {
+     "name": "flags",
+     "type": "u8"
+    },
+    {
+     "name": "priority",
+     "type": "u8"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 2
+     }
+    }
+   ]
   }
  },
  "records": {
@@ -1239,6 +1262,32 @@
      },
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(NAM4): time, value"
+    }
+   }
+  },
+  "REGN": {
+   "name": "Region",
+   "confidence": "documented",
+   "subrecords": {
+    "RCLR": {
+     "name": "Map Color",
+     "type": "ByteColor",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas REGN record"
+    },
+    "RDAT": {
+     "name": "Data Header",
+     "type": "RegionDataHeader",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas REGN wbRegionDataEntries: type (2 objects, 3 weather, 4 map, 5 land, 6 grass, 7 sound, 8 imposter), flags, priority; repeated, each followed by that type's data"
+    },
+    "RDWT": {
+     "name": "Weather Types",
+     "type": {
+      "array": "WeatherType"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas REGN RDWT: weather, chance, global (as CLMT WLST)"
     }
    }
   }
