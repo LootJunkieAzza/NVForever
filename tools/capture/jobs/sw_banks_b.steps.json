@@ -1,7 +1,7 @@
 {
  "format": "fnv.capture.steps/1",
  "name": "sw_banks_b",
- "title": "Swimming: out of the water up banks of 16 to 58 degrees (the rest of sw_banks; about 3 min, no input)",
+ "title": "Swimming: out of the water up banks (sw_banks_b, the rest of sw_banks; no input)",
  "start": "nvfdoc (Doc Mitchell's house); leaves through the front door, then coc BoulderBeachCampground (god mode, AI detection off).",
  "steps": [
   {
@@ -291,6 +291,17 @@
   },
   {
    "frames": 270
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_16 keys menumode",
+   "field": "value"
   },
   {
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
@@ -1875,6 +1886,17 @@
    "frames": 270
   },
   {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_25 keys menumode",
+   "field": "value"
+  },
+  {
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
    "label": "lm_25 pre 0000",
    "field": "sample"
@@ -3455,6 +3477,17 @@
   },
   {
    "frames": 270
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_30 keys menumode",
+   "field": "value"
   },
   {
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
@@ -5039,6 +5072,17 @@
    "frames": 270
   },
   {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_41 keys menumode",
+   "field": "value"
+  },
+  {
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
    "label": "lm_41 pre 0000",
    "field": "sample"
@@ -6619,6 +6663,17 @@
   },
   {
    "frames": 270
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_45 keys menumode",
+   "field": "value"
   },
   {
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
@@ -8203,6 +8258,17 @@
    "frames": 270
   },
   {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_49 keys menumode",
+   "field": "value"
+  },
+  {
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
    "label": "lm_49 pre 0000",
    "field": "sample"
@@ -9783,6 +9849,17 @@
   },
   {
    "frames": 270
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_58 keys menumode",
+   "field": "value"
   },
   {
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
@@ -11367,6 +11444,17 @@
    "frames": 270
   },
   {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "llv_14 keys menumode",
+   "field": "value"
+  },
+  {
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
    "label": "llv_14 pre 0000",
    "field": "sample"
@@ -12947,6 +13035,17 @@
   },
   {
    "frames": 270
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "llv_25 keys menumode",
+   "field": "value"
   },
   {
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
