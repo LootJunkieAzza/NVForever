@@ -115,7 +115,7 @@ pub fn update_lod(
     streamer: Res<Streamer>,
     mut lod: ResMut<LodState>,
     root: Query<Entity, With<WorldRoot>>,
-    camera: Query<&GlobalTransform, With<Camera3d>>,
+    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
     mut models: ModelCtx,
 ) {
     if !lod.enabled {

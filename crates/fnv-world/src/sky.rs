@@ -70,6 +70,9 @@ pub struct Weather {
     pub cloud_speeds: [u8; 4],
     /// LNAM maximum cloud layers.
     pub max_cloud_layers: Option<u32>,
+    /// DATA flags bit 2 "Rainy" [documented: xEdit]; set on Honest Hearts' two Zion rain
+    /// weathers and no other weather in the masters [observed].
+    pub rainy: bool,
 }
 
 fn byte_color(v: &Value) -> Option<[u8; 3]> {
@@ -134,6 +137,10 @@ pub fn weather(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Weather> {
         }
     }
     w.max_cloud_layers = f.get(b"LNAM").and_then(|v| v.as_u64()).map(|v| v as u32);
+    w.rainy = f
+        .get(b"DATA")
+        .and_then(|d| d.get("flags").and_then(|fl| num(fl, "value")))
+        .is_some_and(|v| (v as u64) & 4 != 0);
     Some(w)
 }
 
@@ -253,6 +260,30 @@ pub fn sun_direction(c: &Climate, hour: f32, tilt: f32) -> [f32; 3] {
     [co, -s * tilt.sin(), s * tilt.cos()]
 }
 
+/// One of the three scrolling noise layers of a water type (WATR DNAM) [documented: field
+/// names, xEdit]. How the engine uses them is a hypothesis (world.md §6).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct NoiseLayer {
+    /// Wind direction in degrees.
+    pub wind_direction: f32,
+    pub wind_speed: f32,
+    /// 0 in the masters' NVCleanWater [observed].
+    pub uv_scale: f32,
+    pub amplitude: f32,
+}
+
+/// Ripple settings of a water type for rain drops or for things moving through the
+/// water ("displacement") (WATR DNAM) [documented: field names, xEdit]. Their meaning
+/// in the engine is a hypothesis (world.md §6).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RippleParams {
+    pub starting_size: f32,
+    pub force: f32,
+    pub velocity: f32,
+    pub falloff: f32,
+    pub dampner: f32,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Water {
     pub form_id: u32,
@@ -260,9 +291,24 @@ pub struct Water {
     pub noise_texture: Option<String>,
     /// ANAM opacity (0-255).
     pub opacity: u8,
+    /// FNAM bit 1 "Reflective" [documented].
+    pub reflective: bool,
     pub shallow: [u8; 3],
     pub deep: [u8; 3],
     pub reflection: [u8; 3],
+    pub sun_power: f32,
+    pub reflectivity: f32,
+    pub fresnel: f32,
+    pub shininess: f32,
+    /// Fog seen through the surface from above: near, far, amount.
+    pub above_fog: [f32; 3],
+    /// Fog below the surface: near, far, amount.
+    pub under_fog: [f32; 3],
+    pub noise_normals_scale: f32,
+    pub noise_normals_uv_scale: f32,
+    pub noise_layers: [NoiseLayer; 3],
+    pub rain: RippleParams,
+    pub displacement: RippleParams,
 }
 
 pub fn water(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Water> {
@@ -273,12 +319,40 @@ pub fn water(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Water> {
         edid: f.string(b"EDID"),
         noise_texture: f.string(b"NNAM").filter(|s| !s.is_empty()),
         opacity: f.get(b"ANAM").and_then(|v| v.as_u64()).unwrap_or(255) as u8,
+        reflective: f.get(b"FNAM").and_then(|v| num(&v, "value")).is_some_and(|v| (v as u64) & 2 != 0),
         ..Default::default()
     };
     if let Some(d) = f.get(b"DNAM") {
+        let n = |k: &str| num(&d, k).unwrap_or(0.0) as f32;
         w.shallow = d.get("shallow_color").and_then(byte_color).unwrap_or_default();
         w.deep = d.get("deep_color").and_then(byte_color).unwrap_or_default();
         w.reflection = d.get("reflection_color").and_then(byte_color).unwrap_or_default();
+        w.sun_power = n("sun_power");
+        w.reflectivity = n("reflectivity_amount");
+        w.fresnel = n("fresnel_amount");
+        w.shininess = n("shininess");
+        w.above_fog = [n("above_fog_near"), n("above_fog_far"), n("above_fog_amount")];
+        w.under_fog = [n("under_fog_near"), n("under_fog_far"), n("under_fog_amount")];
+        w.noise_normals_scale = n("noise_normals_scale");
+        w.noise_normals_uv_scale = n("noise_normals_uv_scale");
+        let ripple = |p: &str, size: &str| RippleParams {
+            starting_size: n(size),
+            force: n(&format!("{p}_force")),
+            velocity: n(&format!("{p}_velocity")),
+            falloff: n(&format!("{p}_falloff")),
+            dampner: n(&format!("{p}_dampner")),
+        };
+        w.rain = ripple("rain", "rain_starting_size");
+        w.displacement = ripple("displacement", "displacement_starting_size");
+        for (i, l) in w.noise_layers.iter_mut().enumerate() {
+            let k = i + 1;
+            *l = NoiseLayer {
+                wind_direction: n(&format!("noise_layer{k}_wind_direction")),
+                wind_speed: n(&format!("noise_layer{k}_wind_speed")),
+                uv_scale: n(&format!("noise_layer{k}_uv_scale")),
+                amplitude: n(&format!("noise_layer{k}_amplitude")),
+            };
+        }
     }
     Some(w)
 }
