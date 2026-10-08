@@ -276,8 +276,8 @@ pub struct PhysWorld {
     /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
     new_bodies: Vec<RigidBodyHandle>,
     steps: u64,
-    /// Water surface heights by area (`crate::water`).
-    pub(crate) water: BTreeMap<crate::water::WaterArea, f32>,
+    /// Water: cell surfaces by area and placed volumes (`crate::water`).
+    pub(crate) water: crate::water::Waters,
 }
 
 impl PhysWorld {
@@ -297,7 +297,7 @@ impl PhysWorld {
             dirty: false,
             new_bodies: Vec::new(),
             steps: 0,
-            water: BTreeMap::new(),
+            water: Default::default(),
         }
     }
 
@@ -401,7 +401,8 @@ impl PhysWorld {
     }
 
     pub fn remove_ref(&mut self, form_id: u32) -> bool {
-        let Some(bodies) = self.refs.remove(&form_id) else { return false };
+        let water = self.water.remove_ref(form_id);
+        let Some(bodies) = self.refs.remove(&form_id) else { return water };
         for b in bodies {
             self.remove_body(b);
         }

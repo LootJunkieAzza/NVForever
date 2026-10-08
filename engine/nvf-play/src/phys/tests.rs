@@ -68,8 +68,23 @@ fn fake_cell(job: &Job) -> Prepared {
         };
         let obj = object(if dynamic { 15.0 } else { 50.0 }, if dynamic { Motion::Dynamic } else { Motion::Static });
         let prepared = PreparedRef::new(&params, &RefPose::from_placement(&pl), &[obj]);
-        refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], prepared: Some(prepared) }) });
+        refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared) }) });
     }
+    // A pond: a reference with only a water volume (placed water, physics.md §6.6).
+    let pond = Placement {
+        form_id: base + 6,
+        sig: *b"REFR",
+        flags: 0,
+        base: None,
+        position: [x0 + 2000.0, y0 + 3500.0, 0.0],
+        rotation: [0.0; 3],
+        scale: 1.0,
+        enable_parent: None,
+        open_by_default: false,
+        emittance: None,
+    };
+    let water = vec![CollisionObject { layer: fnv_phys::layers::WATER, ..object(100.0, Motion::Static) }];
+    refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None }) });
     let terrain = Some(PreparedTerrain::new(&params, (gx, gy), &heights));
     Prepared { cell: job.cell, heights: Some(heights), terrain, refs, times: LoadTimes::default() }
 }
@@ -146,7 +161,7 @@ fn walk() -> ((u64, Vec<PhysCell>, fnv_phys::Stats), [f32; 3]) {
         p.finish_loading(&ctx);
         assert!(p.ready_at(feet));
         let c = p.player.as_mut().unwrap();
-        p.world.move_character(c, CharacterInput { velocity: [700.0, 0.0], jump: false, vertical: 0.0 });
+        p.world.move_character(c, CharacterInput { velocity: [700.0, 0.0], ..Default::default() });
         p.world.step();
     }
     let feet = p.player.as_ref().unwrap().feet;
@@ -187,6 +202,20 @@ fn the_cell_underfoot_never_waits_for_the_loader() {
     }
     assert_eq!(p.cells.len(), 12);
     assert_eq!(p.world.stats().refs, bodies + 10 * 6, "ten more cells of six references");
+}
+
+#[test]
+fn placed_water_comes_and_goes_with_its_cell() {
+    let (d, sim) = (play_data(), sim());
+    let ctx = LoadCtx { d: &d, sim: &sim, data: None };
+    let mut p = state(false);
+    let pond = [2000.0, 3500.0, 50.0];
+    assert_eq!(p.world.water_surface_for(pond), None);
+    p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
+    assert_eq!(p.world.water_surface_for(pond), Some(100.0), "the box's top");
+    assert_eq!(p.stats.counts.get("water_volume_refs"), Some(&1));
+    p.unload(PhysCell::Exterior(0, 0));
+    assert_eq!(p.world.water_surface_for(pond), None);
 }
 
 #[test]
