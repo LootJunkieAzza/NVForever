@@ -397,6 +397,7 @@ fn probe(b: &mut Built, params: CharacterParams, (x, y, z): (f32, f32, Option<f3
             height_at(h, x - gx as f32 * CELL_SIZE, y - gy as f32 * CELL_SIZE)
         });
     let mut c = world.add_character(0, params, start);
+    let solid = Filter { exclude: vec![c.key()], exclude_layers: layers::character_ignores(), ..Default::default() };
     let steps = (seconds / world.params.dt).round().max(1.0) as usize;
     let mut landed: Option<(f32, f32)> = None;
     let mut last = None;
@@ -410,8 +411,11 @@ fn probe(b: &mut Built, params: CharacterParams, (x, y, z): (f32, f32, Option<f3
         }
         last = Some(s);
     }
-    world.remove_character(c);
     let last = last.expect("at least one step");
+    // What the probe rests on: the arrival rule's ray under the feet (physics.md §6.2).
+    let f = last.feet;
+    let support = world.queries().ray([f[0], f[1], f[2] + params.height / 2.0], [0.0, 0.0, -1.0], 4.5 * params.height, &solid);
+    world.remove_character(c);
     json!({
         "start": start,
         "ground_ray": ground.map(|g| json!({"owner": owner_json(&g.owner), "z": g.point[2], "normal": g.normal})),
@@ -422,6 +426,9 @@ fn probe(b: &mut Built, params: CharacterParams, (x, y, z): (f32, f32, Option<f3
         "grounded": last.grounded,
         "sliding": last.sliding,
         "rest_above_terrain": terrain_z.map(|t| last.feet[2] - t),
+        "gap": last.gap,
+        "support": support.map(|h| json!({"owner": owner_json(&h.owner), "z": h.point[2], "shell": h.shell})),
+        "rest_above_support": support.map(|h| last.feet[2] - h.point[2]),
         "touched": last.touched.iter().map(owner_json).collect::<Vec<_>>(),
     })
 }
@@ -524,8 +531,10 @@ fn walk_cmd(
         Some(z) => z,
         None => {
             let (top, bottom) = b.ray_span();
-            let hit = b.world.queries().ray([x, y, top], [0.0, 0.0, -1.0], top - bottom, &Filter::default());
-            hit.ok_or_else(|| anyhow!("nothing below the start {x},{y}"))?.point[2] + 1.0
+            let solid = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
+            let hit = b.world.queries().ray([x, y, top], [0.0, 0.0, -1.0], top - bottom, &solid);
+            let hit = hit.ok_or_else(|| anyhow!("nothing below the start {x},{y}"))?;
+            hit.point[2] + character.rest_gap(hit.shell)
         }
     };
     let world = &mut b.world;
@@ -561,6 +570,7 @@ fn walk_cmd(
                     "grounded": s.grounded,
                     "sliding": s.sliding,
                     "landed_speed": s.landed_speed,
+                    "gap": s.gap,
                     "touched": s.touched.iter().map(owner_json).collect::<Vec<_>>(),
                 }));
             }
