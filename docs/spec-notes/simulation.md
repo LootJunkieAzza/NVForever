@@ -205,6 +205,14 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   the 72 h cell respawn (`iHoursToRespawnCell`) applies to containers with the Respawns
   flag, measured from leaving the cell, between 70 and 74 hours [observed]; the exact
   boundary and whether a midnight is involved are not settled.
+- **Non-playable items**: ARMO BMDT general flag bit 6 is "Non-Playable" [documented:
+  xEdit wbBMDT, `schemas/fnv/objects.json`]. `PipBoy` (Pip-Boy 3000, 0x00015038) and
+  `PipBoyGlove` (Pip-Boy Glove, 0x00025B83) carry it [observed: `fnvtool esm decode`].
+  The game never shows the glove in the inventory, so it cannot be dropped, and it is
+  always equipped [observed by the owner, 2026-10-08]. The engine's menus hide every
+  non-playable item (`fnv_sim::forms::Item::non_playable`); that the Pip-Boy 3000 and
+  other non-playable armour behave like the glove is [hypothesis]; the simulation does
+  not equip them yet.
 - **Inventory model**: one stack per base item, split into groups of identical extra data
   (condition, owner, equipped). Removing more than is held removes what is there and
   reports that number [hypothesis: GECK `RemoveItem` behaviour as commonly described; to

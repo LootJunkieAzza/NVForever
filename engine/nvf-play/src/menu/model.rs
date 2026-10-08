@@ -5,6 +5,11 @@
 //! simulation decides which units move (its removal order). Sorting is ours: by display
 //! name, case-insensitively, FormID breaking ties. How the game orders and groups rows
 //! (category tabs, sort keys) is not captured, so nothing here claims to follow it.
+//!
+//! Non-playable items (`Item::non_playable`, e.g. the Pip-Boy Glove) are not listed, so
+//! they cannot be moved, equipped or dropped from a menu [observed by the owner: the game
+//! never shows the glove in the inventory]; Take All leaves them in the container
+//! [hypothesis: hidden items stay where they are].
 
 use fnv_sim::forms::{BaseData, FormStore, ItemKind};
 use fnv_sim::refs::PlacedRef;
@@ -35,8 +40,10 @@ pub struct Row {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Listing {
     pub rows: Vec<Row>,
-    /// Total weight as the simulation counts it (`Inventory::totals`).
+    /// Total weight as the simulation counts it (`Inventory::totals`), hidden
+    /// (non-playable) items included: they are carried.
     pub weight: f64,
+    /// Value of the listed stacks.
     pub value: i64,
 }
 
@@ -60,6 +67,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
     let totals = inv.totals(forms, hardcore);
     let mut rows: Vec<Row> = inv
         .iter()
+        .filter(|&(item, _)| !forms.item(item).is_some_and(|i| i.non_playable))
         .map(|(item, count)| {
             let it = forms.item(item);
             Row {
@@ -74,7 +82,8 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
         })
         .collect();
     rows.sort_by_cached_key(|r| (r.name.to_lowercase(), r.item));
-    Ok(Listing { rows, weight: totals.weight, value: totals.value })
+    let value = rows.iter().map(|r| r.value.unwrap_or(0) as i64 * r.count as i64).sum();
+    Ok(Listing { rows, weight: totals.weight, value })
 }
 
 /// A column of the menu.
@@ -320,7 +329,14 @@ impl MenuModel {
         let name = |r: &Row| r.name.clone();
         match (self.mode, cmd) {
             (Mode::Container(c), Command::TakeAll) => {
-                let moved = world.transfer_all(c, PLAYER)?;
+                // The listed stacks only: non-playable items stay hidden in the container.
+                let mut moved = Vec::new();
+                for r in &self.lists[Side::Container as usize].rows {
+                    let n = world.transfer(c, PLAYER, r.item, r.count)?;
+                    if n > 0 {
+                        moved.push((r.item, n));
+                    }
+                }
                 out.changed = !moved.is_empty();
                 let n: i64 = moved.iter().map(|m| m.1 as i64).sum();
                 Ok(if moved.is_empty() { "Nothing to take".into() } else { format!("Took everything ({n} items)") })
