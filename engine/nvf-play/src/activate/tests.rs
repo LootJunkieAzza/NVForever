@@ -6,7 +6,7 @@ use crate::phys::PhysState;
 use crate::PlayData;
 use bevy::ecs::message::Messages;
 use fnv_collide::{CollisionObject, Iso, Motion, Shape};
-use fnv_phys::{CharacterParams, PhysParams, PhysWorld, RefPose, Stepper};
+use fnv_phys::{CharacterParams, PhysParams, PhysWorld, RefPose};
 use fnv_sim::forms::{ActorBase, BaseForm, Container, Door, Item, ItemKind};
 use fnv_sim::refs::{Lock, PlacedRef, Teleport};
 use fnv_sim::{FormStore, RefTable, SimConfig, World};
@@ -123,10 +123,12 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         world.add_ref(&RefPose { form_id: id, position: [x, 0.0, 100.0], rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0 }, &[boxed(10.0)]);
     }
     let me = world.add_character(1, CharacterParams::default(), [0.0, 0.0, 0.0]);
+    let mut phys = PhysState::default();
+    (phys.world, phys.player) = (world, Some(me));
     let mut app = App::new();
     app.insert_resource(sim())
         .insert_resource(PlayWorld(play_data(index())))
-        .insert_resource(PhysState { world, stepper: Stepper::default(), player: Some(me) })
+        .insert_resource(phys)
         .insert_resource(Player { heading: std::f32::consts::FRAC_PI_2, pitch: 0.0, eye_height: 100.0, feet: [0.0; 3] })
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<Target>()

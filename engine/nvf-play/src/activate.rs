@@ -8,6 +8,9 @@
 //! - `PlaySet::Ui`: the crosshair, the prompt and the message line (hidden in menus).
 //! - `PlaySet::Sync`: `RefVisual` entities are hidden while the simulation says their
 //!   reference is not in the world, on `RefChanged` and when cells stream in.
+//!
+//! Test aid: `NVF_PLAY_TEST_ACTIVATE=<seconds>[,<seconds>...]` presses E at those times
+//! after start (unattended in-game checks).
 
 pub mod outcome;
 pub mod pick;
@@ -38,6 +41,7 @@ impl Plugin for ActivatePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Target>()
             .init_resource::<HudMessage>()
+            .insert_resource(AutoActivate::from_env())
             .add_systems(Startup, spawn_hud)
             .add_systems(Update, (find_target, activate).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)))
             .add_systems(Update, update_hud.in_set(PlaySet::Ui))
@@ -195,10 +199,34 @@ fn find_target(
     }
 }
 
+/// Test aid: times (seconds after start) at which E counts as pressed.
+#[derive(Resource, Default)]
+struct AutoActivate {
+    times: Vec<f32>,
+}
+
+impl AutoActivate {
+    fn from_env() -> AutoActivate {
+        let times = std::env::var("NVF_PLAY_TEST_ACTIVATE")
+            .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+            .unwrap_or_default();
+        AutoActivate { times }
+    }
+
+    /// Whether a time has come since the last call (each fires once).
+    fn fire(&mut self, now: f32) -> bool {
+        let before = self.times.len();
+        self.times.retain(|&t| t > now);
+        self.times.len() < before
+    }
+}
+
 /// E activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments)]
 fn activate(
     keys: Res<ButtonInput<KeyCode>>,
+    time: Option<Res<Time>>,
+    auto: Option<ResMut<AutoActivate>>,
     target: Res<Target>,
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
@@ -207,7 +235,11 @@ fn activate(
     mut open: MessageWriter<OpenContainer>,
     mut changed: MessageWriter<RefChanged>,
 ) {
-    if !keys.just_pressed(KeyCode::KeyE) {
+    let fired = match (auto, time) {
+        (Some(mut a), Some(t)) => a.fire(t.elapsed_secs()),
+        _ => false,
+    };
+    if !keys.just_pressed(KeyCode::KeyE) && !fired {
         return;
     }
     let Some(t) = target.0.as_ref() else { return };
