@@ -281,6 +281,10 @@ fn build<'a>(
             *counts.entry("initially_disabled").or_default() += 1;
             continue;
         }
+        if !parent_allows(lo, schema, &pl, 0) {
+            *counts.entry("disabled_by_parent").or_default() += 1;
+            continue;
+        }
         let Some(base) = pl.base.and_then(|b| base_object(lo, schema, b)) else {
             *counts.entry("no_base").or_default() += 1;
             continue;
@@ -346,6 +350,23 @@ fn build<'a>(
 }
 
 /// Build the world around `centre`, then drop a probe character at each drop point.
+/// Whether a reference's enable parent leaves it enabled at the start of a game, by the
+/// renderer's rule (`engine/nvforever/src/world.rs`): the parent must itself be enabled
+/// (not deleted or initially disabled, its own parent followed), inverted for "opposite";
+/// a missing parent counts as enabled unless "opposite", a chain deeper than 16 as
+/// disabled. Disabled references have no collision [observed by the owner in game,
+/// physics.md §4].
+fn parent_allows(lo: &LoadOrder, schema: &Schema, p: &fnv_world::placed::Placement, depth: usize) -> bool {
+    match p.enable_parent {
+        None => true,
+        Some(_) if depth > 16 => false,
+        Some((parent, opposite)) => match placement(lo, schema, parent) {
+            Some(pp) => (!pp.deleted() && !pp.initially_disabled() && parent_allows(lo, schema, &pp, depth + 1)) != opposite,
+            None => !opposite,
+        },
+    }
+}
+
 fn cell_cmd(
     lo: &LoadOrder,
     schema: &Schema,
