@@ -118,7 +118,9 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   (each: `name`, `hours` of game time, optional `hour` to move the clock to first,
   `go` = `{"coc": cell}` | `{"cow": [world, x, y]}` | `{"moveto": ref}` (teleport to an
   actor, wherever it is), `walk` = `{"to": ref, "within": units, "max_frames": n
-  (default 1200), "approach": units (default 600)}`, `track` = [ref Editor IDs], `every`,
+  (default 1200; 0 no limit), "approach": units (default 600; 0 none), "follow": bool}`
+  (follow: within `within` the key is released and the drive goes on, to keep up with a
+  moving actor), `track` = [ref Editor IDs], `every`,
   `depth`, `settle_frames`, `timescale`, `max_actors`, `console_first`,
   `close_menus_after` (game loops, default 600; 0 keeps menus open)).
 - **Walks** start with `player.MoveTo <target> <approach> 0 0` (MoveTo's offsets
@@ -138,9 +140,10 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   Campaigns: `tools/capture/observe/goodsprings.campaign.json` (save `nvftest`),
   `goodsprings_npc.campaign.json` (owner's save `nvfNPC`, Joe Cobb enabled; also tracks
   the Powder Gangers GSPG01Ref–GSPG06Ref) and `goodsprings_fight.campaign.json` (save
-  `nvfCombatTown`, just before the settlers' fight with the Powder Gangers: no teleport,
-  no clock change, god mode by `tgm` so the standing player is not killed, depth 2,
-  every 5 loops, 2 game hours). God mode is a console toggle: the save must not have it on
+  `nvfCombatTown`, just before the settlers' fight with the Powder Gangers, the player
+  right behind SunnyRef outside as she heads to it: no teleport, no clock change, the
+  player follows SunnyRef (`walk` with `follow`), god mode by `tgm` so the player is not
+  killed, depth 2, every 5 loops, 2 game hours). God mode is a console toggle: the save must not have it on
   already [hypothesis: it is not stored in saves].
 - **Session job**: console_first lines; clock forward to `hour` (GameHour set past 24
   carries the day [observed 2026-10-08]); teleport and wait to arrive; `settle_frames`;

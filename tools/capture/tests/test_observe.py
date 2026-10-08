@@ -93,6 +93,13 @@ class ScriptRules(unittest.TestCase):
         self.assertIn("con_CloseAllMenus", hook["then"])
         with self.assertRaises(ob.InputError):
             ob.campaign_jobs(campaign(walk={"to": "Ann", "noclip": True}), EDIDS)
+        follow = ob.campaign_jobs(campaign(walk={"to": "Ann", "follow": True, "approach": 0, "max_frames": 0}), EDIDS)
+        fjob = follow["obs_c1_s1"][1]
+        fo = [s for s in fjob["steps"] if "observe" in s][0]["observe"]
+        self.assertIn("    ReleaseKey iK\n    let fA := 0\n", fo["drive"], "close enough only releases the key")
+        self.assertNotIn(f"let fA := {ob.WALK_ARRIVED}", fo["drive"])
+        self.assertEqual(fo["drive_frames"], 0, "no limit: follow for the whole observation")
+        self.assertFalse(any("MoveTo" in s.get("script", "") for s in fjob["steps"]), "approach 0: no teleport")
         no_hook = ob.campaign_jobs(campaign(close_menus_after=0), EDIDS)["obs_c1_s1"][1]
         self.assertNotIn("hooks", [s for s in no_hook["steps"] if "observe" in s][0]["observe"])
         self.assertIn("BuildRef fM1 4098", o["drive"], "Ann = 0x1002")
