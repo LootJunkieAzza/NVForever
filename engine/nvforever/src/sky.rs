@@ -46,13 +46,19 @@ impl SkyState {
             .climate
             .or_else(|| ws.parent.and_then(|p| world.index.worldspaces.get(&p)).and_then(|p| p.climate))
             .ok_or("worldspace has no climate")?;
-        let clim = climate(&world.lo, world.schema, clim_id).ok_or("climate unreadable")?;
+        let clim = climate(world.lo, world.schema, clim_id).ok_or("climate unreadable")?;
         let wid = match weather_name {
             Some(n) => find_weather(world, n).ok_or_else(|| format!("no weather {n}"))?,
-            None => default_weather(&clim, |g| global_value(&world.lo, world.schema, g)).ok_or("climate lists no weather")?,
+            None => default_weather(&clim, |g| global_value(world.lo, world.schema, g)).ok_or("climate lists no weather")?,
         };
-        let w = weather(&world.lo, world.schema, wid).ok_or("weather unreadable")?;
+        let w = weather(world.lo, world.schema, wid).ok_or("weather unreadable")?;
         Ok(SkyState { climate: clim, weather: w, hour, fog_override: None, interior: None, changed: true })
+    }
+
+    /// Switch between interior lighting (`Some`) and the worldspace's sky (`None`).
+    pub fn set_interior(&mut self, lighting: Option<fnv_world::lighting::CellLighting>) {
+        self.interior = lighting;
+        self.changed = true;
     }
 
     pub fn describe(&self) -> String {

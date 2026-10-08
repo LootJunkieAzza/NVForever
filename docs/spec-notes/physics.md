@@ -239,6 +239,45 @@ which is not read (charter). Questions for the owner:
    dropped items. Proposed capture, backlog item B11 (layer4-captures.md): a scripted drop
    test, no one at the controls.
 
+### 6.1 The player in the game (`engine/nvf-play`, Layer 4 Part P)
+
+`nvforever --play` drives the controller above with the default `CharacterParams`. Values
+it adds, none measured:
+
+| Value | Used | Status |
+|---|---|---|
+| walk speed | `fMoveBaseSpeed` (77 in FalloutNV.esm) units/s | [hypothesis: meaning guessed from the name; the game's formula (Speed Mult, encumbrance, sneaking, weapon out) is unknown] |
+| run speed | `fMoveBaseSpeed × fMoveRunMult` (77 × 4 = 308) units/s | [hypothesis: as above] |
+| run by default, Shift walks | | [hypothesis: the game's default controls] |
+| same speed forwards, backwards and sideways; diagonals not faster | | [hypothesis] |
+| eye height above the feet | 112 units | [hypothesis: placeholder for a standing human at about 70 units per metre] |
+| the player reference's z rotation is its compass heading in radians | written to the simulation each frame | [hypothesis: door teleport markers' rotations are read the same way] |
+| physics (and the game clock) stop in menus | | [hypothesis: not captured for the container menu] |
+
+Engineering choices, not game values: mouse look 0.0025 rad per mouse count, pitch
+limited to ±89°; physics loads the 3×3 exterior cells around the player (one more ring
+before unloading) or the one interior, at most one cell per frame, the player's own cell
+first, and the character waits while its cell is not loaded; the start drops the
+character on whatever a downward ray from the start eye finds (from far above if
+nothing), 1 unit above the hit; `Travel` looks for the floor from half a capsule above
+the destination to four capsules below it; a character more than 1,000 units below the
+terrain is put back on the ground (logged as a warning).
+
+References get collision by the same rule as `fnvtool phys cell`
+(`fnv_phys::ref_collision`); whether one is in the world is the simulation's: not
+deleted, enabled following its enable parents (`World::is_enabled`), not taken; until the
+simulation holds state for a reference, its own Initially Disabled flag also keeps it out
+(as render streaming and `fnvtool phys` do). In Goodsprings' 3×3 that gives 839
+references with collision against `fnvtool phys cell`'s 849 [observed: `nvforever --play`
+debug log: 18 references not in the world, the 8 that `fnvtool` also counts as Initially
+Disabled and 10 that the simulation disables through their enable parents].
+
+Seen in NVForever, not in the game [observed]: walking east into the rock 0x000EDE82
+(layer Terrain) at about (-31043, -18055) the capsule jitters in place (about 85 units/s
+of back-and-forth path) and creeps up 0.2 units/s; `fnvtool phys walk` from
+(-31455, -18200) at velocity (600, 0) reproduces it to the unit, so it is the
+controller's, not the game integration's.
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>

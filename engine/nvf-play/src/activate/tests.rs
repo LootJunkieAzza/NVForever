@@ -1,0 +1,252 @@
+//! Targeting, activation and visual sync in a small Bevy app over a hand-built
+//! simulation (forms and references in memory) and physics world (no game data).
+
+use super::*;
+use crate::phys::PhysState;
+use crate::PlayData;
+use bevy::ecs::message::Messages;
+use fnv_collide::{CollisionObject, Iso, Motion, Shape};
+use fnv_phys::{CharacterParams, PhysParams, PhysWorld, RefPose};
+use fnv_sim::forms::{ActorBase, BaseForm, Container, Door, Item, ItemKind};
+use fnv_sim::refs::{Lock, PlacedRef, Teleport};
+use fnv_sim::{FormStore, RefTable, SimConfig, World};
+use fnv_world::{Cell, WorldIndex};
+
+const STIMPAK: u32 = 0x100;
+const KEY: u32 = 0x101;
+const CHEST: u32 = 0x120;
+const DOOR: u32 = 0x130;
+const TRIGGER: u32 = 0x140;
+const CELL_EXT: u32 = 0x200;
+const CELL_INT: u32 = 0x201;
+const WORLD: u32 = 0x3C;
+const STIM_REF: u32 = 0x301; // XCNT 3, no collision
+const CHEST_REF: u32 = 0x302;
+const SAFE_REF: u32 = 0x303; // a chest locked at level 50 with KEY
+const DOOR_REF: u32 = 0x304; // -> DOOR_DEST in CELL_INT
+const DOOR_DEST: u32 = 0x305;
+const TRIGGER_REF: u32 = 0x306; // unnamed activator
+
+fn base(id: u32, name: Option<&str>, data: BaseData) -> BaseForm {
+    BaseForm { id: FormId(id), sig: *b"MISC", edid: Some(format!("Edid{id:X}")), name: name.map(Into::into), script: None, data }
+}
+
+fn item(kind: ItemKind) -> BaseData {
+    BaseData::Item(Item { kind, value: Some(1), weight: Some(0.5), slots: None, projectile: None, health: None })
+}
+
+fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
+    PlacedRef {
+        id: FormId(id),
+        sig: *b"REFR",
+        edid: None,
+        base: FormId(base),
+        cell: Some(FormId(cell)),
+        stored_in: Some(FormId(cell)),
+        plugin: 0,
+        flags: 0,
+        in_persistent_group: false,
+        pos: [0.0; 3],
+        rot: [0.0; 3],
+        scale: None,
+        count: None,
+        health: None,
+        owner: None,
+        lock: None,
+        teleport: None,
+        enable_parent: None,
+        linked: None,
+        merchant_container: None,
+    }
+}
+
+fn sim() -> SimState {
+    let mut forms = FormStore::default();
+    let chest = || BaseData::Container(Container { respawns: false, entries: Vec::new() });
+    for b in [
+        base(STIMPAK, Some("Stimpak"), item(ItemKind::Aid)),
+        base(KEY, Some("Safe Key"), item(ItemKind::Key)),
+        base(CHEST, Some("Chest"), chest()),
+        base(DOOR, Some("Door"), BaseData::Door(Door { automatic: false, minimal_use: false })),
+        base(TRIGGER, None, BaseData::Activator),
+        base(FormId::PLAYER_BASE.0, Some("Courier"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })),
+    ] {
+        forms.bases.insert(b.id, b);
+    }
+    let mut refs = RefTable::default();
+    let stim = PlacedRef { count: Some(3), ..placed(STIM_REF, STIMPAK, CELL_EXT) };
+    let safe = PlacedRef { lock: Some(Lock { level: 50, key: Some(FormId(KEY)), leveled: false }), ..placed(SAFE_REF, CHEST, CELL_EXT) };
+    let tp = Teleport { door: FormId(DOOR_DEST), pos: [10.0, 20.0, 30.0], rot: [0.0, 0.0, std::f32::consts::FRAC_PI_2] };
+    let door = PlacedRef { teleport: Some(tp), ..placed(DOOR_REF, DOOR, CELL_EXT) };
+    for r in [stim, safe, door, placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT)] {
+        refs.refs.insert(r.id, r);
+    }
+    let forms: &'static FormStore = Box::leak(Box::new(forms));
+    let refs: &'static RefTable = Box::leak(Box::new(refs));
+    SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }
+}
+
+fn index() -> &'static WorldIndex {
+    let mut ix = WorldIndex::default();
+    ix.cells.insert(CELL_EXT, Cell { form_id: CELL_EXT, world: Some(WORLD), grid: Some((0, 0)), ..Default::default() });
+    let int = Cell { form_id: CELL_INT, name: Some("Doc Mitchell's House".into()), ..Default::default() };
+    ix.cells.insert(CELL_INT, int);
+    Box::leak(Box::new(ix))
+}
+
+fn play_data(index: &'static WorldIndex) -> PlayData {
+    let lo: &'static fnv_esm::LoadOrder<'static> = Box::leak(Box::new(fnv_esm::LoadOrder::new(&[]).expect("empty load order")));
+    let schema: &'static fnv_esm::Schema = Box::leak(Box::default());
+    PlayData { lo, schema, index, world: WORLD, interior: None, eye: [0.0; 3], heading_deg: 0.0, pitch_deg: 0.0, auto_walk: 0.0 }
+}
+
+fn boxed(half: f32) -> CollisionObject {
+    CollisionObject {
+        node: None,
+        node_block: 0,
+        node_transform: Iso::IDENTITY,
+        body_transform: Iso::IDENTITY,
+        motion: Motion::Static,
+        layer: layers::CLUTTER,
+        mass: 10.0,
+        friction: 0.5,
+        restitution: 0.0,
+        shape: Shape::Box { half_extents: [half; 3] },
+    }
+}
+
+/// The player at the origin looking east (+x) at eye height 100; references with
+/// collision boxes at the given x (half size 10, at eye height).
+fn scene(colliding: &[(u32, f32)]) -> App {
+    let mut world = PhysWorld::new(PhysParams::default());
+    for &(id, x) in colliding {
+        world.add_ref(&RefPose { form_id: id, position: [x, 0.0, 100.0], rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0 }, &[boxed(10.0)]);
+    }
+    let me = world.add_character(1, CharacterParams::default(), [0.0, 0.0, 0.0]);
+    let mut phys = PhysState::default();
+    (phys.world, phys.player) = (world, Some(me));
+    let mut app = App::new();
+    app.insert_resource(sim())
+        .insert_resource(PlayWorld(play_data(index())))
+        .insert_resource(phys)
+        .insert_resource(Player { heading: std::f32::consts::FRAC_PI_2, pitch: 0.0, eye_height: 100.0, feet: [0.0; 3] })
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<Target>()
+        .init_resource::<HudMessage>()
+        .add_message::<Travel>()
+        .add_message::<OpenContainer>()
+        .add_message::<RefChanged>()
+        .add_systems(Update, (find_target, activate, sync_visuals).chain());
+    app
+}
+
+/// A render entity of `form_id`: a box of half size 2 centred at game point `at`.
+fn visual(app: &mut App, form_id: u32, at: [f32; 3]) -> Entity {
+    let aabb = Aabb { center: Vec3::ZERO.into(), half_extents: Vec3::splat(2.0).into() };
+    let gt = GlobalTransform::from_translation(space::to_bevy(at));
+    app.world_mut().spawn((RefVisual(form_id), aabb, gt, InheritedVisibility::VISIBLE, Visibility::Inherited)).id()
+}
+
+fn press_e(app: &mut App) {
+    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::KeyE);
+    app.update();
+    let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+    keys.release(KeyCode::KeyE);
+    keys.clear();
+}
+
+fn target(app: &App) -> Option<(u32, Source)> {
+    app.world().resource::<Target>().0.as_ref().map(|t| (t.form_id, t.source))
+}
+
+fn drain<M: Message>(app: &mut App) -> Vec<M> {
+    app.world_mut().resource_mut::<Messages<M>>().drain().collect()
+}
+
+#[test]
+fn describe_by_type_lock_and_destination() {
+    let sim = sim();
+    let ix = index();
+    assert_eq!(describe(&sim, ix, STIM_REF), Some(("Stimpak".into(), Action::Take { count: 3 })));
+    assert_eq!(describe(&sim, ix, CHEST_REF), Some(("Chest".into(), Action::Open)));
+    assert_eq!(describe(&sim, ix, SAFE_REF), Some(("Chest".into(), Action::Locked { level: 50 })));
+    assert_eq!(describe(&sim, ix, DOOR_REF), Some(("Door".into(), Action::Travel { to: Some("Doc Mitchell's House".into()) })));
+    assert_eq!(describe(&sim, ix, TRIGGER_REF), None, "unnamed activators are not offered");
+    assert_eq!(describe(&sim, ix, 0x999), None);
+}
+
+#[test]
+fn the_key_unlocks() {
+    let mut sim = sim();
+    sim.world.add_item(FormId::PLAYER_REF, FormId(KEY), 1).unwrap();
+    assert_eq!(describe(&sim, index(), SAFE_REF).unwrap().1, Action::Unlock);
+}
+
+#[test]
+fn take_an_item_by_its_bounds_then_open_the_chest_behind_it() {
+    let mut app = scene(&[(CHEST_REF, 100.0)]);
+    let stim = visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    app.update();
+    // The stimpak has no collision; its render box is nearer than the chest's collision.
+    assert_eq!(target(&app), Some((STIM_REF, Source::Bounds)));
+    let d = app.world().resource::<Target>().0.as_ref().unwrap().distance;
+    assert!((d - 58.0).abs() < 1e-3, "{d}");
+    press_e(&mut app);
+    assert_eq!(drain::<RefChanged>(&mut app).iter().map(|m| m.form_id).collect::<Vec<_>>(), vec![STIM_REF]);
+    assert_eq!(app.world().get::<Visibility>(stim), Some(&Visibility::Hidden));
+    let sim = app.world().resource::<SimState>();
+    assert!(!sim.present(STIM_REF));
+    assert_eq!(sim.world.peek(FormId::PLAYER_REF).unwrap().inventory.as_ref().unwrap().count(FormId(STIMPAK)), 3);
+    // Taken: the chest (by its collision, the player's capsule ignored) is next.
+    app.update();
+    assert_eq!(target(&app), Some((CHEST_REF, Source::Collision)));
+    press_e(&mut app);
+    assert_eq!(drain::<OpenContainer>(&mut app).iter().map(|m| m.container).collect::<Vec<_>>(), vec![CHEST_REF]);
+    // The stimpak's cell streams in again: its new render entity starts hidden.
+    let again = visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    let chest = visual(&mut app, CHEST_REF, [100.0, 0.0, 100.0]);
+    app.update();
+    assert_eq!(app.world().get::<Visibility>(again), Some(&Visibility::Hidden));
+    assert_eq!(app.world().get::<Visibility>(chest), Some(&Visibility::Inherited));
+}
+
+#[test]
+fn walls_and_reach_limit_the_bounds() {
+    // A wall (a non-activatable reference) in front of the item hides it.
+    let mut app = scene(&[(0x999, 40.0)]);
+    visual(&mut app, STIM_REF, [60.0, 0.0, 100.0]);
+    app.update();
+    assert_eq!(target(&app), None);
+    // Out of reach.
+    let mut app = scene(&[]);
+    visual(&mut app, STIM_REF, [pick::REACH + 10.0, 0.0, 100.0]);
+    app.update();
+    assert_eq!(target(&app), None);
+}
+
+#[test]
+fn a_door_sends_travel_and_a_locked_chest_a_message() {
+    let mut app = scene(&[(DOOR_REF, 50.0)]);
+    app.update();
+    assert_eq!(target(&app), Some((DOOR_REF, Source::Collision)));
+    press_e(&mut app);
+    let t = drain::<Travel>(&mut app);
+    assert_eq!(t.len(), 1);
+    assert_eq!((t[0].interior, t[0].feet, t[0].heading_deg), (Some(CELL_INT), [10.0, 20.0, 30.0], 90.0));
+    let p = app.world().resource::<SimState>().world.peek(FormId::PLAYER_REF).unwrap().clone();
+    assert_eq!((p.cell, p.pos), (Some(FormId(CELL_INT)), [10.0, 20.0, 30.0]));
+
+    let mut app = scene(&[(SAFE_REF, 50.0)]);
+    press_e(&mut app);
+    assert!(drain::<OpenContainer>(&mut app).is_empty());
+    assert_eq!(app.world().resource::<HudMessage>().text, "Chest is locked (level 50)");
+}
+
+#[test]
+fn no_target_no_activation() {
+    let mut app = scene(&[]);
+    press_e(&mut app);
+    assert_eq!(target(&app), None);
+    assert!(drain::<RefChanged>(&mut app).is_empty());
+    assert!(app.world().resource::<SimState>().world.peek(FormId::PLAYER_REF).is_none(), "nothing materialised");
+}
