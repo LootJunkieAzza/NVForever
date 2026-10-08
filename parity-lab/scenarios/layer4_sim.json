@@ -168,6 +168,51 @@
    ]
   },
   {
+   "id": "L4.sim.leveled.b8",
+   "layer": 4,
+   "description": "Leveled-list outcomes (backlog B8: LVLG globals set from the console, all-levels lists with the player level between or equal to entry levels, a count without each-item-in-count, nesting 3 to 5 deep with chance none and a count carried into an each-item sublist) of ten lists from FalloutNV.esm and DeadMoney.esm: fnvtool sim sample histograms (parity-lab/inputs/layer4/leveled_b8.cases.json) against in-game samples (docs/spec-notes/simulation.md section 6, 'Leveled-list samples'). Chi-square test per case, alpha 0.01.",
+   "oracle": {
+    "golden": "sim/leveled_b8.samples.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "sample",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--cases",
+     "{lab_root}/inputs/layer4/leveled_b8.cases.json"
+    ]
+   },
+   "comparator": {
+    "kind": "distribution",
+    "select": "/cases",
+    "key": "label",
+    "field": "outcomes",
+    "alpha": 0.01,
+    "min_expected": 5
+   },
+   "tags": [
+    "sim",
+    "leveled",
+    "distribution",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
    "id": "L4.sim.trace.goodsprings_weight_and_time",
    "layer": 4,
    "description": "Encumbrance, equipping and the calendar on a test save in Doc Mitchell's house (parity-lab/inputs/layer4/goodsprings_weight_and_time.actions.json): carried weight and capacity (in-game GetAV InventoryWeight / CarryWeight) at Strength 5 and 1, before and after equipping armour that shares a body slot, and GameDay/GameMonth after waiting 24 + 6 hours and across a month end, against an in-game capture (docs/spec-notes/simulation.md section 6). Fractional time (GameHour, GameDaysPassed) is not observed: in-game the clock keeps running while the player is in menus and could not be stopped without crashing the game (docs/spec-notes/xnvse-capture.md section 5). Absolute tolerance 0.01 (f32 weights summed).",

@@ -17,7 +17,9 @@ the parity lab's scenario inputs and turns the plugin's output into goldens:
       player to an interior cell by Editor ID with the console's coc and waits until
       the player is in it
   capture_steps.py cases <x.cases.json> --data <Data> --draws N --start TEXT [-o job]
-      fnv.sim.cases/1 -> job; N AddItem draws per case, each followed by an inventory dump
+      fnv.sim.cases/1 -> job; N AddItem draws per case, each followed by an inventory dump;
+      a case's "globals" are set from the console first, read back before and after the
+      draws, and restored afterwards
   capture_steps.py trace <out.jsonl> [-o golden.trace.json]
       plugin output -> fnv.sim.trace/1 golden (observations only)
   capture_steps.py samples <out.jsonl> --cases <x.cases.json> [-o golden.samples.json]
@@ -385,6 +387,10 @@ def actions_job(doc, name, start, edids=None, masters=MASTERS, confirm_after=(),
     return job(name, start, steps, masters)
 
 
+GLOBAL_PREFIX = "global"  # a case's global, read after it was set
+GLOBAL_AFTER_PREFIX = "global_after"  # and after the draws
+
+
 def dump_steps(label, prefix):
     return [query(slot_query(i), label, f"{prefix}.slot{i}") for i in range(SLOTS)] + [
         query(function(["float fV"], ["let fV := player.GetNumItems", "SetFunctionValue fV"]), label, f"{prefix}.num")]
@@ -397,15 +403,27 @@ def cases_job(doc, name, start, draws, edids=None, masters=MASTERS):
         raise InputError("--draws must be positive")
     ctx = (masters, edids)
     steps = []
-    for c in doc.get("cases", []):
+    for ci, c in enumerate(doc.get("cases", [])):
+        # Globals (e.g. a list's LVLG global): set from the console as a player would,
+        # read back before and after the draws, restored after the case.
+        globals_ = c.get("globals") or {}
+        if not isinstance(globals_, dict):
+            raise InputError(f"case {c.get('label')!r}: globals must map names to numbers")
+        names = [plain_name(g, "a case's global") for g in globals_]
+        for gi, g in enumerate(names):
+            steps.append({"remember": global_query(g), "as": f"case{ci}g{gi}"})
+            steps.append({"console": f"set {g} to {number(globals_[g])}"})
         steps.append({"console": f"player.setlevel {int(c.get('level', 1))}"})
         steps.append({"frames": 5})
+        steps.extend(query(global_query(g), c["label"], f"{GLOBAL_PREFIX}.{g}") for g in names)
         steps.append({"script": run_script(["player.RemoveAllItems"], ctx, [])})
         steps.extend(dump_steps(c["label"], "base"))
         draw = run_script(["player.RemoveAllItems", f"player.AddItem {{0}} {int(c.get('count', 1))} 1"], ctx, [c["list"]])
         for n in range(draws):
             steps.append({"script": draw})
             steps.extend(dump_steps(c["label"], f"draw{n}"))
+        steps.extend(query(global_query(g), c["label"], f"{GLOBAL_AFTER_PREFIX}.{g}") for g in names)
+        steps.extend({"console": f"set {g} to %{{case{ci}g{gi}}}"} for gi, g in enumerate(names))
     steps.append({"script": run_script(["player.RemoveAllItems"], ctx, [])})
     return job(name, start, steps, masters)
 
@@ -495,8 +513,12 @@ def outcome_key(before, after):
 
 def samples_golden(mods, results, cases_doc):
     dumps = {}  # (label, prefix) -> {"items": {}, "num": n, "bad": bool}
+    read = {}  # (label, prefix) -> {global: value or None}, prefix GLOBAL_PREFIX or GLOBAL_AFTER_PREFIX
     for r in results:
         prefix, _, part = r.get("field", "").partition(".")
+        if prefix in (GLOBAL_PREFIX, GLOBAL_AFTER_PREFIX):
+            read.setdefault((r["label"], prefix), {})[part] = None if "error" in r else r.get("value")
+            continue
         d = dumps.setdefault((r["label"], prefix), {"items": {}, "num": None, "bad": False})
         if "error" in r:
             d["bad"] = True
@@ -524,6 +546,10 @@ def samples_golden(mods, results, cases_doc):
                "samples": sum(h.values()), "outcomes": dict(sorted(h.items()))}
         if failed:
             row["failed_draws"] = failed
+        if c.get("globals"):
+            row["globals"] = c["globals"]
+            row["globals_read"] = read.get((label, GLOBAL_PREFIX), {})
+            row["globals_read_after"] = read.get((label, GLOBAL_AFTER_PREFIX), {})
         cases.append(row)
     return {"format": "fnv.sim.samples/1", "source": "in-game capture (nvf_capture)",
             "mod_indices": {str(k): v for k, v in sorted(mods.items())}, "cases": cases}

@@ -121,6 +121,8 @@ const CHAIR: u32 = 0x103; // FURN
 const LL_LOOT: u32 = 0x110; // LVLI: level 1 -> STIMPAK x2, level 5 -> CAPS x10
 const LL_NONE: u32 = 0x111; // LVLI: chance none 100
 const LL_LOOP: u32 = 0x112; // LVLI naming itself
+const LL_ODDS: u32 = 0x113; // LVLI: chance none 0, LVLG TestOdds (100), STIMPAK x1
+const ODDS: u32 = 0x151; // GLOB TestOdds = 100
 const SAFE: u32 = 0x120; // CONT: CAPS x3, LL_LOOT x1, count-0 entry
 const DOOR: u32 = 0x130;
 const CELL_A: u32 = 0x200;
@@ -180,6 +182,12 @@ fn plugin_bytes() -> Vec<u8> {
         ),
         &record(b"LVLI", 0, LL_NONE, &[sub(b"EDID", z("TestNothing")), sub(b"LVLD", vec![100]), lvlo(1, STIMPAK, 1)]),
         &record(b"LVLI", 0, LL_LOOP, &[sub(b"EDID", z("TestLoop")), sub(b"LVLD", vec![0]), lvlo(1, LL_LOOP, 1)]),
+        &record(
+            b"LVLI",
+            0,
+            LL_ODDS,
+            &[sub(b"EDID", z("TestOddsList")), sub(b"LVLD", vec![0]), sub(b"LVLG", ODDS.to_le_bytes().to_vec()), lvlo(1, STIMPAK, 1)],
+        ),
     ]);
     let cont = record(
         b"CONT",
@@ -277,6 +285,7 @@ fn plugin_bytes() -> Vec<u8> {
         &glob_rec(0x39, "GameDaysPassed", b'f', 5.0),
         &glob_rec(0x3A, "TimeScale", b's', 30.0),
         &glob_rec(0x150, "TestGlobal", b'f', 42.0),
+        &glob_rec(ODDS, "TestOdds", b's', 100.0),
     ]);
     let gmst = cat(&[
         &record(b"GMST", 0, 0x160, &[sub(b"EDID", z("fAVDCarryWeightsBase")), sub(b"DATA", 150f32.to_le_bytes().to_vec())]),
@@ -486,6 +495,28 @@ fn leveled_lists_follow_level_and_chance_none() {
         // multiplied by the requested count.
         assert_eq!(out, vec![Entry::new(id(CAPS), 20)]);
     }
+}
+
+#[test]
+fn lvlg_global_replaces_chance_none_at_its_current_value() {
+    let f = fixture();
+    let mut rng = ChaCha8Rng::seed_from_u64(3);
+    let set = |v: f32| std::collections::BTreeMap::from([(id(ODDS), v)]);
+    for _ in 0..100 {
+        let mut out = Vec::new();
+        // Authored value 100 overrides the list's own chance none 0.
+        leveled::resolve(&f.forms, id(LL_ODDS), 1, 1, &mut rng, &mut out).unwrap();
+        assert!(out.is_empty());
+        leveled::resolve_in(&f.forms, &set(0.0), id(LL_ODDS), 1, 1, &mut rng, &mut out).unwrap();
+        assert_eq!(out, vec![Entry::new(id(STIMPAK), 1)]);
+    }
+    let mut n = 0;
+    for _ in 0..4000 {
+        let mut out = Vec::new();
+        leveled::resolve_in(&f.forms, &set(25.0), id(LL_ODDS), 1, 1, &mut rng, &mut out).unwrap();
+        n += out.len();
+    }
+    assert!((2850..3150).contains(&n), "{n}");
 }
 
 #[test]
@@ -782,7 +813,9 @@ fn leveled_sampling_histograms() {
             {"label": "loot at 10", "list": "TestLoot", "level": 10, "count": 2, "samples": 50},
             {"label": "never", "list": "0x00000111", "samples": 10},
             {"label": "not a list", "list": "TestCaps", "samples": 10},
-            {"label": "loop", "list": "TestLoop", "samples": 10}]}"#,
+            {"label": "loop", "list": "TestLoop", "samples": 10},
+            {"label": "odds 0", "list": "TestOddsList", "globals": {"TestOdds": 0}, "samples": 10},
+            {"label": "bad global", "list": "TestOddsList", "globals": {"TestCaps": 0}, "samples": 10}]}"#,
     )
     .unwrap();
     let out = fnv_sim::sample::run(&f.forms, &cases).unwrap();
@@ -793,6 +826,9 @@ fn leveled_sampling_histograms() {
     assert_eq!(c[1]["outcomes"], serde_json::json!({"nothing": 10}));
     assert!(c[2]["error"].as_str().unwrap().contains("not a leveled item list"));
     assert!(c[3]["error"].as_str().unwrap().contains("nesting"));
+    assert_eq!(c[4]["outcomes"], serde_json::json!({"0x00000100 x1": 10}));
+    assert_eq!(c[4]["globals"], serde_json::json!({"TestOdds": 0.0}));
+    assert!(c[5]["error"].as_str().unwrap().contains("not a global"));
     assert_eq!(fnv_sim::sample::run(&f.forms, &cases).unwrap(), out);
 }
 

@@ -411,6 +411,10 @@ level-1 character without perks or implants, so no modifier changes carry weight
 (`player.setlevel <n>`), repeat `samples` times: `player.removeallitems`, then
 `player.additem <list> <count>`, then note every item and count the inventory now holds
 (the inventory screen, or `player.getitemcount <id>` for the list's possible items).
+A case with `globals` first sets each one from the console (`set <global> to <value>`)
+and reads it back before and after the draws (the golden keeps `globals_read` and
+`globals_read_after` next to the counts; a value that drifted means the draws did not
+run with the value asked for), then restores it.
 Record each draw's outcome key (§7) and add up the counts per key. That console
 `AddItem` resolves a leveled list, against the player's level, the way containers and
 actors do is a [hypothesis] [`AddItem` documented: GECK wiki]; a resolution inside a
@@ -551,7 +555,10 @@ Leveled-list outcome histograms: the candidate side of the distribution scenario
 
 (Counts in the examples are illustrative.) `list` is an LVLI named by Editor ID or global FormID (`"0x…"`); `level` (default 1) is
 the requesting level; `count` (default 1) the number requested, as in a CNTO entry or
-`AddItem`; `samples` (> 0) the number of independent draws. Output:
+`AddItem`; `samples` (> 0) the number of independent draws; `globals` (optional) maps
+globals, by Editor ID or global FormID, to the values they hold during the case's draws
+(as if set from the console first; e.g. a list's LVLG global), the others keeping their
+authored values. Output:
 
 ```json
 {"format": "fnv.sim.samples/1", "seed": 0,
@@ -560,7 +567,8 @@ the requesting level; `count` (default 1) the number requested, as in a CNTO ent
             "outcomes": {"nothing": 10012, "0x00015169 x1": 9988}}]}
 ```
 
-- Cases in input order; `list` as a global FormID string.
+- Cases in input order; `list` as a global FormID string; `globals` echoed as given
+  (only when the case has any). A name that is not a global is a case error.
 - One draw resolves `count` of `list` at `level` with the leveled-list rules of §4
   (nested lists included). The items drawn are added up per item FormID; the outcome key
   is the items in ascending FormID order, each written `"0x%08X x<n>"`, joined by `", "`;
