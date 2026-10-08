@@ -1,6 +1,7 @@
 /target/
 /viewer/target/
 /engine/target/
+/tools/capture/nvf_capture/target/
 **/runs/
 **/__pycache__/
 *.pyc

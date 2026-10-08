@@ -1,0 +1,143 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_vendor_restock",
+ "title": "Merchant box restock rule (three tests)",
+ "start": "Go INSIDE the Goodsprings gas station (test save).",
+ "steps": [
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nrF.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "A0 box emptied",
+   "field": "count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "A0 clock at emptying",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "A0 clock at emptying",
+   "field": "days"
+  },
+  {
+   "manual": "STAY INSIDE the gas station and wait 24 hours here."
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "A1 clock after 24 h inside",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "A1 clock after 24 h inside",
+   "field": "days"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "A1 box after 24 h without leaving",
+   "field": "count"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nrF.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "B0 box emptied",
+   "field": "count"
+  },
+  {
+   "manual": "Still inside: wait until the clock shows about 21:00 (any number of hours)."
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "B1 clock before leaving",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "B1 clock before leaving",
+   "field": "days"
+  },
+  {
+   "manual": "Leave the gas station (go outside)."
+  },
+  {
+   "manual": "Wait 5 hours outside (this should pass midnight)."
+  },
+  {
+   "manual": "Go back into the gas station and wait until it has loaded."
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "B2 clock after return",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "B2 clock after return",
+   "field": "days"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "B2 box after 5 h away across midnight",
+   "field": "count"
+  },
+  {
+   "script": "float fM\nref rF\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nrF.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "C0 box emptied",
+   "field": "count"
+  },
+  {
+   "manual": "Still inside: wait until the clock shows about 01:00 (any number of hours)."
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "C1 clock before leaving",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "C1 clock before leaving",
+   "field": "days"
+  },
+  {
+   "manual": "Leave the gas station (go outside)."
+  },
+  {
+   "manual": "Wait 10 hours outside (about 01:00 to 11:00, no midnight)."
+  },
+  {
+   "manual": "Go back into the gas station and wait until it has loaded."
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "C2 clock after return",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "C2 clock after return",
+   "field": "days"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1452480\nlet rC := BuildRef fM 15\nlet fV := rF.GetItemCount rC\nSetFunctionValue fV\nEnd\n",
+   "label": "C2 box after 10 h away, no midnight",
+   "field": "count"
+  }
+ ]
+}

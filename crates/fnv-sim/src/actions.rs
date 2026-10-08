@@ -11,7 +11,8 @@
 //! References and forms are named by FormID (global, hex), by Editor ID, or
 //! `"player"`. Output `fnv.sim.trace/1`: one result per step (a failed step records
 //! its error and the run continues, since errors are behaviour too), the
-//! `observations` made by the query ops (`get_item_count`, `get_pos`), and the final
+//! `observations` made by the query ops (`get_item_count`, `get_pos`, `get_disabled`,
+//! `get_global`, `get_av`, `get_weight`), and the final
 //! state of the reported references (all changed references when `report` is absent).
 //!
 //! Observations are what the parity scenarios compare: they are the values an in-game
@@ -36,6 +37,8 @@ pub struct Script {
     pub seed: u64,
     #[serde(default = "one")]
     pub player_level: u16,
+    #[serde(default)]
+    pub hardcore: bool,
     pub actions: Vec<Action>,
     #[serde(default)]
     pub report: Option<Vec<String>>,
@@ -56,6 +59,17 @@ pub enum Action {
     DropItem { from: String, item: String, count: i32 },
     GetItemCount { of: String, item: String, #[serde(default)] label: Option<String> },
     GetPos { of: String, #[serde(default)] label: Option<String> },
+    GetDisabled { of: String, #[serde(default)] label: Option<String> },
+    GetGlobal { name: String, #[serde(default)] label: Option<String> },
+    SetGlobal { name: String, value: f32 },
+    AdvanceTime { hours: f64 },
+    EquipItem { actor: String, item: String },
+    UnequipItem { actor: String, item: String },
+    GetAv { of: String, name: String, #[serde(default)] label: Option<String> },
+    SetAv { of: String, name: String, value: f32 },
+    GetWeight { of: String, #[serde(default)] label: Option<String> },
+    DetachCell { cell: String },
+    AttachCell { cell: String },
     RemoveAllItems { from: String },
     Lock { target: String, #[serde(default)] level: Option<u8> },
     Unlock { target: String },
@@ -74,6 +88,17 @@ impl Action {
             Action::DropItem { .. } => "drop_item",
             Action::GetItemCount { .. } => "get_item_count",
             Action::GetPos { .. } => "get_pos",
+            Action::GetDisabled { .. } => "get_disabled",
+            Action::GetGlobal { .. } => "get_global",
+            Action::SetGlobal { .. } => "set_global",
+            Action::AdvanceTime { .. } => "advance_time",
+            Action::EquipItem { .. } => "equip_item",
+            Action::UnequipItem { .. } => "unequip_item",
+            Action::GetAv { .. } => "get_av",
+            Action::SetAv { .. } => "set_av",
+            Action::GetWeight { .. } => "get_weight",
+            Action::DetachCell { .. } => "detach_cell",
+            Action::AttachCell { .. } => "attach_cell",
             Action::RemoveAllItems { .. } => "remove_all_items",
             Action::Lock { .. } => "lock",
             Action::Unlock { .. } => "unlock",
@@ -106,6 +131,14 @@ pub fn resolve_form(w: &World, s: &str) -> Result<FormId, String> {
     w.forms.by_edid(s).ok_or_else(|| format!("no base form named {s:?}"))
 }
 
+/// Resolve a cell name: a hex FormID or a cell's Editor ID.
+pub fn resolve_cell(w: &World, s: &str) -> Result<FormId, String> {
+    if s.starts_with("0x") || s.starts_with("0X") {
+        return s.parse().map_err(|e: crate::form::BadFormId| e.to_string());
+    }
+    w.placed.cell_by_edid(s).ok_or_else(|| format!("no cell named {s:?}"))
+}
+
 fn step(w: &mut World, a: &Action) -> Result<Value, String> {
     let r = |w: &World, s: &str| resolve_ref(w, s);
     let f = |w: &World, s: &str| resolve_form(w, s);
@@ -135,7 +168,7 @@ fn step(w: &mut World, a: &Action) -> Result<Value, String> {
         }
         Action::DropItem { from, item, count } => {
             let (from, item) = (r(w, from)?, f(w, item)?);
-            json!({"reference": w.drop_item(from, item, *count).map_err(e)?})
+            json!({"references": w.drop_item(from, item, *count).map_err(e)?})
         }
         Action::GetItemCount { of, item, .. } => {
             let (of, item) = (r(w, of)?, f(w, item)?);
@@ -144,6 +177,45 @@ fn step(w: &mut World, a: &Action) -> Result<Value, String> {
         Action::GetPos { of, .. } => {
             let s = w.get(r(w, of)?).map_err(e)?;
             json!({"cell": s.cell, "pos": s.pos, "rot": s.rot})
+        }
+        Action::GetDisabled { of, .. } => {
+            json!({"disabled": !w.is_enabled(r(w, of)?).map_err(e)?})
+        }
+        Action::GetGlobal { name, .. } => {
+            json!({"value": w.global(f(w, name)?).map_err(e)?})
+        }
+        Action::SetGlobal { name, value } => {
+            w.set_global(f(w, name)?, *value).map_err(e)?;
+            json!({})
+        }
+        Action::AdvanceTime { hours } => {
+            let c = w.advance_hours(*hours).map_err(e)?;
+            json!({"year": c.year, "month": c.month, "day": c.day, "hour": c.hour, "days_passed": c.days_passed})
+        }
+        Action::EquipItem { actor, item } => {
+            let (a, i) = (r(w, actor)?, f(w, item)?);
+            serde_json::to_value(w.equip(a, i).map_err(e)?).expect("serialisable")
+        }
+        Action::UnequipItem { actor, item } => {
+            let (a, i) = (r(w, actor)?, f(w, item)?);
+            json!({"was_equipped": w.unequip(a, i).map_err(e)?})
+        }
+        Action::GetAv { of, name, .. } => {
+            json!({"value": w.actor_value(r(w, of)?, name).map_err(e)?})
+        }
+        Action::SetAv { of, name, value } => {
+            w.set_actor_value(r(w, of)?, name, *value).map_err(e)?;
+            json!({})
+        }
+        Action::GetWeight { of, .. } => {
+            serde_json::to_value(w.encumbrance(r(w, of)?).map_err(e)?).expect("serialisable")
+        }
+        Action::DetachCell { cell } => {
+            w.detach_cell(resolve_cell(w, cell)?).map_err(e)?;
+            json!({})
+        }
+        Action::AttachCell { cell } => {
+            json!({"reset": w.attach_cell(resolve_cell(w, cell)?).map_err(e)?})
         }
         Action::RemoveAllItems { from } => {
             let removed: Vec<_> = w.remove_all_items(r(w, from)?).map_err(e)?.into_iter().map(|(i, n)| json!([i, n])).collect();
@@ -169,7 +241,7 @@ fn step(w: &mut World, a: &Action) -> Result<Value, String> {
 }
 
 pub fn config(s: &Script) -> SimConfig {
-    SimConfig { seed: s.seed, player_level: s.player_level }
+    SimConfig { seed: s.seed, player_level: s.player_level, hardcore: s.hardcore, ..SimConfig::default() }
 }
 
 /// Run every action on `w` and build the trace document.
@@ -182,7 +254,13 @@ pub fn run(w: &mut World, s: &Script) -> Result<Value, String> {
     for (i, a) in s.actions.iter().enumerate() {
         let mut o = json!({"step": i, "op": a.op()});
         let res = step(w, a);
-        if let Action::GetItemCount { label, .. } | Action::GetPos { label, .. } = a {
+        if let Action::GetItemCount { label, .. }
+        | Action::GetPos { label, .. }
+        | Action::GetDisabled { label, .. }
+        | Action::GetGlobal { label, .. }
+        | Action::GetAv { label, .. }
+        | Action::GetWeight { label, .. } = a
+        {
             let mut ob = json!({"label": label.clone().unwrap_or_else(|| format!("step{i}")), "step": i});
             match &res {
                 Ok(v) => {

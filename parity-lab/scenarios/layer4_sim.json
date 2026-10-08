@@ -40,6 +40,46 @@
    ]
   },
   {
+   "id": "L4.sim.items",
+   "layer": 4,
+   "description": "Value, weight, health and biped flags of every inventory item record over base game + DLC + packs (fnv.sim.items/1, docs/spec-notes/simulation.md section 7) against the independent oracle tools/capture/oracle_sim.py items; checks the item layouts of the Layer 1 schema (incl. IMOD, CHIP, CCRD, CMNY) end to end.",
+   "oracle": {
+    "golden": "sim/items.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "items",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/items",
+    "key": "formid"
+   },
+   "tags": [
+    "sim",
+    "items",
+    "inventory",
+    "schema",
+    "M4"
+   ]
+  },
+  {
    "id": "L4.sim.trace.goodsprings_doc_mitchell",
    "layer": 4,
    "description": "Pick up stimpaks and caps in Doc Mitchell's house, add/remove items, leave through the front door; item counts and the player's cell/position after each step (parity-lab/inputs/layer4/goodsprings_doc_mitchell.actions.json) against an in-game capture (docs/spec-notes/simulation.md section 6). Position tolerance 1 game unit: the XTEL destination is copied, but the engine may settle the actor.",
@@ -78,6 +118,181 @@
     "sim",
     "inventory",
     "activation",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.sim.leveled.basic",
+   "layer": 4,
+   "description": "Leveled-list outcomes (chance none, each-item-in-count, all levels vs highest eligible level, use all, uniform pick) of seven FalloutNV.esm lists: fnvtool sim sample histograms (parity-lab/inputs/layer4/leveled_basic.cases.json) against in-game samples (docs/spec-notes/simulation.md section 6, 'Leveled-list samples'). Chi-square test per case, alpha 0.01.",
+   "oracle": {
+    "golden": "sim/leveled_basic.samples.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "sample",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--cases",
+     "{lab_root}/inputs/layer4/leveled_basic.cases.json"
+    ]
+   },
+   "comparator": {
+    "kind": "distribution",
+    "select": "/cases",
+    "key": "label",
+    "field": "outcomes",
+    "alpha": 0.01,
+    "min_expected": 5
+   },
+   "tags": [
+    "sim",
+    "leveled",
+    "distribution",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.sim.trace.goodsprings_weight_and_time",
+   "layer": 4,
+   "description": "Encumbrance, equipping and the calendar on a test save in Doc Mitchell's house (parity-lab/inputs/layer4/goodsprings_weight_and_time.actions.json): carried weight and capacity (in-game GetAV InventoryWeight / CarryWeight) at Strength 5 and 1, before and after equipping armour that shares a body slot, and GameDay/GameMonth after waiting 24 + 6 hours and across a month end, against an in-game capture (docs/spec-notes/simulation.md section 6). Fractional time (GameHour, GameDaysPassed) is not observed: in-game the clock keeps running while the player is in menus and could not be stopped without crashing the game (docs/spec-notes/xnvse-capture.md section 5). Absolute tolerance 0.01 (f32 weights summed).",
+   "oracle": {
+    "golden": "sim/goodsprings_weight_and_time.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/goodsprings_weight_and_time.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.01
+   },
+   "tags": [
+    "sim",
+    "inventory",
+    "encumbrance",
+    "equip",
+    "time",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.sim.trace.x13_enable_parents",
+   "layer": 4,
+   "description": "Enable-parent propagation in X-13 (OldWorldBlues.esm cell NVDLC03X13): GetDisabled of children, grandchildren and opposite-state children after disabling and re-enabling their root parents, incl. an initially-disabled child of an opposite link (parity-lab/inputs/layer4/x13_enable_parents.actions.json), against an in-game capture on a test save (docs/spec-notes/simulation.md section 6).",
+   "oracle": {
+    "golden": "sim/x13_enable_parents.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/x13_enable_parents.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "sim",
+    "enable-parent",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.sim.trace.goodsprings_merchant_restock",
+   "layer": 4,
+   "description": "Merchant container restock, independent of the save's hidden restock time: Ringo's cash box 0x001629C0 (merchant container of ACHR 0x00104C7D) in GSGasStation is emptied, read 72 h later (player stays inside, no menus), emptied again and read 84 h later (parity-lab/inputs/layer4/goodsprings_merchant_restock.actions.json), against an in-game capture. Both reads expect a restock under either model the captures allow (restock on access after 72 h since the last restock, or on a 72 h schedule); docs/spec-notes/simulation.md section 3.",
+   "oracle": {
+    "golden": "sim/goodsprings_merchant_restock.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/goodsprings_merchant_restock.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "sim",
+    "respawn",
+    "merchant",
+    "containers",
+    "time",
     "M4",
     "needs-local-capture"
    ]

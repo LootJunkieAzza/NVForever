@@ -14,6 +14,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::extract::{self, first, global, has_flag, int, local_fid, num, text, Decoded, Issues};
 use crate::form::FormId;
+use crate::inventory::Extra;
+use crate::settings::{unhex, Setting};
 
 /// Kinds of form that can sit in an inventory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -64,12 +66,30 @@ pub struct Item {
     /// `None` when the schema has no layout for this record type's value yet.
     pub value: Option<i32>,
     pub weight: Option<f32>,
+    /// ARMO BMDT biped flags: the body slots the item occupies when worn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slots: Option<u32>,
+    /// WEAP DNAM: the projectile the weapon fires.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projectile: Option<FormId>,
+    /// WEAP/ARMO DATA: full health (condition 1.0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health: Option<i32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Entry {
     pub item: FormId,
     pub count: i32,
+    /// COED that follows the CNTO: condition and owner of these items.
+    #[serde(skip_serializing_if = "Extra::is_plain")]
+    pub extra: Extra,
+}
+
+impl Entry {
+    pub fn new(item: FormId, count: i32) -> Entry {
+        Entry { item, count, extra: Extra::default() }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -83,6 +103,8 @@ pub struct Container {
 pub struct ActorBase {
     /// Items the actor carries (CNTO), like a container's.
     pub entries: Vec<Entry>,
+    /// NPC_ DATA attributes (S.P.E.C.I.A.L., in that order); `None` for creatures.
+    pub attributes: Option<[u8; 7]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -122,6 +144,9 @@ pub enum BaseData {
     Furniture,
     Actor(ActorBase),
     LeveledItem(LeveledList),
+    /// PROJ, the base of a placed explosive (PGRE). `item` is the weapon that fires
+    /// this projectile, when exactly one does (what disarming yields).
+    Projectile { item: Option<FormId> },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -140,10 +165,13 @@ pub(crate) fn ser_sig<S: serde::Serializer>(sig: &[u8; 4], s: S) -> Result<S::Ok
     s.serialize_str(&String::from_utf8_lossy(sig))
 }
 
+/// Other record types the simulation reads: globals and game settings.
+pub const OTHER_SIGS: &[&[u8; 4]] = &[b"GLOB", b"GMST"];
+
 /// Record types interpreted as base forms.
 pub const BASE_SIGS: &[&[u8; 4]] = &[
     b"WEAP", b"ARMO", b"AMMO", b"ALCH", b"BOOK", b"KEYM", b"MISC", b"NOTE", b"LIGH", b"IMOD", b"CHIP", b"CCRD",
-    b"CMNY", b"CONT", b"DOOR", b"ACTI", b"TACT", b"FURN", b"NPC_", b"CREA", b"LVLI",
+    b"CMNY", b"CONT", b"DOOR", b"ACTI", b"TACT", b"FURN", b"NPC_", b"CREA", b"LVLI", b"PROJ",
 ];
 
 #[derive(Default)]
@@ -153,8 +181,10 @@ pub struct FormStore {
     pub sigs: HashMap<FormId, [u8; 4]>,
     /// Lower-case Editor ID -> FormID, for the base forms and globals.
     pub edids: HashMap<String, FormId>,
-    /// GLOB values.
+    /// GLOB values as authored.
     pub globals: HashMap<FormId, f32>,
+    /// GMST values by lower-case Editor ID.
+    pub settings: HashMap<String, Setting>,
     pub issues: Issues,
 }
 
@@ -167,13 +197,13 @@ impl FormStore {
             let r = lo.records[d.plugin as usize][d.ordinal as usize];
             if r.header.flags & record_flags::DELETED != 0 {
                 // Deleted references are counted by `RefTable`; report base forms only.
-                if BASE_SIGS.contains(&&r.header.sig) || &r.header.sig == b"GLOB" {
+                if BASE_SIGS.contains(&&r.header.sig) || OTHER_SIGS.contains(&&r.header.sig) {
                     store.issues.note("winning record is deleted", || format!("0x{g:08X} {}", r.sig_str()));
                 }
                 continue;
             }
             store.sigs.insert(FormId(g), r.header.sig);
-            if BASE_SIGS.contains(&&r.header.sig) || &r.header.sig == b"GLOB" {
+            if BASE_SIGS.contains(&&r.header.sig) || OTHER_SIGS.contains(&&r.header.sig) {
                 wanted.push((FormId(g), d.plugin as usize, r));
             }
         }
@@ -186,6 +216,7 @@ impl FormStore {
                 (id, l, issues)
             })
             .collect();
+        let loaded = link_projectiles(loaded);
         for (id, l, issues) in loaded {
             store.issues.merge(issues);
             match l {
@@ -200,6 +231,12 @@ impl FormStore {
                         store.edids.insert(e.to_ascii_lowercase(), id);
                     }
                     store.globals.insert(id, v);
+                }
+                Loaded::Setting(edid, v) => {
+                    if let Setting::Raw(_) = v {
+                        store.issues.note("GMST with unknown prefix or size", || edid.clone());
+                    }
+                    store.settings.insert(edid.to_ascii_lowercase(), v);
                 }
                 Loaded::Skip => {}
             }
@@ -238,14 +275,50 @@ impl FormStore {
         self.edids.get(&edid.to_ascii_lowercase()).copied()
     }
 
+    /// A numeric game setting by Editor ID.
+    pub fn setting_f32(&self, edid: &str) -> Option<f32> {
+        self.settings.get(&edid.to_ascii_lowercase())?.as_f32()
+    }
+
+    /// A global's authored value by Editor ID.
+    pub fn global_by_edid(&self, edid: &str) -> Option<(FormId, f32)> {
+        let id = self.by_edid(edid)?;
+        Some((id, *self.globals.get(&id)?))
+    }
+
     pub fn sig(&self, id: FormId) -> Option<[u8; 4]> {
         self.sigs.get(&id).copied()
     }
 }
 
+/// Give every PROJ base the weapon that fires it, when exactly one weapon does.
+fn link_projectiles(mut loaded: Vec<(FormId, Loaded, Issues)>) -> Vec<(FormId, Loaded, Issues)> {
+    let mut firing: HashMap<FormId, Vec<FormId>> = HashMap::new();
+    for (id, l, _) in &loaded {
+        if let Loaded::Base(b) = l {
+            if let BaseData::Item(Item { kind: ItemKind::Weapon, projectile: Some(p), .. }) = &b.data {
+                firing.entry(*p).or_default().push(*id);
+            }
+        }
+    }
+    for (_, l, issues) in &mut loaded {
+        if let Loaded::Base(b) = l {
+            if let BaseData::Projectile { item } = &mut b.data {
+                match firing.get(&b.id).map(Vec::as_slice) {
+                    Some([w]) => *item = Some(*w),
+                    Some(ws) => issues.note("PROJ fired by several weapons", || format!("{} {:?}", b.id, ws)),
+                    None => {}
+                }
+            }
+        }
+    }
+    loaded
+}
+
 enum Loaded {
     Base(Box<BaseForm>),
     Global(Option<String>, f32),
+    Setting(String, Setting),
     Skip,
 }
 
@@ -256,10 +329,35 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
         Ok(d) => d,
         Err(e) => {
             issues.note("record undecodable", || format!("{id} {sig_s}: {e}"));
-            return Loaded::Skip;
+            // An undecodable item is still an item (fields unknown); an undecodable LIGH
+            // cannot be shown to be carriable.
+            return match ItemKind::from_sig(&sig).filter(|k| *k != ItemKind::Light) {
+                Some(kind) => Loaded::Base(Box::new(BaseForm {
+                    id,
+                    sig,
+                    edid: None,
+                    name: None,
+                    script: None,
+                    data: BaseData::Item(Item { kind, value: None, weight: None, slots: None, projectile: None, health: None }),
+                })),
+                None => Loaded::Skip,
+            };
         }
     };
     let edid = first(&d, b"EDID").and_then(text);
+    if &sig == b"GMST" {
+        let Some(edid) = edid else {
+            issues.note("GMST without EDID", || format!("{id}"));
+            return Loaded::Skip;
+        };
+        return match first(&d, b"DATA").and_then(Value::as_str).and_then(unhex) {
+            Some(bytes) => Loaded::Setting(edid.clone(), Setting::from_bytes(&edid, &bytes)),
+            None => {
+                issues.note("GMST without DATA", || edid.clone());
+                Loaded::Skip
+            }
+        };
+    }
     if &sig == b"GLOB" {
         return match first(&d, b"FLTV").and_then(Value::as_f64) {
             Some(v) => Loaded::Global(edid, v as f32),
@@ -283,10 +381,18 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
     let script = fid(first(&d, b"SCRI"), "SCRI");
     let data = if let Some(kind) = ItemKind::from_sig(&sig) {
         match item(kind, &d) {
-            Some(i) => {
-                if i.value.is_none() || i.weight.is_none() {
-                    issues.note(&format!("{sig_s}: no value/weight layout in the schema"), || format!("{id}"));
+            Some(mut i) => {
+                if (i.value.is_none() || i.weight.is_none()) && kind_has_value_weight(kind) {
+                    issues.note(&format!("{sig_s}: value/weight not decoded"), || format!("{id}"));
                 }
+                i.projectile = match i.projectile.map(|p| global(lo, pi, p.0)) {
+                    Some(Ok(g)) => g,
+                    Some(Err(l)) => {
+                        issues.note("FormID outside master list", || format!("{id} DNAM projectile 0x{l:08X}"));
+                        None
+                    }
+                    None => None,
+                };
                 BaseData::Item(i)
             }
             None => return Loaded::Skip, // non-carriable light
@@ -297,7 +403,10 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                 let respawns = first(&d, b"DATA").and_then(|v| v.get("flags")).is_some_and(|f| has_flag(f, "Respawns"));
                 BaseData::Container(Container { respawns, entries: entries(lo, pi, id, &d, issues) })
             }
-            b"NPC_" | b"CREA" => BaseData::Actor(ActorBase { entries: entries(lo, pi, id, &d, issues) }),
+            b"NPC_" | b"CREA" => BaseData::Actor(ActorBase {
+                entries: entries(lo, pi, id, &d, issues),
+                attributes: if &sig == b"NPC_" { attributes(&d) } else { None },
+            }),
             b"DOOR" => {
                 let f = first(&d, b"FNAM");
                 BaseData::Door(Door {
@@ -308,10 +417,16 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
             b"ACTI" | b"TACT" => BaseData::Activator,
             b"FURN" => BaseData::Furniture,
             b"LVLI" => BaseData::LeveledItem(leveled(lo, pi, id, &d, issues)),
+            b"PROJ" => BaseData::Projectile { item: None },
             _ => return Loaded::Skip,
         }
     };
     Loaded::Base(Box::new(BaseForm { id, sig, edid, name, script, data }))
+}
+
+/// Item types whose records have both a value and a weight field [documented: xEdit].
+fn kind_has_value_weight(kind: ItemKind) -> bool {
+    !matches!(kind, ItemKind::Note | ItemKind::CasinoChip | ItemKind::CaravanMoney | ItemKind::CaravanCard)
 }
 
 fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
@@ -329,24 +444,91 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
             }
             (int(data, "value"), num(data, "weight"))
         }
-        // No value/weight layout in the schema yet (NOTE has none at all; IMOD, CHIP,
-        // CCRD, CMNY have no record layout). Reported by the caller.
+        ItemKind::ItemMod => (data.and_then(|v| int(v, "value")), data.and_then(|v| num(v, "weight"))),
+        // CCRD DATA is the card's value alone [documented: xEdit].
+        ItemKind::CaravanCard => (data.and_then(Value::as_i64), None),
+        // NOTE, CHIP and CMNY have no value or weight field [documented: xEdit]; CMNY
+        // DATA "Absolute Value" is not the item's value [hypothesis: the denomination].
         _ => (None, None),
     };
-    Some(Item { kind, value: value.map(|v| v as i32), weight: weight.map(|w| w as f32) })
+    let health = match kind {
+        ItemKind::Weapon | ItemKind::Armor => data.and_then(|v| int(v, "health")).map(|h| h as i32),
+        _ => None,
+    };
+    let projectile = match kind {
+        ItemKind::Weapon => first(d, b"DNAM").and_then(|v| v.get("projectile")).and_then(local_fid),
+        _ => None,
+    };
+    let slots = match kind {
+        ItemKind::Armor => first(d, b"BMDT").and_then(|v| v.get("biped_flags")).and_then(|f| int(f, "value")),
+        _ => None,
+    };
+    Some(Item {
+        kind,
+        value: value.map(|v| v as i32),
+        weight: weight.map(|w| w as f32).filter(|w| w.is_finite()),
+        slots: slots.map(|s| s as u32),
+        // File-local here; made global by the caller.
+        projectile: projectile.map(FormId),
+        health,
+    })
+}
+
+/// S.P.E.C.I.A.L. names in NPC_ DATA order.
+pub const SPECIAL: [&str; 7] = ["strength", "perception", "endurance", "charisma", "intelligence", "agility", "luck"];
+
+fn attributes(d: &[Decoded]) -> Option<[u8; 7]> {
+    let a = first(d, b"DATA")?.get("attributes")?;
+    let mut out = [0u8; 7];
+    for (o, name) in out.iter_mut().zip(SPECIAL) {
+        *o = int(a, name)? as u8;
+    }
+    Some(out)
 }
 
 fn entries(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Issues) -> Vec<Entry> {
+    // COED belongs to the CNTO right before it [documented: xEdit wbCNTO/wbCOED
+    // struct; observed: all 1,661 COED in the masters directly follow a CNTO].
     let mut out = Vec::new();
-    for v in extract::all(d, b"CNTO") {
-        let (Some(local), Some(count)) = (v.get("item").and_then(local_fid), int(v, "count")) else {
-            issues.note("CNTO without item/count", || format!("{id}"));
+    let mut last_kept = false;
+    for x in d {
+        let Some(v) = x.value.as_ref() else {
+            if &x.sig == b"CNTO" || &x.sig == b"COED" {
+                issues.note("CNTO/COED undecodable", || format!("{id}"));
+            }
+            last_kept = false;
             continue;
         };
-        match global(lo, pi, local) {
-            Ok(Some(item)) => out.push(Entry { item, count: count as i32 }),
-            Ok(None) => issues.note("CNTO with null item", || format!("{id}")),
-            Err(l) => issues.note("FormID outside master list", || format!("{id} CNTO 0x{l:08X}")),
+        match &x.sig {
+            b"CNTO" => {
+                last_kept = false;
+                let (Some(local), Some(count)) = (v.get("item").and_then(local_fid), int(v, "count")) else {
+                    issues.note("CNTO without item/count", || format!("{id}"));
+                    continue;
+                };
+                match global(lo, pi, local) {
+                    Ok(Some(item)) => {
+                        out.push(Entry::new(item, count as i32));
+                        last_kept = true;
+                    }
+                    Ok(None) => issues.note("CNTO with null item", || format!("{id}")),
+                    Err(l) => issues.note("FormID outside master list", || format!("{id} CNTO 0x{l:08X}")),
+                }
+            }
+            b"COED" if last_kept => {
+                let e = &mut out.last_mut().expect("last_kept").extra;
+                e.condition = num(v, "item_condition").map(|c| c as f32);
+                e.owner = match v.get("owner").and_then(local_fid).map(|l| global(lo, pi, l)) {
+                    Some(Ok(g)) => g,
+                    Some(Err(l)) => {
+                        issues.note("FormID outside master list", || format!("{id} COED 0x{l:08X}"));
+                        None
+                    }
+                    None => None,
+                };
+            }
+            b"COED" => issues.note("COED not after a kept CNTO", || format!("{id}")),
+            _ => last_kept = false,
         }
     }
     out
