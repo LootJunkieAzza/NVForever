@@ -1,8 +1,23 @@
 name: ci
 
+# The repo is private, so every runner minute is billed (Windows 2x, macOS 10x).
+# - push runs only on main; branches get CI once, through their pull request.
+# - docs-only changes skip CI.
+# - macOS runs only on the weekly schedule or a manual run (Actions tab > ci > Run workflow).
+# - a newer push to the same branch/PR cancels the run still in progress.
 on:
   push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,7 +27,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # macOS only on schedule / manual runs (see the note at the top).
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+          && '["ubuntu-latest", "windows-latest", "macos-latest"]'
+          || '["ubuntu-latest", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +45,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # macOS only on schedule / manual runs (see the note at the top).
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+          && '["ubuntu-latest", "windows-latest", "macos-latest"]'
+          || '["ubuntu-latest", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +86,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # macOS only on schedule / manual runs (see the note at the top).
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+          && '["ubuntu-latest", "windows-latest", "macos-latest"]'
+          || '["ubuntu-latest", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
