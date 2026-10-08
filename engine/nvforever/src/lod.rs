@@ -31,6 +31,7 @@ use bevy::prelude::*;
 use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task};
 use fnv_world::{cell_of, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
+use nvf_assets::{nif_material, NifMaterial};
 use nvf_assets::texture::dds_image;
 use std::collections::{HashMap, HashSet};
 
@@ -94,7 +95,7 @@ impl GenState {
 
 struct GenChunk {
     heights: Vec<Option<Vec<f32>>>,
-    material: Handle<StandardMaterial>,
+    material: Handle<NifMaterial>,
     /// The mesh with every cell, for chunks clear of the loaded cells.
     full: Option<Handle<Mesh>>,
 }
@@ -273,7 +274,7 @@ fn spawn_chunk(
 ) -> ChunkEntities {
     let overlaps = cx <= hi.0 && cx + LEVEL > lo.0 && cy <= hi.1 && cy + LEVEL > lo.1;
     let mut out = ChunkEntities::default();
-    let mut add = |commands: &mut Commands, mesh: Handle<Mesh>, material: Handle<StandardMaterial>, t: Transform| {
+    let mut add = |commands: &mut Commands, mesh: Handle<Mesh>, material: Handle<NifMaterial>, t: Transform| {
         let e = commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), t)).id();
         commands.entity(root).add_child(e);
         out.entities.push(e);
@@ -329,10 +330,10 @@ fn spawn_chunk(
                 // in model space (green = north, module docs), so it must not get the
                 // green flip that tangent-space NIF normal maps need.
                 if let Some(mut mat) = models.materials.get_mut(&s.material) {
-                    if mat.depth_bias == 0.0 {
-                        mat.depth_bias = -50.0;
+                    if mat.base.depth_bias == 0.0 {
+                        mat.base.depth_bias = -50.0;
                     }
-                    mat.flip_normal_map_y = false;
+                    mat.base.flip_normal_map_y = false;
                 }
                 add(commands, mesh, s.material.clone(), Transform::from_matrix(Mat4::from(st)));
             }
@@ -429,14 +430,14 @@ fn poll_generated(lod: &mut LodState, models: &mut ModelCtx) -> Vec<Grid> {
             gen.skip.insert(chunk);
             continue;
         };
-        let material = models.materials.add(StandardMaterial {
+        let material = models.materials.add(nif_material(StandardMaterial {
             base_color_texture: Some(models.images.add(d)),
             normal_map_texture: Some(models.images.add(n)),
             // As the loaded terrain's materials (terrain.rs).
             perceptual_roughness: 0.95,
             reflectance: 0.2,
             ..default()
-        });
+        }));
         let hs: Vec<Option<&[f32]>> = baked.heights.iter().map(|h| h.as_deref()).collect();
         let full = lodgen::chunk_mesh(&hs, &[true; 16], gen.job.params.step).map(|m| models.meshes.add(m));
         if baked.baked {
