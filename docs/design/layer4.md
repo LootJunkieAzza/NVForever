@@ -174,6 +174,12 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    with an early onset; physics.md §4.2, §6.3, §6.4).
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
+   Status 2026-10-08 (`engine/nvf-play`, docs/design/layer4-play.md §6): walking with
+   collision, doors, containers and taking items pass unattended in Goodsprings, Doc
+   Mitchell's house and the gas station; interior starts and door destinations over
+   nothing move to a door arrival, and falls out of an interior are caught (physics.md
+   §6.7). Open: play by hand, doors into another worldspace, dialogue and barter, dropped
+   items in the world.
 
 ## 5. Open questions and verification steps for the owner
 
