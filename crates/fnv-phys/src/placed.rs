@@ -20,6 +20,12 @@ pub trait ModelCollision {
     /// The model's solid collision objects (empty when it has none), or why it could not
     /// be read.
     fn objects(&mut self, path: &str) -> Result<Arc<Vec<CollisionObject>>, String>;
+
+    /// The model's water volumes: its phantom shapes on the Water layer (physics.md §6.6),
+    /// known after [`ModelCollision::objects`] read the model. None by default.
+    fn water(&mut self, _path: &str) -> Arc<Vec<CollisionObject>> {
+        Arc::new(Vec::new())
+    }
 }
 
 /// The collision of one placed reference.
@@ -30,6 +36,9 @@ pub struct RefCollision {
     /// Collision objects in the reference's frame: the CollisionMarker primitive, if any,
     /// then the model's objects. Empty when the reference has no collision.
     pub objects: Vec<CollisionObject>,
+    /// Water volumes of the model in the reference's frame (placeable water,
+    /// [`crate::PhysWorld::add_placed_water`]). Empty for most references.
+    pub water: Vec<CollisionObject>,
 }
 
 /// The collision objects of a placed reference: a CollisionMarker carries its own box or
@@ -41,7 +50,8 @@ pub struct RefCollision {
 /// `fnv.phys.cell/1` (physics.md §7): `no_base`, `collision_primitive`, `bad_primitive`,
 /// `no_model`, `speedtree`, `awaiting_collision`, `model_without_collision`,
 /// `model_unreadable`, `open_door_moving_parts` (an open-by-default door whose keyframed
-/// parts were left out).
+/// parts were left out), `water_volume` (a model with water volumes; then not also
+/// `model_without_collision`).
 pub fn ref_collision(
     lo: &LoadOrder,
     schema: &Schema,
@@ -53,7 +63,7 @@ pub fn ref_collision(
         tally("no_base");
         return RefCollision::default();
     };
-    let mut out = RefCollision { base_sig: Some(base.sig), objects: Vec::new() };
+    let mut out = RefCollision { base_sig: Some(base.sig), objects: Vec::new(), water: Vec::new() };
     if pl.base == Some(COLLISION_MARKER) {
         // Box and Portal Box markers alike: a run into a Portal Box marker stopped at the
         // wall [observed: L4.phys.walk.portal_wall], although a drop onto the 2-unit top
@@ -72,23 +82,36 @@ pub fn ref_collision(
         Some(m) if m.ends_with(".spt") => tally("speedtree"),
         Some(m) => match models {
             None => tally("awaiting_collision"),
-            Some(ms) => match ms.objects(&m) {
-                Ok(o) if o.is_empty() => tally("model_without_collision"),
-                Ok(o) if &base.sig == b"DOOR" && pl.open_by_default => {
-                    // An open door's moving part is out of the doorway: a player dropped
-                    // on a closed-looking gate flagged Open by Default fell straight
-                    // through it [observed: B11, gate 0x0010757E]. Its open pose comes
-                    // from the door's animation, which is not read; the keyframed parts
-                    // are left out [hypothesis], the static ones (posts, frame) kept.
-                    let before = out.objects.len();
-                    out.objects.extend(o.iter().filter(|c| c.motion != fnv_collide::Motion::Keyframed).cloned());
-                    if out.objects.len() - before < o.len() {
-                        tally("open_door_moving_parts");
+            Some(ms) => {
+                let read = ms.objects(&m);
+                if read.is_ok() {
+                    out.water = ms.water(&m).to_vec();
+                    if !out.water.is_empty() {
+                        tally("water_volume");
                     }
                 }
-                Ok(o) => out.objects.extend(o.iter().cloned()),
-                Err(_) => tally("model_unreadable"),
-            },
+                match read {
+                    Ok(o) if o.is_empty() => {
+                        if out.water.is_empty() {
+                            tally("model_without_collision");
+                        }
+                    }
+                    Ok(o) if &base.sig == b"DOOR" && pl.open_by_default => {
+                        // An open door's moving part is out of the doorway: a player dropped
+                        // on a closed-looking gate flagged Open by Default fell straight
+                        // through it [observed: B11, gate 0x0010757E]. Its open pose comes
+                        // from the door's animation, which is not read; the keyframed parts
+                        // are left out [hypothesis], the static ones (posts, frame) kept.
+                        let before = out.objects.len();
+                        out.objects.extend(o.iter().filter(|c| c.motion != fnv_collide::Motion::Keyframed).cloned());
+                        if out.objects.len() - before < o.len() {
+                            tally("open_door_moving_parts");
+                        }
+                    }
+                    Ok(o) => out.objects.extend(o.iter().cloned()),
+                    Err(_) => tally("model_unreadable"),
+                }
+            }
         },
     }
     out

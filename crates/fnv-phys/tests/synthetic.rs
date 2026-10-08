@@ -804,6 +804,57 @@ fn swim_vertical_rules() {
     assert_eq!(fnv_phys::character::swim_vertical(&p, float - 50.0, 500.0, 0.0, dt), 0.0);
 }
 
+#[test]
+fn swimming_survives_above_the_surface() {
+    // Placed 60 above the surface while swimming, the character keeps swimming and sinks
+    // at the sinking speed (the game's player did 101 above placed water, physics.md §6.6).
+    let mut w = lake();
+    let p = CharacterParams::default();
+    let mut c = w.add_character(1, p, [0.0, 0.0, 405.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 60);
+    assert!(c.swimming);
+    w.place_character(&mut c, [0.0, 0.0, 560.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 60);
+    assert!(c.swimming && !c.grounded);
+    assert!((c.feet[2] - (560.0 - p.swim_sink_speed)).abs() < 0.05, "{:?}", c.feet);
+}
+
+/// A placeable water model's volume: a box under the surface (half extents of the
+/// 1×2 model, its top at the model's origin), as the Water-layer phantoms hold it.
+fn water_box() -> CollisionObject {
+    let mut o = on_layer(boxed([256.0, 512.0, 512.0]), layers::WATER);
+    o.body_transform.translation = [0.0, 0.0, -512.0];
+    o
+}
+
+#[test]
+fn placed_water_is_the_box_of_its_reference() {
+    let mut w = ground();
+    // Scale 2, turned a quarter: 1024 wide along x, 2048 along y before the turn.
+    let pose = RefPose { form_id: 7, position: [1000.0, 0.0, 300.0], rotation: rz(std::f32::consts::FRAC_PI_2), scale: 2.0 };
+    assert_eq!(w.add_placed_water(&pose, &[water_box()]), 1);
+    let v = *w.placed_water().next().unwrap();
+    assert!((v.surface - 300.0).abs() < 1e-3, "{v:?}");
+    // After the turn the long side runs along x.
+    assert_eq!(w.water_surface_at(1000.0 + 1000.0, 0.0), Some(300.0));
+    assert_eq!(w.water_surface_at(1000.0, 1000.0), None);
+    assert_eq!(w.water_surface_at(1000.0, 500.0), Some(300.0));
+    // Down to the bottom of the box only, for the character's lookup.
+    assert_eq!(w.water_surface_for([1000.0, 0.0, 300.0 - 2047.0]), Some(300.0));
+    assert_eq!(w.water_surface_for([1000.0, 0.0, 300.0 - 2049.0]), None);
+    // A fall into it stops past the swimming depth; outside the box it lands.
+    let p = CharacterParams::default();
+    let mut c = w.add_character(1, p, [1000.0, 0.0, 305.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 240);
+    assert!(c.swimming && (c.feet[2] - (300.0 - p.float_depth)).abs() < 8.0, "{:?}", c.feet);
+    let mut d = w.add_character(2, p, [1000.0, 1000.0, 305.0]);
+    swim(&mut w, &mut d, [0.0, 0.0], 0.0, false, 240);
+    assert!(!d.swimming && d.grounded, "{:?}", d.feet);
+    // Removed with its reference.
+    assert!(w.remove_ref(7));
+    assert_eq!(w.water_surface_at(1000.0, 0.0), None);
+}
+
 // --- air control, landings, edges (physics.md §6.4.1) ---
 
 /// Per-step horizontal displacements of a character told `velocity` with Jump pressed in
