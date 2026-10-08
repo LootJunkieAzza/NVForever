@@ -459,7 +459,7 @@ impl PhysState {
             *counts.entry("awaiting_collision").or_default() += 1;
             return false;
         };
-        let objects = match (Models { data, cache: &mut self.models }).objects(&path) {
+        let objects = match (Models { data, cache: &mut self.models, water: &mut self.water_models }).objects(&path) {
             Ok(o) if !o.is_empty() => o,
             _ => {
                 *self.stats.counts.entry("created_without_collision").or_default() += 1;
