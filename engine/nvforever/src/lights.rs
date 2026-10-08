@@ -70,28 +70,45 @@ pub fn lumens(brightness: f32, unit: f32) -> f32 {
 
 /// A LIGH reference's light: a point light (spot light for spot types) with the light's
 /// colour and radius as range [documented: LIGH DATA] and brightness fade × `scale`.
-/// Negative and off-by-default lights are not drawn.
-pub fn spawn_light(commands: &mut Commands, cell_e: Entity, world: &WorldData, ligh: u32, at: Vec3, scale: f32) -> bool {
+/// Negative and off-by-default lights are not drawn. A reference with an emittance
+/// source (`xemi`) has its colour scaled by it (emittance.rs).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_light(
+    commands: &mut Commands,
+    cell_e: Entity,
+    world: &WorldData,
+    ligh: u32,
+    at: Vec3,
+    scale: f32,
+    xemi: Option<u32>,
+    emittance: &mut crate::emittance::EmittanceState,
+) -> bool {
     let Some(l) = light_data(world.lo, world.schema, ligh) else { return false };
     if l.flags & (light_flags::NEGATIVE | light_flags::OFF_BY_DEFAULT) != 0 || l.radius <= 0.0 {
         return false;
     }
     let lin = l.color.map(fnv_world::sky::srgb_to_linear);
-    let color = Color::LinearRgba(LinearRgba::rgb(lin[0], lin[1], lin[2]));
+    let linear = LinearRgba::rgb(lin[0], lin[1], lin[2]);
+    let color = Color::LinearRgba(linear);
+    let driven = xemi.and_then(|x| emittance.light(world, x, linear));
     let intensity = lumens(l.fade.max(0.0) * scale, crate::sky::light_unit());
     let t = Transform::from_translation(at);
     if l.flags & light_flags::SPOT != 0 {
         let a = (l.fov.clamp(1.0, 179.0) / 2.0).to_radians();
         // Spot lights point down their reference's -z [hypothesis].
-        commands.entity(cell_e).with_child((
+        let mut e = commands.spawn((
             SpotLight { color, intensity, range: l.radius, outer_angle: a, inner_angle: a * 0.8, shadow_maps_enabled: false, ..default() },
             t.looking_to(-Vec3::Z, Vec3::Y),
+            ChildOf(cell_e),
         ));
+        if let Some(d) = driven {
+            e.insert(d);
+        }
     } else {
-        commands.entity(cell_e).with_child((
-            PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() },
-            t,
-        ));
+        let mut e = commands.spawn((PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() }, t, ChildOf(cell_e)));
+        if let Some(d) = driven {
+            e.insert(d);
+        }
     }
     true
 }

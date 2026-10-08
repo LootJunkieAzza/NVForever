@@ -158,13 +158,14 @@ pub fn stream(
     mut terrain: TerrainMaterials,
     mut water: WaterCtx,
     mut trees: crate::tree::TreeCtx,
+    mut emittance: ResMut<crate::emittance::EmittanceState>,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     if let Some(id) = streamer.interior {
         if streamer.loaded.is_empty() {
             let t0 = std::time::Instant::now();
             let s = &mut *streamer;
-            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, &mut trees, s);
+            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, s);
             commands.entity(root).add_child(e);
             streamer.loaded.insert((i32::MIN, i32::MIN), e);
             streamer.stats.cells_loaded += 1;
@@ -196,7 +197,7 @@ pub fn stream(
     for c in missing.into_iter().take(streamer.per_frame) {
         let t0 = std::time::Instant::now();
         let s = &mut *streamer;
-        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, s);
+        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, s);
         commands.entity(root).add_child(e);
         streamer.loaded.insert(c, e);
         streamer.stats.cells_loaded += 1;
@@ -258,6 +259,7 @@ fn load_cell(
     terrain: &mut TerrainMaterials,
     water: &mut WaterCtx,
     trees: &mut crate::tree::TreeCtx,
+    emittance: &mut crate::emittance::EmittanceState,
     streamer: &mut Streamer,
 ) -> Entity {
     let (hide, light_scale, stats) = (&streamer.hide, streamer.light_scale, &mut streamer.stats);
@@ -295,7 +297,16 @@ fn load_cell(
             continue;
         };
         if &base.sig == b"LIGH"
-            && crate::lights::spawn_light(commands, cell_e, world, base.form_id, (to_cell * ref_affine(&p)).translation.into(), light_scale)
+            && crate::lights::spawn_light(
+                commands,
+                cell_e,
+                world,
+                base.form_id,
+                (to_cell * ref_affine(&p)).translation.into(),
+                light_scale,
+                p.emittance,
+                emittance,
+            )
         {
             stats.lights += 1;
         }
@@ -350,12 +361,13 @@ fn load_cell(
         }
         for s in &model.shapes {
             let m = Mat4::from(rt * s.transform);
-            commands.entity(cell_e).with_child((
-                Mesh3d(s.mesh.clone()),
-                MeshMaterial3d(s.material.clone()),
-                Transform::from_matrix(m),
-                RefVisual(r),
-            ));
+            // External emittance: the reference's XEMI source drives the colour.
+            let material = p
+                .emittance
+                .filter(|_| s.external_emittance)
+                .and_then(|x| emittance.material(world, &mut models.materials, &s.material, x))
+                .unwrap_or_else(|| s.material.clone());
+            commands.entity(cell_e).with_child((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r)));
             stats.shapes += 1;
         }
         stats.refs_drawn += 1;

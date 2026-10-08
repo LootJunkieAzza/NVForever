@@ -7,6 +7,7 @@
 //! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md),
 //! and Esc in a menu closes the menu.
 
+mod emittance;
 mod fly;
 mod lights;
 mod lod;
@@ -334,7 +335,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins(imagespace::ImageSpacePlugin)
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
