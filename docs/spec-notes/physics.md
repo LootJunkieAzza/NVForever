@@ -445,6 +445,27 @@ from the drop point (the control drop on open ground ended 183 units away), so m
 cannot be read. Two can: on Havok tree a the bottle stayed at (-74300.6, -1170.0, 8564.07)
 and on rock a it rested at 8325.87, on the rock; Trees and Terrain stop clutter too.
 
+### 4.3 Dropped items (references created at run time)
+
+`engine/nvf-play` gives an item dropped from the inventory (a reference `fnv-sim` creates,
+FormID from 0xFF000000) the collision objects of its base form's model through
+`PhysWorld::add_ref`, at the simulation's pose with scale 1, loaded and unloaded with the
+physics cell containing it. Dynamic objects fall and settle like placed clutter; while the
+body moves, the reference pose `R = R_body R_localᵀ`, `t = t_body − R t_local` (local = the
+object's node and body transforms) is written back to the simulation, for models with
+exactly one collision object. That a dropped item falls at all is [hypothesis]: a
+scripted `player.Drop` stayed at its drop point for 10 s in game [observed]; the
+evidence, the readings and the capture that would settle it are in simulation.md §5
+"After the drop".
+
+In our engine [observed, `nvforever --play`, 2026-10-08]: a stimpak (one dynamic Clutter
+object) dropped 30 units above Doc Mitchell's floor (z 7360) came to rest on its side at
+z 7360.97, 29.7 lower and 8.7 units from the drop point, 1.58 s after the menu closed
+(its body asleep); dropped just outside the front door (the drop point the game reported
+for the same spot within 0.3 units, simulation.md §5) it came to rest on the ground at
+8692.71, 30.9 lower. Repeated runs came to rest within 0.1 units of each other (the steps
+are fixed, but how many run per frame depends on frame times).
+
 ## 5. Determinism and precision
 
 - The world advances only in fixed steps of `PhysParams::dt`; `Stepper` turns frame time

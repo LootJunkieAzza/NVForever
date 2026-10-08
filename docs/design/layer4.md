@@ -184,9 +184,11 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    Mitchell's house and the gas station; interior starts and door destinations over
    nothing move to a door arrival, and falls out of an interior are caught (physics.md
    §6.7); the 106 doors into another worldspace (Mojave ↔ Freeside, Freeside ↔ Strip,
-   DLC worldspaces) switch physics and rendering to the destination worldspace. Open:
-   play by hand, scripted doors (the Strip gate), dialogue and barter, dropped items in
-   the world.
+   DLC worldspaces) switch physics and rendering to the destination worldspace; items
+   dropped from the inventory are drawn, collide, fall and settle, survive cell unloads
+   and worldspace changes and are taken back with E (whether the game's dropped items
+   fall is open, simulation.md §5). Open: play by hand, scripted doors (the Strip gate),
+   dialogue and barter.
 
 ## 5. Open questions and verification steps for the owner
 
