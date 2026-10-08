@@ -125,14 +125,18 @@ pub fn adapter(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Adapter> {
     let (pi, r) = winner(lo, fid)?;
     let f = Fields::new(r, pi, schema).ok()?;
     let key = |sig: &[u8; 4], default: f32| first_key(f.get(sig), "value").and_then(|v| v.as_f64()).map_or(default, |v| v as f32);
-    // Cinematic tracks: saturation 0x11, contrast 0x12, contrast avg lum 0x13,
-    // brightness 0x14; adds at +0x40 [documented: xEdit IMAD].
+    // Cinematic tracks 0x11-0x14, adds at +0x40 [documented: xEdit IMAD]. xEdit names
+    // them saturation, contrast, contrast avg lum, brightness; read here in the IMGS order
+    // instead, 0x12 = contrast avg lum and 0x13 = contrast [hypothesis: the 59 adapters
+    // that set 0x13 outright (multiply 0) all land in the IMGS contrast range 0.8-1.9,
+    // while 10 set 0x12 to 0 (e.g. NVWastelandHazyNoonIS, WastelandDayISFX), which as a
+    // contrast would flatten the picture to one grey; world.md §6].
     let pair = |i: u8| MultAdd { mult: key(&[i, b'I', b'A', b'D'], 1.0), add: key(&[i + 0x40, b'I', b'A', b'D'], 0.0) };
     let tint = first_key(f.get(b"TNAM"), "").and_then(|k| {
         let c = |n: &str| k.get(n).and_then(Value::as_f64).map(|v| v as f32);
         Some(([c("red")?, c("green")?, c("blue")?], c("alpha")?))
     });
-    Some(Adapter { saturation: pair(0x11), contrast: pair(0x12), contrast_avg_lum: pair(0x13), brightness: pair(0x14), tint })
+    Some(Adapter { saturation: pair(0x11), contrast_avg_lum: pair(0x12), contrast: pair(0x13), brightness: pair(0x14), tint })
 }
 
 /// The adapters a weather links, per time of day (sunrise, day, sunset, night, high noon,

@@ -392,6 +392,53 @@ Rock a grid (game / candidate z; the game moved 0 at every point): −30/−30 8
   observed spread; (c) compare only z for drop rows, or move rows on uneven surfaces
   (rocks, slopes) to a separate scenario. Rock a would fail under any of these (the
   candidate is outside the game's range).
+- **Owner decision (2026-10-08): option (b), the median of repeated drops.** The B11
+  golden is rebuilt from five repeats of every drop, captured in two game sessions
+  (`mv_b11_drops_rep_a`, 3 rounds, and `mv_b11_drops_rep_b`, 2 rounds; each round runs
+  all 20 drops in order, so the repeats of a drop are minutes apart): per row, the median
+  of the repeats that fell, per coordinate (`capture_moves.py golden … --also …`, which
+  also records each repeat and the spread). The median also keeps a single `SetPos` hang
+  (§6.2) or a single landing slide out of the golden. It goes to a new file,
+  `phys/b11_goodsprings.median.drops.json`; the first capture's golden stays as it was.
+  The tolerance stays 8 (the owner chose the median; a tolerance from the spread was
+  not decided).
+
+  Predictions for the median golden (written before the capture; the candidate is
+  unchanged): rock b passes (the game's six earlier drops have median 8512.6, the
+  candidate 8515.13); the maize row passes (the game fell straight in 10 of 14 drops;
+  median x/y at the drop point, z near 8706.5 against 8706.19); rock a fails (earlier
+  median 8333.09 against 8323.62); the Havok tree rows fail (43–303 units at every
+  point of the grid, §6.4); the other 13 observed rows still pass. Open bets:
+  `collision_marker_b` (the game fell through the 2-unit Portal Box once; if that was
+  chance, the median rests on its top, 8571.53 in the candidate, and the row passes) and
+  `props_barrel` (no reading yet; the candidate rests on the barrel at 8415.18). So 16 of
+  20 rows with the two bets lost, up to 17 of 19 observed if they are won.
+
+  **Results** (captures `mv_b11_drops_rep_a` and `_rep_b`, 2026-10-08, this workstream,
+  `nvfdoc`; 7 failed steps, all "never started to fall", kept out of the median)
+  [observed]: 16 of 20 rows pass, as predicted; both bets lost. Per row (repeats that fell,
+  median z, spread of z):
+
+  | Row | n | Median z | Spread | Candidate | |
+  |---|---|---|---|---|---|
+  | collision_marker_a | 5 | 8484.15 | 2.70 | 8484.74 | pass |
+  | collision_marker_b | 5 | 8285.65 | 0.02 | 8571.53 | fail: fell through all five times, so not chance |
+  | collision_marker_c, static_fence_rail, static_mailbox | 5 | 8752.04, 8215.44, 8453.86 | 0 | | pass |
+  | animstatic_gate | 5 | 8691.85 | 0.26 | 8691.51 | pass |
+  | havok_tree_a / _b | 5 / 4 | 8638.39 / 8879.15 | 4.2 / 4.2 | 8582.72 / 8813.61 | fail (jump-trees workstream) |
+  | props_crate | 4 | 8423.54 | 2.30 | | pass |
+  | props_barrel | 0 | — | — | 8415.18 | the player never started to fall, five times out of five (it hangs at the drop point, 9 units sideways as in the first capture); row without feet |
+  | terrain_rock_a | 5 | 8333.27 | 6.61 | 8323.62 | fail (−9.65); four of five within 0.5 of 8333.5 |
+  | terrain_rock_b | 5 | 8508.04 | 6.10 | 8515.13 | pass (+7.09) |
+  | noncollidable_maize | 5 | 8706.48 | 0 | 8706.19 | pass: fell straight all five times |
+  | the other seven rows | 5 | | 0 | | pass |
+
+  Rock b passes with 0.9 to spare: over eleven game drops now (8506.51–8514.35; median
+  8510.37) the candidate stays at the top of the range, so the row stays sensitive to which
+  five drops a capture catches; recorded, tolerance left alone. Rows on statics, terrain,
+  plants and markers repeat to 0.3 units or exactly; the spread lives on the
+  uneven surfaces (rocks, trees) and the dynamic crate. Rebuild:
+  `python tools/capture/capture_moves.py golden C:/fnv-private/capture/out/mv_b11_drops_rep_a.<time>.jsonl parity-lab/inputs/layer4/b11_goodsprings.drops.json --also C:/fnv-private/capture/out/mv_b11_drops_rep_b.<time>.jsonl -o C:/fnv-private/goldens/phys/b11_goodsprings.median.drops.json`.
 
 **Clutter row** (`mv_b11_clutter`) [observed]: the bottles bounced or rolled 50–300 units
 from the drop point (the control drop on open ground ended 183 units away), so most rows
