@@ -2,11 +2,52 @@
 //! writing the bones' local transforms. Done here rather than with Bevy animation clips
 //! so that the original interpolation rules (B-splines, TBC keys, cycle types) stay in
 //! the engine-independent format crate (docs/design/layer2.md §2.7).
+//!
+//! The viewer plays one sequence at a time ([`AnimState`]); world objects carry their
+//! own [`Playing`] component, advanced by [`advance_instances`].
 
 use bevy::prelude::*;
 use fnv_nif::anim::{Sequence, TrackData, TransformTrack};
 use std::collections::HashMap;
+use std::sync::Arc;
 
+/// A sequence's transform tracks by target node name, shareable between instances.
+#[derive(Debug, Clone)]
+pub struct Clip {
+    pub name: String,
+    pub start: f32,
+    pub stop: f32,
+    pub frequency: f32,
+    pub cycle_type: i64,
+    pub tracks: Vec<(String, Arc<TransformTrack>)>,
+    /// Tracks without a target name or with an interpolator that is not a transform.
+    pub skipped: usize,
+}
+
+impl Clip {
+    pub fn from_sequence(seq: &Sequence) -> Clip {
+        let mut tracks = Vec::new();
+        let mut skipped = 0;
+        for t in &seq.tracks {
+            match (&t.node_name, &t.data) {
+                (Some(n), TrackData::Transform(tt)) => tracks.push((n.clone(), Arc::new(tt.clone()))),
+                _ => skipped += 1,
+            }
+        }
+        Clip {
+            name: seq.name.clone().unwrap_or_default(),
+            start: seq.start_time,
+            stop: seq.stop_time,
+            frequency: if seq.frequency > 0.0 { seq.frequency } else { 1.0 },
+            cycle_type: seq.cycle_type,
+            tracks,
+            skipped,
+        }
+    }
+}
+
+/// A clip playing on a set of entities.
+#[derive(Component)]
 pub struct Playing {
     pub name: String,
     pub source: String,
@@ -15,8 +56,59 @@ pub struct Playing {
     pub frequency: f32,
     pub cycle_type: i64,
     pub time: f32,
-    pub tracks: Vec<(Entity, TransformTrack)>,
+    pub tracks: Vec<(Entity, Arc<TransformTrack>)>,
+    /// Tracks whose target node was not found.
     pub unmatched: usize,
+}
+
+impl Playing {
+    /// Start `clip` from its start time, binding tracks to entities by node name.
+    pub fn new(source: &str, clip: &Clip, node: impl Fn(&str) -> Option<Entity>) -> Playing {
+        let mut tracks = Vec::new();
+        let mut unmatched = 0;
+        for (n, tt) in &clip.tracks {
+            match node(n) {
+                Some(e) => tracks.push((e, tt.clone())),
+                None => unmatched += 1,
+            }
+        }
+        Playing {
+            name: clip.name.clone(),
+            source: source.to_string(),
+            start: clip.start,
+            stop: clip.stop,
+            frequency: clip.frequency,
+            cycle_type: clip.cycle_type,
+            time: clip.start,
+            tracks,
+            unmatched,
+        }
+    }
+
+    /// The time within the sequence after the cycle rule.
+    pub fn sequence_time(&self) -> f32 {
+        cycle_time(self.time, self.start, self.stop, self.cycle_type)
+    }
+
+    /// Advance by `dt` seconds (unless `paused`) and pose the targets.
+    pub fn step(&mut self, dt: f32, paused: bool, transforms: &mut Query<&mut Transform>) {
+        if !paused {
+            self.time += dt * self.frequency;
+        }
+        let t = self.sequence_time();
+        for (e, track) in &self.tracks {
+            let Ok(mut tr) = transforms.get_mut(*e) else { continue };
+            if let Some(v) = track.translation.sample(t) {
+                tr.translation = Vec3::from_array(v);
+            }
+            if let Some([w, x, y, z]) = track.rotation_at(t) {
+                tr.rotation = Quat::from_xyzw(x, y, z, w).normalize();
+            }
+            if let Some([s]) = track.scale.sample(t) {
+                tr.scale = Vec3::splat(s);
+            }
+        }
+    }
 }
 
 /// Every sequence that can be played on the current mesh, and the one playing.
@@ -31,27 +123,8 @@ pub struct AnimState {
 impl AnimState {
     pub fn start(&mut self, index: usize, nodes: &HashMap<String, Entity>) {
         let Some((source, seq)) = self.available.get(index) else { return };
-        let mut tracks = Vec::new();
-        let mut unmatched = 0;
-        for t in &seq.tracks {
-            let TrackData::Transform(tt) = &t.data else { continue };
-            match t.node_name.as_ref().and_then(|n| nodes.get(n)) {
-                Some(e) => tracks.push((*e, tt.clone())),
-                None => unmatched += 1,
-            }
-        }
         self.current = Some(index);
-        self.playing = Some(Playing {
-            name: seq.name.clone().unwrap_or_default(),
-            source: source.clone(),
-            start: seq.start_time,
-            stop: seq.stop_time,
-            frequency: if seq.frequency > 0.0 { seq.frequency } else { 1.0 },
-            cycle_type: seq.cycle_type,
-            time: seq.start_time,
-            tracks,
-            unmatched,
-        });
+        self.playing = Some(Playing::new(source, &Clip::from_sequence(seq), |n| nodes.get(n).copied()));
     }
 }
 
@@ -75,22 +148,16 @@ pub fn cycle_time(t: f32, start: f32, stop: f32, cycle: i64) -> f32 {
 
 pub fn advance(time: Res<Time>, mut state: ResMut<AnimState>, mut transforms: Query<&mut Transform>) {
     let paused = state.paused;
-    let Some(p) = state.playing.as_mut() else { return };
-    if !paused {
-        p.time += time.delta_secs() * p.frequency;
+    if let Some(p) = state.playing.as_mut() {
+        p.step(time.delta_secs(), paused, &mut transforms);
     }
-    let t = cycle_time(p.time, p.start, p.stop, p.cycle_type);
-    for (e, track) in &p.tracks {
-        let Ok(mut tr) = transforms.get_mut(*e) else { continue };
-        if let Some(v) = track.translation.sample(t) {
-            tr.translation = Vec3::from_array(v);
-        }
-        if let Some([w, x, y, z]) = track.rotation_at(t) {
-            tr.rotation = Quat::from_xyzw(x, y, z, w).normalize();
-        }
-        if let Some([s]) = track.scale.sample(t) {
-            tr.scale = Vec3::splat(s);
-        }
+}
+
+/// Advance every [`Playing`] component (world objects with their own animation).
+pub fn advance_instances(time: Res<Time>, mut playing: Query<&mut Playing>, mut transforms: Query<&mut Transform>) {
+    let dt = time.delta_secs();
+    for mut p in &mut playing {
+        p.step(dt, false, &mut transforms);
     }
 }
 
