@@ -160,6 +160,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 2. Static contents: `L4.sim.containers` and `L4.sim.items` against the independent oracle.
 3. Behaviour: action traces against in-game captures (Goodsprings first, then a locked
    container with its key, a lock without key, a teleport pair, dropping and re-taking).
+   Locks and drops: `L4.sim.trace.goodsprings_locked_safe_key`, `_locked_safe_no_key`
+   and `goodsprings_drop_and_retake` (captured 2026-10-08; docs/spec-notes/layer4-captures.md §1).
 4. Leveled lists: distribution scenarios — `L4.sim.leveled.basic` passes against in-game
    samples (7 cases), and `L4.sim.leveled.b8` (10 cases: LVLG globals, all levels between
    entry levels, nesting 3–5 deep; 2026-10-08).

@@ -579,12 +579,14 @@ fn action_script_trace() {
     assert_eq!(steps[3]["result"]["moved"], 2);
     assert_eq!(steps[4]["result"]["result"], "picked_up");
     assert!(steps[5]["error"].as_str().unwrap().contains("NoSuchThing"));
-    assert_eq!(steps[6]["result"]["count"], 3);
+    // The script's `activate` is the scripted Activate: one item from the XCNT 3 stack.
+    assert_eq!(steps[4]["result"]["count"], 1);
+    assert_eq!(steps[6]["result"]["count"], 1);
     assert_eq!(steps[7]["result"]["cell"], "0x00000201");
     assert_eq!(steps[8]["result"]["references"], serde_json::json!(["0xFF000000"]));
     let obs = t["observations"].as_array().unwrap();
     assert_eq!(obs.len(), 3);
-    assert_eq!((obs[0]["label"].as_str(), obs[0]["count"].as_i64()), (Some("stims"), Some(3)));
+    assert_eq!((obs[0]["label"].as_str(), obs[0]["count"].as_i64()), (Some("stims"), Some(1)));
     assert_eq!((obs[1]["label"].as_str(), obs[1]["cell"].as_str()), (Some("step9"), Some("0x00000201")));
     assert_eq!(obs[1]["pos"], serde_json::json!([100.0, 0.0, 0.0]));
     assert_eq!(obs[2]["count"], 0);
@@ -592,7 +594,7 @@ fn action_script_trace() {
     let player = &t["final"]["0x00000014"];
     assert_eq!(player["inventory"]["0x00000101"], 7);
     assert_eq!(player["inventory"]["0x00000102"], 1);
-    assert_eq!(player["inventory"]["0x00000100"], 2);
+    assert!(player["inventory"].get("0x00000100").is_none(), "the one stimpak was dropped");
     assert_eq!(t["final"]["0x00000300"]["lock"]["locked"], false);
     // Same input, same output.
     assert_eq!(run_script(&f), t);
@@ -961,4 +963,112 @@ fn merchant_containers_restock_on_restock_days() {
     w.advance_hours(24.0 * 10.0).unwrap();
     assert_eq!(w.item_count(safe, id(CAPS)).unwrap(), 0);
     assert_eq!(w.peek(safe).unwrap().last_restock, None);
+}
+
+#[test]
+fn get_locked_reads_zero_or_one() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    let safe = id(SAFE_REF);
+    assert_eq!(w.lock_status(safe).unwrap(), 1);
+    assert_eq!(w.lock_status(id(CHAIR_REF)).unwrap(), 0, "no lock data");
+    // Level 255 still reads 1 in game, not the wiki's 2 (simulation.md §5).
+    w.lock(safe, Some(255)).unwrap();
+    assert_eq!(w.lock_status(safe).unwrap(), 1);
+    assert_eq!(w.activate(p, safe).unwrap().outcome, Outcome::Locked { level: 255 });
+    // The key opens it for good.
+    w.add_item(p, id(KEY), 1).unwrap();
+    assert_eq!(w.activate(p, safe).unwrap().unlocked_with, Some(id(KEY)));
+    assert_eq!(w.lock_status(safe).unwrap(), 0);
+    // Lock without a level keeps the old one.
+    w.lock(safe, None).unwrap();
+    assert_eq!(w.peek(safe).unwrap().lock.unwrap().level, 255);
+}
+
+#[test]
+fn drops_land_ahead_of_and_above_the_holder() {
+    use fnv_sim::world::{DROP_ABOVE, DROP_AHEAD};
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(STIMPAK), 2).unwrap();
+    // Facing north (z rotation 0): ahead is +Y.
+    let r = w.drop_item(p, id(STIMPAK), 1).unwrap()[0];
+    assert_eq!(w.peek(r).unwrap().pos, [0.0, DROP_AHEAD, DROP_ABOVE]);
+    // Facing east (z = pi/2, clockwise from north): ahead is +X.
+    w.get(p).unwrap().rot[2] = std::f32::consts::FRAC_PI_2;
+    w.get(p).unwrap().pos = [10.0, 20.0, 30.0];
+    let r = w.drop_item(p, id(STIMPAK), 1).unwrap()[0];
+    let pos = w.peek(r).unwrap().pos;
+    assert!((pos[0] - (10.0 + DROP_AHEAD)).abs() < 1e-3 && (pos[1] - 20.0).abs() < 1e-3, "{pos:?}");
+    assert_eq!(pos[2], 30.0 + DROP_ABOVE);
+}
+
+const CREATED_SCRIPT: &str = r#"{
+  "format": "fnv.sim.actions/1",
+  "actions": [
+    {"op": "get_locked", "of": "TestSafeRef", "label": "locked"},
+    {"op": "activate", "actor": "player", "target": "TestSafeRef", "label": "no key"},
+    {"op": "add_item", "to": "player", "item": "TestKey", "count": 1},
+    {"op": "activate", "actor": "player", "target": "TestSafeRef", "label": "key"},
+    {"op": "get_locked", "of": "TestSafeRef", "label": "unlocked"},
+    {"op": "activate", "actor": "player", "target": "created:TestStim", "label": "none yet"},
+    {"op": "add_item", "to": "player", "item": "TestStim", "count": 2},
+    {"op": "drop_item", "from": "player", "item": "TestStim", "count": 1},
+    {"op": "drop_item", "from": "player", "item": "TestStim", "count": 1},
+    {"op": "get_pos", "of": "created:TestStim", "label": "newest"},
+    {"op": "activate", "actor": "player", "target": "created:TestStim", "label": "item"},
+    {"op": "get_pos", "of": "created:0x00000100", "label": "older"}
+  ]
+}"#;
+
+#[test]
+fn created_names_and_labelled_activations() {
+    let f = fixture();
+    let s: Script = serde_json::from_str(CREATED_SCRIPT).unwrap();
+    let mut w = World::new(&f.forms, &f.refs, actions::config(&s));
+    let t = actions::run(&mut w, &s).unwrap();
+    let obs: Vec<_> = t["observations"].as_array().unwrap().iter().map(|o| {
+        let mut o = o.clone();
+        o.as_object_mut().unwrap().remove("step");
+        o
+    }).collect();
+    use serde_json::json;
+    assert_eq!(obs[0], json!({"label": "locked", "locked": 1}));
+    assert_eq!(obs[1], json!({"label": "no key", "opened": false}));
+    assert_eq!(obs[2], json!({"label": "key", "opened": true}));
+    assert_eq!(obs[3], json!({"label": "unlocked", "locked": 0}));
+    assert!(obs[4]["error"].as_str().unwrap().contains("no created reference"));
+    // Two drops: the newest (second) reference is named first; once it is taken, the
+    // older one.
+    assert_eq!(t["steps"][9]["result"]["cell"], serde_json::Value::Null);
+    assert_eq!(t["steps"][8]["result"]["references"], json!(["0xFF000001"]));
+    assert_eq!(obs[6], json!({"label": "item", "opened": false}));
+    assert_eq!(t["steps"][10]["result"]["result"], "picked_up");
+    assert_eq!(t["final"]["0xFF000001"]["deleted"], true);
+    assert_eq!(t["final"]["0xFF000000"]["deleted"], false);
+    assert!(obs[7].get("error").is_none(), "{}", obs[7]);
+}
+
+#[test]
+fn scripted_activation_takes_one_item_of_a_stack() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    let stack = id(STIM_REF); // XCNT 3
+    let r = w.activate_scripted(p, stack).unwrap();
+    assert_eq!(r.outcome, Outcome::PickedUp { item: id(STIMPAK), count: 1, owner: None });
+    assert_eq!(w.peek(stack).unwrap().count, 1, "the rest of the stack is lost");
+    w.activate_scripted(p, stack).unwrap();
+    assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 2);
+    // A dropped stack likewise.
+    w.add_item(p, id(STIMPAK), 1).unwrap();
+    let dropped = w.drop_item(p, id(STIMPAK), 3).unwrap()[0];
+    assert_eq!(w.peek(dropped).unwrap().count, 3);
+    w.activate_scripted(p, dropped).unwrap();
+    assert_eq!(w.item_count(p, id(STIMPAK)).unwrap(), 1);
+    // The player's own activation takes the whole stack (hypothesis).
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    assert_eq!(w.activate(p, stack).unwrap().outcome, Outcome::PickedUp { item: id(STIMPAK), count: 3, owner: None });
 }

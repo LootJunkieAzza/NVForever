@@ -68,6 +68,13 @@ impl Default for SimConfig {
     }
 }
 
+/// How far in front of the holder, along its heading, a dropped item is placed (game
+/// units). [observed: one capture, the player dropping stimpaks]
+pub const DROP_AHEAD: f32 = 50.0;
+/// How far above the holder's position (its feet) a dropped item is placed. [observed:
+/// same capture]
+pub const DROP_ABOVE: f32 = 30.0;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LockState {
     pub level: u8,
@@ -430,15 +437,22 @@ impl<'a> World<'a> {
         Ok(stacks)
     }
 
-    /// Drop items from an inventory into the world at the holder's position, one new
-    /// reference per group of identical extra data [hypothesis]. Returns the new
-    /// references.
+    /// Drop items from an inventory into the world, one new reference per group of
+    /// identical extra data, in the holder's cell, [`DROP_AHEAD`] units in front of the
+    /// holder along its heading and [`DROP_ABOVE`] units above its position. Returns the
+    /// new references. [observed in game, docs/spec-notes/simulation.md §5: the player
+    /// dropping 1, 2 and 3 stimpaks made one reference each (count 1, 2, 3) at exactly
+    /// that offset, which did not move for 10 s; hypothesis for other actors and items]
     pub fn drop_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
         }
         let groups = unequipped(self.inventory(from)?.take(item, count));
         let holder = self.get(from)?.clone();
+        // A z rotation turns clockwise seen from above and 0 faces +Y (world.md §4), so
+        // the heading's direction is (sin z, cos z).
+        let (sin, cos) = holder.rot[2].sin_cos();
+        let pos = [holder.pos[0] + DROP_AHEAD * sin, holder.pos[1] + DROP_AHEAD * cos, holder.pos[2] + DROP_ABOVE];
         let mut out = Vec::new();
         for (extra, n) in groups {
             let id = FormId(self.next_dynamic);
@@ -448,7 +462,7 @@ impl<'a> World<'a> {
                 RefState {
                     base: item,
                     cell: holder.cell,
-                    pos: holder.pos,
+                    pos,
                     rot: [0.0; 3],
                     enabled: true,
                     deleted: false,
@@ -718,11 +732,50 @@ impl<'a> World<'a> {
         Ok(())
     }
 
-    /// `actor` activates `target`, as the scripted `Activate` function does (the parity
-    /// traces are captured with `<ref>.Activate player`). Interactive activation can only
-    /// reach what the player can see, so keeping taken or disabled references out of
-    /// reach is the engine's job, not this function's.
+    /// The access state of a door or container lock, as the in-game `GetLocked` reports
+    /// it: 0 not locked, 1 locked. [documented: GECK wiki `GetLocked`, which also lists 2
+    /// "locked out" for an impossible level or a broken lock; observed in game,
+    /// docs/spec-notes/simulation.md §5: a level-255 lock reads 1, both an authored one
+    /// and one set with `Lock 255`. Broken locks (failed lockpicking) are Layer 6.]
+    pub fn lock_status(&mut self, id: FormId) -> Result<u8, SimError> {
+        Ok(match self.get(id)?.lock {
+            Some(l) if l.locked => 1,
+            _ => 0,
+        })
+    }
+
+    /// The newest reference created at run time (a drop) whose base is `base` and that
+    /// is still present (not taken, enabled). Scenarios name it `created:<item>`
+    /// because the FormID the game gives a dropped item is not known in advance.
+    pub fn newest_created(&self, base: FormId) -> Option<FormId> {
+        self.refs
+            .range(FormId::FIRST_DYNAMIC..)
+            .rev()
+            .find(|(_, s)| s.base == base && !s.deleted && s.enabled)
+            .map(|(&id, _)| id)
+    }
+
+    /// `actor` activates `target` itself (the player's own activation): an item
+    /// reference gives its whole stack [hypothesis; not captured]. Interactive
+    /// activation can only reach what the player can see, so keeping taken or disabled
+    /// references out of reach is the engine's job, not this function's. Otherwise the
+    /// same as [`World::activate_scripted`].
     pub fn activate(&mut self, actor: FormId, target: FormId) -> Result<Activation, SimError> {
+        self.activate_as(actor, target, false)
+    }
+
+    /// `target` is activated by the scripted `Activate` function with `actor` as the
+    /// activator (`<ref>.Activate player`, how the parity traces are captured). An item
+    /// reference gives **one** item, whatever its count, and keeps a count of 1 (the
+    /// rest of the stack is lost). [observed in game, docs/spec-notes/simulation.md §5:
+    /// a placed stack of 12 BB rounds gave 1 and then counted 1 (`GetRefCount`), a second
+    /// activation gave 1 more; dropped stacks of 2 and 3 stimpaks gave 1 each;
+    /// documented: GECK wiki Activate notes the loss of a stack]
+    pub fn activate_scripted(&mut self, actor: FormId, target: FormId) -> Result<Activation, SimError> {
+        self.activate_as(actor, target, true)
+    }
+
+    fn activate_as(&mut self, actor: FormId, target: FormId, scripted: bool) -> Result<Activation, SimError> {
         self.get(actor)?;
         let t = self.get(target)?.clone();
         let base = self.forms.get(t.base);
@@ -735,9 +788,14 @@ impl<'a> World<'a> {
         // another; a never-taken cap disabled with `Disable` still gave a cap and stayed
         // disabled; GetDisabled and GetParentCell do not change after a pick-up]
         if let Some(BaseData::Item(_)) = base.map(|b| &b.data) {
-            self.inventory(actor)?.add_extra(t.base, t.count, t.extra);
-            self.get(target)?.deleted = true;
-            return Ok(done(Outcome::PickedUp { item: t.base, count: t.count, owner: t.extra.owner }, None));
+            let count = if scripted { t.count.min(1) } else { t.count };
+            self.inventory(actor)?.add_extra(t.base, count, t.extra);
+            let s = self.get(target)?;
+            s.deleted = true;
+            if scripted {
+                s.count = count;
+            }
+            return Ok(done(Outcome::PickedUp { item: t.base, count, owner: t.extra.owner }, None));
         }
         // Other types: a taken or disabled reference does nothing. [observed by the
         // owner in game, 2026-10-08: disabled references cannot be interacted with; not
