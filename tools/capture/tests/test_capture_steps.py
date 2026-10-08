@@ -52,8 +52,10 @@ class JobTests(unittest.TestCase):
                 doc = json.load(fh)
             if f.endswith(".actions.json"):
                 job = cs.actions_job(doc, "x", "start", EDIDS)
-            else:
+            elif f.endswith(".cases.json"):
                 job = cs.cases_job(doc, "x", "start", 2, EDIDS)
+            else:
+                continue  # movement inputs: capture_moves.py (test_capture_moves.py)
             self.assertEqual(job["format"], cs.STEPS_FORMAT)
             self.assertEqual([s["field"] for s in job["steps"][:len(cs.MASTERS)]], cs.MASTERS)
 

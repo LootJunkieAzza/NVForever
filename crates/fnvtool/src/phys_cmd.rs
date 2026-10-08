@@ -22,8 +22,33 @@ use std::sync::Arc;
 
 pub fn run(cmd: PhysCmd) -> anyhow::Result<Value> {
     match cmd {
-        PhysCmd::Cell { w, cell, world, x, y, radius, drops, seconds, nif_schema, no_meshes } => {
-            let drops = drops.iter().map(|d| parse_point(d)).collect::<anyhow::Result<Vec<_>>>()?;
+        PhysCmd::Cell { w, cell, world, x, y, radius, drops, seconds, nif_schema, no_meshes, list_refs, drops_file, rays } => {
+            let rays = rays
+                .iter()
+                .map(|r| {
+                    let v: Vec<f32> = r.split(',').map(|t| t.trim().parse::<f32>()).collect::<Result<_, _>>().with_context(|| format!("bad ray {r}"))?;
+                    match v[..] {
+                        [x, y, z, dx, dy, dz] => Ok(([x, y, z], [dx, dy, dz], 10_000.0)),
+                        [x, y, z, dx, dy, dz, m] => Ok(([x, y, z], [dx, dy, dz], m)),
+                        _ => bail!("a ray is x,y,z,dx,dy,dz[,max]: {r}"),
+                    }
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let mut drops = drops.iter().map(|d| parse_point(d)).collect::<anyhow::Result<Vec<_>>>()?;
+            let mut seconds = seconds;
+            let labels = match &drops_file {
+                None => Vec::new(),
+                Some(f) => {
+                    let text = std::fs::read_to_string(f).with_context(|| f.display().to_string())?;
+                    let doc = DropsFile::parse(&serde_json::from_str(&text).with_context(|| f.display().to_string())?)?;
+                    if !drops.is_empty() {
+                        bail!("give --drop or --drops-file, not both");
+                    }
+                    seconds = doc.seconds.unwrap_or(seconds);
+                    drops = doc.drops.iter().map(|d| d.1).collect();
+                    doc.drops.into_iter().map(|d| d.0).collect()
+                }
+            };
             let mut meshes = if no_meshes { None } else { Meshes::open(&w.lo.data_dir, &w.schema, nif_schema.as_deref())? };
             with_world(&w, |lo, schema, ix| {
                 let centre = match (cell, world, x, y) {
@@ -35,7 +60,16 @@ pub fn run(cmd: PhysCmd) -> anyhow::Result<Value> {
                     }
                     _ => bail!("give --cell, or --world with --x and --y"),
                 };
-                cell_cmd(lo, schema, ix, centre, radius.max(0), (&drops, seconds), meshes.as_mut())
+                let mut v = cell_cmd(lo, schema, ix, centre, radius.max(0), (&drops, seconds), meshes.as_mut(), (list_refs, &rays))?;
+                if drops_file.is_some() {
+                    let probes = v["probes"].as_array().cloned().unwrap_or_default();
+                    v["observations"] = json!(labels
+                        .iter()
+                        .zip(probes)
+                        .map(|(l, p)| json!({"label": l, "feet": p["final_feet"], "support": p["support"]}))
+                        .collect::<Vec<_>>());
+                }
+                Ok(v)
             })
         }
         PhysCmd::Walk { w, script, cell, world, radius, every, nif_schema, no_meshes } => {
@@ -73,6 +107,9 @@ fn with_world(
     v["load_order"] = json!(plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
     Ok(v)
 }
+
+/// A ray: origin, direction, length.
+type Ray = ([f32; 3], [f32; 3], f32);
 
 /// A probe drop point: x, y and optionally z, world units.
 type DropPoint = (f32, f32, Option<f32>);
@@ -163,6 +200,18 @@ pub(crate) struct Built<'a> {
     z_range: (f32, f32),
     /// Bounds (min x, min y, max x, max y) of the collision references' placements.
     xy_bounds: [f32; 4],
+    /// The references added to the world, in FormID order.
+    added: Vec<AddedRef>,
+}
+
+/// A reference added to the world, for `--list-refs`.
+pub(crate) struct AddedRef {
+    form_id: u32,
+    base: Option<(u32, [u8; 4], Option<String>)>,
+    position: [f32; 3],
+    scale: f32,
+    /// (layer, motion, shell × scale) per collision object.
+    objects: Vec<(u8, fnv_collide::Motion, f32)>,
 }
 
 impl Built<'_> {
@@ -282,6 +331,7 @@ pub(crate) fn build<'a>(
     let persistent = ws.and_then(|w| w.persistent_cell).and_then(|p| ix.cells.get(&p));
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     let mut by_base: BTreeMap<String, usize> = BTreeMap::new();
+    let mut added = Vec::new();
     if let Some(p) = persistent.filter(|_| !grids.is_empty()) {
         for &r in &p.refs {
             if let Some(pl) = placement(lo, schema, r) {
@@ -313,6 +363,13 @@ pub(crate) fn build<'a>(
             continue;
         }
         let rep = world.add_ref(&RefPose::from_placement(&pl), &objects);
+        added.push(AddedRef {
+            form_id: pl.form_id,
+            base: pl.base.and_then(|b| fnv_world::placed::base_object(lo, schema, b)).map(|b| (b.form_id, b.sig, b.edid)),
+            position: pl.position,
+            scale: pl.scale,
+            objects: objects.iter().map(|o| (o.layer, o.motion, o.shell * pl.scale)).collect(),
+        });
         z_range = (z_range.0.min(pl.position[2]), z_range.1.max(pl.position[2]));
         let [x, y, _] = pl.position;
         xy_bounds = [xy_bounds[0].min(x), xy_bounds[1].min(y), xy_bounds[2].max(x), xy_bounds[3].max(y)];
@@ -337,7 +394,7 @@ pub(crate) fn build<'a>(
     if !z_range.0.is_finite() {
         z_range = (0.0, 0.0);
     }
-    Built { world, cells, grids, no_heights, counts, by_base, collision_source, z_range, xy_bounds }
+    Built { world, cells, grids, no_heights, counts, by_base, collision_source, z_range, xy_bounds, added }
 }
 
 /// Build the world around `centre`, then drop a probe character at each drop point.
@@ -358,6 +415,7 @@ fn parent_allows(lo: &LoadOrder, schema: &Schema, p: &fnv_world::placed::Placeme
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cell_cmd(
     lo: &LoadOrder,
     schema: &Schema,
@@ -366,8 +424,17 @@ fn cell_cmd(
     radius: i32,
     (drops, seconds): (&[DropPoint], f32),
     meshes: Option<&mut Meshes>,
+    (list_refs, rays): (bool, &[Ray]),
 ) -> anyhow::Result<Value> {
     let mut b = build(lo, schema, ix, centre, radius, PhysParams::default(), meshes, &plugin_in_world(lo, schema));
+    let ref_list = list_refs.then(|| ref_list(&mut b));
+    let ray_hits: Vec<Value> = rays
+        .iter()
+        .map(|&(o, d, max)| {
+            let hit = b.world.queries().ray(o, d, max, &Filter::default());
+            json!({"origin": o, "dir": d, "hit": hit.map(|h| json!({"owner": owner_json(&h.owner), "point": h.point, "normal": h.normal, "distance": h.distance, "shell": h.shell}))})
+        })
+        .collect();
     let character = CharacterParams::default();
     let probes: Vec<Value> = if drops.is_empty() {
         let (cx, cy) = b.default_drop(centre);
@@ -378,7 +445,45 @@ fn cell_cmd(
     let mut v = b.json("fnv.phys.cell/1", centre, radius, &character)?;
     v["world_stats"] = serde_json::to_value(b.world.stats())?;
     v["probes"] = json!(probes);
+    if let Some(l) = ref_list {
+        v["ref_list"] = json!(l);
+    }
+    if !rays.is_empty() {
+        v["rays"] = json!(ray_hits);
+    }
     Ok(v)
+}
+
+/// Every reference in the world with its collision objects' layers and shells, and the
+/// first hit of a vertical ray at its position from above the loaded content (all
+/// layers): whether something dropped there would meet this reference first.
+fn ref_list(b: &mut Built) -> Vec<Value> {
+    let (top, bottom) = b.ray_span();
+    let added = std::mem::take(&mut b.added);
+    let out = added
+        .iter()
+        .map(|r| {
+            let [x, y, _] = r.position;
+            let hit = b.world.queries().ray([x, y, top], [0.0, 0.0, -1.0], top - bottom, &Filter::default());
+            json!({
+                "formid": fid(r.form_id),
+                "base": r.base.as_ref().map(|(f, sig, edid)| json!({
+                    "formid": fid(*f), "type": String::from_utf8_lossy(sig), "edid": edid,
+                })),
+                "position": r.position,
+                "scale": r.scale,
+                "objects": r.objects.iter().map(|&(layer, motion, shell)| json!({
+                    "layer": layer,
+                    "layer_name": layers::name(layer as u32),
+                    "motion": format!("{motion:?}").to_ascii_lowercase(),
+                    "shell": shell,
+                })).collect::<Vec<_>>(),
+                "top_hit": hit.map(|h| json!({"owner": owner_json(&h.owner), "z": h.point[2], "normal": h.normal, "shell": h.shell})),
+            })
+        })
+        .collect();
+    b.added = added;
+    out
 }
 
 /// Drop a character at (x, y): from `z` if given, else 100 units above whatever a
@@ -433,6 +538,47 @@ fn probe(b: &mut Built, params: CharacterParams, (x, y, z): (f32, f32, Option<f3
     })
 }
 
+/// Labelled drops (`fnv.phys.drops/1`): `{"schema", "seconds"?, "drops": [{"label", "at":
+/// [x, y] | [x, y, z], ...}]}`; other fields (e.g. what a drop is aimed at) are ignored.
+struct DropsFile {
+    seconds: Option<f32>,
+    drops: Vec<(String, DropPoint)>,
+}
+
+impl DropsFile {
+    fn parse(v: &Value) -> anyhow::Result<DropsFile> {
+        if v["schema"] != json!("fnv.phys.drops/1") {
+            bail!("a drops file needs \"schema\": \"fnv.phys.drops/1\"");
+        }
+        let seconds = match v.get("seconds") {
+            None => None,
+            Some(s) => Some(s.as_f64().filter(|s| *s > 0.0 && *s <= 600.0).ok_or_else(|| anyhow!("\"seconds\" must be in (0, 600]"))? as f32),
+        };
+        let mut drops = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for d in v["drops"].as_array().ok_or_else(|| anyhow!("\"drops\" must be a list"))? {
+            let label = d["label"].as_str().ok_or_else(|| anyhow!("a drop needs a \"label\""))?.to_string();
+            if !seen.insert(label.clone()) {
+                bail!("duplicate drop label {label}");
+            }
+            let at: Vec<f32> = d["at"]
+                .as_array()
+                .ok_or_else(|| anyhow!("drop {label}: \"at\" must be [x, y] or [x, y, z]"))?
+                .iter()
+                .map(|x| x.as_f64().map(|x| x as f32).filter(|x| x.is_finite()))
+                .collect::<Option<_>>()
+                .ok_or_else(|| anyhow!("drop {label}: \"at\" must hold finite numbers"))?;
+            let point = match at[..] {
+                [x, y] => (x, y, None),
+                [x, y, z] => (x, y, Some(z)),
+                _ => bail!("drop {label}: \"at\" must be [x, y] or [x, y, z]"),
+            };
+            drops.push((label, point));
+        }
+        Ok(DropsFile { seconds, drops })
+    }
+}
+
 /// A walk script (`fnv.phys.walk-script/1`): where to start, the step rate and input
 /// segments, and optional parameter overrides.
 struct Script {
@@ -443,6 +589,8 @@ struct Script {
     hz: u32,
     segments: Vec<Segment>,
     params: BTreeMap<String, f64>,
+    /// Observation points: `(label, step)`, from `observe`.
+    observe: Vec<(String, usize)>,
 }
 
 struct Segment {
@@ -480,7 +628,21 @@ impl Script {
                 params.insert(k.clone(), x.as_f64().filter(|v| v.is_finite()).ok_or_else(|| anyhow!("param {k} must be a number"))?);
             }
         }
+        // "observe": {"from_step": s0, "every": n, "count": k} labels the feet after steps
+        // s0 + n, s0 + 2n, ... s0 + kn as "t<seconds since s0, two decimals>".
+        let mut observe = Vec::new();
+        if let Some(o) = v.get("observe") {
+            let field = |k: &str| o[k].as_u64().map(|x| x as usize).ok_or_else(|| anyhow!("\"observe\" needs a whole number \"{k}\""));
+            let (from, every, count) = (field("from_step")?, field("every")?, field("count")?);
+            if every == 0 || from + every * count > total {
+                bail!("\"observe\" must stay within the script's {total} steps");
+            }
+            for i in 1..=count {
+                observe.push((format!("t{:.2}", (i * every) as f64 / hz as f64), from + i * every));
+            }
+        }
         Ok(Script {
+            observe,
             start: [num(&start[0], "start[0]")?, num(&start[1], "start[1]")?],
             start_z: start.get(2).map(|z| num(z, "start[2]")).transpose()?,
             hz,
@@ -545,6 +707,7 @@ fn walk_cmd(
     let (mut jumps, mut landings, mut airborne) = (0usize, 0usize, 0usize);
     let mut touched: BTreeMap<Owner, usize> = BTreeMap::new();
     let mut trace = Vec::new();
+    let mut observations = Vec::new();
     for seg in &script.segments {
         for i in 0..seg.steps {
             let jump = seg.jump && i == 0;
@@ -561,6 +724,9 @@ fn walk_cmd(
             max_z = max_z.max(s.feet[2]);
             for o in &s.touched {
                 *touched.entry(*o).or_default() += 1;
+            }
+            for (label, _) in script.observe.iter().filter(|(_, at)| *at == step) {
+                observations.push(json!({"label": label, "feet": s.feet, "grounded": s.grounded}));
             }
             if step.is_multiple_of(every) || step == total {
                 trace.push(json!({
@@ -591,6 +757,9 @@ fn walk_cmd(
         "touched": touched.iter().map(|(o, n)| json!({"owner": owner_json(o), "steps": n})).collect::<Vec<_>>(),
     });
     v["trace"] = json!(trace);
+    if !script.observe.is_empty() {
+        v["observations"] = json!(observations);
+    }
     Ok(v)
 }
 
@@ -758,6 +927,27 @@ mod tests {
         assert!(Script::parse(&json!({"start": [0, 0], "segments": []})).is_err());
         let bad = json!({"schema": "fnv.phys.walk-script/1", "start": [0, 0], "segments": [], "params": {"nope": 1}});
         assert!(Script::parse(&bad).unwrap().parameters().is_err());
+    }
+
+    #[test]
+    fn walk_observations_and_drop_files_parse() {
+        let v = json!({
+            "schema": "fnv.phys.walk-script/1", "start": [0.0, 0.0], "hz": 60,
+            "segments": [{"steps": 30}, {"steps": 90, "velocity": [344.0, 0.0]}],
+            "observe": {"from_step": 30, "every": 15, "count": 6},
+        });
+        let s = Script::parse(&v).unwrap();
+        assert_eq!(s.observe.first(), Some(&("t0.25".to_string(), 45)));
+        assert_eq!(s.observe.last(), Some(&("t1.50".to_string(), 120)));
+        let mut late = v.clone();
+        late["observe"]["count"] = json!(7);
+        assert!(Script::parse(&late).is_err(), "beyond the last step");
+        let d = DropsFile::parse(&json!({"schema": "fnv.phys.drops/1", "seconds": 4,
+            "drops": [{"label": "a", "at": [1, 2, 3], "ref": "0x1"}, {"label": "b", "at": [1, 2]}]})).unwrap();
+        assert_eq!(d.seconds, Some(4.0));
+        assert_eq!(d.drops, vec![("a".to_string(), (1.0, 2.0, Some(3.0))), ("b".to_string(), (1.0, 2.0, None))]);
+        let dup = json!({"schema": "fnv.phys.drops/1", "drops": [{"label": "a", "at": [1, 2]}, {"label": "a", "at": [1, 2]}]});
+        assert!(DropsFile::parse(&dup).is_err());
     }
 
     #[test]
