@@ -195,7 +195,9 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    `goodsprings_doc_mitchell` 5/6 (z waits for the controller); `x13_enable_parents`
    still needs a save inside X-13. Update 2026-10-08: `x13_enable_parents` 13/13;
    merchant restocks follow fixed days (GameDaysPassed 0 or 3 modulo 7, spec note §3),
-   checked by `goodsprings_merchant_midnight_restock` 11/11.
+   checked by `goodsprings_merchant_midnight_restock` 11/11. `goodsprings_doc_mitchell`
+   6/6 (2026-10-08): `sim run` settles teleported actors on the destination's contact
+   shell (physics.md §6.2), not through the walking controller.
 8. Answered by the owner 2026-10-08 (physics.md §4, §6): disabled references are not
    drawn, have no collision and cannot be interacted with; `GetPos Z` is the feet (player
    7361.05 standing on a rug at 7360 in Doc Mitchell's house). Still open: the collision
