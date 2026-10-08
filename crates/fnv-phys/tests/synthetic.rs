@@ -187,6 +187,18 @@ fn dynamic_clutter_settles_on_terrain() {
 }
 
 #[test]
+fn fixed_bounds_cover_static_collision_only() {
+    let mut w = PhysWorld::new(PhysParams::default());
+    assert_eq!(w.fixed_bounds(), None);
+    w.add_ref(&at(1, [100.0, 0.0, 500.0]), &[object(boxed([50.0, 20.0, 10.0]), Motion::Static)]);
+    w.add_ref(&at(2, [0.0, 0.0, -900.0]), &[object(boxed([5.0, 5.0, 5.0]), Motion::Dynamic)]);
+    w.add_character(9, CharacterParams::default(), [0.0, 0.0, -2000.0]);
+    let (lo, hi) = w.fixed_bounds().expect("one fixed box");
+    let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.1);
+    assert!(close(lo, [50.0, -20.0, 490.0]) && close(hi, [150.0, 20.0, 510.0]), "{lo:?} {hi:?}");
+}
+
+#[test]
 fn falling_body_follows_gravity() {
     // Free fall for 0.5 s: z = z0 - g t² / 2 (semi-implicit Euler is within g·dt·t).
     let params = PhysParams::default();
