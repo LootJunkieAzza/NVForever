@@ -92,6 +92,8 @@ pub(crate) struct Props {
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
+    /// BSShaderFlags bit 18 "Hair" [documented: nif.xml].
+    pub(crate) hair: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -148,6 +150,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         let flags = s.int("shader_flags").unwrap_or(0);
         p.specular = flags & 1 != 0;
         p.vertex_alpha = flags & (1 << 3) != 0;
+        p.hair = flags & (1 << 18) != 0;
     }
     match ty {
         "BSShaderPPLightingProperty" => p.glow = glow_map(s.int("shader_flags").unwrap_or(0), &p.textures),
