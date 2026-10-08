@@ -90,6 +90,9 @@ struct Args {
     /// Do not draw distant LOD.
     #[arg(long)]
     no_lod: bool,
+    /// Game days passed, for the moon phase (default: the GameDaysPassed global).
+    #[arg(long)]
+    day: Option<f32>,
     /// Sun shadows reach this far from the camera (game units); 0 turns them off.
     #[arg(long, default_value_t = 16_000.0)]
     shadow_distance: f32,
@@ -210,6 +213,7 @@ fn main() -> AppExit {
     };
     sky_state.shadow_distance = args.shadow_distance.max(0.0);
     sky_state.time_scale = args.time_scale.max(0.0);
+    sky_state.days_passed = args.day.or_else(|| sky::find_global(&world, "GameDaysPassed")).unwrap_or(0.0).floor();
     if let Some(dir) = &args.timelapse {
         if let Err(e) = std::fs::create_dir_all(dir) {
             return fail(format!("--timelapse {}: {e}", dir.display()));
@@ -293,7 +297,7 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, world::stream, lod::update_lod, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, lod::update_lod, overlay, keys).chain())
     .add_systems(Update, nvf_assets::anim_play::advance_instances)
     .add_systems(Update, timelapse.after(sky::update_sky));
     if let Some(data) = play {
