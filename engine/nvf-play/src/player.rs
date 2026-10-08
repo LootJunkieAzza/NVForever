@@ -374,7 +374,8 @@ fn step(
             [x, y, 0.0]
         };
         p.prev_feet = c.feet;
-        let s = p.world.move_character(c, CharacterInput { velocity: [vx, vy], jump: intent.jump && i == 0, vertical: vz });
+        let view = Some([player.heading.sin(), player.heading.cos()]);
+        let s = p.world.move_character(c, CharacterInput { velocity: [vx, vy], jump: intent.jump && i == 0, vertical: vz, view });
         p.world.step();
         status.record(&s, p.prev_feet, [vx, vy], dt);
     }
