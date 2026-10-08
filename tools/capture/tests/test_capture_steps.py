@@ -18,7 +18,7 @@ LAB_INPUTS = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer
 EDIDS = {e.lower(): 0x00010000 + i for i, e in enumerate([
     "Stimpak", "Caps001", "GSDocMitchellHouseIntDoorREF", "WeapNV9mmPistol", "ArmorLeather",
     "OutfitWasteland01", "Ammo9mm", "LootChemsStimpak50", "LL0NPCWastelandCaps35", "VFactionSquadStimpaks",
-    "VendorChestStimpaksBoomer", "ClutterHouseholdJunkNV"])}
+    "VendorChestStimpaksBoomer", "ClutterHouseholdJunkNV", "VZKeyDirtyGSHome2SafeKey"])}
 
 
 def actions(*acts):
@@ -106,6 +106,40 @@ class JobTests(unittest.TestCase):
         fields = [(s["label"], s["field"]) for s in job["steps"][len(cs.MASTERS):]]
         self.assertEqual(fields, [("step0", "cell"), ("step0", "pos.x"), ("step0", "pos.y"), ("step0", "pos.z"),
                                   ("w", "weight"), ("w", "capacity"), ("h", "value")])
+
+    def test_locks_and_labelled_activations(self):
+        job = cs.actions_job(actions({"op": "get_locked", "of": "0x0010B2D4", "label": "safe"},
+                                     {"op": "activate", "actor": "player", "target": "0x0010B2D4", "label": "open"},
+                                     {"op": "activate", "actor": "player", "target": "0x0010B2D4"}), "x", "s")
+        steps = job["steps"][len(cs.MASTERS):]
+        self.assertEqual((steps[0]["label"], steps[0]["field"]), ("safe", "locked"))
+        self.assertIn("let fV := rF1.GetLocked", steps[0]["query"])
+        kinds = [next(iter(st)) for st in steps[1:]]
+        # A labelled activation: the action, a pause, MenuMode 1008 as `opened`, then
+        # every menu closed again; an unlabelled one is only followed by a pause.
+        self.assertEqual(kinds, ["script", "frames", "query", "console", "frames", "script", "frames"])
+        self.assertEqual((steps[3]["label"], steps[3]["field"]), ("open", "opened"))
+        self.assertIn(f"MenuMode {cs.CONTAINER_MENU}", steps[3]["query"])
+        self.assertEqual(steps[4], {"console": "CloseAllMenus"})
+
+    def test_created_references_are_found_by_scanning_the_cell(self):
+        job = cs.actions_job(actions({"op": "drop_item", "from": "player", "item": "Stimpak", "count": 2},
+                                     {"op": "activate", "actor": "player", "target": "created:Stimpak"}),
+                             "x", "s", EDIDS)
+        steps = job["steps"][len(cs.MASTERS):]
+        self.assertIn("player.Drop rF1 2", steps[0]["script"])
+        self.assertEqual(steps[1], {"frames": cs.DROP_FRAMES})
+        script = steps[2]["script"]
+        self.assertIn(f"let rF1 := BuildRef fM1 {0x10000}", script)
+        self.assertIn(f"let rScan := GetFirstRef {cs.INVENTORY_ITEM_REFS} 0 0", script)
+        self.assertIn("if rScanBase == rF1", script)
+        self.assertIn(f"if rScan.GetSourceModIndex == {cs.CREATED_MOD_INDEX}", script)
+        self.assertIn("let rF2 := rScan", script)
+        self.assertIn("rF2.Activate player", script)
+        self.assertTrue(script.index("ref rScan") < script.index("Begin Function"))
+        with self.assertRaises(cs.InputError):
+            cs.actions_job(actions({"op": "activate", "actor": "player", "target": "created:NoSuchItem"}),
+                           "x", "s", EDIDS)
 
     def test_errors(self):
         with self.assertRaises(cs.InputError):
@@ -254,6 +288,8 @@ class OutputTests(unittest.TestCase):
             {"label": "w", "field": "weight", "value": 18.5},
             {"label": "w", "field": "capacity", "value": 200.0},
             {"label": "bad", "field": "value", "error": "script did not compile"},
+            {"label": "lk", "field": "locked", "value": 1.0},
+            {"label": "op", "field": "opened", "value": 0.0},
         ])
         g = cs.trace_golden(*cs.read_output(lines))
         obs = {o["label"]: o for o in g["observations"]}
@@ -262,6 +298,8 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(obs["p"], {"label": "p", "cell": "0x00103DF9", "pos": [1.5, -2.0, 3.25]})
         self.assertEqual(obs["w"], {"label": "w", "weight": 18.5, "capacity": 200.0})
         self.assertEqual(obs["bad"]["error"], "script did not compile")
+        self.assertEqual(obs["lk"], {"label": "lk", "locked": 1})
+        self.assertIs(obs["op"]["opened"], False)
 
     def test_unfinished_or_aborted_output_is_refused(self):
         with self.assertRaises(cs.InputError):
