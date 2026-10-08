@@ -115,12 +115,15 @@ pub enum Event {
     Output { job: String, line: Json },
     Finished { job: String },
     Aborted { job: String },
+    /// Automatic mode only: no job is left for this session (sent once per load).
+    AllDone,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 enum State {
     Idle,
-    Announced,
+    /// Waiting for End (or, in automatic mode, `wait` more game loops).
+    Announced { wait: u32 },
     Running { step: usize, wait: u32, manual: bool },
 }
 
@@ -129,6 +132,9 @@ pub struct Runner {
     state: State,
     /// Key state in the previous tick, for press edges: (End, Home).
     prev: (bool, bool),
+    /// Automatic mode: start announced jobs after this many game loops instead of
+    /// waiting for End (docs/spec-notes/xnvse-capture.md §4). Manual steps still wait.
+    auto_start: Option<u32>,
     pub plugin_version: u32,
     pub nvse_version: u32,
     pub runtime_version: u32,
@@ -136,7 +142,12 @@ pub struct Runner {
 
 impl Runner {
     pub fn new(plugin_version: u32, nvse_version: u32, runtime_version: u32) -> Runner {
-        Runner { pending: Vec::new(), state: State::Idle, prev: (false, false), plugin_version, nvse_version, runtime_version }
+        Runner { pending: Vec::new(), state: State::Idle, prev: (false, false), auto_start: None, plugin_version, nvse_version, runtime_version }
+    }
+
+    /// Switch to automatic mode (see `auto_start`).
+    pub fn set_auto_start(&mut self, frames: Option<u32>) {
+        self.auto_start = frames;
     }
 
     pub fn current(&self) -> Option<&Job> {
@@ -159,18 +170,31 @@ impl Runner {
             ev.push(Event::Aborted { job: j.name.clone() });
         }
         self.pending = jobs;
-        self.announce(host);
+        self.announce(host, &mut ev);
         ev
     }
 
-    fn announce(&mut self, host: &mut dyn Host) {
+    fn announce(&mut self, host: &mut dyn Host, ev: &mut Vec<Event>) {
         match self.pending.first() {
             Some(j) => {
                 let title = if j.title.is_empty() { &j.name } else { &j.title };
-                host.show(&format!("NVF capture: {title}. {} Press End to start, Home to skip.", j.start));
-                self.state = State::Announced;
+                match self.auto_start {
+                    Some(wait) => {
+                        host.show(&format!("NVF capture: {title}. Starting automatically."));
+                        self.state = State::Announced { wait };
+                    }
+                    None => {
+                        host.show(&format!("NVF capture: {title}. {} Press End to start, Home to skip.", j.start));
+                        self.state = State::Announced { wait: 0 };
+                    }
+                }
             }
-            None => self.state = State::Idle,
+            None => {
+                if self.auto_start.is_some() {
+                    ev.push(Event::AllDone);
+                }
+                self.state = State::Idle;
+            }
         }
     }
 
@@ -186,8 +210,16 @@ impl Runner {
         let job = self.pending.first().expect("not idle").clone();
         match self.state.clone() {
             State::Idle => {}
-            State::Announced => {
-                if end_pressed {
+            State::Announced { wait } => {
+                let auto_go = match self.auto_start {
+                    Some(_) if wait > 0 => {
+                        self.state = State::Announced { wait: wait - 1 };
+                        return ev;
+                    }
+                    Some(_) => true,
+                    None => false,
+                };
+                if end_pressed || auto_go {
                     ev.push(Event::Output {
                         job: job.name.clone(),
                         line: json!({"kind": "start", "job": job.name, "plugin_version": self.plugin_version,
@@ -199,7 +231,7 @@ impl Runner {
                 } else if home_pressed {
                     host.show(&format!("NVF capture: skipped {}.", job.name));
                     self.pending.remove(0);
-                    self.announce(host);
+                    self.announce(host, &mut ev);
                 }
             }
             State::Running { step, wait, manual } => {
@@ -218,7 +250,7 @@ impl Runner {
                     ev.push(Event::Finished { job: job.name.clone() });
                     host.show(&format!("NVF capture: {} finished.", job.name));
                     self.pending.remove(0);
-                    self.announce(host);
+                    self.announce(host, &mut ev);
                     return ev;
                 }
                 let mut next = State::Running { step: step + 1, wait: 0, manual: false };
@@ -387,5 +419,39 @@ mod tests {
         assert!(ev.contains(&Event::Aborted { job: "t2".into() }));
         assert!(!r.is_running());
         assert_eq!(r.current().unwrap().name, "t1");
+    }
+
+    #[test]
+    fn automatic_mode_starts_after_a_delay_and_reports_all_done() {
+        let mut m = Mock::default();
+        let mut r = Runner::new(1, 0, 0);
+        r.set_auto_start(Some(2));
+        let job = Job::parse(r#"{"format": "fnv.capture.steps/1", "name": "a1",
+            "steps": [{"query": "count", "label": "caps", "field": "count"}, {"manual": "Do it."}]}"#).unwrap();
+        r.game_loaded(vec![job], &mut m);
+        assert!(m.shown[0].contains("Starting automatically"));
+        let mut all = Vec::new();
+        for _ in 0..2 {
+            all.extend(r.tick(&mut m)); // the start delay, no key pressed
+        }
+        assert!(!r.is_running());
+        all.extend(r.tick(&mut m));
+        assert!(r.is_running());
+        all.extend(r.tick(&mut m)); // query
+        for _ in 0..5 {
+            all.extend(r.tick(&mut m)); // a manual step still waits for End
+        }
+        assert!(r.is_running());
+        assert!(!all.contains(&Event::AllDone));
+        m.keys.extend([(true, false), (false, false)]);
+        all.extend(r.tick(&mut m));
+        all.extend(r.tick(&mut m)); // end of job
+        assert!(all.contains(&Event::Finished { job: "a1".into() }));
+        assert_eq!(all.last(), Some(&Event::AllDone));
+        assert_eq!(lines(&all)[1]["value"], 5.0);
+        // No pending jobs at a load: done at once; never in manual mode.
+        assert_eq!(r.game_loaded(Vec::new(), &mut m), vec![Event::AllDone]);
+        let mut manual = Runner::new(1, 0, 0);
+        assert!(manual.game_loaded(Vec::new(), &mut m).is_empty());
     }
 }
