@@ -1,0 +1,28 @@
+{
+  "format": "fnv.sim.actions/1",
+  "seed": 0,
+  "player_level": 1,
+  "actions": [
+    {"op": "remove_all_items", "from": "player"},
+    {"op": "remove_all_items", "from": "0x0010B2D4"},
+    {"op": "add_item", "to": "0x0010B2D4", "item": "Caps001", "count": 7},
+    {"op": "get_locked", "of": "0x0010B2D4", "label": "safe at start"},
+    {"op": "activate", "actor": "player", "target": "0x0010B2D4", "label": "activating the locked safe"},
+    {"op": "get_locked", "of": "0x0010B2D4", "label": "safe after activating it locked"},
+    {"op": "get_item_count", "of": "0x0010B2D4", "item": "Caps001", "label": "caps in the safe after activating it locked"},
+    {"op": "get_item_count", "of": "player", "item": "Caps001", "label": "player caps after activating it locked"},
+    {"op": "unlock", "target": "0x0010B2D4"},
+    {"op": "get_locked", "of": "0x0010B2D4", "label": "safe after Unlock"},
+    {"op": "activate", "actor": "player", "target": "0x0010B2D4", "label": "activating the unlocked safe"},
+    {"op": "transfer_all", "from": "0x0010B2D4", "to": "player"},
+    {"op": "get_item_count", "of": "player", "item": "Caps001", "label": "player caps after taking everything"},
+    {"op": "get_item_count", "of": "0x0010B2D4", "item": "Caps001", "label": "caps left in the safe"},
+    {"op": "lock", "target": "0x0010B2D4"},
+    {"op": "get_locked", "of": "0x0010B2D4", "label": "safe after Lock"},
+    {"op": "activate", "actor": "player", "target": "0x0010B2D4", "label": "activating the safe after Lock"},
+    {"op": "lock", "target": "0x0010B2D4", "level": 255},
+    {"op": "get_locked", "of": "0x0010B2D4", "label": "safe after Lock 255"},
+    {"op": "activate", "actor": "player", "target": "0x0010B2D4", "label": "activating the safe locked at 255"}
+  ],
+  "report": ["player", "0x0010B2D4"]
+}
