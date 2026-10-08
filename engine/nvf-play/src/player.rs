@@ -7,11 +7,19 @@
 //! between the last two steps; the simulation's player reference follows the feet.
 //! Nothing moves in `PlayState::Menu` (physics time stops). Movement values are
 //! [hypothesis] (docs/spec-notes/physics.md §6).
+//!
+//! Safety nets ([`safe`]): an interior start or door destination with nothing under it
+//! moves to the nearest door arrival into the cell; a player who falls out of an
+//! interior's geometry goes back to where they last stood. Test aid
+//! `NVF_PLAY_TEST_NEAR=<reference FormID, hex>`: start on a standing spot from which that
+//! reference can be activated, looking at it.
+
+pub mod safe;
 
 use crate::phys::cells::Space;
 use crate::phys::PhysState;
 use crate::sim::SimState;
-use crate::{space, PlaySet, PlayState, PlayWorld, PlayerCamera};
+use crate::{space, PlaySet, PlayState, PlayWorld, PlayerCamera, Travel};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -199,11 +207,13 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MoveIntent>()
             .init_resource::<Status>()
+            .init_resource::<Net>()
+            .insert_resource(NearAid::from_env())
             .add_systems(Startup, init_player)
             .add_systems(Update, (grab_cursor, read_input, mouse_look).chain().in_set(PlaySet::Input))
             .add_systems(
                 Update,
-                (place_initial, step, sync_sim, log_status, place_camera)
+                (place_initial, interior_net, step, sync_sim, log_status, place_camera)
                     .chain()
                     .in_set(PlaySet::Physics)
                     .after(crate::phys::PhysSystems),
@@ -211,14 +221,27 @@ impl Plugin for PlayerPlugin {
     }
 }
 
-fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>) {
+fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mut near: ResMut<NearAid>) {
     let [x, y, z] = d.eye;
-    commands.insert_resource(Player {
-        heading: d.heading_deg.to_radians(),
-        pitch: d.pitch_deg.to_radians(),
-        eye_height: EYE_HEIGHT,
-        feet: [x, y, z - EYE_HEIGHT],
-    });
+    let mut feet = [x, y, z - EYE_HEIGHT];
+    if let Some(id) = near.target {
+        // Where the reference stands, so physics streams its cells; only in the space played.
+        let here = sim.refs.get(FormId(id)).filter(|r| match d.interior {
+            Some(cell) => r.cell == Some(FormId(cell)),
+            None => r.cell.is_some_and(|c| sim.refs.cell_world.get(&c) == Some(&FormId(d.world))),
+        });
+        match here {
+            Some(r) => {
+                (near.pos, near.start) = (Some(r.pos), feet);
+                feet = r.pos;
+            }
+            None => {
+                warn!("NVF_PLAY_TEST_NEAR: {id:08X} is not a reference of the cell or worldspace played (use its --cell)");
+                near.target = None;
+            }
+        }
+    }
+    commands.insert_resource(Player { heading: d.heading_deg.to_radians(), pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet });
     let settings = MoveSpeeds::from_settings(sim.forms.setting_f32("fMoveBaseSpeed"), sim.forms.setting_f32("fMoveRunMult"));
     let speeds = MoveSpeeds::OBSERVED;
     info!(
@@ -274,15 +297,51 @@ fn mouse_look(
 }
 
 /// Put the character on the ground under the start position once its cell is loaded: a
-/// ray down from the start eye, else from far above (a start under the terrain).
-fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>) {
+/// ray down from the start eye, else (outdoors) from far above (a start under the
+/// terrain). Indoors with nothing below, the start moves to the nearest door arrival into
+/// the cell ([`safe`]). With the `NVF_PLAY_TEST_NEAR` aid, a standing spot next to its
+/// reference replaces the start.
+fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>, mut near: ResMut<NearAid>, sim: Res<SimState>) {
     if phys.player.is_some() || !phys.ready_at(player.feet) {
         return;
+    }
+    if let (Some(id), Some(pos)) = (near.target, near.pos.take()) {
+        match safe::reach_spot(&mut phys, player.eye_height, id, pos, crate::activate::pick::REACH) {
+            Some((feet, heading, pitch)) => {
+                info!(
+                    "test aid NVF_PLAY_TEST_NEAR: standing at ({:.0}, {:.0}, {:.1}) facing {id:08X} at ({:.0}, {:.0}, {:.0}), heading {:.0}°, pitch {:.0}°",
+                    feet[0],
+                    feet[1],
+                    feet[2],
+                    pos[0],
+                    pos[1],
+                    pos[2],
+                    heading.to_degrees(),
+                    pitch.to_degrees()
+                );
+                (player.feet, player.heading, player.pitch) = (feet, heading, pitch);
+            }
+            None => {
+                let [x, y, z] = near.start;
+                warn!("test aid NVF_PLAY_TEST_NEAR: no standing spot within reach of {id:08X}; the start is kept ({x:.0}, {y:.0}, {z:.0})");
+                player.feet = near.start;
+                if !phys.ready_at(player.feet) {
+                    return; // its cell streams in first
+                }
+            }
+        }
     }
     let start = player.feet;
     let mut hit = phys.place_player(start, player.eye_height, 100_000.0);
     if hit.is_none() {
-        hit = phys.place_player(start, 100_000.0, 100_000.0);
+        if let Space::Interior(cell) = phys.space {
+            if let Some((spot, feet)) = rescue(&mut phys, &sim, cell, start, "the start has nothing under it") {
+                (player.feet, player.heading) = (feet, spot.heading);
+                return;
+            }
+        } else {
+            hit = phys.place_player(start, 100_000.0, 100_000.0);
+        }
     }
     // A start above water deeper than the swimming depth: the character starts where it
     // was asked to and falls in (into the swimming state), as the game's player does after
@@ -309,6 +368,147 @@ fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>) {
         hit.map_or("none below the start".to_string(), |h| format!("z {:.1} ({:?})", h.point[2], h.owner)),
         phys.terrain_z(feet[0], feet[1]).map_or("-".to_string(), |z| format!("{z:.1}")),
     );
+}
+
+/// Test aid `NVF_PLAY_TEST_NEAR=<reference FormID, hex>`: start next to this reference.
+#[derive(Resource, Default)]
+struct NearAid {
+    target: Option<u32>,
+    /// The reference's position until the start is placed.
+    pos: Option<[f32; 3]>,
+    /// The start asked for (`--pos` or the cell's), kept when no spot is found.
+    start: [f32; 3],
+}
+
+impl NearAid {
+    fn from_env() -> NearAid {
+        let Ok(v) = std::env::var("NVF_PLAY_TEST_NEAR") else { return NearAid::default() };
+        match v.trim().parse::<FormId>() {
+            Ok(id) => NearAid { target: Some(id.0), ..default() },
+            Err(e) => {
+                warn!("NVF_PLAY_TEST_NEAR: {e}");
+                NearAid::default()
+            }
+        }
+    }
+}
+
+/// The interior safety net's state.
+#[derive(Resource, Default)]
+struct Net {
+    /// Where the character last stood on something, in the current space (cleared by
+    /// `Travel`).
+    last_grounded: Option<[f32; 3]>,
+    /// A `Travel` arrived: check its destination once the character is there.
+    check_arrival: bool,
+    /// Lowest z of the interior's static collision, for (cell, cells loaded so far).
+    floor: Option<(u32, usize, Option<f32>)>,
+    /// This interior offered no door arrival with footing.
+    hopeless: Option<u32>,
+}
+
+/// Put the player on the nearest door arrival into interior `cell` where they can stand
+/// ([`safe`]), logging why and what replaced `from`. `None` (and a warning) when the cell
+/// offers none; the character stays where it is.
+fn rescue(phys: &mut PhysState, sim: &SimState, cell: u32, from: [f32; 3], why: &str) -> Option<(safe::Spot, [f32; 3])> {
+    let spots = safe::door_arrivals(sim.refs, cell);
+    let Some((spot, _)) = safe::choose(&spots, from, |s| safe::stand(phys, s.feet, None)) else {
+        warn!(
+            "{why} at ({:.0}, {:.0}, {:.0}) in interior {cell:08X}, and none of its {} door arrivals has footing: left there",
+            from[0],
+            from[1],
+            from[2],
+            spots.len()
+        );
+        return None;
+    };
+    // The arrival rule (physics.md §6.2) settles the feet, as a door would.
+    let a = phys.arrive_player(spot.feet);
+    let safe::Source::DoorArrival { from: door_from, door } = spot.source;
+    warn!(
+        "{why} at ({:.0}, {:.0}, {:.0}) in interior {cell:08X}: moved to the arrival of door {door_from:08X} (beside {door:08X}), feet ({:.0}, {:.0}, {:.1}), heading {:.0}°",
+        from[0],
+        from[1],
+        from[2],
+        a.feet[0],
+        a.feet[1],
+        a.feet[2],
+        spot.heading.to_degrees()
+    );
+    Some((spot, a.feet))
+}
+
+/// Interiors have no terrain to fall back onto: a character more than
+/// [`safe::INTERIOR_FELL_THROUGH`] below the cell's lowest static collision goes back to
+/// where it last stood, else to a door arrival; a door destination with nothing under it
+/// moves to a door arrival at once.
+fn interior_net(
+    mut travel: MessageReader<Travel>,
+    state: Res<State<PlayState>>,
+    sim: Res<SimState>,
+    mut net: ResMut<Net>,
+    mut phys: ResMut<PhysState>,
+    mut player: ResMut<Player>,
+) {
+    if travel.read().count() > 0 {
+        net.last_grounded = None;
+        net.check_arrival = true;
+    }
+    let Space::Interior(cell) = phys.space else {
+        net.check_arrival = false;
+        return;
+    };
+    let Some((feet, grounded)) = phys.player.as_ref().map(|c| (c.feet, c.grounded)) else { return };
+    if *state.get() != PlayState::Playing || !phys.ready_at(feet) {
+        return;
+    }
+    if std::mem::take(&mut net.check_arrival) {
+        let h = safe::params(&phys).height;
+        if phys.ground_below(feet, h / 2.0, 100_000.0).is_none() {
+            if let Some((spot, at)) = rescue(&mut phys, &sim, cell, feet, "the door's destination has nothing under it") {
+                (player.feet, player.heading) = (at, spot.heading);
+            }
+            return;
+        }
+    }
+    if grounded {
+        net.last_grounded = Some(feet);
+    }
+    let key = (cell, phys.stats.cells_loaded);
+    let floor = match net.floor {
+        Some((c, n, z)) if (c, n) == key => z,
+        _ => {
+            let z = phys.world.fixed_bounds().map(|b| b.0[2]);
+            net.floor = Some((key.0, key.1, z));
+            z
+        }
+    };
+    let Some(floor) = floor.filter(|&z| safe::fell_out(feet[2], z)) else { return };
+    let back = net.last_grounded.and_then(|g| safe::stand(&mut phys, g, None));
+    match back {
+        Some(g) => {
+            warn!(
+                "player fell out of interior {cell:08X} at ({:.0}, {:.0}, {:.0}), lowest collision z {floor:.0}: back to where they last stood ({:.0}, {:.0}, {:.1})",
+                feet[0], feet[1], feet[2], g[0], g[1], g[2]
+            );
+            phys.place_player(g, 1.0, 100.0);
+            player.feet = phys.player.as_ref().map_or(g, |c| c.feet);
+        }
+        None => {
+            let why = format!("player fell out of the interior (lowest collision z {floor:.0})");
+            let found = if net.hopeless == Some(cell) { None } else { rescue(&mut phys, &sim, cell, feet, &why) };
+            match found {
+                Some((spot, at)) => (player.feet, player.heading) = (at, spot.heading),
+                None => {
+                    // Nowhere to stand: hold the character where the rule caught it (warned
+                    // once per cell).
+                    net.hopeless = Some(cell);
+                    phys.place_player([feet[0], feet[1], floor - safe::INTERIOR_FELL_THROUGH], 0.0, 0.0);
+                    player.feet = phys.player.as_ref().map_or(feet, |c| c.feet);
+                }
+            }
+        }
+    }
 }
 
 /// Below the terrain by this much the character has fallen through [engineering choice]:
@@ -389,7 +589,8 @@ fn step(
 /// Feet, cell and heading last written to the simulation.
 type SimPose = ([f32; 3], Option<u32>, f32);
 
-/// The simulation's player reference stands where the character does.
+/// The simulation's player reference stands where the character does, in the cell of the
+/// worldspace being played (`PhysState::worldspace`, which door travel changes) or the interior.
 fn sync_sim(
     phys: Res<PhysState>,
     player: Res<Player>,
@@ -402,7 +603,7 @@ fn sync_sim(
         Space::Interior(id) => Some(id),
         Space::Exterior => {
             let g = cell_of(c.feet[0], c.feet[1]);
-            d.index.worldspaces.get(&d.world).and_then(|w| w.grid.get(&g)).copied()
+            d.index.worldspaces.get(&phys.worldspace).and_then(|w| w.grid.get(&g)).copied()
         }
     };
     let now = (c.feet, cell, player.heading);
@@ -422,7 +623,7 @@ fn sync_sim(
     }
 }
 
-fn log_status(time: Res<Time>, phys: Res<PhysState>, mut status: ResMut<Status>) {
+fn log_status(time: Res<Time>, phys: Res<PhysState>, player: Res<Player>, mut status: ResMut<Status>) {
     status.elapsed += time.delta_secs();
     if status.elapsed < 1.0 {
         return;
@@ -434,10 +635,12 @@ fn log_status(time: Res<Time>, phys: Res<PhysState>, mut status: ResMut<Status>)
     let water = phys.world.water_surface_at(f[0], f[1]);
     let touched: Vec<String> = s.touched.iter().map(|id| format!("{id:08X}")).collect();
     debug!(
-        "player: feet ({:.0}, {:.0}, {:.1}) terrain {} water {} swimming {}/{} grounded {}/{} sliding {} moved {:.0} of {:.0} units/s commanded, touched{} [{}]; physics: {} cells, {} refs with collision, {} steps{}",
+        "player: feet ({:.0}, {:.0}, {:.1}) heading {:.1}° pitch {:.1}° terrain {} water {} swimming {}/{} grounded {}/{} sliding {} moved {:.0} of {:.0} units/s commanded, touched{} [{}]; physics: {} cells, {} refs with collision, {} steps{}",
         f[0],
         f[1],
         f[2],
+        player.heading.to_degrees(),
+        player.pitch.to_degrees(),
         terrain.map_or("-".to_string(), |t| format!("z {t:.1} (feet {:+.1})", f[2] - t)),
         water.map_or("-".to_string(), |w| format!("z {w:.1} (feet {:+.1})", f[2] - w)),
         s.swimming_steps,

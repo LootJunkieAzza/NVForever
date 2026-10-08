@@ -36,6 +36,14 @@ class Jobs(unittest.TestCase):
         labels = [(s["label"], s["field"]) for s in body if "query" in s]
         self.assertEqual(labels[:3], [("d a", "fell"), ("d a", "feet"), ("d a", "feet_later")])
 
+    def test_repeated_drops_run_the_whole_sequence_again(self):
+        job = cm.make_job([DROPS], "j", "start here", repeats=3)
+        labels = [s["label"] for s in job["steps"] if s.get("field") == "fell"]
+        self.assertEqual(labels, ["d a r1", "d b r1", "d a r2", "d b r2", "d a r3", "d b r3"])
+        self.assertIn("each drop 3 times", job["title"])
+        with self.assertRaises(cm.InputError):
+            cm.make_job([DROPS], "j", "start here", repeats=0)
+
     def test_walk_steps_hold_and_release_keys(self):
         doc = json.loads(json.dumps(WALK))
         doc["capture"].update(keys=["forward", "run"], jump=True)
@@ -96,6 +104,43 @@ class Goldens(unittest.TestCase):
         self.assertEqual(g["observations"][0], {"label": "a", "feet": [10.0, 20.0, 103.5], "feet_first": [10.0, 20.0, 104.0]})
         self.assertEqual(g["observations"][1], {"label": "b", "not_observed": "did not fall"})
         self.assertEqual(g["not_observed"][0]["label"], "b")
+
+    def test_drops_median_of_repeats(self):
+        def drop(label, fell, z, x=10):
+            return [res(label, "fell", fell), res(label, "feet", f"{x} 20 {z + 1}"), res(label, "feet_later", f"{x} 20 {z}")]
+        run1 = drop("d a r1", 1.0, 100) + drop("d a r2", 1.0, 108) + drop("d a r3", 1.0, 101, x=24) + \
+            drop("d b r1", 0.0, 400) + drop("d b r2", 0.0, 400) + drop("d b r3", 0.0, 400)
+        run2 = drop("d a r1", 1.0, 150) + drop("d a r2", 0.0, 300) + drop("d b r1", 0.0, 400) + drop("d b r2", 0.0, 400)
+        g = cm.drops_golden(DROPS, run1, run2)
+        a = g["observations"][0]
+        # Four repeats fell (the one that did not is left out); median per coordinate.
+        self.assertEqual(a["repeats"], 4)
+        self.assertEqual(a["feet"], [10.0, 20.0, 104.5])
+        self.assertEqual(a["spread"], [14.0, 0.0, 50.0])
+        self.assertEqual(a["readings"][0], [10.0, 20.0, 100.0])
+        self.assertEqual(g["observations"][1], {"label": "b", "not_observed": "did not fall"})
+
+    def test_golden_cli_reads_several_runs(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as t:
+            paths = []
+            for i, z in enumerate((100, 102, 110)):
+                path = os.path.join(t, f"r{i}.jsonl")
+                with open(path, "w", encoding="utf-8") as f:
+                    head = [res(cs.MODINDEX_LABEL, m, float(k)) for k, m in enumerate(cs.MASTERS)]
+                    for r in head + [res("d a", "fell", 1.0), res("d a", "feet", f"1 2 {z}"), res("d a", "feet_later", f"1 2 {z}")]:
+                        f.write(json.dumps(r) + "\n")
+                    f.write(json.dumps({"kind": "end"}) + "\n")
+                paths.append(path)
+            inp = os.path.join(t, "in.json")
+            with open(inp, "w", encoding="utf-8") as f:
+                json.dump({"schema": "fnv.phys.drops/1", "name": "d", "drops": [{"label": "a", "at": [1.0, 2.0, 300.0]}]}, f)
+            out = os.path.join(t, "g.json")
+            self.assertEqual(cm.main(["golden", paths[0], inp, "--also", paths[1], "--also", paths[2], "-o", out]), 0)
+            with open(out, encoding="utf-8") as f:
+                g = json.load(f)
+            self.assertEqual(g["observations"][0]["feet"], [1.0, 2.0, 102.0])
+            self.assertEqual(g["observations"][0]["repeats"], 3)
 
     def test_walk_aligns_on_onset_with_one_loop_lag(self):
         # The clock runs 1/60 s per loop; the player stands for 6 samples, then moves
