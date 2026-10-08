@@ -585,13 +585,16 @@ and in a walking jump.
   snapping to the slope: z differs by 47 at t0.25; snapping down steep slopes is open.
 - `move_hill_run`: the game ran straight west at 306 horizontal + 134 vertical; the
   prediction drifted 87 units south (the slope projection also turned the motion
-  downhill), fixed by keeping the heading (above). Note: the golden builder took the
-  movement onset at a first change of 0.1 in z, two loops before the run started; for
-  `move_hill_run` and `move_portal_wall` its observation times are 0.031 s early. The
-  builder now uses the horizontal position (`capture_moves.py`); the two goldens were
-  left as built. Rebuilt in a scratch folder they give hill_run 6/6 and portal_wall 5/6
-  (only the airborne z at t0.25 differs); as installed hill_run fails 4 rows by 10–12
-  units.
+  downhill), fixed by keeping the heading (above). Golden onset: the builder first took
+  the movement onset at a 0.08–0.1 change in z one sample (0.031 s of game clock) before
+  the run started, so the first goldens' observation times were 0.031 s early. The
+  builder now uses the horizontal position (`capture_moves.py`), and on the owner's
+  decision (2026-10-08) both goldens were replaced by a rebuild from the same raw capture
+  (layer4-captures.md §1, log). Against the rebuild hill_run passes 6/6 and portal_wall
+  5/6: only the airborne z at t0.25 differs (−46.7). Before the replacement, the same
+  candidate scored 3/6 and 4/6. Both results were seen before the rebuild was installed,
+  so these two scenarios are no longer independent held-out evidence. A fresh
+  re-capture to confirm the onset within the game's spread is still to be made.
 - `mv_diag_trees_rocks` (drops on a ±30 grid; candidate as now):
 
 | Drop | Game feet (x, y, z) | Candidate z | Δz |
