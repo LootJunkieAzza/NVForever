@@ -10,12 +10,13 @@
 //! docs/spec-notes/world.md), so the renderer and the simulation agree by construction;
 //! this module adds the extra data the simulation needs.
 
+use fnv_esm::decode::SubStatus;
 use fnv_esm::raw::record_flags;
 use fnv_esm::{LoadOrder, Record, Schema};
 use fnv_world::{RefEntry, WorldIndex};
 use rayon::prelude::*;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::extract::{self, first, global, has_flag, int, local_fid, num, text, Issues};
 use crate::form::FormId;
@@ -55,7 +56,12 @@ pub struct PlacedRef {
     pub sig: [u8; 4],
     pub edid: Option<String>,
     pub base: FormId,
+    /// The reference's parent cell: the cell whose group stores it, except that a
+    /// reference stored in a worldspace's persistent cell belongs to the exterior cell
+    /// containing its position (see `stored_in`).
     pub cell: Option<FormId>,
+    /// The cell whose children group stores the winning definition.
+    pub stored_in: Option<FormId>,
     /// Load-order index of the plugin whose definition won.
     pub plugin: u8,
     pub flags: u32,
@@ -66,11 +72,15 @@ pub struct PlacedRef {
     pub scale: Option<f32>,
     /// XCNT: stack size of an item reference.
     pub count: Option<i32>,
+    /// XHLP: condition of a placed weapon or armour as a fraction of full health.
+    pub health: Option<f32>,
     pub owner: Option<FormId>,
     pub lock: Option<Lock>,
     pub teleport: Option<Teleport>,
     pub enable_parent: Option<EnableParent>,
     pub linked: Option<FormId>,
+    /// XMRC on an actor reference: the container holding the actor's merchant stock.
+    pub merchant_container: Option<FormId>,
 }
 
 impl PlacedRef {
@@ -79,13 +89,23 @@ impl PlacedRef {
     }
 }
 
-pub const REF_SIGS: &[&[u8; 4]] = &[b"REFR", b"ACHR", b"ACRE"];
+pub const REF_SIGS: &[&[u8; 4]] = &[b"REFR", b"ACHR", b"ACRE", b"PGRE"];
 
 #[derive(Default)]
 pub struct RefTable {
     pub refs: BTreeMap<FormId, PlacedRef>,
     /// Lower-case Editor ID -> reference.
     pub edids: HashMap<String, FormId>,
+    /// References by cell, in FormID order.
+    pub by_cell: BTreeMap<FormId, Vec<FormId>>,
+    /// Lower-case cell Editor ID -> cell.
+    pub cell_edids: HashMap<String, FormId>,
+    /// Cells that belong to a worldspace (exterior cells and the persistent cell).
+    pub cell_world: HashMap<FormId, FormId>,
+    /// Each worldspace's exterior cells by grid coordinate.
+    pub world_grid: HashMap<FormId, BTreeMap<(i32, i32), FormId>>,
+    /// Merchant containers (XMRC targets) -> the actor references whose stock they hold.
+    pub merchant_containers: BTreeMap<FormId, Vec<FormId>>,
     /// References whose winning definition carries the Deleted flag (left out).
     pub deleted: u64,
     pub issues: Issues,
@@ -132,17 +152,69 @@ impl RefTable {
                 (pr, false, issues)
             })
             .collect();
+        for c in ix.cells.values() {
+            if let Some(e) = &c.edid {
+                t.cell_edids.insert(e.to_ascii_lowercase(), FormId(c.form_id));
+            }
+            if let Some(w) = c.world {
+                t.cell_world.insert(FormId(c.form_id), FormId(w));
+            }
+        }
+        let mut persistent_cells = HashSet::new();
+        for (w, ws) in &ix.worldspaces {
+            t.world_grid.insert(FormId(*w), ws.grid.iter().map(|(g, c)| (*g, FormId(*c))).collect());
+            persistent_cells.extend(ws.persistent_cell.map(FormId));
+        }
         for (pr, deleted, issues) in loaded {
             t.issues.merge(issues);
             t.deleted += deleted as u64;
-            if let Some(pr) = pr {
+            if let Some(mut pr) = pr {
+                // A reference stored in a worldspace's persistent cell belongs to the
+                // exterior cell that contains it. [observed in game: GetParentCell of the
+                // persistent door 0x00103E69, asked outdoors, is Goodsprings 0x000DAEBB
+                // (grid -18,0 containing its position), not the persistent cell]
+                if let Some(c) = pr.cell.filter(|c| persistent_cells.contains(c)) {
+                    match t.exterior_cell_at(c, pr.pos) {
+                        Some(grid) => pr.cell = Some(grid),
+                        None => t.issues.note("persistent exterior reference outside every grid cell", || {
+                            format!("{} at ({}, {})", pr.id, pr.pos[0], pr.pos[1])
+                        }),
+                    }
+                }
                 if let Some(e) = &pr.edid {
                     t.edids.insert(e.to_ascii_lowercase(), pr.id);
+                }
+                if let Some(c) = pr.cell {
+                    t.by_cell.entry(c).or_default().push(pr.id);
+                }
+                if let Some(m) = pr.merchant_container {
+                    t.merchant_containers.entry(m).or_default().push(pr.id);
                 }
                 t.refs.insert(pr.id, pr);
             }
         }
         t
+    }
+
+    /// The exterior cell at `pos` in the worldspace that `cell` belongs to, if `cell` is
+    /// a worldspace cell and a cell exists at that grid square.
+    pub fn exterior_cell_at(&self, cell: FormId, pos: [f32; 3]) -> Option<FormId> {
+        let world = self.cell_world.get(&cell)?;
+        let (gx, gy) = fnv_world::cell_of(pos[0], pos[1]);
+        self.world_grid.get(world)?.get(&(gx, gy)).copied()
+    }
+
+    /// Whether `id` holds a merchant's stock (an actor reference names it in XMRC).
+    /// [documented: xEdit "Merchant Container" on ACHR/ACRE; observed in game: such a
+    /// container restocks faster than the 72 h cell respawn — the rule is being
+    /// captured, docs/spec-notes/simulation.md §3]
+    pub fn is_merchant_container(&self, id: FormId) -> bool {
+        self.merchant_containers.contains_key(&id)
+    }
+
+    /// A cell by Editor ID (case-insensitive).
+    pub fn cell_by_edid(&self, edid: &str) -> Option<FormId> {
+        self.cell_edids.get(&edid.to_ascii_lowercase()).copied()
     }
 
     pub fn get(&self, id: FormId) -> Option<&PlacedRef> {
@@ -187,13 +259,25 @@ fn load_ref(
     in_persistent_group: bool,
     issues: &mut Issues,
 ) -> Option<PlacedRef> {
-    let d = match extract::decode(r, schema) {
+    // Placed explosives (PGRE) use the placed-reference subrecords; the schema
+    // describes them once, under REFR. [hypothesis: xEdit defines PGRE with the same
+    // placed-object subrecords; checked by counting subrecords the REFR layout does not
+    // decode, reported below]
+    let layout = if &r.header.sig == b"PGRE" { b"REFR" } else { &r.header.sig };
+    let d = match extract::decode_as(r, schema, layout) {
         Ok(d) => d,
         Err(e) => {
             issues.note("reference undecodable", || format!("{id}: {e}"));
             return None;
         }
     };
+    if &r.header.sig == b"PGRE" {
+        for x in d.iter().filter(|x| x.status != SubStatus::Ok) {
+            issues.note(&format!("PGRE subrecord {} not decoded by the REFR layout", String::from_utf8_lossy(&x.sig)), || {
+                format!("{id}")
+            });
+        }
+    }
     let fid = |v: Option<&serde_json::Value>, what: &str, issues: &mut Issues| field_fid(lo, pi, id, v, what, issues);
     let Some(base) = fid(first(&d, b"NAME"), "NAME", issues) else {
         issues.note("reference without base (NAME)", || format!("{id}"));
@@ -236,6 +320,7 @@ fn load_ref(
         edid: first(&d, b"EDID").and_then(text),
         base,
         cell: Some(cell),
+        stored_in: Some(cell),
         plugin: pi as u8,
         flags: r.header.flags,
         in_persistent_group,
@@ -243,10 +328,12 @@ fn load_ref(
         rot: rot.unwrap_or_default(),
         scale: first(&d, b"XSCL").and_then(serde_json::Value::as_f64).map(|s| s as f32),
         count: first(&d, b"XCNT").and_then(serde_json::Value::as_i64).map(|c| c as i32),
+        health: first(&d, b"XHLP").and_then(serde_json::Value::as_f64).map(|h| h as f32),
         owner: fid(first(&d, b"XOWN"), "XOWN", issues),
         lock,
         teleport,
         enable_parent,
         linked: fid(first(&d, b"XLKR"), "XLKR", issues),
+        merchant_container: fid(first(&d, b"XMRC"), "XMRC", issues),
     })
 }

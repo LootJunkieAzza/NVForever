@@ -47,7 +47,7 @@ scenario argv and golden paths.
 | `keyed` | record sets | `select`, `key` (field or list), `fields` (default: all oracle fields), tolerances; reports missing / extra / changed |
 | `sequence` | ordered traces | `select`, `fields`, tolerances; score = matching prefix, reports first divergence |
 | `image` | rendered frames | `min_ssim` (required), `max_mae`, `max_mean_color_delta`, `width` (working width, default 192); oracle `{"image", "masks"}`, candidate `{"image"}`; PNG and BMP; reports SSIM, colour error and a 4 × 4 tile breakdown (`fnvlab/image.py`) |
-| `distribution` | planned | currently reports `error` |
+| `distribution` | random outcomes | `select`, `key` (default `label`), `field` (default `outcomes`), `alpha` (default 0.01), `min_expected` (default 5); oracle cases `{key, outcomes: {outcome: count}}`, candidate cases the same (two-sample chi-square homogeneity test) or `probabilities: {outcome: p}` (goodness of fit; an oracle outcome with probability 0 fails outright); small expected counts are pooled; a case passes when p >= `alpha`; score = passing cases / (oracle cases + extra candidate cases); stats give p, chi-square, df and total-variation distance per case |
 
 Scores are in [0, 1]. Status: `pass` (no failures), `fail`, `error` (oracle, candidate or
 harness problem — never a crash). Each failure has a stable ID: SHA-1 of
@@ -76,7 +76,7 @@ Goldens are produced by `tools/capture/` and must stay out of any public reposit
 ## Open items
 
 - Image comparator (perceptual metric + region masks) for Layer 3 frames.
-- Distribution comparator for random outcomes (Layer 6).
-- Behavioural capture plugin (xNVSE, JSON lines) for Layer 4–6 traces.
+- Behavioural capture plugin: first version `tools/capture/nvf_capture` (xNVSE, JSON lines;
+  tools/capture/README.md §10), not yet run in-game.
 - Parallel scenario execution (`--jobs`).
 - Moving holdout scenario files and goldens to a location the agent cannot read.

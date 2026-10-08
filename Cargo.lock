@@ -453,6 +453,7 @@ name = "fnv-sim"
 version = "0.1.0"
 dependencies = [
  "fnv-esm",
+ "fnv-util",
  "fnv-world",
  "proptest",
  "rand_chacha",

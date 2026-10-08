@@ -21,12 +21,17 @@ pub struct Decoded {
 
 /// Decode every subrecord of `r` with the schema (unknown ones keep `value: None`).
 pub fn decode(r: &Record, schema: &Schema) -> Result<Vec<Decoded>, String> {
+    decode_as(r, schema, &r.header.sig)
+}
+
+/// Decode `r` with the layout the schema gives record type `layout`.
+pub fn decode_as(r: &Record, schema: &Schema, layout: &[u8; 4]) -> Result<Vec<Decoded>, String> {
     let subs = r.subrecords().map_err(|e| e.to_string())?;
     let mut ctx = DecodeCtx { schema, on_formid: None };
     Ok(subs
         .iter()
         .map(|s| {
-            let d = decode_sub(&r.header.sig, s, &mut ctx);
+            let d = decode_sub(layout, s, &mut ctx);
             Decoded { sig: s.sig, status: d.status, value: d.value }
         })
         .collect())

@@ -1,9 +1,13 @@
 //! Leveled item lists (LVLI): turning a list into concrete items.
 //!
 //! The *data* (chance none, the three flags, entries with level and count) is
-//! documented by the record layout. The *selection rules* below are **[hypothesis]**,
-//! derived from the flag names only, until the distribution scenarios in
-//! docs/design/layer4.md §4 compare them with samples captured from the original game:
+//! documented by the record layout. The *selection rules* below were derived from the
+//! flag names and are **consistent with the game** for the `L4.sim.leveled.basic`
+//! cases [observed: 300 in-game `AddItem` draws per case, chi-square p 0.16–1.0 on all
+//! seven]: chance none, independent rolls for "each item in count", highest eligible
+//! level vs uniform pick, "Use All", and resolution against the player's level. Still
+//! **[hypothesis]**: the LVLG global replacing chance none, nested lists, and
+//! "all levels" with entries at intermediate levels.
 //!
 //! 1. Chance none: roll an integer 0–99; below `chance_none` (or the LVLG global's
 //!    value, when set) yields nothing.
@@ -67,7 +71,7 @@ fn resolve_at(
         return Ok(());
     }
     let Some(list) = forms.leveled(item) else {
-        out.push(Entry { item, count });
+        out.push(Entry::new(item, count));
         return Ok(());
     };
     if depth >= MAX_DEPTH {

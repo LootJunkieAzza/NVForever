@@ -18,6 +18,7 @@ committed**. Recommended layout:
   esm/<Plugin>.xedit.inventory.json   xedit/export_inventory.pas
   bsa/<Archive>.listing.json      oracle_bsa.py   (e.g. "DeadMoney - Main.bsa.listing.json")
   sim/containers.json             oracle_sim.py containers (ten masters)
+  sim/items.json                  oracle_sim.py items (ten masters)
 ```
 
 Point the lab at it through its `goldens_dir` setting in an uncommitted local overlay or an
@@ -336,10 +337,12 @@ Written only from `docs/spec-notes/simulation.md` (§3, §7) and `docs/spec-note
 (not from `crates/` or `schemas/`). Standard library only; it imports the container
 helpers (tolerant zlib, XXXX-aware subrecord iterator, cp1252 strings) from
 `oracle_esm.py` and must sit next to it. One linear pass per plugin; only CONT records are
-parsed in full and LIGH records for their DATA flags, so the ten masters take about a second.
+parsed in full and LIGH records for their DATA flags (plus, for `items`, the records of the
+inventory item types), so the ten masters take about a second.
 
 ```
 python tools/capture/oracle_sim.py containers "<Data>" FalloutNV.esm DeadMoney.esm HonestHearts.esm OldWorldBlues.esm LonesomeRoad.esm GunRunnersArsenal.esm ClassicPack.esm MercenaryPack.esm TribalPack.esm CaravanPack.esm -o C:/fnv-private/goldens/sim/containers.json
+python tools/capture/oracle_sim.py items "<Data>" FalloutNV.esm DeadMoney.esm HonestHearts.esm OldWorldBlues.esm LonesomeRoad.esm GunRunnersArsenal.esm ClassicPack.esm MercenaryPack.esm TribalPack.esm CaravanPack.esm -o C:/fnv-private/goldens/sim/items.json
 ```
 
 - `containers` → `fnv.sim.containers/1` (golden `sim/containers.json`): one object per
@@ -359,6 +362,57 @@ python tools/capture/oracle_sim.py containers "<Data>" FalloutNV.esm DeadMoney.e
   without DATA or with DATA shorter than 16 bytes is not carriable; a CONT whose compressed
   data cannot be decoded is still listed, with null fields and no entries; within one
   plugin a later record with the same FormID replaces an earlier one.
+- `items` → `fnv.sim.items/1` (golden `sim/items.json`): one object per winning,
+  non-deleted inventory item record (LIGH only when carriable) with `sig`, `edid`, `name`,
+  `value`, `weight`, `health`, `biped_flags` at the byte offsets of the contract table.
+  Top-level extras as for `containers` (`summary` counts per type and null fields;
+  warnings `item_field_short`, `item_subrecord_repeated`, `item_data_unreadable`,
+  `item_weight_not_finite`). On the ten masters: 3,972 items, no warnings beyond the
+  GunRunnersArsenal one above.
+
+## 10. `nvf_capture` + `capture_steps.py` — in-game captures (Layer 4+)
+
+An xNVSE plugin for the **original game** (not part of NVForever) that runs a scenario's
+steps inside FNV and records what the game reports, so trace and leveled-list goldens need
+no hand-typed console sessions. Interface, protocol and file formats:
+`docs/spec-notes/xnvse-capture.md`. The plugin reads no game memory (only xNVSE's plugin
+interface and the game's script language) and writes only to the capture directory.
+
+**One-time setup (owner, by hand — tools never write into the game folder):**
+1. Install xNVSE 6.4.9 or later following its own instructions (github.com/xNVSE/NVSE,
+   Steam version). The plugin declines to load on older xNVSE or other game versions.
+2. Build the plugin (32-bit):
+   ```
+   rustup target add i686-pc-windows-msvc
+   cd tools/capture/nvf_capture && cargo build --release
+   ```
+   and copy `target/i686-pc-windows-msvc/release/nvf_capture.dll` to
+   `<FNV>\Data\NVSE\Plugins\`. Optional: `nvf_capture.ini` there with `dir=<path>` to move
+   the capture directory away from `C:\fnv-private\capture\`.
+3. Use a **test character** (and back up saves): jobs remove items, change levels,
+   attributes and globals.
+
+**Per scenario:**
+```
+python tools/capture/capture_steps.py actions parity-lab/inputs/layer4/goodsprings_weight_and_time.actions.json --data "<Data>" --start "Load the pinned save in Doc Mitchell's house (new level-1 character, no perks)." -o C:/fnv-private/capture/jobs/goodsprings_weight_and_time.steps.json
+python tools/capture/capture_steps.py cases parity-lab/inputs/layer4/leveled_basic.cases.json --data "<Data>" --draws 300 --start "Load a test save in a quiet interior." -o C:/fnv-private/capture/jobs/leveled_basic.steps.json
+```
+Start the game, load the save named in `--start`; the plugin announces the first pending
+job (top left). **End** starts it, **Home** skips it; manual steps (waiting, walking
+through a door) show their instruction and continue on **End**. Output:
+`C:\fnv-private\capture\out\<job>.<time>.jsonl`; finished jobs move to `jobs\done\`; a log
+is in `nvf_capture.log`. Then build the golden:
+```
+python tools/capture/capture_steps.py trace   C:/fnv-private/capture/out/goodsprings_weight_and_time.<time>.jsonl -o C:/fnv-private/goldens/sim/goodsprings_weight_and_time.trace.json
+python tools/capture/capture_steps.py samples C:/fnv-private/capture/out/leveled_basic.<time>.jsonl --cases parity-lab/inputs/layer4/leveled_basic.cases.json -o C:/fnv-private/goldens/sim/leveled_basic.samples.json
+```
+`--data` (the game's Data folder, read-only) resolves Editor IDs to FormIDs: the game does
+not know Editor IDs at run time. Forms in jobs are named by plugin file and local FormID,
+so the game's own load order does not matter; output FormIDs are mapped back through the masters' mod indices,
+which every job records first (`GetModIndex`). A step that fails (e.g. a script that does not compile) is recorded
+as an error and the job continues; check the golden for `error` fields before using it.
+Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, layouts) and
+`tests/test_capture_steps.py`.
 
 ## Tests
 

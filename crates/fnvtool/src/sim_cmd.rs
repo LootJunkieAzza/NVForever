@@ -19,11 +19,26 @@ pub fn run(cmd: SimCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(&schema)?;
             Ok(forms_report(&lo, &FormStore::build(&lo, &schema), &RefTable::build(&lo, &schema)))
         }
+        SimCmd::Items { lo, schema } => {
+            let plugins = open_load_order(&lo)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            Ok(items(&FormStore::build(&lo, &schema)))
+        }
         SimCmd::Containers { lo, schema } => {
             let plugins = open_load_order(&lo)?;
             let lo = LoadOrder::new(&plugins)?;
             let schema = Schema::load_dir(&schema)?;
             Ok(containers(&FormStore::build(&lo, &schema)))
+        }
+        SimCmd::Sample { lo, schema, cases } => {
+            let text = std::fs::read_to_string(&cases).with_context(|| cases.display().to_string())?;
+            let cases: fnv_sim::sample::Cases =
+                serde_json::from_str(&text).with_context(|| cases.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema)?;
+            fnv_sim::sample::run(&FormStore::build(&lo, &schema), &cases).map_err(anyhow::Error::msg)
         }
         SimCmd::Run { lo, schema, actions } => {
             let text = std::fs::read_to_string(&actions).with_context(|| actions.display().to_string())?;
@@ -122,12 +137,15 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
     let mut ref_sigs: BTreeMap<String, u64> = BTreeMap::new();
     let mut ref_base: BTreeMap<String, u64> = BTreeMap::new();
     let mut persist = [[0u64; 2]; 2]; // [flag][group]
-    let (mut disabled, mut with_count, mut owned) = (0u64, 0u64, 0u64);
+    let (mut disabled, mut with_count, mut owned, mut reparented) = (0u64, 0u64, 0u64, 0u64);
     let mut lock_levels: BTreeMap<String, u64> = BTreeMap::new();
     let mut lock_keys: BTreeMap<String, u64> = BTreeMap::new();
     let mut lock_on: BTreeMap<String, u64> = BTreeMap::new();
     let mut tel: BTreeMap<String, u64> = BTreeMap::new();
     let mut tel_samples: Vec<String> = Vec::new();
+    let mut ep: BTreeMap<String, u64> = BTreeMap::new();
+    let mut pgre: BTreeMap<String, u64> = BTreeMap::new();
+    let mut ep_samples: Vec<String> = Vec::new();
     for r in refs.refs.values() {
         bump(&mut ref_sigs, sig_str(&r.sig));
         let base_sig = forms.sig(r.base).map(|s| sig_str(&s));
@@ -139,6 +157,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
         );
         persist[(r.flags & FLAG_PERSISTENT != 0) as usize][r.in_persistent_group as usize] += 1;
         disabled += r.initially_disabled() as u64;
+        reparented += (r.cell != r.stored_in) as u64;
         with_count += r.count.is_some() as u64;
         owned += r.owner.is_some() as u64;
         if let Some(l) = r.lock {
@@ -154,6 +173,43 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
                     },
                 },
             );
+        }
+        if let Some(e) = r.enable_parent {
+            bump(&mut ep, if e.opposite { "opposite" } else { "same" });
+            // Depth of the chain, and whether it ends at a missing reference or loops.
+            let (mut cur, mut depth, mut seen) = (e.reference, 1u32, vec![r.id]);
+            let end = loop {
+                if seen.contains(&cur) {
+                    break "loop";
+                }
+                seen.push(cur);
+                match refs.get(cur) {
+                    None if cur == FormId::PLAYER_REF => break "player",
+                    None => break "missing parent",
+                    Some(p) => match p.enable_parent {
+                        None => break "ok",
+                        Some(pp) => {
+                            cur = pp.reference;
+                            depth += 1;
+                        }
+                    },
+                }
+            };
+            bump(&mut ep, format!("depth {depth}"));
+            if end != "ok" {
+                bump(&mut ep, end);
+                if ep_samples.len() < 10 {
+                    ep_samples.push(format!("{} -> {}: {end}", r.id, e.reference));
+                }
+            }
+        }
+        if &r.sig == b"PGRE" {
+            let class = match forms.get(r.base).map(|b| &b.data) {
+                Some(BaseData::Projectile { item: Some(i) }) => format!("disarms to {i}"),
+                Some(BaseData::Projectile { item: None }) => "no single weapon".to_string(),
+                _ => "base not a projectile".to_string(),
+            };
+            bump(&mut pgre, class);
         }
         if let Some(t) = r.teleport {
             let class = match refs.get(t.door) {
@@ -184,6 +240,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
         "carried_items": {"targets": cnto_targets, "counts": cnto_counts, "unusual_samples": odd_entries},
         "leveled_items": {"lists": lvl_lists, "entries": lvl_entries, "flags": lvl_flags, "targets": lvlo_targets},
         "globals": forms.globals.len(),
+        "settings": forms.settings.len(),
         "player": {"base_0x7": player_base, "ref_0x14_placed": player_ref},
         "references": {
             "total": refs.refs.len(),
@@ -197,13 +254,83 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
                 "neither": persist[0][0],
             },
             "initially_disabled_flag": disabled,
+            "parent_cell_is_grid_cell_not_storage_cell": reparented,
             "with_count": with_count,
             "owned": owned,
             "locks": {"levels": lock_levels, "keys": lock_keys, "on_base_type": lock_on},
             "teleports": {"classes": tel, "samples": tel_samples},
+            "enable_parents": {"classes": ep, "samples": ep_samples},
+            "placed_explosives": pgre,
+            "merchant_containers": {
+                "containers": refs.merchant_containers.len(),
+                "actor_links": refs.merchant_containers.values().map(Vec::len).sum::<usize>(),
+                "base_respawns_flag": refs
+                    .merchant_containers
+                    .keys()
+                    .filter(|c| {
+                        refs.get(**c).and_then(|r| forms.get(r.base)).is_some_and(|b| matches!(&b.data, BaseData::Container(c) if c.respawns))
+                    })
+                    .count(),
+                "without_respawns_flag": merchant_without_respawn(forms, refs),
+                "container_base_types": refs.merchant_containers.keys().fold(BTreeMap::<String, u64>::new(), |mut m, c| {
+                    let t = refs.get(*c).and_then(|r| forms.sig(r.base)).map(|s| sig_str(&s)).unwrap_or_else(|| "missing".into());
+                    *m.entry(t).or_default() += 1;
+                    m
+                }),
+            },
         },
         "issues": issues.to_json(),
     })
+}
+
+/// Merchant containers whose base lacks the Respawns flag, with cell and merchants.
+fn merchant_without_respawn(forms: &FormStore, refs: &RefTable) -> Vec<Value> {
+    let cell_name: std::collections::HashMap<FormId, &String> = refs.cell_edids.iter().map(|(e, c)| (*c, e)).collect();
+    refs.merchant_containers
+        .iter()
+        .filter_map(|(c, actors)| {
+            let r = refs.get(*c)?;
+            let b = forms.get(r.base)?;
+            if matches!(&b.data, BaseData::Container(cd) if cd.respawns) {
+                return None;
+            }
+            let merchants: Vec<Value> = actors
+                .iter()
+                .map(|a| {
+                    let ar = refs.get(*a);
+                    json!({"ref": a, "ref_edid": ar.and_then(|x| x.edid.clone()),
+                           "base_edid": ar.and_then(|x| forms.get(x.base)).and_then(|x| x.edid.clone()),
+                           "cell": ar.and_then(|x| x.cell),
+                           "cell_edid": ar.and_then(|x| x.cell).and_then(|c| cell_name.get(&c).map(|s| s.to_string()))})
+                })
+                .collect();
+            Some(json!({"container": c, "container_edid": r.edid, "base": r.base, "base_edid": b.edid,
+                        "cell": r.cell, "cell_edid": r.cell.and_then(|c| cell_name.get(&c).map(|s| s.to_string())),
+                        "pos": r.pos, "merchants": merchants}))
+        })
+        .collect()
+}
+
+/// Every inventory item base (fnv.sim.items/1), contract in docs/spec-notes/simulation.md.
+fn items(forms: &FormStore) -> Value {
+    let out: Vec<Value> = forms
+        .bases
+        .values()
+        .filter_map(|b| {
+            let BaseData::Item(i) = &b.data else { return None };
+            Some(json!({
+                "formid": b.id,
+                "sig": sig_str(&b.sig),
+                "edid": b.edid,
+                "name": b.name,
+                "value": i.value,
+                "weight": i.weight,
+                "health": i.health,
+                "biped_flags": i.slots,
+            }))
+        })
+        .collect();
+    json!({"format": "fnv.sim.items/1", "count": out.len(), "items": out})
 }
 
 /// Every container base with its authored contents (fnv.sim.containers/1). Leveled
