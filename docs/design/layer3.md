@@ -190,8 +190,9 @@ owner once the first comparisons exist; they are then frozen like any other tole
 3. A first look: `cargo run --release --bin nvforever -- --data <Data> --cell Goodsprings`
    (from `engine/`) and fly around; anything that looks wrong compared with the game is
    useful (missing or extra objects, wrong terrain textures).
-4. Confirm in game that initially-disabled references are hidden at the start of a
-   new game in the cells we test (expected for quest-gated objects).
+4. ~~Confirm in game that initially-disabled references are hidden at the start of a
+   new game in the cells we test (expected for quest-gated objects).~~ → Owner
+   2026-10-08: disabled references are not drawn, have no collision and no interaction.
 
 ## 6. Updated spec notes
 
