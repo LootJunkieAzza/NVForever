@@ -78,7 +78,7 @@ const SKY_SORT_BIAS: f32 = 1.0e6;
 /// inverse of the camera's exposure (Bevy's default, EV100 9.7). The game's lighting is
 /// treated as texture × (ambient + sunlight · N·L) in display units [hypothesis], so the
 /// sun gets π times this (Lambert's 1/π) and ambient light this.
-fn light_unit() -> f32 {
+pub(crate) fn light_unit() -> f32 {
     1.0 / bevy::camera::Exposure::default().exposure()
 }
 
