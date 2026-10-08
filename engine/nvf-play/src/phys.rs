@@ -327,11 +327,13 @@ impl PhysState {
     }
 
     /// Put the player's character (created on first use) with its feet on whatever is
-    /// under `feet`, searching from `up` above to `down` below (1 unit above the hit, as
+    /// under `feet`, searching from `up` above to `down` below, on that support's contact
+    /// shell (`CharacterParams::rest_gap`, where the controller keeps it and where
     /// `fnvtool phys walk` starts), or at `feet` when nothing is there. Returns the hit.
     pub fn place_player(&mut self, feet: [f32; 3], up: f32, down: f32) -> Option<RayHit> {
         let hit = self.ground_below(feet, up, down);
-        let at = hit.as_ref().map_or(feet, |h| [feet[0], feet[1], h.point[2] + 1.0]);
+        let params = self.player.as_ref().map_or_else(CharacterParams::default, |c| c.params);
+        let at = hit.as_ref().map_or(feet, |h| [feet[0], feet[1], h.point[2] + params.rest_gap(h.shell)]);
         match self.player.as_mut() {
             Some(c) => self.world.place_character(c, at),
             None => self.player = Some(self.world.add_character(0, CharacterParams::default(), at)),
