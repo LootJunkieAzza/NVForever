@@ -162,7 +162,12 @@ Scripts given to `CompileScript` on the owner's install (xNVSE 6.4.9, game 1.4.0
 `capture_steps.py` writes jobs to these rules and resolves Editor IDs to FormIDs from the
 masters itself (`--data`, read-only). Still untested in game: `if <ref var>`, `$` of a
 float variable (inventory slots); failures are recorded per step, not fatal.
-`Activate`, `EquipItem`, `Lock`, `Unlock`, `Drop` run as statements; `while rScan != 0`
+A script variable named `fW` does not compile while `fSw`, `fH`, `fP` do (the swimming
+jobs, 2026-10-08; why is not known); `IsSwimming` compiles but read 0 for the player
+throughout, also while swimming; `GetAV Rads` does not compile, `GetAV RadiationRads`
+does; `GetActiveMenuMode` does not compile. Arriving at some places (Boulder Beach by
+`coc` or by `SetPos`) leaves `MenuMode` 1 with the game clock stopped until the console's
+`CloseAllMenus` (physics.md §6.6). `Activate`, `EquipItem`, `Lock`, `Unlock`, `Drop` run as statements; `while rScan != 0`
 loops over `GetFirstRef` / `GetNextRef`, `rScan.GetBaseObject` compared with a `BuildRef`
 base, `rScan.GetSourceModIndex` and `MenuMode 1008` in an expression all compile and run
 [observed 2026-10-08, the lock and drop captures]. `CloseAllMenus` as a console line

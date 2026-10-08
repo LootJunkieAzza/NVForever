@@ -228,7 +228,10 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    - Is anything about movement different with the mouse/keyboard than with held keys
      (e.g. does running feel like 344 units/s, does walking with Shift match 86.8)? The
      unattended runs used `HoldKey` with the bound scan codes.
-   - Swimming and ladders are not covered by any capture yet.
+   - ~~Ladders~~ → Owner 2026-10-08: New Vegas has no climbable ladders; ladder-like
+     uses are door-style transitions that teleport the player up or down, handled by the
+     door/teleport path (physics.md §6.5). Swimming: captures and the swim mode in
+     physics.md §6.6.
 
 ## 6. Updated spec notes
 
