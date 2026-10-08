@@ -687,6 +687,63 @@ walking in, the character keeps walking along the bed and ends 780 loops later a
 dives,
 and a fall into the lake ends on the bed.
 
+**Captures** (unattended, save `nvfdoc`, out of Doc Mitchell's house, `coc
+BoulderBeachCampground`, god mode and AI detection off; outputs kept privately in
+`C:\fnv-private\capture\swim\`). Method facts [observed]: a script variable named `fW` does
+not compile (`fSw` does); arriving at the beach (by `coc` or by `SetPos` from Goodsprings)
+leaves `MenuMode` 1 with the game clock stopped until the console's `CloseAllMenus`
+(`sw_diag`, `sw_diag2`); a first `sw_trial` run from `nvftest` recorded nothing for that
+reason. `IsSwimming` compiles and reads **0 throughout**, also while the player floats and
+swims (so the swimming state is read from positions, not from it); `IsInDangerousWater`
+0; `GetAV Rads` does not compile.
+
+`sw_trial` (2026-10-08, 8,352 steps) [observed]; S = the surface, 2600; depths are of the
+feet below S; speeds are linear fits over the held windows with each position paired with
+the previous loop's clock (§6.3):
+
+- **Walking in, the player never swims.** Walking (84.7 units/s) and running (334.9 along
+  the ground) east down the 12° bed it kept walking on the bed to 213 and 353 below S, and
+  stood there (head far under water). (a) as predicted is refuted: being on the ground
+  wins over the water.
+- **Entering by falling.** `SetPos` to S over 800 units of water from the land: free fall
+  (accelerating like gravity) until the feet passed S − 100 (the last loop above had them
+  94.5 below, the first one below 100.2), then the fall stopped at once and the player sank
+  slowly to **S − 102.52** and stayed there (b: the floating height; predicted about 90).
+- **Sinking to the floating height**: 12.0–12.5 units/s (fits over 13 placements at S while
+  already swimming; `SetPos` keeps the swimming state, so a placement above the floating
+  height sank at this speed instead of falling).
+- **Swim speeds** (c): forward 352.2, backward 343.3, right 341.1, left 341.5, forward-right
+  346.1, forward with the Sneak control tapped 351.6 (`IsSneaking` stayed 0: no sneaking in
+  water), along the view while diving 351.2–351.7; walking (Run key held) 100.8. So the
+  run speed (344 on land) in every direction, backward included (0.79 on land), and walking
+  16% faster than on land (86.8).
+- **Diving** (d): forward moves along the view: pitch 30° down 304.4 horizontal / 176.0
+  down, 60° 175.8 / 304.6, 89° 6.1 / 351.1 (tan of the ratios 30.0°, 60.0°, 89.0°). The view
+  pitched with no key: no motion (still sinking at 12.2 to the floating height). Released
+  under water the player **stays at its depth** (5 s, z unchanged to 0.01): no buoyancy.
+  Swimming up at 45° (240 up, 240 forward) stops at the floating band: once the feet were
+  above S − 100 the upward motion stopped and the 12-units/s sink took over, so the feet
+  went up and down between S − 97.5 and S − 102.5 while forward was held. Back on the bed
+  (89° down) the player stayed on it.
+- **Leaving the water**: swimming (sinking towards the floating height) towards the shore
+  until the feet reached the bed's contact shell (4.3 above LAND), then walking up the bed
+  at the ground speed.
+- **Jump** (d): Jump tapped while sinking towards the floating height (61 below S): a
+  ballistic jump of apex **124.2** above the take-off (2 × 61.6 = 123.2: the land jump
+  height × `fJumpSwimmingMult` 2) under gravity. Afterwards the player hung in the air
+  4.75 above S for the rest of the run (positions frozen while the clock ran, through
+  further `SetPos`; like the hanging after `SetPos` drops of §6.2): the later jump and
+  sneak-key tests are not usable.
+
+**Predictions for `sw_fall_breath`** (written before its run, 2026-10-08; jump from the
+floating height, falls of 300, 700, 1500 and 3000 units into the lake and onto the land
+west of the beach with god mode off and Health raised by 5,000, two minutes held at the
+bottom): from `sw_trial`, a fall into the water stops at S − 100 and the player then
+sinks at 12 units/s to S − 102.5, losing no health at any height [hypothesis]; the land
+falls lose health from 700 up (`fJumpFallHeightMin` 600) [hypothesis]; the jump from the
+floating height rises 123 [hypothesis]; health falls while held under water after some
+seconds [hypothesis].
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>

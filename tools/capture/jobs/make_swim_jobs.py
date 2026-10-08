@@ -163,25 +163,33 @@ def trial():
 
 
 def fall_breath():
-    """(e) falls into deep water and onto land, health read before and after (god mode off,
-    health raised first); (f) held under water at the bottom, health over time."""
+    """(d) a jump from the floating height; (e) falls into deep water and onto land, health
+    read before and after (god mode off, health raised first); (f) held under water at the
+    bottom, health over time. Each fall into the water starts from the land: SetPos keeps
+    the swimming state (sw_trial: placed 100 above the floating height while swimming, the
+    player sank at about 11 units/s instead of falling)."""
     dx, dy = DEEP
     lx, ly, lz = LAND
+    on_land = [setpos(lx, ly, lz + 4), angles(90), {"frames": 120}]
     steps = list(PROTECT) + go_there()
-    steps += [setpos(dx, dy, WATER_Z), {"frames": 240}, num("player.GetAV Health", "before tgm", "health"),
-              {"console": "tgm"}, {"frames": 10}, script("player.ModAV Health 5000"), {"frames": 30},
-              num("player.GetAV Health", "raised", "health"), num("player.GetBaseAV Health", "raised", "base")]
-    for label, (x, y, z0) in (("water", (dx, dy, WATER_Z)), ("land", (lx, ly, lz))):
-        for h in (300, 700, 1500, 3000):
+    steps += on_land + [setpos(dx, dy, WATER_Z), angles(90), remember_t0()] + samples("enter", 60) + [{"frames": 300}]
+    steps += samples("jump pre", 5) + [script("TapControl 12")] + samples("jump", 240)
+    steps += [script("TapControl 12")] + samples("jump again", 240)
+    steps += on_land + [num("player.GetAV Health", "before tgm", "health"),
+                        {"console": "tgm"}, {"frames": 10}, script("player.ModAV Health 5000"), {"frames": 30},
+                        num("player.GetAV Health", "raised", "health"), num("player.GetBaseAV Health", "raised", "base")]
+    for h in (300, 700, 1500, 3000):
+        for label, (x, y, z0) in (("water", (dx, dy, WATER_Z)), ("land", (lx, ly, lz))):
+            steps += on_land + [num("player.GetAV Health", f"fall {label} {h} before", "health")]
             steps += [setpos(x, y, z0 + h), angles(90), remember_t0()] + samples(f"fall {label} {h}", 300, health=True)
             steps += [{"frames": 60}, num("player.GetAV Health", f"fall {label} {h}", "health")]
     # (f) dive to the bottom (pitch down, forward held) and stay pressed against it.
-    steps += [setpos(dx, dy, WATER_Z), angles(90), {"frames": 240}, remember_t0(), angles(90, 89), hold(0)]
+    steps += on_land + [setpos(dx, dy, WATER_Z), angles(90), {"frames": 300}, remember_t0(), angles(90, 89), hold(0)]
     steps += samples("held under", 480, every=15, health=True) + [release(0), angles(90, 0)]
     steps += samples("released", 300, health=True)
-    steps += [{"console": "tgm"}, {"frames": 10}, num("player.GetAV Health", "end", "health")]
+    steps += on_land + [{"console": "tgm"}, {"frames": 10}, num("player.GetAV Health", "end", "health")]
     j = cs.job("sw_fall_breath", START, steps, cs.MASTERS)
-    j["title"] = "Swimming: falls into water and onto land (health), two minutes held under water (about 4 min, no input)"
+    j["title"] = "Swimming: jumps from the water, falls into water and onto land (health), two minutes held under water (about 5 min, no input)"
     return j
 
 
