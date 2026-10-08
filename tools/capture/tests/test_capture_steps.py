@@ -18,7 +18,9 @@ LAB_INPUTS = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer
 EDIDS = {e.lower(): 0x00010000 + i for i, e in enumerate([
     "Stimpak", "Caps001", "GSDocMitchellHouseIntDoorREF", "WeapNV9mmPistol", "ArmorLeather",
     "OutfitWasteland01", "Ammo9mm", "LootChemsStimpak50", "LL0NPCWastelandCaps35", "VFactionSquadStimpaks",
-    "VendorChestStimpaksBoomer", "ClutterHouseholdJunkNV"])}
+    "VendorChestStimpaksBoomer", "ClutterHouseholdJunkNV", "AmmoMissilelauncherScrounger", "Ammo10mmScrounger",
+    "Ammo20GaScrounger", "CapsFortuneFinder", "NVDLC01ChipsChangeFortuneFinder", "VendorFlakShrapnelMiniNukes",
+    "VendorArmorRare75", "VendorBasicMedicalSupplies100", "LootChemsNVAll50", "LL2Tier4ExplosivesMixed50", "VZKeyDirtyGSHome2SafeKey"])}
 
 
 def actions(*acts):
@@ -50,8 +52,10 @@ class JobTests(unittest.TestCase):
                 doc = json.load(fh)
             if f.endswith(".actions.json"):
                 job = cs.actions_job(doc, "x", "start", EDIDS)
-            else:
+            elif f.endswith(".cases.json"):
                 job = cs.cases_job(doc, "x", "start", 2, EDIDS)
+            else:
+                continue  # movement inputs: capture_moves.py (test_capture_moves.py)
             self.assertEqual(job["format"], cs.STEPS_FORMAT)
             self.assertEqual([s["field"] for s in job["steps"][:len(cs.MASTERS)]], cs.MASTERS)
 
@@ -106,6 +110,40 @@ class JobTests(unittest.TestCase):
         fields = [(s["label"], s["field"]) for s in job["steps"][len(cs.MASTERS):]]
         self.assertEqual(fields, [("step0", "cell"), ("step0", "pos.x"), ("step0", "pos.y"), ("step0", "pos.z"),
                                   ("w", "weight"), ("w", "capacity"), ("h", "value")])
+
+    def test_locks_and_labelled_activations(self):
+        job = cs.actions_job(actions({"op": "get_locked", "of": "0x0010B2D4", "label": "safe"},
+                                     {"op": "activate", "actor": "player", "target": "0x0010B2D4", "label": "open"},
+                                     {"op": "activate", "actor": "player", "target": "0x0010B2D4"}), "x", "s")
+        steps = job["steps"][len(cs.MASTERS):]
+        self.assertEqual((steps[0]["label"], steps[0]["field"]), ("safe", "locked"))
+        self.assertIn("let fV := rF1.GetLocked", steps[0]["query"])
+        kinds = [next(iter(st)) for st in steps[1:]]
+        # A labelled activation: the action, a pause, MenuMode 1008 as `opened`, then
+        # every menu closed again; an unlabelled one is only followed by a pause.
+        self.assertEqual(kinds, ["script", "frames", "query", "console", "frames", "script", "frames"])
+        self.assertEqual((steps[3]["label"], steps[3]["field"]), ("open", "opened"))
+        self.assertIn(f"MenuMode {cs.CONTAINER_MENU}", steps[3]["query"])
+        self.assertEqual(steps[4], {"console": "CloseAllMenus"})
+
+    def test_created_references_are_found_by_scanning_the_cell(self):
+        job = cs.actions_job(actions({"op": "drop_item", "from": "player", "item": "Stimpak", "count": 2},
+                                     {"op": "activate", "actor": "player", "target": "created:Stimpak"}),
+                             "x", "s", EDIDS)
+        steps = job["steps"][len(cs.MASTERS):]
+        self.assertIn("player.Drop rF1 2", steps[0]["script"])
+        self.assertEqual(steps[1], {"frames": cs.DROP_FRAMES})
+        script = steps[2]["script"]
+        self.assertIn(f"let rF1 := BuildRef fM1 {0x10000}", script)
+        self.assertIn(f"let rScan := GetFirstRef {cs.INVENTORY_ITEM_REFS} 0 0", script)
+        self.assertIn("if rScanBase == rF1", script)
+        self.assertIn(f"if rScan.GetSourceModIndex == {cs.CREATED_MOD_INDEX}", script)
+        self.assertIn("let rF2 := rScan", script)
+        self.assertIn("rF2.Activate player", script)
+        self.assertTrue(script.index("ref rScan") < script.index("Begin Function"))
+        with self.assertRaises(cs.InputError):
+            cs.actions_job(actions({"op": "activate", "actor": "player", "target": "created:NoSuchItem"}),
+                           "x", "s", EDIDS)
 
     def test_errors(self):
         with self.assertRaises(cs.InputError):
@@ -230,6 +268,26 @@ class JobTests(unittest.TestCase):
             cs.cases_job(doc, "x", "s", 0, EDIDS)
 
 
+    def test_cases_job_sets_reads_and_restores_globals(self):
+        doc = {"format": "fnv.sim.cases/1", "cases": [{"label": "a", "list": "Ammo10mmScrounger", "count": 4,
+                                                       "globals": {"ScroungerOdds": 50}},
+                                                      {"label": "b", "list": "LootChemsStimpak50"}]}
+        steps = cs.cases_job(doc, "x", "s", 2, EDIDS)["steps"]
+        i_rem = next(i for i, s in enumerate(steps) if s.get("as") == "case0g0")
+        self.assertIn("let fV := ScroungerOdds", steps[i_rem]["remember"])
+        self.assertEqual(steps[i_rem + 1], {"console": "set ScroungerOdds to 50"})
+        fields = [(s.get("label"), s.get("field")) for s in steps if "query" in s]
+        i_set, i_base = fields.index(("a", "global.ScroungerOdds")), fields.index(("a", "base.slot0"))
+        i_after, i_last = fields.index(("a", "global_after.ScroungerOdds")), fields.index(("a", "draw1.num"))
+        self.assertTrue(i_set < i_base and i_last < i_after)
+        i_restore = steps.index({"console": "set ScroungerOdds to %{case0g0}"})
+        self.assertTrue(i_restore < next(i for i, s in enumerate(steps) if s.get("label") == "b"))
+        self.assertFalse(any(s.get("field", "").startswith("global") for s in steps if s.get("label") == "b"))
+        with self.assertRaises(cs.InputError):
+            cs.cases_job({"format": "fnv.sim.cases/1", "cases": [{"label": "c", "list": "X",
+                                                                  "globals": {"0x000645CD": 5}}]}, "x", "s", 1, EDIDS)
+
+
 class OutputTests(unittest.TestCase):
     def test_to_global_follows_the_recorded_mod_indices(self):
         mods = {0: "FalloutNV.esm", 2: "DeadMoney.esm", 4: "OldWorldBlues.esm"}  # a mod sits at 01
@@ -254,6 +312,8 @@ class OutputTests(unittest.TestCase):
             {"label": "w", "field": "weight", "value": 18.5},
             {"label": "w", "field": "capacity", "value": 200.0},
             {"label": "bad", "field": "value", "error": "script did not compile"},
+            {"label": "lk", "field": "locked", "value": 1.0},
+            {"label": "op", "field": "opened", "value": 0.0},
         ])
         g = cs.trace_golden(*cs.read_output(lines))
         obs = {o["label"]: o for o in g["observations"]}
@@ -262,6 +322,8 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(obs["p"], {"label": "p", "cell": "0x00103DF9", "pos": [1.5, -2.0, 3.25]})
         self.assertEqual(obs["w"], {"label": "w", "weight": 18.5, "capacity": 200.0})
         self.assertEqual(obs["bad"]["error"], "script did not compile")
+        self.assertEqual(obs["lk"], {"label": "lk", "locked": 1})
+        self.assertIs(obs["op"]["opened"], False)
 
     def test_unfinished_or_aborted_output_is_refused(self):
         with self.assertRaises(cs.InputError):
@@ -292,6 +354,18 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(a["outcomes"], {"0x0000000F x10, 0x00015169 x2": 1, "0x00015169 x1": 2, "nothing": 1})
         self.assertEqual((a["samples"], a["failed_draws"]), (4, 2))
         self.assertEqual((b["samples"], b["outcomes"], b["level"]), (0, {}, 5))
+
+    def test_samples_golden_records_the_globals_read(self):
+        slots = lambda prefix: [{"label": "a", "field": f"{prefix}.slot{i}", "value": "00000000x0"}  # noqa: E731
+                                for i in range(cs.SLOTS)] + [{"label": "a", "field": f"{prefix}.num", "value": 0.0}]
+        res = [{"label": "a", "field": "global.ScroungerOdds", "value": 50.0}] + slots("base") + slots("draw0")
+        res += [{"label": "a", "field": "global_after.ScroungerOdds", "error": "script call failed"}]
+        cases = {"format": "fnv.sim.cases/1", "cases": [{"label": "a", "list": "X", "globals": {"ScroungerOdds": 50}}]}
+        (a,) = cs.samples_golden(*cs.read_output(out_lines(res)), cases)["cases"]
+        self.assertEqual(a["outcomes"], {"nothing": 1})
+        self.assertEqual(a["globals"], {"ScroungerOdds": 50})
+        self.assertEqual(a["globals_read"], {"ScroungerOdds": 50.0})
+        self.assertEqual(a["globals_read_after"], {"ScroungerOdds": None})
 
     def test_cli_round_trip(self):
         with tempfile.TemporaryDirectory() as d:

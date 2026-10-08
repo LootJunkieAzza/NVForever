@@ -32,6 +32,7 @@ fn object(shape: Shape, motion: Motion) -> CollisionObject {
         friction: 0.5,
         restitution: 0.0,
         shape,
+        shell: 0.0,
     }
 }
 
@@ -273,7 +274,8 @@ fn character_falls_lands_and_walks() {
     let v = landed.expect("landed once");
     let want = (2.0 * w.params.gravity * 300.0f32).sqrt();
     assert!((v - want).abs() < 0.05 * want, "{v} vs {want}");
-    assert!(c.feet[2] >= 0.0 && c.feet[2] < 2.0 * c.params.skin + 0.5, "{:?}", c.feet);
+    // On the terrain's contact shell (physics.md §6.2).
+    assert!((c.feet[2] - TERRAIN_SHELL).abs() < 0.02, "{:?}", c.feet);
     // fMoveBaseSpeed is 77 in FalloutNV.esm [observed]; whether it is a walk speed in
     // units/s is a hypothesis, used here only as a plausible speed.
     let steps = walk(&mut w, &mut c, [77.0, 0.0], 60);
@@ -295,7 +297,7 @@ fn character_climbs_steps_but_not_walls() {
         if climbs {
             assert!(c.feet[0] > 150.0 && (c.feet[2] - height).abs() < 2.0, "height {height}: {:?}", c.feet);
         } else {
-            assert!(c.feet[0] < 100.0 - p.radius + 1.0 && c.feet[2] < 2.0, "height {height}: {:?}", c.feet);
+            assert!(c.feet[0] < 100.0 - p.radius + 1.0 && c.feet[2] < TERRAIN_SHELL + 1.0, "height {height}: {:?}", c.feet);
         }
     }
 }
@@ -525,4 +527,131 @@ fn collision_marker_primitives_become_boxes() {
     assert_eq!((r.bodies, r.colliders, r.errors.len()), (1, 1, 0));
     assert!(down(&mut w, 500.0, 595.0).is_some_and(|h| h.owner.key() == Key::Ref(0x21_0001)));
     assert!(down(&mut w, 515.0, 500.0).is_some_and(|h| h.owner.key() == Key::Terrain(0, 0)));
+}
+
+#[test]
+fn arrival_rests_on_the_support_shell() {
+    let mut w = ground();
+    // A static slab (top at z = 40) carrying a 0.7-unit shell, at x = 500.
+    let mut slab = object(boxed([50.0, 50.0, 20.0]), Motion::Static);
+    slab.shell = 0.7;
+    w.add_ref(&at(0x10, [500.0, 0.0, 20.0]), &[slab]);
+    let p = CharacterParams::default();
+    let f = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
+    // Below the terrain, on it, or above it: the feet end on the terrain's shell.
+    for z in [-8.0, 0.0, 3.0, 60.0] {
+        let a = w.arrival([100.0, 100.0, z], &p, &f);
+        assert!((a.feet[2] - TERRAIN_SHELL).abs() < 1e-3, "from {z}: {:?}", a.feet);
+        let s = a.support.expect("terrain under the point");
+        assert!(matches!(s.owner, Owner::Terrain { .. }) && s.point[2].abs() < 1e-3 && s.shell == TERRAIN_SHELL);
+        assert_eq!((a.feet[0], a.feet[1]), (100.0, 100.0));
+    }
+    // On the slab: its shell, from just under its top as from above.
+    for z in [38.0, 40.0, 90.0] {
+        let a = w.arrival([500.0, 0.0, z], &p, &f);
+        assert!((a.feet[2] - 40.7).abs() < 1e-3, "from {z}: {:?}", a.feet);
+        assert_eq!(a.support.unwrap().owner, Owner::Ref { form_id: 0x10, object: 0, layer: 1 });
+    }
+    // The shell scales with the reference.
+    let mut slab = object(boxed([50.0, 50.0, 20.0]), Motion::Static);
+    slab.shell = 0.7;
+    w.add_ref(&RefPose { scale: 2.0, ..at(0x11, [-500.0, 0.0, 40.0]) }, &[slab]);
+    let a = w.arrival([-500.0, 0.0, 80.0], &p, &f);
+    assert!((a.feet[2] - 81.4).abs() < 1e-3, "{:?}", a.feet);
+    // Nothing in range: the actor stays where it was put.
+    let a = w.arrival([100.0, 100.0, 5_000.0], &p, &f);
+    assert_eq!((a.feet, a.support), ([100.0, 100.0, 5_000.0], None));
+}
+
+/// Two static walls forming a notch that opens to the west, apex at (200, 0), faces at
+/// `half_angle` degrees either side of the x axis.
+fn notch(w: &mut PhysWorld, half_angle: f32) {
+    let a = half_angle.to_radians();
+    let (s, c) = a.sin_cos();
+    for (id, sign) in [(60u32, 1.0f32), (61, -1.0)] {
+        // Wall along the line from the apex towards (-c, sign·s); the notch's inside is
+        // on the side of normal (-s, -sign·c).
+        let along = [-c, sign * s];
+        let out = [s, sign * c];
+        let centre = [200.0 + along[0] * 100.0 + out[0] * 5.0, along[1] * 100.0 + out[1] * 5.0, 100.0];
+        w.add_ref(&RefPose { rotation: rz(-sign * a), ..at(id, centre) }, &[object(boxed([100.0, 5.0, 100.0]), Motion::Static)]);
+    }
+}
+
+#[test]
+fn character_wedged_in_a_corner_stays_put() {
+    // Regression: rapier's controller slid along one face of a concave corner at a time
+    // and went back and forth (about 2 units per step against rock 0x000EDE82,
+    // physics.md §6.1).
+    for half_angle in [20.0f32, 30.0, 45.0] {
+        let mut w = ground();
+        notch(&mut w, half_angle);
+        let mut c = w.add_character(1, CharacterParams::default(), [0.0, 3.0, 1.0]);
+        settle(&mut w, &mut c, 30);
+        let steps = walk(&mut w, &mut c, [300.0, 20.0], 180);
+        let tail = &steps[120..];
+        let path: f32 = tail.windows(2).map(|p| (p[1].feet[0] - p[0].feet[0]).hypot(p[1].feet[1] - p[0].feet[1])).sum();
+        let first = tail[0].feet;
+        let last = tail[tail.len() - 1].feet;
+        assert!(last[0] > 100.0, "{half_angle}°: reached the notch: {last:?}");
+        let net = (last[0] - first[0]).hypot(last[1] - first[1]);
+        // Pressed into the corner it may still settle deeper, but never back and forth.
+        assert!(path < 1.0 && path - net < 0.1, "{half_angle}°: path {path}, net {net} over the last 60 steps");
+        assert!((last[2] - first[2]).abs() < 0.01, "{half_angle}°: crept from {} to {}", first[2], last[2]);
+    }
+}
+
+#[test]
+fn character_rests_on_contact_shells() {
+    // Terrain (shell 3.5) and a static slab with a 0.7 shell whose top is at z = 40.
+    let mut w = ground();
+    let mut slab = object(boxed([60.0, 60.0, 10.0]), Motion::Static);
+    slab.shell = 0.7;
+    w.add_ref(&at(0x10, [300.0, 0.0, 30.0]), &[slab]);
+    let p = CharacterParams::default();
+    let f = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
+    // Dropped from above, the controller ends where the arrival rule puts the feet.
+    let mut c = w.add_character(1, p, [0.0, 0.0, 60.0]);
+    let s = settle(&mut w, &mut c, 90);
+    let a = w.arrival([0.0, 0.0, 60.0], &p, &Filter { exclude: vec![c.key()], ..f.clone() });
+    assert!(s.grounded && (s.feet[2] - TERRAIN_SHELL).abs() < 0.02, "{:?}", s.feet);
+    assert!((s.feet[2] - a.feet[2]).abs() < 0.02 && s.gap == TERRAIN_SHELL);
+    // Standing still, it stays there.
+    let s2 = settle(&mut w, &mut c, 60);
+    assert!((0..3).all(|i| (s2.feet[i] - s.feet[i]).abs() < 0.01), "{:?} -> {:?}", s.feet, s2.feet);
+    // Walking onto the slab (the edge is 40 - 3.5 high from the terrain's shell: too high
+    // to step, so start on it) rests 0.7 above it; walking off onto the terrain, 3.5.
+    w.place_character(&mut c, [300.0, 0.0, 41.0]);
+    let s = settle(&mut w, &mut c, 30);
+    assert!((s.feet[2] - 40.7).abs() < 0.02 && (s.gap - 0.7).abs() < 1e-6, "{:?}", s.feet);
+    let steps = walk(&mut w, &mut c, [-200.0, 0.0], 120);
+    let s = steps.last().unwrap();
+    assert!(s.feet[0] < 200.0 && s.grounded, "{:?}", s.feet);
+    assert!((s.feet[2] - TERRAIN_SHELL).abs() < 0.02 && s.gap == TERRAIN_SHELL, "{:?}", s.feet);
+    // A low static floor flush with the terrain: from terrain onto it the feet sink to its
+    // shell, and back on the terrain they are lifted again.
+    let mut mat = object(boxed([60.0, 60.0, 0.5]), Motion::Static);
+    mat.shell = 0.7;
+    w.add_ref(&at(0x11, [-300.0, 0.0, 0.0]), &[mat]);
+    let steps = walk(&mut w, &mut c, [-200.0, 0.0], 60);
+    let on_mat = steps.iter().rfind(|s| s.feet[0] < -260.0 && s.feet[0] > -340.0).expect("crossed the mat");
+    assert!((on_mat.feet[2] - 1.2).abs() < 0.05, "{:?}", on_mat.feet);
+    let steps = walk(&mut w, &mut c, [-200.0, 0.0], 60);
+    let s = steps.last().unwrap();
+    assert!((s.feet[2] - TERRAIN_SHELL).abs() < 0.05, "{:?}", s.feet);
+}
+
+#[test]
+fn walking_on_level_ground_loses_no_step() {
+    // Regression: rapier dropped a step's horizontal motion now and then on exactly level
+    // surfaces (degenerate slope tangent), here once in 60 steps along a cell seam.
+    let mut w = ground();
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 300.0]);
+    settle(&mut w, &mut c, 120);
+    let mut prev = c.feet;
+    for (i, s) in walk(&mut w, &mut c, [77.0, 0.0], 240).into_iter().enumerate() {
+        let dx = s.feet[0] - prev[0];
+        assert!((dx - 77.0 * w.params.dt).abs() < 1e-2, "step {i}: moved {dx}");
+        prev = s.feet;
+    }
 }

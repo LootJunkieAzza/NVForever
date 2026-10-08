@@ -1,0 +1,606 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "mv_diag_trees_rocks",
+ "title": "mv_diag_trees_rocks: diag_trees_rocks (no input needed)",
+ "start": "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74330.2\nplayer.SetPos Y -1196.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks tree_a_-30_-30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_-30_-30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_-30_-30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74330.2\nplayer.SetPos Y -1166.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks tree_a_-30_+0",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_-30_+0",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_-30_+0",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74330.2\nplayer.SetPos Y -1136.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks tree_a_-30_+30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_-30_+30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_-30_+30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74300.2\nplayer.SetPos Y -1196.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+0_-30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+0_-30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+0_-30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74300.2\nplayer.SetPos Y -1166.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+0_+0",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+0_+0",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+0_+0",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74300.2\nplayer.SetPos Y -1136.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+0_+30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+0_+30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+0_+30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74270.2\nplayer.SetPos Y -1196.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+30_-30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+30_-30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+30_-30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74270.2\nplayer.SetPos Y -1166.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+30_+0",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+30_+0",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+30_+0",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74270.2\nplayer.SetPos Y -1136.8\nplayer.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8755.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+30_+30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+30_+30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_+30_+30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69686.2\nplayer.SetPos Y 1588.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks rock_b_-30_-30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_-30_-30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_-30_-30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69686.2\nplayer.SetPos Y 1618.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks rock_b_-30_+0",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_-30_+0",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_-30_+0",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69686.2\nplayer.SetPos Y 1648.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks rock_b_-30_+30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_-30_+30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_-30_+30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69656.2\nplayer.SetPos Y 1588.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+0_-30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+0_-30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+0_-30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69656.2\nplayer.SetPos Y 1618.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+0_+0",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+0_+0",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+0_+0",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69656.2\nplayer.SetPos Y 1648.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+0_+30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+0_+30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+0_+30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69626.2\nplayer.SetPos Y 1588.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+30_-30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+30_-30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+30_-30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69626.2\nplayer.SetPos Y 1618.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+30_+0",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+30_+0",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+30_+0",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -69626.2\nplayer.SetPos Y 1648.6\nplayer.SetPos Z 8686.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8685.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+30_+30",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+30_+30",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks rock_b_+30_+30",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74300.2\nplayer.SetPos Y -1166.8\nplayer.SetPos Z 8956.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8955.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8955.5\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_trees_rocks tree_a_high",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_high",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_trees_rocks tree_a_high",
+   "field": "feet_later"
+  }
+ ]
+}

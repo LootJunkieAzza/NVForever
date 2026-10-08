@@ -457,6 +457,15 @@ Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, automa
 observe step, layouts), `tests/test_capture_steps.py`, `tests/test_capture_run.py` and
 `tests/test_observe.py`.
 
+**Movement captures** (`capture_moves.py`, Layer 4 physics): jobs made from the
+candidate's own inputs (`fnv.phys.drops/1` files and walk scripts with a `capture` block,
+parity-lab/inputs/layer4/), and goldens from their output; method and facts in
+docs/spec-notes/physics.md §6.3, ready jobs in docs/spec-notes/layer4-captures.md §5:
+```
+python tools/capture/capture_moves.py job parity-lab/inputs/layer4/b11_goodsprings.drops.json --name mv_b11_drops --start "nvfdoc" --leave-door 0x00103E61 --console-first tgm --console-first tdetect -o <job>.steps.json
+python tools/capture/capture_moves.py golden C:/fnv-private/capture/out/<job>.<time>.jsonl <the same input> -o C:/fnv-private/goldens/phys/<name>.json
+```
+
 ## Tests
 
 ```

@@ -168,6 +168,51 @@
    ]
   },
   {
+   "id": "L4.sim.leveled.b8",
+   "layer": 4,
+   "description": "Leveled-list outcomes (backlog B8: LVLG globals set from the console, all-levels lists with the player level between or equal to entry levels, a count without each-item-in-count, nesting 3 to 5 deep with chance none and a count carried into an each-item sublist) of ten lists from FalloutNV.esm and DeadMoney.esm: fnvtool sim sample histograms (parity-lab/inputs/layer4/leveled_b8.cases.json) against in-game samples (docs/spec-notes/simulation.md section 6, 'Leveled-list samples'). Chi-square test per case, alpha 0.01.",
+   "oracle": {
+    "golden": "sim/leveled_b8.samples.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "sample",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--cases",
+     "{lab_root}/inputs/layer4/leveled_b8.cases.json"
+    ]
+   },
+   "comparator": {
+    "kind": "distribution",
+    "select": "/cases",
+    "key": "label",
+    "field": "outcomes",
+    "alpha": 0.01,
+    "min_expected": 5
+   },
+   "tags": [
+    "sim",
+    "leveled",
+    "distribution",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
    "id": "L4.sim.trace.goodsprings_weight_and_time",
    "layer": 4,
    "description": "Encumbrance, equipping and the calendar on a test save in Doc Mitchell's house (parity-lab/inputs/layer4/goodsprings_weight_and_time.actions.json): carried weight and capacity (in-game GetAV InventoryWeight / CarryWeight) at Strength 5 and 1, before and after equipping armour that shares a body slot, and GameDay/GameMonth after waiting 24 + 6 hours and across a month end, against an in-game capture (docs/spec-notes/simulation.md section 6). Fractional time (GameHour, GameDaysPassed) is not observed: in-game the clock keeps running while the player is in menus and could not be stopped without crashing the game (docs/spec-notes/xnvse-capture.md section 5). Absolute tolerance 0.01 (f32 weights summed).",
@@ -337,6 +382,136 @@
     "merchant",
     "containers",
     "time",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.sim.trace.goodsprings_locked_safe_key",
+   "layer": 4,
+   "description": "A locked container opened with its key (parity-lab/inputs/layer4/goodsprings_locked_safe_key.actions.json): the wall safe 0x00105229 in GSHouseInterior02 (level 50, key VZKeyDirtyGSHome2SafeKey), emptied and given 2 stimpaks, activated by script without the key, with it, emptied into the player, locked again and activated without and with the key. Observes GetLocked (`locked`), whether each activation opened the container menu (`opened`, MenuMode 1008) and item counts, against an in-game capture (save nvftest, coc GSHouseInterior02; docs/spec-notes/simulation.md section 5).",
+   "oracle": {
+    "golden": "sim/goodsprings_locked_safe_key.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/goodsprings_locked_safe_key.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "sim",
+    "locks",
+    "activation",
+    "containers",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.sim.trace.goodsprings_locked_safe_no_key",
+   "layer": 4,
+   "description": "A lock without a key (parity-lab/inputs/layer4/goodsprings_locked_safe_no_key.actions.json): the floor safe 0x0010B2D4 in GSGasStation (level 25, no key), emptied and given 7 caps, activated by script while locked, after Unlock (then emptied into the player), after Lock and after Lock 255. Observes GetLocked (`locked`), whether each activation opened the container menu (`opened`, MenuMode 1008) and cap counts, against an in-game capture (save nvftest, player inside the gas station; docs/spec-notes/simulation.md section 5).",
+   "oracle": {
+    "golden": "sim/goodsprings_locked_safe_no_key.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/goodsprings_locked_safe_no_key.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "sim",
+    "locks",
+    "activation",
+    "containers",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.sim.trace.goodsprings_drop_and_retake",
+   "layer": 4,
+   "description": "Dropping items and taking them back (parity-lab/inputs/layer4/goodsprings_drop_and_retake.actions.json): with 3 stimpaks, the player leaves Doc Mitchell's house by the front door, drops 1, takes the dropped reference back by scripted Activate, drops 2 and takes that reference back. The dropped reference is named created:Stimpak (the newest reference a drop made from that base that is still in the world; in game found by scanning the player's cell, docs/spec-notes/simulation.md section 7). Observes the player's stimpak counts and the dropped references' cell and position, against an in-game capture (save nvfdoc). Position tolerance 1 game unit, as for goodsprings_doc_mitchell.",
+   "oracle": {
+    "golden": "sim/goodsprings_drop_and_retake.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/goodsprings_drop_and_retake.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 1.0
+   },
+   "tags": [
+    "sim",
+    "inventory",
+    "activation",
+    "drop",
     "M4",
     "needs-local-capture"
    ]

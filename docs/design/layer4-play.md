@@ -125,7 +125,8 @@ drives the menus):
 - The front door 0x00103E61: E teleports to the worldspace; physics places the feet at
   8691 on a floor at 8690 (the door marker is at 8686.43; the in-game capture put the
   player at 8693.87 [observed, `goodsprings_doc_mitchell`]); render streaming reloads 25
-  exterior cells.
+  exterior cells. Since 2026-10-08 travel uses the arrival rule (physics.md §6.2): feet on
+  the terrain's contact shell, 8693.53.
 - Goodsprings gas station: the metal box 0x001629C1 is targeted at 99 units and E opens
   the container menu; the menu test aid takes all of Ringo's 200 caps and stores items back.
 
@@ -135,5 +136,7 @@ Open:
   0x001629C0 stands outside the gas station's room, reached in game through barter).
 - Doors into another worldspace are refused (`Travel` has no worldspace yet); dialogue and
   barter are not built; dropped items are not rendered and have no collision.
-- Controller jitter against some rocks reproduces in `fnvtool phys walk` (physics.md §6.1).
+- ~~Controller jitter against some rocks reproduces in `fnvtool phys walk`~~ Fixed:
+  concave corners stop the character instead of alternating between faces (physics.md
+  §6.1); the controller now rests on contact shells like the arrival (§6.2).
 - Up to ~50 ms per physics cell load in one frame.
