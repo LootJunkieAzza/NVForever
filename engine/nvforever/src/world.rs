@@ -121,7 +121,7 @@ pub struct StreamStats {
     pub refs_skipped_disabled: usize,
     pub refs_skipped_type: usize,
     pub refs_no_model: usize,
-    /// TREE references: SpeedTree models are not drawn yet (layer3.md work item).
+    /// TREE references (SpeedTree, generated or as billboards).
     pub refs_speedtree: usize,
     /// References drawn with their own node hierarchy, playing an Idle sequence.
     pub refs_animated: usize,
@@ -156,13 +156,14 @@ pub fn stream(
     mut models: ModelCtx,
     mut terrain: TerrainMaterials,
     mut water: WaterCtx,
+    mut trees: crate::tree::TreeCtx,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     if let Some(id) = streamer.interior {
         if streamer.loaded.is_empty() {
             let t0 = std::time::Instant::now();
             let s = &mut *streamer;
-            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, s);
+            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, &mut trees, s);
             commands.entity(root).add_child(e);
             streamer.loaded.insert((i32::MIN, i32::MIN), e);
             streamer.stats.cells_loaded += 1;
@@ -194,7 +195,7 @@ pub fn stream(
     for c in missing.into_iter().take(streamer.per_frame) {
         let t0 = std::time::Instant::now();
         let s = &mut *streamer;
-        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, s);
+        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, s);
         commands.entity(root).add_child(e);
         streamer.loaded.insert(c, e);
         streamer.stats.cells_loaded += 1;
@@ -246,6 +247,7 @@ fn ref_affine(p: &Placement) -> Affine3A {
     Affine3A::from_mat3_translation(m * p.scale, Vec3::from_array(p.position))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn load_cell(
     commands: &mut Commands,
     world: &WorldData,
@@ -253,6 +255,7 @@ fn load_cell(
     models: &mut ModelCtx,
     terrain: &mut TerrainMaterials,
     water: &mut WaterCtx,
+    trees: &mut crate::tree::TreeCtx,
     streamer: &mut Streamer,
 ) -> Entity {
     let (hide, light_scale, stats) = (&streamer.hide, streamer.light_scale, &mut streamer.stats);
@@ -295,9 +298,15 @@ fn load_cell(
             stats.lights += 1;
         }
         if base.is_speedtree() {
-            // SpeedTree geometry is not decoded yet: draw the tree's billboard as one
-            // upright quad turned towards the camera (interim; docs/design/layer3.md).
-            // The reference's rotation is dropped: a billboard has no facing of its own.
+            // Geometry generated from the .spt parameters (tree.rs); without it, the
+            // tree's billboard as one upright quad turned towards the camera. The
+            // billboard drops the reference's rotation: it has no facing of its own.
+            if let Some(v) = trees.visual(world, base.form_id, models) {
+                let rt = Mat4::from(to_cell * ref_affine(&p));
+                stats.shapes += crate::tree::spawn(commands, cell_e, &v, rt, RefVisual(r));
+                stats.refs_speedtree += 1;
+                continue;
+            }
             if let Some((mesh, mat)) = billboard(world, base.form_id, models) {
                 let at = Vec3::from_array(p.position) - origin;
                 let t = Transform::from_translation(at).with_scale(Vec3::splat(p.scale));
