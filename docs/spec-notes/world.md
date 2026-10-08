@@ -294,8 +294,14 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   image space adapter (IMAD) per time of day (sunrise, day, sunset, night, high noon,
   midnight). IMGS `DNAM` holds HDR, bloom, get-hit, night-eye and cinematic values
   (saturation, contrast average luminance, contrast, brightness, tint colour and value);
-  the cinematic block starts at byte 100 from form version 10 (skin dimmer added) and at
-  96 before [documented]; DNAM sizes 152 (69 records), 148 (12) and 132 (11) [observed].
+  xEdit places the cinematic block at byte 100 from form version 10 (skin dimmer added) and
+  at 96 before [documented]; DNAM sizes 152 (69 records), 148 (12) and 132 (11) [observed].
+  In `FalloutNV.esm` the 44 records with 152 bytes (form versions 14-15) read sensibly at
+  byte 100, but the 12 with 148 bytes (form versions 11-13) and the 11 with 132 bytes
+  read sensibly only at byte 96 (saturation near 1, contrast 1-2, tint amount 0-1; at
+  100, e.g. ShackInteriorWaste01 gets saturation 0.07, the Prospector Saloon turned
+  grey) [observed]. The renderers take byte 100 for a 152-byte DNAM and 96 otherwise
+  [hypothesis: the skin dimmer arrives with the 152-byte layout].
   IMAD keeps multiply/add key lists (time, value) per parameter (`IAD`..`IAD`
   multiply and `QIAD`..`TIAD` add for the cinematic ones) and a tint colour key list
   (TNAM: time, RGBA). WastelandNV → NVDefaultExterior: saturation 1.1, contrast 1.1 around
@@ -436,9 +442,44 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   (dynamic, can be carried, negative, flicker, off by default, flicker slow, pulse,
   pulse slow, spot, spot shadow, ...), falloff exponent f32, FOV f32, value u32, weight
   f32 [documented]. Doc Mitchell's house holds 25 LIGH references without a model
-  [observed]. The renderer draws each enabled, non-negative, not-off-by-default light as
-  a point light (spot light for spot types) with range = radius; brightness grows with
-  radius² and is tuned by eye [hypothesis].
+  [observed]. LIGH `FNAM` is the "Fade value" [documented: xEdit], read as a brightness
+  multiplier (the GECK's light "Fade") [hypothesis]: e.g. ExtLightWarm, the Prospector
+  Saloon porch lamp, has radius 200, colour (254, 209, 73) and fade 2.2 [observed].
+  The renderer draws each enabled, non-negative, not-off-by-default light as a point
+  light (spot light for spot types) with range = radius. Each adds colour x fade x
+  (1 - (d / radius)^2) x N.L in the display units of the sky lighting, with no inverse
+  square [hypothesis: to calibrate against captures; the falloff exponent, 1 for most
+  lights, is not used]. With Bevy's physically based inverse-square falloff instead, the
+  porch lamp lit a small hot spot and left the door and wall dark, where in game they are
+  lit warm [observed, owner's screenshots].
+- **External emittance**: a placed reference's `XEMI` names a region (REGN) or a light
+  (LIGH) as its "Emittance" [documented: xEdit wbDefinitionsFNV.pas REFR], and
+  BSShaderFlags bit 29 is "External_Emittance" [documented: nif.xml]. REGN `RDAT` heads
+  each data block (type 3 = weather, then flags and priority); `RDWT` lists weathers with
+  chance and global, laid out as CLMT `WLST` [documented: xEdit; observed: these decode
+  exactly, schemas/fnv/sky.json]. Around the Prospector Saloon [observed]:
+  - the porch lamp beams (FXLightBeamBrtW02, FXLightBeamW02) name
+    InvertedDaylightWarmRegionNV, whose weather InvertedDaylightWeatherWarmNV has black
+    sunlight at sunrise, day, sunset and noon and (255, 207, 117) at night. The two
+    VaultWhite256 lights above the porch name InvertedDaylightRegion (sunlight white at
+    night only). The beam shader sets bit 29. In game the beam is invisible at noon
+    (owner's screenshot).
+  - the window light rays inside (IndFXLightRays01, IndFXLightRaysLeft01) name
+    NVInteriorRegion, whose weather NVWastelandInterior has sunlight (255, 227, 170) by
+    day and black at night; their shader sets bit 29 too. In game they are warm yellow
+    by day.
+
+  The renderer resolves XEMI to the region's highest-chance weather or the light's
+  colour and scales by its sunlight colour at the current hour (the light colour for a
+  LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,
+  and the colour of LIGH references [hypothesis]. Shapes on references without XEMI are
+  unchanged. Before this the beam drew at full strength day and night and the rays were
+  white.
+- **Interior image space**: CELL `XCIM` names the cell's image space [documented:
+  xEdit]. In interiors the renderer grades with it instead of the worldspace's; e.g. the
+  Prospector Saloon's ShackInteriorWaste01 (saturation 0.82, tint (1.0, 0.71, 0.27) at
+  0.4) gives the warm brown look of the owner's in-game screenshot [observed]. Cells
+  without XCIM are not graded [hypothesis].
 
 ## 9. Open questions
 
