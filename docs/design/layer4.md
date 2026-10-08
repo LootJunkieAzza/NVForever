@@ -172,6 +172,14 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    the game's spread, a pushed drop), traces fence_slide 6/6, fence_stop 6/6,
    porch_steps 6/6, running_jump 0/6 (air control open), hill_run / portal_wall (goldens
    with an early onset; physics.md §4.2, §6.3, §6.4).
+   Status 2026-10-08 (late) [observed]: air control (gain 0.30 = `fJumpMoveMult`, full
+   target when a key is down at take-off) and the landing speed profiles are modelled from
+   the `mv_air` / `mv_air2` calibrations: running_jump 6/6. The body is now a radius-22
+   cylinder on a cone bottom fitted to fence-edge drops, and a falling body no longer
+   slides off steep contacts: B11 16/20 (the rock rows pass); the Havok tree rows are
+   still 14 and 10 low, against a contradiction between the tree and the fence edge that
+   is open (physics.md §6.4.1). The sinking on edges depends on the fall speed, which is
+   not modelled.
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
 

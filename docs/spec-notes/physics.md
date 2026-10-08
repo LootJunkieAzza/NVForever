@@ -226,7 +226,7 @@ passed 12 of 20 rows; what the differences showed:
 | collision_marker_a | 8484.33 | 8373.50 → 8484.74 | the player rested on the Goodsprings school (SCOL 0x00177C9E, placed in the next cell south), which the probe's world lacked: `phys cell` now loads the cells around each probe's own square too [hypothesis: the game loads cells around the player wherever it is] |
 | animstatic_gate | 8691.58 (on the terrain, x/y unchanged) | 8770.10 → 8691.51 | the gate 0x0010757E carries ONAM "Open by Default" [documented: xEdit]: its panel is open in game. The keyframed parts of open-by-default doors are left out (their open pose comes from the door's animation, not read) |
 | collision_marker_b | 8285.81 (fell through, x/y moved 0.1) | 8571.53 (unchanged) | a Portal Box marker whose box is 2 units thick: dropped onto its top the player fell through it; but a run into another Portal Box marker stopped 22 units from its plane (`L4.phys.walk.portal_wall`, §6.4), so Portal Box markers stay solid. Open: why the drop passed |
-| havok_tree_a / _b | 8637.98 / 8879.92 | 8582.72 / 8813.61 | open. The game's player rests 55 and 66 higher in the branches of `treewastelandhardwood01.nif`; a capsule of radius 21 or 24 does not explain it (8590, 8598); a dropped bottle came to rest at 8564.07 on tree a, near our top at the centre (8556.5), so the geometry is probably right and the player's shape against branches differs [hypothesis]. Diagnostic grid `mv_diag_trees_rocks` below |
+| havok_tree_a / _b | 8637.98 / 8879.92 | 8582.72 / 8813.61 → 8624.07 / 8869.53 (§6.4.1) | still open, 13.9 and 10.4 low. The game's player rests 55 and 66 higher in the branches of `treewastelandhardwood01.nif`; a capsule of radius 21 or 24 does not explain it (8590, 8598); a dropped bottle came to rest at 8564.07 on tree a, near our top at the centre (8556.5), so the geometry is probably right and the player's shape against branches differs [hypothesis]. Diagnostic grid `mv_diag_trees_rocks` below |
 | terrain_rock_a / _b | 8333.09 / 8506.51 | 8323.63 / 8515.13 | open: ±9 units on two NVNRockCanyon08 placements; see the grid below |
 | noncollidable_maize | z 8705.24, x/y moved 14 | x/y unchanged | open: something pushed the falling player sideways while it passed the maize (Non Collidable) |
 | props_barrel | not observed | — | the player did not fall: it hung at 8615.39, 9 units sideways (golden row without feet) |
@@ -274,12 +274,16 @@ and on rock a it rested at 8325.87, on the rock; Trees and Terrain stop clutter 
 
 ## 6. Character controller and capture questions
 
-A kinematic vertical capsule standing on its feet point, over rapier's
+A kinematic vertical body standing on its feet point, over rapier's
 `KinematicCharacterController` with up = +Z: slides along walls, steps up ledges up to
-`step_height`, refuses and slides down slopes steeper than `max_slope_deg`, snaps down to
-the ground on descents (within `step_height`), integrates its own vertical speed under
+`step_height`, refuses and slides down slopes steeper than `max_slope_deg`, settles down
+onto the ground on descents (within `step_height`), integrates its own vertical speed under
 gravity, jumps with `v = sqrt(2·g·jump_height)` when grounded, stops rising when the head
 hits something, reports touchdown speed (fall damage input) and pushes dynamic bodies.
+Since 2026-10-08 (§6.4.1) the body is a cylinder of radius 22 on a cone bottom (flat tip of
+radius 3.2, rising 1.58 per unit), off walkable ground the vertical motion does not slide
+(a falling body stays where it touches, at any steepness), and the horizontal velocity
+follows the game's air and landing rules (`fnv_phys::air`).
 Its kinematic body makes dynamic bodies collide with it. Activation targeting is a ray
 from the eye that excludes the caster (`Filter::excluding(character.key())`).
 
@@ -291,11 +295,14 @@ means someone at the game.
 |---|---|---|
 | gravity | 686.7 units/s² (9.81 m/s² at 70 units/m) | **[observed]** 683.8 (300-unit fall) and 685.5 (standing jump), §6.3; kept |
 | fixed step `dt` | 1/60 s | unknown; the game ran at 60–64 loops per second during captures [observed] |
-| capsule radius | 18 | [hypothesis]; the game stops 21.9 from a static fence face and 22.1 from a Portal Box plane (radius + gaps, not separable) [observed: `move_fence_stop`, `move_portal_wall`]; the candidate stops 21.5 (18 + its 3.5 gap on terrain) |
+| body radius | 22 | **[observed, §6.4.1]** from `mv_diag_fence_edge`: drops rested on the fence edge 22.6 off it (radius + 0.7 shell ≥ 22.6) and fell at 25.7; the game stops 21.45 from the fence face (`move_fence_stop`, face measured to 0.05), which would give 20.75: about 1.2 apart, not explained; the candidate now stops 22.7 from the face (keeping a static shell's 0.7 from walls, no longer the terrain's 3.5) |
+| bottom shape | cone: flat tip of radius 3.2, then rising 1.58 per unit to the radius | **[observed, §6.4.1]** fitted to 26 fence-edge drops from 50 and 200 units (RMS 2.9); the depth depends on the speed of the fall, which the model does not have |
 | capsule height | 128 | [hypothesis]; owner (head against a low ceiling of known height, standing and crouched) |
 | step height | 24 | [hypothesis]; `move_porch_steps` exercises steps of Doc Mitchell's porch; the limit needs ledges of graded heights (design open, §6.3) |
 | max slope | 45° | [hypothesis]; an unattended run up steep LAND squares is possible (design open, §6.3) |
 | jump apex | 61.6 | **[observed]** apex 61.6 above the standing feet, §6.3 (`fJumpHeightMin` reads 64) |
+| air control | gain 0.30 per 1/60 s towards the keys' velocity (full when a key was held at take-off or pressed within 4 steps after it, else 14.7 units/s); release decays with the same gain | **[observed]** `mv_air`, `mv_air2` (§6.4.1); `fJumpMoveMult` reads 0.30 |
+| landing | fixed speed profiles for 29 steps after a touchdown above 100 units/s, forward and backward | **[observed]** `mv_air`, `mv_air2` (§6.4.1); the 100 threshold and sideways landings [hypothesis] |
 | max fall speed | none | none: a 2,500-unit fall reached 1,841 units/s still accelerating (fit g = 686.0, RMS 0.09) [observed: `mv_values`] |
 | walk / run speed | `nvf-play` uses 86.8 / 344 | **[observed]**, §6.3 |
 | eye height | 112 (`nvf-play`) | about 123 above the feet if the crosshair pick is a sphere of `fActivatePickSphereRadius` 16 cast from above the feet (both distances agree); a plain ray fits only with the camera 10.6 units behind the feet (110 above them) [observed: `mv_values`, §6.3; the model is hypothesis]; not changed yet |
@@ -456,11 +463,14 @@ the scenario's golden.
 
 **The walking controller keeps the same shells** (`CharacterParams::rest_gap`, one rule
 for both: the support's shell, at least the numerical `skin`). Each step a short
-downward capsule sweep finds the support; its gap becomes the controller's offset (the
-distance rapier's controller keeps between the capsule and everything it sweeps
-against), and a capsule closer than that to a walkable support (after walking from a
-static floor onto terrain, after a `place_character`) is lifted to it, never into a
-ceiling. On level ground a character dropped or walking comes to rest at
+downward sweep of the body finds the support and its gap; a body closer than that to a
+walkable support (after walking from a static floor onto terrain, after a
+`place_character`, on landing) is lifted to it, never into a ceiling, and after the move
+it settles onto the support at exactly that gap (pulled down within `step_height` when the
+step started on the ground). The distance rapier's controller keeps from everything it
+sweeps against (its offset) is a static shell, 0.7, or the support's gap when smaller:
+until 2026-10-08 it was the support's gap, so a character on terrain kept 3.5 from walls
+(§6.4.1). On level ground a character dropped or walking comes to rest at
 `surface + shell`, the arrival rule's height, and stays there (within 0.01 over a
 second, the controller's nudges) [observed: tests `character_rests_on_contact_shells`,
 `arrival_rests_on_the_support_shell`; `fnvtool phys cell` probes at Doc Mitchell's door
@@ -469,9 +479,8 @@ the game's 8693.87, and at the porch drop of `dt_rest_detail` 0.71 above the SCO
 against the game's 1.04]. On a slope the capsule keeps the gap along the surface normal,
 as a convex radius would, so its feet stand `gap / cos(slope)` above the surface under
 the capsule's lowest point [hypothesis: unmeasured in game]. Consequences of rapier
-having one offset per character: while the support is the terrain, the character also
-keeps 3.5 units from walls (0.7 would be the walls' own shell) [hypothesis, not
-observed]; walking from terrain onto a static floor flush with it the feet drop by 2.8,
+having one offset per character: every obstacle is kept at 0.7 (terrain walls too, whose
+own shell would be 3.5) [hypothesis]; walking from terrain onto a static floor flush with it the feet drop by 2.8,
 and back again they rise by 2.8 within a step, which matches the band shift but whose
 timing in game is not observed. Open: what places an arrival inside the band (−0.18 …
 +0.35), and the in-game rest band of a standing player over time.
@@ -552,8 +561,10 @@ capsule height (owner), push mass (owner).
   units/s and later dips to 144–239. Calibration `mv_air` [observed]: jumping out of a
   run at full speed keeps 340 in the air; releasing forward in mid-air decays the speed
   by about 0.84 per loop (to 27 in 0.22 s); pressing forward only after leaving the
-  ground gives 15 units/s. No single air-control rule found yet fits all four; not
-  modelled.
+  ground gives 15 units/s. **Resolved 2026-10-08** (§6.4.1): one rule fits all four
+  (gain 0.30 per loop towards the keys' velocity when a key was down at take-off, else
+  towards 14.7; `fJumpMoveMult` reads 0.30), and the landing slowdown is a fixed speed
+  profile after every landing with a key held; the scenario passes 6/6.
 - Other speeds (`mv_values`) [observed]: backwards 272.8 units/s (0.79 of forward; used by
   `nvf-play`), sneaking forward 197.7 (= 344 × 0.575; `fMoveSneakMult` is 0.57); the strafe
   and diagonal runs hit the yard's house and are not usable.
@@ -624,7 +635,177 @@ and in a walking jump.
   the highest vertex of the branch mesh within 18 units of the drop (within 0–20 at 6 of
   9 points) rather than its convex hull (250–330 higher). Hypothesis: the game's
   controller comes to rest on thin, steep branch triangles and their edges, where rapier's
-  controller slides off them; open.
+  controller slides off them. Confirmed in part (§6.4.1): the game's falling player does
+  not slide off steep contacts, and its bottom is not a capsule's; the controller now
+  rests within 8 at 4 of these 9 points and 8–18 low at the others (tree centre open).
+
+### 6.4.1 Air control and the player's bottom: analysis and predictions (2026-10-08, before `mv_air2` and `mv_diag_fence_edge`)
+
+**Air control, from `mv_air` and the running-jump capture, loop by loop** [observed;
+speeds from consecutive positions; loops are 15–16 ms, occasionally 31]:
+
+- With a movement key held in the air the horizontal speed approaches a target by a fixed
+  fraction per loop: in the running jump (Forward and Jump in the same loop, taking off
+  in the loop the motion starts) 102.1, 172.9, 223.5, 257.8, 282.1, 299.5 … 339.5: the gap
+  to 339.5 shrinks by 0.70 every loop (first loop 0.30 × 339.5 = 101.9). Jumping out of a
+  run at speed, the speed just after take-off was about 366 and fell back to 339.5 the same
+  way (gap × 0.7). Forward pressed 8 loops after the take-off of a standing jump: 7.3,
+  10.0, 11.2, 12.0, 13.1, 13.7 … about 14.7 (gap × about 0.7), and stayed there.
+- With no key (Forward released 8 loops after a running take-off) the speed falls 214,
+  181, 153, 128, 108, 88, 70.5, 54, 38.7, 26.8, 18.7, 13.7 …: × 0.845 per loop above
+  100 units/s, × 0.70 below 40.
+- **The landing is a fixed speed profile.** After every landing with a movement key held
+  the per-loop displacements are the same, loop for loop, whatever the speed in the air
+  (15 or 340) and whether walking or running: about 81 units/s for two loops, then 341,
+  365, 386, 391, 329, 293, 280, 288, 309, 312, 320, 319, 308, 308, 276, 274, 207, 192,
+  160, 144, 175, 239, 379, 382, 394, then 339.5 (four captures: the running-jump
+  scenario, `mv_air` run-then-jump, late forward and walk jump; a walking jump lands into
+  run speeds). With no key held the player stays put after landing. That is the "two loops
+  at 81 and dips to 144–239" of the scenario; the profile looks like an animation's root
+  speed [hypothesis].
+- No game setting stored in the masters mentions air control, acceleration or friction
+  (all GMSTs searched: movement settings are `fMoveBaseSpeed`, `fMoveRunMult`,
+  `fMoveSneakMult`, armour/leg penalties, `fJump*` fall damage and `fJumpSwimmingMult`)
+  [observed]. The game's INI `[HAVOK]` section has `fJumpAnimDelay` 0.75 and `fMaxTime`
+  0.016 among unnamed-purpose values [observed: Fallout_default.ini, read-only]. For
+  Oblivion's engine `fJumpMoveBase` and `fJumpMoveMult` are said to govern air control
+  [documented: UESP CS wiki, Category:Jumping]; whether this game has them is read by
+  `mv_air2`.
+
+Hypothesis H (to be tested by `mv_air2`): in the air the horizontal velocity moves 0.30
+of the way to a target each loop; the target is the key's ground velocity when a
+movement key was held at take-off, and a small air control (about 15 units/s, 0.043 of
+the run speed) when it was not; with no key the speed decays (× 0.845, faster when slow).
+Predictions of H for `mv_air2`: *repress* back to 340 (gain 0.3); *back in air* reverses
+towards −272 within about 10 loops; *right in air* turns towards the forward-right
+diagonal at 340; *back jump* rises to 272 backwards like the running jump forward, then
+the landing profile backwards; *forward after 1* (key down before the take-off) 340,
+*forward after 3* 15; *walk release* and *apex release* decay as above; *fall forward*
+(no take-off) 15 in the air; *press after landing*: the landing profile from its third
+loop if it is tied to the landing, plain 340 if tied to the key press.
+
+**The player's bottom against thin geometry.** Sweeping shapes straight down onto our
+collision of the B11 tree (`fnvtool phys cell` with a sweep probe, not kept) [observed]:
+an 18-unit capsule's first contact is 9–40 units from the game's rest height, both above
+and below; the candidate's controller ends 43–303 units under any first contact,
+because rapier's controller slides a falling capsule off contacts steeper than the slope
+limit, while the game's player stays where it is (its x/y did not change in any tree
+drop). No single capsule or flat cylinder radius puts every first contact at or above
+the game's rest height except capsules of 26 or more, and those leave the game 4–19
+lower. On rock b an 18-unit capsule's first contact matches within 4 at 7 of 9 points.
+
+`mv_diag_fence_edge` (drops 200 above the yard fence's top, which is 3.5 units wide at
+8422.4 with LAND at 8352 on both sides, at offsets d from its centre line). Predictions:
+the candidate (radius 18, sliding) rests on the top for |d| ≤ 8 (8423.1 at 0, 8421.9 at
++8), slides off to the ground (8355.5) at +12, ±16, ±20, holds 8420.35 at −12, and ends on
+the ground beyond. A non-sliding capsule of radius r would rest at 8423.1 − (r −
+√(r² − (|d| − 1.75)²)) for |d| − 1.75 < r (r = 18: 8419.6 at 12, 8415.7 at 16; r = 24:
+8414.2 at 20, 8407.2 at 24); a flat bottom would stay at 8423.1 out to |d| = r + 1.75.
+
+**Predictions for `mv_diag_fence_low`** (written 2026-10-08 after `mv_diag_fence_edge` and
+before this run; the same fence offsets dropped from 10 and 50 above the top, and three
+tree-a points from 12 and 50 above the game's earlier rest). Two hypotheses: (C) the
+bottom is a cone, sinking 1.46 per unit off the edge whatever the fall: every fence rest
+as in `mv_diag_fence_edge` (8411.9 at ±8, 8406.0 at ±12, 8400.2 at ±16, 8394.3 at ±20,
+8388.5 at ±24) and the tree points back at their earlier rests or lower; (I) the depth
+grows with the speed of the fall (the fence drops fell about 230 units and sank up to 31,
+the tree-centre drop fell 118 and sank about 0, the tree drop from 400 above rested 10
+lower than from 200, and the `shallow_a` drop that fell 14 units rests above every
+shape's first contact): from 10 above the fence rests near a capsule of radius 22.5
+(8420 at ±8, 8418 at ±12, 8414 at ±16, 8412 at ±20, 8408 at ±24) and the tree points
+at or above their earlier rests.
+
+**Results** (captures by this workstream, 2026-10-08, save `nvfdoc`) [observed]:
+
+- `mv_air2` (a first run recorded no motion at all: held keys and tapped jumps did nothing
+  while `SetPos` still worked; the rerun moved normally; cause not known, possibly the
+  game window without input focus). Settings: **`fJumpMoveMult` 0.30**, `fJumpMoveBase` 0,
+  `fJumpDoubleMult` 0.5, `fJumpFallTimeMin` −1, `fJumpHeightMin` 64 (the 0.30 equals the
+  air gain measured loop by loop; that the setting is that gain is [hypothesis]).
+  - *repress*: Forward released 10 loops after a running take-off (speed 232, 189, 156,
+    126, 103, 82: × 0.81–0.83 per loop), pressed again: back to 340 with the gap × 0.70 per
+    loop. H confirmed: a key held at take-off keeps the full target for the whole jump.
+  - *back in air*: the velocity reverses towards −271 (the backward run speed) with the
+    gap × 0.70; *right in air*: it turns towards the forward-right diagonal at 340 (240,
+    240) the same way (then the player hit the yard's house). The full target is the keys'
+    ground velocity in any direction.
+  - *back jump* (Back and Jump together): the take-off came one loop after the key, so
+    the player left the ground already at −271 and kept it. **Landing with Back held** is a
+    profile of its own: −292 for two loops, then −242 … −223 … −243 for about 25 loops,
+    then −271 (alike in *back in air*).
+  - *forward after 1* and *forward after 3* (Forward 1 and 3 loops after Jump; the take-off
+    is 2 loops after Jump): both approach 340 like the running jump. In `mv_air` Forward
+    pressed 8 loops after Jump (6 after the take-off) gave 14.7: a key pressed up to 2
+    loops after the take-off counts as held at it, 6 loops after does not.
+  - *walk release* (85 units/s): × 0.70–0.77 per loop; *apex release* (340 at the apex):
+    × 0.69–0.70 per loop. Early in the rise from run speed the decay is slower (× 0.81–0.845,
+    `mv_air`, *repress*). No single rule found; the controller decays with the gain
+    (× 0.70), exact at the apex and when slow; a release early in a running jump travels
+    about 18 units less than in game [observed difference, not modelled].
+  - *fall forward* is not usable (the 150-unit fall ended during the settling loops,
+    before the key); *press after landing*: Forward pressed about 5 loops after a standing
+    jump's landing: no motion at all for 44 loops (0.7 s), then 339 at once with no
+    landing profile [observed, one case; not modelled: the candidate runs at once].
+- `mv_diag_fence_edge` (fence top measured to 0.05 afterwards: 3.54 wide at y 4100, faces
+  at x −72460.96 and −72457.42, normals 1.7° off x): the player rested on the fence top at
+  every offset up to 22.6 beyond the bare edge, fell to the ground at 25.7 and beyond, and
+  kept its x within 0–5 units (some outward slides of 4–6). Its rest sank **1.46 units per
+  unit off the edge** (onset 1.3 beyond the edge; RMS 1.3 over 14 drops) — more than any
+  rounded bottom allows (a sphere touching an edge e off its axis sinks at most e).
+- `mv_diag_fence_low`: the same offsets from 50 above the top sank less (1.3, 5.6,
+  12.5, 21.5, 26.4 at offsets 8, 12, 16, 20, 24, means of both sides, against 7–13, 15,
+  21–26, 23.5, 30–33 from 200 above): **the depth depends on the speed of the fall** (hypothesis I; C refuted).
+  From 10 above the centre drop stopped 6.6 above the usual rest (the `SetPos` hang of
+  §6.2), so those drops are biased upwards. Two 200-unit repeats: 8399.73 (8400.26 before),
+  and 8402.95 at +12 after sliding 6.2 outwards (8408.48 before without sliding). The
+  three tree points from 12 and 50 above the earlier rest ended −0.5 … +10.5 from it
+  (8643.2 / 8638.1 at the centre against 8638.5, 8636.2 / 8629.6 against 8625.7,
+  8702.0 / 8697.3 against 8697.6).
+
+**Model** (`CharacterParams` defaults; `crates/fnv-phys/src/air.rs`, `character.rs`):
+
+- Air: the horizontal velocity closes `AIR_GAIN` 0.30 of the gap to its target per 1/60 s;
+  the target is the keys' velocity when a key was held at take-off (or pressed within
+  `AIR_FULL_WINDOW`, 4 steps, after leaving the ground, jumping or walking off an edge),
+  else the keys' direction at `AIR_CONTROL_SPEED` 14.7; no key: decay with the same gain.
+  The take-off starts from the last step's velocity (a jump pressed with the first
+  running step starts from 0).
+- Landing: after a touchdown faster than 100 units/s (`LANDING_MIN_SPEED` [hypothesis]),
+  29 steps follow `LANDING_SPEEDS` (forward or any key not pointing behind the view) or
+  `LANDING_SPEEDS_BACK` (a key behind the view, `CharacterInput::view`), in the keys'
+  direction, then the keys' velocity. No key, no motion. Walking landings run too
+  [observed]. Not modelled: the sideways sway of up to ±30 units/s during the forward
+  profile (about 2 units of drift).
+- Body: radius 22, cone bottom (flat tip 3.2, slope 1.58: one fit to the 26 fence drops
+  from 50 and 200 units, residuals −5 … +5 split by fall speed); off walkable ground the
+  vertical motion does not slide; walls keep 0.7.
+
+**Checks** (candidate after these changes; `fnvtool phys cell` on every drop of the four
+drop files, 88 drops) [observed]: 71 within 8 units (33 with the old capsule of 18 that
+slid off steep contacts). `L4.phys.walk.running_jump` 6/6 (it was 0/6); the other walk
+scenarios unchanged. Misses: the tree centre rows (below), the 10-unit fence drops (the
+hang), two fence drops where the game slid 5–6 units outwards, `collision_marker_b`
+(unchanged), `noncollidable_maize` (unchanged; another workstream). The B11 rock rows
+pass with this body (the rock investigation belongs to workstream "B11 rocks and maize",
+whose rows these numbers only report). One row moved out of tolerance:
+`L4.phys.drops.swim_h2o` `shallow_a` (the scenario already failed on its other four rows)
+ends at −246.3 against the game's −236.0 (it was −241.4 with the old capsule, inside the
+8-unit tolerance). That drop falls only 14 units onto a ledge; the game rests 3 units
+above even a flat cylinder's first contact there, and slow falls sink least
+(`mv_diag_fence_low`), so the speed-free cone over-sinks it [observed difference; not
+tuned].
+
+**Open: the tree centre.** At five tree-a points (the centre, the B11 drop, and three
+grid points) the game rests 10–20 units higher than the model at every fall height
+(12, 50, 118, 200 and 400 units), held by branches about 22 off the axis that it barely
+sinks onto (the branch at 225° from the centre is 0.9 above the rest), while on the fence
+an edge 22 off made it sink 30. Our tree collision is one packed triangle mesh (469
+vertices, 834 triangles, layer Trees, body translated, not rotated) and the reference's
+rotation follows the engine convention (the opposite tilt sign puts the drops 66–193
+too high). The fence top is a triangle mesh too, so "mesh against box" does not explain
+it. Ideas for a capture: drops onto a single straight branch or a second thin static edge
+at several speeds; a drop from below the branches' level (e.g. `SetPos` 5 above a branch
+at the rim).
 
 ### 6.5 Ladders
 
@@ -1010,9 +1191,12 @@ ignoring the layers the character passes through: `z + rest_gap(shell)`, §6.2) 
 `[x, y, z]`;
 `hz` the step rate (default 60, sets `dt`); `params` overrides `gravity` or any character
 parameter (`radius`, `height`, `step_height`, `max_slope_deg`, `jump_height`, `skin`,
-`max_fall_speed`, `push_mass`, and the swim parameters `swim_depth`, `float_depth`,
+`max_fall_speed`, `push_mass`, `bottom_slope`, `bottom_flat`, and the swim parameters `swim_depth`, `float_depth`,
 `swim_sink_speed`, `swim_jump_mult`, §6.6); each segment holds a horizontal velocity (units/s, world
-axes, default 0) for `steps` steps, and `jump` presses jump on its first step. While the
+axes, default 0) for `steps` steps, and `jump` presses jump on its first step; the
+optional `view` ([x, y], the horizontal view direction) picks the backward landing profile
+for a velocity pointing behind it (§6.4.1; without it the forward profile applies). The
+velocity is the keys' velocity: the controller applies the air and landing rules. While the
 character swims, a segment's optional `swim_velocity` ([x, y, z], units/s) is used
 instead, scaled by the stroke cycle of its optional `stroke` (`"forward"`, `"back"` or
 `"side"`; `fnv_phys::swim`, §6.6) counted from the first swimming step with a non-zero

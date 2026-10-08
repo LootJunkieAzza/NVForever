@@ -632,6 +632,8 @@ struct Segment {
     /// The swim stroke whose speed cycle scales `swim_velocity` (physics.md §6.6).
     stroke: Option<Stroke>,
     jump: bool,
+    /// Horizontal view direction (x, y) for the landing profiles (physics.md §6.4.1).
+    view: Option<[f32; 2]>,
 }
 
 impl Script {
@@ -668,6 +670,10 @@ impl Script {
                 swim_velocity,
                 stroke,
                 jump: s.get("jump").and_then(Value::as_bool).unwrap_or(false),
+                view: match s.get("view") {
+                    None => None,
+                    Some(w) => Some([num(&w[0], "view[0]")?, num(&w[1], "view[1]")?]),
+                },
             });
         }
         let total: usize = segments.iter().map(|s| s.steps).sum();
@@ -713,6 +719,8 @@ impl Script {
                 "gravity" => w.gravity = f,
                 "radius" => c.radius = f,
                 "height" => c.height = f,
+                "bottom_slope" => c.bottom_slope = f,
+                "bottom_flat" => c.bottom_flat = f,
                 "step_height" => c.step_height = f,
                 "max_slope_deg" => c.max_slope_deg = f,
                 "jump_height" => c.jump_height = f,
@@ -776,11 +784,11 @@ fn walk_cmd(
                 Some([vx, vy, vz]) => {
                     let f = seg.stroke.map_or(1.0, |s| s.factor(stroke_t + dt / 2.0));
                     stroke_t += dt;
-                    CharacterInput { velocity: [vx * f, vy * f], jump, vertical: vz * f }
+                    CharacterInput { velocity: [vx * f, vy * f], jump, vertical: vz * f, view: seg.view }
                 }
                 None => {
                     stroke_t = 0.0;
-                    CharacterInput { velocity: seg.velocity, jump, vertical: 0.0 }
+                    CharacterInput { velocity: seg.velocity, jump, vertical: 0.0, view: seg.view }
                 }
             };
             let s = world.move_character(&mut c, input);
