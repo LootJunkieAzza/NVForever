@@ -288,7 +288,8 @@ impl<'a> World<'a> {
         let mut out = Vec::new();
         for e in entries {
             let from = out.len();
-            leveled::resolve(self.forms, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
+            // LVLG globals at their current values [observed: leveled_b8 captures].
+            leveled::resolve_in(self.forms, &self.globals, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
             // COED on an entry applies to whatever it resolves to. [hypothesis]
             for r in &mut out[from..] {
                 r.extra = e.extra;
@@ -374,7 +375,7 @@ impl<'a> World<'a> {
         }
         self.inventory(to)?;
         let mut out = Vec::new();
-        leveled::resolve(self.forms, item, count, self.cfg.player_level, &mut self.rng, &mut out)?;
+        leveled::resolve_in(self.forms, &self.globals, item, count, self.cfg.player_level, &mut self.rng, &mut out)?;
         let inv = self.inventory(to)?;
         Ok(out
             .into_iter()

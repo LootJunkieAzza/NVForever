@@ -5,9 +5,13 @@
 //! flag names and are **consistent with the game** for the `L4.sim.leveled.basic`
 //! cases [observed: 300 in-game `AddItem` draws per case, chi-square p 0.16–1.0 on all
 //! seven]: chance none, independent rolls for "each item in count", highest eligible
-//! level vs uniform pick, "Use All", and resolution against the player's level. Still
-//! **[hypothesis]**: the LVLG global replacing chance none, nested lists, and
-//! "all levels" with entries at intermediate levels.
+//! level vs uniform pick, "Use All", and resolution against the player's level; and for
+//! the `L4.sim.leveled.b8` cases [observed: 300 draws per case, p 0.16–1.0 on all ten]:
+//! the LVLG global replacing chance none (both over LVLD 0 and LVLD 100) at its current
+//! value (set from the console), "all levels" with the player's level between entry
+//! levels or equal to one (eligible), a count without "each item in count" (one roll
+//! times N), and nesting 3–5 deep, including a count carried into an "each item"
+//! sublist as that many rolls.
 //!
 //! 1. Chance none: roll an integer 0–99; below `chance_none` (or the LVLG global's
 //!    value, when set) yields nothing.

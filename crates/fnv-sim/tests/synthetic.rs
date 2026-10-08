@@ -520,6 +520,16 @@ fn lvlg_global_replaces_chance_none_at_its_current_value() {
 }
 
 #[test]
+fn world_add_item_reads_lvlg_globals_set_at_run_time() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    assert!(w.add_item(p, id(LL_ODDS), 1).unwrap().is_empty());
+    w.set_global(id(ODDS), 0.0).unwrap();
+    assert_eq!(w.add_item(p, id(LL_ODDS), 1).unwrap(), vec![(id(STIMPAK), 1)]);
+}
+
+#[test]
 fn below_is_uniform_enough() {
     let mut rng = ChaCha8Rng::seed_from_u64(0);
     let mut hist = [0u32; 7];
