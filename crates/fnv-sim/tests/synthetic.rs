@@ -456,6 +456,40 @@ fn doors_teleport_or_toggle() {
     assert_eq!(w.activate(p, id(CHAIR_REF)).unwrap().outcome, Outcome::Activated);
 }
 
+/// A stand-in for the physics placement `fnvtool sim run` supplies.
+struct Lift;
+
+impl actions::Settle for Lift {
+    fn settle(&mut self, _: &World, cell: Option<FormId>, pos: [f32; 3]) -> Option<([f32; 3], serde_json::Value)> {
+        (cell == Some(id(CELL_B))).then(|| ([pos[0], pos[1], pos[2] + 3.5], serde_json::json!({"shell": 3.5})))
+    }
+}
+
+#[test]
+fn teleported_actors_are_settled_by_the_caller() {
+    let f = fixture();
+    let text = format!(
+        r#"{{"format": "fnv.sim.actions/1", "actions": [
+            {{"op": "activate", "actor": "player", "target": "0x{DOOR_A:08X}"}},
+            {{"op": "get_pos", "of": "player", "label": "after A"}},
+            {{"op": "activate", "actor": "player", "target": "0x{DOOR_B:08X}"}},
+            {{"op": "get_pos", "of": "player", "label": "after B"}}]}}"#
+    );
+    let script: Script = serde_json::from_str(&text).unwrap();
+    let mut w = World::new(&f.forms, &f.refs, actions::config(&script));
+    let t = actions::run_with(&mut w, &script, Some(&mut Lift)).unwrap();
+    assert_eq!(t["steps"][0]["result"]["pos"], serde_json::json!([100.0, 0.0, 0.0]));
+    assert_eq!(t["steps"][0]["result"]["settled"]["pos"], serde_json::json!([100.0, 0.0, 3.5]));
+    assert_eq!(t["observations"][0]["pos"], serde_json::json!([100.0, 0.0, 3.5]));
+    // No settling offered (another cell): the stored destination stands.
+    assert!(t["steps"][2]["result"].get("settled").is_none());
+    assert_eq!(t["observations"][1]["pos"], serde_json::json!([-100.0, 0.0, 0.0]));
+    // Without a settler, `run` keeps the stored destination.
+    let mut w = World::new(&f.forms, &f.refs, actions::config(&script));
+    let t = actions::run(&mut w, &script).unwrap();
+    assert_eq!(t["observations"][0]["pos"], serde_json::json!([100.0, 0.0, 0.0]));
+}
+
 #[test]
 fn errors_are_reported_not_panics() {
     let f = fixture();
