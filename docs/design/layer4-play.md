@@ -127,8 +127,47 @@ drives the menus):
   player at 8693.87 [observed, `goodsprings_doc_mitchell`]); render streaming reloads 25
   exterior cells. Since 2026-10-08 travel uses the arrival rule (physics.md §6.2): feet on
   the terrain's contact shell, 8693.53.
+- Unattended, the two Doc Mitchell checks: `NVF_PLAY_TEST_ACTIVATE=3 nvforever --data <Data>
+  --play --cell GSDocMitchellHouse --pos=2050,1954,7480 --heading 90 --pitch -34.4
+  --run-seconds 6` (the stimpak, targeted by collision at 85) and the same with
+  `--pos=2350,1536,7480 --heading 90 --pitch -10 --run-seconds 12` (the front door, by
+  bounds at 70); `RUST_LOG=info,nvf_play::phys=debug` shows the collision removed and the
+  travel line.
 - Goodsprings gas station: the metal box 0x001629C1 is targeted at 99 units and E opens
   the container menu; the menu test aid takes all of Ringo's 200 caps and stores items back.
+
+Physics cells off the main thread (2026-10-08). Loading a cell took up to ~50 ms, all in
+one frame, so walking across cell borders stuttered. Measured first (debug log
+`physics cell … loaded`, exit line `physics streaming: …`; `RUST_LOG=info,nvf_play=debug`):
+reading models from the archives and parsing them was most of it, building rapier shapes
+the next part, inserting bodies and the broad-phase update about a millisecond:
+
+| Run | Before: per cell (median), longest streaming frame | After: preparing per cell (median), inserting, longest streaming frame |
+|---|---|---|
+| Goodsprings `--auto-walk 300`, 40 s, 12 cells | 4.0–53.4 ms (12.7), 54.1 ms; second run 4.0–104.4 (18.5), 105.5 ms | 4.4–66.6 ms (11.3) on the loader thread, ≤ 1.1 ms, 2.3 ms |
+| `--pos -60000,-20000,20000 --heading 180 --auto-walk 1500`, 60 s, 30–33 cells | 2.8–27.9 ms (8.8), 29.0 ms; second run 26.9 ms | 2.6–47.4 ms (8.1), ≤ 1.4 ms, 3.1 ms |
+| Doc Mitchell's house, E on the front door, 12 s | 45.3 ms | 4.4 ms (a loaded machine: every part took twice as long as before) |
+
+Parts before, 12 Goodsprings cells: read 73 ms, parse 89, shapes 36, records 19, convert
+15, insert 5, broad phase 9. "Longest streaming frame" is the main thread's physics
+streaming work in one frame once the player is placed; the first cell at the start and a
+door's destination still load on the spot (allowed). Whole frames: alternating runs gave
+51 and 54 frames/s after against 49 and 45 before; the longest frame (250 ms, Bevy's
+clamp) is render streaming in both. Now: `phys/prepare.rs` reads records and models and
+builds the shapes (`fnv_phys::PreparedRef` / `PreparedTerrain`, the halves of
+`add_ref` / `add_terrain`); `phys/loader.rs` runs that on its own thread (not Bevy's
+pools, which the LOD bakes keep busy) and hands cells back in request order; the main
+thread inserts one ready cell per frame, references by FormID, deciding then whether each
+is in the world. The cell under the player is never waited for: if it is not in, it loads
+on the spot and `info` logs it (none did in these runs: a new row of cells is requested
+a whole cell ahead of the player). The model cache is shared between the threads. Shape
+caching per model and prefetching beyond the 3×3 were not needed for the frame time.
+Determinism: tests insert made-up cells with the loader finishing forwards and backwards,
+on the main thread, and in two walking runs, and get bit-identical worlds
+(`phys/tests.rs`, physics.md §5); parity-lab L4 results are unchanged. Re-checked: the
+Goodsprings walk (feet 3.5 above the terrain, stopped by the house 0x00177CA4 where it
+stopped before), the stimpak and the front door (feet 8693.53, shell 3.50), the
+`--auto-fly` smoke test.
 
 Open:
 - Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
@@ -139,4 +178,3 @@ Open:
 - ~~Controller jitter against some rocks reproduces in `fnvtool phys walk`~~ Fixed:
   concave corners stop the character instead of alternating between faces (physics.md
   §6.1); the controller now rests on contact shells like the arrival (§6.2).
-- Up to ~50 ms per physics cell load in one frame.
