@@ -34,7 +34,8 @@ class Clock:
 class FakeGame:
     """Plays the plugin: reads auto.json, writes each job's output, then quits.
     `behaviour`: ok, crash (exits after the first job), no_plugin (never reads auto.json),
-    no_quit (keeps running), never_starts, hang (never finishes the jobs)."""
+    no_quit (keeps running), never_starts, hang (never finishes the jobs), frozen (stops
+    responding after reading auto.json)."""
 
     def __init__(self, capture_dir, clock, behaviour="ok"):
         self.dir, self.clock, self.behaviour = capture_dir, clock, behaviour
@@ -48,6 +49,9 @@ class FakeGame:
 
     def running(self):
         return self.alive
+
+    def responding(self):
+        return not (self.behaviour == "frozen" and self.ticks >= 1)
 
     def launch(self):
         self.launched = True
@@ -69,7 +73,7 @@ class FakeGame:
             with open(os.path.join(self.dir, "nvf_capture.log"), "a", encoding="utf-8") as f:
                 f.write(f"{int(self.clock.t)} automatic run: 1 menu line(s), 1 quit line(s)\n")
                 f.write("1 an old line\n")
-        if self.ticks == 2 and self.auto is not None and self.behaviour != "hang":
+        if self.ticks == 2 and self.auto is not None and self.behaviour not in ("hang", "frozen"):
             jobs = sorted(os.listdir(os.path.join(self.dir, "jobs")))
             for n, f in enumerate(j for j in jobs if j.endswith(".steps.json")):
                 name = f[:-len(".steps.json")]
@@ -185,6 +189,14 @@ class TestRun(Base):
         self.assertIn("timed out", report["problems"][0])
         self.assertTrue(game.killed)
         self.assertFalse(report["game_running"])
+
+
+    def test_hung_game_is_reported_and_closed(self):
+        code, report, _, game = self.main([self.write_job("a1"), "--kill-on-timeout"], "frozen")
+        self.assertEqual(code, 2)
+        self.assertIn("stopped responding", report["problems"][0])
+        self.assertLess(self.clock.t - report["started"], 600, "well before the timeout")
+        self.assertTrue(game.killed)
 
 
 class TestInput(Base):
