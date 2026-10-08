@@ -258,6 +258,34 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   the weathers over half a game hour [placeholder; WTHR DATA "trans delta" not
   understood]. NVWastelandClearNight has no clouds (`skylpha.dds` on layers 1-3) and a
   darker night ambient (121, 128, 213) than NVWastelandClear (172, 170, 215).
+- **Star texture alpha** [observed]: `SkyStars.dds` (512², DXT5) has colour in 6,225
+  texels but non-zero alpha in only ~430, and its shader property sets the
+  alpha-texture flag. The owner's in-game night shots show sparse, faint stars, so the
+  renderer weights star colour by texture alpha (additive) [hypothesis].
+- **Image space** [documented: xEdit wbDefinitionsFNV.pas IMGS, IMAD, WTHR, WRLD]: WRLD
+  `INAM` names the worldspace's image space (IMGS); WTHR ` IAD`..`IAD` name one
+  image space adapter (IMAD) per time of day (sunrise, day, sunset, night, high noon,
+  midnight). IMGS `DNAM` holds HDR, bloom, get-hit, night-eye and cinematic values
+  (saturation, contrast average luminance, contrast, brightness, tint colour and value);
+  the cinematic block starts at byte 100 from form version 10 (skin dimmer added) and at
+  96 before [documented]; DNAM sizes 152 (69 records), 148 (12) and 132 (11) [observed].
+  IMAD keeps multiply/add key lists (time, value) per parameter (`IAD`..`IAD`
+  multiply and `QIAD`..`TIAD` add for the cinematic ones) and a tint colour key list
+  (TNAM: time, RGBA). WastelandNV → NVDefaultExterior: saturation 1.1, contrast 1.1 around
+  luminance 0.2, brightness 1.0, tint (0.98, 0.57, 0.00) at 0.33 [observed]. NVWastelandClear
+  (and ClearNight) link NVWastelandSunriseIS, NVWastelandIS (day and high noon),
+  NVWastelandSunsetIS and NVWastelandNightIS. At time 0 their keys are: day brightness
+  ×1.3, amber tint (1.0, 0.74, 0.05) at 0.39; sunset saturation ×0.8, contrast +0.3, tint
+  (1.0, 0.44, 0.10) at 0.39; night contrast ×1.2, tint (0.22, 0.47, 0.93) at 0.63
+  [observed]. Later keys look like defaults (tint white at 0 or pure blue at 1).
+  The renderer grades the tonemapped picture with the base image space × each adapter's
+  time-0 keys (value × mult + add), the adapter tint giving the colour and scaling the
+  base tint amount, blended by time of day like the weather colours [hypothesis, chosen
+  against the owner's screenshots: replacing the amount made night far too blue].
+  Formula on display values: saturation around luminance, tint towards
+  luminance × tint colour, brightness factor, contrast around the average luminance
+  [hypothesis]. The IMGS flags byte (saturation, contrast, tint, brightness) is 0 in
+  NVDefaultExterior; its role is unknown. HDR eye adaptation is not applied.
 - **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
   the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
   [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600

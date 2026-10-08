@@ -38,6 +38,10 @@ fn main() {
     }
     let c = climate(&lo, &schema, clim_id.expect("climate not found")).unwrap();
     println!("climate {:?} sun {:?} glare {:?} sunrise {:?} sunset {:?}", c.edid, c.sun_texture, c.sun_glare_texture, c.sunrise, c.sunset);
+    if let Some(ws) = a.get(4).and_then(|w| u32::from_str_radix(w.trim_start_matches("0x"), 16).ok()) {
+        println!("image space {ws:#010x}:");
+        dump_floats(&lo, &schema, ws);
+    }
     let names = ["sky-upper", "fog", "unused", "ambient", "sunlight", "sun", "stars", "sky-lower", "horizon", "effect"];
     for wc in &c.weathers {
         let Some(w) = weather(&lo, &schema, wc.weather) else { continue };
@@ -50,6 +54,19 @@ fn main() {
             println!("  {:10} {:?}", names[t], set);
         }
         println!("  fog {:?}", w.fog);
+        if let Some((pi, r)) = fnv_world::fields::winner(&lo, wc.weather) {
+            if let Ok(f) = Fields::new(r, pi, &schema) {
+                for s in f.subs.iter().filter(|s| s.sig[0] < 0x20) {
+                    println!("  raw {:?} {:02x?}", String::from_utf8_lossy(&s.sig), s.data);
+                    // The links are IMAD form IDs [documented: xEdit wbDefinitionsFNV.pas WTHR].
+                    if let Ok(b) = <[u8; 4]>::try_from(&s.data[..]) {
+                        if let Some(id) = fnv_world::fields::global(&lo, pi, u32::from_le_bytes(b)) {
+                            dump_floats(&lo, &schema, id);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -86,4 +103,16 @@ fn survey(lo: &LoadOrder, schema: &Schema) {
         println!("{:10} {:9} {:10} {:14} {:14}", names[t], c[0], c[1], c[2], c[3]);
     }
     println!("black midnight ambient but non-black night ambient: {} {:?}", black_mid_ambient.len(), &black_mid_ambient[..black_mid_ambient.len().min(12)]);
+}
+
+/// Every subrecord of a record as little-endian f32 values (image-space records hold floats,
+/// counts and time/value key pairs [documented: xEdit wbDefinitionsFNV.pas IMGS, IMAD]).
+fn dump_floats(lo: &LoadOrder, schema: &Schema, id: u32) {
+    let Some((pi, r)) = fnv_world::fields::winner(lo, id) else { return };
+    let Ok(f) = Fields::new(r, pi, schema) else { return };
+    println!("    {} {:#010x} {:?}", String::from_utf8_lossy(&r.header.sig), id, f.string(b"EDID"));
+    for s in f.subs.iter().filter(|s| &s.sig != b"EDID" && !s.data.is_empty()) {
+        let v: Vec<String> = s.data.as_chunks::<4>().0.iter().map(|c| format!("{:.4}", f32::from_le_bytes(*c))).collect();
+        println!("      {:?} [{}]", String::from_utf8_lossy(&s.sig), v.join(", "));
+    }
 }
