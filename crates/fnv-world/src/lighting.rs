@@ -100,6 +100,12 @@ pub fn cell_lighting(lo: &LoadOrder, schema: &Schema, cell: u32) -> Option<CellL
     }
 }
 
+/// A cell's image space (CELL XCIM) [documented: xEdit "Image Space"], when it names one.
+pub fn cell_image_space(lo: &LoadOrder, schema: &Schema, cell: u32) -> Option<u32> {
+    let (pi, r) = winner(lo, cell)?;
+    Fields::new(r, pi, schema).ok()?.formid(b"XCIM", lo).filter(|&f| f != 0)
+}
+
 /// LIGH DATA flags [documented: xEdit].
 pub mod light_flags {
     pub const NEGATIVE: u32 = 1 << 2;
