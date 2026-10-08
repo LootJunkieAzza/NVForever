@@ -1,0 +1,520 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "bl_placed_mines",
+ "title": "B10 placed frag mines: live, and what activating one does (about 30 s, no input)",
+ "start": "Any save (travels to Nipton house 8 with coc; god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "console": "coc NiptonHouse8Paranoid"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283062\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "arrived",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x0013A656",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x0013A656",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x0013A656",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x0013A656",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M0 on arrival 0x0013A656",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x0013A655",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x0013A655",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x0013A655",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x0013A655",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M0 on arrival 0x0013A655",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x00139552",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x00139552",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x00139552",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x00139552",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M0 on arrival 0x00139552",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x00139551",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x00139551",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x00139551",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M0 on arrival 0x00139551",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M0 on arrival 0x00139551",
+   "field": "cell"
+  },
+  {
+   "frames": 600
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x0013A656",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x0013A656",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x0013A656",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x0013A656",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M1 after 600 game loops 0x0013A656",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x0013A655",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x0013A655",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x0013A655",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x0013A655",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M1 after 600 game loops 0x0013A655",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x00139552",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x00139552",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x00139552",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x00139552",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M1 after 600 game loops 0x00139552",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x00139551",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x00139551",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x00139551",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M1 after 600 game loops 0x00139551",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M1 after 600 game loops 0x00139551",
+   "field": "cell"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x0013A656",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x0013A656",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x0013A656",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x0013A656",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x0013A656",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x0013A655",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x0013A655",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x0013A655",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x0013A655",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x0013A655",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x00139552",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x00139552",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x00139552",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x00139552",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x00139552",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x00139551",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x00139551",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x00139551",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x00139551",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M2 after activating 0x0013A656 0x00139551",
+   "field": "cell"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x0013A656",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x0013A656",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x0013A656",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x0013A656",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x0013A656",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x0013A655",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x0013A655",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x0013A655",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x0013A655",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x0013A655",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x00139552",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x00139552",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x00139552",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x00139552",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283410\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x00139552",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x00139551",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x00139551",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x00139551",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x00139551",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "M3 after activating 0x0013A655 0x00139551",
+   "field": "cell"
+  }
+ ]
+}
