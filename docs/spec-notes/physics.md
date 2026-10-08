@@ -910,6 +910,67 @@ swimmer meets the shore and how fast it walks up a 27° bank out of water.
   reference: [hypothesis], one interior). Exterior cell water is unaffected (four places
   agree). The renderer still draws interior water planes at XCLW (Layer 3, unchanged).
 
+**Leaving the water: what the two shores show** (re-read of `sw_scenarios` and `sw_trial`
+against the LAND under each sample, `fnvtool phys cell` rays with and without meshes,
+2026-10-08) [observed]:
+
+- At Lake Las Vegas the swimmer met no LAND at all. Floating at 2895.22 it moved west at
+  the stroke speed into the 27.3° bank with z unchanged, so its feet went 0 → 29.3 below
+  the LAND under them over ten loops; in the next loop z rose 30.5 and the feet were
+  **exactly on the LAND surface** (0.01 above it, no contact shell); then the same again:
+  the depth before each rise was 28.3–30.6 and after it 0.01, 0.02, 1.1, 2.5, 2.8 and 0.7
+  below the LAND, six times, with the 12-units/s sink between rises and the horizontal
+  speed unchanged throughout (5.5–6.6 units per loop). It ended blocked by the rock
+  references at the top of the bank (layer Terrain), 7.6 below the LAND under it.
+- At Boulder Beach the swimmer collided with the LAND as a walking capsule does: floating
+  at S − 102.49 and walking towards a 33.9° slope, z stayed level until the LAND under the
+  feet was 7.7 below them, then the feet rose with the bed 4.4–4.8 above it (walking); the
+  run-out line, swum while still sinking, met 28° and rose 4.3 above the LAND. So the
+  slopes at the two places are alike (the run-out line's 28–34° is not the 12° average of
+  the walk-in line) and the bank angle does not explain the difference.
+- That after each rise the feet are on the bare surface, not on its 3.5 shell, points to a
+  placement from the LAND heights (or a ray), not to the swept capsule [hypothesis].
+
+Candidate explanations [hypothesis]: (P) the place: the swimmer's capsule does not collide
+with the LAND at Lake Las Vegas (why is open), and something puts the feet back on the LAND
+surface when they are about 30 below it; (S) the state: the Lake Las Vegas swimmer had
+overshot to 104.78 below the surface while the Boulder Beach one floated at 102.49, or ran
+where the other walked, and that changes its collision.
+
+**Predictions for `sw_banks`** (written 2026-10-08 before its run; job
+`tools/capture/jobs/make_swim_jobs.py` `banks()`). Each trial stands on land, is put at the
+surface 450 units out from where the bed reaches the floating height (enters by falling),
+floats for 5 s and then holds forward (Always Run; one trial walks) up the bank for 4 s
+(8 s walking). Banks of terrain only, found from the LAND heights: Lake Mead (S 2600) at
+12.5°, 16.4°, 25.3°, 30.4°, 41.5°, 45.1°, 49.3° and 58.3°; Lake Las Vegas (S 3000) at 14.3°
+and 24.7°; and the two lines above again (Lake Las Vegas running and walking, Boulder
+Beach running from the floating height). The game, from (P): every Lake Las Vegas trial
+shows the saw-tooth (feet into the LAND by about 30, then on its surface) whatever the
+slope and speed; every Lake Mead trial meets the bed with its capsule, walks out up to
+the steepest walkable slope (45° in the candidate, itself [hypothesis], §6.3) and stays
+in the water below steeper banks. From (S): a trial that floats 102.5 below the surface
+walks out wherever the slope allows, at either lake. The candidate (stroke cycle forward,
+walking 86; feet when swimming ends, seconds after the keys, and after 4 s):
+
+| Trial | Floats at | Stops swimming | Feet after 4 s (8 s walking) |
+|---|---|---|---|
+| `llv_line` | 2897.5 | (25260.7, 55100.0, 2897.5), 1.42 s | (24853.9, 55178.2, 3096.8), walking |
+| `llv_line walk` | 2897.5 | (25263.6, 55100.0, 2897.5), 6.05 s | (25120.8, 55097.7, 2965.0), walking |
+| `bb_line` | 2497.5 | (57654.8, 37536.0, 2497.5), 0.13 s | (56383.2, 37551.1, 2823.3), walking |
+| `lm_12` | 2497.5 | (53036.9, 41260.9, 2497.5), 1.03 s | (52376.3, 40600.2, 2855.5), walking |
+| `lm_16` | 2497.5 | (52732.2, 41467.0, 2497.5), 1.22 s | (52273.9, 40727.0, 2855.9), walking |
+| `lm_25` | 2497.5 | (127744.0, 31263.2, 2497.5), 1.12 s | (127746.2, 30366.3, 2886.9), walking |
+| `lm_30` | 2497.5 | (126233.8, 96529.7, 2497.5), 1.12 s | (125606.1, 96021.3, 2949.9), walking |
+| `lm_41` | 2497.5 | (148483.0, 29976.2, 2497.5), 1.13 s | (148414.1, 29270.0, 3068.6), walking |
+| `lm_45` | 2497.5 | (73210.5, 43005.3, 2497.5), 1.18 s | (73328.8, 43001.9, 2574.0), stopped on the slope |
+| `lm_49` | 2497.5 | (126474.7, 101636.6, 2497.5), 1.17 s | (126336.5, 101799.5, 2498.2), at the foot of the bank |
+| `lm_58` | 2497.5 | (78840.5, 37877.0, 2497.5), 1.17 s | (78844.3, 37875.0, 2498.1), at the foot of the bank |
+| `llv_14` | 2897.5 | (28980.2, 58903.3, 2897.5), 1.05 s | (28086.8, 58507.9, 3066.6), walking |
+| `llv_25` | 2897.5 | (32261.8, 59390.7, 2897.5), 1.22 s | (33160.1, 59263.3, 3103.6), walking |
+
+(The candidate ends swimming on any ground it is pushed onto, walkable or not, and then
+stands at the foot of the 49° and 58° banks.)
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>
