@@ -170,8 +170,10 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    corner jitter is fixed, gravity / jump / run / walk are measured in game (physics.md
    §6.3). Captured the same day: B11 15/20 after fixes (open: Havok trees, rocks within
    the game's spread, a pushed drop), traces fence_slide 6/6, fence_stop 6/6,
-   porch_steps 6/6, running_jump 0/6 (air control open), hill_run / portal_wall (goldens
-   with an early onset; physics.md §4.2, §6.3, §6.4).
+   porch_steps 6/6, running_jump 0/6 (air control open), hill_run 6/6 and portal_wall
+   5/6 (goldens rebuilt with the corrected onset on the owner's decision, no longer
+   held-out evidence; the steep downhill row is open; physics.md §4.2, §6.3, §6.4,
+   layer4-captures.md §1).
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
 
