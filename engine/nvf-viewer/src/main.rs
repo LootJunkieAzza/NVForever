@@ -1,12 +1,15 @@
 //! nvf-viewer — Layer 2 asset viewer for NVForever.
 //!
 //! Renders any mesh from the user's own game data with its textures and plays KF
-//! animations (embedded sequences, or a `.kf` given with `--anim`). Read-only: game files
-//! are read through `fnv-vfs`; screenshots go to the path given or the current folder.
+//! animations: sequences embedded in the mesh, a `.kf` given with `--anim`, and for
+//! skinned meshes every `.kf` under their skeleton's folder (e.g. all of
+//! `creatures\brahmin\` for a brahmin, `mtidle.kf` first; parsed as they are reached).
+//! Read-only: game files are read through `fnv-vfs`; screenshots go to the path given or
+//! the current folder.
 //!
-//! Keys: N / P next / previous mesh (PageDown / PageUp: ±10), A next animation, Space
-//! pause, H show hidden objects, F frame, F12 screenshot, Esc quit. Mouse: left drag
-//! orbit, right drag pan, wheel zoom.
+//! Keys: N / P next / previous mesh (PageDown / PageUp: ±10), A / Shift+A next / previous
+//! animation, Space pause, H show hidden objects, F frame, F12 screenshot, Esc quit.
+//! Mouse: left drag orbit, right drag pan, wheel zoom.
 
 mod camera;
 
@@ -33,7 +36,8 @@ struct Args {
     /// Mesh to open first (path inside the archives, e.g. meshes\clutter\x.nif).
     #[arg(long)]
     mesh: Option<String>,
-    /// Also offer the sequences of this .kf file (e.g. an idle for a skeleton mesh).
+    /// Also offer the sequences of this .kf file (e.g. an idle for a skeleton mesh). For
+    /// skinned meshes it is offered only when it lies under their skeleton's folder.
     #[arg(long)]
     anim: Option<String>,
     /// Skeleton for skinned meshes. Default: `skeleton.nif` in the mesh's folder, or the
@@ -63,6 +67,47 @@ struct Browser {
 
 #[derive(Component)]
 struct Overlay;
+
+/// The `.kf` files that can be played on the current mesh (its skeleton's folder) and how
+/// many of them have been parsed into `AnimState::available` so far.
+#[derive(Resource, Default)]
+struct KfFiles {
+    folder: Option<String>,
+    files: Vec<String>,
+    loaded: usize,
+}
+
+impl KfFiles {
+    /// Parse files until one adds sequences; false when none is left.
+    fn load_more(&mut self, data: &GameData, anim: &mut AnimState) -> bool {
+        while self.loaded < self.files.len() {
+            let path = self.files[self.loaded].clone();
+            self.loaded += 1;
+            let seqs = read_sequences(data, &path);
+            if !seqs.is_empty() {
+                anim.available.extend(seqs.into_iter().map(|s| (path.clone(), s)));
+                return true;
+            }
+        }
+        false
+    }
+}
+
+fn read_sequences(data: &GameData, path: &str) -> Vec<fnv_nif::anim::Sequence> {
+    let Some(bytes) = data.read(path) else { return Vec::new() };
+    let Ok(f) = fnv_nif::NifFile::parse(&bytes, Some(&data.schema)) else { return Vec::new() };
+    let dec = fnv_nif::scene::Decoded::new(&f, &bytes, &data.schema);
+    fnv_nif::anim::sequences(&f, &dec)
+}
+
+/// Every `.kf` under `folder` (a path ending in a backslash), the folder's `mtidle.kf`
+/// first, then by path.
+fn kf_files(data: &GameData, folder: &str) -> Vec<String> {
+    let idle = format!("{folder}mtidle.kf");
+    let mut files = data.vfs.paths(|p| p.starts_with(folder) && p.ends_with(".kf"));
+    files.sort_by_key(|p| (*p != idle, p.clone()));
+    files
+}
 
 fn main() -> AppExit {
     let args = Args::parse();
@@ -114,6 +159,7 @@ fn main() -> AppExit {
     .insert_resource(GlobalAmbientLight { brightness: 400.0, ..default() })
     .insert_resource(Browser { meshes, index, load_requested: true, report: None, error: None, show_hidden: false })
     .init_resource::<AnimState>()
+    .init_resource::<KfFiles>()
     .add_systems(Startup, setup)
     .add_systems(Update, (keys, load_mesh, anim_play::advance, camera::orbit_input, overlay).chain());
     if headless_shot {
@@ -140,10 +186,13 @@ fn setup(mut commands: Commands) {
     ));
 }
 
+#[allow(clippy::too_many_arguments)]
 fn keys(
     input: Res<ButtonInput<KeyCode>>,
     mut browser: ResMut<Browser>,
     mut anim: ResMut<AnimState>,
+    mut kfs: ResMut<KfFiles>,
+    data: Res<GameData>,
     mut hidden: Query<&mut Visibility, With<NifHidden>>,
     mut cams: Query<&mut Orbit>,
     mut commands: Commands,
@@ -169,10 +218,22 @@ fn keys(
     if input.just_pressed(KeyCode::Space) {
         anim.paused = !anim.paused;
     }
-    if input.just_pressed(KeyCode::KeyA) && !anim.available.is_empty() {
-        let next = anim.current.map_or(0, |c| (c + 1) % anim.available.len());
-        if let Some(nodes) = browser.report.as_ref().map(|r| r.nodes.clone()) {
-            anim.start(next, &nodes);
+    if input.just_pressed(KeyCode::KeyA) {
+        let back = input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        let next = match (anim.current, back) {
+            (Some(c), true) => c.checked_sub(1),
+            (Some(c), false) => Some(c + 1),
+            (None, _) => Some(0),
+        };
+        // Moving past the last parsed sequence parses the next file; past the very last,
+        // wrap around (backwards from the first goes to the last parsed one).
+        let next = match next {
+            Some(i) if i < anim.available.len() || kfs.load_more(&data, &mut anim) => Some(i),
+            Some(_) => Some(0),
+            None => anim.available.len().checked_sub(1),
+        };
+        if let (Some(i), Some(nodes)) = (next.filter(|&i| i < anim.available.len()), browser.report.as_ref().map(|r| r.nodes.clone())) {
+            anim.start(i, &nodes);
         }
     }
     if input.just_pressed(KeyCode::KeyH) {
@@ -204,6 +265,7 @@ fn load_mesh(
     mut ctx: SpawnCtx,
     roots: Query<Entity, With<NifRoot>>,
     mut anim: ResMut<AnimState>,
+    mut kfs: ResMut<KfFiles>,
     args: Res<Args>,
     mut cams: Query<&mut Orbit>,
 ) {
@@ -215,6 +277,7 @@ fn load_mesh(
         ctx.commands.entity(r).despawn();
     }
     *anim = AnimState::default();
+    *kfs = KfFiles::default();
     let path = browser.meshes[browser.index].clone();
     let skeleton = args.skeleton.as_deref().map(fnv_vfs::normalize).or_else(|| find_skeleton(&ctx.data, &path));
     match ctx.spawn_nif(&path, skeleton.as_deref().filter(|s| *s != path)) {
@@ -224,16 +287,23 @@ fn load_mesh(
                     o.frame(lo, hi);
                 }
             }
-            // Sequences embedded in the mesh, then those of the --anim file.
-            let schema = ctx.data.schema.clone();
+            // Sequences embedded in the mesh, then those of the --anim file (for a skinned
+            // mesh only when it belongs to the same skeleton: other creatures' bones share
+            // names like "Bip01 Spine" but not their rest poses), then the skeleton
+            // folder's .kf files, parsed as they are reached.
+            let skeleton = report.skeleton.as_deref().or_else(|| path.ends_with("\\skeleton.nif").then_some(path.as_str()));
+            let folder = skeleton.and_then(|s| s.rsplit_once('\\')).map(|(d, _)| format!("{d}\\"));
             let mut sources = vec![path.clone()];
-            sources.extend(args.anim.clone());
+            let anim_path = args.anim.as_deref().map(fnv_vfs::normalize);
+            sources.extend(anim_path.clone().filter(|a| folder.as_ref().is_none_or(|f| a.starts_with(f.as_str()))));
             for src in sources {
-                let Some(bytes) = ctx.data.read(&src) else { continue };
-                let Ok(f) = fnv_nif::NifFile::parse(&bytes, Some(&schema)) else { continue };
-                let dec = fnv_nif::scene::Decoded::new(&f, &bytes, &schema);
-                for s in fnv_nif::anim::sequences(&f, &dec) {
-                    anim.available.push((src.clone(), s));
+                anim.available.extend(read_sequences(&ctx.data, &src).into_iter().map(|s| (src.clone(), s)));
+            }
+            if let Some(f) = folder {
+                kfs.files = kf_files(&ctx.data, &f).into_iter().filter(|p| Some(p) != anim_path.as_ref()).collect();
+                kfs.folder = Some(f);
+                if anim.available.is_empty() {
+                    kfs.load_more(&ctx.data, &mut anim);
                 }
             }
             if !anim.available.is_empty() {
@@ -272,7 +342,13 @@ fn find_skeleton(data: &GameData, mesh: &str) -> Option<String> {
     (mesh.starts_with(r"meshes\characters\") && data.vfs.exists(male)).then(|| male.to_string())
 }
 
-fn overlay(browser: Res<Browser>, anim: Res<AnimState>, textures: Res<texture::TextureCache>, mut text: Query<&mut Text, With<Overlay>>) {
+fn overlay(
+    browser: Res<Browser>,
+    anim: Res<AnimState>,
+    kfs: Res<KfFiles>,
+    textures: Res<texture::TextureCache>,
+    mut text: Query<&mut Text, With<Overlay>>,
+) {
     let Ok(mut t) = text.single_mut() else { return };
     let mut s = format!("[{}/{}] {}\n", browser.index + 1, browser.meshes.len(), browser.meshes[browser.index]);
     if let Some(r) = &browser.report {
@@ -306,10 +382,13 @@ fn overlay(browser: Res<Browser>, anim: Res<AnimState>, textures: Res<texture::T
         }
         None => s += "no animation\n",
     }
+    if let Some(f) = &kfs.folder {
+        s += &format!("kf files in {f}: {} (read {})\n", kfs.files.len(), kfs.loaded);
+    }
     if !textures.failures.is_empty() {
         s += &format!("texture load failures so far: {}\n", textures.failures.len());
     }
-    s += "N/P next/prev  PgDn/PgUp +/-10  A animation  Space pause  H hidden  F frame  F12 screenshot  Esc quit";
+    s += "N/P next/prev  PgDn/PgUp +/-10  A / Shift+A animation  Space pause  H hidden  F frame  F12 screenshot  Esc quit";
     t.0 = s;
 }
 
