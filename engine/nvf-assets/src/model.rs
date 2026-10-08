@@ -133,20 +133,12 @@ pub type MeshAndMaterial = (Handle<Mesh>, Handle<StandardMaterial>);
 #[derive(Resource, Default)]
 pub struct ModelCache {
     map: HashMap<String, Option<Arc<PreparedModel>>>,
-    /// Shared materials keyed by a record FormID (e.g. water types).
-    water: HashMap<u32, Handle<StandardMaterial>>,
     /// Tree billboards keyed by TREE FormID; `None` remembers a failure.
     billboards: HashMap<u32, Option<MeshAndMaterial>>,
     pub failures: Vec<String>,
 }
 
 impl ModelCache {
-    pub fn water_material(&self, id: u32) -> Option<Handle<StandardMaterial>> {
-        self.water.get(&id).cloned()
-    }
-    pub fn set_water_material(&mut self, id: u32, m: Handle<StandardMaterial>) {
-        self.water.insert(id, m);
-    }
     pub fn billboard(&self, id: u32) -> Option<Option<MeshAndMaterial>> {
         self.billboards.get(&id).cloned()
     }
