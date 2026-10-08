@@ -22,6 +22,11 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.sim.trace.x13_enable_parents` | **missing** | — | backlog item B1 |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
 
+Substitute checks (xnvse-capture.md §7): the same scenarios regenerated with
+`--time hour|timescale` or `--settle auto` (job names `cmp_<scenario>_<mode>`, kept with
+the private jobs) and compared with the golden made by hand:
+`capture_steps.py compare <golden> <substitute trace>`.
+
 Regenerating a scenario job (Editor IDs resolved from the masters, read-only):
 
 ```
@@ -47,6 +52,7 @@ directory's `jobs\`). Results are in the notes named.
 | `aa_respawn_delay` | `iHoursToRespawnCell`; 1/6/12 h away | 72 in game; merchant box separate rule; simulation.md §3 |
 | `aa_vendor_restock` | merchant box: no-leave 24 h, 5 h across midnight, 10 h | restock without leaving; not midnight; simulation.md §3 |
 | `aa_auto_trial` | read-only; first unattended run (`capture_run.py`): menu load, auto start, quit | works (second try; the first hung the game, fixed in the plugin); xnvse-capture.md §6 |
+| `aa_time_substitutes` | how each scripted substitute for the Wait menu moves the calendar | not run yet (xnvse-capture.md §7) |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)

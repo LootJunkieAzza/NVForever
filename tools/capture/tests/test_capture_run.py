@@ -73,7 +73,9 @@ class FakeGame:
             with open(os.path.join(self.dir, "nvf_capture.log"), "a", encoding="utf-8") as f:
                 f.write(f"{int(self.clock.t)} automatic run: 1 menu line(s), 1 quit line(s)\n")
                 f.write("1 an old line\n")
-        if self.ticks == 2 and self.auto is not None and self.behaviour not in ("hang", "frozen"):
+                if self.behaviour == "old_plugin":
+                    f.write(f"{int(self.clock.t)} skipping C:\\x\\jobs\\a1.steps.json: data did not match any variant\n")
+        if self.ticks == 2 and self.auto is not None and self.behaviour not in ("hang", "frozen", "old_plugin"):
             jobs = sorted(os.listdir(os.path.join(self.dir, "jobs")))
             for n, f in enumerate(j for j in jobs if j.endswith(".steps.json")):
                 name = f[:-len(".steps.json")]
@@ -91,7 +93,7 @@ class FakeGame:
                     self.alive = False
                     return
                 os.replace(os.path.join(self.dir, "jobs", f), os.path.join(self.dir, "jobs", "done-" + f))
-        if self.ticks == 3 and self.behaviour in ("ok",):
+        if self.ticks == 3 and self.behaviour in ("ok", "old_plugin"):
             self.alive = False
 
 
@@ -177,6 +179,13 @@ class TestRun(Base):
         self.assertEqual(report["problems"], [])
         self.assertEqual(game.auto["quit_console"], [])
         self.assertTrue(report["game_running"])
+
+    def test_job_the_plugin_cannot_read_is_reported(self):
+        code, report, _, _ = self.main([self.write_job("a1")], "old_plugin")
+        self.assertEqual(code, 2)
+        self.assertEqual(report["jobs"]["a1"]["status"], "missing")
+        self.assertIn("plugin: skipping", report["problems"][-1])
+        self.assertIn("a1.steps.json", report["problems"][-1])
 
     def test_game_that_never_starts(self):
         code, report, _, _ = self.main([self.write_job("a1")], "never_starts")
