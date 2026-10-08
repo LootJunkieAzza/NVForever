@@ -166,6 +166,10 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    samples (7 cases), and `L4.sim.leveled.b8` (10 cases: LVLG globals, all levels between
    entry levels, nesting 3–5 deep; 2026-10-08).
 5. Collision: shape conversion vs oracle; Havok scale measured; then movement traces.
+   Status 2026-10-08: the controller rests on contact shells like the arrival rule, the
+   corner jitter is fixed, gravity / jump / run / walk are measured in game (physics.md
+   §6.3); B11 and four movement traces are designed with their predictions and wait for a
+   capture (layer4-captures.md §5).
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
 
@@ -208,6 +212,21 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    7361.05 standing on a rug at 7360 in Doc Mitchell's house). Still open: the collision
    layer matrix — a scripted drop test is proposed as backlog item B11
    (layer4-captures.md); the Havok scale needs no in-game test (collision.md §6).
+
+9. **Movement and collision (workstream 2, 2026-10-08)**. Unattended jobs are ready and
+   need only the game to be free (layer4-captures.md §5): `mv_b11_drops`, `mv_traces`,
+   `mv_b11_clutter`, `mv_values`. Questions that need someone at the game:
+   - Capsule height: standing, then crouched, under a beam or doorway lintel whose height
+     `fnvtool phys cell --ray` gives (e.g. the porch roof of Doc Mitchell's house): can
+     the player pass, and with jump does the head stop the rise? Report `player.GetPos Z`
+     at the highest point of a jump under it.
+   - Push mass: walk at a dynamic clutter item (e.g. a tin can on flat ground), forward
+     held for one second, and report its position before and after (`<ref>.GetPos x/y`
+     with the reference picked by clicking it in the console).
+   - Is anything about movement different with the mouse/keyboard than with held keys
+     (e.g. does running feel like 344 units/s, does walking with Shift match 86.8)? The
+     unattended runs used `HoldKey` with the bound scan codes.
+   - Swimming and ladders are not covered by any capture yet.
 
 ## 6. Updated spec notes
 
