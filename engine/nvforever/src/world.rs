@@ -118,6 +118,8 @@ pub struct StreamStats {
     pub refs_no_model: usize,
     /// TREE references: SpeedTree models are not drawn yet (layer3.md work item).
     pub refs_speedtree: usize,
+    /// References drawn with their own node hierarchy, playing an Idle sequence.
+    pub refs_animated: usize,
     pub water_planes: usize,
     pub lights: usize,
     pub shapes: usize,
@@ -296,6 +298,18 @@ fn load_cell(
         };
         // The reference transform replaces the model root's own (world.md §4).
         let rt = to_cell * ref_affine(&p);
+        if let Some(rig) = &model.rig {
+            // Animated (Idle sequence): its own node hierarchy per reference.
+            let (root, drawn) = rig.spawn(commands, cell_e, Transform::from_matrix(Mat4::from(rt)), &path);
+            commands.entity(root).insert(RefVisual(r));
+            for e in &drawn {
+                commands.entity(*e).insert(RefVisual(r));
+            }
+            stats.shapes += drawn.len();
+            stats.refs_drawn += 1;
+            stats.refs_animated += 1;
+            continue;
+        }
         for s in &model.shapes {
             let m = Mat4::from(rt * s.transform);
             commands.entity(cell_e).with_child((

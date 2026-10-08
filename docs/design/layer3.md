@@ -80,7 +80,13 @@ What it does now:
   normals, vertex colours (sRGB → linear).
 - Materials as in the viewer, plus: nodes named `EditorMarker*` are skipped, additive and
   multiplicative NIF blend modes are honoured, alpha test wins over blending, and
-  BSShaderNoLightingProperty is unlit (nif.md §6).
+  BSShaderNoLightingProperty is unlit (nif.md §6). Helper shapes (properties but no
+  shader property and no texture: bone boxes, collision proxies) are skipped (nif.md §6).
+- Animated and skinned objects: skinned shapes are drawn in their bind pose. Models with
+  an embedded `Idle` sequence (flags, vultures, dust effects) are spawned per reference
+  as their own node hierarchy, skinned shapes bound to it, and the sequence loops
+  (`nvf_assets::model::Rig`, `anim_play::Playing`); overlay "animated" counts them.
+  Morph controllers (the flags' small ripples) are not evaluated yet.
 - Sky, sun, ambient light and fog from the worldspace's climate and weather at a time
   of day (`--hour`, `[`/`]` keys; `--weather`; `--fog near,far` override): a vertex-coloured
   sky dome (sky-lower / horizon / sky-upper), a directional light with the weather's
