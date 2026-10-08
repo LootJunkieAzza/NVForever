@@ -308,6 +308,31 @@ nesting, levels between entries' levels with the all-levels flag set.
   their position (0x000DAEBD, grid −19, 0, at x −73989.5, y 3750.2) [observed].
 - **Created references** (dropped items) get FormIDs from 0xFF000000 upwards, a load
   slot no plugin can use [hypothesis for the original engine's numbering].
+- **Crosshair activation in the game** (`engine/nvf-play/src/activate.rs`; values and
+  rules to be captured, none observed yet):
+  - **Reach**: 150 game units from the eye [hypothesis: placeholder, about two metres at
+    ~70 units per metre]. No game setting in the masters names an activation distance
+    [observed: FalloutNV.esm has no GMST whose Editor ID contains "Activat" or "Pick"
+    other than script and lockpicking-XP settings]; the original's value is presumably
+    built into the executable [hypothesis]. Capture idea: with the prompt showing, step
+    back until it disappears and log the player-to-reference distance.
+  - **Targeting**: the activatable reference nearest along the view within reach.
+    Candidates are the reference whose collision the view ray hits first, and references
+    whose render bounds (each mesh's box in its own space) the ray enters before the first
+    collision hit of any kind, so walls and table tops hide what is behind them; a box the
+    eye is inside does not count; ties go to the collision hit [hypothesis: many small
+    items have no collision, yet the game lets the player pick them up]. Collision on the
+    trigger layer (12) does not block the ray [hypothesis].
+  - **What is offered**: references the simulation considers present (not taken, enabled)
+    whose base is an item, container, door, actor or placed explosive with a weapon to
+    give; activators and furniture only with a display name (FULL) [hypothesis: unnamed
+    activators are trigger volumes and markers].
+  - **Arrival heading through a door**: the XTEL rotation's z angle in degrees. Reference
+    angles are radians and a z rotation turns clockwise seen from above (world.md §4
+    [observed]), so z = 0 faces north (+Y) and z is the compass heading [hypothesis: that
+    an actor faces its model's +Y; the heading after a teleport is not captured].
+  - A door whose destination is in another worldspace is not followed yet (the player's
+    simulated position is put back).
 
 ## 5b. Game settings and game time
 
