@@ -3,6 +3,7 @@
 //! Protocol and file formats: docs/spec-notes/xnvse-capture.md §4.
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use serde::Deserialize;
 use serde_json::{json, Value as Json};
@@ -25,7 +26,7 @@ pub struct Job {
 }
 
 /// One step; the variant is chosen by its key (`query`, `script`, `console`, `manual`,
-/// `frames`, `until`, `remember`).
+/// `frames`, `until`, `remember`, `observe`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum Step {
@@ -36,6 +37,7 @@ pub enum Step {
     Frames(FramesStep),
     Until(UntilStep),
     Remember(RememberStep),
+    Observe(ObserveStep),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -87,6 +89,73 @@ pub struct RememberStep {
     pub remember: String,
     #[serde(rename = "as")]
     pub name: String,
+}
+
+/// Sample the game repeatedly (plugin version 4; docs/spec-notes/ai-observer.md §3).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObserveStep {
+    pub observe: Observe,
+}
+
+/// Every `every` game loops: run the `header` parts once and, for each group, its
+/// `count` script and then its `probe` parts once per subject index (`%{i}` in the
+/// probe text). Ends when `until` returns non-zero (checked before each sample), after
+/// `max_samples`, or when End is pressed. `drive` runs once per game loop meanwhile,
+/// until it returns non-zero or `drive_frames` loops have passed (0: no limit); then
+/// `drive_end` runs once (also when the observation ends first).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Observe {
+    pub label: String,
+    /// Field names, echoed into the output so that it describes itself.
+    #[serde(default)]
+    pub fields: Json,
+    #[serde(default)]
+    pub header: Vec<String>,
+    #[serde(default)]
+    pub groups: Vec<Group>,
+    pub every: u32,
+    #[serde(default)]
+    pub until: Option<String>,
+    pub max_samples: u32,
+    #[serde(default)]
+    pub drive: Option<String>,
+    #[serde(default)]
+    pub drive_frames: u32,
+    #[serde(default)]
+    pub drive_end: Option<String>,
+    /// Checked once per sample (plugin version 6).
+    #[serde(default)]
+    pub hooks: Vec<Hook>,
+}
+
+/// When `when` has returned non-zero at `after` samples in a row, `then` runs once (and
+/// the count starts again). Used to close a dialogue an NPC opened with the player
+/// (docs/spec-notes/ai-observer.md §3).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Hook {
+    pub name: String,
+    pub when: String,
+    pub after: u32,
+    pub then: String,
+}
+
+/// Subjects of one kind (e.g. actors near the player, or named actors wherever they
+/// are). A subject whose first probe part returns 0, nothing or "" is left out.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Group {
+    pub name: String,
+    pub count: String,
+    pub probe: Vec<String>,
+    #[serde(default = "default_group_max")]
+    pub max: u32,
+}
+
+fn default_group_max() -> u32 {
+    256
 }
 
 /// `text` with every `%{name}` replaced by the remembered number.
@@ -166,6 +235,8 @@ enum State {
     Announced { wait: u32 },
     /// `polls`: game loops spent on the current `until` step.
     Running { step: usize, wait: u32, manual: bool, polls: u32 },
+    /// An `observe` step: samples taken, loops to the next sample, drive state.
+    Observing { step: usize, sample: u32, wait: u32, drive_on: bool, drive_loops: u32 },
 }
 
 pub struct Runner {
@@ -178,6 +249,8 @@ pub struct Runner {
     auto_start: Option<u32>,
     /// Numbers kept by `remember` steps, for the running job.
     vars: HashMap<String, f64>,
+    /// Consecutive samples each hook of the running observe step has been true.
+    hook_counts: Vec<u32>,
     pub plugin_version: u32,
     pub nvse_version: u32,
     pub runtime_version: u32,
@@ -185,7 +258,7 @@ pub struct Runner {
 
 impl Runner {
     pub fn new(plugin_version: u32, nvse_version: u32, runtime_version: u32) -> Runner {
-        Runner { pending: Vec::new(), state: State::Idle, prev: (false, false), auto_start: None, vars: HashMap::new(), plugin_version, nvse_version, runtime_version }
+        Runner { pending: Vec::new(), state: State::Idle, prev: (false, false), auto_start: None, vars: HashMap::new(), hook_counts: Vec::new(), plugin_version, nvse_version, runtime_version }
     }
 
     /// Switch to automatic mode (see `auto_start`).
@@ -201,14 +274,14 @@ impl Runner {
     }
 
     pub fn is_running(&self) -> bool {
-        matches!(self.state, State::Running { .. })
+        matches!(self.state, State::Running { .. } | State::Observing { .. })
     }
 
     /// A save finished loading. Replaces the pending jobs (rescanned by the caller),
     /// aborting a running job, and announces the first one.
     pub fn game_loaded(&mut self, jobs: Vec<Job>, host: &mut dyn Host) -> Vec<Event> {
         let mut ev = Vec::new();
-        if let (State::Running { .. }, Some(j)) = (&self.state, self.pending.first()) {
+        if let (State::Running { .. } | State::Observing { .. }, Some(j)) = (&self.state, self.pending.first()) {
             ev.push(Event::Output { job: j.name.clone(), line: json!({"kind": "aborted", "reason": "a save was loaded"}) });
             ev.push(Event::Aborted { job: j.name.clone() });
         }
@@ -332,6 +405,17 @@ impl Runner {
                         Ok(_) => ev.push(err(format!("condition not met in {} game loops", u.max_frames))),
                         Err(e) => ev.push(err(e)),
                     },
+                    Step::Observe(o) => {
+                        let o = &o.observe;
+                        let groups: Vec<&str> = o.groups.iter().map(|g| g.name.as_str()).collect();
+                        ev.push(Event::Output {
+                            job: job.name.clone(),
+                            line: json!({"kind": "observing", "step": step, "label": o.label, "fields": o.fields,
+                                         "every": o.every, "groups": groups}),
+                        });
+                        self.hook_counts = vec![0; o.hooks.len()];
+                        next = State::Observing { step, sample: 0, wait: 0, drive_on: o.drive.is_some(), drive_loops: 0 };
+                    }
                     Step::Remember(r) => match expand(&r.remember, vars).and_then(|t| host.script(&t)) {
                         Ok(Value::Number(n)) if n.is_finite() => {
                             self.vars.insert(r.name.clone(), n);
@@ -343,8 +427,152 @@ impl Runner {
                 }
                 self.state = next;
             }
+            State::Observing { step, sample, wait, drive_on, drive_loops } => {
+                let Step::Observe(o) = &job.steps[step] else { unreachable!("observing a step that is not observe") };
+                let mut counts = std::mem::take(&mut self.hook_counts);
+                self.state = self.observe_tick(&job.name, step, &o.observe, (sample, wait, drive_on, drive_loops), end_pressed, host, &mut ev, &mut counts);
+                self.hook_counts = counts;
+            }
         }
         ev
+    }
+
+    /// One game loop of an `observe` step; returns the next state.
+    #[allow(clippy::too_many_arguments)]
+    fn observe_tick(&self, job: &str, step: usize, o: &Observe, (sample, wait, mut drive_on, mut drive_loops): (u32, u32, bool, u32),
+                    end_pressed: bool, host: &mut dyn Host, ev: &mut Vec<Event>, hook_counts: &mut [u32]) -> State {
+        let out = |ev: &mut Vec<Event>, line: Json| ev.push(Event::Output { job: job.to_string(), line });
+        let vars = &self.vars;
+        let stop_drive = |ev: &mut Vec<Event>, host: &mut dyn Host, loops: u32, reason: &str, value: Option<f64>| {
+            let mut line = json!({"kind": "drive", "step": step, "loops": loops, "reason": reason});
+            if let Some(v) = value {
+                line["value"] = json!(v);
+            }
+            out(ev, line);
+            if let Some(d) = &o.drive_end {
+                if let Err(e) = expand(d, vars).and_then(|t| host.script(&t)) {
+                    out(ev, json!({"kind": "error", "step": step, "error": format!("drive_end: {e}")}));
+                }
+            }
+        };
+        if drive_on {
+            if let Some(d) = &o.drive {
+                drive_loops += 1;
+                let reason = match expand(d, vars).and_then(|t| host.script(&t)) {
+                    Ok(Value::Number(n)) if n != 0.0 => Some(("arrived".to_string(), Some(n))),
+                    Ok(_) if o.drive_frames > 0 && drive_loops >= o.drive_frames => Some(("max_frames".to_string(), None)),
+                    Ok(_) => None,
+                    Err(e) => Some((format!("error: {e}"), None)),
+                };
+                if let Some((r, value)) = reason {
+                    drive_on = false;
+                    stop_drive(ev, host, drive_loops, &r, value);
+                }
+            }
+        }
+        if wait > 0 && !end_pressed {
+            return State::Observing { step, sample, wait: wait - 1, drive_on, drive_loops };
+        }
+        let done = if end_pressed {
+            Some("end_key".to_string())
+        } else if sample >= o.max_samples {
+            Some("max_samples".to_string())
+        } else if let Some(u) = &o.until {
+            match expand(u, vars).and_then(|t| host.script(&t)) {
+                Ok(Value::Number(n)) if n != 0.0 => Some("until".to_string()),
+                Ok(_) => None,
+                Err(e) => Some(format!("until failed: {e}")),
+            }
+        } else {
+            None
+        };
+        if let Some(reason) = done {
+            if drive_on {
+                stop_drive(ev, host, drive_loops, "observation ended", None);
+            }
+            out(ev, json!({"kind": "observed", "step": step, "label": o.label, "samples": sample, "reason": reason}));
+            return State::Running { step: step + 1, wait: 0, manual: false, polls: 0 };
+        }
+        let started = Instant::now();
+        let mut errors = 0u32;
+        let mut first_error: Option<String> = None;
+        let mut note = |e: String| {
+            errors += 1;
+            first_error.get_or_insert(e);
+        };
+        for (h, count) in o.hooks.iter().zip(hook_counts.iter_mut()) {
+            match expand(&h.when, vars).and_then(|t| host.script(&t)) {
+                Ok(Value::Number(n)) if n != 0.0 => *count += 1,
+                Ok(_) => *count = 0,
+                Err(e) => {
+                    note(format!("hook {} when: {e}", h.name));
+                    *count = 0;
+                }
+            }
+            if *count >= h.after.max(1) {
+                let mut line = json!({"kind": "hook", "step": step, "n": sample, "name": h.name, "samples": *count});
+                if let Err(e) = expand(&h.then, vars).and_then(|t| host.script(&t)) {
+                    line["error"] = json!(e);
+                }
+                out(ev, line);
+                *count = 0;
+            }
+        }
+        let mut header = Vec::with_capacity(o.header.len());
+        for h in &o.header {
+            match expand(h, vars).and_then(|t| host.script(&t)) {
+                Ok(v) => header.push(v.to_json()),
+                Err(e) => {
+                    note(format!("header: {e}"));
+                    header.push(Json::Null);
+                }
+            }
+        }
+        let mut groups = serde_json::Map::new();
+        for g in &o.groups {
+            let n = match expand(&g.count, vars).and_then(|t| host.script(&t)) {
+                Ok(Value::Number(n)) if n.is_finite() && n >= 0.0 => (n as u32).min(g.max),
+                Ok(v) => {
+                    note(format!("{} count: not a number ({v:?})", g.name));
+                    groups.insert(g.name.clone(), Json::Null);
+                    continue;
+                }
+                Err(e) => {
+                    note(format!("{} count: {e}", g.name));
+                    groups.insert(g.name.clone(), Json::Null);
+                    continue;
+                }
+            };
+            let mut subjects = Vec::new();
+            let mut iv = vars.clone();
+            for i in 0..n {
+                iv.insert("i".to_string(), f64::from(i));
+                let mut parts = Vec::with_capacity(g.probe.len());
+                for (k, p) in g.probe.iter().enumerate() {
+                    match expand(p, &iv).and_then(|t| host.script(&t)) {
+                        Ok(Value::Nothing) if k == 0 => break,
+                        Ok(Value::Number(n)) if k == 0 && n == 0.0 => break,
+                        Ok(Value::Text(t)) if k == 0 && t.is_empty() => break,
+                        Ok(v) => parts.push(v.to_json()),
+                        Err(e) => {
+                            note(format!("{} subject {i} part {k}: {e}", g.name));
+                            parts.push(Json::Null);
+                        }
+                    }
+                }
+                if !parts.is_empty() {
+                    subjects.push(Json::Array(parts));
+                }
+            }
+            groups.insert(g.name.clone(), Json::Array(subjects));
+        }
+        let mut line = json!({"kind": "sample", "step": step, "n": sample, "header": header, "groups": groups,
+                              "errors": errors, "us": started.elapsed().as_micros() as u64});
+        if let Some(e) = first_error {
+            line["first_error"] = json!(e);
+        }
+        out(ev, line);
+        State::Observing { step, sample: sample + 1, wait: o.every.saturating_sub(1), drive_on, drive_loops }
     }
 }
 
@@ -375,6 +603,9 @@ mod tests {
                     Ok(Value::Number(if self.scripts.iter().filter(|s| *s == t).count() >= n { 1.0 } else { 0.0 }))
                 }
                 "add 6.5" => Ok(Value::Number(7.5)),
+                "subj 1" => Ok(Value::Number(0.0)),
+                t if t.starts_with("subj ") => Ok(Value::Text(format!("s{}", &t[5..]))),
+                "part 0" => Ok(Value::Number(7.0)),
                 _ => Err("compile failed".into()),
             }
         }
@@ -519,6 +750,108 @@ mod tests {
         assert!(out[5]["error"].as_str().unwrap().contains("%{nope}"));
         assert_eq!(out[6]["kind"], "error");
         assert_eq!(out[7]["kind"], "end");
+    }
+
+    #[test]
+    fn observe_samples_groups_drives_and_stops() {
+        let mut m = Mock::default();
+        let mut r = Runner::new(4, 0, 0);
+        r.set_auto_start(Some(0));
+        // Subjects: index 0 is kept (two parts), index 1 is left out (first part 0),
+        // index 2's second part fails. `until` is met at its 3rd check; the drive at its
+        // 2nd call. Samples every 2 game loops.
+        let job = Job::parse(r#"{"format": "fnv.capture.steps/1", "name": "o1", "steps": [
+            {"observe": {"label": "near", "fields": {"header": ["h"]}, "header": ["clock", "bad"],
+                         "groups": [{"name": "actors", "count": "count", "max": 3,
+                                     "probe": ["subj %{i}", "part %{i}"]}],
+                         "every": 2, "until": "ready 3", "max_samples": 10,
+                         "drive": "ready 2", "drive_end": "count"}},
+            {"query": "count", "label": "after", "field": "x"}]}"#).unwrap();
+        r.game_loaded(vec![job], &mut m);
+        let mut all = Vec::new();
+        for _ in 0..12 {
+            all.extend(r.tick(&mut m));
+        }
+        let out = lines(&all);
+        let kinds: Vec<&str> = out.iter().map(|l| l["kind"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["start", "observing", "sample", "drive", "sample", "observed", "result", "end"]);
+        assert_eq!(out[1]["fields"], json!({"header": ["h"]}));
+        assert_eq!(out[1]["groups"], json!(["actors"]));
+        assert_eq!(out[3]["reason"], "arrived");
+        assert_eq!(out[3]["value"], 1.0, "the drive's non-zero result is recorded");
+        assert_eq!(out[3]["loops"], 2);
+        let s = &out[2];
+        assert_eq!(s["n"], 0);
+        assert_eq!(s["header"], json!([6.5, null]));
+        assert_eq!(s["groups"]["actors"], json!([["s0", 7.0], ["s2", null]]), "count 5 capped at max 3");
+        assert_eq!(s["errors"], 2);
+        assert!(s["first_error"].as_str().unwrap().starts_with("header"));
+        assert_eq!(out[5]["samples"], 2);
+        assert_eq!(out[5]["reason"], "until");
+        assert_eq!(m.scripts.iter().filter(|t| *t == "ready 2").count(), 2, "the drive stops once it returns non-zero");
+        assert_eq!(m.scripts.iter().filter(|t| *t == "subj 0").count(), 2);
+    }
+
+    #[test]
+    fn observe_stops_at_max_samples_or_end_and_ends_the_drive() {
+        let job = r#"{"format": "fnv.capture.steps/1", "name": "o2", "steps": [
+            {"observe": {"label": "x", "every": 1, "max_samples": 2, "drive": "ready 99", "drive_end": "count"}}]}"#;
+        let mut m = Mock::default();
+        let mut r = Runner::new(4, 0, 0);
+        r.set_auto_start(Some(0));
+        r.game_loaded(vec![Job::parse(job).unwrap()], &mut m);
+        let mut all = Vec::new();
+        for _ in 0..8 {
+            all.extend(r.tick(&mut m));
+        }
+        let out = lines(&all);
+        let ended: Vec<&Json> = out.iter().filter(|l| l["kind"] == "observed" || l["kind"] == "drive").collect();
+        assert_eq!(ended[0]["reason"], "observation ended", "drive_end runs when the observation ends first");
+        assert_eq!(ended[1]["reason"], "max_samples");
+        assert_eq!(m.scripts.iter().filter(|t| *t == "count").count(), 1);
+        // End stops an observation at once (attended runs).
+        let mut m = Mock::default();
+        let mut r = Runner::new(4, 0, 0);
+        r.set_auto_start(Some(0));
+        r.game_loaded(vec![Job::parse(&job.replace("\"max_samples\": 2", "\"max_samples\": 1000")).unwrap()], &mut m);
+        let mut all = Vec::new();
+        for _ in 0..4 {
+            all.extend(r.tick(&mut m));
+        }
+        m.keys.extend([(true, false)]);
+        all.extend(r.tick(&mut m));
+        assert!(lines(&all).iter().any(|l| l["kind"] == "observed" && l["reason"] == "end_key"));
+    }
+
+    #[test]
+    fn hooks_fire_after_consecutive_samples() {
+        let mut m = Mock::default();
+        let mut r = Runner::new(6, 0, 0);
+        r.set_auto_start(Some(0));
+        // "ready 3" is non-zero from its 3rd call on: true at samples 2, 3, 4, ...; with
+        // after 2 the hook fires at sample 3 and, counting again, at sample 5.
+        let job = Job::parse(r#"{"format": "fnv.capture.steps/1", "name": "h1", "steps": [
+            {"observe": {"label": "x", "every": 1, "max_samples": 6,
+                         "hooks": [{"name": "menu", "when": "ready 3", "after": 2, "then": "count"},
+                                   {"name": "bad", "when": "nope", "after": 1, "then": "count"}]}}]}"#).unwrap();
+        r.game_loaded(vec![job], &mut m);
+        let mut all = Vec::new();
+        for _ in 0..12 {
+            all.extend(r.tick(&mut m));
+        }
+        let out = lines(&all);
+        let fired: Vec<(u64, &str)> = out.iter().filter(|l| l["kind"] == "hook")
+            .map(|l| (l["n"].as_u64().unwrap(), l["name"].as_str().unwrap())).collect();
+        assert_eq!(fired, [(3, "menu"), (5, "menu")]);
+        assert!(out.iter().filter(|l| l["kind"] == "sample").all(|l| l["errors"] == 1), "a failing hook is an error, not a stop");
+        assert_eq!(m.scripts.iter().filter(|t| *t == "count").count(), 2);
+    }
+
+    #[test]
+    fn parses_the_committed_observer_diagnostic_job() {
+        // Generated by tools/capture/observe.py (diag); keeps the two sides in step.
+        let j = Job::parse(include_str!("../../jobs/aa_observe_diag.steps.json")).unwrap();
+        assert!(j.steps.iter().any(|s| matches!(s, Step::Observe(o) if o.observe.groups.len() == 1)));
     }
 
     #[test]

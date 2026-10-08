@@ -62,6 +62,11 @@ class InputError(Exception):
 
 def edid_index(data_dir, masters=MASTERS):
     """Lower-case Editor ID -> global FormID of its winning, non-deleted record."""
+    return {e.lower(): fid for fid, e in edid_names(data_dir, masters).items()}
+
+
+def edid_names(data_dir, masters=MASTERS):
+    """Global FormID -> Editor ID of its winning, non-deleted record."""
     import oracle_esm
     import oracle_sim
     warnings = oracle_sim.Warnings()
@@ -77,7 +82,7 @@ def edid_index(data_dir, masters=MASTERS):
                 fid = (target << 24) | (local & 0xFFFFFF)
                 by_fid[fid] = None if rec["flags"] & 0x20 else rec["edid"]
         plugin.buf = None
-    return {e.lower(): fid for fid, e in by_fid.items() if e}
+    return {fid: e for fid, e in by_fid.items() if e}
 
 
 # --------------------------------------------------------------------------- scripts
