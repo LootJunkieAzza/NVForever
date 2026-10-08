@@ -238,11 +238,23 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   `Idle` sequence in a loop from load [hypothesis: consistent with waving flags and
   circling vultures in game] and draws skinned shapes without a sequence in their bind
   pose. Morph controllers are not evaluated yet.
-- **Alpha** (NiAlphaProperty flags, layout documented in nif.xml): foliage and fences set
-  both blending and alpha testing; drawing them as blended causes order-dependent
-  artefacts, drawing them alpha-tested matches the expected look, so the test wins.
-  Destination factor ONE (additive) is kept as additive [hypothesis, to confirm against
-  screenshots].
+- **Alpha** (NiAlphaProperty flags, layout documented in nif.xml; bits 10-12 hold the
+  test function, 4 = GREATER, the nif.xml default). Survey of visible shapes in
+  `Fallout - Meshes.bsa` and every `* - Main.bsa` [observed,
+  `crates/fnv-nif/examples/alpha_survey.rs`]: 18,934 only alpha-test (foliage, fences),
+  7,422 only blend, and 1,554 set both, all with TEST_GREATER. Of those, 855 have a
+  threshold of 64 or more (mostly weapon parts, e.g. `lasergatlingcfframe.nif`). The other
+  699 have 0-63, e.g. scope glass, the Vit-o-matic's glowing labels and the dirty glass
+  of the NV poster marquees. `Marquee.dds` keeps grime as partial alpha with a fully
+  transparent break.
+
+  The renderers draw blend+test as alpha-tested from threshold 64 and as blended below
+  [hypothesis: below that the test only trims nearly transparent texels]. Drawn
+  alpha-tested, the marquee glass covered the posters with an opaque grey panel
+  [observed: Prospector Saloon]. Destination factor ONE (additive) is kept as additive.
+  TEST_GREATER keeps alpha strictly above the threshold; Bevy's mask keeps alpha ≥ the
+  cutoff, so the cutoff moves half a step up [hypothesis]. Order-dependent blending
+  remains possible for the blended shapes.
 - **Emissive light** [observed, `crates/fnv-nif/examples/glow_survey.rs` over
   `Fallout - Meshes.bsa`]: of 42,074 visible shapes drawn by a
   BSShaderPPLightingProperty, 2,687 have a non-black NiMaterialProperty emissive colour;
