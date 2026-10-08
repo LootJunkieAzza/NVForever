@@ -271,7 +271,9 @@ nesting, levels between entries' levels with the all-levels flag set.
   "Leveled Lock"). Observed only on CONT (321) and DOOR (341) references; levels
   0 (63), 25 (120), 50 (182), 75 (91), 100 (34), 255 (172); 161 name a key, always a
   KEYM; 104 level-255 locks have no key [observed]. Level 255 is "requires key"
-  [hypothesis]. A reference with XLOC starts locked [hypothesis].
+  [hypothesis; a level-255 trunk with a key refused scripted activation without the key
+  and showed no lockpick menu, see "Locks in game" below]. A reference with XLOC starts
+  locked [observed for three containers: `GetLocked` 1 on arrival].
 - **XTEL** (door FormID, position, rotation, flag) makes a door a teleport [documented:
   xEdit]. 1,378 references have XTEL; 1,376 pairs are reciprocal (the destination door's
   XTEL points back); 0x00087A6B → 0x000827BA and 0x000CAEB5 → 0x000CAFA5 point at doors
@@ -302,7 +304,8 @@ nesting, levels between entries' levels with the all-levels flag set.
   is presumably the character controller settling the actor [hypothesis; physics
   workstream].
 - **Scripted `Activate` on item references** [observed 2026-10-07, two follow-up captures
-  in Doc Mitchell's house]: `ref.Activate player` adds the item's stack every time — three
+  in Doc Mitchell's house]: `ref.Activate player` adds the item every time (one item,
+  even from a stack; see "Dropping and taking back" below) — three
   activations of stimpak 0x00105BF3 gave 1, 2, 3 stimpaks; a stimpak taken by hand
   (0x00105BF5) still gave one more; a cap reference that was never taken but disabled with
   `Disable` (GetDisabled 1) also gave its cap and stayed disabled. `GetDisabled` stays 0
@@ -316,7 +319,48 @@ nesting, levels between entries' levels with the all-levels flag set.
   stores the door; the player's own cell outdoors was likewise the grid cell containing
   their position (0x000DAEBD, grid −19, 0, at x −73989.5, y 3750.2) [observed].
 - **Created references** (dropped items) get FormIDs from 0xFF000000 upwards, a load
-  slot no plugin can use [hypothesis for the original engine's numbering].
+  slot no plugin can use [hypothesis for the starting number; observed in game: dropped
+  stimpaks got 0xFF001315, 0xFF001316, 0xFF001317 in turn, `GetSourceModIndex` 255].
+- **Locks in game** [observed 2026-10-08, unattended captures from `nvftest`,
+  `L4.sim.trace.goodsprings_locked_safe_key` / `_no_key` and `ld_lock_levels`; scripted
+  `<container>.Activate player`, then `MenuMode 1008` (container menu [documented: GECK
+  wiki GetMenuTargetRef]) and `CloseAllMenus`]:
+  - A locked container activated by script without its key opens nothing: no container
+    menu, and at level 255 no lockpick menu either (MenuMode 0); contents and lock are
+    unchanged. With its key in the activator's inventory it opens the container menu at
+    once and is **unlocked for good** (`GetLocked` 0 afterwards, `GetLockLevel` still 255
+    for a level-255 trunk), the key stays in the inventory; locked again with `Lock` and
+    the key removed it refuses again, with the key back it opens again. Scripted
+    activation therefore follows the same key rule as the owner's interactive test.
+  - After `Unlock` the container opens on activation; `Lock` without a level relocks it
+    at its old level, `Lock 255` / `Lock 100` set the level (`GetLockLevel` 255 / 100).
+  - **`GetLocked` reads 1 for every locked container, also at level 255** — the
+    authored "requires key" trunk 0x0015D0D0 (BlackMountainRadio2, `BMLootTrunk`) and a
+    level-25 safe after `Lock 255` — not the 2 ("locked out") the GECK wiki lists for an
+    impossible level. The simulation reports 0 / 1; 2 stays for broken locks (Layer 6).
+  - A container in a cell the player is not in (Ringo's gas station seen from another
+    interior) did not open its menu when activated by script, though `GetLocked`,
+    `Unlock` and `RemoveAllItems` worked on it [observed, a mis-ordered first run]; the
+    scenarios therefore activate containers in the player's cell only.
+- **Dropping and taking back** [observed 2026-10-08, `nvfdoc`, the player just outside Doc
+  Mitchell's front door, `L4.sim.trace.goodsprings_drop_and_retake`, `ld_drop_refs`,
+  `ld_drop_stack`]: `player.Drop <item> n` makes **one** reference holding all n (count 1,
+  2, 3 by `GetRefCount`), placed **50 units in front of the player along its heading and
+  30 units above its feet** (player at x −73162.92, y 1312.39, z 8693.86, `GetAngle Z`
+  72.81°; item at −73115.16, 1327.17, 8723.86: offset 47.77 / 14.78 / 30.00, i.e. 50 ×
+  (sin, cos) of the heading). It stayed exactly there for 10 s (no fall observed). A
+  scripted `<dropped>.Activate player` gives **one** item, whatever the reference's count:
+  a dropped pair gave 1 (player 3 → 4) and a dropped three gave 1 (1 → 2); afterwards the
+  reference counts 1, is no longer listed by `GetFirstRef 201 0 0` (taken) but still by
+  `GetFirstRef 201 0 1`, and is not disabled [observed]. The GECK wiki notes the same
+  loss of a stack for scripted activation of a stacked item [documented: GECK wiki
+  Activate, bugs]. A **placed** stack behaves the same (`ld_placed_stack`, BB rounds
+  0x001730EA with XCNT 12 in GSHouseInterior03): one round, `GetRefCount` 1 afterwards,
+  a second scripted activation one more round [observed]. The simulation's scripted
+  activation (`World::activate_scripted`, the trace op `activate`) gives one item and
+  leaves the reference at count 1; the player's own activation (`World::activate`, the
+  engine) still takes the whole stack [hypothesis; not captured]. The simulation places drops at that offset (holder heading from its z
+  rotation, §5 crosshair notes) [hypothesis for other actors and items].
 - **Crosshair activation in the game** (`engine/nvf-play/src/activate.rs`; values and
   rules to be captured, none observed yet):
   - **Reach**: 150 game units from the eye [hypothesis: placeholder, about two metres at
@@ -510,13 +554,24 @@ Input `fnv.sim.actions/1` (`parity-lab/inputs/layer4/*.actions.json`): `seed`,
 `player_level`, `actions` (ops: `activate`, `add_item`, `remove_item`, `transfer`,
 `transfer_all`, `drop_item`, `remove_all_items`, `get_item_count`, `get_pos`,
 `get_disabled`, `get_global`, `set_global`, `advance_time`, `equip_item`,
-`unequip_item`, `get_av`, `set_av`, `get_weight`, `detach_cell`, `attach_cell`, `lock`,
-`unlock`, `enable`, `disable`), optional `hardcore` (default false) and `report`.
+`unequip_item`, `get_av`, `set_av`, `get_weight`, `get_locked`, `detach_cell`,
+`attach_cell`, `lock`, `unlock`, `enable`, `disable`), optional `hardcore` (default false)
+and `report`.
 Queries (`get_*`) produce observations; `get_disabled` reports `disabled` (the in-game
 `GetDisabled`), `get_global` and `get_av` report `value` (`get_av` knows the seven
 S.P.E.C.I.A.L. attributes), `get_weight` reports `weight`, `capacity` and `over`
 (in-game: `GetAV InventoryWeight`, `GetAV CarryWeight` [hypothesis on the actor value
-names]). `drop_item` reports `references` (one per group of identical extra data).
+names]). `get_locked` reports `locked` (the in-game `GetLocked`: 0 not locked, 1 locked,
+§5). `activate` is the scripted `Activate` (an item reference gives one item of its
+stack, §5). An `activate` step with a `label` is also an observation: `opened` is true when the
+activation opened the target's inventory (in game: `MenuMode 1008` right after it; the
+capture then closes every menu with `CloseAllMenus`). `drop_item` reports `references`
+(one per group of identical extra data). A reference named `created:<item>` (item by
+Editor ID or FormID) is the newest reference created at run time from that base form that
+is still in the world (not taken, enabled); in game it is found by scanning the item
+references of the player's cell (`GetFirstRef 201 0 0` / `GetNextRef`) for one of that
+base with `GetSourceModIndex` 255 — the last one met when there are several, so a
+scenario keeps at most one such reference in the world at a time.
 `detach_cell {cell}` / `attach_cell {cell}` (cell by global FormID or Editor ID) mark the
 cell unloaded / loaded again; `attach_cell` reports `reset`, the references whose
 contents respawned (§3 "Respawn"). `activate` on a placed explosive (PGRE) reports
