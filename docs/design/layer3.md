@@ -126,7 +126,8 @@ What it does now:
 - SpeedTree trees (TREE): geometry generated from the `.spt` parameters by `fnv-spt`
   (speedtree.md §5): bark tubes with the standard material, leaf cards turned towards
   the camera by a vertex shader (leaf.wgsl, also in the prepass so depth and shadows
-  match), scaled to the billboard size. A tree that fails to generate falls back to its
+  match), scaled to the billboard size. Leaf cards cast shadows but receive none (their
+  own light-facing shadow copies blackened the lower half of every bush). A tree that fails to generate falls back to its
   billboard: one upright quad turned towards the camera every frame, normals up.
 - Interiors: `--cell <interior Editor ID>` loads that one cell with its own lighting
   (XCLL merged with its lighting template, world.md §8) instead of sky, LOD and terrain;
