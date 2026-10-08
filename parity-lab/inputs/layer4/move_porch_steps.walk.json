@@ -1,0 +1,37 @@
+{
+ "schema": "fnv.phys.walk-script/1",
+ "description": "From the outside of Doc Mitchell's front door (its XTEL destination) run towards the door (heading 252.8, the destination's heading reversed): up the porch steps of SCOL 0x001788D9 and into the door.",
+ "start": [
+  -73162.93,
+  1312.43
+ ],
+ "hz": 60,
+ "segments": [
+  {
+   "steps": 30
+  },
+  {
+   "steps": 90,
+   "velocity": [
+    -328.616,
+    -101.724
+   ]
+  }
+ ],
+ "observe": {
+  "from_step": 30,
+  "every": 15,
+  "count": 6
+ },
+ "capture": {
+  "name": "move_porch_steps",
+  "set_z": 8694,
+  "heading_deg": 252.8,
+  "keys": [
+   "forward"
+  ],
+  "jump": false,
+  "settle_frames": 120,
+  "samples": 150
+ }
+}

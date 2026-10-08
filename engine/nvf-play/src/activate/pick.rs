@@ -13,7 +13,9 @@ use bevy::math::{Affine3A, Vec3};
 
 /// How far from the eye the player can activate, game units [hypothesis: a placeholder of
 /// about two metres at ~70 units per metre; no game setting in the masters names an
-/// activation distance (simulation.md §5); to be captured].
+/// activation distance (simulation.md §5). In game the setting `iActivatePickLength`
+/// reads 150 [observed: capture mv_trial, physics.md §6.3]; that it is this distance is
+/// [documented: GECK wiki GetCrosshairRef] but unmeasured (job mv_values)].
 pub const REACH: f32 = 150.0;
 
 /// The first collision hit along the view (any owner), from `fnv_phys`.
