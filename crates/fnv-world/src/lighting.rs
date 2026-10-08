@@ -106,6 +106,38 @@ pub fn cell_image_space(lo: &LoadOrder, schema: &Schema, cell: u32) -> Option<u3
     Fields::new(r, pi, schema).ok()?.formid(b"XCIM", lo).filter(|&f| f != 0)
 }
 
+/// What drives a reference's external emittance (REFR XEMI).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Emittance {
+    /// A region's weather (REGN RDWT, the entry with the highest chance): its sunlight
+    /// colour at the current hour [hypothesis: e.g. InvertedDaylightWarmRegionNV's weather
+    /// has black sunlight by day and warm sunlight at night, and the Prospector Saloon
+    /// porch beam that names it is invisible by day in game; NVInteriorRegion's weather
+    /// has warm sunlight by day and black at night, the saloon's window rays name it].
+    Weather(u32),
+    /// A light's colour.
+    Light([u8; 3]),
+}
+
+/// Resolve an XEMI target: a region with a weather, or a light.
+pub fn emittance(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Emittance> {
+    let (pi, r) = winner(lo, fid)?;
+    match &r.header.sig {
+        b"LIGH" => light_data(lo, schema, fid).map(|l| Emittance::Light(l.color)),
+        b"REGN" => {
+            let f = Fields::new(r, pi, schema).ok()?;
+            let list = f.get(b"RDWT")?;
+            let best = list
+                .as_array()?
+                .iter()
+                .filter_map(|w| Some((crate::fields::global(lo, pi, crate::fields::formid_of(w.get("weather")?)?)?, num(w, "chance")?)))
+                .max_by(|a, b| a.1.total_cmp(&b.1))?;
+            Some(Emittance::Weather(best.0))
+        }
+        _ => None,
+    }
+}
+
 /// LIGH DATA flags [documented: xEdit].
 pub mod light_flags {
     pub const NEGATIVE: u32 = 1 << 2;

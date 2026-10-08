@@ -94,6 +94,8 @@ pub(crate) struct Props {
     unlit: bool,
     /// The view-angle falloff of a BSShaderNoLightingProperty.
     falloff: Option<Falloff>,
+    /// BSShaderFlags bit 29 "External_Emittance" [documented: nif.xml].
+    external_emittance: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -108,6 +110,10 @@ impl Props {
     /// only a NiMaterialProperty [observed: `crates/fnv-nif/examples/shape_survey.rs`;
     /// hypothesis: the game skips them, consistent with the in-game look of the
     /// Goodsprings flag]. Shapes with no properties at all (landscape LOD) are drawn.
+    pub(crate) fn external_emittance(&self) -> bool {
+        self.external_emittance
+    }
+
     pub(crate) fn is_helper(&self) -> bool {
         self.has_properties && !self.shader && self.textures.is_empty()
     }
@@ -150,6 +156,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         let flags = s.int("shader_flags").unwrap_or(0);
         p.specular = flags & 1 != 0;
         p.vertex_alpha = flags & (1 << 3) != 0;
+        p.external_emittance = flags & (1 << 29) != 0;
         p.falloff = None;
     }
     match ty {

@@ -444,6 +444,29 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   lights, is not used]. With Bevy's physically based inverse-square falloff instead, the
   porch lamp lit a small hot spot and left the door and wall dark, where in game they are
   lit warm [observed, owner's screenshots].
+- **External emittance**: a placed reference's `XEMI` names a region (REGN) or a light
+  (LIGH) as its "Emittance" [documented: xEdit wbDefinitionsFNV.pas REFR], and
+  BSShaderFlags bit 29 is "External_Emittance" [documented: nif.xml]. REGN `RDAT` heads
+  each data block (type 3 = weather, then flags and priority); `RDWT` lists weathers with
+  chance and global, laid out as CLMT `WLST` [documented: xEdit; observed: these decode
+  exactly, schemas/fnv/sky.json]. Around the Prospector Saloon [observed]:
+  - the porch lamp beams (FXLightBeamBrtW02, FXLightBeamW02) name
+    InvertedDaylightWarmRegionNV, whose weather InvertedDaylightWeatherWarmNV has black
+    sunlight at sunrise, day, sunset and noon and (255, 207, 117) at night. The two
+    VaultWhite256 lights above the porch name InvertedDaylightRegion (sunlight white at
+    night only). The beam shader sets bit 29. In game the beam is invisible at noon
+    (owner's screenshot).
+  - the window light rays inside (IndFXLightRays01, IndFXLightRaysLeft01) name
+    NVInteriorRegion, whose weather NVWastelandInterior has sunlight (255, 227, 170) by
+    day and black at night; their shader sets bit 29 too. In game they are warm yellow
+    by day.
+
+  The renderer resolves XEMI to the region's highest-chance weather or the light's
+  colour and scales by its sunlight colour at the current hour (the light colour for a
+  LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,
+  and the colour of LIGH references [hypothesis]. Shapes on references without XEMI are
+  unchanged. Before this the beam drew at full strength day and night and the rays were
+  white.
 - **Interior image space**: CELL `XCIM` names the cell's image space [documented:
   xEdit]. In interiors the renderer grades with it instead of the worldspace's; e.g. the
   Prospector Saloon's ShackInteriorWaste01 (saturation 0.82, tint (1.0, 0.71, 0.27) at
