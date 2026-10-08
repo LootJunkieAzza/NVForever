@@ -105,6 +105,11 @@ What it does now:
   0.42) is brighter than its day ambient (0.14), so nights look brighter than late
   afternoon; the weather's per-time image-space links (world.md §6, not read yet)
   probably adjust this in game.
+- Night sky (world.md §6): the climate's star model and a phased moon disc, faded in by
+  sun elevation. The climate's weather follows the hour: the renderer stands in for
+  NightQuestScript's `VNight` rule (night weather 21:00-04:18) and crossfades weathers
+  (colours, fog and a second set of cloud layers) over half a game hour. `--day <n>`
+  sets the days passed (moon phase; default the `GameDaysPassed` global).
 - Distant LOD (`--lod-radius`, default 8 chunks = 32 cells; `--no-lod`): the game's
   level-4 terrain chunks and object LOD blocks (world.md §7) around the camera. Terrain
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
