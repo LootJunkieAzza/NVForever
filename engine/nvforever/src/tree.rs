@@ -105,10 +105,14 @@ fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &m
         let image = bark.and_then(|b| models.textures.get(&b, true, &models.data, &mut models.images, models.formats.as_deref()));
         let mut mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::RENDER_WORLD);
         let aabb = bounds(g.positions.iter().copied(), 0.0);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, g.positions);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, g.normals);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, g.uvs);
-        mesh.insert_indices(bevy::mesh::Indices::U32(g.indices));
+        if let Some(d) = rec.branch_dimming {
+            let c: Vec<[f32; 4]> = g.positions.iter().map(|p| dim_colour(g.brightness(d, p[2]))).collect();
+            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, c);
+        }
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, g.positions.clone());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, g.normals.clone());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, g.uvs.clone());
+        mesh.insert_indices(bevy::mesh::Indices::U32(g.indices.clone()));
         let mat = models.materials.add(StandardMaterial {
             base_color: if image.is_some() { Color::WHITE } else { Color::srgb(0.3, 0.25, 0.2) },
             base_color_texture: image,
@@ -124,6 +128,7 @@ fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &m
         let image = models.textures.get(texture, true, &models.data, &mut models.images, models.formats.as_deref())?;
         let n = g.leaves.len();
         let (mut pos, mut nor, mut uv, mut corner) = (Vec::with_capacity(4 * n), Vec::with_capacity(4 * n), Vec::with_capacity(4 * n), Vec::with_capacity(4 * n));
+        let mut colour = Vec::with_capacity(4 * n);
         let mut indices = Vec::with_capacity(6 * n);
         let mut reach = 0.0f32;
         for l in &g.leaves {
@@ -135,12 +140,14 @@ fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &m
             // right (speedtree.md §3, tag 10002); the whole texture without one.
             let c = spt.leaf_uvs.get(l.map).copied().unwrap_or([1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0]);
             let first = pos.len() as u32;
+            let tint = dim_colour(rec.leaf_dimming.map_or(1.0, |d| g.brightness(d, l.position[2])));
             // Bottom left, bottom right, top right, top left: counter-clockwise on screen.
             for (cx, cy, k) in [(x0, y0, 1), (x1, y0, 0), (x1, y1, 3), (x0, y1, 2)] {
                 pos.push(l.position);
                 nor.push(l.normal);
                 uv.push([c[2 * k], c[2 * k + 1]]);
                 corner.push([cx, cy]);
+                colour.push(tint);
             }
             indices.extend([first, first + 1, first + 2, first, first + 2, first + 3]);
         }
@@ -150,6 +157,9 @@ fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &m
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nor);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, corner);
+        if rec.leaf_dimming.is_some() {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colour);
+        }
         mesh.insert_indices(bevy::mesh::Indices::U32(indices));
         let mat = leaf_materials.add(LeafMaterial {
             base: StandardMaterial {
@@ -166,6 +176,14 @@ fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &m
         parts.push(TreePart { mesh: models.meshes.add(mesh), material: PartMaterial::Leaves(mat), aabb });
     }
     (!parts.is_empty()).then_some(TreeVisual { parts, scale })
+}
+
+/// Vertex colour for a dimming brightness. The brightness is a display-space factor (the
+/// original shades in display space [hypothesis]); this renderer lights in linear space,
+/// where the same darkening is the factor to the power 2.2.
+fn dim_colour(brightness: f32) -> [f32; 4] {
+    let l = brightness.clamp(0.0, 1.0).powf(2.2);
+    [l, l, l, 1.0]
 }
 
 /// `textures\trees\branches\<file name of the authored bark path, .dds>` (speedtree.md §6).
@@ -198,7 +216,7 @@ pub fn spawn(commands: &mut Commands, parent: Entity, v: &TreeVisual, rt: Mat4, 
             // Leaf cards cast shadows (onto the ground and other objects) but receive
             // none: in the shadow pass they face the light, in the main pass the camera,
             // so a tree's own cards blacken its lower half in hard, mismatched blocks
-            // [observed]. Self-shadowing is left to leaf lighting (to do: CNAM dimming).
+            // [observed]. The crown darkens by the CNAM dimming instead (vertex colours).
             PartMaterial::Leaves(m) => {
                 commands.entity(parent).with_child((common, MeshMaterial3d(m.clone()), bevy::light::NotShadowReceiver))
             }
