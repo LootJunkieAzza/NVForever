@@ -91,6 +91,10 @@ max}], every, until?, max_samples, drive?, drive_frames?, drive_end?}}`
   loops, reason, value?}` (`value`: the drive's non-zero result, from plugin version 5;
   a walk returns 1 when it arrived and 2 when the target is unreachable, i.e. it or the
   player is in an interior and they are not in the same cell).
+- `hooks` (plugin version 6): `[{name, when, after, then}]`, checked once per sample
+  before the header; when `when` has returned non-zero at `after` samples in a row,
+  `then` runs once and `{"kind": "hook", step, n, name, samples, error?}` is written; the
+  count then starts again. Used to close a dialogue an NPC starts with the player (§5).
 - Every probe walks the scan from its first actor (a script cannot keep the iterator
   between calls), so a sample costs about n²/2 GetNextRef steps per part for n actors;
   `us` shows what this costs in game.
@@ -113,9 +117,23 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
 - **Campaign** `fnv.observe.campaign/1`: `name`, optional `save`, `defaults`, `sessions`
   (each: `name`, `hours` of game time, optional `hour` to move the clock to first,
   `go` = `{"coc": cell}` | `{"cow": [world, x, y]}` | `{"moveto": ref}` (teleport to an
-  actor, wherever it is), `walk` =
-  `{"to": ref, "within": units, "max_frames": n}`, `track` = [ref Editor IDs],
-  `every`, `depth`, `settle_frames`, `timescale`, `max_actors`, `console_first`).
+  actor, wherever it is), `walk` = `{"to": ref, "within": units, "max_frames": n
+  (default 1200), "approach": units (default 600)}`, `track` = [ref Editor IDs], `every`,
+  `depth`, `settle_frames`, `timescale`, `max_actors`, `console_first`,
+  `close_menus_after` (game loops, default 600; 0 keeps menus open)).
+- **Walks** start with `player.MoveTo <target> <approach> 0 0` (MoveTo's offsets
+  [documented: GECK wiki MoveTo]; the move is queued, so the job waits 120 loops), then
+  face the target and hold Forward with normal collision. The walk is a straight line
+  with no path finding: from 3,485 units away the player ran into a fence and stayed
+  there [observed 2026-10-08, walk_to_settler], hence the short approach. Turning the
+  player's collision off (`tcl`) is not used: the owner saw it change how NPCs path and
+  move [observed by the owner, 2026-10-08], which would spoil the observation.
+- **Menus**: a dialogue an NPC starts with the player stops the game clock (§7), so the
+  session's `until` is never met while it is open. Each observe step gets a hook: when
+  `MenuMode` (no argument: any menu [documented: GECK wiki MenuMode (Function)]) has been
+  true for `close_menus_after` game loops, `con_CloseAllMenus` (xNVSE) closes it. The
+  wiki warns not to use it while the Pip-Boy is open (keys stop responding); the bot never
+  opens the Pip-Boy. Whether it closes a dialogue cleanly is to be seen in the next run.
   Example: `tools/capture/observe/goodsprings.campaign.json`.
 - **Session job**: console_first lines; clock forward to `hour` (GameHour set past 24
   carries the day [observed 2026-10-08]); teleport and wait to arrive; `settle_frames`;
@@ -267,6 +285,25 @@ Full day (`town_day`, player standing at the Goodsprings coc marker):
   target the player); the player walked about 3,100 units east and stayed against an
   obstacle until the drive's limit (3600 loops). Walks now stop as unreachable in that
   case (§3); to reach an actor anywhere, a session teleports with `{"moveto": ref}`.
+
+Two more sessions (2026-10-08, plugin version 4, same save):
+
+- **`meet_sunny`** (`player.MoveTo SunnyRef`, 10:00): SunnyRef started a conversation
+  with the player at once. While the dialogue was open (604 samples, about 2.5 real
+  minutes, until the owner chose a line and left) GameHour stayed at 10.0122: **the game
+  clock does not run during dialogue**, unlike the menus of xnvse-capture.md §5, during
+  which it ran. Samples continued (the plugin's game-loop message is sent in dialogue).
+  SunnyRef meanwhile ran the run-time package `0xFF001309`, type 6 (DIALOGUE),
+  procedure 17 (DONE), target the player, detecting the player, `IsTalking` 1 while she
+  spoke. After the dialogue: DefaultStayAtEditorLocation (`000200D5`, type 14 TRAVEL,
+  procedure TRAVEL then DONE); at 10:10.8–10:13.3 `0xFF001309` again, now type 1
+  (FOLLOW), procedure 11 (FOLLOW), talking; then DefaultStayAtEditorLocation. Her
+  position moved by less than one unit throughout. The same run-time FormID was a
+  DIALOGUE package and then a FOLLOW package.
+- **`walk_to_settler`** (from the coc marker, 3,485 units from GoodspringsSettler03Ref):
+  the walk got to 652 units, was blocked by a fence and ended at its 3600-loop limit;
+  the settler (procedure WANDER) detected the player (GetDetected 1) at 652 units and no
+  longer at about 900 as it wandered off.
 
 ## 8. Questions the observations are for (Layer 6)
 

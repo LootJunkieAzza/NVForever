@@ -439,7 +439,7 @@ a capture made with them agrees with the golden made by hand:
 ```
 python tools/capture/capture_steps.py compare C:/fnv-private/goldens/sim/<name>.trace.json <substitute>.trace.json --tolerance <t>
 ```
-**AI observer (`observe.py`, plugin version 4; 5 records walk results):** a bot that watches NPCs for spans of
+**AI observer (`observe.py`, plugin version 6):** a bot that watches NPCs for spans of
 game time and records their AI state (package, procedure, targets, combat, detection,
 sitting/sleeping, position, …) for the actors near the player and for named actors
 wherever they are; it moves the player only by teleport and by holding Forward through

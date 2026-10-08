@@ -75,7 +75,9 @@ class ScriptRules(unittest.TestCase):
         self.check(job)
         kinds = [next(iter(s)) for s in job["steps"] if next(iter(s)) != "query"]
         self.assertEqual(kinds, ["script", "frames", "console", "until", "frames", "frames", "remember", "console",
-                                 "remember", "observe", "script", "console", "frames"])
+                                 "script", "frames", "remember", "observe", "script", "console", "frames"])
+        approach = [s for s in job["steps"] if "script" in s][1]["script"]
+        self.assertIn(f"player.MoveTo rF1 {ob.WALK_APPROACH} 0 0", approach, "teleport near the target, then walk")
         o = [s["observe"] for s in job["steps"] if "observe" in s][0]
         self.assertEqual([g["name"] for g in o["groups"]], ["nearby", "tracked"])
         self.assertEqual(o["fields"]["tracked"], ["Bob", "Ann"])
@@ -84,6 +86,15 @@ class ScriptRules(unittest.TestCase):
         self.assertIn("player.GetHeadingAngle rF1", o["drive"])
         self.assertIn(f"let fA := {ob.WALK_UNREACHABLE}", o["drive"], "a target in another interior is unreachable")
         self.assertNotIn("return", o["drive"])
+        self.assertEqual(o["drive_frames"], ob.WALK_FRAMES)
+        (hook,) = o["hooks"]
+        self.assertEqual((hook["name"], hook["after"]), ("close_menus", 20), "600 game loops at every 30")
+        self.assertIn("if MenuMode", hook["when"])
+        self.assertIn("con_CloseAllMenus", hook["then"])
+        with self.assertRaises(ob.InputError):
+            ob.campaign_jobs(campaign(walk={"to": "Ann", "noclip": True}), EDIDS)
+        no_hook = ob.campaign_jobs(campaign(close_menus_after=0), EDIDS)["obs_c1_s1"][1]
+        self.assertNotIn("hooks", [s for s in no_hook["steps"] if "observe" in s][0]["observe"])
         self.assertIn("BuildRef fM1 4098", o["drive"], "Ann = 0x1002")
         tracked = o["groups"][1]
         self.assertIn("BuildRef fM1 4097", tracked["probe"][0])
