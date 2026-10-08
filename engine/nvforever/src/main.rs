@@ -15,6 +15,7 @@ mod ripples;
 mod imagespace;
 mod sky;
 mod terrain;
+mod tree;
 mod underwater;
 mod water;
 mod world;
@@ -331,7 +332,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins((ArchivePlugin(game), water::WaterPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins(imagespace::ImageSpacePlugin)
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
@@ -361,7 +362,7 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, lod::update_lod, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, world::face_billboards, lod::update_lod, overlay, keys).chain())
     .add_systems(Update, nvf_assets::anim_play::advance_instances)
     .add_systems(Update, timelapse.after(sky::update_sky));
     if let Some(data) = play {

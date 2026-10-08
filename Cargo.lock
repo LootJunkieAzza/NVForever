@@ -466,6 +466,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-spt"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "fnv-util"
 version = "0.1.0"
 dependencies = [
@@ -510,6 +517,7 @@ dependencies = [
  "fnv-nif",
  "fnv-phys",
  "fnv-sim",
+ "fnv-spt",
  "fnv-util",
  "fnv-vfs",
  "fnv-world",
