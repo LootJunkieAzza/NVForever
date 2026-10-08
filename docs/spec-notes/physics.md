@@ -1542,6 +1542,19 @@ implementation's [hypothesis]): the h2o player swam 101 units above the placed s
 and the Lake Las Vegas one 74 above the lake [observed]. Swimming now ends only on ground,
 on a jump, or where there is no water at all [the last: hypothesis].
 
+**`swim_h2o` retired and redesigned (owner decision 2026-10-09).** `L4.phys.drops.swim_h2o`
+is retired (input removed, golden kept unused): its capture placed the player while it still
+swam from the previous drop, which the candidate's fresh probes cannot reproduce. Its
+replacement `L4.phys.drops.swim_h2o_fresh` (job `sw_h2o_fresh`, a fresh `coc` before every
+drop, as `sw_guardian`) keeps the five points at −227 and adds two over floors past the
+swimming depth (122.5 and 130.4 below the placed surface) and two short of it (75.3 and 78.9
+below). **Predictions of the candidate** (written 2026-10-09 before the capture), feet z:
+deep_a −433.2 and deep_b −433.2 (swimming; the fall stops past S − 100 at about S − 105);
+mid_a −366.6 and mid_b −366.6 (standing on floors 40 below the surface); shallow_a −246.3 (the
+stair edge, §6.4.1); past_depth_a −433.2 and past_depth_b −433.2 (swimming, 17 and 25 above
+their floors); short_depth_a −402.2 and short_depth_b −405.7 (standing in water, on floors
+75–79 below the surface).
+
 **Predictions for `sw_guardian`** (held-out scenario `L4.phys.drops.swim_guardian`,
 input `parity-lab/inputs/layer4/swim_guardian_drops.drops.json`; written 2026-10-08 before
 the run). `CampGuardianCaves` holds `NVCleanWater2048x2048` (0x0013F31A) at scale 3 and

@@ -1845,11 +1845,11 @@
    ]
   },
   {
-   "id": "L4.phys.drops.swim_h2o",
+   "id": "L4.phys.drops.swim_h2o_fresh",
    "layer": 4,
-   "description": "Interior water, held out (physics.md 6.6): the player dropped 5 units above the water surface of the Old World Blues interior NVDLC03SLH2OINT (CELL XCLW -232) over floors 38 to 496 below it (parity-lab/inputs/layer4/swim_h2o_drops.drops.json): where it comes to rest (floating, or standing in shallow water) against an unattended in-game capture (job sw_h2o, tools/capture/capture_moves.py drop steps after coc). Tolerance 8 units as for the B11 drops.",
+   "description": "Placed water, held out (physics.md 6.6; replaces swim_h2o, retired 2026-10-09 by the owner: its capture placed the player while it still swam from the previous drop, which the candidate's fresh probes cannot reproduce): the player dropped 96 units above the placed water of the Old World Blues interior NVDLC03SLH2OINT (surface -328; the cell's XCLW -232 is not water) at nine points, each after a fresh coc: deep floors, floors 40, 75-79 and 122-130 below the surface, and one beside the catwalk stairs (parity-lab/inputs/layer4/swim_h2o_fresh.drops.json): where it comes to rest (floating, or on the floor) against an unattended in-game capture (job sw_h2o_fresh, tools/capture/jobs/make_swim_jobs.py). Tolerance 8 units as for the B11 drops.",
    "oracle": {
-    "golden": "phys/swim_h2o_drops.drops.json"
+    "golden": "phys/swim_h2o_fresh.drops.json"
    },
    "candidate": {
     "argv": [
@@ -1872,7 +1872,7 @@
      "--cell",
      "NVDLC03SLH2OINT",
      "--drops-file",
-     "{lab_root}/inputs/layer4/swim_h2o_drops.drops.json"
+     "{lab_root}/inputs/layer4/swim_h2o_fresh.drops.json"
     ],
     "timeout_s": 300
    },
