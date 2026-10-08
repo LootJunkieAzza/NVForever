@@ -189,7 +189,9 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    docs/spec-notes/layer4-captures.md. Status 2026-10-07: `goodsprings_weight_and_time`
    9/9, `leveled_basic` 7/7, `goodsprings_merchant_restock` 4/4,
    `goodsprings_doc_mitchell` 5/6 (z waits for the controller); `x13_enable_parents`
-   still needs a save inside X-13.
+   still needs a save inside X-13. Update 2026-10-08: `x13_enable_parents` 13/13;
+   merchant restocks follow fixed days (GameDaysPassed 0 or 3 modulo 7, spec note §3),
+   checked by `goodsprings_merchant_midnight_restock` 11/11.
 
 ## 6. Updated spec notes
 
