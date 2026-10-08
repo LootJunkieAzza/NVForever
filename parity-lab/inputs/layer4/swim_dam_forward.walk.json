@@ -1,0 +1,49 @@
+{
+ "schema": "fnv.phys.walk-script/1",
+ "description": "Swimming, held out (physics.md 6.6): fall into Lake Mead above Hoover Dam (XCLW 2600, 1376 deep) from its surface, float, then swim north at the floating height with forward held (Always Run, level view) for 2.5 s: the forward stroke cycle (339 units/s, cycle of 23/16 s) over almost two cycles.",
+ "start": [
+  77696.0,
+  33024.0,
+  2600.0
+ ],
+ "hz": 60,
+ "segments": [
+  {
+   "steps": 300
+  },
+  {
+   "steps": 150,
+   "velocity": [
+    0.0,
+    344.0
+   ],
+   "swim_velocity": [
+    0.0,
+    339.0,
+    0.0
+   ],
+   "stroke": "forward"
+  }
+ ],
+ "observe": {
+  "from_step": 300,
+  "every": 15,
+  "count": 10
+ },
+ "capture": {
+  "name": "swim_dam_forward",
+  "reset_at": [
+   80768.0,
+   27703.0,
+   3147.0
+  ],
+  "set_z": 2600.0,
+  "heading_deg": 0,
+  "keys": [
+   "forward"
+  ],
+  "jump": false,
+  "settle_frames": 300,
+  "samples": 200
+ }
+}

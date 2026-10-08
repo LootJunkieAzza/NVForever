@@ -21,6 +21,7 @@ use fnv_nif::scene::Decoded;
 use fnv_phys::terrain::height_at;
 use fnv_phys::{
     ref_collision, Arrival, Character, CharacterParams, Filter, ModelCollision, PhysParams, PhysWorld, RayHit, RefPose, Stepper,
+    WaterArea,
 };
 use fnv_sim::FormId;
 use fnv_world::land::{load_land, LandParts};
@@ -219,6 +220,14 @@ impl PhysState {
             PhysCell::Interior(id) => (d.index.cells.get(&id), None),
         };
         let mut loaded = LoadedCell::default();
+        // An exterior cell's water (`Cell::water_surface`, the rule the renderer draws it
+        // with); not an interior's XCLW, where the game swam at a placed water object's
+        // height instead [observed: physics.md §6.6; placed water not modelled yet].
+        if let PhysCell::Exterior(..) = cell {
+            let world_water = d.index.worldspaces.get(&d.world).and_then(|w| w.default_water_height);
+            let surface = record.and_then(|c| c.water_surface(world_water));
+            self.world.set_water(water_area(cell), surface);
+        }
         if let (PhysCell::Exterior(x, y), Some(land)) = (cell, record.and_then(|c| c.land)) {
             loaded.heights = load_land(d.lo, d.schema, land, LandParts::HEIGHTS).and_then(|l| l.heights);
             if let Some(h) = &loaded.heights {
@@ -280,6 +289,7 @@ impl PhysState {
     /// Drop a cell: its terrain and its references' collision.
     pub fn unload(&mut self, cell: PhysCell) {
         let Some(c) = self.cells.remove(&cell) else { return };
+        self.world.set_water(water_area(cell), None);
         if let PhysCell::Exterior(x, y) = cell {
             self.world.remove_terrain((x, y));
         }
@@ -360,6 +370,14 @@ impl PhysState {
         self.prev_feet = a.feet;
         self.stepper = Stepper::default();
         a
+    }
+}
+
+/// The water area of a physics cell.
+fn water_area(cell: PhysCell) -> WaterArea {
+    match cell {
+        PhysCell::Exterior(x, y) => WaterArea::Exterior(x, y),
+        PhysCell::Interior(_) => WaterArea::Interior,
     }
 }
 
