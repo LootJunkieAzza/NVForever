@@ -82,6 +82,23 @@ pub(crate) struct Props {
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
+    /// Some property is attached (to the shape or an ancestor).
+    has_properties: bool,
+    /// One of them derives from BSShaderProperty.
+    shader: bool,
+}
+
+impl Props {
+    /// Helper geometry the game does not draw: properties attached, but neither a
+    /// shader property nor a texture. These are bone display boxes (`TTail1:0`,
+    /// `Bone01:0`), collision proxies (`c_Minigun`, `DummyCol:3`) and invisible markers
+    /// (`##PLRInvis:0`): 434 of 48,996 visible shapes in `Fallout - Meshes.bsa`, all with
+    /// only a NiMaterialProperty [observed: `crates/fnv-nif/examples/shape_survey.rs`;
+    /// hypothesis: the game skips them, consistent with the in-game look of the
+    /// Goodsprings flag]. Shapes with no properties at all (landscape LOD) are drawn.
+    pub(crate) fn is_helper(&self) -> bool {
+        self.has_properties && !self.shader && self.textures.is_empty()
+    }
 }
 
 fn text_list(s: &Struct, name: &str) -> Vec<String> {
@@ -98,6 +115,8 @@ fn text_list(s: &Struct, name: &str) -> Vec<String> {
 fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     let Some(s) = dec.get(r) else { return };
     let ty = file.blocks[r as usize].type_name.as_str();
+    p.has_properties = true;
+    p.shader |= dec.is_a(r as usize, "BSShaderProperty");
     if let Some(ts) = s.block_ref("texture_set").and_then(|t| dec.get(t)) {
         p.textures = text_list(ts, "textures");
     }
@@ -282,6 +301,45 @@ fn skin_weights(skin_data: &Struct, vertices: usize) -> Option<SkinWeights> {
     Some((joints, weights))
 }
 
+/// A shape's skin: the bone blocks it binds to, per bone the inverse bind matrix in
+/// shape space (the bone's stored skin transform, docs/spec-notes/nif.md §6), and per
+/// vertex the joint indices and weights.
+pub(crate) struct Skin {
+    pub bones: Vec<usize>,
+    pub inverse_binds: Vec<Mat4>,
+    weights: SkinWeights,
+}
+
+impl Skin {
+    /// Add the joint attributes to `mesh`.
+    pub(crate) fn insert_into(self, mesh: &mut Mesh) -> Vec<Mat4> {
+        let (ji, jw) = self.weights;
+        mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(ji));
+        mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, jw);
+        self.inverse_binds
+    }
+}
+
+/// The skin of `shape` (with `vertices` vertices), if it has a usable one.
+pub(crate) fn shape_skin(dec: &Decoded, shape: &Struct, vertices: usize) -> Option<Skin> {
+    let si = shape.block_ref("skin_instance").and_then(|r| dec.get(r))?;
+    let bones: Vec<usize> = si.refs("bones").unwrap_or_default().iter().map(|&b| usize::try_from(b).ok()).collect::<Option<_>>()?;
+    let sd = si.block_ref("data").and_then(|r| dec.get(r))?;
+    let inverse_binds: Vec<Mat4> = sd
+        .list("bone_list")
+        .unwrap_or_default()
+        .iter()
+        .map(|b| match b {
+            Value::Struct(b) => Some(Mat4::from(affine(&NifTransform::from_struct(b.strukt("skin_transform")?)?))),
+            _ => None,
+        })
+        .collect::<Option<_>>()?;
+    if inverse_binds.len() != bones.len() {
+        return None;
+    }
+    Some(Skin { bones, inverse_binds, weights: skin_weights(sd, vertices)? })
+}
+
 impl SpawnCtx<'_, '_> {
     /// Spawn the NIF at `path` under a new root entity. When `skeleton` is given, that
     /// file's node hierarchy is spawned first and skinned shapes bind to its bones by
@@ -385,42 +443,20 @@ impl SpawnCtx<'_, '_> {
                 self.formats.as_deref(),
             );
             report.textures_missing.extend(missing);
+            if props.is_helper() {
+                self.commands.entity(entity_of[&o.block]).insert((NifHidden, Visibility::Hidden));
+            }
 
-            // Skinning.
+            // Skinning: bones bind to the skeleton's nodes by name when one is given.
+            let joint = |b: &usize| {
+                let by_name = by_block.get(b).and_then(|o| o.name.as_ref()).and_then(|n| skeleton?.get(n));
+                by_name.or_else(|| entity_of.get(b)).copied()
+            };
             let mut skinned = None;
-            if let Some(si) = shape.block_ref("skin_instance").and_then(|r| dec.get(r)) {
-                let bones = si.refs("bones").unwrap_or_default();
-                let skin_data = si.block_ref("data").and_then(|r| dec.get(r));
-                let joints: Option<Vec<Entity>> = bones
-                    .iter()
-                    .map(|&b| {
-                        let b = usize::try_from(b).ok()?;
-                        let by_name = by_block.get(&b).and_then(|o| o.name.as_ref()).and_then(|n| skeleton?.get(n));
-                        by_name.or_else(|| entity_of.get(&b)).copied()
-                    })
-                    .collect();
-                if let (Some(joints), Some(sd)) = (joints, skin_data) {
-                    let vcount = mesh.count_vertices();
-                    let binds: Option<Vec<Mat4>> = sd
-                        .list("bone_list")
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|b| match b {
-                            Value::Struct(b) => {
-                                let t = b.strukt("skin_transform")?;
-                                let nt = NifTransform::from_struct(t)?;
-                                Some(Mat4::from(affine(&nt)))
-                            }
-                            _ => None,
-                        })
-                        .collect();
-                    if let (Some(binds), Some((ji, jw))) = (binds, skin_weights(sd, vcount)) {
-                        if binds.len() == joints.len() {
-                            mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(ji));
-                            mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, jw);
-                            skinned = Some(SkinnedMesh { inverse_bindposes: self.bindposes.add(binds), joints });
-                        }
-                    }
+            if let Some(skin) = shape_skin(&dec, shape, mesh.count_vertices()) {
+                if let Some(joints) = skin.bones.iter().map(joint).collect::<Option<Vec<Entity>>>() {
+                    let binds = skin.insert_into(&mut mesh);
+                    skinned = Some(SkinnedMesh { inverse_bindposes: self.bindposes.add(binds), joints });
                 }
             }
 
@@ -473,5 +509,17 @@ mod tests {
         assert!(!is_editor_marker(Some("C_EditorMarker01")) && !is_editor_marker(None));
         // nif.xml default flags 4844 = 0x12EC: blend off, test on.
         assert!(matches!(alpha_mode(4844, 128), AlphaMode::Mask(_)));
+    }
+
+    #[test]
+    fn helper_shapes() {
+        // No properties at all (landscape LOD): drawn.
+        assert!(!Props::default().is_helper());
+        // Material only (bone boxes, collision proxies): skipped.
+        let material_only = Props { has_properties: true, ..Default::default() };
+        assert!(material_only.is_helper());
+        // A shader property, or a texture from NiTexturingProperty: drawn.
+        assert!(!Props { shader: true, ..material_only.clone() }.is_helper());
+        assert!(!Props { textures: vec!["textures\\a.dds".into()], ..material_only }.is_helper());
     }
 }

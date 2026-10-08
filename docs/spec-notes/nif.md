@@ -215,6 +215,29 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   BSXFlags bit "EditorMarkers present" [documented]. Drawn, they appear as bright boxes
   and lines around effects (observed in the first world render); the renderers skip them
   [hypothesis: the game never draws them; consistent with in-game appearance].
+- **Helper geometry without a shader** [observed, `crates/fnv-nif/examples/shape_survey.rs`
+  over `Fallout - Meshes.bsa`]: of 48,996 visible shapes (not hidden, no hidden
+  ancestor, not under an editor marker), 982 carry no BSShaderProperty-derived property
+  on themselves or an ancestor. 532 carry no property at all (524 of them landscape LOD
+  meshes, which the engine textures itself), 16 have a NiTexturingProperty (debris,
+  doors) and 434 only a NiMaterialProperty. The last group is helper geometry by its
+  names: bone display boxes (`TTail1:0`, `Bone01:0`), collision proxies (`c_Minigun`,
+  `DummyCol:3`) and invisible markers (`##PLRInvis:0`). The renderers skip shapes with
+  properties but neither a shader property nor a texture [hypothesis: the game does
+  not draw them; consistent with the Goodsprings flag in game, whose bone boxes are not
+  visible].
+- **Animated statics** [observed, same survey]: 164 meshes embed a controller sequence
+  named `Idle` (others: `Forward` 226, `Open`/`Close` ~149, `SpecialIdle` 159, ...).
+  Flags (`clutter\flags\*.nif`) are skinned cloth: e.g. `nv_nevadaflag.nif` has two
+  skinned shapes (front and back) bound to a 10-bone chain that a looping 42.9 s `Idle`
+  sequence (NiControllerManager → NiMultiTargetTransformController) animates, plus a
+  NiGeomMorpherController adding small ripples (8 relative morph targets, deltas up to
+  ~5 units, weights keyed 0..1). 75 meshes outside the character, creature and armor
+  folders have visible skinned shapes (flags, gore, corpses, teddy bear, hand-to-hand
+  weapons); 63 of them have no sequence. The world renderer plays a placed object's
+  `Idle` sequence in a loop from load [hypothesis: consistent with waving flags and
+  circling vultures in game] and draws skinned shapes without a sequence in their bind
+  pose. Morph controllers are not evaluated yet.
 - **Alpha** (NiAlphaProperty flags, layout documented in nif.xml): foliage and fences set
   both blending and alpha testing; drawing them as blended causes order-dependent
   artefacts, drawing them alpha-tested matches the expected look, so the test wins.
