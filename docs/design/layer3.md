@@ -80,7 +80,9 @@ What it does now:
   normals, vertex colours (sRGB → linear).
 - Materials as in the viewer, plus: nodes named `EditorMarker*` are skipped, additive and
   multiplicative NIF blend modes are honoured, alpha test wins over blending, and
-  BSShaderNoLightingProperty is unlit (nif.md §6). Helper shapes (properties but no
+  BSShaderNoLightingProperty is unlit (nif.md §6). Emissive = colour × multiplier ×
+  glow map from texture-set slot 2 (neon signs, lit windows; nif.md §6 "Emissive
+  light"); material colour and emittance controllers are not evaluated yet. Helper shapes (properties but no
   shader property and no texture: bone boxes, collision proxies) are skipped (nif.md §6).
 - Animated and skinned objects: skinned shapes are drawn in their bind pose. Models with
   an embedded `Idle` sequence (flags, vultures, dust effects) are spawned per reference
