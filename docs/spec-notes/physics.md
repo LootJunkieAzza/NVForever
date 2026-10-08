@@ -1014,8 +1014,33 @@ second, so sample counts are not times):
 
 So, with its cell loaded, the game's swimmer meets a 12–34° bank with its capsule (never
 below the LAND's contact shell) and walks out, as the candidate does; the "different
-shape while swimming" [hypothesis] is withdrawn. The run's later trials (16°–58°) are in
-`sw_banks_b`.
+shape while swimming" [hypothesis] is withdrawn.
+
+The other banks (`sw_banks_b`, `sw_banks_c`, same job per trial; in `sw_banks_b` the game
+clock stopped while five trials waited in the water although MenuMode read 0 after the
+travel, so `sw_banks_c` closes menus again just before the keys and reran those five
+[observed: MenuMode 0 there, every trial ran]; why the clock stopped is not known, a
+level-up menu after discovering map markers is [hypothesis]):
+
+| Bank | Game | Candidate − game while swimming / after |
+|---|---|---|
+| `lm_16` (16.4°) | walks out at 1.2 s | within 2 / within 9 to t3.5 |
+| `lm_25` (25.3°) | walks out | within 2 / within 10 |
+| `lm_30` (30.4°) | walks out | within 2 / within 10 to t3.0 |
+| `lm_41` (41.5°) | walks out up the 41.5° bank | within 2 / the candidate 16 ahead and 16 higher from t2.0 (faster up the steep slope) |
+| `lm_45` (45.1°) | walks up the bank's 105 units of 45.4° (z +107 in 0.75 s) to the cliff above it, then edges along its foot | within 2 / the candidate stops 35–46 lower (its 45° limit) |
+| `lm_49` (49.3°) | stands at the bank's foot (4.4 above the floating height) and drifts sideways along it, 75 units in 3 s | within 2 / z within 4; the candidate drifts sideways faster (+62 at t3.5) |
+| `lm_58` (58.3°) | stands at the foot, creeps 1 unit | within 2 / within 10 |
+| `llv_14` (14.3°), `llv_25` (24.7°) | walk out | within 2 / within 14 |
+
+So the swimming part and the moment of leaving the water agree at every bank, and the game
+leaves the water exactly where the candidate does: moving onto ground ends swimming
+[observed]. **The steepest walkable slope lies between 45.1° and 49.3°** [observed: walked
+up 45.1–45.4°, stood below 49.3° and 58.3°]; the candidate's 45° (§6, a [hypothesis]) is
+inside that range only just, and the 41.5° and 45.1° banks also show the candidate climbing
+steep slopes faster than the game. Both are land-controller questions (§6.3, the slope
+limit and the speed along steep slopes) and are left to that work; nothing here changes
+the swim rules.
 
 **Placed water** (2026-10-08) [observed: the masters and `Fallout - Meshes.bsa`, read-only].
 The reference in `NVDLC03SLH2OINT` is REFR 0x03014467, base PWAT 0x03014465
@@ -1063,6 +1088,14 @@ one step past S − 100); just outside its south edge `out_near` (−4800, −87
 6224.9, 6256.1. If the cell's XCLW were the water, every drop would stop at once (the
 drop height is already 179 below 6712); if the water reached past the box, the `out_*`
 drops would swim at about 6425.
+
+**`sw_guardian` results** (2026-10-08; golden `phys/swim_guardian_drops.drops.json`)
+[observed]: in_deep 6420.82, in_edge 6425.52, in_north 6421.33 (swimming: stopped 102.5–107.2
+below the placed surface), out_near 6206.29, out_mid 6221.17, out_far 6260.48 (on the floor):
+every z within 4.7 of the prediction. The water is the placed reference's box, not the
+cell's XCLW (6712), and it ends at the box's edge (54 units inside: swimming; 56 outside:
+on the floor). The lab gives 5/6: `out_far` landed on a sloping floor and the candidate slid
+10.4 units in y where the game stayed (a landing question, not water).
 
 ## 7. CLI contract
 

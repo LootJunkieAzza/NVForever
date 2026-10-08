@@ -171,7 +171,13 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    §6.3). Captured the same day: B11 15/20 after fixes (open: Havok trees, rocks within
    the game's spread, a pushed drop), traces fence_slide 6/6, fence_stop 6/6,
    porch_steps 6/6, running_jump 0/6 (air control open), hill_run / portal_wall (goldens
-   with an early onset; physics.md §4.2, §6.3, §6.4).
+   with an early onset; physics.md §4.2, §6.3, §6.4). Swimming (physics.md §6.6):
+   swim_dam_forward 10/10, swim_bay_back 8/8; placed water modelled (Water-layer
+   phantoms), held-out swim_guardian 5/6 and swim_h2o 2/5 (three rows need the capture's
+   carried swimming state); swim_cove_dive 3/6 and swim_lake_shore 3/8 kept as designed
+   (inputs without the stroke cycle, the shore captured with its cell unloaded; retirement
+   asked of the owner); banks of 12–58° (`sw_banks*`) agree while swimming and on leaving
+   the water [observed 2026-10-08].
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
 
