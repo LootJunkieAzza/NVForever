@@ -74,9 +74,12 @@ const CLOUD_SCROLL: f32 = 1.0 / 25_600.0;
 /// A weather change fades over this many game hours [placeholder; WTHR DATA has a
 /// "trans delta" byte whose unit is unknown].
 const WEATHER_FADE_HOURS: f32 = 0.5;
-/// Transparent sky parts are drawn before everything else (Bevy sorts transparent meshes
-/// by distance plus depth bias, farthest first; the sky meshes are centred on the camera).
-const SKY_SORT_BIAS: f32 = 1.0e6;
+/// Transparent sky parts are drawn before everything else. Bevy sorts transparent meshes
+/// by view-space z plus depth bias, ascending, and that value grows towards the camera
+/// [documented: bevy_core_pipeline 0.19 Transparent3d], so a large negative bias draws the
+/// sky (centred on the camera) first; blended world meshes write no depth and would
+/// otherwise be painted over. Within the sky, lower biases are drawn first.
+const SKY_SORT_BIAS: f32 = -1.0e6;
 
 /// Light level that makes a colour of 1.0 light a white surface to 1.0 on screen: the
 /// inverse of the camera's exposure (Bevy's default, EV100 9.7). The game's lighting is
@@ -561,7 +564,7 @@ pub fn setup_sky(
                     fog_enabled: false,
                     alpha_mode: AlphaMode::Blend,
                     cull_mode: None,
-                    depth_bias: SKY_SORT_BIAS - (2 * layer + set) as f32,
+                    depth_bias: SKY_SORT_BIAS + (2 * layer + set) as f32,
                     ..default()
                 })),
                 sky_transform(Vec3::ZERO),
@@ -588,7 +591,7 @@ pub fn setup_sky(
             alpha_mode: AlphaMode::Add,
             cull_mode: None,
             // Behind the clouds.
-            depth_bias: SKY_SORT_BIAS + 10.0,
+            depth_bias: SKY_SORT_BIAS - 10.0,
             ..default()
         })),
         Transform::IDENTITY,
@@ -622,7 +625,7 @@ pub fn setup_sky(
                     // alpha-texture flag; hypothesis: the game weights by alpha].
                     alpha_mode: AlphaMode::Add,
                     cull_mode: None,
-                    depth_bias: SKY_SORT_BIAS + 30.0,
+                    depth_bias: SKY_SORT_BIAS - 30.0,
                     ..default()
                 })),
                 Transform { rotation: game_to_bevy().rotation, scale: Vec3::splat(0.9 * SKY_INNER / radius), ..default() },
@@ -645,7 +648,7 @@ pub fn setup_sky(
                 fog_enabled: false,
                 alpha_mode: AlphaMode::Blend,
                 cull_mode: None,
-                depth_bias: SKY_SORT_BIAS + 20.0,
+                depth_bias: SKY_SORT_BIAS - 20.0,
                 ..default()
             })),
             Transform::from_scale(Vec3::ZERO),

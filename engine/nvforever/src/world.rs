@@ -10,6 +10,7 @@ use fnv_world::placed::{base_object, placement, BaseObject, Placement};
 use fnv_world::transform::ref_rotation;
 use fnv_world::{cell_of, WorldIndex, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
+use nvf_assets::{nif_material, NifMaterial};
 use nvf_play::RefVisual;
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
@@ -349,8 +350,12 @@ fn load_cell(
         }
         for s in &model.shapes {
             let m = Mat4::from(rt * s.transform);
-            let mut e = commands.spawn((Mesh3d(s.mesh.clone()), Transform::from_matrix(m), RefVisual(r), ChildOf(cell_e)));
-            s.material.insert(&mut e);
+            commands.entity(cell_e).with_child((
+                Mesh3d(s.mesh.clone()),
+                MeshMaterial3d(s.material.clone()),
+                Transform::from_matrix(m),
+                RefVisual(r),
+            ));
             stats.shapes += 1;
         }
         stats.refs_drawn += 1;
@@ -390,7 +395,7 @@ fn spawn_water(
 }
 
 /// Billboard quad mesh and material for a TREE base (cached per base).
-fn billboard(world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<(Handle<Mesh>, Handle<StandardMaterial>)> {
+fn billboard(world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<(Handle<Mesh>, Handle<NifMaterial>)> {
     if let Some(b) = models.cache.billboard(tree) {
         return b;
     }
@@ -413,14 +418,14 @@ fn billboard(world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<(Han
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nor);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
         mesh.insert_indices(bevy::mesh::Indices::U32(vec![0, 1, 2, 0, 2, 3]));
-        let mat = a.materials.add(StandardMaterial {
+        let mat = a.materials.add(nif_material(StandardMaterial {
             base_color_texture: Some(image),
             alpha_mode: AlphaMode::Mask(0.5),
             double_sided: true,
             cull_mode: None,
             perceptual_roughness: 0.9,
             ..default()
-        });
+        }));
         Some((a.meshes.add(mesh), mat))
     })();
     models.cache.set_billboard(tree, made.clone());

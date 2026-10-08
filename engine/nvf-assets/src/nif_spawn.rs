@@ -8,7 +8,7 @@
 //! by −90° about X.
 
 use crate::data::GameData;
-use crate::falloff::{Falloff, FalloffMaterial, ShapeMaterial};
+use crate::nif_material::{nif_material, Falloff, NifMaterial};
 use crate::texture::TextureCache;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -53,8 +53,7 @@ pub struct SpawnReport {
 pub struct SpawnCtx<'w, 's> {
     pub commands: Commands<'w, 's>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
-    pub materials: ResMut<'w, Assets<StandardMaterial>>,
-    pub falloff_materials: ResMut<'w, Assets<FalloffMaterial>>,
+    pub materials: ResMut<'w, Assets<NifMaterial>>,
     pub images: ResMut<'w, Assets<Image>>,
     pub bindposes: ResMut<'w, Assets<SkinnedMeshInverseBindposes>>,
     pub textures: ResMut<'w, TextureCache>,
@@ -86,6 +85,9 @@ pub(crate) struct Props {
     glossiness: Option<f32>,
     /// BSShaderFlags bit 0 "Specular" of the shader property [documented: nif.xml].
     specular: bool,
+    /// BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml]: vertex colour alpha is
+    /// used only with it (`fix_vertex_colors`).
+    vertex_alpha: bool,
     double_sided: bool,
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
@@ -145,7 +147,9 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.glow = None;
     }
     if shader {
-        p.specular = s.int("shader_flags").is_some_and(|f| f & 1 != 0);
+        let flags = s.int("shader_flags").unwrap_or(0);
+        p.specular = flags & 1 != 0;
+        p.vertex_alpha = flags & (1 << 3) != 0;
         p.falloff = None;
     }
     match ty {
@@ -257,6 +261,20 @@ pub(crate) fn gloss_roughness(gloss: f32) -> f32 {
     (2.0 / (gloss.max(0.0) + 2.0)).sqrt().sqrt()
 }
 
+/// Clean a shape's vertex colours: non-finite values become 1 and the rest are clamped
+/// to 0..1, and the alpha is 1 unless the shader property sets the vertex-alpha flag
+/// [hypothesis, docs/spec-notes/nif.md §6 "Vertex colours": of 3,032 visible shapes with
+/// some vertex alpha below 1, 2,445 set the flag, while 331 of the 343 shapes with
+/// non-finite or out-of-range values do not (Victor's shack trim: NaN, −3e38 and denormal
+/// alphas on 709 of 1,173 vertices)].
+pub(crate) fn fix_vertex_colors(mesh: &mut Mesh, vertex_alpha: bool) {
+    let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR) else { return };
+    let clean = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 1.0 };
+    for c in colors.iter_mut() {
+        *c = [clean(c[0]), clean(c[1]), clean(c[2]), if vertex_alpha { clean(c[3]) } else { 1.0 }];
+    }
+}
+
 /// Reflectance for a shape, and whether its normal map's alpha (the specular mask,
 /// docs/spec-notes/nif.md §6 "Specular") scales it. Bevy maps mask alpha a to
 /// reflectance × a × 0.5, so 2.0 lets the mask span the full [0, 1] range: a mask of
@@ -274,21 +292,8 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool) -> (f32, bool) {
 /// materials use it [hypothesis: on alpha-tested or opaque shapes it would only cut holes;
 /// 1,143 of the 7,373 visible BSShaderNoLightingProperty shapes are not blended; observed:
 /// `crates/fnv-nif/examples/falloff_survey.rs`, docs/spec-notes/nif.md §6].
-pub(crate) fn shape_falloff(props: &Props, material: &StandardMaterial) -> Option<Falloff> {
-    props.falloff.filter(|_| matches!(material.alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied))
-}
-
-/// Store a shape's material, with the falloff extension when it has one.
-pub(crate) fn add_material(
-    props: &Props,
-    material: StandardMaterial,
-    materials: &mut Assets<StandardMaterial>,
-    falloff_materials: &mut Assets<FalloffMaterial>,
-) -> ShapeMaterial {
-    match shape_falloff(props, &material) {
-        Some(extension) => ShapeMaterial::Falloff(falloff_materials.add(FalloffMaterial { base: material, extension })),
-        None => ShapeMaterial::Standard(materials.add(material)),
-    }
+pub(crate) fn shape_falloff(props: &Props, alpha_mode: AlphaMode) -> Option<Falloff> {
+    props.falloff.filter(|_| matches!(alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied))
 }
 
 /// The material for a shape's properties; also returns the base texture path when it
@@ -300,7 +305,8 @@ pub(crate) fn shape_material(
     data: &GameData,
     images: &mut Assets<Image>,
     formats: Option<&CompressedImageFormatSupport>,
-) -> (StandardMaterial, Option<String>) {
+) -> (NifMaterial, Option<String>) {
+    fix_vertex_colors(mesh, props.vertex_alpha);
     let base = props.textures.first().filter(|t| !t.is_empty()).and_then(|t| textures.get(t, true, data, images, formats));
     let normal = props.textures.get(1).filter(|t| !t.is_empty()).and_then(|t| textures.get(t, false, data, images, formats));
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
@@ -336,6 +342,10 @@ pub(crate) fn shape_material(
         unlit: props.unlit,
         ..default()
     };
+    let mut material = nif_material(material);
+    if let Some(f) = shape_falloff(props, alpha_mode) {
+        material.extension.falloff = f.params;
+    }
     (material, missing)
 }
 
@@ -580,17 +590,15 @@ impl SpawnCtx<'_, '_> {
             }
 
             let e = entity_of[&o.block];
-            let material = add_material(&props, material, &mut self.materials, &mut self.falloff_materials);
             let mut cmd = self.commands.entity(e);
-            material.insert(&mut cmd);
             match skinned {
                 Some(s) => {
                     let mesh = mesh.with_generated_skinned_mesh_bounds().unwrap_or_else(|_| Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD));
-                    cmd.insert((Mesh3d(self.meshes.add(mesh)), s, DynamicSkinnedMeshBounds));
+                    cmd.insert((Mesh3d(self.meshes.add(mesh)), MeshMaterial3d(self.materials.add(material)), s, DynamicSkinnedMeshBounds));
                     report.skinned += 1;
                 }
                 None => {
-                    cmd.insert(Mesh3d(self.meshes.add(mesh)));
+                    cmd.insert((Mesh3d(self.meshes.add(mesh)), MeshMaterial3d(self.materials.add(material))));
                 }
             }
             report.shapes += 1;
@@ -630,6 +638,16 @@ mod tests {
     }
 
     #[test]
+    fn falloff_only_when_blended() {
+        let props = Props { falloff: Falloff::from_fields(0.985, 0.174, 1.0, 0.0), ..Default::default() };
+        assert!(shape_falloff(&props, AlphaMode::Add).is_some());
+        assert!(shape_falloff(&props, AlphaMode::Blend).is_some());
+        assert!(shape_falloff(&props, AlphaMode::Opaque).is_none());
+        assert!(shape_falloff(&props, AlphaMode::Mask(0.5)).is_none());
+        assert!(shape_falloff(&Props::default(), AlphaMode::Add).is_none());
+    }
+
+    #[test]
     fn helper_shapes() {
         // No properties at all (landscape LOD): drawn.
         assert!(!Props::default().is_helper());
@@ -642,17 +660,6 @@ mod tests {
     }
 
     #[test]
-    fn falloff_only_when_blended() {
-        let props = Props { falloff: Falloff::from_fields(0.985, 0.174, 1.0, 0.0), ..Default::default() };
-        let with = |alpha_mode| StandardMaterial { alpha_mode, ..default() };
-        assert!(shape_falloff(&props, &with(AlphaMode::Add)).is_some());
-        assert!(shape_falloff(&props, &with(AlphaMode::Blend)).is_some());
-        assert!(shape_falloff(&props, &with(AlphaMode::Opaque)).is_none());
-        assert!(shape_falloff(&props, &with(AlphaMode::Mask(0.5))).is_none());
-        assert!(shape_falloff(&Props::default(), &with(AlphaMode::Add)).is_none());
-    }
-
-    #[test]
     fn glow_map_slot() {
         let set: Vec<String> = ["d.dds", "d_n.dds", "d_g.dds", "", "", ""].iter().map(|s| s.to_string()).collect();
         assert_eq!(glow_map(0x8200_0101, &set).as_deref(), Some("d_g.dds"));
@@ -661,6 +668,21 @@ mod tests {
         assert_eq!(glow_map(0, &set[..2]), None);
         let empty: Vec<String> = ["d.dds", "d_n.dds", ""].iter().map(|s| s.to_string()).collect();
         assert_eq!(glow_map(0, &empty), None);
+    }
+
+    #[test]
+    fn vertex_colors_cleaned() {
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0.5, f32::NAN, 2.0, -3e38], [0.2, 0.3, 0.4, 0.25]]);
+        let mut flagged = mesh.clone();
+        fix_vertex_colors(&mut mesh, false);
+        fix_vertex_colors(&mut flagged, true);
+        let get = |m: &Mesh| match m.attribute(Mesh::ATTRIBUTE_COLOR) {
+            Some(VertexAttributeValues::Float32x4(c)) => c.clone(),
+            _ => panic!(),
+        };
+        assert_eq!(get(&mesh), vec![[0.5, 1.0, 1.0, 1.0], [0.2, 0.3, 0.4, 1.0]]);
+        assert_eq!(get(&flagged), vec![[0.5, 1.0, 1.0, 0.0], [0.2, 0.3, 0.4, 0.25]]);
     }
 
     #[test]
