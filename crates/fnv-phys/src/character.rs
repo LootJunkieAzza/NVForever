@@ -255,9 +255,13 @@ impl PhysWorld {
         // squared (244) [observed: L4.phys.walk.porch_steps capture, physics.md §6.3].
         // Down a slope the flat velocity is kept, as before [hypothesis: not captured].
         if let Some((_, _, n)) = support.filter(|&(_, toi, n)| c.grounded && c.vertical_speed <= 0.0 && n.z >= walkable && n.z < LEVEL && toi < c.gap / n.z + 1.0) {
+            // In the vertical plane of the heading: the game kept its heading across a
+            // slope that also fell to the side [observed: L4.phys.walk.hill_run], where
+            // sliding along the surface turned the character downhill.
             let v = Vector::new(desired.x, desired.y, 0.0);
-            let along = v - n * v.dot(n);
-            if along.z > 0.0 && along.length() > 1e-9 {
+            let rise = -(v.x * n.x + v.y * n.y) / n.z;
+            let along = Vector::new(v.x, v.y, rise);
+            if rise > 0.0 && along.length() > 1e-9 {
                 let t = along * (v.length() / along.length());
                 desired = Vector::new(t.x, t.y, t.z + desired.z);
             }

@@ -217,6 +217,33 @@ the matrix. The clutter row (job `mv_b11_clutter`: a whiskey bottle, Clutter lay
 placed with `PlaceAtMe` and moved 200 units above eleven of these targets) has no
 candidate yet: dynamic bodies collide with every layer in `fnv-phys` today.
 
+**Results** (capture `mv_b11_drops`, run by the coordinator 2026-10-08 on the re-made
+`nvfdoc`; golden `phys/b11_goodsprings.drops.json`) [observed]. The first comparison
+passed 12 of 20 rows; what the differences showed:
+
+| Row | Game feet z | Candidate before → now | Finding |
+|---|---|---|---|
+| collision_marker_a | 8484.33 | 8373.50 → 8484.74 | the player rested on the Goodsprings school (SCOL 0x00177C9E, placed in the next cell south), which the probe's world lacked: `phys cell` now loads the cells around each probe's own square too [hypothesis: the game loads cells around the player wherever it is] |
+| animstatic_gate | 8691.58 (on the terrain, x/y unchanged) | 8770.10 → 8691.51 | the gate 0x0010757E carries ONAM "Open by Default" [documented: xEdit]: its panel is open in game. The keyframed parts of open-by-default doors are left out (their open pose comes from the door's animation, not read) |
+| collision_marker_b | 8285.81 (fell through, x/y moved 0.1) | 8571.53 (unchanged) | a Portal Box marker whose box is 2 units thick: dropped onto its top the player fell through it; but a run into another Portal Box marker stopped 22 units from its plane (`L4.phys.walk.portal_wall`, §6.4), so Portal Box markers stay solid. Open: why the drop passed |
+| havok_tree_a / _b | 8637.98 / 8879.92 | 8582.72 / 8813.61 | open. The game's player rests 55 and 66 higher in the branches of `treewastelandhardwood01.nif`; a capsule of radius 21 or 24 does not explain it (8590, 8598); a dropped bottle came to rest at 8564.07 on tree a, near our top at the centre (8556.5), so the geometry is probably right and the player's shape against branches differs [hypothesis]. Diagnostic grid `mv_diag_trees_rocks` below |
+| terrain_rock_a / _b | 8333.09 / 8506.51 | 8323.63 / 8515.13 | open: ±9 units on two NVNRockCanyon08 placements; see the grid below |
+| noncollidable_maize | z 8705.24, x/y moved 14 | x/y unchanged | open: something pushed the falling player sideways while it passed the maize (Non Collidable) |
+| props_barrel | not observed | — | the player did not fall: it hung at 8615.39, 9 units sideways (golden row without feet) |
+
+Now 15 of 20 rows agree. **The player row of the matrix** [observed]: Static, AnimStatic
+(the mailbox, a closed gate part), Trees (Havok), Terrain (rocks), Transparent Small
+(chain-link fence end, yucca), Props (a crate, at least while landing) and CollisionMarker
+boxes stop the player; Non Collidable plants (static and dynamic) and SpeedTree shrubs do
+not. `layers::character_ignores` already agrees on every layer tested; nothing changed.
+Not tested: Water, Trigger, Invisible Wall, Collision Box, Debris, Biped (placed actors'
+skeleton bodies, §4.2 note).
+
+**Clutter row** (`mv_b11_clutter`) [observed]: the bottles bounced or rolled 50–300 units
+from the drop point (the control drop on open ground ended 183 units away), so most rows
+cannot be read. Two can: on Havok tree a the bottle stayed at (-74300.6, -1170.0, 8564.07)
+and on rock a it rested at 8325.87, on the rock; Trees and Terrain stop clutter too.
+
 ## 5. Determinism and precision
 
 - The world advances only in fixed steps of `PhysParams::dt`; `Stepper` turns frame time
@@ -264,15 +291,15 @@ means someone at the game.
 |---|---|---|
 | gravity | 686.7 units/s² (9.81 m/s² at 70 units/m) | **[observed]** 683.8 (300-unit fall) and 685.5 (standing jump), §6.3; kept |
 | fixed step `dt` | 1/60 s | unknown; the game ran at 60–64 loops per second during captures [observed] |
-| capsule radius | 18 | [hypothesis]; job `mv_traces` (`move_fence_stop`: stop distance from a fence face = radius + contact gaps), ready |
+| capsule radius | 18 | [hypothesis]; the game stops 21.9 from a static fence face and 22.1 from a Portal Box plane (radius + gaps, not separable) [observed: `move_fence_stop`, `move_portal_wall`]; the candidate stops 21.5 (18 + its 3.5 gap on terrain) |
 | capsule height | 128 | [hypothesis]; owner (head against a low ceiling of known height, standing and crouched) |
 | step height | 24 | [hypothesis]; `move_porch_steps` exercises steps of Doc Mitchell's porch; the limit needs ledges of graded heights (design open, §6.3) |
 | max slope | 45° | [hypothesis]; an unattended run up steep LAND squares is possible (design open, §6.3) |
 | jump apex | 61.6 | **[observed]** apex 61.6 above the standing feet, §6.3 (`fJumpHeightMin` reads 64) |
-| max fall speed | none | none seen in 0.9 s of fall (580 units/s reached) [observed]; job `mv_values` samples a 2,500-unit fall, ready |
+| max fall speed | none | none: a 2,500-unit fall reached 1,841 units/s still accelerating (fit g = 686.0, RMS 0.09) [observed: `mv_values`] |
 | walk / run speed | `nvf-play` uses 86.8 / 344 | **[observed]**, §6.3 |
-| eye height | 112 (`nvf-play`) | [hypothesis]; job `mv_values` (crosshair over a fence top from two distances), ready |
-| activation reach | 150 (`nvf-play` `pick::REACH`) | `iActivatePickLength` reads 150, `fActivatePickSphereRadius` 16 [observed, §6.3]; the distance itself: job `mv_values`, ready |
+| eye height | 112 (`nvf-play`) | about 123 above the feet if the crosshair pick is a sphere of `fActivatePickSphereRadius` 16 cast from above the feet (both distances agree); a plain ray fits only with the camera 10.6 units behind the feet (110 above them) [observed: `mv_values`, §6.3; the model is hypothesis]; not changed yet |
+| activation reach | 150 (`nvf-play` `pick::REACH`) | `iActivatePickLength` reads 150, `fActivatePickSphereRadius` 16; at 30° down the crosshair found the fence up to a feet-to-face distance of 120 and not from 123 [observed: `mv_values`]: 122–126 along the view with the sphere model, 139–142 for a plain ray; not changed yet |
 | push mass | 80 | [hypothesis]; owner (how far walking pushes a known clutter item) |
 | layers the player passes through | §4 list | B11 job `mv_b11_drops` and scenario `L4.phys.drops.b11_goodsprings`, ready (§4.2) |
 | CollisionMarker bounds | half extents | three CollisionMarker tops in `mv_b11_drops`: read as full extents they would be 6.5, 65 and 34.5 units lower (§4.2) |
@@ -306,7 +333,7 @@ it adds:
 | walk speed | 86.8 units/s (`MoveSpeeds::OBSERVED`) | [observed: §6.3, a level-1 character, Speed Mult 100; the formula (encumbrance, sneaking, weapon out) is unknown; `fMoveBaseSpeed` is 77] |
 | run speed | 344 units/s | [observed: §6.3; `fMoveBaseSpeed × fMoveRunMult` would be 308] |
 | run by default, Shift walks | | [observed: Always Run is on in the owner's game and the Run control is bound to left Shift, §6.3] |
-| same speed forwards, backwards and sideways; diagonals not faster | | [hypothesis] |
+| backwards at 0.79 of the forward speed (`BACK_SPEED_FRACTION`); sideways and diagonals at the forward speed, diagonals not faster | | [observed: backwards 272.8 against 344, §6.3; sideways and diagonals hypothesis] |
 | eye height above the feet | 112 units | [hypothesis: placeholder for a standing human at about 70 units per metre] |
 | the player reference's z rotation is its compass heading in radians | written to the simulation each frame | [hypothesis: door teleport markers' rotations are read the same way] |
 | physics (and the game clock) stop in menus | | [hypothesis: not captured for the container menu] |
@@ -506,6 +533,30 @@ Still open, designs not made yet: the step-height limit (needs ledges of graded 
 in reach of a save), the slope limit (a run up LAND squares of known steepness), the
 capsule height (owner), push mass (owner).
 
+**Scenario captures** (`mv_traces`, `mv_values`, 2026-10-08, coordinator) [observed]:
+
+- `move_fence_slide` and `move_fence_stop` agree 6/6 (within 1 unit in x and y; the game
+  stands 3.85 above LAND against the candidate's 3.5).
+- `move_porch_steps`: up the 32° porch ramp the game moved 288 units/s horizontally and
+  134 vertically, 316 along the surface after the flat run of 340 (and 333 along the
+  30° LAND of `move_hill_run`, 306 + 134): the run speed is kept along a walkable slope
+  (the cosine), where sliding the flat velocity gave the cosine squared (244). The
+  controller now keeps the speed along uphill walkable slopes, in the vertical plane of
+  the heading (`move_hill_run` showed the game keeps its heading across a side slope). It
+  passes 6/6; still open: at the top the game stood 7.7 above the porch floor (8746.34
+  against 8739.3) after rising above the ramp's end.
+- `move_running_jump` 0/6, open. Jump and run started in the same loop: the horizontal
+  speed rose 102, 173, 223 … 340 over 0.2 s (the gap to 340 shrinking by 0.70 per loop)
+  while the candidate runs at 344 from the first step; after landing two loops at 81
+  units/s and later dips to 144–239. Calibration `mv_air` [observed]: jumping out of a
+  run at full speed keeps 340 in the air; releasing forward in mid-air decays the speed
+  by about 0.84 per loop (to 27 in 0.22 s); pressing forward only after leaving the
+  ground gives 15 units/s. No single air-control rule found yet fits all four; not
+  modelled.
+- Other speeds (`mv_values`) [observed]: backwards 272.8 units/s (0.79 of forward; used by
+  `nvf-play`), sneaking forward 197.7 (= 344 × 0.575; `fMoveSneakMult` is 0.57); the strafe
+  and diagonal runs hit the yard's house and are not usable.
+
 ### 6.4 Follow-up captures: predictions (written 2026-10-08 before the runs)
 
 After the first scenario captures (results in §4.2 and §6.3) the candidate changed: probes
@@ -522,6 +573,57 @@ diagnostic, final feet z):
 `mv_air` (calibration, no prediction used): horizontal motion when forward is pressed in
 mid-air, when jumping out of a run at full speed, when forward is released in mid-air,
 and in a walking jump.
+
+**Results of the follow-ups** (captures by this workstream, 2026-10-08) [observed]:
+
+- `move_portal_wall`: the game stopped 22.1 units from the plane of the Portal Box marker
+  0x001685B9 (−77689.5, 4840.2) and stayed: the prediction (pass through, from the rule
+  derived from one drop) was wrong; Portal Box markers are solid again. With the rule
+  reverted the candidate also stops there. On the way down (a 42° slope) the game left
+  the ground and fell (vertical speed growing like gravity) where the candidate keeps
+  snapping to the slope: z differs by 47 at t0.25; snapping down steep slopes is open.
+- `move_hill_run`: the game ran straight west at 306 horizontal + 134 vertical; the
+  prediction drifted 87 units south (the slope projection also turned the motion
+  downhill), fixed by keeping the heading (above). Note: the golden builder took the
+  movement onset at a first change of 0.1 in z, two loops before the run started; for
+  `move_hill_run` and `move_portal_wall` its observation times are 0.031 s early. The
+  builder now uses the horizontal position (`capture_moves.py`); the two goldens were
+  left as built. Rebuilt in a scratch folder they give hill_run 6/6 and portal_wall 5/6
+  (only the airborne z at t0.25 differs); as installed hill_run fails 4 rows by 10–12
+  units.
+- `mv_diag_trees_rocks` (drops on a ±30 grid; candidate as now):
+
+| Drop | Game feet (x, y, z) | Candidate z | Δz |
+|---|---|---|---|
+| tree_a_-30_-30 | (-74330.2, -1196.8, 8693.22) | 8575.04 | +118.2 |
+| tree_a_-30_+0 | (-74330.2, -1166.8, 8625.73) | 8582.72 | +43.0 |
+| tree_a_-30_+30 | (-74330.2, -1136.8, 8667.81) | 8582.72 | +85.1 |
+| tree_a_+0_-30 | (-74300.2, -1196.8, 8697.58) | 8588.77 | +108.8 |
+| tree_a_+0_+0 | (-74300.2, -1166.8, 8638.53) | 8582.72 | +55.8 |
+| tree_a_+0_+30 | (-74300.2, -1136.8, 8593.50) | 8368.37 | +225.1 |
+| tree_a_+30_-30 | (-74270.2, -1196.8, 8697.56) | 8545.81 | +151.7 |
+| tree_a_+30_+0 | (-74270.2, -1166.8, 8644.50) | 8545.38 | +99.1 |
+| tree_a_+30_+30 | (-74270.2, -1136.8, 8662.17) | 8358.75 | +303.4 |
+| rock_b_-30_-30 | (-69686.2, 1588.6, 8515.01) | 8515.33 | -0.3 |
+| rock_b_-30_+0 | (-69687.1, 1619.1, 8505.72) | 8516.12 | -10.4 |
+| rock_b_-30_+30 | (-69686.2, 1648.6, 8480.76) | 8480.50 | +0.3 |
+| rock_b_+0_-30 | (-69656.2, 1588.6, 8514.92) | 8514.61 | +0.3 |
+| rock_b_+0_+0 | (-69656.2, 1618.6, 8512.78) | 8515.13 | -2.4 |
+| rock_b_+0_+30 | (-69656.2, 1648.6, 8481.66) | 8482.17 | -0.5 |
+| rock_b_+30_-30 | (-69625.6, 1588.9, 8505.07) | 8509.06 | -4.0 |
+| rock_b_+30_+0 | (-69626.2, 1618.6, 8494.76) | 8496.36 | -1.6 |
+| rock_b_+30_+30 | (-69626.2, 1648.6, 8496.67) | 8498.64 | -2.0 |
+| tree_a_high | (-74300.3, -1166.8, 8628.46) | 8582.72 | +45.7 |
+
+  Rock b agrees within 4 units at 7 of 9 points (and the game's own repeat of the B11
+  centre drop came 6.3 higher than the first), so the rock geometry is right and the B11
+  rock rows differ by the game's spread and edge effects [observed]. On the tree the game
+  rests 43–303 units higher at every point, where it also stands on nothing in our mesh
+  (+0/+30, +30/+30, which the candidate falls through to the ground); its heights follow
+  the highest vertex of the branch mesh within 18 units of the drop (within 0–20 at 6 of
+  9 points) rather than its convex hull (250–330 higher). Hypothesis: the game's
+  controller comes to rest on thin, steep branch triangles and their edges, where rapier's
+  controller slides off them; open.
 
 ## 7. CLI contract
 
