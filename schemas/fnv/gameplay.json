@@ -2147,6 +2147,75 @@
      "type": "u16",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas RACE record; xEdit: wbInteger(SNAM, 'Unknown', itU16), once per sex"
+    },
+    "INDX": {
+     "name": "Index",
+     "type": "u32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record (wbHeadParts / wbBodyParts). Meaning depends on position: after NAM0 it is a head part (wbHeadPartIndexEnum: 0 Head, 1 Ears, 2 Mouth, 3 Teeth Lower, 4 Teeth Upper, 5 Tongue, 6 Left Eye, 7 Right Eye), after NAM1 a body part (wbDefinitionsCommon.pas wbBodyPartIndexEnum, non-TES4 branch: 0 Upper Body, 1 Left Hand, 2 Right Hand, 3 Upper Body Texture); schema v1 cannot express position-dependent enums, so it stays a plain u32"
+    }
+   }
+  },
+  "HAIR": {
+   "name": "Hair",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Playable",
+       "1": "Not Male",
+       "2": "Not Female",
+       "3": "Fixed"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas HAIR record"
+    }
+   }
+  },
+  "EYES": {
+   "name": "Eyes",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Playable",
+       "1": "Not Male",
+       "2": "Not Female"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas EYES record"
+    }
+   }
+  },
+  "HDPT": {
+   "name": "Head Part",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Playable",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "False",
+       "1": "True"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas HDPT record (wbBoolEnum)"
+    },
+    "HNAM": {
+     "name": "Extra Part",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas HDPT record; repeated, one HDPT per subrecord"
     }
    }
   },
