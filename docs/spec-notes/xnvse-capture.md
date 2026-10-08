@@ -184,7 +184,8 @@ recorded per step, not fatal.
 Goal: jobs without manual steps can run unattended (§4, capture_run.py). A substitute is
 used for a scenario only after a capture made with it agrees with the capture made by
 hand (`capture_steps.py compare`, numbers within a stated tolerance); until then the
-manual step stays. None is confirmed yet.
+manual step stays. Results of the first checks (2026-10-08, all runs unattended, plugin
+version 3) are at the end of this section.
 
 - **Settling after a door** (`capture_steps.py actions --settle auto`, replaces the End
   confirmation of `--confirm-after`): scripted `Activate` on a load door already moved
@@ -207,3 +208,32 @@ manual step stays. None is confirmed yet.
 - **Leaving and returning to a cell** (`detach_cell`, `attach_cell`) and **container-menu
   transfers** (`transfer`) stay manual: the actions name a cell, not the door to use, and
   `RemoveItem` + `AddItem` is not known to be the same as a menu transfer.
+
+Results [observed 2026-10-08, saves `nvftest` (inside GSGasStation) and `nvfdoc` (Doc
+Mitchell's house)]:
+
+- `aa_time_substitutes` (calendar after each candidate; the clock also runs a few game
+  seconds between steps): setting `GameHour` 24 hours forward (to 33.3) gave GameHour
+  9.32 again, GameDaysPassed +1.000 and GameDay +1, so the game wraps the hour and carries
+  the day itself; +6 hours moved GameHour +6.005 and GameDaysPassed +0.250. TimeScale 3600
+  until GameDaysPassed + 1: 1,433 game loops, overshoot about 2 game minutes (GameDaysPassed
+  +1.0013), GameDay +1, TimeScale back to 30, no crash; +6 hours: 360 loops. Setting
+  `GameDaysPassed` alone (+1) left GameDay unchanged, so it is not a substitute.
+- `goodsprings_merchant_restock` rerun with `--time hour` and with `--time timescale`:
+  identical to the golden made with the Wait menu (0, 200, 0, 200 caps; 0 differences).
+- `goodsprings_weight_and_time` rerun with each: identical to its golden (weights,
+  capacities, GameDay/GameMonth across the month end; 0 differences).
+- `goodsprings_doc_mitchell` rerun with `--settle auto`: the player had left the house's
+  cell at the first check after `Activate` on the front door; after the 300-loop pause
+  every observation matched the golden except the position after the door, which
+  differed by 0.0002 (y) and 0.005 (z) game units, well inside the scenario's 1-unit
+  tolerance (0 differences at `--tolerance 0.01`).
+
+So for these scenarios `--time hour`, `--time timescale` and `--settle auto` give the same
+observations as the manual steps, and the scenarios can be captured unattended. This is
+equivalence for what they observe (item counts, merchant restock at 72 and 84 hours,
+calendar values, weights, cell and position after a door), not a proof that the
+substitutes do everything the Wait menu does (e.g. health regeneration, NPC schedules and
+cell respawn were not compared); a new kind of observation needs its own comparison.
+`hour` is the default choice for unattended jobs (no TimeScale change, no dependence on
+frame rate); `timescale` lets the game run the time, if a scenario needs that.
