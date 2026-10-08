@@ -100,6 +100,44 @@ pub fn cell_lighting(lo: &LoadOrder, schema: &Schema, cell: u32) -> Option<CellL
     }
 }
 
+/// A cell's image space (CELL XCIM) [documented: xEdit "Image Space"], when it names one.
+pub fn cell_image_space(lo: &LoadOrder, schema: &Schema, cell: u32) -> Option<u32> {
+    let (pi, r) = winner(lo, cell)?;
+    Fields::new(r, pi, schema).ok()?.formid(b"XCIM", lo).filter(|&f| f != 0)
+}
+
+/// What drives a reference's external emittance (REFR XEMI).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Emittance {
+    /// A region's weather (REGN RDWT, the entry with the highest chance): its sunlight
+    /// colour at the current hour [hypothesis: e.g. InvertedDaylightWarmRegionNV's weather
+    /// has black sunlight by day and warm sunlight at night, and the Prospector Saloon
+    /// porch beam that names it is invisible by day in game; NVInteriorRegion's weather
+    /// has warm sunlight by day and black at night, the saloon's window rays name it].
+    Weather(u32),
+    /// A light's colour.
+    Light([u8; 3]),
+}
+
+/// Resolve an XEMI target: a region with a weather, or a light.
+pub fn emittance(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Emittance> {
+    let (pi, r) = winner(lo, fid)?;
+    match &r.header.sig {
+        b"LIGH" => light_data(lo, schema, fid).map(|l| Emittance::Light(l.color)),
+        b"REGN" => {
+            let f = Fields::new(r, pi, schema).ok()?;
+            let list = f.get(b"RDWT")?;
+            let best = list
+                .as_array()?
+                .iter()
+                .filter_map(|w| Some((crate::fields::global(lo, pi, crate::fields::formid_of(w.get("weather")?)?)?, num(w, "chance")?)))
+                .max_by(|a, b| a.1.total_cmp(&b.1))?;
+            Some(Emittance::Weather(best.0))
+        }
+        _ => None,
+    }
+}
+
 /// LIGH DATA flags [documented: xEdit].
 pub mod light_flags {
     pub const NEGATIVE: u32 = 1 << 2;
@@ -118,6 +156,9 @@ pub struct LightData {
     pub falloff_exponent: f32,
     /// Spot cone in degrees.
     pub fov: f32,
+    /// FNAM "Fade value", 1 when absent [documented: xEdit name; hypothesis: a brightness
+    /// multiplier, as the GECK's light "Fade" field].
+    pub fade: f32,
 }
 
 pub fn light_data(lo: &LoadOrder, schema: &Schema, ligh: u32) -> Option<LightData> {
@@ -125,13 +166,15 @@ pub fn light_data(lo: &LoadOrder, schema: &Schema, ligh: u32) -> Option<LightDat
     if &r.header.sig != b"LIGH" {
         return None;
     }
-    let d = Fields::new(r, pi, schema).ok()?.get(b"DATA")?;
+    let f = Fields::new(r, pi, schema).ok()?;
+    let d = f.get(b"DATA")?;
     Some(LightData {
         radius: num(&d, "radius")? as f32,
         color: rgb(&d, "color")?,
         flags: d.get("flags").and_then(|f| num(f, "value")).unwrap_or(0.0) as u32,
         falloff_exponent: num(&d, "falloff_exponent").unwrap_or(1.0) as f32,
         fov: num(&d, "fov").unwrap_or(90.0) as f32,
+        fade: f.get(b"FNAM").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
     })
 }
 
