@@ -296,6 +296,35 @@ class Supervise(unittest.TestCase):
         self.assertIn("interrupted", rep["problems"][0])
         self.assertNotIn("_round_start", rep)
 
+    def test_repeat_runs_the_campaign_again_from_the_save(self):
+        path = os.path.join(self.dir, "c.json")
+        with open(path, "w") as f:
+            json.dump({"format": ob.CAMPAIGN_FORMAT, "name": "c", "save": "s", "sessions": [{"name": "a", "hours": 1}]}, f)
+
+        class G(self.Game):
+            def check(self):
+                return None
+
+        calls = []
+
+        def fake_supervise(jobs, capture_dir, game, save, retries, stage, **kw):
+            calls.append(save)
+            status = "ended" if len(calls) < 3 else "cut off"
+            return {"started": len(calls), "problems": [], "sessions": {"obs_c_a": {"status": status, "cut_off": 0, "outputs": []}}}
+
+        real, ob.supervise = ob.supervise, fake_supervise
+        try:
+            with redirect_stdout(io.StringIO()) as out:
+                code = ob.main(["run", path, "--game", self.dir, "--capture-dir", self.dir, "--saves-dir", "",
+                                "--repeat", "3"], game=G())
+        finally:
+            ob.supervise = real
+        self.assertEqual(calls, ["s", "s", "s"])
+        self.assertEqual(code, 2, "one of the runs did not end")
+        self.assertIn("run 3 of 3", out.getvalue())
+        reports = os.listdir(os.path.join(self.dir, "observe", "c"))
+        self.assertEqual(sorted(r for r in reports if r.endswith(".run.json")), ["c.1.run.json", "c.2.run.json", "c.3.run.json"])
+
     def test_cli_rejects_bad_input(self):
         path = os.path.join(self.dir, "c.json")
         with open(path, "w") as f:

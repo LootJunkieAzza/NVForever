@@ -747,6 +747,9 @@ def main(argv=None, game=None, clock=time.time, sleep=time.sleep):
                                                                "FalloutNV", "Saves"),
                            help="where to check that the save exists (only read)")
             p.add_argument("--retries", type=int, default=2, help="restarts allowed per session after a crash (default 2)")
+            p.add_argument("--repeat", type=int, default=1,
+                           help="run the campaign this many times, the game started from the save each time "
+                                "(repeated observations of the same situation, e.g. a fight); default 1")
             p.add_argument("--timeline", help="also write the timeline of every ended session here")
             p.add_argument("-o", "--output", help="run report (default: <capture dir>/observe/<campaign>.<time>.run.json)")
     r = sub.add_parser("report")
@@ -788,6 +791,8 @@ def main(argv=None, game=None, clock=time.time, sleep=time.sleep):
             raise InputError("no save: pass --save or give the campaign a save")
         if args.retries < 0:
             raise InputError("--retries must be 0 or more")
+        if args.repeat < 1:
+            raise InputError("--repeat must be 1 or more")
         game = game or cr.Game(args.game)
         problem = game.check() or cr.check_save(save, args.saves_dir)
         if problem:
@@ -801,26 +806,40 @@ def main(argv=None, game=None, clock=time.time, sleep=time.sleep):
         print(f"observe: {e}", file=sys.stderr)
         return 1
     stage = os.path.join(args.capture_dir, "observe", campaign["name"])
-    report = supervise(jobs, args.capture_dir, game, save, args.retries, stage, clock=clock, sleep=sleep)
-    report["campaign"] = campaign["name"]
-    if args.timeline:
-        ended = [o for s in report["sessions"].values() if s["status"] == "ended" for o in s["outputs"][-1:]]
-        try:
-            names = cs.edid_names(args.data) if args.data else None
-            sources = []
-            for p in ended:
-                with open(p, encoding="utf-8") as f:
-                    sources.append((p, f.read().splitlines()))
-            cs.write(timeline(sources, names), args.timeline)
-            report["timeline"] = args.timeline
-        except OSError as e:
-            report["problems"].append(f"timeline: {e}")
-    out = args.output or os.path.join(stage, f"{campaign['name']}.{report['started']}.run.json")
-    cs.write(report, out)
-    print(f"observe: report {out}")
-    for n, s in report["sessions"].items():
-        print(f"  {n}: {s['status']} (cut off {s['cut_off']} time(s)), outputs {s['outputs']}")
-    return 0 if all(s["status"] == "ended" for s in report["sessions"].values()) else 2
+    ok = True
+    for k in range(args.repeat):
+        if args.repeat > 1:
+            print(f"observe: run {k + 1} of {args.repeat}")
+        report = supervise(jobs, args.capture_dir, game, save, args.retries, stage, clock=clock, sleep=sleep)
+        report["campaign"] = campaign["name"]
+        report["repeat"] = [k + 1, args.repeat]
+        if args.timeline:
+            ended = [o for s in report["sessions"].values() if s["status"] == "ended" for o in s["outputs"][-1:]]
+            path = args.timeline if args.repeat == 1 else f"{os.path.splitext(args.timeline)[0]}.{k + 1}.json"
+            try:
+                names = cs.edid_names(args.data) if args.data else None
+                sources = []
+                for p in ended:
+                    with open(p, encoding="utf-8") as f:
+                        sources.append((p, f.read().splitlines()))
+                cs.write(timeline(sources, names), path)
+                report["timeline"] = path
+            except OSError as e:
+                report["problems"].append(f"timeline: {e}")
+        out = args.output or os.path.join(stage, f"{campaign['name']}.{report['started']}.run.json")
+        if args.output and args.repeat > 1:
+            out = f"{os.path.splitext(args.output)[0]}.{k + 1}.json"
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        cs.write(report, out)
+        print(f"observe: report {out}")
+        for n, s in report["sessions"].items():
+            print(f"  {n}: {s['status']} (cut off {s['cut_off']} time(s)), outputs {s['outputs']}")
+        ok = ok and all(s["status"] == "ended" for s in report["sessions"].values())
+        if any(p.startswith(("stopped", "interrupted")) for p in report["problems"]):
+            print(f"observe: stopping after run {k + 1}: {report['problems']}")
+            ok = False
+            break
+    return 0 if ok else 2
 
 
 if __name__ == "__main__":

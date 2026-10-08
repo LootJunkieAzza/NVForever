@@ -135,7 +135,13 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   wiki warns not to use it while the Pip-Boy is open (keys stop responding); the bot never
   opens the Pip-Boy. It closed SunnyRef's dialogue cleanly after 40 samples (600 game
   loops) and the clock went on [observed 2026-10-08, plugin version 6].
-  Example: `tools/capture/observe/goodsprings.campaign.json`.
+  Campaigns: `tools/capture/observe/goodsprings.campaign.json` (save `nvftest`),
+  `goodsprings_npc.campaign.json` (owner's save `nvfNPC`, Joe Cobb enabled; also tracks
+  the Powder Gangers GSPG01Ref–GSPG06Ref) and `goodsprings_fight.campaign.json` (save
+  `nvfCombatTown`, just before the settlers' fight with the Powder Gangers: no teleport,
+  no clock change, god mode by `tgm` so the standing player is not killed, depth 2,
+  every 5 loops, 2 game hours). God mode is a console toggle: the save must not have it on
+  already [hypothesis: it is not stored in saves].
 - **Session job**: console_first lines; clock forward to `hour` (GameHour set past 24
   carries the day [observed 2026-10-08]); teleport and wait to arrive; `settle_frames`;
   optional TimeScale (remembered and restored); remember GameDaysPassed; observe until
@@ -151,7 +157,10 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   timeout it starts the game again with the sessions that have not ended; a session cut
   off more than `--retries` times is given up and its job file removed. Ctrl+C keeps the
   outputs written so far, closes the game, removes unfinished job files and still writes
-  the report (`--only SESSION` reruns the rest). Stops at once if
+  the report (`--only SESSION` reruns the rest). `--repeat N` runs the campaign N times,
+  starting the game from the save each time (one game load serves all sessions of a run,
+  and a save loaded inside a job aborts it, so repeated observations of one situation,
+  such as a fight, need separate runs). Stops at once if
   the plugin is too old to read the jobs or the game does not start. Report
   `fnv.observe.run/1` in `<capture dir>/observe/<campaign>/`.
 - **Timeline** (`observe.py report`, `fnv.observe.timeline/1`): per actor (global FormID;
