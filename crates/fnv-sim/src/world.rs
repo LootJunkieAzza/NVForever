@@ -42,13 +42,25 @@ pub struct SimConfig {
 /// Respawn delay when neither the config nor a plugin sets one: the engine's built-in
 /// value of `iHoursToRespawnCell` [observed in game: `GetGameSetting
 /// iHoursToRespawnCell` = 72.0; no master defines the setting]. Merchant containers
-/// restock faster, by a separate rule not modelled yet (Ringo's cash box: empty after
-/// 1 h and 6 h away, full after 12 h and 24 h; `RefTable::is_merchant_container`).
+/// restock on a schedule of their own ([`is_merchant_restock_day`]).
 pub const DEFAULT_RESPAWN_HOURS: f32 = 72.0;
 
 /// The game setting that holds the cell-respawn delay [observed in game: the running
 /// game answers `GetGameSetting iHoursToRespawnCell`].
 pub const RESPAWN_SETTING: &str = "iHoursToRespawnCell";
+
+/// Whether merchant containers restock at the midnight that starts GameDaysPassed `day`:
+/// days that are 0 or 3 modulo 7, i.e. twice a week, 3 and 4 days apart.
+/// [observed in game, Ringo's cash box 0x001629C0 in two saves
+/// (docs/spec-notes/simulation.md §3): refills only ever came just after midnights 7, 10,
+/// 14, 17, 21, 24 and 28, and an emptied box was passed over at midnights 8, 9, 13, 15,
+/// 16, 18, 19, 20, 22, 23, 25, 26 and 27 — every other residue — whenever it had been
+/// emptied and whatever its last restock. That the schedule is global (GameDaysPassed
+/// modulo 7, the same for every merchant) rather than per container is hypothesis: both
+/// saves agree, other merchants are not captured]
+pub fn is_merchant_restock_day(day: i64) -> bool {
+    matches!(day.rem_euclid(7), 0 | 3)
+}
 
 impl Default for SimConfig {
     fn default() -> Self {
@@ -85,8 +97,8 @@ pub struct RefState {
     /// Actor values changed at run time, by lower-case name (S.P.E.C.I.A.L. so far).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub actor_values: BTreeMap<String, f32>,
-    /// Merchant containers: GameDaysPassed of the last restock (`None`: not restocked
-    /// since the simulation started).
+    /// Merchant containers: GameDaysPassed of the last restock, a restock day (`None`:
+    /// not restocked since the simulation started).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_restock: Option<f32>,
 }
@@ -290,48 +302,49 @@ impl<'a> World<'a> {
         Ok(Some(inv))
     }
 
-    /// Merchant restock, checked whenever a merchant container's inventory is accessed:
-    /// once `respawn_hours` have passed since its last restock, its contents are replaced
-    /// by a fresh roll of its base's carried items (anything sold into it is lost) and
-    /// the restock time becomes now. A container never restocked counts from the
-    /// simulation's start (the authored GameDaysPassed).
-    /// [observed in game for Ringo's cash box, docs/spec-notes/simulation.md §3,
-    /// `L4.sim.trace.goodsprings_merchant_restock` passes 4/4: it restocks while the
-    /// player stays in the cell (no cell event needed), not after 5 h or 10 h absences;
-    /// emptied, it reads 200 caps again 72 h and 84 h later; a restock replaces the
-    /// contents (an added stimpak was gone); a fixed day-0 grid is ruled out.
-    /// Still only bounded or open: the period (second restock 2.50–3.01 days after the
-    /// first observed one, consistent with 72 h), "on access" vs "on a schedule" (both
-    /// look the same through GetItemCount), other merchants, and the start of the first
-    /// period in a new game (hypothesis here)]
-    fn restock_if_due(&mut self, id: FormId) -> Result<(), SimError> {
-        if !self.placed.is_merchant_container(id) {
+    /// Whether `id` is a merchant container that restocks: an actor names it in XMRC and
+    /// its base has the Respawns flag. [observed in game: Primm's merchant box 0x0017409C,
+    /// whose base lacks the flag, never refilled in 7 days of daily reads
+    /// (`bl_primm_restock`); Ringo's 0x001629C0, with the flag, did;
+    /// docs/spec-notes/simulation.md §3]
+    fn restocks(&self, id: FormId, base: FormId) -> bool {
+        self.placed.is_merchant_container(id)
+            && matches!(self.forms.get(base).map(|b| &b.data), Some(BaseData::Container(c)) if c.respawns)
+    }
+
+    /// Merchant restocks at the midnights in (`from`, `to`] (GameDaysPassed crossing a
+    /// whole number): on a restock day ([`is_merchant_restock_day`]) every restocking
+    /// merchant container ([`World::restocks`]) gets a fresh roll of its base's carried
+    /// items (anything sold into it is lost). Contents do not change while time passes, so
+    /// several restock days in one advance restock once, at the last of them. Containers
+    /// never materialised are still as authored and need no visit.
+    /// [observed in game, docs/spec-notes/simulation.md §3: refills land just after
+    /// midnights, need no cell event, menu or access, and replace the contents (a stimpak
+    /// put in was gone). Hypothesis: untouched containers are restocked too (invisible
+    /// with Ringo's fixed 200 caps; a merchant with leveled stock would tell), and the
+    /// day is the one GameDaysPassed starts — the authored clock's GameDaysPassed (5.0)
+    /// and GameHour (12) disagree by half a day, while saves keep them together]
+    fn restock_merchants(&mut self, from: f64, to: f64) -> Result<(), SimError> {
+        let (first, last) = (from.floor() as i64 + 1, to.floor() as i64);
+        let Some(day) = (first..=last).rev().take(7).find(|&d| is_merchant_restock_day(d)) else {
             return Ok(());
-        }
-        let Ok(now) = self.calendar().map(|c| c.days_passed) else { return Ok(()) };
-        let start = match self.forms.global_by_edid(clock::GAME_DAYS_PASSED) {
-            Some((_, v)) => v,
-            None => return Ok(()),
         };
-        let s = self.get(id)?;
-        if s.deleted {
-            return Ok(());
+        let due: Vec<(FormId, FormId)> = self
+            .refs
+            .iter()
+            .filter(|&(&id, s)| !s.deleted && self.restocks(id, s.base))
+            .map(|(&id, s)| (id, s.base))
+            .collect();
+        for (id, base) in due {
+            let inv = self.roll_inventory(base)?;
+            let s = self.get(id)?;
+            s.inventory = inv;
+            s.last_restock = Some(day as f32);
         }
-        let since = s.last_restock.unwrap_or(start);
-        let base = s.base;
-        // Same f32 slack as cell respawn.
-        if (now as f64 - since as f64) * 24.0 + 1e-3 < self.respawn_hours() as f64 {
-            return Ok(());
-        }
-        let inv = self.roll_inventory(base)?;
-        let s = self.get(id)?;
-        s.inventory = inv;
-        s.last_restock = Some(now);
         Ok(())
     }
 
     fn inventory(&mut self, id: FormId) -> Result<&mut Inventory, SimError> {
-        self.restock_if_due(id)?;
         let s = self.get(id)?;
         if s.deleted {
             return Err(SimError::Deleted(id));
@@ -605,9 +618,11 @@ impl<'a> World<'a> {
         })
     }
 
-    /// Advance game time by `hours` (waiting, sleeping, fast travel).
+    /// Advance game time by `hours` (waiting, sleeping, fast travel). Merchant
+    /// containers restock at the midnights passed ([`World::restock_merchants`]).
     pub fn advance_hours(&mut self, hours: f64) -> Result<Calendar, SimError> {
-        let c = self.calendar()?.advance(hours);
+        let before = self.calendar()?;
+        let c = before.advance(hours);
         for (edid, v) in [
             (clock::GAME_YEAR, c.year),
             (clock::GAME_MONTH, c.month),
@@ -618,6 +633,7 @@ impl<'a> World<'a> {
             let (id, _) = self.time_global(edid)?;
             self.globals.insert(id, v);
         }
+        self.restock_merchants(before.days_passed as f64, c.days_passed as f64)?;
         Ok(c)
     }
 
@@ -748,10 +764,7 @@ impl<'a> World<'a> {
         }
         let outcome = match &base.data {
             BaseData::Item(_) => unreachable!("items are handled above"),
-            BaseData::Container(_) => {
-                self.restock_if_due(target)?;
-                Outcome::OpenedContainer { container: target }
-            }
+            BaseData::Container(_) => Outcome::OpenedContainer { container: target },
             BaseData::Door(_) => match self.placed.get(target).and_then(|p| p.teleport) {
                 Some(tp) => {
                     let door_cell = match self.placed.get(tp.door) {
