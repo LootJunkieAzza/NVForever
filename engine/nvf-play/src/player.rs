@@ -15,7 +15,7 @@ use crate::{space, PlaySet, PlayState, PlayWorld, PlayerCamera};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use fnv_phys::{CharacterInput, CharacterStep, Owner};
+use fnv_phys::{CharacterInput, CharacterStep, Owner, Stroke};
 use fnv_sim::FormId;
 use fnv_world::cell_of;
 use std::collections::BTreeSet;
@@ -123,10 +123,10 @@ pub fn velocity(intent: &MoveIntent, heading: f32, speeds: MoveSpeeds) -> [f32; 
     [v[0] / len * speed, v[1] / len * speed]
 }
 
-/// Swimming speeds, units/s: run (Always Run) 348, walk (Shift) 100.8, the same forwards,
-/// backwards and sideways [observed: sw_trial at Lake Mead, fits 341–352 in every direction
-/// and 100.8 walking; physics.md §6.6].
-pub const SWIM_SPEEDS: MoveSpeeds = MoveSpeeds { walk: 100.8, run: 348.0 };
+/// Swimming speeds, units/s, before the stroke cycle (`fnv_phys::swim`): run (Always Run)
+/// 339, walk (Shift) 86, the same forwards, backwards and sideways [observed: sw_trial at
+/// Lake Mead; physics.md §6.6].
+pub const SWIM_SPEEDS: MoveSpeeds = MoveSpeeds { walk: fnv_phys::swim::SWIM_WALK_SPEED, run: fnv_phys::swim::SWIM_RUN_SPEED };
 
 /// Velocity (game x, y, z) while swimming: forward and back along the view, pitch
 /// included (the game swims along the view [observed]), sideways level; backwards at the
@@ -319,6 +319,7 @@ const FELL_THROUGH: f32 = 1000.0;
 /// two.
 #[allow(clippy::too_many_arguments)]
 fn step(
+    mut stroke_time: Local<f32>,
     time: Res<Time>,
     state: Res<State<PlayState>>,
     d: Res<PlayWorld>,
@@ -353,8 +354,22 @@ fn step(
             let (s, c) = player.heading.sin_cos();
             [s * d.auto_walk, c * d.auto_walk, 0.0]
         } else if c.swimming {
-            swim_velocity(&intent, player.heading, player.pitch, SWIM_SPEEDS)
+            // Running strokes follow the stroke cycle from when the swimmer started to
+            // move [observed]; walking stays at its start speed [hypothesis].
+            let v = swim_velocity(&intent, player.heading, player.pitch, SWIM_SPEEDS);
+            match Stroke::of(intent.forward, intent.right) {
+                Some(stroke) => {
+                    let f = if intent.walk { 1.0 } else { stroke.factor(*stroke_time + dt / 2.0) };
+                    *stroke_time += dt;
+                    v.map(|x| x * f)
+                }
+                None => {
+                    *stroke_time = 0.0;
+                    v
+                }
+            }
         } else {
+            *stroke_time = 0.0;
             let [x, y] = velocity(&intent, player.heading, *speeds);
             [x, y, 0.0]
         };
@@ -508,14 +523,14 @@ mod tests {
         let fwd = MoveIntent { forward: 1.0, ..default() };
         let down30 = -30f32.to_radians();
         let v = swim_velocity(&fwd, FRAC_PI_2, down30, SWIM_SPEEDS);
-        assert!((v[0] - 348.0 * 30f32.to_radians().cos()).abs() < 1e-2 && v[1].abs() < 1e-3, "{v:?}");
-        assert!((v[2] + 174.0).abs() < 1e-2, "{v:?}");
+        assert!((v[0] - 339.0 * 30f32.to_radians().cos()).abs() < 1e-2 && v[1].abs() < 1e-3, "{v:?}");
+        assert!((v[2] + 169.5).abs() < 1e-2, "{v:?}");
         let back = MoveIntent { forward: -1.0, ..default() };
         let v = swim_velocity(&back, 0.0, 0.0, SWIM_SPEEDS);
-        assert!((v[1] + 348.0).abs() < 1e-3, "{v:?}");
+        assert!((v[1] + 339.0).abs() < 1e-3, "{v:?}");
         let right = MoveIntent { right: 1.0, walk: true, ..default() };
         let v = swim_velocity(&right, 0.0, down30, SWIM_SPEEDS);
-        assert!((v[0] - 100.8).abs() < 1e-3 && v[2] == 0.0, "{v:?}");
+        assert!((v[0] - 86.0).abs() < 1e-3 && v[2] == 0.0, "{v:?}");
         assert_eq!(swim_velocity(&MoveIntent::default(), 1.0, 0.5, SWIM_SPEEDS), [0.0, 0.0, 0.0]);
     }
 

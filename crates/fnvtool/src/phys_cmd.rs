@@ -11,7 +11,8 @@ use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
 use fnv_phys::terrain::height_at;
 use fnv_phys::{
-    layers, ref_collision, CharacterInput, CharacterParams, Filter, ModelCollision, Owner, PhysParams, PhysWorld, RefPose, WaterArea,
+    layers, ref_collision, CharacterInput, CharacterParams, Filter, ModelCollision, Owner, PhysParams, PhysWorld, RefPose, Stroke,
+    WaterArea,
 };
 use fnv_world::land::{load_land, LandParts, SIDE, SPACING};
 use fnv_world::placed::placement;
@@ -629,6 +630,8 @@ struct Segment {
     velocity: [f32; 2],
     /// Velocity (x, y, z) used instead of `velocity` while the character swims.
     swim_velocity: Option<[f32; 3]>,
+    /// The swim stroke whose speed cycle scales `swim_velocity` (physics.md §6.6).
+    stroke: Option<Stroke>,
     jump: bool,
 }
 
@@ -653,7 +656,20 @@ impl Script {
                 None => None,
                 Some(w) => Some([num(&w[0], "swim_velocity[0]")?, num(&w[1], "swim_velocity[1]")?, num(&w[2], "swim_velocity[2]")?]),
             };
-            segments.push(Segment { steps, velocity, swim_velocity, jump: s.get("jump").and_then(Value::as_bool).unwrap_or(false) });
+            let stroke = match s.get("stroke").map(|v| v.as_str()) {
+                None => None,
+                Some(Some("forward")) => Some(Stroke::Forward),
+                Some(Some("back")) => Some(Stroke::Back),
+                Some(Some("side")) => Some(Stroke::Side),
+                Some(_) => bail!("\"stroke\" is \"forward\", \"back\" or \"side\""),
+            };
+            segments.push(Segment {
+                steps,
+                velocity,
+                swim_velocity,
+                stroke,
+                jump: s.get("jump").and_then(Value::as_bool).unwrap_or(false),
+            });
         }
         let total: usize = segments.iter().map(|s| s.steps).sum();
         if total > 1_000_000 {
@@ -746,6 +762,8 @@ fn walk_cmd(
     let (mut step, mut path, mut prev) = (0usize, 0.0f64, c.feet);
     let (mut min_z, mut max_z) = (c.feet[2], c.feet[2]);
     let (mut jumps, mut landings, mut airborne, mut swim_steps) = (0usize, 0usize, 0usize, 0usize);
+    let dt = world.params.dt;
+    let mut stroke_t = 0.0f32;
     let mut touched: BTreeMap<Owner, usize> = BTreeMap::new();
     let mut trace = Vec::new();
     let mut observations = Vec::new();
@@ -753,9 +771,18 @@ fn walk_cmd(
         for i in 0..seg.steps {
             let jump = seg.jump && i == 0;
             let was_grounded = c.grounded;
-            let input = match seg.swim_velocity.filter(|_| c.swimming) {
-                Some([vx, vy, vz]) => CharacterInput { velocity: [vx, vy], jump, vertical: vz },
-                None => CharacterInput { velocity: seg.velocity, jump, vertical: 0.0 },
+            // While swimming, the stroke cycle scales the speed by the time since the
+            // swimmer started to move (taken at the middle of the step).
+            let input = match seg.swim_velocity.filter(|v| c.swimming && v.iter().any(|&x| x != 0.0)) {
+                Some([vx, vy, vz]) => {
+                    let f = seg.stroke.map_or(1.0, |s| s.factor(stroke_t + dt / 2.0));
+                    stroke_t += dt;
+                    CharacterInput { velocity: [vx * f, vy * f], jump, vertical: vz * f }
+                }
+                None => {
+                    stroke_t = 0.0;
+                    CharacterInput { velocity: seg.velocity, jump, vertical: 0.0 }
+                }
             };
             let s = world.move_character(&mut c, input);
             world.step();
