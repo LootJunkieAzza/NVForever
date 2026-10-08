@@ -87,6 +87,10 @@ pub struct WorldRoot;
 #[derive(Component)]
 pub struct CellEntity;
 
+/// A SpeedTree reference drawn as a billboard; `face_billboards` keeps it facing the camera.
+#[derive(Component)]
+pub struct TreeBillboard;
+
 #[derive(Resource)]
 pub struct Streamer {
     /// Cells within this many grid steps of the camera's cell are loaded.
@@ -117,7 +121,7 @@ pub struct StreamStats {
     pub refs_skipped_disabled: usize,
     pub refs_skipped_type: usize,
     pub refs_no_model: usize,
-    /// TREE references: SpeedTree models are not drawn yet (layer3.md work item).
+    /// TREE references (SpeedTree, generated or as billboards).
     pub refs_speedtree: usize,
     /// References drawn with their own node hierarchy, playing an Idle sequence.
     pub refs_animated: usize,
@@ -152,13 +156,14 @@ pub fn stream(
     mut models: ModelCtx,
     mut terrain: TerrainMaterials,
     mut water: WaterCtx,
+    mut trees: crate::tree::TreeCtx,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     if let Some(id) = streamer.interior {
         if streamer.loaded.is_empty() {
             let t0 = std::time::Instant::now();
             let s = &mut *streamer;
-            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, s);
+            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, &mut trees, s);
             commands.entity(root).add_child(e);
             streamer.loaded.insert((i32::MIN, i32::MIN), e);
             streamer.stats.cells_loaded += 1;
@@ -190,11 +195,29 @@ pub fn stream(
     for c in missing.into_iter().take(streamer.per_frame) {
         let t0 = std::time::Instant::now();
         let s = &mut *streamer;
-        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, s);
+        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, s);
         commands.entity(root).add_child(e);
         streamer.loaded.insert(c, e);
         streamer.stats.cells_loaded += 1;
         streamer.stats.load_ms += t0.elapsed().as_secs_f64() * 1000.0;
+    }
+}
+
+/// Turn every tree billboard about its vertical (game Z) axis so that its face (local
+/// +X) points at the camera. Billboards are children of cells, which only translate, and
+/// the cells of the world root, so a yaw about game Z in the billboard's own transform
+/// is a yaw about the world's up axis.
+pub fn face_billboards(
+    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    mut trees: Query<(&mut Transform, &GlobalTransform), With<TreeBillboard>>,
+) {
+    let Ok(cam) = camera.single() else { return };
+    let eye = bevy_to_game(cam.translation());
+    for (mut t, g) in &mut trees {
+        let d = eye - bevy_to_game(g.translation());
+        if d.x * d.x + d.y * d.y > 1e-6 {
+            t.rotation = Quat::from_rotation_z(d.y.atan2(d.x));
+        }
     }
 }
 
@@ -224,6 +247,7 @@ fn ref_affine(p: &Placement) -> Affine3A {
     Affine3A::from_mat3_translation(m * p.scale, Vec3::from_array(p.position))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn load_cell(
     commands: &mut Commands,
     world: &WorldData,
@@ -231,6 +255,7 @@ fn load_cell(
     models: &mut ModelCtx,
     terrain: &mut TerrainMaterials,
     water: &mut WaterCtx,
+    trees: &mut crate::tree::TreeCtx,
     streamer: &mut Streamer,
 ) -> Entity {
     let (hide, light_scale, stats) = (&streamer.hide, streamer.light_scale, &mut streamer.stats);
@@ -273,11 +298,19 @@ fn load_cell(
             stats.lights += 1;
         }
         if base.is_speedtree() {
-            // SpeedTree geometry is not decoded yet: draw the tree's billboard as two
-            // crossed quads (interim; docs/design/layer3.md).
+            // Geometry generated from the .spt parameters (tree.rs); without it, the
+            // tree's billboard as one upright quad turned towards the camera. The
+            // billboard drops the reference's rotation: it has no facing of its own.
+            if let Some(v) = trees.visual(world, base.form_id, models) {
+                let rt = Mat4::from(to_cell * ref_affine(&p));
+                stats.shapes += crate::tree::spawn(commands, cell_e, &v, rt, RefVisual(r));
+                stats.refs_speedtree += 1;
+                continue;
+            }
             if let Some((mesh, mat)) = billboard(world, base.form_id, models) {
-                let rt = to_cell * ref_affine(&p);
-                commands.entity(cell_e).with_child((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_matrix(Mat4::from(rt)), RefVisual(r)));
+                let at = Vec3::from_array(p.position) - origin;
+                let t = Transform::from_translation(at).with_scale(Vec3::splat(p.scale));
+                commands.entity(cell_e).with_child((Mesh3d(mesh), MeshMaterial3d(mat), t, TreeBillboard, RefVisual(r)));
                 stats.shapes += 1;
             }
             stats.refs_speedtree += 1;
@@ -388,7 +421,7 @@ fn spawn_water(
     stats.water_planes += 1;
 }
 
-/// Crossed-quad billboard mesh and material for a TREE base (cached per base).
+/// Billboard quad mesh and material for a TREE base (cached per base).
 fn billboard(world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<(Handle<Mesh>, Handle<StandardMaterial>)> {
     if let Some(b) = models.cache.billboard(tree) {
         return b;
@@ -398,20 +431,20 @@ fn billboard(world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<(Han
         let a = &mut *models;
         let image = a.textures.get(&tex, true, &a.data, &mut a.images, a.formats.as_deref())?;
         let hw = w / 2.0;
-        // Two vertical quads crossing at the origin, bottom at z = 0 (game space).
-        let mut pos = Vec::new();
-        let mut nor = Vec::new();
-        let mut uv = Vec::new();
-        for (dx, dy, n) in [(hw, 0.0, [0.0, -1.0, 0.0]), (0.0, hw, [1.0, 0.0, 0.0])] {
-            pos.extend([[-dx, -dy, 0.0], [dx, dy, 0.0], [dx, dy, h], [-dx, -dy, h]]);
-            nor.extend([n; 4]);
-            uv.extend([[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
-        }
+        // One vertical quad in the local YZ plane facing +X, bottom at z = 0 (game space);
+        // `face_billboards` turns +X towards the camera. Normals point up, so the
+        // pre-shaded billboard picture is lit like the ground under it rather than
+        // darkening when seen against the sun [hypothesis: chosen by eye].
+        // Counter-clockwise seen from +X (local +Y is to the viewer's right), so the front
+        // face is the one shown: double-sided materials flip the normal on back faces.
+        let pos = vec![[0.0, -hw, 0.0], [0.0, hw, 0.0], [0.0, hw, h], [0.0, -hw, h]];
+        let nor = vec![[0.0, 0.0, 1.0]; 4];
+        let uv = vec![[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
         let mut mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::RENDER_WORLD);
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nor);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
-        mesh.insert_indices(bevy::mesh::Indices::U32(vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]));
+        mesh.insert_indices(bevy::mesh::Indices::U32(vec![0, 1, 2, 0, 2, 3]));
         let mat = a.materials.add(StandardMaterial {
             base_color_texture: Some(image),
             alpha_mode: AlphaMode::Mask(0.5),

@@ -123,8 +123,12 @@ What it does now:
   generated from the LAND records at 4 × their texture resolution, cut out exactly
   around the loaded cells and cached in NVForever's home (docs/design/generated-lod.md). Interim rules, to compare with screenshots; small dark
   boxes on distant ridges (probably rock formations in the object LOD) to check.
-- SpeedTree trees (TREE): interim billboards, two crossed alpha-tested quads with the
-  tree's billboard texture at its BNAM size (world.md §2); full `.spt` geometry later.
+- SpeedTree trees (TREE): geometry generated from the `.spt` parameters by `fnv-spt`
+  (speedtree.md §5): bark tubes with the standard material, leaf cards turned towards
+  the camera by a vertex shader (leaf.wgsl, also in the prepass so depth and shadows
+  match), scaled to the billboard size. Leaf cards cast shadows but receive none (their
+  own light-facing shadow copies blackened the lower half of every bush). A tree that fails to generate falls back to its
+  billboard: one upright quad turned towards the camera every frame, normals up.
 - Interiors: `--cell <interior Editor ID>` loads that one cell with its own lighting
   (XCLL merged with its lighting template, world.md §8) instead of sky, LOD and terrain;
   the camera starts at the middle of its references. Lights: every enabled LIGH
@@ -198,9 +202,10 @@ game units unchanged.
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
 7. **Water** (second version done: WATR fog, fresnel world reflections, refraction, under-water fog, noise layers, rain and wake ripples, distant water; falling rain to do with the script engine, Layer 4): worldspace / cell water height, WATR records, placeable water (PWAT).
-8. **SpeedTree** (interim: billboards): TREE references (18,050 in WastelandNV, e.g. the desert shrubs) use
-   SpeedTree `.spt` models from `trees\`, a non-NIF format; needs its own clean-room
-   format study before they can be drawn.
+8. **SpeedTree** (first version done; leaf lighting, wind and distant billboards to do):
+   TREE references (18,050 in WastelandNV, nearly all WastelandShrub01) use SpeedTree
+   `.spt` parameter files from `trees\`; format study in speedtree.md, parser and
+   generator in `crates/fnv-spt`, `fnvtool spt list|dump`.
 9. **LOD** (level-4 terrain and object blocks done; levels 8-32 and switching to do): distant terrain and object LOD from the game's LOD meshes and textures
    (layout to be surveyed).
 10. **Image parity** (tooling done, waiting for reference frames): the lab's `image`

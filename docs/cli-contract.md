@@ -193,6 +193,17 @@ Lab comparator: **keyed** on `key` for `/objects` and for `/shapes` (all fields)
 
 Defined in docs/spec-notes/dds.md together with the texture notes.
 
+## `fnvtool spt list <archive>` → `fnv.spt.listing/1`, `fnvtool spt dump <source> [--path p]` → `fnv.spt.dump/1`
+
+SpeedTree parameter files (docs/spec-notes/speedtree.md). `list`: one row per `.spt` in
+the archive: `path`, `entries`, `seed`, `bark_texture`, `levels`, `leaf_maps`,
+`leaf_uvs`, `generated` (`vertices`, `triangles`, `leaves`, `top`, `width` of NVForever's
+generated tree at size 1), `error` (`null`, or the parse error with only `path` and
+`entries` beside it). `dump`: `summary` (a `list` row) and `entries`: every entry in
+file order as `tag`, `offset`, `value` (`null` for markers, a number for u8, `{u32, f32}`
+for 4-byte payloads, a string, a float array, or an array of 8-float arrays for 10002).
+Not compared by the lab (no golden).
+
 # Layer 3 (world data)
 
 All `world` commands take the Data folder, the plugins in load order, and
