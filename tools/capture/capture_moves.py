@@ -22,22 +22,34 @@ Inputs (the files the candidate runs, parity-lab/inputs/layer4/):
   "x y z t s" (t: milliseconds of game clock since the start, at TimeScale 30 a real
   millisecond each 1/120000 hour; s: GetSecondsPassed), keys released at the end.
 
-Goldens: drops -> `observations: [{label, feet}]` (the later reading) for each drop that
-fell; a drop that did not fall keeps a row with `not_observed` and no `feet` (and is listed
-under `not_observed`); walks -> `observations: [{label: "t0.25", feet}]` at
+Drops can be repeated (`job --repeats N`): the whole sequence of drops runs N times, so
+the repeats of a drop are spread over the run, and the results are labelled
+"<name> <label> r<k>". The game's rest height on uneven surfaces differs between identical
+drops by several units, and an occasional landing slides or a `SetPos` drop hangs in the
+air [observed: physics.md 4.2, 6.2], so drop goldens are built from repeated drops (owner
+decision 2026-10-08).
+
+Goldens: drops -> `observations: [{label, feet}]` for each drop that fell. With one
+reading per drop, `feet` is the later reading (and `feet_first` the first); with repeats
+(of one run or of several runs: `golden --also <jsonl>`), `feet` is the median of the
+repeats that fell, taken per coordinate, with `repeats` (how many), `readings` (each
+repeat's later feet) and `spread` (max - min per coordinate) for the record; the lab
+compares `feet` only. A drop with no reading that fell keeps a row with `not_observed` and
+no `feet` (and is listed under `not_observed`); walks -> `observations: [{label: "t0.25", feet}]` at
 the script's `observe` times after the movement onset: the samples are paired with the
 previous loop's clock (positions lag the clock by one loop [observed: fall and jump fits,
 physics.md 6.3]), the onset is the last pair before the first change of horizontal position, and
 positions are interpolated linearly in time.
 
-  capture_moves.py job <input>... --start TEXT [--leave-door FORMID] [--console-first LINE]... -o job.json
-  capture_moves.py golden <out.jsonl> <input> -o golden.json
+  capture_moves.py job <input>... --start TEXT [--leave-door FORMID] [--console-first LINE]... [--repeats N] -o job.json
+  capture_moves.py golden <out.jsonl> <input> [--also <out.jsonl>]... -o golden.json
 
 Standard library only; imports capture_steps.py (job layout, mod-index queries).
 """
 import argparse
 import json
 import math
+import statistics
 import sys
 
 import capture_steps as cs
@@ -96,18 +108,24 @@ def name_of(doc):
     return n
 
 
-def drop_steps(doc):
+def drop_steps(doc, repeats=1):
     name = name_of(doc)
+    if repeats < 1:
+        raise InputError("--repeats is at least 1")
     steps = []
-    for d in doc["drops"]:
-        at = d.get("at")
-        if not (isinstance(at, list) and len(at) == 3):
-            raise InputError(f"drop {d.get('label')}: the capture needs \"at\": [x, y, z]")
-        label = f"{name} {d['label']}"
-        steps += [setpos(*at), {"until": below(at[2]), "max_frames": UNTIL_FALL},
-                  cs.query(below(at[2]), label, "fell"), {"frames": DROP_SETTLE},
-                  cs.query(FEET, label, "feet"), {"frames": DROP_SETTLE}, cs.query(FEET, label, "feet_later")]
+    for k in range(1, repeats + 1):
+        for d in doc["drops"]:
+            steps += one_drop(d, f"{name} {d['label']}" + (f" r{k}" if repeats > 1 else ""))
     return steps
+
+
+def one_drop(d, label):
+    at = d.get("at")
+    if not (isinstance(at, list) and len(at) == 3):
+        raise InputError(f"drop {d.get('label')}: the capture needs \"at\": [x, y, z]")
+    return [setpos(*at), {"until": below(at[2]), "max_frames": UNTIL_FALL},
+            cs.query(below(at[2]), label, "fell"), {"frames": DROP_SETTLE},
+            cs.query(FEET, label, "feet"), {"frames": DROP_SETTLE}, cs.query(FEET, label, "feet_later")]
 
 
 def heading_of(v):
@@ -159,7 +177,7 @@ def walk_steps(doc):
     return steps
 
 
-def make_job(docs, name, start, leave_door=None, console_first=()):
+def make_job(docs, name, start, leave_door=None, console_first=(), repeats=1):
     steps = [{"console": line} for line in console_first]
     if leave_door:
         steps += [{"script": cs.run_script(["{0}.Activate player"], CTX, [leave_door])},
@@ -171,9 +189,9 @@ def make_job(docs, name, start, leave_door=None, console_first=()):
         if n in names:
             raise InputError(f"two inputs are named {n}")
         names.add(n)
-        steps += drop_steps(d) if kind(d) == "drops" else walk_steps(d)
+        steps += drop_steps(d, repeats) if kind(d) == "drops" else walk_steps(d)
     j = cs.job(name, start, steps, cs.MASTERS)
-    j["title"] = f"{name}: " + ", ".join(sorted(names)) + " (no input needed)"
+    j["title"] = f"{name}: " + ", ".join(sorted(names)) + (f", each drop {repeats} times" if repeats > 1 else "") + " (no input needed)"
     return j
 
 
@@ -184,24 +202,39 @@ def parse_numbers(text, n):
     return v
 
 
-def drops_golden(doc, results):
+def drops_golden(doc, results, *more):
+    """`results` (and `more`): the result records of one or more capture runs."""
     name = name_of(doc)
-    by = {}
-    for r in results:
-        by.setdefault(r["label"], {})[r["field"]] = r.get("value", None) if "error" not in r else None
+    readings = {}   # drop label -> [{field: value}], one per repeat and run
+    for run in (results,) + more:
+        by = {}
+        for r in run:
+            by.setdefault(r["label"], {})[r["field"]] = r.get("value", None) if "error" not in r else None
+        for d in doc["drops"]:
+            base = f"{name} {d['label']}"
+            keys = [k for k in by if k == base or (k.startswith(base + " r") and k[len(base) + 2:].isdigit())]
+            readings.setdefault(d["label"], []).extend(by[k] for k in sorted(keys, key=lambda k: (len(k), k)))
     obs, missing = [], []
     for d in doc["drops"]:
-        got = by.get(f"{name} {d['label']}", {})
-        feet = got.get("feet_later") or got.get("feet")
-        if not got.get("fell") or feet is None:
+        got = readings[d["label"]]
+        fell = [g for g in got if g.get("fell") and (g.get("feet_later") or g.get("feet"))]
+        if not fell:
             # Kept as a row without `feet`, so the lab compares nothing for it (and the
             # candidate's row is not counted as extra).
-            why = "did not fall" if feet is not None else "not read"
+            some = next((g.get("feet_later") or g.get("feet") for g in got if g.get("feet_later") or g.get("feet")), None)
+            why = "did not fall" if some is not None else "not read"
             obs.append({"label": d["label"], "not_observed": why})
-            missing.append({"label": d["label"], "why": why, "feet": parse_numbers(feet, 3) if feet else None})
+            missing.append({"label": d["label"], "why": why, "feet": parse_numbers(some, 3) if some else None})
             continue
-        obs.append({"label": d["label"], "feet": parse_numbers(feet, 3),
-                    "feet_first": parse_numbers(got["feet"], 3) if got.get("feet") else None})
+        if len(got) == 1:
+            g = fell[0]
+            obs.append({"label": d["label"], "feet": parse_numbers(g.get("feet_later") or g["feet"], 3),
+                        "feet_first": parse_numbers(g["feet"], 3) if g.get("feet") else None})
+            continue
+        feet = [parse_numbers(g.get("feet_later") or g["feet"], 3) for g in fell]
+        obs.append({"label": d["label"], "feet": [round(statistics.median(c), 3) for c in zip(*feet)],
+                    "repeats": len(feet), "readings": feet,
+                    "spread": [round(max(c) - min(c), 3) for c in zip(*feet)]})
     return {"format": "fnv.phys.drops-golden/1", "name": name, "observations": obs, "not_observed": missing}
 
 
@@ -245,21 +278,27 @@ def main(argv=None):
     j.add_argument("--start", required=True)
     j.add_argument("--leave-door", help="global FormID of a load door to go through first")
     j.add_argument("--console-first", action="append", default=[])
+    j.add_argument("--repeats", type=int, default=1, help="run the drops this many times (drops only)")
     j.add_argument("-o", "--output")
     g = sub.add_parser("golden")
     g.add_argument("output_jsonl")
     g.add_argument("input")
+    g.add_argument("--also", action="append", default=[], help="another run's output of the same drops (repeatable)")
     g.add_argument("-o", "--output")
     a = ap.parse_args(argv)
     try:
         if a.cmd == "job":
             docs = [cs.load_json(p) for p in a.inputs]
-            cs.write(make_job(docs, a.name, a.start, a.leave_door, a.console_first), a.output)
+            cs.write(make_job(docs, a.name, a.start, a.leave_door, a.console_first, a.repeats), a.output)
         else:
-            with open(a.output_jsonl, encoding="utf-8") as f:
-                _, results = cs.read_output(f.readlines())
+            runs = []
+            for path in [a.output_jsonl] + a.also:
+                with open(path, encoding="utf-8") as f:
+                    runs.append(cs.read_output(f.readlines())[1])
             doc = cs.load_json(a.input)
-            cs.write(drops_golden(doc, results) if kind(doc) == "drops" else walk_golden(doc, results), a.output)
+            if kind(doc) != "drops" and len(runs) > 1:
+                raise InputError("--also is for drops")
+            cs.write(drops_golden(doc, *runs) if kind(doc) == "drops" else walk_golden(doc, runs[0]), a.output)
     except (InputError, cs.InputError, KeyError, ValueError) as e:
         print(f"capture_moves.py: {e}", file=sys.stderr)
         return 1
