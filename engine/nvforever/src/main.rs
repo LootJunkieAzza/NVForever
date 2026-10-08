@@ -3,7 +3,9 @@
 //! camera (docs/design/layer3.md). Read-only: plugins and archives are only read.
 //!
 //! Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
-//! F12 screenshot, Esc quit.
+//! F12 screenshot, Esc quit. With `--play` the camera is the player instead (Layer 4,
+//! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md),
+//! and Esc in a menu closes the menu.
 
 mod fly;
 mod lod;
@@ -117,6 +119,13 @@ struct Args {
     /// Do not draw the text overlay (implied by --frame-json).
     #[arg(long)]
     no_overlay: bool,
+    /// Play: the camera is the player, walking with collision, activating with E
+    /// (Layer 4, nvf-play) instead of the free-fly camera.
+    #[arg(long)]
+    play: bool,
+    /// Test aid with --play: walk forward at this speed (game units per second).
+    #[arg(long, default_value_t = 0.0, requires = "play")]
+    auto_walk: f32,
 }
 
 #[derive(Component)]
@@ -157,7 +166,7 @@ fn main() -> AppExit {
             let ps: Vec<Vec3> = world.index.cells[&interior.unwrap()]
                 .refs
                 .iter()
-                .filter_map(|&r| fnv_world::placed::placement(&world.lo, world.schema, r))
+                .filter_map(|&r| fnv_world::placed::placement(world.lo, world.schema, r))
                 .map(|p| Vec3::from_array(p.position))
                 .collect();
             let n = ps.len().max(1) as f32;
@@ -174,7 +183,7 @@ fn main() -> AppExit {
             let ground = world
                 .grid_cell(grid)
                 .and_then(|c| c.land)
-                .and_then(|l| load_land(&world.lo, world.schema, l, LandParts::HEIGHTS))
+                .and_then(|l| load_land(world.lo, world.schema, l, LandParts::HEIGHTS))
                 .and_then(|l| l.heights)
                 .map_or(0.0, |h| h[(SIDE / 2) * SIDE + SIDE / 2]);
             let s = fnv_world::CELL_SIZE;
@@ -186,7 +195,7 @@ fn main() -> AppExit {
         Err(e) => return fail(e),
     };
     if let Some(id) = interior {
-        sky_state.interior = fnv_world::lighting::cell_lighting(&world.lo, world.schema, id);
+        sky_state.interior = fnv_world::lighting::cell_lighting(world.lo, world.schema, id);
     }
     if let Some(f) = args.fog.as_deref() {
         match parse_vec::<2>(f) {
@@ -203,6 +212,17 @@ fn main() -> AppExit {
             return fail(format!("{}: {e}", dir.display()));
         }
     }
+    let play = args.play.then_some(nvf_play::PlayData {
+        lo: world.lo,
+        schema: world.schema,
+        index: world.index,
+        world: world.world,
+        interior,
+        eye: start.to_array(),
+        heading_deg: args.heading,
+        pitch_deg: args.pitch,
+        auto_walk: args.auto_walk,
+    });
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -248,10 +268,19 @@ fn main() -> AppExit {
         fov: args.fov,
         aspect: w as f32 / h as f32,
         overlay: !args.no_overlay && args.frame_json.is_none(),
+        play: play.is_some(),
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly, sky::sky_keys, sky::update_sky, world::stream, lod::update_lod, overlay, keys).chain());
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, world::stream, lod::update_lod, overlay, keys).chain());
+    if let Some(data) = play {
+        // Travel reloads cells before streaming runs again; the play systems run in
+        // nvf-play's own sets.
+        // Streaming follows the camera, which the player systems move: stream after them.
+        app.add_plugins(nvf_play::PlayPlugin(data))
+            .add_systems(Update, world::travel.before(world::stream))
+            .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
+    }
     if args.screenshot.is_some() {
         app.add_systems(Update, screenshot_and_exit);
     }
@@ -279,6 +308,8 @@ struct StartPose {
     fov: f32,
     aspect: f32,
     overlay: bool,
+    /// The camera is the player (`--play`).
+    play: bool,
 }
 
 /// Vertical field of view (radians) for a horizontal one (degrees) at an aspect ratio.
@@ -289,7 +320,7 @@ fn vertical_fov(h_deg: f32, aspect: f32) -> f32 {
 fn setup(mut commands: Commands, start: Res<StartPose>) {
     let pos = game_to_bevy().transform_point(start.position);
     let (yaw, pitch) = (-start.heading.to_radians(), start.pitch.to_radians());
-    commands.spawn((
+    let cam = commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection {
             fov: vertical_fov(start.fov, start.aspect),
@@ -300,7 +331,10 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         Transform::from_translation(pos).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)),
         FlyCam { yaw, pitch, speed: 800.0 },
         sky::initial_fog(),
-    ));
+    )).id();
+    if start.play {
+        commands.entity(cam).insert(nvf_play::PlayerCamera);
+    }
     if !start.overlay {
         return;
     }
@@ -337,8 +371,15 @@ fn overlay(
     );
 }
 
-fn keys(input: Res<ButtonInput<KeyCode>>, mut commands: Commands, mut n: Local<u32>) {
-    if input.just_pressed(KeyCode::Escape) {
+fn keys(
+    input: Res<ButtonInput<KeyCode>>,
+    play_state: Option<Res<State<nvf_play::PlayState>>>,
+    mut commands: Commands,
+    mut n: Local<u32>,
+) {
+    // With --play, Esc in a menu closes the menu (nvf-play) instead of quitting.
+    let in_menu = play_state.is_some_and(|s| *s.get() == nvf_play::PlayState::Menu);
+    if input.just_pressed(KeyCode::Escape) && !in_menu {
         commands.write_message(AppExit::Success);
     }
     if input.just_pressed(KeyCode::F12) {
