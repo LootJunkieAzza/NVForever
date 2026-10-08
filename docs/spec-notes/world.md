@@ -219,6 +219,16 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   NVWastelandClearNight fills layer 0 with `NVWastelandStarfieldSky.dds`, NVWastelandClear
   fills layer 3 with `NVCloudlight.dds`, both leave the others at `sky\alpha.dds`].
   Cloud speeds (ONAM) are 52, 0, 0, 65 for both; their unit is unknown.
+- **Stars and moon** [observed, `fnvtool esm decode --edid NVDefaultClimate`]: the
+  climate has a `MODL` subrecord, `Sky\Stars.nif` (the starfield sphere above, additive:
+  NiAlphaProperty 0x1001 = blend ONE/ONE), and its TNAM moons byte is 131 (0x83): bit 7 set,
+  low bits 3, read as one moon flag and a 3-day phase length [hypothesis; the schema keeps
+  the byte raw]. `textures\sky\` ships `masser_{full,new,half_wax,half_wan,one_wax,one_wan,
+  three_wax,three_wan}.dds`, `skymoonfull.dds` and `moonshadow.dds`; which one the engine
+  draws for that flag is not known. NVWastelandClearNight's cloud layer 0
+  (`sky\NVWastelandStarfieldSky.dds`) exists in no archive. The NAM0 "stars" colour of
+  NVWastelandClear is black at sunrise and white at day, sunset and night, so day-time
+  hiding of the stars must come from elsewhere (engine) [hypothesis]. Not drawn yet.
 - **Night weather**: NVWastelandClearNight is gated by the global `VNight` (0 in the
   masters), so with globals as stored the clear day weather is used at night too;
   presumably a script sets `VNight` at night [hypothesis, Layer 4].
