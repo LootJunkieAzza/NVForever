@@ -133,7 +133,8 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   `MenuMode` (no argument: any menu [documented: GECK wiki MenuMode (Function)]) has been
   true for `close_menus_after` game loops, `con_CloseAllMenus` (xNVSE) closes it. The
   wiki warns not to use it while the Pip-Boy is open (keys stop responding); the bot never
-  opens the Pip-Boy. Whether it closes a dialogue cleanly is to be seen in the next run.
+  opens the Pip-Boy. It closed SunnyRef's dialogue cleanly after 40 samples (600 game
+  loops) and the clock went on [observed 2026-10-08, plugin version 6].
   Example: `tools/capture/observe/goodsprings.campaign.json`.
 - **Session job**: console_first lines; clock forward to `hour` (GameHour set past 24
   carries the day [observed 2026-10-08]); teleport and wait to arrive; `settle_frames`;
@@ -304,6 +305,22 @@ Two more sessions (2026-10-08, plugin version 4, same save):
   the walk got to 652 units, was blocked by a fence and ended at its 3600-loop limit;
   the settler (procedure WANDER) detected the player (GetDetected 1) at 652 units and no
   longer at about 900 as it wandered off.
+
+Rerun with plugin version 6 (2026-10-08, same save):
+
+- **`meet_sunny`**: the `close_menus` hook fired at sample 39 (40 samples true); the
+  clock went on (10.0124 → 11.02) and the session ended on `until` with 0 errors.
+  SunnyRef: run-time `0xFF001309` (DIALOGUE, DONE, target the player) during the
+  dialogue, SunnyMeetPlayerDialoguePackage (type 34 DIALOGUE, procedure DONE) after it,
+  DefaultStayAtEditorLocation from 10:10.8. No FOLLOW package this time (in the first
+  run the owner had chosen a dialogue line; the hook chooses none).
+- **`walk_to_settler`**: MoveTo placed the player 600 units from GoodspringsSettler03Ref
+  (package `00108F3B`, procedure WANDER); the walk arrived in 78 game loops (138 units).
+  The settler detected the player one sample later at 499 units; afterwards GetDetected
+  went on and off as the settler wandered (1 at 122, 495, 203, 228, 517 units; 0 at 63,
+  116, 538): **detection is not a function of distance alone** [hypothesis: facing and
+  line of sight count]. The settler stayed in exterior cells (crossed from Goodsprings to
+  `0x000DAEBA` at 11:02.92 at y = 4096, a 4096-unit grid line) and within 538 units.
 
 ## 8. Questions the observations are for (Layer 6)
 
