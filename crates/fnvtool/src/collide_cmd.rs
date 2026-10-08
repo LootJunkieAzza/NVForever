@@ -92,6 +92,8 @@ fn survey(sources: &[std::path::PathBuf], schema: &Schema, filter: Option<&str>)
     let mut body_moved: BTreeMap<String, u64> = BTreeMap::new();
     let mut mat_layout: BTreeMap<String, u64> = BTreeMap::new();
     let (mut compressed, mut mixed) = (0u64, 0u64);
+    // Stored contact-shell radius (largest on a box / convex / mesh shape) by layer.
+    let mut shells: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
     // family -> ratios; and centre offsets (relative to render size) with/without body transform
     let mut ratio: BTreeMap<String, Vec<f64>> = BTreeMap::new();
     let mut ratio_samples: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -136,6 +138,8 @@ fn survey(sources: &[std::path::PathBuf], schema: &Schema, filter: Option<&str>)
             }
             compressed += o.compressed_vertices as u64;
             mixed += o.mixed_subpart_triangles as u64;
+            let layer = o.layer.map_or("none".into(), |l| l.to_string());
+            bump(shells.entry(layer).or_default(), format!("{:.3}", o.shell));
         }
         // Scale: one collision object on the root node, render bounds known.
         if let ([o], Some(render)) = (ex.objects.as_slice(), ex.render) {
@@ -218,6 +222,7 @@ fn survey(sources: &[std::path::PathBuf], schema: &Schema, filter: Option<&str>)
         "transform_matrix_layout": mat_layout,
         "compressed_packed_vertices": compressed,
         "mixed_subpart_triangles": mixed,
+        "shell_radius_by_layer": shells,
         "problems": problems,
         "scale": {
             "note": "single root collision object: render extent / stored extent along the render's largest axis",

@@ -4,7 +4,9 @@ use crate::esm_cmd::open_load_order;
 use crate::SimCmd;
 use anyhow::Context;
 use fnv_esm::{LoadOrder, Schema};
-use fnv_sim::actions::{self, Script};
+use crate::phys_cmd::{build, plugin_in_world, Meshes};
+use fnv_phys::{layers, CharacterParams, Filter, Owner, PhysParams};
+use fnv_sim::actions::{self, Script, Settle};
 use fnv_sim::forms::{BaseData, ItemKind};
 use fnv_sim::refs::FLAG_PERSISTENT;
 use fnv_sim::{FormId, FormStore, RefTable, World};
@@ -40,16 +42,21 @@ pub fn run(cmd: SimCmd) -> anyhow::Result<Value> {
             let schema = Schema::load_dir(&schema)?;
             fnv_sim::sample::run(&FormStore::build(&lo, &schema), &cases).map_err(anyhow::Error::msg)
         }
-        SimCmd::Run { lo, schema, actions } => {
+        SimCmd::Run { lo: lo_args, schema: schema_dir, actions, nif_schema, no_physics } => {
             let text = std::fs::read_to_string(&actions).with_context(|| actions.display().to_string())?;
             let script: Script = serde_json::from_str(&text).with_context(|| actions.display().to_string())?;
-            let plugins = open_load_order(&lo)?;
+            let plugins = open_load_order(&lo_args)?;
             let lo = LoadOrder::new(&plugins)?;
-            let schema = Schema::load_dir(&schema)?;
+            let schema = Schema::load_dir(&schema_dir)?;
             let forms = FormStore::build(&lo, &schema);
             let refs = RefTable::build(&lo, &schema);
             let mut world = World::new(&forms, &refs, actions::config(&script));
-            actions::run(&mut world, &script).map_err(anyhow::Error::msg)
+            if no_physics {
+                return actions::run(&mut world, &script).map_err(anyhow::Error::msg);
+            }
+            let meshes = Meshes::open(&lo_args.data_dir, &schema_dir, nif_schema.as_deref())?;
+            let mut settle = PhysSettle { lo: &lo, schema: &schema, ix: None, meshes };
+            actions::run_with(&mut world, &script, Some(&mut settle)).map_err(anyhow::Error::msg)
         }
     }
 }
@@ -354,4 +361,51 @@ fn containers(forms: &FormStore) -> Value {
         }));
     }
     json!({"format": "fnv.sim.containers/1", "count": out.len(), "containers": out})
+}
+
+/// Teleport arrivals settled by physics: the destination cell's collision world (an
+/// exterior cell with the squares around it, as `fnvtool phys cell` builds it), with the
+/// references the simulation has in the world, and `fnv_phys`'s arrival rule
+/// (physics.md §6.2), the one the game uses after a door.
+struct PhysSettle<'a> {
+    lo: &'a LoadOrder<'a>,
+    schema: &'a Schema,
+    /// Built on the first teleport.
+    ix: Option<fnv_world::WorldIndex>,
+    meshes: Option<Meshes>,
+}
+
+impl Settle for PhysSettle<'_> {
+    fn settle(&mut self, w: &World, cell: Option<FormId>, pos: [f32; 3]) -> Option<([f32; 3], Value)> {
+        let (lo, schema) = (self.lo, self.schema);
+        let ix = self.ix.get_or_insert_with(|| fnv_world::WorldIndex::build(lo, schema));
+        let centre = ix.cells.get(&cell?.0)?;
+        let plugin = plugin_in_world(lo, schema);
+        // The simulation decides for references it knows; the plugins' rule otherwise.
+        let in_world = |pl: &fnv_world::placed::Placement| -> Result<(), &'static str> {
+            let id = FormId(pl.form_id);
+            if pl.deleted() || w.peek(id).is_some_and(|s| s.deleted) {
+                return Err("deleted");
+            }
+            match w.is_enabled(id) {
+                Ok(true) => Ok(()),
+                Ok(false) => Err("disabled"),
+                Err(_) => plugin(pl),
+            }
+        };
+        let mut b = build(lo, schema, ix, centre, 1, PhysParams::default(), self.meshes.as_mut(), &in_world);
+        let filter = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
+        let a = b.world.arrival(pos, &CharacterParams::default(), &filter);
+        let support = a.support.map(|h| {
+            let owner = match h.owner {
+                Owner::Terrain { x, y } => json!({"kind": "terrain", "grid": [x, y]}),
+                Owner::Ref { form_id, object, layer } => {
+                    json!({"kind": "ref", "formid": FormId(form_id), "object": object, "layer": layer})
+                }
+                Owner::Character { id } => json!({"kind": "character", "id": id}),
+            };
+            json!({"owner": owner, "z": h.point[2], "shell": h.shell})
+        });
+        Some((a.feet, support.unwrap_or(Value::Null)))
+    }
 }
