@@ -53,8 +53,15 @@ def box(label, ref):
     return [q("{0}.GetItemCount {1}", label, "count", ref, CAPS), q("{0}.GetNumItems", label, "items", ref)]
 
 
+# How time is moved forward: "hour" (GameHour set past 24) by default; the time-dependent
+# jobs are also written with "timescale" (suffix _ts) as a cross-check, since the two
+# substitutes were only shown equivalent for the observations of three scenarios
+# (docs/spec-notes/xnvse-capture.md section 7).
+TIME_MODE = "hour"
+
+
 def advance(i, hours):
-    return cs.time_steps(i, hours, "hour")
+    return cs.time_steps(i, hours, TIME_MODE)
 
 
 def coc(cell_edid, cell_fid):
@@ -139,6 +146,36 @@ def restock_timing():
                "Inside the Goodsprings gas station; do not open the barter menu.", steps)
 
 
+def restock_schedule():
+    """B4 follow-up: when exactly does Ringo's box refill? Empty it, then every 2 hours
+    read it and empty it again, for 96 hours; leave it unread for 100 hours; then the same
+    for another 96 hours. A fixed schedule keeps its phase across the unread gap; a timer
+    restarted by the read that finds the box due does not."""
+    steps = act(["{0}.RemoveAllItems"], RINGO_BOX) + box("S0 emptied", RINGO_BOX) + clock("S0 emptied", CLOCK[:2])
+    n = 0
+    hours = 0
+
+    def every_two_hours(span):
+        nonlocal n, hours
+        out = []
+        for _ in range(span // 2):
+            out += advance(n, 2)
+            n += 1
+            hours += 2
+            out += [q("{0}.GetItemCount {1}", f"S+{hours}", "count", RINGO_BOX, CAPS)] + clock(f"S+{hours}", CLOCK[1:2])
+            out += act(["{0}.RemoveAllItems"], RINGO_BOX)
+        return out
+
+    steps += every_two_hours(96)
+    for h in (24, 24, 24, 24, 4):
+        steps += advance(n, h)
+        n += 1
+        hours += h
+    steps += every_two_hours(96)
+    return job("bl_restock_schedule", "B4 merchant restock schedule: refill times over 292 hours (about 2 min, no input)",
+               "Inside the Goodsprings gas station; do not open the barter menu.", steps)
+
+
 def primm_restock():
     """B2: a merchant box whose base has no Respawns flag. Empty it, read it daily for a week."""
     steps = PROTECT + coc("SLProspectorsDenInt", PRIMM_DEN)
@@ -199,8 +236,24 @@ def placed_mines():
                "Any save (travels to Nipton house 8 with coc; god mode, AI detection off).", steps)
 
 
+def timed_variants():
+    """The time-dependent jobs again, with TimeScale doing the waiting."""
+    global TIME_MODE
+    TIME_MODE = "timescale"
+    try:
+        jobs = [restock_timing(), primm_restock(), container_respawn()]
+    finally:
+        TIME_MODE = "hour"
+    for j in jobs:
+        j["name"] += "_ts"
+        j["title"] += " [TimeScale]"
+    return jobs
+
+
 def main():
-    for j in (calendar(), encumbrance(), restock_timing(), primm_restock(), container_respawn(), placed_mines()):
+    for j in (calendar(), encumbrance(), restock_timing(), restock_schedule(), primm_restock(), container_respawn(),
+              placed_mines(),
+              *timed_variants()):
         path = os.path.join(HERE, f"{j['name']}.steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(j, indent=1) + "\n")
