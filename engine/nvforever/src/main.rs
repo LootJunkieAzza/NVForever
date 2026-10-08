@@ -10,6 +10,7 @@
 mod fly;
 mod lod;
 mod reflection;
+mod ripples;
 mod sky;
 mod terrain;
 mod underwater;
@@ -246,7 +247,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins((ArchivePlugin(game), water::WaterPlugin, reflection::ReflectionPlugin))
+    .add_plugins((ArchivePlugin(game), water::WaterPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)

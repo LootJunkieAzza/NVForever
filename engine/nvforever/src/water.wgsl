@@ -30,6 +30,8 @@ struct WaterParams {
     layers: array<vec4<f32>, 3>,
     // x = Bevy y of the plane the reflection texture shows, y = 1 when it is in use
     reflection_plane: vec4<f32>,
+    // ripple grid: game x, y of its corner, units per cell, height scale (0: none)
+    ripple: vec4<f32>,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> water: WaterParams;
@@ -37,6 +39,36 @@ struct WaterParams {
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var noise_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(3) var reflection_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(4) var reflection_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(5) var ripple_texture: texture_2d<f32>;
+
+// Ripple height at grid position `t` (cells), bilinear (the texture is not filterable).
+fn ripple_height(t: vec2<f32>) -> f32 {
+    let n = vec2<i32>(textureDimensions(ripple_texture)) - 1;
+    let i = vec2<i32>(floor(t));
+    let f = t - floor(t);
+    let a = textureLoad(ripple_texture, clamp(i, vec2(0), n), 0).r;
+    let b = textureLoad(ripple_texture, clamp(i + vec2(1, 0), vec2(0), n), 0).r;
+    let c = textureLoad(ripple_texture, clamp(i + vec2(0, 1), vec2(0), n), 0).r;
+    let d = textureLoad(ripple_texture, clamp(i + vec2(1, 1), vec2(0), n), 0).r;
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+// Slope (game space) of the ripples at game position `g`, faded out towards the grid edge.
+fn ripple_slope(g: vec2<f32>) -> vec2<f32> {
+    if water.ripple.w <= 0.0 {
+        return vec2(0.0);
+    }
+    let size = f32(textureDimensions(ripple_texture).x);
+    let t = (g - water.ripple.xy) / water.ripple.z;
+    let edge = min(min(t.x, t.y), min(size - t.x, size - t.y));
+    let fade = clamp((edge - 2.0) / 24.0, 0.0, 1.0);
+    if fade <= 0.0 {
+        return vec2(0.0);
+    }
+    let dx = ripple_height(t + vec2(1.0, 0.0)) - ripple_height(t - vec2(1.0, 0.0));
+    let dy = ripple_height(t + vec2(0.0, 1.0)) - ripple_height(t - vec2(0.0, 1.0));
+    return vec2(dx, dy) / (2.0 * water.ripple.z) * water.ripple.w * fade;
+}
 
 // Distance along the wavy reflected ray at which the reflection texture is sampled: the
 // texture has no depth, so the wave offset is that of a point this far away [tuned by eye].
@@ -91,6 +123,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var s = layer_slope(g, water.layers[0], vec4(1.0, 0.0, 0.0, 0.0), t);
     s += layer_slope(g, water.layers[1], vec4(0.0, 1.0, 0.0, 0.0), t);
     s += layer_slope(g, water.layers[2], vec4(0.0, 0.0, 1.0, 0.0), t);
+    s += ripple_slope(g);
     // Game-space normal (-sx, -sy, 1) in Bevy space.
     var N = normalize(vec3(-s.x, 1.0, s.y));
     var up = vec3(0.0, 1.0, 0.0);
