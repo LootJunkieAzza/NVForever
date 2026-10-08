@@ -6,12 +6,16 @@ original game and executes `fnv.capture.steps/1` jobs. This script writes those 
 the parity lab's scenario inputs and turns the plugin's output into goldens:
 
   capture_steps.py actions <x.actions.json> --data <Data> --start TEXT [--time MODE]
-                          [--settle MODE] [-o job.steps.json]
+                          [--settle MODE] [--console-first LINE] [--go-to-cell CELL]
+                          [-o job.steps.json]
       fnv.sim.actions/1 -> job; every query op becomes a recorded result labelled like
       the candidate's observation (docs/spec-notes/simulation.md section 7). --time
       chooses how advance_time is done (wait-menu: by hand; hour, timescale: scripted
       substitutes) and --settle how --confirm-after waits (manual: End; auto: until the
-      player has left the activated door's cell, then a pause)
+      player has left the activated door's cell, then a pause). --console-first runs
+      console lines before anything else (e.g. tgm, tdetect); --go-to-cell moves the
+      player to an interior cell by Editor ID with the console's coc and waits until
+      the player is in it
   capture_steps.py cases <x.cases.json> --data <Data> --draws N --start TEXT [-o job]
       fnv.sim.cases/1 -> job; N AddItem draws per case, each followed by an inventory dump
   capture_steps.py trace <out.jsonl> [-o golden.trace.json]
@@ -247,6 +251,24 @@ def time_steps(i, hours, mode):
     raise InputError(f"unknown time mode {mode!r} (one of {', '.join(TIME_MODES)})")
 
 
+def in_cell_until(cell, ctx):
+    """1 once the player is in `cell` (FormID or Editor ID of a CELL)."""
+    n = Names(*ctx)
+    c = n.operand(cell)
+    return function(n.decls + ["ref rP", "float fV"],
+                    n.setup + ["let rP := player.GetParentCell", f"if rP == {c}", "  let fV := 1", "endif",
+                               "SetFunctionValue fV"])
+
+
+def go_to_cell_steps(cell, ctx):
+    """Move the player to an interior cell (console coc with its Editor ID) and wait until
+    the player is there, then pause like after a door. The cell must be named by Editor
+    ID: coc takes the name; the FormID for the wait comes from --data."""
+    plain_name(cell, "--go-to-cell: the cell")
+    return [{"console": f"coc {cell}"}, {"until": in_cell_until(cell, ctx), "max_frames": DOOR_LOOPS},
+            {"frames": AFTER_DOOR_FRAMES}]
+
+
 def left_cell_until(target, ctx):
     """1 once the player is no longer in the cell of `target` (a door just activated)."""
     n = Names(*ctx)
@@ -343,7 +365,7 @@ def job(name, start, steps, masters):
 
 
 def actions_job(doc, name, start, edids=None, masters=MASTERS, confirm_after=(), time_mode="wait-menu",
-                settle_mode="manual"):
+                settle_mode="manual", console_first=(), go_to_cell=None):
     """confirm_after: action indices after which the game must be ready again (e.g. a
     door's loading screen has finished): confirmed with End (settle_mode manual) or
     waited for (auto)."""
@@ -353,7 +375,9 @@ def actions_job(doc, name, start, edids=None, masters=MASTERS, confirm_after=(),
     bad = [i for i in confirm_after if not 0 <= i < len(acts)]
     if bad:
         raise InputError(f"--confirm-after {bad}: no such action (0..{len(acts) - 1})")
-    steps = []
+    steps = [{"console": line} for line in console_first]
+    if go_to_cell:
+        steps.extend(go_to_cell_steps(go_to_cell, (masters, edids)))
     for i, a in enumerate(acts):
         steps.extend(action_steps(i, a, (masters, edids), time_mode))
         if i in confirm_after:
@@ -572,6 +596,10 @@ def main(argv=None):
                            help="how advance_time is done (default wait-menu: by hand)")
             p.add_argument("--settle", choices=SETTLE_MODES, default="manual",
                            help="how --confirm-after waits (default manual: End)")
+            p.add_argument("--console-first", action="append", default=[], metavar="LINE",
+                           help="console line run before the actions (repeatable), e.g. tgm")
+            p.add_argument("--go-to-cell", metavar="CELL",
+                           help="interior cell (Editor ID) to move the player to first (console coc)")
         if cmd == "cases":
             p.add_argument("--draws", type=int, required=True)
     t = sub.add_parser("trace")
@@ -598,7 +626,8 @@ def main(argv=None):
             doc = load_json(args.input)
             edids = edid_index(args.data) if args.data else None
             out = actions_job(doc, name, args.start, edids, confirm_after=set(args.confirm_after),
-                              time_mode=args.time, settle_mode=args.settle) \
+                              time_mode=args.time, settle_mode=args.settle, console_first=args.console_first,
+                              go_to_cell=args.go_to_cell) \
                 if args.cmd == "actions" else \
                 cases_job(doc, name, args.start, args.draws, edids)
         else:
