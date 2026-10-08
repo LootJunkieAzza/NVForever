@@ -337,6 +337,7 @@ it adds:
 | eye height above the feet | 112 units | [hypothesis: placeholder for a standing human at about 70 units per metre] |
 | the player reference's z rotation is its compass heading in radians | written to the simulation each frame | [hypothesis: door teleport markers' rotations are read the same way] |
 | physics (and the game clock) stop in menus | | [hypothesis: not captured for the container menu] |
+| swimming | water per loaded cell; swim speed 339 (Shift 86) in every direction along the view, with the stroke cycle of `fnv_phys::swim` for running; a start above deep water falls in | [observed: §6.6] |
 
 Engineering choices, not game values: mouse look 0.0025 rad per mouse count, pitch
 limited to ±89°; physics loads the 3×3 exterior cells around the player (one more ring
@@ -790,8 +791,8 @@ step of 16.5 past the line at most, by the controller's rule below].
 `swim_sink_speed` 12.1, `swim_jump_mult` 2; `crates/fnv-phys/src/character.rs`,
 `swim_vertical`; water areas `crates/fnv-phys/src/water.rs`). Water is a flat surface over
 each loaded exterior cell's square with `Cell::water_surface` (CELL XCLW, else the
-worldspace default, for cells flagged "has water": the renderer's rule), or over the whole
-interior; no collider. A character **starts swimming** after a step that ends with it off
+worldspace default, for cells flagged "has water": the renderer's rule); no collider.
+(Interiors first used their XCLW too; `sw_h2o` refuted that, below.) A character **starts swimming** after a step that ends with it off
 the ground, falling, with its feet `swim_depth` or more below the surface: its fall stops
 there, with no landing (so no fall damage) [observed]; the stop is after that step, not
 clamped to the line (the game's extra step at high speed, above, is not modelled). While
@@ -844,9 +845,9 @@ swimmer meets the shore and how fast it walks up a 27° bank out of water.
   (the fallback of `Cell::water_surface` is confirmed for one place). The dive followed
   the view at 40°. Lake Las Vegas floated at 2895.22 (104.78 below 3000; the entry from a
   standing start overshot the floating height there).
-- Against the predictions: `swim_cove_dive` within 1.4 at t0.25 and t0.50, then up to 27
-  in y and 23 in z off; `swim_lake_shore` within 2.3 to t0.50, then up to 35 off, and the
-  exit differs. **Refuted: the constant swim speed.** The game's speed varies with time
+- Against the predictions: `swim_cove_dive` within 1.4 at t0.25 and t0.50 and 9.2 at t0.75,
+  then up to 27 in y and 23 in z off (lab 3/6); `swim_lake_shore` within 2.3 to t0.50, then
+  up to 35 off, and the exit differs (lab 3/8). **Refuted: the constant swim speed.** The game's speed varies with time
   since the motion started, the same way in both captures and in every forward run of
   `sw_trial` once looked at in sixteenths of a second: 339 units/s for 6/16 s, then a cycle
   of 23/16 s rising to 412 and falling to 160 whose mean is 339.1; backward and sideways
@@ -887,6 +888,27 @@ swimmer meets the shore and how fast it walks up a 27° bank out of water.
   −1000), deep_b (−300, −800), mid_a (−500, −200), mid_b (−700, −200) all floating at
   −334.5 (the floors are 456, 496, 136 and 136 below the surface); shallow_a (−1098.0,
   −550.0, −242.0), standing on the floor 38 below the surface (−270 + its shell).
+
+**Results of the second held-out set** (`sw_heldout2`, `sw_h2o`, 2026-10-08; goldens
+`phys/swim_dam_forward.walk.json`, `phys/swim_bay_back.walk.json`,
+`phys/swim_h2o_drops.drops.json`) [observed]:
+
+- `swim_dam_forward`: 10/10 within 2.6 units (the game floated at 2494.9, 105.1 below the
+  surface, as at Lake Las Vegas: the standing-start entry overshot the floating height);
+  `swim_bay_back`: 8/8 within 2.8. The stroke cycle (forward and backward tables from
+  `sw_trial`) holds at two other places.
+- `swim_h2o_drops` **refutes interior water at XCLW**: dropped 5 above the interior's XCLW
+  (−232) the player fell freely through it and stopped at −432.36 (deep_a, then stayed);
+  placed again at −227 while swimming it sank at 12 units/s through −289 and −350 (deep_b,
+  mid_a, mid_b, still sinking after 10 s). That fits a surface near −330: the cell holds a
+  placeable water reference, `NVDLC03CleanWater2048x2048` (PWAT 0x03014467, model
+  `water_placeable\waterp2048x2048.nif`, scale 2) at z −328, centred at (−584, −656), whose
+  floating height would be −430.5. shallow_a ended at −236.04, 34 above the floor our
+  collision has there (−270), not explained. The interior part of the swim implementation
+  (water at an interior's XCLW) is **reverted**: interiors have no water in `fnv-phys`
+  until placed water is modelled (its extent from the model, its height from the
+  reference: [hypothesis], one interior). Exterior cell water is unaffected (four places
+  agree). The renderer still draws interior water planes at XCLW (Layer 3, unchanged).
 
 ## 7. CLI contract
 
@@ -929,6 +951,10 @@ coordinates need `--drop=-1,2` or `--x=-18`.
 `--drop`, an exterior probe falls at the cell's centre and an interior one at the middle of
 the placements that have collision; ground rays span the loaded terrain and placements
 with 1,000 units to spare.
+
+Both documents list `water`: `[{"grid": [x, y] | null (the interior), "surface": z}]`, the
+water areas of the loaded cells (`Cell::water_surface`, §6.6); probes report `swimming` and
+`water_surface` (the surface above the final feet, or null).
 
 `refs.counts` keys appear only when non-zero: `placed`, `unreadable`, `deleted`,
 `initially_disabled`, `disabled_by_parent` (enabled itself but disabled at the start by
@@ -984,8 +1010,13 @@ ignoring the layers the character passes through: `z + rest_gap(shell)`, §6.2) 
 `[x, y, z]`;
 `hz` the step rate (default 60, sets `dt`); `params` overrides `gravity` or any character
 parameter (`radius`, `height`, `step_height`, `max_slope_deg`, `jump_height`, `skin`,
-`max_fall_speed`, `push_mass`); each segment holds a horizontal velocity (units/s, world
-axes, default 0) for `steps` steps, and `jump` presses jump on its first step. Output:
+`max_fall_speed`, `push_mass`, and the swim parameters `swim_depth`, `float_depth`,
+`swim_sink_speed`, `swim_jump_mult`, §6.6); each segment holds a horizontal velocity (units/s, world
+axes, default 0) for `steps` steps, and `jump` presses jump on its first step. While the
+character swims, a segment's optional `swim_velocity` ([x, y, z], units/s) is used
+instead, scaled by the stroke cycle of its optional `stroke` (`"forward"`, `"back"` or
+`"side"`; `fnv_phys::swim`, §6.6) counted from the first swimming step with a non-zero
+`swim_velocity`. Output:
 the `phys cell` document's world fields (`cell` ... `refs`, with `params` and `character`
 as used), then
 
@@ -993,15 +1024,15 @@ as used), then
 {"start": [-71680.0, 2048.0, 8369.0],
  "summary": {"steps": 781, "seconds": 13.017, "end": [-70061.3, 3268.3, 8352.5],
              "horizontal_path": 2850.5, "min_z": 8344.5, "max_z": 8423.6, "jumps": 1,
-             "landings": 2, "airborne_steps": 52,
+             "landings": 2, "airborne_steps": 52, "swimming_steps": 0,
              "touched": [{"owner": {"kind": "terrain", "grid": [-18, 0]}, "steps": 359}]},
  "trace": [{"step": 1, "feet": [-71680.0, 2048.0, 8368.5], "vertical_speed": 0.0,
             "grounded": true, "sliding": false, "landed_speed": null, "gap": 3.5,
-            "touched": []}]}
+            "swimming": false, "touched": []}]}
 ```
 
 `trace` holds every `--every`th step and the last. A script may add `"observe": {"from_step":
-s, "every": n, "count": k}`: the output then holds `observations`, the feet (and `grounded`)
+s, "every": n, "count": k}`: the output then holds `observations`, the feet (and `grounded`, `swimming`)
 after steps s + n, s + 2n, … s + kn, labelled `"t<seconds after step s, two decimals>"`
 (`t0.25` …); it must end within the script. Other top-level fields (e.g. the `capture`
 block that `tools/capture/capture_moves.py` reads) are ignored. Runs are deterministic: the same

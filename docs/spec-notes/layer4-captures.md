@@ -30,6 +30,9 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.phys.walk.porch_steps` | captured 2026-10-08 (`mv_traces`) | 5/6 → 6/6 | speed kept along uphill slopes (physics.md §6.3) |
 | `L4.phys.walk.running_jump` | captured 2026-10-08 (`mv_traces`) | 0/6 | air control and landing open (physics.md §6.3) |
 | `L4.phys.walk.hill_run`, `.portal_wall` | captured 2026-10-08 (`mv_followup_traces`, this workstream) | 2/6 and 4/6 as installed; 6/6 and 5/6 against goldens rebuilt with the corrected onset (scratch, physics.md §6.4) | the installed goldens use an onset two loops early |
+| `L4.phys.walk.swim_cove_dive`, `.swim_lake_shore` | captured 2026-10-08 (`sw_scenarios`, this workstream) | 3/6 and 3/8 | held out; constant swim speed refuted (stroke cycle), steep-bank exit open; inputs left as designed (physics.md §6.6) |
+| `L4.phys.walk.swim_dam_forward`, `.swim_bay_back` | captured 2026-10-08 (`sw_heldout2`) | 10/10, 8/8 | held out after the stroke cycle; passed as predicted |
+| `L4.phys.drops.swim_h2o` | captured 2026-10-08 (`sw_h2o`) | fails (interior water reverted) | held out; interior water is a placed water object at −328, not XCLW (physics.md §6.6) |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
 
 Substitute checks (xnvse-capture.md §7): the same scenarios regenerated with
@@ -109,6 +112,12 @@ directory's `jobs\`). Results are in the notes named.
 | `mv_air` | air control calibration | in-air momentum kept, decays 0.84/loop when released, 15 units/s from a mid-air press; physics.md §6.3 |
 | `mv_diag_trees_rocks` | ±30 drop grids on the B11 tree and rock | rock agrees within 4 at 7 of 9; tree 43–303 higher everywhere; physics.md §6.4 |
 | `mv_trial` (`make_movement_jobs.py`) | what works unattended for movement: GetSecondsPassed, `$` of floats, bound keys, settings, held keys, a tapped jump, a fall | all of it; gravity 684–686, jump apex 61.6, run 344, walk 86.8, settings; physics.md §6.3 |
+| `sw_diag`, `sw_diag2` (`make_swim_jobs.py`) | which sample scripts compile; the clock after `coc` to Boulder Beach | `fW` does not compile; a menu opens on arrival (MenuMode 1, clock stopped) until `CloseAllMenus`; xnvse-capture.md §5 |
+| `sw_trial` (`make_swim_jobs.py`; a first run from `nvftest` recorded nothing) | swimming at Boulder Beach: walking in, falling in, floating, speeds, diving, jump | walking in never swims; fall stops 100 below the surface, floats 102.5 below; stroke cycle; physics.md §6.6 |
+| `sw_fall_breath` | jump at the floating height; falls into water and onto land (health) | no fall damage in water; land damage k (h − 600)^1.65; died at the 3000 land fall (job aborted on reload); physics.md §6.6 |
+| `sw_breath` | two minutes held under water | drowning after 10.0 s at 40 Health/s; physics.md §6.6 |
+| `sw_scenarios` | held-out `L4.phys.walk.swim_cove_dive`, `.swim_lake_shore` | constant swim speed refuted (stroke cycle); steep-bank exit open; physics.md §6.6 |
+| `sw_heldout2`, `sw_h2o` | held-out `L4.phys.walk.swim_dam_forward`, `.swim_bay_back`, `L4.phys.drops.swim_h2o` | physics.md §6.6 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)

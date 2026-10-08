@@ -327,14 +327,13 @@ pub(crate) fn build<'a>(
             }
         }
     }
-    // Water: every loaded exterior cell's surface over its square, or the interior's
-    // (`Cell::water_surface`, physics.md §6.6).
+    // Water: every loaded exterior cell's surface over its square (`Cell::water_surface`,
+    // physics.md §6.6). Not an interior's XCLW: in NVDLC03SLH2OINT the player swam at the
+    // height of a placed water object, not at the cell's XCLW [observed: sw_h2o]; placed
+    // water is not modelled yet.
     for c in &cells {
-        let surface = c.water_surface(ws.and_then(|w| w.default_water_height));
-        match c.grid {
-            Some((x, y)) if ws.is_some() => world.set_water(WaterArea::Exterior(x, y), surface),
-            None if c.is_interior() => world.set_water(WaterArea::Interior, surface),
-            _ => {}
+        if let (Some((x, y)), Some(w)) = (c.grid, ws) {
+            world.set_water(WaterArea::Exterior(x, y), c.water_surface(w.default_water_height));
         }
     }
     let mut no_heights = 0;
