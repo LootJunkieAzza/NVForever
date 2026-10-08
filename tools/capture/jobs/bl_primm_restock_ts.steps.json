@@ -1,0 +1,402 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "bl_primm_restock_ts",
+ "title": "B2 Primm merchant box without the Respawns flag (about 30 s, no input) [TimeScale]",
+ "start": "Any save (travels to the Prospector's Den with coc; god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "console": "coc SLProspectorsDenInt"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1390208\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "arrived",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 at start",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet fV := rF1.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 at start",
+   "field": "items"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 at start",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 at start",
+   "field": "days"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nrF1.RemoveAllItems\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "P1 emptied",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet fV := rF1.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "P1 emptied",
+   "field": "items"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "as": "days1"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "as": "scale1"
+  },
+  {
+   "console": "set TimeScale to 3600"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif GameDaysPassed >= %{days1} + 1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 14400
+  },
+  {
+   "console": "set TimeScale to %{scale1}"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "P2 24 h after emptying",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet fV := rF1.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "P2 24 h after emptying",
+   "field": "items"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "P2 24 h after emptying",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P2 24 h after emptying",
+   "field": "days"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "as": "days2"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "as": "scale2"
+  },
+  {
+   "console": "set TimeScale to 3600"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif GameDaysPassed >= %{days2} + 1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 14400
+  },
+  {
+   "console": "set TimeScale to %{scale2}"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "P3 48 h after emptying",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet fV := rF1.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "P3 48 h after emptying",
+   "field": "items"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "P3 48 h after emptying",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P3 48 h after emptying",
+   "field": "days"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "as": "days3"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "as": "scale3"
+  },
+  {
+   "console": "set TimeScale to 3600"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif GameDaysPassed >= %{days3} + 1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 14400
+  },
+  {
+   "console": "set TimeScale to %{scale3}"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "P4 72 h after emptying",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet fV := rF1.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "P4 72 h after emptying",
+   "field": "items"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "P4 72 h after emptying",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P4 72 h after emptying",
+   "field": "days"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "as": "days4"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "as": "scale4"
+  },
+  {
+   "console": "set TimeScale to 3600"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif GameDaysPassed >= %{days4} + 1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 14400
+  },
+  {
+   "console": "set TimeScale to %{scale4}"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "P5 96 h after emptying",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet fV := rF1.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "P5 96 h after emptying",
+   "field": "items"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "P5 96 h after emptying",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P5 96 h after emptying",
+   "field": "days"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "as": "days5"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "as": "scale5"
+  },
+  {
+   "console": "set TimeScale to 3600"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif GameDaysPassed >= %{days5} + 1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 14400
+  },
+  {
+   "console": "set TimeScale to %{scale5}"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "P6 120 h after emptying",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet fV := rF1.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "P6 120 h after emptying",
+   "field": "items"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "P6 120 h after emptying",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P6 120 h after emptying",
+   "field": "days"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "as": "days6"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "as": "scale6"
+  },
+  {
+   "console": "set TimeScale to 3600"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif GameDaysPassed >= %{days6} + 1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 14400
+  },
+  {
+   "console": "set TimeScale to %{scale6}"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "P7 144 h after emptying",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet fV := rF1.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "P7 144 h after emptying",
+   "field": "items"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "P7 144 h after emptying",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P7 144 h after emptying",
+   "field": "days"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "as": "days7"
+  },
+  {
+   "remember": "float fV\nBegin Function { }\nlet fV := TimeScale\nSetFunctionValue fV\nEnd\n",
+   "as": "scale7"
+  },
+  {
+   "console": "set TimeScale to 3600"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif GameDaysPassed >= %{days7} + 1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 14400
+  },
+  {
+   "console": "set TimeScale to %{scale7}"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet rF2 := BuildRef fM1 15\nlet fV := rF1.GetItemCount rF2\nSetFunctionValue fV\nEnd\n",
+   "label": "P8 168 h after emptying",
+   "field": "count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1523868\nlet fV := rF1.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "P8 168 h after emptying",
+   "field": "items"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "P8 168 h after emptying",
+   "field": "hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "P8 168 h after emptying",
+   "field": "days"
+  }
+ ]
+}
