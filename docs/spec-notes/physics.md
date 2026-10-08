@@ -1384,6 +1384,16 @@ Watch: the floating height after a standing-start entry (102.5–105.1 below in 
 captures; the candidate 102.5), and the walk up the 24° bank (the candidate climbed the
 steeper banks of `sw_banks*` faster than the game).
 
+**Results** (`sw_redesign`, 2026-10-09; goldens `phys/swim_cove_stroke.walk.json`,
+`phys/swim_lake_exit.walk.json`; MenuMode 0 and the clock running throughout) [observed]:
+`swim_cove_stroke` 8/8: x and y within 1.2 at every row; z 3.5–4.5 lower in the game, which
+floated at −2405.98 (106.0 below the surface, the entry overshoot) where the candidate
+floats at 102.5. `swim_lake_exit` 10/10: within 1.4 while swimming (to t1.25, when both
+reach the bed); walking up the 24° bank the candidate moves ahead, 3.6 at t1.50 growing to
+9.7 at t2.50 (inside the tolerance of 10; the faster climb on slopes seen in `sw_banks*`,
+a land-controller question). The stroke cycle at 339 and the exit onto the bank hold at
+two more places.
+
 **Leaving the water: what the two shores show** (re-read of `sw_scenarios` and `sw_trial`
 against the LAND under each sample, `fnvtool phys cell` rays with and without meshes,
 2026-10-08) [observed]:

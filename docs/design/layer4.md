@@ -189,8 +189,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    swim_dam_forward 10/10, swim_bay_back 8/8; placed water modelled (Water-layer
    phantoms), held-out swim_guardian 6/6 and swim_h2o 1/5 (three rows need the capture's
    carried swimming state, shallow_a is the stair edge of §6.4.1); swim_cove_dive and
-   swim_lake_shore retired 2026-10-09 and replaced by swim_cove_stroke and swim_lake_exit
-   (below); banks of 12–58° (`sw_banks*`) agree while swimming and on leaving
+   swim_lake_shore retired 2026-10-09 and replaced by swim_cove_stroke 8/8 and
+   swim_lake_exit 10/10 (held out, below); banks of 12–58° (`sw_banks*`) agree while swimming and on leaving
    the water [observed 2026-10-08].
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
