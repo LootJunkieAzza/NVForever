@@ -1,0 +1,20 @@
+[package]
+name = "fnv-phys"
+description = "Physics for Fallout: New Vegas worlds: rapier3d bodies from collision shapes and terrain, queries and a kinematic character controller"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-collide = { path = "../fnv-collide" }
+fnv-esm = { path = "../fnv-esm" }
+fnv-world = { path = "../fnv-world" }
+# Pinned exactly: traces are compared bit for bit, and rapier may change results between
+# patch releases.
+rapier3d = { version = "=0.36.0", features = ["enhanced-determinism"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest = "1"
