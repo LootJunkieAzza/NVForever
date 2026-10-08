@@ -392,6 +392,27 @@ Rock a grid (game / candidate z; the game moved 0 at every point): −30/−30 8
   observed spread; (c) compare only z for drop rows, or move rows on uneven surfaces
   (rocks, slopes) to a separate scenario. Rock a would fail under any of these (the
   candidate is outside the game's range).
+- **Owner decision (2026-10-08): option (b), the median of repeated drops.** The B11
+  golden is rebuilt from five repeats of every drop, captured in two game sessions
+  (`mv_b11_drops_rep_a`, 3 rounds, and `mv_b11_drops_rep_b`, 2 rounds; each round runs
+  all 20 drops in order, so the repeats of a drop are minutes apart): per row, the median
+  of the repeats that fell, per coordinate (`capture_moves.py golden … --also …`, which
+  also records each repeat and the spread). The median also keeps a single `SetPos` hang
+  (§6.2) or a single landing slide out of the golden. It goes to a new file,
+  `phys/b11_goodsprings.median.drops.json`; the first capture's golden stays as it was.
+  The tolerance stays 8 (the owner chose the median; a tolerance from the spread was
+  not decided).
+
+  Predictions for the median golden (written before the capture; the candidate is
+  unchanged): rock b passes (the game's six earlier drops have median 8512.6, the
+  candidate 8515.13); the maize row passes (the game fell straight in 10 of 14 drops;
+  median x/y at the drop point, z near 8706.5 against 8706.19); rock a fails (earlier
+  median 8333.09 against 8323.62); the Havok tree rows fail (43–303 units at every
+  point of the grid, §6.4); the other 13 observed rows still pass. Open bets:
+  `collision_marker_b` (the game fell through the 2-unit Portal Box once; if that was
+  chance, the median rests on its top, 8571.53 in the candidate, and the row passes) and
+  `props_barrel` (no reading yet; the candidate rests on the barrel at 8415.18). So 16 of
+  20 rows with the two bets lost, up to 17 of 19 observed if they are won.
 
 **Clutter row** (`mv_b11_clutter`) [observed]: the bottles bounced or rolled 50–300 units
 from the drop point (the control drop on open ground ended 183 units away), so most rows
