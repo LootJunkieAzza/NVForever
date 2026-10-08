@@ -84,7 +84,13 @@ hex text; needs a ref variable), `GetNumItems`, `GetInventoryObject`,
   game), `steps` (array). A step is one of: `{"script": text}` (run a function script,
   ignore its result), `{"console": line}`, `{"query": text, "label": l, "field": f}`
   (run, record the result), `{"manual": text}` (show the text, wait for End), `{"frames":
-  n}` (wait n game loops).
+  n}` (wait n game loops). From plugin version 3: `{"until": text, "max_frames": n}` (run
+  the function script once per game loop until it returns a non-zero number, at most n
+  times; records `{"kind": "waited", "step", "frames"}`, or an error when n is reached) and
+  `{"remember": text, "as": name}` (run it and keep the number; records `{"kind":
+  "remembered", "step", "name", "value"}`). In any later step text of the same job,
+  `%{name}` is replaced by the remembered number before the step runs. Older plugins skip
+  a job that uses these (logged as "skipping"; capture_run.py reports it).
 - **Run**: after a save has loaded (PostLoadGame with success), the plugin announces the
   first pending job (alphabetical) with `MessageEx` and waits for End; it then runs one
   step per game loop; a failed step is recorded and the job continues (errors are
@@ -172,3 +178,32 @@ recorded per step, not fatal.
 - `advance_time`, `detach_cell` / `attach_cell` and `transfer` of single items have no
   console equivalent and become manual steps (Wait menu, walking through a door, the
   container menu).
+
+## 7. Scripted substitutes for manual steps
+
+Goal: jobs without manual steps can run unattended (§4, capture_run.py). A substitute is
+used for a scenario only after a capture made with it agrees with the capture made by
+hand (`capture_steps.py compare`, numbers within a stated tolerance); until then the
+manual step stays. None is confirmed yet.
+
+- **Settling after a door** (`capture_steps.py actions --settle auto`, replaces the End
+  confirmation of `--confirm-after`): scripted `Activate` on a load door already moved
+  the player through it in `goodsprings_doc_mitchell` [observed 2026-10-07]; only the
+  wait for the loading screen was manual. The substitute waits (`until`) for the player's
+  parent cell to differ from the door's, then 300 game loops. Check: rerun
+  `goodsprings_doc_mitchell` this way and compare with its golden, which includes the
+  player's position after the door (z within the character controller's settling).
+- **Waiting** (`--time`, replaces the Wait menu for `advance_time`). Two candidates, both
+  [hypothesis] until compared: `hour` sets `GameHour` to its value plus the hours (at most
+  24 at a time, possibly past 24) and leaves the rest of the calendar to the game; and
+  `timescale` raises `TimeScale` to 3600 (one game hour per real second), waits (`until`)
+  for `GameDaysPassed` to reach its remembered start plus hours/24, and restores the
+  remembered TimeScale, so the game runs the time itself. Raising TimeScale was not part
+  of the crash tests (§5: only lowering it, and moving the clock at a low TimeScale). The
+  trial job `tools/capture/jobs/aa_time_substitutes.steps.json` records every calendar
+  global after each candidate (and after setting `GameDaysPassed` alone); the scenario
+  checks rerun `goodsprings_merchant_restock` (restock behaviour) and
+  `goodsprings_weight_and_time` (calendar values) with each candidate.
+- **Leaving and returning to a cell** (`detach_cell`, `attach_cell`) and **container-menu
+  transfers** (`transfer`) stay manual: the actions name a cell, not the door to use, and
+  `RemoveItem` + `AddItem` is not known to be the same as a menu transfer.

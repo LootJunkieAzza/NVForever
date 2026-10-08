@@ -2,6 +2,8 @@
 //!
 //! Protocol and file formats: docs/spec-notes/xnvse-capture.md §4.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 use serde_json::{json, Value as Json};
 
@@ -23,7 +25,7 @@ pub struct Job {
 }
 
 /// One step; the variant is chosen by its key (`query`, `script`, `console`, `manual`,
-/// `frames`).
+/// `frames`, `until`, `remember`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum Step {
@@ -32,6 +34,8 @@ pub enum Step {
     Console(ConsoleStep),
     Manual(ManualStep),
     Frames(FramesStep),
+    Until(UntilStep),
+    Remember(RememberStep),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -64,6 +68,42 @@ pub struct ManualStep {
 #[serde(deny_unknown_fields)]
 pub struct FramesStep {
     pub frames: u32,
+}
+
+/// Run `until` (a function script) once per game loop until it returns a non-zero
+/// number, at most `max_frames` times; the number of loops is recorded.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UntilStep {
+    pub until: String,
+    pub max_frames: u32,
+}
+
+/// Run `remember` (a function script returning a number) and keep the number as `as`;
+/// later step texts use it as `%{name}`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RememberStep {
+    pub remember: String,
+    #[serde(rename = "as")]
+    pub name: String,
+}
+
+/// `text` with every `%{name}` replaced by the remembered number.
+pub fn expand(text: &str, vars: &HashMap<String, f64>) -> Result<String, String> {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("%{") {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 2..];
+        let j = after.find('}').ok_or_else(|| "unclosed %{ in step text".to_string())?;
+        let name = &after[..j];
+        let v = vars.get(name).ok_or_else(|| format!("%{{{name}}} was not remembered"))?;
+        out.push_str(&format!("{v}"));
+        rest = &after[j + 1..];
+    }
+    out.push_str(rest);
+    Ok(out)
 }
 
 impl Job {
@@ -124,7 +164,8 @@ enum State {
     Idle,
     /// Waiting for End (or, in automatic mode, `wait` more game loops).
     Announced { wait: u32 },
-    Running { step: usize, wait: u32, manual: bool },
+    /// `polls`: game loops spent on the current `until` step.
+    Running { step: usize, wait: u32, manual: bool, polls: u32 },
 }
 
 pub struct Runner {
@@ -135,6 +176,8 @@ pub struct Runner {
     /// Automatic mode: start announced jobs after this many game loops instead of
     /// waiting for End (docs/spec-notes/xnvse-capture.md §4). Manual steps still wait.
     auto_start: Option<u32>,
+    /// Numbers kept by `remember` steps, for the running job.
+    vars: HashMap<String, f64>,
     pub plugin_version: u32,
     pub nvse_version: u32,
     pub runtime_version: u32,
@@ -142,7 +185,7 @@ pub struct Runner {
 
 impl Runner {
     pub fn new(plugin_version: u32, nvse_version: u32, runtime_version: u32) -> Runner {
-        Runner { pending: Vec::new(), state: State::Idle, prev: (false, false), auto_start: None, plugin_version, nvse_version, runtime_version }
+        Runner { pending: Vec::new(), state: State::Idle, prev: (false, false), auto_start: None, vars: HashMap::new(), plugin_version, nvse_version, runtime_version }
     }
 
     /// Switch to automatic mode (see `auto_start`).
@@ -227,21 +270,22 @@ impl Runner {
                                      "runtime_version": format!("0x{:08X}", self.runtime_version)}),
                     });
                     host.show(&format!("NVF capture: running {} ({} steps).", job.name, job.steps.len()));
-                    self.state = State::Running { step: 0, wait: 0, manual: false };
+                    self.vars.clear();
+                    self.state = State::Running { step: 0, wait: 0, manual: false, polls: 0 };
                 } else if home_pressed {
                     host.show(&format!("NVF capture: skipped {}.", job.name));
                     self.pending.remove(0);
                     self.announce(host, &mut ev);
                 }
             }
-            State::Running { step, wait, manual } => {
+            State::Running { step, wait, manual, polls } => {
                 if wait > 0 {
-                    self.state = State::Running { step, wait: wait - 1, manual };
+                    self.state = State::Running { step, wait: wait - 1, manual, polls };
                     return ev;
                 }
                 if manual {
                     if end_pressed {
-                        self.state = State::Running { step: step + 1, wait: 0, manual: false };
+                        self.state = State::Running { step: step + 1, wait: 0, manual: false, polls: 0 };
                     }
                     return ev;
                 }
@@ -253,31 +297,49 @@ impl Runner {
                     self.announce(host, &mut ev);
                     return ev;
                 }
-                let mut next = State::Running { step: step + 1, wait: 0, manual: false };
+                let mut next = State::Running { step: step + 1, wait: 0, manual: false, polls: 0 };
+                let err = |e: String| Event::Output { job: job.name.clone(), line: json!({"kind": "error", "step": step, "error": e}) };
+                let vars = &self.vars;
                 match &job.steps[step] {
                     Step::Query(q) => {
                         let mut line = json!({"kind": "result", "step": step, "label": q.label, "field": q.field});
-                        match host.script(&q.query) {
+                        match expand(&q.query, vars).and_then(|t| host.script(&t)) {
                             Ok(v) => line["value"] = v.to_json(),
                             Err(e) => line["error"] = json!(e),
                         }
                         ev.push(Event::Output { job: job.name.clone(), line });
                     }
                     Step::Script(s) => {
-                        if let Err(e) = host.script(&s.script) {
-                            ev.push(Event::Output { job: job.name.clone(), line: json!({"kind": "error", "step": step, "error": e}) });
+                        if let Err(e) = expand(&s.script, vars).and_then(|t| host.script(&t)) {
+                            ev.push(err(e));
                         }
                     }
                     Step::Console(c) => {
-                        if let Err(e) = host.console(&c.console) {
-                            ev.push(Event::Output { job: job.name.clone(), line: json!({"kind": "error", "step": step, "error": e}) });
+                        if let Err(e) = expand(&c.console, vars).and_then(|t| host.console(&t)) {
+                            ev.push(err(e));
                         }
                     }
                     Step::Manual(m) => {
                         host.show(&format!("NVF capture: {} Then press End.", m.manual));
-                        next = State::Running { step, wait: 0, manual: true };
+                        next = State::Running { step, wait: 0, manual: true, polls: 0 };
                     }
-                    Step::Frames(f) => next = State::Running { step: step + 1, wait: f.frames, manual: false },
+                    Step::Frames(f) => next = State::Running { step: step + 1, wait: f.frames, manual: false, polls: 0 },
+                    Step::Until(u) => match expand(&u.until, vars).and_then(|t| host.script(&t)) {
+                        Ok(Value::Number(n)) if n != 0.0 => {
+                            ev.push(Event::Output { job: job.name.clone(), line: json!({"kind": "waited", "step": step, "frames": polls + 1}) });
+                        }
+                        Ok(_) if polls + 1 < u.max_frames => next = State::Running { step, wait: 0, manual: false, polls: polls + 1 },
+                        Ok(_) => ev.push(err(format!("condition not met in {} game loops", u.max_frames))),
+                        Err(e) => ev.push(err(e)),
+                    },
+                    Step::Remember(r) => match expand(&r.remember, vars).and_then(|t| host.script(&t)) {
+                        Ok(Value::Number(n)) if n.is_finite() => {
+                            self.vars.insert(r.name.clone(), n);
+                            ev.push(Event::Output { job: job.name.clone(), line: json!({"kind": "remembered", "step": step, "name": r.name, "value": n}) });
+                        }
+                        Ok(v) => ev.push(err(format!("remember {}: not a number ({v:?})", r.name))),
+                        Err(e) => ev.push(err(e)),
+                    },
                 }
                 self.state = next;
             }
@@ -306,6 +368,13 @@ mod tests {
                 "count" => Ok(Value::Number(5.0)),
                 "text" => Ok(Value::Text("a|b".into())),
                 "none" => Ok(Value::Nothing),
+                "clock" => Ok(Value::Number(6.5)),
+                t if t.starts_with("ready ") => {
+                    // Non-zero from the n-th call with this text on.
+                    let n: usize = t[6..].parse().unwrap();
+                    Ok(Value::Number(if self.scripts.iter().filter(|s| *s == t).count() >= n { 1.0 } else { 0.0 }))
+                }
+                "add 6.5" => Ok(Value::Number(7.5)),
                 _ => Err("compile failed".into()),
             }
         }
@@ -419,6 +488,45 @@ mod tests {
         assert!(ev.contains(&Event::Aborted { job: "t2".into() }));
         assert!(!r.is_running());
         assert_eq!(r.current().unwrap().name, "t1");
+    }
+
+    #[test]
+    fn until_polls_and_remember_feeds_later_steps() {
+        let mut m = Mock::default();
+        let mut r = Runner::new(1, 0, 0);
+        r.set_auto_start(Some(0));
+        let job = Job::parse(r#"{"format": "fnv.capture.steps/1", "name": "u1", "steps": [
+            {"until": "ready 3", "max_frames": 10},
+            {"until": "ready 99", "max_frames": 2},
+            {"remember": "clock", "as": "t0"},
+            {"query": "add %{t0}", "label": "x", "field": "v"},
+            {"console": "set TimeScale to %{t0}"},
+            {"query": "add %{nope}", "label": "y", "field": "v"},
+            {"remember": "text", "as": "bad"}]}"#).unwrap();
+        r.game_loaded(vec![job], &mut m);
+        let mut all = Vec::new();
+        for _ in 0..20 {
+            all.extend(r.tick(&mut m));
+        }
+        let out = lines(&all);
+        assert_eq!(out[1], json!({"kind": "waited", "step": 0, "frames": 3}));
+        assert_eq!(out[2]["kind"], "error");
+        assert!(out[2]["error"].as_str().unwrap().contains("2 game loops"));
+        assert_eq!(m.scripts.iter().filter(|s| *s == "ready 99").count(), 2);
+        assert_eq!(out[3], json!({"kind": "remembered", "step": 2, "name": "t0", "value": 6.5}));
+        assert_eq!(out[4]["value"], 7.5);
+        assert_eq!(m.console, vec!["set TimeScale to 6.5"]);
+        assert!(out[5]["error"].as_str().unwrap().contains("%{nope}"));
+        assert_eq!(out[6]["kind"], "error");
+        assert_eq!(out[7]["kind"], "end");
+    }
+
+    #[test]
+    fn expand_replaces_names() {
+        let vars = HashMap::from([("a".to_string(), 1.25), ("b".to_string(), 100000.0)]);
+        assert_eq!(expand("x %{a} y %{b}", &vars).unwrap(), "x 1.25 y 100000");
+        assert_eq!(expand("no names", &vars).unwrap(), "no names");
+        assert!(expand("%{a", &vars).is_err());
     }
 
     #[test]

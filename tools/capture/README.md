@@ -370,6 +370,13 @@ trial, to check a new setup:
 ```
 python tools/capture/capture_run.py --game "<FNV folder>" --save nvftest tools/capture/jobs/aa_auto_trial.steps.json
 ```
+**Scripted substitutes** for manual steps (xnvse-capture.md §7, plugin version 3):
+`capture_steps.py actions … --time hour|timescale` replaces the Wait menu and `--settle
+auto` replaces the End confirmation after a door. They are used for a scenario only once
+a capture made with them agrees with the golden made by hand:
+```
+python tools/capture/capture_steps.py compare C:/fnv-private/goldens/sim/<name>.trace.json <substitute>.trace.json --tolerance <t>
+```
 Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, automatic mode,
 layouts), `tests/test_capture_steps.py` and `tests/test_capture_run.py`.
 
