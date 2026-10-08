@@ -94,6 +94,11 @@ impl SkyState {
         Ok(SkyState { climate: clim, weather: w, hour, fog_override: None, interior: None, shadow_distance: 0.0, time_scale: 0.0, clock_running: false, changed: true })
     }
 
+    /// Recompute sky, light and fog next frame (e.g. after something else changed the fog).
+    pub fn refresh(&mut self) {
+        self.changed = true;
+    }
+
     /// Switch between interior lighting (`Some`) and the worldspace's sky (`None`).
     pub fn set_interior(&mut self, lighting: Option<fnv_world::lighting::CellLighting>) {
         self.interior = lighting;
