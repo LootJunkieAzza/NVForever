@@ -255,9 +255,38 @@ consistent with three independent rolls), all-levels vs highest eligible level
 (`VFactionSquadStimpaks`: always 1 stimpak at player level 10, always 3 at level 30, in
 game and candidate), Use All (`VendorChestStimpaksBoomer`), a uniform pick of 18
 (`ClutterHouseholdJunkNV`). Console `AddItem` with a leveled list resolves it against
-the player's level [observed, same captures]. Not covered yet: LVLG globals, deep
-nesting, levels between entries' levels with the all-levels flag set.
-1. Roll 0–99; below chance none (or the LVLG global's value) yields nothing.
+the player's level [observed, same captures].
+
+Also **consistent with the game** for backlog B8 [observed in game, 2026-10-08,
+`L4.sim.leveled.b8`, `parity-lab/inputs/layer4/leveled_b8.cases.json`: 300 `AddItem`
+draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten cases]:
+- **LVLG replaces chance none, at the global's current value.** The 41 lists with LVLG
+  [observed] use `ScroungerOdds` (0x000645CD), `FortuneFinderOdds` (0x000645CC), both
+  authored 100 and 100 in the save, or one-list vendor globals. With the global set from
+  the console (`set ScroungerOdds to …`; read back unchanged before and after the
+  draws): `AmmoMissilelauncherScrounger` (LVLD 0) at 100 gave nothing in 300/300;
+  `Ammo20GaScrounger` (LVLD 100) at 25 gave the ammo in 238/300 (75 % expected);
+  `Ammo10mmScrounger` (LVLD 0, each item) ×4 at 50 gave 0–4 rounds 14/78/122/70/16
+  (binomial 4, ½: 19/75/113/75/19). So the global overrides LVLD in both directions
+  (not a maximum or minimum of the two), and a value set at run time counts. Not
+  covered: fractional or out-of-range values (the candidate truncates and clamps to
+  0–100 [hypothesis]).
+- **All levels, player level between entry levels:** `CapsFortuneFinder` (entries at
+  1–6, 8, 8, 9; global set to 0) at level 7 gave only the six entries of levels ≤ 6,
+  41–62 each; `VendorArmorRare75` (chance none 25, entries at 5, 5, 5, 7, 7, 12, 12) at
+  level 10 gave nothing 69 and the five entries of levels ≤ 7, 36–54 each.
+- **Level equal to an entry's level is eligible:** `VendorFlakShrapnelMiniNukes`
+  (entries ×1 at 1, ×2 at 5, ×3 at 8, ×3 at 11) at level 8: ×1/×2/×3 = 100/97/103.
+- **Count without "each item":** `NVDLC01ChipsChangeFortuneFinder` ×2 (all levels, global
+  40) at level 12: nothing 110, 40/50/60 chips 66/71/53 (twice the entries of levels 1, 5,
+  10); no mixed sums, so one roll times the count.
+- **Nesting:** `VendorBasicMedicalSupplies100` (3 deep; sublists with entries at levels 1
+  and 2/3; an entry ×5 naming the "each item" list `LootChemsStimpak75`, chance none 25)
+  at level 2 gave 2–5 stimpaks as well as 1 (2/12/16/16 for ×2–×5), so a nested entry's
+  count reaches an "each item" sublist as that many rolls; `LootChemsNVAll50` (3 deep,
+  chance none 50 at the top and in a sublist; 17 outcomes) and `LL2Tier4ExplosivesMixed50`
+  (5 deep, Use All at the top, chance none in sublists; 36 outcomes seen) agree too.
+1. Roll 0–99; below chance none (or the LVLG global's current value) yields nothing.
 2. Eligible entries have level ≤ the requesting level (the player's level; for
    containers [hypothesis], for AddItem [observed]).
 3. Use All: every eligible entry. Otherwise one entry uniformly from all eligible entries

@@ -129,7 +129,8 @@ pub struct LeveledList {
     pub each: bool,
     /// Flag "Use All".
     pub use_all: bool,
-    /// LVLG: a global whose value replaces `chance_none`. [hypothesis]
+    /// LVLG: a global whose current value replaces `chance_none` [observed in game,
+    /// `L4.sim.leveled.b8`; simulation.md §4].
     pub global: Option<FormId>,
     pub entries: Vec<LeveledEntry>,
 }
