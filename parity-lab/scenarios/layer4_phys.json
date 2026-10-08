@@ -1294,9 +1294,9 @@
   {
    "id": "L4.phys.drops.b11_goodsprings",
    "layer": 4,
-   "description": "B11 collision layer matrix, player row (docs/spec-notes/layer4-captures.md): the player dropped onto references of each collision layer around Goodsprings (parity-lab/inputs/layer4/b11_goodsprings.drops.json); final feet against an unattended in-game capture (job mv_b11_drops, tools/capture/capture_moves.py). Tolerance 8 units: SetPos drops in game came to rest 0-7.5 units above the contact shell (physics.md 6.2, dt_rest_detail); a layer that does or does not stop the player changes the height by 16 units or more.",
+   "description": "B11 collision layer matrix, player row (docs/spec-notes/layer4-captures.md): the player dropped onto references of each collision layer around Goodsprings (parity-lab/inputs/layer4/b11_goodsprings.drops.json); final feet against the median of five repeats of every drop in game (owner decision 2026-10-08: identical drops on uneven surfaces rest several units apart, and an occasional landing slides or a SetPos drop hangs; jobs mv_b11_drops_rep_a and mv_b11_drops_rep_b, tools/capture/capture_moves.py golden --also; physics.md 4.2). Tolerance 8 units: SetPos drops in game came to rest 0-7.5 units above the contact shell (physics.md 6.2, dt_rest_detail); a layer that does or does not stop the player changes the height by 16 units or more.",
    "oracle": {
-    "golden": "phys/b11_goodsprings.drops.json"
+    "golden": "phys/b11_goodsprings.median.drops.json"
    },
    "candidate": {
     "argv": [
