@@ -1,0 +1,511 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "dt_door_arrivals",
+ "title": "Held-out door arrivals: rest height after eleven door teleports",
+ "start": "The Doc Mitchell save (nvfdoc), inside the house.",
+ "steps": [
+  {
+   "console": "tgm"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1070613\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (-71618.81)\nlet fY := player.GetPos Y - (-1070.82)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105615 first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 00105615 +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105615 +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105615 +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105615 +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105615 +1500",
+   "field": "z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1069608\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (880.0)\nlet fY := player.GetPos Y - (-632.0)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105228 first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 00105228 +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105228 +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105228 +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105228 +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105228 +1500",
+   "field": "z"
+  },
+  {
+   "frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105228 +3300",
+   "field": "z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1072086\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (-69318.87)\nlet fY := player.GetPos Y - (3528.37)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105BD6 first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 00105BD6 +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105BD6 +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105BD6 +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105BD6 +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105BD6 +1500",
+   "field": "z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1070675\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (-68559.7)\nlet fY := player.GetPos Y - (-1559.88)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105653 first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 00105653 +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105653 +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105653 +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105653 +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105653 +1500",
+   "field": "z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085503\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (-75168.77)\nlet fY := player.GetPos Y - (4076.29)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 0010903F first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 0010903F +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 0010903F +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 0010903F +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 0010903F +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 0010903F +1500",
+   "field": "z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1070674\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (-68301.95)\nlet fY := player.GetPos Y - (-939.67)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105652 first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 00105652 +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105652 +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105652 +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105652 +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105652 +1500",
+   "field": "z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1074035\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (-13.77)\nlet fY := player.GetPos Y - (598.76)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00106373 first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 00106373 +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00106373 +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00106373 +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00106373 +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00106373 +1500",
+   "field": "z"
+  },
+  {
+   "frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00106373 +3300",
+   "field": "z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085247\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (-75184.08)\nlet fY := player.GetPos Y - (-3405.4)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00108F3F first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 00108F3F +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00108F3F +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00108F3F +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00108F3F +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00108F3F +1500",
+   "field": "z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1070736\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (-70348.2)\nlet fY := player.GetPos Y - (-3866.6)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105690 first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 00105690 +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105690 +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105690 +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105690 +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105690 +1500",
+   "field": "z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1072456\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (-71704.82)\nlet fY := player.GetPos Y - (4086.65)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105D48 first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 00105D48 +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105D48 +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105D48 +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105D48 +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00105D48 +1500",
+   "field": "z"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064553\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fX\nfloat fY\nfloat fV\nBegin Function { }\nlet fX := player.GetPos X - (2353.82)\nlet fY := player.GetPos Y - (1601.91)\nlet fV := 0\nif fX < 64 && fX > -64 && fY < 64 && fY > -64\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00103E69 first loop",
+   "field": "z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "h 00103E69 +300",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00103E69 +300",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00103E69 +300",
+   "field": "y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00103E69 +300",
+   "field": "z"
+  },
+  {
+   "frames": 1200
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00103E69 +1500",
+   "field": "z"
+  },
+  {
+   "frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "h 00103E69 +3300",
+   "field": "z"
+  }
+ ]
+}

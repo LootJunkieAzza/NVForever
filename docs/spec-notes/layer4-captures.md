@@ -18,7 +18,7 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.sim.trace.goodsprings_weight_and_time` | captured | pass 9/9 | GameHour/GameDaysPassed fractions not observed (clock runs in menus) |
 | `L4.sim.leveled.basic` | captured (2,100 draws) | pass 7/7 | 300 `AddItem` draws per case |
 | `L4.sim.leveled.b8` | captured 2026-10-08 unattended (`nvftest`, 3,000 draws) | pass 10/10 | B8: LVLG globals set from the console, all-levels between/at entry levels, count without each item, nesting 3–5 deep; 300 draws per case, no failed draw, globals read back unchanged |
-| `L4.sim.trace.goodsprings_doc_mitchell` | captured | 5/6 | fails only on z after the door (+7.44): needs the character controller (workstream 2); do not tune |
+| `L4.sim.trace.goodsprings_doc_mitchell` | captured | pass 6/6 | z after the door (+7.44 over the XTEL z) is the arrival rest height on the terrain's contact shell (physics.md §6.2); the candidate's 8693.53 is 0.34 under the golden, inside the band the game itself spreads over |
 | `L4.sim.trace.goodsprings_merchant_restock` | captured | pass 4/4 | merchant restock; needs no hidden restock time (the start's place in the 7-day cycle matters, simulation.md §3) |
 | `L4.sim.trace.goodsprings_merchant_midnight_restock` | captured 2026-10-08 unattended (`nvftest`, `--time hour`) | pass 11/11 | restock days (GameDaysPassed 0 or 3 mod 7); it refuted the midnight rule it was designed for |
 | `L4.sim.trace.x13_enable_parents` | captured 2026-10-08 (coc into X-13, god mode) | pass 13/13 | B1 done |
@@ -96,6 +96,9 @@ directory's `jobs\`). Results are in the notes named.
 | `ld_drop_refs` (`make_lock_drop_jobs.py`) | references a drop creates, what a scripted pick-up leaves | one ref per drop (0xFF00xxxx), 50 ahead / 30 up, taken refs left out of `GetFirstRef … 0`; simulation.md §5 |
 | `ld_drop_stack` (`make_lock_drop_jobs.py`) | scripted Activate on dropped stacks of 2 and 3 | gives 1 item, the stack is taken; simulation.md §5 |
 | `ld_placed_stack` (`make_lock_drop_jobs.py`) | scripted Activate on a placed XCNT 12 stack (BB rounds, GSHouseInterior03) | gives 1 round, the stack then counts 1; a second activation gives 1 more; simulation.md §5 |
+| `dt_teleport_rest` | rest height after Doc Mitchell's door over time; `SetPos` placements and drops at the destination, on flat and sloped terrain | 3.84 above the LAND surface, a stable height; triangulation confirmed; physics.md §6.2 |
+| `dt_rest_detail` | fall traces, repeated drops, drop grids, Doc Mitchell's porch | `SetPos` drops end 3.5–11 above terrain (unreliable); porch 1.04 above the floor; physics.md §6.2 |
+| `dt_door_arrivals` | eleven door teleports around Goodsprings (predictions of a first rule, shell + 0.35, written before the run; 0x00105228 ran late and 0x0010903F not at all) | rest 0.54–1.05 above statics, 3.32–3.85 above terrain; physics.md §6.2 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)
@@ -140,7 +143,7 @@ written.
   or out-of-range global values; leveled lists resolved in containers and on actors
   rather than by `AddItem` (still [hypothesis] that they resolve the same way). Was:
   lists with an LVLG global, deep nesting, all-levels lists with entries between levels.
-- **B9 Doc Mitchell z**: no capture needed; re-run the lab once workstream 2's character
+- **B9 Doc Mitchell z** — **done 2026-10-08** (`dt_teleport_rest`, `dt_rest_detail`, `dt_door_arrivals`: the player rests on a contact shell, 0.7 above statics and 3.5 above the terrain, within −0.18…+0.35; physics.md §6.2). Open: what picks the height inside that band; why `SetPos` drops sometimes hang 7–11 units above the terrain. Was: no capture needed; re-run the lab once workstream 2's character
   controller places the actor (the +7.44 offset is in the golden).
 - **B10 placed explosives (PGRE)** — **partly done 2026-10-08** (`bl_placed_mines`): inert while the player stands in the cell; scripted `Activate` does nothing. Open: the player's own activation (attended). The 297 PGRE are spread over five masters, not only Old World Blues (simulation.md §1). Was: are the 297 OWB placed grenades live in game? Needs an
   OWB save near one (`fnvtool sim forms` lists them).

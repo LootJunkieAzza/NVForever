@@ -104,6 +104,9 @@ pub struct RawCollision {
     pub compressed_vertices: bool,
     /// Packed strips: triangles whose three vertices fall in different sub-parts.
     pub mixed_subpart_triangles: usize,
+    /// Largest `radius` stored on a shell-bearing shape of the tree (stored units); see
+    /// [`crate::shape::CollisionObject::shell`].
+    pub shell: f32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -189,6 +192,8 @@ struct Walk<'a> {
     mixed: usize,
     problems: Vec<String>,
     depth: usize,
+    /// Largest stored `radius` of the box, convex-vertices and triangle-mesh shapes met.
+    shell: f32,
 }
 
 impl Walk<'_> {
@@ -208,6 +213,14 @@ impl Walk<'_> {
         if self.depth > 32 {
             self.problems.push("shape nesting deeper than 32".into());
             return None;
+        }
+        // Box, convex-vertices and triangle-mesh shapes store a `radius` beside their
+        // geometry [documented: nif.xml bhkConvexShape, bhkPackedNiTriStripsShape,
+        // bhkNiTriStripsShape]; a sphere's or capsule's radius is its geometry.
+        if matches!(ty.as_str(), "bhkBoxShape" | "bhkConvexVerticesShape" | "bhkPackedNiTriStripsShape" | "bhkNiTriStripsShape") {
+            if let Some(r) = s.float("radius").filter(|r| r.is_finite() && *r > 0.0) {
+                self.shell = self.shell.max(r);
+            }
         }
         let out = match ty.as_str() {
             "bhkBoxShape" => {
@@ -426,6 +439,7 @@ pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
             mixed: 0,
             problems: Vec::new(),
             depth: 0,
+            shell: 0.0,
         };
         let shape = body.block_ref("shape").and_then(|r| w.shape(r));
         out.problems.append(&mut w.problems);
@@ -452,6 +466,7 @@ pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
             transform_matrices: w.mats,
             compressed_vertices: w.compressed,
             mixed_subpart_triangles: w.mixed,
+            shell: w.shell,
         });
     }
     out
@@ -499,6 +514,7 @@ impl RawCollision {
             friction: self.friction.unwrap_or(0.0),
             restitution: self.restitution.unwrap_or(0.0),
             shape: self.shape.scaled(f),
+            shell: self.shell * f,
         }
     }
 
@@ -598,10 +614,12 @@ mod tests {
             transform_matrices: vec![],
             compressed_vertices: false,
             mixed_subpart_triangles: 0,
+            shell: 0.1,
         };
         let plain = raw("bhkRigidBody").to_object();
         assert_eq!(plain.shape, Shape::Box { half_extents: [14.0, 28.0, 42.0] });
         assert_eq!(plain.body_transform, Iso::IDENTITY);
+        assert!((plain.shell - 1.4).abs() < 1e-6, "shell scales like the shape: {}", plain.shell);
         assert_eq!(plain.root_bounds().min, [-14.0, -28.0, -42.0]);
         let t = raw("bhkRigidBodyT").to_object();
         assert_eq!(t.body_transform.translation, [14.0, 0.0, 0.0]);

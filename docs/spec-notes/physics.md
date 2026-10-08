@@ -259,8 +259,8 @@ limited to ±89°; physics loads the 3×3 exterior cells around the player (one 
 before unloading) or the one interior, at most one cell per frame, the player's own cell
 first, and the character waits while its cell is not loaded; the start drops the
 character on whatever a downward ray from the start eye finds (from far above if
-nothing), 1 unit above the hit; `Travel` looks for the floor from half a capsule above
-the destination to four capsules below it; a character more than 1,000 units below the
+nothing), 1 unit above the hit; `Travel` puts the character where the arrival rule of
+§6.2 says (`PhysState::arrive_player` → `PhysWorld::arrival`); a character more than 1,000 units below the
 terrain is put back on the ground (logged as a warning).
 
 References get collision by the same rule as `fnvtool phys cell`
@@ -277,6 +277,80 @@ Seen in NVForever, not in the game [observed]: walking east into the rock 0x000E
 of back-and-forth path) and creeps up 0.2 units/s; `fnvtool phys walk` from
 (-31455, -18200) at velocity (600, 0) reproduces it to the unit, so it is the
 controller's, not the game integration's.
+
+### 6.2 Rest height after a teleport (arrival rule)
+
+Question: why does the player stand at z 8693.87 after leaving Doc Mitchell's house when
+the door's XTEL destination is at z 8686.43 (`L4.sim.trace.goodsprings_doc_mitchell`)?
+
+Facts:
+
+- Under the destination (-73162.93, 1312.43) there is only terrain in our collision
+  world: the LAND surface, split along the south-west → north-east diagonal (§3), is at
+  8690.03 there; the nearest collision of the house (SCOL 0x001788D9, its porch ramp)
+  ends about 25 units west; the navmesh triangle under the point (NAVM 0x00177F70,
+  triangle 333, the door's XNDP) is at 8689.72 [observed: `fnvtool phys cell` probes on
+  a 20-unit grid; NAVM read as NVVX 12-byte vertices and NVTR 16-byte triangles,
+  [documented: xEdit]]. So the destination is 3.6 units *under* the terrain and the
+  player ends 3.84 above it; no other object, DLC record or enable state explains it
+  [observed: the same with all ten masters].
+- **Every NIF collision shape of the corpus stores a `radius` of 0.1** besides its
+  geometry (box, convex vertices, packed and plain triangle strips: 12,000+ objects in
+  `Fallout - Meshes.bsa`; the rest are sphere/capsule-only bodies whose radius is their
+  geometry) [observed: `fnvtool collide survey` `shell_radius_by_layer`; field
+  [documented: nif.xml]]. At the Havok scale of 7 that is 0.7 game units.
+- In-game rest heights [observed, unattended captures 2026-10-08 on the `nvfdoc` save,
+  jobs in `tools/capture/jobs/`]. Δ is the player's `GetPos Z` minus the bare surface
+  under the point (LAND surface or our collision's static floor):
+
+  | Arrival | Destination vs surface | Δ (settled) |
+  |---|---|---|
+  | Doc Mitchell's front door (golden; rerun three times) | 3.6 below terrain | 3.844 (rises over ~300 loops from 3.29 at the first loop) |
+  | doors 0x00105653, 0x00105690, 0x00105D48 | on the terrain surface | 3.848, 3.848, 3.848 |
+  | door 0x00105615 | 8.0 below terrain | 3.484 |
+  | door 0x00105652 | 3.53 above terrain | 3.323 (sank 0.21) |
+  | door 0x00108F3F | 26.5 above terrain | 3.395 (fell) |
+  | door 0x00105BD6 | 2.45 below a static (0x00101CA6) | 0.537 |
+  | door 0x00106373 (interior) | 0.53 above the floor | 0.601 |
+  | door 0x00105228 (interior) | 24 above the floor | 0.572 (fell) |
+  | Doc Mitchell's house from outside (twice) | on the floor | 0.586, 0.553 |
+  | `SetPos` drop onto Doc Mitchell's porch (twice) | 61 above the SCOL floor | 1.040, 1.040 |
+  | standing on a rug in the house (owner) | on the floor | 1.05 |
+
+  So the player rests in a band **0.54–1.05 above static floors (0.7 − 0.16 to
+  0.7 + 0.35) and 3.32–3.85 above the LAND surface**: the same band shifted by 2.8. The
+  destination's own height hardly matters (from 8 below to 26 above). Which height in
+  the band an arrival ends at is not explained (two arrivals on the bare terrain surface
+  and one on a bare floor went to opposite ends).
+- Placements by `SetPos` behave alike near the surface (placed 0.5 above flat terrain the
+  player rose to 3.39 within 360 loops; placed at 3.85 it stayed) but drops after
+  `SetPos` are not reliable evidence: the player sometimes hung in the air for hundreds of
+  loops or stopped 7–11 units above the terrain (`dt_rest_detail`) [observed]; why is
+  open.
+- The terrain's triangulation is confirmed in game: two drops in the non-planar square
+  under the destination rested 3.853 and 3.857 above the south-west → north-east split
+  and 5.85 / 5.46 above the other [observed: `dt_teleport_rest` p11, p12].
+
+**Rule** (`fnv_phys::arrival`, used by `fnvtool sim run` and `nvforever --play`'s door
+travel): a vertical ray from half a capsule above the destination to four capsules below
+finds the support; the feet rest on its **contact shell**: `z = surface + shell`, with
+the shell of a model's collision object = its largest stored `radius` × 7 × the
+reference's scale (`CollisionObject::shell`) and the terrain's `TERRAIN_SHELL` = 3.5
+(0.7 + 2.8 from the table) [observed: derived]. That the shells are Havok convex radii,
+the terrain's being 0.5 Havok units, is [hypothesis]; so is the band above the shell (the
+upper end, +0.35, would be a character "keep distance" of 0.05 Havok units). The rule
+reproduces every arrival above within −0.18…+0.35 (the band); for Doc Mitchell's door it
+gives 8693.53 against the observed 8693.87. Without a support in range the actor stays
+at the destination. History: a first version put the feet at shell + 0.35 (fitted to
+Doc Mitchell's door and the porch); its predictions for `dt_door_arrivals` were written
+before that capture, which then showed arrivals at both ends of the band, so the rule
+now uses the shell, near the middle of what was observed (Δ − shell averages +0.10 over the
+fifteen values in the table), rather than the end that matches
+the scenario's golden.
+
+Not done: the walking controller (§6) still rests `skin` (0.5) above the bare surface, so
+in `nvforever --play` the player sinks from the arrival height to that within a step; a
+controller that keeps contact shells, and the in-game rest band while idle, are open.
 
 ## 7. CLI contract
 

@@ -147,4 +147,10 @@ pub struct CollisionObject {
     pub friction: f32,
     pub restitution: f32,
     pub shape: Shape,
+    /// Contact shell, game units: the largest `radius` stored on the body's box,
+    /// convex-vertices or triangle-mesh shapes (spheres and capsules carry theirs in their
+    /// geometry), 0 when none. Havok keeps contacts this far outside the surface, so an
+    /// actor rests about that much higher than on the bare geometry [hypothesis for the
+    /// mechanism; the in-game rest heights it explains: physics.md §6.2].
+    pub shell: f32,
 }
