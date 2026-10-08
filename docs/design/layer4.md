@@ -97,7 +97,9 @@ in the schema (NOTE, IMOD, CHIP, CCRD, CMNY) instead of guessing.
 
 ### 2.6 Leveled lists
 
-Rules in docs/spec-notes/simulation.md §4, all [hypothesis]. One seeded ChaCha8 stream
+Rules in docs/spec-notes/simulation.md §4, consistent with in-game samples for the
+`leveled.basic` and `leveled.b8` cases [observed] (LVLG globals are read at their
+run-time values, `leveled::resolve_in`). One seeded ChaCha8 stream
 (`rand_chacha`, reproducible across platforms and versions by that crate's contract)
 makes runs repeatable; matching the original game's outcomes is a *distribution*
 question (spec section 8.1). The lab's `distribution` comparator (2026-10-07) compares
@@ -159,7 +161,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 3. Behaviour: action traces against in-game captures (Goodsprings first, then a locked
    container with its key, a lock without key, a teleport pair, dropping and re-taking).
 4. Leveled lists: distribution scenarios — `L4.sim.leveled.basic` passes against in-game
-   samples (7 cases); more cases (LVLG, nesting) to come.
+   samples (7 cases), and `L4.sim.leveled.b8` (10 cases: LVLG globals, all levels between
+   entry levels, nesting 3–5 deep; 2026-10-08).
 5. Collision: shape conversion vs oracle; Havok scale measured; then movement traces.
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
