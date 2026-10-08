@@ -219,9 +219,31 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   NVWastelandClearNight fills layer 0 with `NVWastelandStarfieldSky.dds`, NVWastelandClear
   fills layer 3 with `NVCloudlight.dds`, both leave the others at `sky\alpha.dds`].
   Cloud speeds (ONAM) are 52, 0, 0, 65 for both; their unit is unknown.
+- **Stars and moon** [observed, `fnvtool esm decode --edid NVDefaultClimate`]: the
+  climate has a `MODL` subrecord, `Sky\Stars.nif` (the starfield sphere above, additive:
+  NiAlphaProperty 0x1001 = blend ONE/ONE), and its TNAM moons byte is 131 (0x83): bit 7 set,
+  low bits 3, read as one moon flag and a 3-day phase length [hypothesis; the schema keeps
+  the byte raw]. `textures\sky\` ships `masser_{full,new,half_wax,half_wan,one_wax,one_wan,
+  three_wax,three_wan}.dds`, `skymoonfull.dds` and `moonshadow.dds`; which one the engine
+  draws for that flag is not known. NVWastelandClearNight's cloud layer 0
+  (`sky\NVWastelandStarfieldSky.dds`) exists in no archive. The NAM0 "stars" colour of
+  NVWastelandClear is black at sunrise and white at day, sunset and night, so day-time
+  hiding of the stars must come from elsewhere (engine) [hypothesis]. The renderer
+  fades the stars in as the sun sinks from 0° to −12° and the moon from +5° to −6°,
+  puts the moon opposite the sun, and picks `masser_<phase>` as
+  floor(days passed / phase length) mod 8 in the order full, three_wan, half_wan,
+  one_wan, new, one_wax, half_wax, three_wax [hypothesis]. Days passed start from the
+  `GameDaysPassed` global (5.0 in the masters [observed], `crates/fnv-sim/src/clock.rs`).
+- **Atmosphere dome shape**: about 1,000 units across but only 250 units above its rim
+  [observed]. Sky objects drawn inside it (stars, sun, moon) must stay within about half
+  its radius, or the opaque dome hides them overhead.
 - **Night weather**: NVWastelandClearNight is gated by the global `VNight` (0 in the
-  masters), so with globals as stored the clear day weather is used at night too;
-  presumably a script sets `VNight` at night [hypothesis, Layer 4].
+  masters). NightQuestScript sets it: `If GetCurrentTime >= 21 || GetCurrentTime < 4.30`
+  → `Set VNight to 1`, else 0 [observed: script source (SCTX) in FalloutNV.esm]. Until
+  scripts run (Layer 5) the renderer evaluates that condition itself and fades between
+  the weathers over half a game hour [placeholder; WTHR DATA "trans delta" not
+  understood]. NVWastelandClearNight has no clouds (`skylpha.dds` on layers 1-3) and a
+  darker night ambient (121, 128, 213) than NVWastelandClear (172, 170, 215).
 - **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
   the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
   [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600
@@ -308,7 +330,18 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   diffuse and normal textures,
   `textures\landscape\lod\<world>\{diffuse,normals}\<world>.n.level<L>.x<X>.y<Y>.dds`
   (1,360 of each, one per chunk). The geometry also
-  carries an NiAdditionalGeometryData stream of one f32 per vertex (meaning unknown).
+  carries an NiAdditionalGeometryData stream of one f32 per vertex (meaning unknown;
+  in level4.x12.y8 it equals the vertex's z for all 1,299 vertices [observed]).
+  Level-4 textures are 256 × 256 DXT1 with mips, i.e. 64 texels per cell side
+  [observed: x12.y8 diffuse and normals]. In level4.x12.y8 [observed]: the terrain
+  NiTriShapeData has no vertex normals or tangents; its UVs are u = 1 − x / 16,384,
+  v = y / 16,384 in chunk-local units (all 1,299 vertices), so image row 0 is the
+  south edge and column 0 the east edge; the normal map is in model space, red = +x
+  (east), green = +y (north), blue = +z (up) — the slope triangles' face normals agree
+  with it on average at 0.71 (dot product) against at most 0.52 for any other
+  sign or axis-swap convention. A second shape (BSSegmentedTriShape, 682 vertices, no
+  properties, no UVs, flat at z = 2,600, the Lake Mead water height) follows the
+  terrain shape [hypothesis: a water LOD surface].
 - **Objects**: `...\<world>\blocks\<world>.level4.x<X>.y<Y>.nif` (289 for WastelandNV,
   plus 6 `.high.` variants), merged geometry of distant buildings and landmarks over the
   same 4 × 4-cell squares, textured from one atlas `...\blocks\<world>.buildings.dds`
