@@ -276,6 +276,9 @@ def run(jobs, names, capture_dir, game, save, timeout, menu_console=None, quit_c
     report["jobs"] = jobs_state(capture_dir, names, start)
     report["game_running"] = game.running()
     report["log"] = log_since(capture_dir, start)
+    for line in report["log"]:
+        if " skipping " in line:  # the plugin could not read a job (e.g. a step kind it predates)
+            report["problems"].append("plugin: " + line.split(" ", 1)[1])
     return report
 
 
