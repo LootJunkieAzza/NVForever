@@ -99,6 +99,18 @@ pub enum PhysCmd {
         /// Leave mesh collision out (terrain and collision primitives only).
         #[arg(long)]
         no_meshes: bool,
+        /// Also list every reference with collision: base, layers, shells and what a
+        /// vertical ray at its position hits first (`ref_list`).
+        #[arg(long)]
+        list_refs: bool,
+        /// Labelled drops (JSON, `fnv.phys.drops/1`, physics.md §7): each becomes a probe,
+        /// and `observations` lists every label with its final feet.
+        #[arg(long)]
+        drops_file: Option<PathBuf>,
+        /// Ray "x,y,z,dx,dy,dz[,max]" (repeatable; max default 10000): the first hit of
+        /// every collider (all layers) is listed under `rays`.
+        #[arg(long = "ray", allow_hyphen_values = true)]
+        rays: Vec<String>,
     },
     /// A scripted character walk through the world built around its start, traced step
     /// by step (fnv.phys.walk/1).
@@ -290,7 +302,8 @@ pub enum SimCmd {
         cases: PathBuf,
     },
     /// Run a scripted action sequence (fnv.sim.actions/1) and print its trace
-    /// (fnv.sim.trace/1).
+    /// (fnv.sim.trace/1). An actor moved by a teleport comes to rest by the physics
+    /// arrival rule in the destination's collision world (simulation.md §7).
     Run {
         #[command(flatten)]
         lo: LoadOrderArgs,
@@ -298,6 +311,12 @@ pub enum SimCmd {
         schema: PathBuf,
         #[arg(long)]
         actions: PathBuf,
+        /// NIF schema directory for mesh collision (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Keep teleported actors at the stored destination (no physics placement).
+        #[arg(long)]
+        no_physics: bool,
     },
 }
 

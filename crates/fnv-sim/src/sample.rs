@@ -33,6 +33,9 @@ pub struct Case {
     pub level: u16,
     #[serde(default = "one_i32")]
     pub count: i32,
+    /// Globals set before the draws, by Editor ID or FormID (e.g. an LVLG global).
+    #[serde(default)]
+    pub globals: BTreeMap<String, f32>,
     pub samples: u32,
 }
 
@@ -69,6 +72,19 @@ fn resolve_list(forms: &FormStore, s: &str) -> Result<FormId, String> {
     }
 }
 
+fn resolve_global(forms: &FormStore, s: &str) -> Result<FormId, String> {
+    let id = if s.starts_with("0x") || s.starts_with("0X") {
+        s.parse::<FormId>().map_err(|e| e.to_string())?
+    } else {
+        forms.by_edid(s).ok_or_else(|| format!("no form named {s:?}"))?
+    };
+    if forms.globals.contains_key(&id) {
+        Ok(id)
+    } else {
+        Err(format!("{id} is not a global"))
+    }
+}
+
 /// Run every case on one RNG stream seeded with `cases.seed`.
 pub fn run(forms: &FormStore, cases: &Cases) -> Result<Value, String> {
     if cases.format != CASES_FORMAT {
@@ -78,9 +94,17 @@ pub fn run(forms: &FormStore, cases: &Cases) -> Result<Value, String> {
     let mut out = Vec::with_capacity(cases.cases.len());
     for c in &cases.cases {
         let mut o = json!({"label": c.label, "list": c.list, "level": c.level, "count": c.count, "samples": c.samples});
+        if !c.globals.is_empty() {
+            o["globals"] = json!(c.globals);
+        }
         let res = (|| -> Result<Map<String, Value>, String> {
             let list = resolve_list(forms, &c.list)?;
             o["list"] = json!(list);
+            let globals = c
+                .globals
+                .iter()
+                .map(|(k, v)| Ok((resolve_global(forms, k)?, *v)))
+                .collect::<Result<BTreeMap<_, _>, String>>()?;
             if c.samples == 0 {
                 return Err("samples must be positive".into());
             }
@@ -88,7 +112,7 @@ pub fn run(forms: &FormStore, cases: &Cases) -> Result<Value, String> {
             let mut draw = Vec::new();
             for _ in 0..c.samples {
                 draw.clear();
-                leveled::resolve(forms, list, c.count, c.level, &mut rng, &mut draw).map_err(|e| e.to_string())?;
+                leveled::resolve_in(forms, &globals, list, c.count, c.level, &mut rng, &mut draw).map_err(|e| e.to_string())?;
                 *hist.entry(outcome_key(&draw)).or_default() += 1;
             }
             Ok(hist.into_iter().map(|(k, n)| (k, json!(n))).collect())

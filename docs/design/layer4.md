@@ -97,7 +97,9 @@ in the schema (NOTE, IMOD, CHIP, CCRD, CMNY) instead of guessing.
 
 ### 2.6 Leveled lists
 
-Rules in docs/spec-notes/simulation.md §4, all [hypothesis]. One seeded ChaCha8 stream
+Rules in docs/spec-notes/simulation.md §4, consistent with in-game samples for the
+`leveled.basic` and `leveled.b8` cases [observed] (LVLG globals are read at their
+run-time values, `leveled::resolve_in`). One seeded ChaCha8 stream
 (`rand_chacha`, reproducible across platforms and versions by that crate's contract)
 makes runs repeatable; matching the original game's outcomes is a *distribution*
 question (spec section 8.1). The lab's `distribution` comparator (2026-10-07) compares
@@ -158,9 +160,18 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 2. Static contents: `L4.sim.containers` and `L4.sim.items` against the independent oracle.
 3. Behaviour: action traces against in-game captures (Goodsprings first, then a locked
    container with its key, a lock without key, a teleport pair, dropping and re-taking).
+   Locks and drops: `L4.sim.trace.goodsprings_locked_safe_key`, `_locked_safe_no_key`
+   and `goodsprings_drop_and_retake` (captured 2026-10-08; docs/spec-notes/layer4-captures.md §1).
 4. Leveled lists: distribution scenarios — `L4.sim.leveled.basic` passes against in-game
-   samples (7 cases); more cases (LVLG, nesting) to come.
+   samples (7 cases), and `L4.sim.leveled.b8` (10 cases: LVLG globals, all levels between
+   entry levels, nesting 3–5 deep; 2026-10-08).
 5. Collision: shape conversion vs oracle; Havok scale measured; then movement traces.
+   Status 2026-10-08: the controller rests on contact shells like the arrival rule, the
+   corner jitter is fixed, gravity / jump / run / walk are measured in game (physics.md
+   §6.3). Captured the same day: B11 15/20 after fixes (open: Havok trees, rocks within
+   the game's spread, a pushed drop), traces fence_slide 6/6, fence_stop 6/6,
+   porch_steps 6/6, running_jump 0/6 (air control open), hill_run / portal_wall (goldens
+   with an early onset; physics.md §4.2, §6.3, §6.4).
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
 
@@ -195,12 +206,29 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    `goodsprings_doc_mitchell` 5/6 (z waits for the controller); `x13_enable_parents`
    still needs a save inside X-13. Update 2026-10-08: `x13_enable_parents` 13/13;
    merchant restocks follow fixed days (GameDaysPassed 0 or 3 modulo 7, spec note §3),
-   checked by `goodsprings_merchant_midnight_restock` 11/11.
+   checked by `goodsprings_merchant_midnight_restock` 11/11. `goodsprings_doc_mitchell`
+   6/6 (2026-10-08): `sim run` settles teleported actors on the destination's contact
+   shell (physics.md §6.2), not through the walking controller.
 8. Answered by the owner 2026-10-08 (physics.md §4, §6): disabled references are not
    drawn, have no collision and cannot be interacted with; `GetPos Z` is the feet (player
    7361.05 standing on a rug at 7360 in Doc Mitchell's house). Still open: the collision
    layer matrix — a scripted drop test is proposed as backlog item B11
    (layer4-captures.md); the Havok scale needs no in-game test (collision.md §6).
+
+9. **Movement and collision (workstream 2, 2026-10-08)**. Unattended jobs are ready and
+   need only the game to be free (layer4-captures.md §5): `mv_b11_drops`, `mv_traces`,
+   `mv_b11_clutter`, `mv_values`. Questions that need someone at the game:
+   - Capsule height: standing, then crouched, under a beam or doorway lintel whose height
+     `fnvtool phys cell --ray` gives (e.g. the porch roof of Doc Mitchell's house): can
+     the player pass, and with jump does the head stop the rise? Report `player.GetPos Z`
+     at the highest point of a jump under it.
+   - Push mass: walk at a dynamic clutter item (e.g. a tin can on flat ground), forward
+     held for one second, and report its position before and after (`<ref>.GetPos x/y`
+     with the reference picked by clicking it in the console).
+   - Is anything about movement different with the mouse/keyboard than with held keys
+     (e.g. does running feel like 344 units/s, does walking with Shift match 86.8)? The
+     unattended runs used `HoldKey` with the bound scan codes.
+   - Swimming and ladders are not covered by any capture yet.
 
 ## 6. Updated spec notes
 

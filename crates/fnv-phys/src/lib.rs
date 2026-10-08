@@ -7,6 +7,8 @@
 //! - [`terrain`]: one heightfield per exterior cell
 //! - [`world`]: the world, bodies, stepping, queries
 //! - [`character`]: the character controller
+//! - [`arrival`]: where an actor comes to rest after a teleport (shared by the tools and
+//!   the game)
 //! - [`layers`]: Havok collision layer numbers and names
 //! - [`primitive`]: collision primitives placed on references (CollisionMarker boxes)
 //! - [`placed`]: the collision objects of a placed reference (shared by the tools and the
@@ -17,6 +19,7 @@
 //! Design: docs/design/layer4.md §2.8 and §7 (workstream 2); facts, hypotheses and the
 //! CLI contract: docs/spec-notes/physics.md.
 
+pub mod arrival;
 pub mod character;
 pub mod convert;
 pub mod layers;
@@ -25,10 +28,11 @@ pub mod primitive;
 pub mod terrain;
 pub mod world;
 
+pub use arrival::Arrival;
 pub use character::{Character, CharacterInput, CharacterParams, CharacterStep};
 pub use convert::ConvertError;
 pub use layers::LayerSet;
 pub use placed::{ref_collision, ModelCollision, RefCollision};
 pub use world::{
-    AddReport, BodyState, Filter, Key, Owner, PhysParams, PhysWorld, Queries, RayHit, RefPose, Stats, Stepper, SweepHit,
+    AddReport, BodyState, Filter, Key, Owner, PhysParams, PhysWorld, Queries, RayHit, RefPose, Stats, Stepper, SweepHit, TERRAIN_SHELL,
 };
