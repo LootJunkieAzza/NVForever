@@ -102,7 +102,10 @@ cell entity), and `RefChanged` is sent by the inventory menu for each dropped re
   item names, counts, weight and value, take one / take all / store, close (Esc or E).
   Tab opens the player's inventory alone: equip/unequip (`World::equip`), drop
   (`World::drop_item` → `RefChanged` for each new reference), encumbrance from
-  `World::encumbrance`.
+  `World::encumbrance`. Non-playable items (ARMO BMDT "Non-Playable", e.g. the Pip-Boy
+  Glove) are not listed in either menu, so they cannot be stored, equipped or dropped
+  [observed by the owner: the game never shows the glove and it stays equipped]; Take
+  All leaves them in the container [hypothesis].
 - Dropped items (`dropped.rs` and `phys.rs`; added 2026-10-08): created
   references are drawn from their base form's model at the simulation's pose as children
   of their `RenderCell` (so render streaming and door travel unload and reload them);
@@ -192,16 +195,22 @@ mouse no longer turns the view in unattended runs):
   left) and settles 1.7 lower; the outside one is unloaded. Out again: the outside
   stimpak is drawn at its resting pose and does not move (screenshots before and after
   match).
+- Non-playable items hidden (2026-10-08, after merging main): Doc Mitchell's and the
+  gas station's inventories list no Pip-Boy rows; the drop/retake and door round-trip
+  runs repeat with the same resting poses; the gas station menu script, finding nothing
+  to equip, drops a bottle cap, which is drawn (`nukacolacap.nif`) and falls 31 units to
+  the floor.
 
 Open:
 - Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
 - Doors into another worldspace are refused (`Travel` has no worldspace yet); dialogue and
   barter are not built.
-- Dropped armour is drawn with its base form's MODL, as placed armour is: for the Pip-Boy
-  Glove that is `meshes\characters\_male\lefthandpipboyglove.nif`, a worn-hand model
-  without collision [observed, gas station check], so the dropped glove floats where it
-  was dropped. Which of ARMO's models (MODL, MOD2–MOD4) is the one lying on the ground is
-  not in the spec notes yet.
+- Armour placed in the world or dropped is drawn with its base form's MODL; which of
+  ARMO's models (MODL, MOD2–MOD4) is the one lying on the ground is not in the spec notes.
+  (The first drop test dropped the Pip-Boy Glove, which the game never lets the player
+  drop: since 2026-10-08 the menus hide non-playable items, see Part U.)
+- The player's non-playable items (Pip-Boy 3000, Pip-Boy Glove) start unequipped in the
+  simulation; in game the glove is always equipped [observed by the owner].
 - Whether dropped items fall in the game (the scripted capture says no, the engine says
   yes [hypothesis]; capture written, simulation.md §5). Placed dynamic clutter that
   physics moves (pushed, knocked down) is not written back to the simulation; only
