@@ -195,7 +195,13 @@ pub fn spawn(commands: &mut Commands, parent: Entity, v: &TreeVisual, rt: Mat4, 
         let common = (Mesh3d(p.mesh.clone()), t, p.aabb, NoAutoAabb, extra.clone());
         match &p.material {
             PartMaterial::Bark(m) => commands.entity(parent).with_child((common, MeshMaterial3d(m.clone()))),
-            PartMaterial::Leaves(m) => commands.entity(parent).with_child((common, MeshMaterial3d(m.clone()))),
+            // Leaf cards cast shadows (onto the ground and other objects) but receive
+            // none: in the shadow pass they face the light, in the main pass the camera,
+            // so a tree's own cards blacken its lower half in hard, mismatched blocks
+            // [observed]. Self-shadowing is left to leaf lighting (to do: CNAM dimming).
+            PartMaterial::Leaves(m) => {
+                commands.entity(parent).with_child((common, MeshMaterial3d(m.clone()), bevy::light::NotShadowReceiver))
+            }
         };
     }
     v.parts.len()
