@@ -1,0 +1,29 @@
+{
+  "format": "fnv.sim.actions/1",
+  "seed": 0,
+  "player_level": 1,
+  "actions": [
+    {"op": "remove_all_items", "from": "player"},
+    {"op": "remove_all_items", "from": "0x00105229"},
+    {"op": "add_item", "to": "0x00105229", "item": "Stimpak", "count": 2},
+    {"op": "get_locked", "of": "0x00105229", "label": "safe at start"},
+    {"op": "activate", "actor": "player", "target": "0x00105229", "label": "activating the safe without its key"},
+    {"op": "get_locked", "of": "0x00105229", "label": "safe after activating without its key"},
+    {"op": "get_item_count", "of": "0x00105229", "item": "Stimpak", "label": "stimpaks in the safe after activating without its key"},
+    {"op": "add_item", "to": "player", "item": "VZKeyDirtyGSHome2SafeKey", "count": 1},
+    {"op": "activate", "actor": "player", "target": "0x00105229", "label": "activating the safe with its key"},
+    {"op": "get_locked", "of": "0x00105229", "label": "safe after opening with its key"},
+    {"op": "transfer_all", "from": "0x00105229", "to": "player"},
+    {"op": "get_item_count", "of": "player", "item": "Stimpak", "label": "player stimpaks after taking everything"},
+    {"op": "get_item_count", "of": "0x00105229", "item": "Stimpak", "label": "stimpaks left in the safe"},
+    {"op": "get_item_count", "of": "player", "item": "VZKeyDirtyGSHome2SafeKey", "label": "keys held after opening"},
+    {"op": "remove_item", "from": "player", "item": "VZKeyDirtyGSHome2SafeKey", "count": 1},
+    {"op": "lock", "target": "0x00105229"},
+    {"op": "get_locked", "of": "0x00105229", "label": "safe locked again"},
+    {"op": "activate", "actor": "player", "target": "0x00105229", "label": "activating the locked-again safe without its key"},
+    {"op": "add_item", "to": "player", "item": "VZKeyDirtyGSHome2SafeKey", "count": 1},
+    {"op": "activate", "actor": "player", "target": "0x00105229", "label": "activating the locked-again safe with its key"},
+    {"op": "get_locked", "of": "0x00105229", "label": "safe after opening it again with its key"}
+  ],
+  "report": ["player", "0x00105229"]
+}

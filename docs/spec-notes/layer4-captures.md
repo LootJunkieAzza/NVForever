@@ -21,6 +21,9 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.sim.trace.goodsprings_merchant_restock` | captured | pass 4/4 | merchant restock; needs no hidden restock time (the start's place in the 7-day cycle matters, simulation.md §3) |
 | `L4.sim.trace.goodsprings_merchant_midnight_restock` | captured 2026-10-08 unattended (`nvftest`, `--time hour`) | pass 11/11 | restock days (GameDaysPassed 0 or 3 mod 7); it refuted the midnight rule it was designed for |
 | `L4.sim.trace.x13_enable_parents` | captured 2026-10-08 (coc into X-13, god mode) | pass 13/13 | B1 done |
+| `L4.sim.trace.goodsprings_locked_safe_key` | captured 2026-10-08 unattended (`nvftest`, `--go-to-cell GSHouseInterior02`, tgm, tdetect) | pass 13/13 | key opens the lock for good (GetLocked 0) |
+| `L4.sim.trace.goodsprings_locked_safe_no_key` | captured 2026-10-08 unattended (`nvftest`, player in the gas station, tgm, tdetect) | pass 13/13 after the GetLocked fix (12/13 before: level 255 reads 1, not 2) | a first run made after the key job, with the player in another cell, is not used (activation of a container outside the player's cell opens nothing) |
+| `L4.sim.trace.goodsprings_drop_and_retake` | captured 2026-10-08 unattended (`nvfdoc`, `--confirm-after 2 --settle auto`, tgm, tdetect) | 4/6 after the fixes (2/6 before: scripted pick-up of a stack, drop position); the remaining 2 fail only on z, +7.44 from the player's own settled height after the door (B9, workstream 2); do not tune | dropped refs found with `created:<item>` (GetFirstRef scan) |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
 
 Substitute checks (xnvse-capture.md §7): the same scenarios regenerated with
@@ -48,7 +51,12 @@ python tools/capture/capture_steps.py trace C:/fnv-private/capture/out/<name>.<t
 python tools/capture/capture_steps.py samples C:/fnv-private/capture/out/leveled_basic.<time>.jsonl --cases parity-lab/inputs/layer4/leveled_basic.cases.json -o C:/fnv-private/goldens/sim/leveled_basic.samples.json
 ```
 
-`goodsprings_doc_mitchell` needs `--confirm-after 18` (the front door's loading screen).
+`goodsprings_doc_mitchell` needs `--confirm-after 18` (the front door's loading screen),
+`goodsprings_drop_and_retake` `--confirm-after 2`; `goodsprings_locked_safe_key` travels with
+`--go-to-cell GSHouseInterior02`. The lock and drop jobs were made with `--time hour
+--settle auto --console-first tgm --console-first tdetect`. Run each lock job in its own
+`capture_run.py` session: jobs run alphabetically in one session, and the key job's
+travel would leave the player outside the gas station for the no-key job.
 
 ## 2. Diagnostic and follow-up captures (hand-written jobs)
 
@@ -74,6 +82,10 @@ directory's `jobs\`). Results are in the notes named.
 | `bl_placed_mines` (B10) | are placed mines live; scripted activation | inert for 600 loops; scripted Activate does nothing; simulation.md §1 |
 | `mr_diag_reads`, `mr_diag_calendar`, `mr_diag_month_short`, `mr_diag_long_untouched`, `mr_diag_ringo`, `mr_diag_untouched_3d`, `_4d` (`make_restock_jobs.py`) | why the midnight rule failed: refill times with 2- or 6-hourly reads, the save's calendar, Ringo's state | restocks only on days 0 or 3 mod 7; simulation.md §3 |
 | `mr_predict_days` (`make_restock_jobs.py`) | held-out check of the restock days, made after the rule was stated | refilled on 31, 35, 38, 42 and no day between; simulation.md §3 |
+| `ld_lock_levels` (`make_lock_drop_jobs.py`) | GetLocked / GetLockLevel at level 255 (scripted `Lock 255`, authored trunk with key), menus after scripted activation | GetLocked 1 at 255; no menu without the key, container menu with it; simulation.md §5 |
+| `ld_drop_refs` (`make_lock_drop_jobs.py`) | references a drop creates, what a scripted pick-up leaves | one ref per drop (0xFF00xxxx), 50 ahead / 30 up, taken refs left out of `GetFirstRef … 0`; simulation.md §5 |
+| `ld_drop_stack` (`make_lock_drop_jobs.py`) | scripted Activate on dropped stacks of 2 and 3 | gives 1 item, the stack is taken; simulation.md §5 |
+| `ld_placed_stack` (`make_lock_drop_jobs.py`) | scripted Activate on a placed XCNT 12 stack (BB rounds, GSHouseInterior03) | gives 1 round, the stack then counts 1; a second activation gives 1 more; simulation.md §5 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)
