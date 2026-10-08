@@ -1,0 +1,617 @@
+//! The physics world: terrain heightfields, placed references' collision bodies,
+//! characters, fixed-step stepping and scene queries over rapier3d.
+//!
+//! Determinism (docs/spec-notes/physics.md §5): rapier is built with
+//! `enhanced-determinism`; the world advances only in fixed steps of `PhysParams::dt`;
+//! bodies are created in the order the caller adds them, so callers add terrain by grid
+//! and references by FormID (the `fnvtool phys` commands do). Query results that can
+//! list several colliders are sorted.
+
+use crate::convert::{self, arr3, vec3, ConvertError, Leaf};
+use fnv_collide::{CollisionObject, Iso, Motion, Shape};
+use rapier3d::math::{Pose, Vector};
+use rapier3d::parry::query::ShapeCastOptions;
+use rapier3d::prelude::*;
+use std::collections::{BTreeMap, HashMap};
+
+/// World parameters. The defaults are engineering choices or [hypothesis] values to be
+/// replaced by captured ones (physics.md §6 lists the capture questions).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct PhysParams {
+    /// Fixed step in seconds [hypothesis: the original's physics rate is unknown].
+    pub dt: f32,
+    /// Downward acceleration in game units/s² [hypothesis: 9.81 m/s² at 70 units per
+    /// metre; to be measured from a timed fall].
+    pub gravity: f32,
+    /// Game units per metre. rapier runs in metres internally because several of its
+    /// tolerances are absolute and tuned for metres (e.g. the character controller's
+    /// ground-detection margin); lengths are divided by this on the way in and multiplied
+    /// on the way out. A numerical choice, not a game fact [hypothesis: 70].
+    pub units_per_metre: f32,
+    /// Most fixed steps one [`Stepper::advance`] call runs; time beyond is dropped.
+    pub max_substeps: u32,
+}
+
+impl Default for PhysParams {
+    fn default() -> Self {
+        PhysParams { dt: 1.0 / 60.0, gravity: 9.81 * 70.0, units_per_metre: 70.0, max_substeps: 8 }
+    }
+}
+
+/// What a collider belongs to. Stored in the collider's `user_data`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Owner {
+    /// The heightfield of the exterior cell at this grid square.
+    Terrain { x: i32, y: i32 },
+    /// Collision object `object` (index in the list given to [`PhysWorld::add_ref`]) of a
+    /// placed reference, with its Havok collision layer.
+    Ref { form_id: u32, object: u16, layer: u8 },
+    /// A character added with [`PhysWorld::add_character`].
+    Character { id: u32 },
+}
+
+impl Owner {
+    pub fn encode(self) -> u128 {
+        let (kind, a, b, c) = match self {
+            Owner::Terrain { x, y } => (1u128, x as u32, y as u32, 0u32),
+            Owner::Ref { form_id, object, layer } => (2, form_id, object as u32, layer as u32),
+            Owner::Character { id } => (3, id, 0, 0),
+        };
+        kind | (a as u128) << 8 | (b as u128) << 40 | (c as u128) << 72
+    }
+
+    pub fn decode(v: u128) -> Option<Owner> {
+        let a = (v >> 8) as u32;
+        let b = (v >> 40) as u32;
+        let c = (v >> 72) as u32;
+        match v & 0xFF {
+            1 => Some(Owner::Terrain { x: a as i32, y: b as i32 }),
+            2 => Some(Owner::Ref { form_id: a, object: b as u16, layer: c as u8 }),
+            3 => Some(Owner::Character { id: a }),
+            _ => None,
+        }
+    }
+
+    /// The entity this collider belongs to, ignoring which of its objects it is.
+    pub fn key(self) -> Key {
+        match self {
+            Owner::Terrain { x, y } => Key::Terrain(x, y),
+            Owner::Ref { form_id, .. } => Key::Ref(form_id),
+            Owner::Character { id } => Key::Character(id),
+        }
+    }
+}
+
+/// An entity in the world, for filters and removal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Key {
+    Terrain(i32, i32),
+    Ref(u32),
+    Character(u32),
+}
+
+/// Placement of a reference: `p' = position + rotation · (scale · p)`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RefPose {
+    pub form_id: u32,
+    pub position: [f32; 3],
+    /// Row-major 3×3.
+    pub rotation: [f32; 9],
+    pub scale: f32,
+}
+
+impl RefPose {
+    /// From a Layer 3 placement, with the engine's rotation convention
+    /// (docs/spec-notes/world.md §4).
+    pub fn from_placement(p: &fnv_world::Placement) -> RefPose {
+        RefPose {
+            form_id: p.form_id,
+            position: p.position,
+            rotation: fnv_world::transform::ref_rotation(p.rotation),
+            scale: p.scale,
+        }
+    }
+}
+
+/// What [`PhysWorld::add_ref`] built.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AddReport {
+    pub bodies: usize,
+    pub colliders: usize,
+    /// Leaves (or whole objects, for a bad placement) that could not be converted.
+    pub errors: Vec<ConvertError>,
+}
+
+/// Counts for reports.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct Stats {
+    pub terrain_cells: usize,
+    pub refs: usize,
+    pub bodies_fixed: usize,
+    pub bodies_kinematic: usize,
+    pub bodies_dynamic: usize,
+    /// Colliders by rapier shape type name (`"cuboid"`, `"heightfield"`, ...).
+    pub colliders: BTreeMap<String, usize>,
+    pub steps: u64,
+}
+
+/// State of one body, for readback (e.g. dynamic clutter positions).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct BodyState {
+    pub translation: [f32; 3],
+    /// Row-major 3×3.
+    pub rotation: [f32; 9],
+    pub linvel: [f32; 3],
+    pub sleeping: bool,
+}
+
+pub struct PhysWorld {
+    pub params: PhysParams,
+    pub(crate) w: PhysicsWorld,
+    /// Metres per game unit (rapier's internal length unit).
+    pub(crate) k: f32,
+    terrain: BTreeMap<(i32, i32), ColliderHandle>,
+    refs: BTreeMap<u32, Vec<RigidBodyHandle>>,
+    /// Per-triangle material codes of triangle-mesh colliders.
+    materials: HashMap<ColliderHandle, Vec<u32>>,
+    /// Colliders changed since the broad phase was last updated.
+    dirty: bool,
+    /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
+    new_bodies: Vec<RigidBodyHandle>,
+    steps: u64,
+}
+
+impl PhysWorld {
+    pub fn new(params: PhysParams) -> PhysWorld {
+        let k = 1.0 / params.units_per_metre;
+        let mut w = PhysicsWorld::new();
+        w.gravity = Vector::new(0.0, 0.0, -params.gravity * k);
+        w.integration_parameters.dt = params.dt;
+        PhysWorld {
+            params,
+            w,
+            k,
+            terrain: BTreeMap::new(),
+            refs: BTreeMap::new(),
+            materials: HashMap::new(),
+            dirty: false,
+            new_bodies: Vec::new(),
+            steps: 0,
+        }
+    }
+
+    /// Add (or replace) the terrain of the exterior cell at `grid` from its LAND heights.
+    pub fn add_terrain(&mut self, grid: (i32, i32), heights: &[f32]) {
+        self.remove_terrain(grid);
+        let c = crate::terrain::collider(grid, heights, self.k).user_data(Owner::Terrain { x: grid.0, y: grid.1 }.encode());
+        let h = self.w.insert_collider(c, None);
+        self.terrain.insert(grid, h);
+        self.dirty = true;
+    }
+
+    pub fn remove_terrain(&mut self, grid: (i32, i32)) -> bool {
+        let Some(h) = self.terrain.remove(&grid) else { return false };
+        self.w.remove_collider(h);
+        self.dirty = true;
+        true
+    }
+
+    /// Add the collision objects of a placed reference: one body per object, placed at
+    /// `pose ∘ node_transform ∘ body_transform`, with the reference's uniform scale baked
+    /// into the shapes. Static objects become fixed bodies, keyframed ones
+    /// kinematic, dynamic ones dynamic with the object's mass, friction and restitution
+    /// (physics.md §4). Replaces an earlier add of the same reference.
+    pub fn add_ref(&mut self, pose: &RefPose, objects: &[CollisionObject]) -> AddReport {
+        self.remove_ref(pose.form_id);
+        let mut report = AddReport::default();
+        let ref_rot = match convert::rotation(&pose.rotation) {
+            Ok(r) => r,
+            Err(e) => {
+                report.errors.push(e);
+                return report;
+            }
+        };
+        let ref_pose = Pose::from_parts(vec3(pose.position) * self.k, ref_rot);
+        let mut handles = Vec::new();
+        for (i, o) in objects.iter().enumerate() {
+            let owner = Owner::Ref { form_id: pose.form_id, object: i as u16, layer: o.layer };
+            let local = o.node_transform.compose(&o.body_transform);
+            let body_pose = match convert::pose(&local, pose.scale * self.k) {
+                Ok(p) => ref_pose * p,
+                Err(e) => {
+                    report.errors.push(e);
+                    continue;
+                }
+            };
+            let mut leaves = Vec::new();
+            convert::leaves(&o.shape, &Iso::IDENTITY, pose.scale * self.k, &mut leaves, &mut report.errors);
+            if leaves.is_empty() {
+                continue;
+            }
+            let builder = match o.motion {
+                Motion::Static => RigidBodyBuilder::fixed(),
+                Motion::Keyframed => RigidBodyBuilder::kinematic_position_based(),
+                Motion::Dynamic => RigidBodyBuilder::dynamic(),
+            };
+            let body = self.insert_body(builder.pose(body_pose).user_data(owner.encode()));
+            report.colliders += self.attach(body, owner, o, leaves);
+            if o.motion == Motion::Dynamic {
+                self.set_mass(body, o.mass);
+            }
+            handles.push(body);
+        }
+        report.bodies = handles.len();
+        if !handles.is_empty() {
+            self.refs.insert(pose.form_id, handles);
+            self.dirty = true;
+        }
+        report
+    }
+
+    fn attach(&mut self, body: RigidBodyHandle, owner: Owner, o: &CollisionObject, leaves: Vec<Leaf>) -> usize {
+        let n = leaves.len();
+        for leaf in leaves {
+            let mut c = ColliderBuilder::new(leaf.shape).position(leaf.pose).user_data(owner.encode());
+            if o.friction.is_finite() && o.friction >= 0.0 {
+                c = c.friction(o.friction);
+            }
+            if o.restitution.is_finite() && o.restitution >= 0.0 {
+                c = c.restitution(o.restitution);
+            }
+            let h = self.w.insert_collider(c, Some(body));
+            if !leaf.materials.is_empty() {
+                self.materials.insert(h, leaf.materials);
+            }
+        }
+        n
+    }
+
+    /// Scale the colliders' densities so the body's mass is `mass`; leaves the
+    /// volume-derived mass when `mass` is not positive or the shapes have no volume.
+    fn set_mass(&mut self, body: RigidBodyHandle, mass: f32) {
+        let b = &mut self.w.bodies[body];
+        b.recompute_mass_properties_from_colliders(&self.w.colliders);
+        let m0 = b.mass();
+        if !(mass.is_finite() && mass > 0.0 && m0 > 0.0) {
+            return;
+        }
+        let colliders: Vec<ColliderHandle> = b.colliders().to_vec();
+        for c in colliders {
+            let d = self.w.colliders[c].density();
+            self.w.colliders[c].set_density(d * mass / m0);
+        }
+        self.w.bodies[body].recompute_mass_properties_from_colliders(&self.w.colliders);
+    }
+
+    pub fn remove_ref(&mut self, form_id: u32) -> bool {
+        let Some(bodies) = self.refs.remove(&form_id) else { return false };
+        for b in bodies {
+            self.remove_body(b);
+        }
+        self.dirty = true;
+        true
+    }
+
+    pub(crate) fn remove_body(&mut self, b: RigidBodyHandle) {
+        if let Some(body) = self.w.bodies.get(b) {
+            for c in body.colliders() {
+                self.materials.remove(c);
+            }
+        }
+        self.w.remove_body(b);
+        self.dirty = true;
+    }
+
+    /// Current state of each body of a reference, in object order.
+    pub fn ref_bodies(&self, form_id: u32) -> Vec<BodyState> {
+        self.refs.get(&form_id).into_iter().flatten().map(|&b| body_state(&self.w.bodies[b], self.k)).collect()
+    }
+
+    pub(crate) fn insert_body(&mut self, b: impl Into<RigidBody>) -> RigidBodyHandle {
+        let h = self.w.insert_body(b);
+        self.new_bodies.push(h);
+        h
+    }
+
+    /// Advance one fixed step.
+    pub fn step(&mut self) {
+        self.w.step();
+        self.dirty = false;
+        self.new_bodies.clear();
+        self.steps += 1;
+    }
+
+    pub fn steps(&self) -> u64 {
+        self.steps
+    }
+
+    /// Bring the broad phase up to date after adding or removing bodies, so that queries
+    /// see them, without advancing time.
+    pub fn update_queries(&mut self) {
+        if self.dirty {
+            self.w.detect_collisions(&(), &());
+            // rapier 0.36's collision-only pipeline consumes the change flags of bodies
+            // inserted since the last step without registering them with the island
+            // manager, so they would never move [observed: a dynamic box added, queried
+            // and stepped stays put; test `bodies_added_then_queried_still_simulate`].
+            // Flag them changed again so the next step registers them.
+            for &h in &self.new_bodies {
+                if let Some(b) = self.w.bodies.get_mut(h) {
+                    let p = *b.position();
+                    b.set_position(p, false);
+                }
+            }
+            self.dirty = false;
+        }
+    }
+
+    /// Scene queries on the current state (updates the broad phase first if needed).
+    pub fn queries(&mut self) -> Queries<'_> {
+        self.update_queries();
+        Queries { world: self }
+    }
+
+    pub(crate) fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    pub fn stats(&self) -> Stats {
+        let mut s = Stats { terrain_cells: self.terrain.len(), refs: self.refs.len(), steps: self.steps, ..Default::default() };
+        for (_, b) in self.w.bodies.iter() {
+            match b.body_type() {
+                RigidBodyType::Fixed => s.bodies_fixed += 1,
+                RigidBodyType::Dynamic => s.bodies_dynamic += 1,
+                _ => s.bodies_kinematic += 1,
+            }
+        }
+        for (_, c) in self.w.colliders.iter() {
+            *s.colliders.entry(shape_name(c.shape().shape_type())).or_default() += 1;
+        }
+        s
+    }
+
+    /// A full copy of the world (bodies, colliders, contacts, islands, broad phase and the
+    /// tables here). Stepping the copy gives bit-identical results to stepping the
+    /// original [observed: test `snapshot_continues_identically`]; characters keep their
+    /// handles, so a cloned [`crate::Character`] drives the copy.
+    pub fn snapshot(&self) -> PhysWorld {
+        let w = &self.w;
+        PhysWorld {
+            params: self.params,
+            w: PhysicsWorld {
+                gravity: w.gravity,
+                integration_parameters: w.integration_parameters,
+                physics_pipeline: PhysicsPipeline::new(),
+                collision_pipeline: CollisionPipeline::new(),
+                islands: w.islands.clone(),
+                broad_phase: w.broad_phase.clone(),
+                narrow_phase: w.narrow_phase.clone(),
+                bodies: w.bodies.clone(),
+                colliders: w.colliders.clone(),
+                impulse_joints: w.impulse_joints.clone(),
+                multibody_joints: w.multibody_joints.clone(),
+                soft_bodies: w.soft_bodies.clone(),
+                ccd_solver: CCDSolver::new(),
+            },
+            k: self.k,
+            terrain: self.terrain.clone(),
+            refs: self.refs.clone(),
+            materials: self.materials.clone(),
+            dirty: self.dirty,
+            new_bodies: self.new_bodies.clone(),
+            steps: self.steps,
+        }
+    }
+
+    /// A digest of every body's position and velocity bits, in handle order: equal
+    /// digests mean bit-identical states (determinism checks).
+    pub fn state_digest(&self) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |v: f32| {
+            for byte in v.to_bits().to_le_bytes() {
+                h ^= byte as u64;
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        };
+        for (_, b) in self.w.bodies.iter() {
+            let p = b.position();
+            for v in [p.translation.x, p.translation.y, p.translation.z, p.rotation.x, p.rotation.y, p.rotation.z, p.rotation.w] {
+                eat(v);
+            }
+            let l = b.linvel();
+            for v in [l.x, l.y, l.z] {
+                eat(v);
+            }
+        }
+        h
+    }
+
+    /// Material code of triangle `triangle` of a triangle-mesh collider.
+    pub(crate) fn material_of(&self, c: ColliderHandle, triangle: u32) -> Option<u32> {
+        self.materials.get(&c)?.get(triangle as usize).copied()
+    }
+}
+
+fn shape_name(t: ShapeType) -> String {
+    format!("{t:?}").to_ascii_lowercase()
+}
+
+pub(crate) fn body_state(b: &RigidBody, k: f32) -> BodyState {
+    let p = b.position();
+    let m = rapier3d::math::Matrix::from_quat(p.rotation).transpose().to_cols_array();
+    BodyState { translation: arr3(p.translation / k), rotation: m, linvel: arr3(b.linvel() / k), sleeping: b.is_sleeping() }
+}
+
+/// Runs a variable frame time as whole fixed steps; the remainder carries over.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Stepper {
+    pub accumulated: f32,
+}
+
+impl Stepper {
+    /// How many fixed steps `elapsed` seconds call for (at most `params.max_substeps`).
+    pub fn advance(&mut self, params: &PhysParams, elapsed: f32) -> u32 {
+        self.accumulated += elapsed.max(0.0);
+        let mut n = 0;
+        while self.accumulated >= params.dt && n < params.max_substeps {
+            self.accumulated -= params.dt;
+            n += 1;
+        }
+        if n == params.max_substeps {
+            self.accumulated = self.accumulated.min(params.dt);
+        }
+        n
+    }
+}
+
+/// Which colliders a query considers.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Filter {
+    /// Entities to ignore (e.g. the character casting the ray).
+    pub exclude: Vec<Key>,
+    /// Ignore terrain.
+    pub no_terrain: bool,
+    /// Ignore dynamic bodies.
+    pub no_dynamic: bool,
+    /// Ignore reference colliders on these Havok layers (`crate::layers`).
+    pub exclude_layers: crate::layers::LayerSet,
+}
+
+impl Filter {
+    pub fn excluding(key: Key) -> Filter {
+        Filter { exclude: vec![key], ..Default::default() }
+    }
+
+    fn accepts(&self, c: &Collider, bodies: &RigidBodySet) -> bool {
+        let Some(owner) = Owner::decode(c.user_data) else { return false };
+        if self.no_terrain && matches!(owner, Owner::Terrain { .. }) {
+            return false;
+        }
+        if self.no_dynamic && c.parent().is_some_and(|b| bodies[b].is_dynamic()) {
+            return false;
+        }
+        if let Owner::Ref { layer, .. } = owner {
+            if self.exclude_layers.contains(layer) {
+                return false;
+            }
+        }
+        !self.exclude.contains(&owner.key())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct RayHit {
+    pub owner: Owner,
+    pub distance: f32,
+    pub point: [f32; 3],
+    pub normal: [f32; 3],
+    /// Havok material code of the triangle hit, for triangle meshes.
+    pub material: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct SweepHit {
+    pub owner: Owner,
+    /// Fraction of the motion travelled before contact (0..=1).
+    pub fraction: f32,
+    /// Contact point on the hit collider, world space.
+    pub point: [f32; 3],
+    /// Contact normal pointing out of the hit collider.
+    pub normal: [f32; 3],
+}
+
+/// Read-only scene queries on an up-to-date world (from [`PhysWorld::queries`]).
+pub struct Queries<'a> {
+    world: &'a PhysWorld,
+}
+
+impl Queries<'_> {
+    fn with_filter<R>(&self, filter: &Filter, f: impl FnOnce(QueryFilter) -> R) -> R {
+        let w = &self.world.w;
+        let pred = |_: ColliderHandle, c: &Collider| filter.accepts(c, &w.bodies);
+        f(QueryFilter::default().exclude_sensors().predicate(&pred))
+    }
+
+    /// First hit along the ray from `origin` in `direction` (normalised here) within
+    /// `max_distance`. Activation targeting casts this from the eye along the view.
+    pub fn ray(&self, origin: [f32; 3], direction: [f32; 3], max_distance: f32, filter: &Filter) -> Option<RayHit> {
+        let dir = vec3(direction).try_normalize()?;
+        let ray = Ray::new(vec3(origin) * self.world.k, dir);
+        let w = &self.world.w;
+        let (c, hit) = self.with_filter(filter, |f| w.cast_ray_and_get_normal(&ray, max_distance * self.world.k, true, f))?;
+        Some(self.ray_hit(c, &ray, hit))
+    }
+
+    fn ray_hit(&self, c: ColliderHandle, ray: &Ray, hit: RayIntersection) -> RayHit {
+        let owner = Owner::decode(self.world.w.colliders[c].user_data).expect("every collider has an owner");
+        let k = self.world.k;
+        RayHit {
+            owner,
+            distance: hit.time_of_impact / k,
+            point: arr3(ray.point_at(hit.time_of_impact) / k),
+            normal: arr3(hit.normal),
+            material: self.world.material_of(c, hit.subshape),
+        }
+    }
+
+    /// Every hit along the ray, nearest first (ties by owner).
+    pub fn ray_all(&self, origin: [f32; 3], direction: [f32; 3], max_distance: f32, filter: &Filter) -> Vec<RayHit> {
+        let Some(dir) = vec3(direction).try_normalize() else { return Vec::new() };
+        let ray = Ray::new(vec3(origin) * self.world.k, dir);
+        let w = &self.world.w;
+        let mut hits: Vec<RayHit> = self.with_filter(filter, |f| {
+            w.intersect_ray(ray, max_distance * self.world.k, true, f).map(|(c, _, hit)| self.ray_hit(c, &ray, hit)).collect()
+        });
+        hits.sort_by(|a, b| a.distance.total_cmp(&b.distance).then(a.owner.cmp(&b.owner)));
+        hits
+    }
+
+    /// Sweep a convex `shape` placed at `from` along `motion`; the first contact.
+    pub fn sweep(&self, shape: &Shape, from: &Iso, motion: [f32; 3], filter: &Filter) -> Result<Option<SweepHit>, ConvertError> {
+        let k = self.world.k;
+        let (pose, shape) = probe(shape, from, k)?;
+        let w = &self.world.w;
+        let opts = ShapeCastOptions { max_time_of_impact: 1.0, stop_at_penetration: true, ..Default::default() };
+        let hit = self.with_filter(filter, |f| w.cast_shape(&pose, vec3(motion) * k, shape.as_ref(), opts, f));
+        Ok(hit.map(|(c, hit)| {
+            let co = &self.world.w.colliders[c];
+            SweepHit {
+                owner: Owner::decode(co.user_data).expect("every collider has an owner"),
+                fraction: hit.time_of_impact,
+                // The hit collider's side of the hit is `witness1`/`normal1`, in world space.
+                point: arr3(hit.witness1 / k),
+                normal: arr3(hit.normal1),
+            }
+        }))
+    }
+
+    /// Every entity whose collision overlaps a convex `shape` placed at `at`, sorted.
+    pub fn overlap(&self, shape: &Shape, at: &Iso, filter: &Filter) -> Result<Vec<Owner>, ConvertError> {
+        let (pose, shape) = probe(shape, at, self.world.k)?;
+        let w = &self.world.w;
+        let mut out: Vec<Owner> = self.with_filter(filter, |f| {
+            w.intersect_shape(pose, shape.as_ref(), f).filter_map(|(_, c)| Owner::decode(c.user_data)).collect()
+        });
+        out.sort();
+        out.dedup();
+        Ok(out)
+    }
+}
+
+/// A single query shape (compounds are not supported as probes), scaled by `k`.
+fn probe(shape: &Shape, at: &Iso, k: f32) -> Result<(Pose, SharedShape), ConvertError> {
+    let mut leaves = Vec::new();
+    let mut errors = Vec::new();
+    convert::leaves(shape, at, k, &mut leaves, &mut errors);
+    if let Some(e) = errors.into_iter().next() {
+        return Err(e);
+    }
+    match leaves.len() {
+        1 => {
+            let l = leaves.pop().expect("one leaf");
+            Ok((l.pose, l.shape))
+        }
+        _ => Err(ConvertError::NotSingleShape),
+    }
+}
