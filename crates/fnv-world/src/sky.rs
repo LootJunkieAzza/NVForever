@@ -246,10 +246,22 @@ impl Weather {
         blend(self.cloud_colors.get(layer), c, hour)
     }
 
-    /// Fog near and far at `hour`, blending day and night values with [`day_factor`].
-    pub fn fog_at(&self, c: &Climate, hour: f32) -> (f32, f32) {
+    /// Fog near and far at `hour`, blending day and night values with [`day_factor`];
+    /// `None` for no fog. A day or night range whose far is not beyond its near is unset:
+    /// the other one is used for both, and with neither the weather has no fog
+    /// [hypothesis: 6 of the 98 weathers in the masters store such ranges; HVDustStorm's
+    /// day range is 0..0 but scripts only set it between 21:00 and 6:00, and the five
+    /// all-zero weathers have black fog colours, which taken literally would draw their
+    /// worlds solid black. docs/spec-notes/world.md §6].
+    pub fn fog_at(&self, c: &Climate, hour: f32) -> Option<(f32, f32)> {
+        let range = |near: f32, far: f32| (far > near).then_some((near, far));
+        let (day, night) = match (range(self.fog[0], self.fog[1]), range(self.fog[2], self.fog[3])) {
+            (Some(day), Some(night)) => (day, night),
+            (Some(r), None) | (None, Some(r)) => (r, r),
+            (None, None) => return None,
+        };
         let d = day_factor(c, hour);
-        (self.fog[2] + (self.fog[0] - self.fog[2]) * d, self.fog[3] + (self.fog[1] - self.fog[3]) * d)
+        Some((night.0 + (day.0 - night.0) * d, night.1 + (day.1 - night.1) * d))
     }
 }
 
@@ -446,6 +458,22 @@ mod tests {
         assert_eq!(day_factor(&c, 12.0), 1.0);
         assert_eq!(day_factor(&c, 19.5), 0.25);
         assert_eq!(day_factor(&c, 23.0), 0.0);
+    }
+
+    #[test]
+    fn fog_ranges() {
+        let c = clim();
+        let w = |fog: [f32; 6]| Weather { fog, ..Default::default() };
+        // NVWastelandClear-like: both ranges set, blended by day factor.
+        let clear = w([-10.0, 200_000.0, -10.0, 100_000.0, 0.6, 0.5]);
+        assert_eq!(clear.fog_at(&c, 12.0), Some((-10.0, 200_000.0)));
+        assert_eq!(clear.fog_at(&c, 7.0), Some((-10.0, 150_000.0)));
+        // HVDustStorm: unset day range falls back to the night one.
+        let storm = w([0.0, 0.0, 510.0, 55_000.0, 1.0, 1.0]);
+        assert_eq!(storm.fog_at(&c, 12.0), Some((510.0, 55_000.0)));
+        assert_eq!(storm.fog_at(&c, 2.0), Some((510.0, 55_000.0)));
+        // All zero: no fog.
+        assert_eq!(w([0.0, 0.0, 0.0, 0.0, 1.0, 1.0]).fog_at(&c, 12.0), None);
     }
 
     #[test]

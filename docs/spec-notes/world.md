@@ -206,6 +206,25 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   `ANAM`, `BNAM` (layers 0-3) [documented].
 - **Fog (WTHR FNAM)**: day near/far, night near/far, day/night power [documented].
   NVWastelandClear: near -10, far 200,000, power 0.6 / 0.5 [observed].
+- **Unset fog ranges** [observed, `crates/fnv-world/examples/weather_dump.rs --fog`]: 6
+  of the 98 weathers in the ten masters store a day or night range whose far is not
+  beyond its near; every other range has far > near (the shortest is Dead Money's
+  NVDLC01ToxicWeather, day 16..768, so short ranges are real). HVDustStorm stores day
+  0..0 and night 510..55,000. InvertedDaylightWeather, InvertedDaylightWeatherWarm,
+  InvertedDaylightWeatherWarmNV, InvertedDaylightWeatherTenPenny and Old World Blues'
+  NVDLC03crystalEmWeather store 0..0 for both, and all five have black fog colours at
+  every time. No climate lists HVDustStorm; only scripts set it
+  (HVSandstormWeatherAddingScript, HVBunkerDoorToOutsideScript,
+  HVSandStormFastTravelScript, VHiddenValleyDustStormQuestScript), always under
+  `Time > 21.0 || Time < 6.0`, and the quest script forces NVWastelandClear back by
+  day [observed: SCTX]. With the Mojave's sunrise 6:00-8:00 and sunset 18:00-20:00,
+  its day range is never weighted in. InvertedDaylightWeather (the climate and region
+  of the same name; cells in FXInvertedDaylightWorld) has a black sky and black day
+  light but white night ambient and sunlight; taken literally, its 0..0 black fog
+  would draw that white-lit world solid black.
+  The renderers therefore treat such a range as unset: the other range is used for
+  both day and night, and with neither the weather has no fog [hypothesis]. A weather
+  fade to or from a weather without fog fades the fog's strength.
 - **Time-of-day blending** [hypothesis, `fnv_world::sky::time_keys`]: piecewise linear
   between keys at 0 h (midnight), sunrise begin (night), mid-sunrise (sunrise), sunrise end
   (day), 12 h (high noon), sunset begin (day), mid-sunset (sunset), sunset end (night),
