@@ -30,9 +30,9 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.phys.walk.porch_steps` | captured 2026-10-08 (`mv_traces`) | 5/6 → 6/6 | speed kept along uphill slopes (physics.md §6.3) |
 | `L4.phys.walk.running_jump` | captured 2026-10-08 (`mv_traces`) | 0/6 | air control and landing open (physics.md §6.3) |
 | `L4.phys.walk.hill_run`, `.portal_wall` | captured 2026-10-08 (`mv_followup_traces`, this workstream) | 2/6 and 4/6 as installed; 6/6 and 5/6 against goldens rebuilt with the corrected onset (scratch, physics.md §6.4) | the installed goldens use an onset two loops early |
-| `L4.phys.walk.swim_cove_dive`, `.swim_lake_shore` | captured 2026-10-08 (`sw_scenarios`, this workstream) | 3/6 and 3/8 | held out; constant swim speed refuted (stroke cycle), steep-bank exit open; inputs left as designed (physics.md §6.6) |
+| `L4.phys.walk.swim_cove_dive`, `.swim_lake_shore` | captured 2026-10-08 (`sw_scenarios`, this workstream) | 3/6 and 3/8 | held out; constant swim speed refuted (stroke cycle), steep-bank exit open; inputs left as designed (physics.md §6.6). Follow-up: the inputs cannot express the game (no stroke, 348 against 339; with the stroke at 339 the dive is 6/6 in a scratch copy), and `swim_lake_shore`'s bank rows were captured with its cell not loaded (the job travelled by long `SetPos`); retire and redesign? (question to the owner, physics.md §6.6) |
 | `L4.phys.walk.swim_dam_forward`, `.swim_bay_back` | captured 2026-10-08 (`sw_heldout2`) | 10/10, 8/8 | held out after the stroke cycle; passed as predicted |
-| `L4.phys.drops.swim_h2o` | captured 2026-10-08 (`sw_h2o`) | fails (interior water reverted) | held out; interior water is a placed water object at −328, not XCLW (physics.md §6.6) |
+| `L4.phys.drops.swim_h2o` | captured 2026-10-08 (`sw_h2o`) | fails (interior water reverted) | held out; interior water is a placed water object at −328, not XCLW (physics.md §6.6). Follow-up: placed water modelled (Water-layer phantom boxes): deep_a and shallow_a pass (2/5); deep_b, mid_a, mid_b were placed while the capture's player still swam from deep_a (SetPos keeps the state) and the lab's fresh probes cannot carry it (a scratch walk script with `place` segments reproduces them within 2.7); redesign? (question to the owner) |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
 
 Substitute checks (xnvse-capture.md §7): the same scenarios regenerated with
@@ -118,6 +118,7 @@ directory's `jobs\`). Results are in the notes named.
 | `sw_breath` | two minutes held under water | drowning after 10.0 s at 40 Health/s; physics.md §6.6 |
 | `sw_scenarios` | held-out `L4.phys.walk.swim_cove_dive`, `.swim_lake_shore` | constant swim speed refuted (stroke cycle); steep-bank exit open; physics.md §6.6 |
 | `sw_heldout2`, `sw_h2o` | held-out `L4.phys.walk.swim_dam_forward`, `.swim_bay_back`, `L4.phys.drops.swim_h2o` | physics.md §6.6 |
+| `sw_banks` (`make_swim_jobs.py`; first run by long `SetPos` only, kept privately as `swim/sw_banks.run1_setpos.jsonl`) | leaving the water up banks of 12–58°, the Lake Las Vegas and Boulder Beach lines again | first run unusable: land drawn as distant LOD (owner's screenshot), frozen trials, a crash; with `cow` to each bank's cell the swimmer meets the bed with its capsule and walks out (Lake Las Vegas 27°, Boulder Beach 28–34°, Lake Mead 12.5°): the `swim_lake_shore` saw-tooth was an unloaded cell; the second run hung after four trials when the game lost the focus; physics.md §6.6 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)
