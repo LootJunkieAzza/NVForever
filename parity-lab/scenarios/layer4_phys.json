@@ -1892,6 +1892,55 @@
     "M4",
     "needs-local-capture"
    ]
+  },
+  {
+   "id": "L4.phys.drops.swim_guardian",
+   "layer": 4,
+   "description": "Placed water, held out (physics.md 6.6): the player dropped 5 units above the placed water of the interior CampGuardianCaves (NVCleanWater2048x2048, reference 0x0013F31A, scale 3, z 6528; the cell's XCLW is 6712), three times inside the water's box and three times just outside its south edge (parity-lab/inputs/layer4/swim_guardian_drops.drops.json): where it comes to rest (floating, or on the floor) against an unattended in-game capture (job sw_guardian, a fresh coc before each drop, tools/capture/jobs/make_swim_jobs.py). Tolerance 8 units as for the B11 drops.",
+   "oracle": {
+    "golden": "phys/swim_guardian_drops.drops.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "cell",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--cell",
+     "CampGuardianCaves",
+     "--drops-file",
+     "{lab_root}/inputs/layer4/swim_guardian_drops.drops.json"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 8.0
+   },
+   "tags": [
+    "physics",
+    "swimming",
+    "interior",
+    "M4",
+    "needs-local-capture"
+   ]
   }
  ]
 }

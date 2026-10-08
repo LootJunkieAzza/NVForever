@@ -230,10 +230,12 @@ impl PhysWorld {
         self.update_queries();
         let dt = self.params.dt;
         let g = self.params.gravity;
-        let surface = self.water_surface_at(c.feet[0], c.feet[1]);
-        // Out of the water: no surface here, or the feet above it [hypothesis: the game
-        // kept swimming with the feet at the surface after a SetPos, physics.md §6.6].
-        if c.swimming && surface.is_none_or(|s| c.feet[2] > s) {
+        let surface = self.water_surface_for(c.feet);
+        // Out of the water: no water here [hypothesis]. Feet above the surface do not end
+        // swimming: placed 101 above an interior's water while swimming the game's player
+        // sank at 12 units/s for 10 s, and at Lake Las Vegas it swam on 74 above the
+        // surface [observed: swim_h2o_drops, swim_lake_shore; physics.md §6.6].
+        if c.swimming && surface.is_none() {
             c.swimming = false;
         }
         if let (true, Some(s)) = (c.swimming, surface) {
@@ -410,7 +412,7 @@ impl PhysWorld {
         // Falling (not on the ground) with the feet `swim_depth` below the surface starts
         // swimming: the fall stops there, with no landing [observed: physics.md §6.6].
         if !c.swimming && !c.grounded && c.vertical_speed < 0.0 {
-            let water = self.water_surface_at(c.feet[0], c.feet[1]);
+            let water = self.water_surface_for(c.feet);
             if water.is_some_and(|s| c.feet[2] <= s - c.params.swim_depth) {
                 c.swimming = true;
                 c.vertical_speed = 0.0;
