@@ -1,9 +1,10 @@
 # Layer 4 in the game: `engine/nvf-play` (workstream 4)
 
-Status 2026-10-08: skeleton on `claude/layer4-play`; parts P, A and U in progress
-(coordinated by one session, each part in its own worktree and branch, merged back into
-`claude/layer4-play`). Exit criterion: M4 (docs/design/layer4.md §4.6) — the player walks
-the Mojave with collision, opens doors and containers and takes items.
+Status 2026-10-08: skeleton and parts P, A and U merged on `claude/layer4-play`
+(each part built in its own worktree and branch by one coordinating session). Exit
+criterion: M4 (docs/design/layer4.md §4.6) — the player walks the Mojave with collision,
+opens doors and containers and takes items. Integration checks (§6) pass unattended; real
+keyboard and mouse play has not been tried by a person yet.
 
 ## 1. What already exists
 
@@ -111,3 +112,28 @@ fly camera, screenshots and the lab's frame captures keep working).
   --all-targets -- -D warnings` in `engine/`, root workspace tests if a root crate was
   touched, and the moving-camera smoke test from CLAUDE.md plus the part's own `--play`
   run.
+
+## 6. Integration (2026-10-08)
+
+Unattended checks on the merged branch (test aids: `--auto-walk`, `--pos/--heading/--pitch`,
+`NVF_PLAY_TEST_ACTIVATE=<seconds,...>` presses E, `NVF_PLAY_TEST_MENU=<container|nearest>`
+drives the menus):
+- Goodsprings, `--auto-walk 300`: placed on the terrain (feet 8369.0 on 8368.0), walks,
+  cells stream, a house blocks the way.
+- Doc Mitchell's house: the stimpak 0x00105BF3 is targeted by its collision at 110 units,
+  E takes it (`PickedUp`), its render entity hides and its collision goes.
+- The front door 0x00103E61: E teleports to the worldspace; physics places the feet at
+  8691 on a floor at 8690 (the door marker is at 8686.43; the in-game capture put the
+  player at 8693.87 [observed, `goodsprings_doc_mitchell`]); render streaming reloads 25
+  exterior cells.
+- Goodsprings gas station: the metal box 0x001629C1 is targeted at 99 units and E opens
+  the container menu; the menu test aid takes all of Ringo's 200 caps and stores items back.
+
+Open:
+- Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
+- A start position over empty space in an interior falls forever (Ringo's cash box
+  0x001629C0 stands outside the gas station's room, reached in game through barter).
+- Doors into another worldspace are refused (`Travel` has no worldspace yet); dialogue and
+  barter are not built; dropped items are not rendered and have no collision.
+- Controller jitter against some rocks reproduces in `fnvtool phys walk` (physics.md §6.1).
+- Up to ~50 ms per physics cell load in one frame.

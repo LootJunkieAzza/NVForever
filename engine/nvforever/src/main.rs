@@ -276,7 +276,10 @@ fn main() -> AppExit {
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
-        app.add_plugins(nvf_play::PlayPlugin(data)).add_systems(Update, world::travel.before(world::stream));
+        // Streaming follows the camera, which the player systems move: stream after them.
+        app.add_plugins(nvf_play::PlayPlugin(data))
+            .add_systems(Update, world::travel.before(world::stream))
+            .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
     }
     if args.screenshot.is_some() {
         app.add_systems(Update, screenshot_and_exit);
