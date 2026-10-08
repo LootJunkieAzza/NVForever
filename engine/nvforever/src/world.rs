@@ -46,16 +46,21 @@ impl WorldData {
         let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).map_err(|e| e.to_string())?));
         let index: &'static WorldIndex = Box::leak(Box::new(WorldIndex::build(lo, schema)));
         let w = index.world_by_name(world).ok_or_else(|| format!("no worldspace {world}"))?;
-        let world_id = w.form_id;
-        let mut persistent_by_grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
-        if let Some(pc) = w.persistent_cell.and_then(|c| index.cells.get(&c)) {
-            for &r in &pc.refs {
-                if let Some(p) = placement(lo, schema, r) {
-                    persistent_by_grid.entry(cell_of(p.position[0], p.position[1])).or_default().push(r);
-                }
+        let mut data = WorldData { lo, schema, index, world: w.form_id, persistent_by_grid: HashMap::new() };
+        data.set_world(w.form_id);
+        Ok(data)
+    }
+
+    /// Draw worldspace `world` (FormID): index its persistent references by grid square.
+    pub fn set_world(&mut self, world: u32) {
+        self.world = world;
+        self.persistent_by_grid.clear();
+        let pc = self.index.worldspaces.get(&world).and_then(|w| w.persistent_cell).and_then(|c| self.index.cells.get(&c));
+        for &r in pc.map_or(&[][..], |c| &c.refs) {
+            if let Some(p) = placement(self.lo, self.schema, r) {
+                self.persistent_by_grid.entry(cell_of(p.position[0], p.position[1])).or_default().push(r);
             }
         }
-        Ok(WorldData { lo, schema, index, world: world_id, persistent_by_grid })
     }
 
     pub fn grid_cell(&self, g: (i32, i32)) -> Option<&fnv_world::Cell> {
