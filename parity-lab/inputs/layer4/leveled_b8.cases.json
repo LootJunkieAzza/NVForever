@@ -1,0 +1,81 @@
+{
+  "format": "fnv.sim.cases/1",
+  "seed": 0,
+  "cases": [
+    {
+      "label": "AmmoMissilelauncherScrounger x1, ScroungerOdds 100 (LVLD 0, LVLG global)",
+      "list": "AmmoMissilelauncherScrounger",
+      "level": 1,
+      "count": 1,
+      "globals": {"ScroungerOdds": 100},
+      "samples": 20000
+    },
+    {
+      "label": "Ammo10mmScrounger x4, ScroungerOdds 50 (LVLD 0, LVLG global, each item in count)",
+      "list": "Ammo10mmScrounger",
+      "level": 1,
+      "count": 4,
+      "globals": {"ScroungerOdds": 50},
+      "samples": 20000
+    },
+    {
+      "label": "Ammo20GaScrounger x1, ScroungerOdds 25 (LVLD 100, LVLG global)",
+      "list": "Ammo20GaScrounger",
+      "level": 1,
+      "count": 1,
+      "globals": {"ScroungerOdds": 25},
+      "samples": 20000
+    },
+    {
+      "label": "CapsFortuneFinder x1 at level 7, FortuneFinderOdds 0 (LVLG global, all levels, level between entries)",
+      "list": "CapsFortuneFinder",
+      "level": 7,
+      "count": 1,
+      "globals": {"FortuneFinderOdds": 0},
+      "samples": 20000
+    },
+    {
+      "label": "NVDLC01ChipsChangeFortuneFinder x2 at level 12, FortuneFinderOdds 40 (LVLG global, all levels, count without each)",
+      "list": "NVDLC01ChipsChangeFortuneFinder",
+      "level": 12,
+      "count": 2,
+      "globals": {"FortuneFinderOdds": 40},
+      "samples": 20000
+    },
+    {
+      "label": "VendorFlakShrapnelMiniNukes x1 at level 8 (all levels, player level equal to an entry's level)",
+      "list": "VendorFlakShrapnelMiniNukes",
+      "level": 8,
+      "count": 1,
+      "samples": 20000
+    },
+    {
+      "label": "VendorArmorRare75 x1 at level 10 (all levels, chance none 25, level between entries, nested)",
+      "list": "VendorArmorRare75",
+      "level": 10,
+      "count": 1,
+      "samples": 20000
+    },
+    {
+      "label": "VendorBasicMedicalSupplies100 x1 at level 2 (3 deep, levelled sublists, count 5 into an each-item sublist)",
+      "list": "VendorBasicMedicalSupplies100",
+      "level": 2,
+      "count": 1,
+      "samples": 20000
+    },
+    {
+      "label": "LootChemsNVAll50 x1 at level 15 (3 deep, chance none 50 at the top and in a sublist)",
+      "list": "LootChemsNVAll50",
+      "level": 15,
+      "count": 1,
+      "samples": 20000
+    },
+    {
+      "label": "LL2Tier4ExplosivesMixed50 x1 at level 10 (5 deep, use all, chance none in sublists)",
+      "list": "LL2Tier4ExplosivesMixed50",
+      "level": 10,
+      "count": 1,
+      "samples": 20000
+    }
+  ]
+}

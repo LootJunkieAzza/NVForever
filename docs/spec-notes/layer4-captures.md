@@ -17,6 +17,7 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.sim.items` | `sim/items.json` (oracle) | pass | independent oracle, 3,972 items |
 | `L4.sim.trace.goodsprings_weight_and_time` | captured | pass 9/9 | GameHour/GameDaysPassed fractions not observed (clock runs in menus) |
 | `L4.sim.leveled.basic` | captured (2,100 draws) | pass 7/7 | 300 `AddItem` draws per case |
+| `L4.sim.leveled.b8` | captured 2026-10-08 unattended (`nvftest`, 3,000 draws) | pass 10/10 | B8: LVLG globals set from the console, all-levels between/at entry levels, count without each item, nesting 3–5 deep; 300 draws per case, no failed draw, globals read back unchanged |
 | `L4.sim.trace.goodsprings_doc_mitchell` | captured | 5/6 | fails only on z after the door (+7.44): needs the character controller (workstream 2); do not tune |
 | `L4.sim.trace.goodsprings_merchant_restock` | captured | pass 4/4 | merchant restock; needs no hidden restock time (the start's place in the 7-day cycle matters, simulation.md §3) |
 | `L4.sim.trace.goodsprings_merchant_midnight_restock` | captured 2026-10-08 unattended (`nvftest`, `--time hour`) | pass 11/11 | restock days (GameDaysPassed 0 or 3 mod 7); it refuted the midnight rule it was designed for |
@@ -48,6 +49,14 @@ python tools/capture/capture_steps.py trace C:/fnv-private/capture/out/<name>.<t
 python tools/capture/capture_steps.py samples C:/fnv-private/capture/out/leveled_basic.<time>.jsonl --cases parity-lab/inputs/layer4/leveled_basic.cases.json -o C:/fnv-private/goldens/sim/leveled_basic.samples.json
 ```
 
+`leveled_b8` (unattended; 42,196 steps, about 12 minutes): `capture_steps.py cases
+parity-lab/inputs/layer4/leveled_b8.cases.json --data "<Data>" --draws 300 --start "…"`,
+then `capture_run.py --game "<FNV folder>" --save nvftest --kill-on-timeout <job>`, then
+`samples` into a file outside the goldens directory, checked (no `failed_draws`;
+`globals_read` and `globals_read_after` equal to the values asked for) before it was
+copied to the new golden `sim/leveled_b8.samples.json`. Cases with `globals` set them
+from the console and restore them afterwards.
+
 `goodsprings_doc_mitchell` needs `--confirm-after 18` (the front door's loading screen).
 
 ## 2. Diagnostic and follow-up captures (hand-written jobs)
@@ -74,6 +83,7 @@ directory's `jobs\`). Results are in the notes named.
 | `bl_placed_mines` (B10) | are placed mines live; scripted activation | inert for 600 loops; scripted Activate does nothing; simulation.md §1 |
 | `mr_diag_reads`, `mr_diag_calendar`, `mr_diag_month_short`, `mr_diag_long_untouched`, `mr_diag_ringo`, `mr_diag_untouched_3d`, `_4d` (`make_restock_jobs.py`) | why the midnight rule failed: refill times with 2- or 6-hourly reads, the save's calendar, Ringo's state | restocks only on days 0 or 3 mod 7; simulation.md §3 |
 | `mr_predict_days` (`make_restock_jobs.py`) | held-out check of the restock days, made after the rule was stated | refilled on 31, 35, 38, 42 and no day between; simulation.md §3 |
+| `leveled_b8_smoke` (generated: the `leveled_b8` cases with `--draws 3`) | does setting, reading back and restoring a case's global work unattended | yes: values read back as set, restored to the save's 100 (`ScroungerOdds`, `FortuneFinderOdds`); no errors |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)
@@ -110,9 +120,14 @@ written.
   readable with `IsPlayerOverencumbered` / `GetIsPlayerOverencumbered` (both on the GECK
   wiki; check which compiles); ammo weight in Hardcore mode (`SetHardcore` / `IsHardcore`
   exist on the wiki; a throwaway save, since Hardcore cannot be undone in a save).
-- **B8 leveled lists**: lists with an LVLG global, deep nesting, all-levels lists with
-  entries between levels (new cases in a second `.cases.json`, same procedure as
-  `leveled_basic`).
+- **B8 leveled lists** — **done 2026-10-08** (`L4.sim.leveled.b8`, 10 cases, 300 draws
+  each, unattended; the candidate passes 10/10; facts in simulation.md §4): the LVLG
+  global replaces chance none at its current value, all-levels lists with the level
+  between or equal to entry levels, a count without "each item", nesting 3–5 deep. The
+  candidate's `World` now reads LVLG globals at their run-time values. Open: fractional
+  or out-of-range global values; leveled lists resolved in containers and on actors
+  rather than by `AddItem` (still [hypothesis] that they resolve the same way). Was:
+  lists with an LVLG global, deep nesting, all-levels lists with entries between levels.
 - **B9 Doc Mitchell z**: no capture needed; re-run the lab once workstream 2's character
   controller places the actor (the +7.44 offset is in the golden).
 - **B10 placed explosives (PGRE)** — **partly done 2026-10-08** (`bl_placed_mines`): inert while the player stands in the cell; scripted `Activate` does nothing. Open: the player's own activation (attended). The 297 PGRE are spread over five masters, not only Old World Blues (simulation.md §1). Was: are the 297 OWB placed grenades live in game? Needs an
