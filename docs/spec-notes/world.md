@@ -228,10 +228,22 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   draws for that flag is not known. NVWastelandClearNight's cloud layer 0
   (`sky\NVWastelandStarfieldSky.dds`) exists in no archive. The NAM0 "stars" colour of
   NVWastelandClear is black at sunrise and white at day, sunset and night, so day-time
-  hiding of the stars must come from elsewhere (engine) [hypothesis]. Not drawn yet.
+  hiding of the stars must come from elsewhere (engine) [hypothesis]. The renderer
+  fades the stars in as the sun sinks from 0° to −12° and the moon from +5° to −6°,
+  puts the moon opposite the sun, and picks `masser_<phase>` as
+  floor(days passed / phase length) mod 8 in the order full, three_wan, half_wan,
+  one_wan, new, one_wax, half_wax, three_wax [hypothesis]. Days passed start from the
+  `GameDaysPassed` global (5.0 in the masters [observed], `crates/fnv-sim/src/clock.rs`).
+- **Atmosphere dome shape**: about 1,000 units across but only 250 units above its rim
+  [observed]. Sky objects drawn inside it (stars, sun, moon) must stay within about half
+  its radius, or the opaque dome hides them overhead.
 - **Night weather**: NVWastelandClearNight is gated by the global `VNight` (0 in the
-  masters), so with globals as stored the clear day weather is used at night too;
-  presumably a script sets `VNight` at night [hypothesis, Layer 4].
+  masters). NightQuestScript sets it: `If GetCurrentTime >= 21 || GetCurrentTime < 4.30`
+  → `Set VNight to 1`, else 0 [observed: script source (SCTX) in FalloutNV.esm]. Until
+  scripts run (Layer 5) the renderer evaluates that condition itself and fades between
+  the weathers over half a game hour [placeholder; WTHR DATA "trans delta" not
+  understood]. NVWastelandClearNight has no clouds (`skylpha.dds` on layers 1-3) and a
+  darker night ambient (121, 128, 213) than NVWastelandClear (172, 170, 215).
 - **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
   the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
   [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600
