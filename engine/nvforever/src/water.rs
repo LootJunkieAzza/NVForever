@@ -20,8 +20,14 @@
 //!   coarse) [observed: uncorrelated, tileable channels in WastelandWaterPotomac.dds];
 //!   layer i scrolls with its wind direction and speed and is scaled by its amplitude.
 //!
-//! Not done: refraction, under-water fog of the scene, rain and displacement ripples,
-//! the ANAM opacity (its role is unknown).
+//! - Refraction: the water is drawn after the opaque pass with a copy of it (Bevy's view
+//!   transmission texture) and composites itself over that copy, sampled with an offset
+//!   along the wave normal's screen-space tilt, growing over the first 200 units of
+//!   water [tuned by eye]; where the offset sample lands on something in front of the
+//!   water, the unshifted one is used.
+//! - Under water, the camera's fog becomes the water's (underwater.rs).
+//!
+//! Not done: rain and displacement ripples, the ANAM opacity (its role is unknown).
 
 use crate::lod::LodState;
 use crate::reflection::{Reflection, WATER_LAYER};
@@ -53,7 +59,14 @@ impl Plugin for WaterPlugin {
         app.add_plugins(MaterialPlugin::<WaterMaterial>::default())
             .init_resource::<WaterCache>()
             .init_resource::<DistantWater>()
-            .add_systems(Update, (update_water_sky.after(crate::sky::update_sky), distant_water.after(crate::world::stream)));
+            .add_systems(
+                Update,
+                (
+                    update_water_sky.after(crate::sky::update_sky),
+                    crate::underwater::underwater_fog.after(crate::sky::update_sky),
+                    distant_water.after(crate::world::stream),
+                ),
+            );
     }
 }
 
@@ -89,8 +102,14 @@ impl Material for WaterMaterial {
         "embedded://nvforever/water.wgsl".into()
     }
 
+    // Opaque, drawn after the opaque pass with a copy of it (the view transmission
+    // texture), which the shader refracts and composites the water over.
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Premultiplied
+        AlphaMode::Opaque
+    }
+
+    fn reads_view_transmission_texture(&self) -> bool {
+        true
     }
 
     fn enable_prepass() -> bool {

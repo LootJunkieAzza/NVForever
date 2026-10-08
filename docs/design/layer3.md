@@ -121,8 +121,11 @@ What it does now:
   it, renders the scene above that plane (oblique near clip plane, as in Bevy's
   `mirror` example) at half the window size into an HDR texture; water lives on its own
   render layer, which that camera leaves out; it is off indoors and when no water lies
-  within two cells below the camera. The model and its hypotheses: world.md §6. No
-  refraction or under-water fog of the scene yet.
+  within two cells below the camera. Refraction: the water is drawn after the opaque
+  pass with Bevy's view transmission texture (a copy of it), which it samples with a
+  wave offset and composites itself over. Under water (`underwater.rs`), the camera's
+  fog becomes the water type's under fog; Snell's window from below. The model and its
+  hypotheses: world.md §6.
 
 Measured on the owner's machine (i7-7700HQ, GTX 1050): 5 × 5 cells around Goodsprings
 (1,948 references drawn, 3,085 shapes, 224 models, 506 terrain layers) load in 2.5 s;
@@ -162,7 +165,7 @@ game units unchanged.
 6. **Lighting, sky, weather** (first version done; clouds, stars, interiors to do): sun direction and colours from the climate/weather records
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
-7. **Water** (second version done: WATR fog, fresnel world reflections, noise layers, distant water; refraction and under-water fog to do): worldspace / cell water height, WATR records, placeable water (PWAT).
+7. **Water** (second version done: WATR fog, fresnel world reflections, refraction, under-water fog, noise layers, distant water; rain and displacement ripples to do): worldspace / cell water height, WATR records, placeable water (PWAT).
 8. **SpeedTree** (interim: billboards): TREE references (18,050 in WastelandNV, e.g. the desert shrubs) use
    SpeedTree `.spt` models from `trees\`, a non-NIF format; needs its own clean-room
    format study before they can be drawn.
