@@ -8,14 +8,16 @@
 //! - VTXT positions index the 17 × 17 quadrant grid row by row, rows south → north;
 //! - layers draw in ascending `layer` order over the quadrant's base texture;
 //! - textures repeat every [`TerrainSettings::tile`] world units;
-//! - each grid square is split along its south-west → north-east diagonal.
+//! - each grid square is split along its south-west → north-east diagonal;
+//! - a quadrant without BTXT, or a layer with a null texture, uses the INI default
+//!   ([`DEFAULT_DIFFUSE`]); drawing such quadrants untextured left hard-edged patches.
 
 use crate::world::WorldData;
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use fnv_world::land::{land_texture, load_land, Land, LandParts, QUAD_SIDE, SIDE, SPACING};
+use fnv_world::land::{land_texture, load_land, Land, LandParts, DEFAULT_DIFFUSE, QUAD_SIDE, SIDE, SPACING};
 use nvf_assets::model::ModelCtx;
 use std::collections::HashMap;
 
@@ -49,8 +51,9 @@ pub struct TerrainCtx<'a, 'w1, 'w2> {
 }
 
 impl TerrainCtx<'_, '_, '_> {
+    /// Diffuse path of an LTEX; `None` (no BTXT, or a null layer texture) is the default.
     fn texture_of(&mut self, world: &WorldData, ltex: Option<u32>) -> Option<String> {
-        let id = ltex?;
+        let Some(id) = ltex else { return Some(DEFAULT_DIFFUSE.to_string()) };
         self.tm
             .cache
             .textures
