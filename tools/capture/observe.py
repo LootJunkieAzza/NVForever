@@ -195,7 +195,7 @@ WALK_ARRIVED = 1
 WALK_UNREACHABLE = 2
 
 
-def walk_script(target, within, ctx):
+def walk_script(target, within, ctx, follow=False):
     """One game loop of walking to `target`: face it (GetAngle Z + GetHeadingAngle, the
     wiki's formula on GetHeadingAngle) and hold the key bound to Forward (GetControl 0,
     HoldKey); WALK_ARRIVED and the key released once the player is closer than `within`.
@@ -203,8 +203,11 @@ def walk_script(target, within, ctx):
     are not in the same cell: an outside player once steered toward Sunny's coordinates
     inside the saloon and walked into an obstacle [observed 2026-10-08]. A target in
     another exterior cell must be in the loaded area (GetDistance ends the script
-    otherwise; the drive then stops with an error, recorded)."""
+    otherwise; the drive then stops with an error, recorded). With `follow`, being
+    within `within` only releases the key and the drive goes on (keeping up with a
+    moving actor for the whole observation)."""
     n = cs.Names(*ctx)
+    arrived = 0 if follow else WALK_ARRIVED
     t = n.operand(target)
     return cs.function(n.decls + ["int iK", "float fA", "float fD", "float fI", "float fS"],
                        n.setup + [f"let iK := GetControl {CONTROL_FORWARD}", "let fA := 0",
@@ -213,7 +216,7 @@ def walk_script(target, within, ctx):
                                   "if fI > 0", "  if fS == 0", f"    let fA := {WALK_UNREACHABLE}", "  endif", "endif",
                                   "if fA > 0", "  ReleaseKey iK", "else",
                                   f"  let fD := player.GetDistance {t}",
-                                  f"  if fD < {cs.number(within)}", "    ReleaseKey iK", f"    let fA := {WALK_ARRIVED}",
+                                  f"  if fD < {cs.number(within)}", "    ReleaseKey iK", f"    let fA := {arrived}",
                                   "  else", f"    let fD := player.GetAngle Z + player.GetHeadingAngle {t}",
                                   "    player.SetAngle Z fD", "    HoldKey iK", "  endif", "endif",
                                   "SetFunctionValue fA"])
@@ -352,10 +355,10 @@ def session_job(campaign, session, ctx):
                          "after": max(1, int(math.ceil(int(close_after) / every))), "then": close_menus_script()}]
     walk = s.get("walk")
     if walk:
-        unknown = set(walk) - {"to", "within", "max_frames", "approach"}
+        unknown = set(walk) - {"to", "within", "max_frames", "approach", "follow"}
         if unknown:
             raise InputError(f"session {s['name']}: unknown walk keys {sorted(unknown)}")
-        obs["drive"] = walk_script(walk["to"], float(walk.get("within", 150)), ctx)
+        obs["drive"] = walk_script(walk["to"], float(walk.get("within", 150)), ctx, bool(walk.get("follow")))
         obs["drive_frames"] = int(walk.get("max_frames", WALK_FRAMES))
         obs["drive_end"] = release_script()
         approach = float(walk.get("approach", WALK_APPROACH))
