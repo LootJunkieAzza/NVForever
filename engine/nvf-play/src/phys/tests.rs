@@ -208,7 +208,8 @@ fn the_cell_underfoot_never_waits_for_the_loader() {
 fn placed_water_comes_and_goes_with_its_cell() {
     let (d, sim) = (play_data(), sim());
     let ctx = LoadCtx { d: &d, sim: &sim, data: None };
-    let mut p = state(false);
+    // Only the cell underfoot goes in: the neighbours wait for a loader that never runs.
+    let mut p = state(true);
     let pond = [2000.0, 3500.0, 50.0];
     assert_eq!(p.world.water_surface_for(pond), None);
     p.stream(&ctx, centre(0, 0), CELLS_PER_FRAME);
