@@ -137,9 +137,9 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
   wiki warns not to use it while the Pip-Boy is open (keys stop responding); the bot never
   opens the Pip-Boy. It closed SunnyRef's dialogue cleanly after 40 samples (600 game
   loops) and the clock went on [observed 2026-10-08, plugin version 6].
-  Campaigns: `tools/capture/observe/goodsprings.campaign.json` (save `nvftest`),
-  `goodsprings_npc.campaign.json` (owner's save `nvfNPC`, Joe Cobb enabled; also tracks
-  the Powder Gangers GSPG01Ref–GSPG06Ref) and `goodsprings_fight.campaign.json` (save
+  Campaigns: `tools/capture/observe/goodsprings.campaign.json` (save `nvftest`) and
+  `goodsprings_fight.campaign.json` (also tracks the Powder Gangers GSPG01Ref–GSPG06Ref;
+  save
   `nvfCombatTown`, just before the settlers' fight with the Powder Gangers, the player
   right behind SunnyRef outside as she heads to it: no teleport, no clock change, the
   player follows SunnyRef (`walk` with `follow`), god mode by `tgm` so the player is not
