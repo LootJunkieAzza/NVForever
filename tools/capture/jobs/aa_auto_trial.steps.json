@@ -1,0 +1,83 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_auto_trial",
+ "title": "Automatic-run trial (read-only, a few seconds)",
+ "start": "Any save (read-only: changes nothing).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetNumLoadedMods\nSetFunctionValue fV\nEnd\n",
+   "label": "auto_trial",
+   "field": "loaded_mods"
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "auto_trial",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "auto_trial",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "auto_trial",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "auto_trial",
+   "field": "pos.z"
+  }
+ ]
+}

@@ -5,6 +5,7 @@
 //! Everything goes through xNVSE's plugin interface and the game's script language;
 //! the plugin reads no game memory. It writes only into the capture directory.
 
+pub mod auto;
 pub mod ffi;
 pub mod runner;
 
@@ -17,10 +18,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use auto::{Auto, AutoAction, AutoState, AUTO_FILE, AUTO_USED_FILE};
 use ffi::*;
 use runner::{Event, Host, Job, Runner, Value};
 
-pub const PLUGIN_VERSION: u32 = 1;
+pub const PLUGIN_VERSION: u32 = 2;
 const PLUGIN_NAME: &CStr = c"NVForeverCapture";
 pub const DEFAULT_DIR: &str = r"C:\fnv-private\capture";
 
@@ -52,6 +54,31 @@ pub fn scan_jobs(dir: &Path, log: &mut dyn FnMut(String)) -> Vec<Job> {
         }
     }
     jobs
+}
+
+/// Reads the automatic-run control file, if any, and renames it so that the next
+/// launch is a normal session (docs/spec-notes/xnvse-capture.md §4).
+pub fn take_auto(dir: &Path, now: u64, log: &mut dyn FnMut(String)) -> Option<Auto> {
+    let path = dir.join(AUTO_FILE);
+    let text = fs::read_to_string(&path).ok()?;
+    if let Err(e) = fs::rename(&path, dir.join(AUTO_USED_FILE)) {
+        log(format!("cannot rename {}: {e}; ignoring it", path.display()));
+        return None;
+    }
+    match Auto::parse(&text, now) {
+        Ok(Some(a)) => {
+            log(format!("automatic run: {} menu line(s), {} quit line(s)", a.menu_console.len(), a.quit_console.len()));
+            Some(a)
+        }
+        Ok(None) => {
+            log(format!("{AUTO_FILE} has expired; normal session"));
+            None
+        }
+        Err(e) => {
+            log(format!("{AUTO_FILE} not usable ({e}); normal session"));
+            None
+        }
+    }
 }
 
 /// PostLoadGame's success flag. xNVSE passes the bool *in* the message's data field,
@@ -146,6 +173,10 @@ struct Plugin {
     host: GameHost,
     /// Output file of the running job.
     out: Option<(String, fs::File)>,
+    /// Automatic run (`auto.json`), if one was requested.
+    auto: Option<AutoState>,
+    /// Game loops seen so far (the first one is logged).
+    loops: u64,
 }
 
 // SAFETY: the plugin state is only touched from xNVSE callbacks on the game's main
@@ -165,6 +196,30 @@ fn log_to(dir: &Path, msg: &str) {
 impl Plugin {
     fn log(&self, msg: &str) {
         log_to(&self.dir, msg);
+    }
+
+    fn run_console(&mut self, what: &str, lines: &[String]) {
+        for line in lines {
+            self.log(&format!("automatic run: {what} console {line:?}"));
+            let r = self.host.console(line);
+            self.log(&format!("automatic run: {what} console {line:?}: {}", if r.is_ok() { "ok" } else { "failed" }));
+        }
+    }
+
+    /// The automatic run's main-menu and quit lines, once per game loop.
+    fn auto_tick(&mut self) {
+        let Some(a) = &mut self.auto else { return };
+        match a.tick() {
+            Some(AutoAction::RunMenuConsole) => {
+                let lines = a.cfg.menu_console.clone();
+                self.run_console("menu", &lines);
+            }
+            Some(AutoAction::RunQuitConsole) => {
+                let lines = a.cfg.quit_console.clone();
+                self.run_console("quit", &lines);
+            }
+            None => {}
+        }
     }
 
     fn handle(&mut self, events: Vec<Event>) {
@@ -204,6 +259,12 @@ impl Plugin {
                     self.out = None;
                     self.log(&format!("aborted {job}"));
                 }
+                Event::AllDone => {
+                    if let Some(a) = &mut self.auto {
+                        a.all_done();
+                    }
+                    self.log("automatic run: no job left");
+                }
             }
         }
     }
@@ -228,8 +289,16 @@ unsafe extern "C" fn on_message(msg: *mut Message) {
             let dir = p.dir.clone();
             let jobs = scan_jobs(&dir, &mut |s| log_to(&dir, &s));
             p.log(&format!("save loaded; {} pending job(s)", jobs.len()));
+            if let Some(a) = &mut p.auto {
+                a.game_loaded();
+            }
             p.runner.game_loaded(jobs, &mut p.host)
         } else {
+            p.loops += 1;
+            if p.loops == 1 {
+                p.log("first game loop");
+            }
+            p.auto_tick();
             p.runner.tick(&mut p.host)
         };
         p.handle(events);
@@ -290,9 +359,12 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NvseInterface) -> bool {
         }
         let handle = (n.get_plugin_handle)();
         let host = GameHost { console: &*console, script: &*script, compiled: HashMap::new() };
-        let runner = Runner::new(PLUGIN_VERSION, n.nvse_version, n.runtime_version);
+        let mut runner = Runner::new(PLUGIN_VERSION, n.nvse_version, n.runtime_version);
+        let auto = take_auto(&dir, now(), &mut |s| log_to(&dir, &s));
+        runner.set_auto_start(auto.as_ref().map(|a| a.start_frames));
+        let auto = auto.map(AutoState::new);
         if let Ok(mut g) = PLUGIN.lock() {
-            *g = Some(Plugin { dir: dir.clone(), runner, host, out: None });
+            *g = Some(Plugin { dir: dir.clone(), runner, host, out: None, auto, loops: 0 });
         }
         let ok = ((*messaging).register_listener)(handle, c"NVSE".as_ptr(), on_message);
         log_to(&dir, &format!("loaded (listener registered: {ok}); capture directory {}", dir.display()));
@@ -321,6 +393,23 @@ mod tests {
         assert_eq!(capture_dir(None), PathBuf::from(DEFAULT_DIR));
         assert_eq!(capture_dir(Some("; comment\ndir= D:\\caps \n")), PathBuf::from("D:\\caps"));
         assert_eq!(capture_dir(Some("dir=\n")), PathBuf::from(DEFAULT_DIR));
+    }
+
+    #[test]
+    fn take_auto_renames_the_file_and_honours_expiry() {
+        let base = std::env::temp_dir().join(format!("nvf_capture_auto_{}", std::process::id()));
+        fs::create_dir_all(&base).unwrap();
+        let mut logged = Vec::new();
+        assert!(take_auto(&base, 0, &mut |s| logged.push(s)).is_none(), "no file: normal session");
+        let file = r#"{"format": "fnv.capture.auto/1", "expires": 100, "menu_console": ["load x"]}"#;
+        fs::write(base.join(AUTO_FILE), file).unwrap();
+        let a = take_auto(&base, 50, &mut |s| logged.push(s)).unwrap();
+        assert_eq!(a.menu_console, ["load x"]);
+        assert!(!base.join(AUTO_FILE).exists() && base.join(AUTO_USED_FILE).exists());
+        fs::write(base.join(AUTO_FILE), file).unwrap();
+        assert!(take_auto(&base, 101, &mut |s| logged.push(s)).is_none(), "expired");
+        assert!(!base.join(AUTO_FILE).exists(), "an expired file is renamed too");
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]

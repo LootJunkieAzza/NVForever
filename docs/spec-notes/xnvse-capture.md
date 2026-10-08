@@ -93,6 +93,18 @@ hex text; needs a ref variable), `GetNumItems`, `GetInventoryObject`,
   "nvse_version", "runtime_version"}`, then one `{"kind": "result", "step", "label",
   "field", "value" | "error"}` per query (`value`: number, string or null), then
   `{"kind": "end", "steps"}`; a job is moved to `jobs\done\` only after its end line.
+- **Automatic runs** (plugin version 2): if the capture directory holds `auto.json`
+  (`fnv.capture.auto/1`: `expires` Unix seconds, `menu_console` lines, `menu_frames`
+  (default 300), `start_frames` (120), `quit_console` lines, `quit_frames` (60)) when the
+  plugin loads, and it has not expired, the plugin renames it to `auto.used.json` (so
+  the next launch is a normal session) and then: counts game loops before any save has
+  loaded and runs the `menu_console` lines once after `menu_frames` of them; after a
+  save load starts each pending job by itself `start_frames` loops after it is announced
+  (End is not needed; **manual steps still wait for End**); when no job is left, runs the
+  `quit_console` lines once after `quit_frames` loops. Every console line and its result
+  is logged. A missing, expired or unreadable file means a normal session.
+  `capture_run.py` writes the file, starts the game through `nvse_loader.exe`, waits
+  for the end lines and removes the file again if the plugin never read it.
 - Every job starts with one query per master, label `__modindex__`, field = plugin
   name, value = `GetModIndex` (255 = not loaded), so load-order FormIDs in the output can
   be mapped back to plugin + local FormID (`capture_steps.py`).
@@ -137,6 +149,15 @@ float variable (inventory slots), `Activate`, `EquipItem`, `Lock`, `Drop`; failu
 recorded per step, not fatal.
 
 ## 6. Open points
+
+- Automatic runs rest on three [hypothesis] points, to be settled by the trial job
+  `tools/capture/jobs/aa_auto_trial.steps.json` (read-only) on the owner's install:
+  (1) xNVSE sends MainGameLoop while the main menu is shown (the log's "first game loop"
+  line comes before "save loaded"); (2) the console line `load <save file name without
+  .fos>` run through `RunScriptLine` at the main menu loads that save; (3) `qqq` closes
+  the game. The console lines are data in `auto.json`, so a different line needs no
+  plugin rebuild. Also untested: whether `save <name>` typed in the console writes
+  `<name>.fos` (capture_run.py checks for that file in the default Saves folder).
 
 - Fractional game time (GameHour, GameDaysPassed after waiting) needs a capture that can
   stop or account for the running clock without crashing the game; not observed yet.
