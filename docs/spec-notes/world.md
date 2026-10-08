@@ -188,6 +188,14 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
 - **Worldspace → climate and water**: WRLD `CNAM` (climate) and `NAM2` (water type);
   child worldspaces may take them from their parent (PNAM flags) [documented]. The
   Mojave uses NVDefaultClimate [observed].
+- **Child worldspaces** [observed: `fnvtool world list`, `fnvtool esm decode`, the ten
+  masters]: 17 WRLD name a parent (`WNAM`: 12 the Mojave, 1 Big MT, 4 NVDLC04DivideVistaWorld).
+  Every one sets `PNAM` = 4, "Use Map Data" only, and carries its own `CNAM`, `NAM2`,
+  `INAM` and `DNAM`; the Freeside worldspaces use NVUrbanClearClimate, TheStripWorldNew
+  NVtheStripClimate, NVDLC03Higgs NVDefaultClimate. NVForever reads each worldspace's
+  own records (renderer and physics); taking land, water, climate or image space from
+  the parent by the other PNAM bits is not implemented, since no shipped worldspace sets
+  them (`nvf-play` logs a warning when one does).
 - **Climate (CLMT)**: `WLST` = list of (weather, chance i32, global variable) [documented];
   `FNAM`/`GNAM` sun and glare textures; `TNAM` = sunrise begin/end, sunset begin/end,
   volatility, moons, with times in 10-minute units (value / 6 = hours) [documented]. The
