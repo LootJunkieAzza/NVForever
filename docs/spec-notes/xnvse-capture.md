@@ -150,10 +150,19 @@ recorded per step, not fatal.
 
 ## 6. Open points
 
-- Automatic runs rest on three [hypothesis] points, to be settled by the trial job
+- First automatic trial (2026-10-08) [observed]: xNVSE sends MainGameLoop while the main
+  menu is shown (the log's "first game loop" came 2 s after the plugin loaded, before any
+  save load). The console line `load nvftest`, run from the plugin's MainGameLoop handler,
+  started loading the save and did not return; the plugin still held its own lock, the
+  game's next message to the plugin waited for that lock, and the game hung on the
+  loading screen ("Not Responding") [hypothesis for the mechanism: the save loads inside
+  the console call and xNVSE dispatches messages from there]. Plugin fix: console lines
+  of automatic runs run with the lock released, and a message that arrives while the
+  plugin is busy never waits (a save load is handled at the next message, a game loop is
+  skipped). capture_run.py now gives up when the game stays "Not Responding" for 120 s.
+- Automatic runs still rest on [hypothesis] points, to be settled by the trial job
   `tools/capture/jobs/aa_auto_trial.steps.json` (read-only) on the owner's install:
-  (1) xNVSE sends MainGameLoop while the main menu is shown (the log's "first game loop"
-  line comes before "save loaded"); (2) the console line `load <save file name without
+  (2) the console line `load <save file name without
   .fos>` run through `RunScriptLine` at the main menu loads that save; (3) `qqq` closes
   the game. The console lines are data in `auto.json`, so a different line needs no
   plugin rebuild. Also untested: whether `save <name>` typed in the console writes
