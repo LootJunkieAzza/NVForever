@@ -197,6 +197,31 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   (day), 12 h (high noon), sunset begin (day), mid-sunset (sunset), sunset end (night),
   24 h (midnight). Sun: rises due east at mid-sunrise, sets due west at mid-sunset, path
   tilted south. Verify against in-game screenshots at several hours.
+- **High-noon and midnight colours look unset** [observed,
+  `crates/fnv-world/examples/weather_dump.rs --survey`]: of the 90 six-time weathers, 67
+  have a black midnight ambient (64 of them with a non-black night ambient, among them
+  NVWastelandClear), 59 a black midnight sunlight, and 29 black high-noon colours.
+  NVWastelandClear's midnight horizon is (43, 200, 213), a saturated cyan, and its
+  high-noon "unused" and "effect" entries are pure green. Blending them in made
+  midnight black under a cyan sky in the renderer. The renderers use only sunrise,
+  day, sunset and night (midnight → night, high noon → day) [hypothesis].
+- **Sky meshes** [observed, `meshes\sky\` in `Fallout - Meshes.bsa`; no record names them,
+  so the engine presumably loads them by path]: `atmosphere.nif` is one dome (radius
+  ~503, z −164..250) with a SkyShaderProperty (sky object type 2) and vertex colours that
+  act as blend weights: red is 1 below the horizon and fades out by z ≈ 137, green peaks
+  around z 50..140 (just above the horizon), blue rises to ~0.5-0.7 towards the zenith.
+  Read as red·sky-lower + green·horizon + blue·sky-upper [hypothesis]. `clouds.nif` holds four shapes,
+  in order `CloudDome` (z 0..250), `HorizonLayerClear`, `HorizonLayerOvercast` and
+  `LowerLayer` (z −38..100), each with a default cloud texture, vertex colour (1, 0, 0)
+  and an alpha that fades the layer out towards the horizon. `stars.nif` is a small
+  starfield sphere (`SkyStars.dds`). The renderer puts weather cloud layer i (DNAM, CNAM,
+  ANAM, BNAM; colours PNAM, 4 or 6 per layer like NAM0) on the i-th shape [hypothesis:
+  NVWastelandClearNight fills layer 0 with `NVWastelandStarfieldSky.dds`, NVWastelandClear
+  fills layer 3 with `NVCloudlight.dds`, both leave the others at `sky\alpha.dds`].
+  Cloud speeds (ONAM) are 52, 0, 0, 65 for both; their unit is unknown.
+- **Night weather**: NVWastelandClearNight is gated by the global `VNight` (0 in the
+  masters), so with globals as stored the clear day weather is used at night too;
+  presumably a script sets `VNight` at night [hypothesis, Layer 4].
 - **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
   the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
   [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600
