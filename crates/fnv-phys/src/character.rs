@@ -10,9 +10,10 @@
 //! the original game [hypothesis]; physics.md §6 lists what to capture.
 
 use crate::convert::{arr3, vec3};
-use crate::world::{Key, Owner, PhysWorld};
+use crate::world::{Key, Owner, PhysWorld, TERRAIN_SHELL};
 use rapier3d::control::{CharacterAutostep, CharacterCollision, CharacterLength, KinematicCharacterController};
 use rapier3d::math::{Pose, Vector};
+use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
@@ -53,6 +54,21 @@ impl Default for CharacterParams {
     }
 }
 
+impl CharacterParams {
+    /// Gap the capsule keeps from a support whose contact shell is `shell` (game units):
+    /// the shell, never less than the numerical `skin`. The one rule for where a
+    /// character rests, used by the walking controller and by the arrival after a
+    /// teleport (physics.md §6.2) [observed: rest heights above terrain and statics; that
+    /// the excess is a shell is [hypothesis]].
+    pub fn rest_gap(&self, shell: f32) -> f32 {
+        if shell.is_finite() {
+            shell.max(self.skin)
+        } else {
+            self.skin
+        }
+    }
+}
+
 /// Per-step input.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct CharacterInput {
@@ -70,6 +86,8 @@ pub struct CharacterStep {
     pub sliding: bool,
     /// Downward speed at touchdown, when this step landed (fall damage input).
     pub landed_speed: Option<f32>,
+    /// Gap kept from the support this step ([`CharacterParams::rest_gap`]).
+    pub gap: f32,
     /// Entities touched during the step, sorted.
     pub touched: Vec<Owner>,
 }
@@ -88,6 +106,9 @@ pub struct Character {
     /// Reference colliders on these layers do not block the character; default
     /// [`crate::layers::character_ignores`] [hypothesis].
     pub ignore_layers: crate::layers::LayerSet,
+    /// Gap kept from the support (the controller's offset), from the last support found
+    /// ([`CharacterParams::rest_gap`]).
+    pub gap: f32,
 }
 
 impl Character {
@@ -106,7 +127,7 @@ impl Character {
         let p = &self.params;
         KinematicCharacterController {
             up: Vector::Z,
-            offset: CharacterLength::Absolute(p.skin * k),
+            offset: CharacterLength::Absolute(self.gap.max(p.skin) * k),
             slide: true,
             autostep: (p.step_height > 0.0).then_some(CharacterAutostep {
                 max_height: CharacterLength::Absolute(p.step_height * k),
@@ -140,6 +161,7 @@ impl PhysWorld {
             vertical_speed: 0.0,
             grounded: false,
             ignore_layers: crate::layers::character_ignores(),
+            gap: params.skin,
         };
         let body =
             self.insert_body(RigidBodyBuilder::kinematic_position_based().translation(c.center(self.k)).user_data(owner.encode()));
@@ -165,6 +187,12 @@ impl PhysWorld {
 
     /// One fixed step of character movement (call once per [`PhysWorld::step`], before
     /// it, with the same `dt`).
+    ///
+    /// The capsule keeps the contact shell of what it stands on between itself and the
+    /// bare surface ([`CharacterParams::rest_gap`], the rule the arrival uses, physics.md
+    /// §6.2): before moving, a short downward sweep finds the support; its gap becomes the
+    /// controller's offset for the step, and a capsule closer to a walkable support than
+    /// that gap (e.g. having walked from a static floor onto terrain) is lifted to it.
     pub fn move_character(&mut self, c: &mut Character, input: CharacterInput) -> CharacterStep {
         self.update_queries();
         let dt = self.params.dt;
@@ -178,19 +206,76 @@ impl PhysWorld {
         }
         let k = self.k;
         let desired = Vector::new(input.velocity[0] * dt, input.velocity[1] * dt, c.vertical_speed * dt);
-        let kcc = c.controller(k);
-        let pos = Pose::from_translation(c.center(k));
-        let mut collisions: Vec<CharacterCollision> = Vec::new();
         let ignore = c.ignore_layers;
         let solid = move |_: ColliderHandle, co: &Collider| match Owner::decode(co.user_data) {
             Some(Owner::Ref { layer, .. }) => !ignore.contains(layer),
             _ => true,
         };
         let filter = QueryFilter::default().exclude_sensors().exclude_rigid_body(c.body).predicate(&solid);
-        let moved = {
+        let walkable = c.params.max_slope_deg.to_radians().cos();
+
+        // The support and the gap to keep from it.
+        let reach = c.params.step_height + 2.0 * TERRAIN_SHELL + (-desired.z).max(0.0);
+        let support = {
+            let q = self.w.query_pipeline_with_filter(filter);
+            let opts = ShapeCastOptions {
+                max_time_of_impact: reach * k,
+                target_distance: 0.0,
+                stop_at_penetration: true,
+                compute_impact_geometry_on_penetration: true,
+            };
+            q.cast_shape(&Pose::from_translation(c.center(k)), -Vector::Z, c.shape.as_ref(), opts)
+                .map(|(h, hit)| (h, hit.time_of_impact / k, hit.normal1))
+        };
+        if let Some((h, toi, n)) = support {
+            c.gap = c.params.rest_gap(self.shell_of(h));
+            let want = c.gap / n.z.max(walkable);
+            if n.z >= walkable && c.vertical_speed <= 0.0 && toi < want - 1e-3 {
+                let mut lift = want - toi;
+                let q = self.w.query_pipeline_with_filter(filter);
+                let opts = ShapeCastOptions {
+                    max_time_of_impact: lift * k,
+                    target_distance: c.params.skin * k,
+                    stop_at_penetration: false,
+                    compute_impact_geometry_on_penetration: true,
+                };
+                if let Some((_, up)) = q.cast_shape(&Pose::from_translation(c.center(k)), Vector::Z, c.shape.as_ref(), opts) {
+                    lift = lift.min(up.time_of_impact / k);
+                }
+                c.feet[2] += lift;
+            }
+        }
+
+        let kcc = c.controller(k);
+        let pos = Pose::from_translation(c.center(k));
+        let mut collisions: Vec<CharacterCollision> = Vec::new();
+        let mut moved = {
             let q = self.w.query_pipeline_with_filter(filter);
             kcc.move_shape(dt, &q, c.shape.as_ref(), &pos, desired * k, |hit| collisions.push(hit))
         };
+        let mut touched_handles: Vec<ColliderHandle> = collisions.iter().map(|h| h.handle).collect();
+        let horizontal = [desired.x, desired.y];
+        // rapier 0.36 drops the whole remaining horizontal motion when its sweep meets an
+        // exactly level surface and the slide's tangent comes out a hair below horizontal
+        // (the slope tangent direction is degenerate for a vertical normal): about one step
+        // in sixty of a walk across flat ground went nowhere [observed: tests]. Continue
+        // such a step with the horizontal motion it lost.
+        for _ in 0..2 {
+            let want = Vector::new(horizontal[0], horizontal[1], 0.0) * k;
+            let missing = want - Vector::new(moved.translation.x, moved.translation.y, 0.0);
+            let level_only = !collisions.is_empty() && collisions.iter().all(|h| h.hit.normal1.z > LEVEL);
+            if !level_only || want.length() < 1e-9 || missing.dot(want) <= 1e-3 * want.length_squared() {
+                break;
+            }
+            collisions.clear();
+            let from = Pose::from_translation(pos.translation + moved.translation);
+            let q = self.w.query_pipeline_with_filter(filter);
+            let more = kcc.move_shape(dt, &q, c.shape.as_ref(), &from, missing, |hit| collisions.push(hit));
+            touched_handles.extend(collisions.iter().map(|h| h.handle));
+            moved.translation += more.translation;
+            moved.grounded = more.grounded;
+            moved.is_sliding_down_slope = more.is_sliding_down_slope;
+        }
         if c.params.push_mass > 0.0 && !collisions.is_empty() {
             let w = &mut self.w;
             let mut q = w.broad_phase.as_query_pipeline_mut(
@@ -217,10 +302,12 @@ impl PhysWorld {
         c.feet = arr3(vec3(c.feet) + moved.translation / k);
         self.w.bodies[c.body].set_next_kinematic_translation(c.center(k));
         let mut touched: Vec<Owner> =
-            collisions.iter().filter_map(|h| Owner::decode(self.w.colliders.get(h.handle)?.user_data)).collect();
+            touched_handles.iter().filter_map(|&h| Owner::decode(self.w.colliders.get(h)?.user_data)).collect();
         touched.sort();
         touched.dedup();
-        CharacterStep { feet: c.feet, grounded: c.grounded, sliding: moved.is_sliding_down_slope, landed_speed, touched }
+        CharacterStep { feet: c.feet, grounded: c.grounded, sliding: moved.is_sliding_down_slope, landed_speed, gap: c.gap, touched }
     }
-
 }
+
+/// Normal z above which a hit counts as an exactly level surface (see `move_character`).
+const LEVEL: f32 = 0.99999;
