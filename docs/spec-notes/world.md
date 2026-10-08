@@ -99,6 +99,20 @@ apart and the last row/column coincides with the neighbour's first.
   default). Each `ATXT` adds a layer (LTEX, quadrant, layer number) whose opacity per
   vertex is given by the following `VTXT`: a list of (position, opacity f32) where
   position indexes a 17 × 17 grid over the quadrant. LTEX names a texture set (TXST).
+- **Alpha grid orientation** [observed]: VTXT position = row × 17 + column, rows south →
+  north, columns west → east. Neighbouring quadrants share an edge of the grid; for a
+  texture layered on both sides, the edge opacities agree (within 1/255) for 38,039 of
+  44,753 edges inside cells and 35,100 of 43,039 across cells in WastelandNV. The best
+  of the other seven orientations of the square agrees for 21,946 and 20,033.
+  Reproduce with `crates/fnv-world/examples/land_layers.rs`.
+- **Default texture** [documented: the game's `Fallout_default.ini`,
+  `SDefaultLandDiffuseTexture=DirtWasteland01.dds`]: 51,000 of 65,552 WastelandNV
+  quadrants have no BTXT (most of them outside the map; cell (−14, −6) south of
+  Goodsprings has one), and some ATXT layers name a null LTEX [observed]. The renderer
+  uses `textures\landscape\dirtwasteland01.dds` for both. It is the only file of that
+  name in the archives, so it is probably the INI's file [hypothesis]. Before this change
+  those quadrants were drawn untextured, which showed as hard-edged patches along quadrant
+  edges (owner's screenshot, 2026-10-08) [observed].
 
 ## 4. Reference rotation convention
 
@@ -244,6 +258,34 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   the weathers over half a game hour [placeholder; WTHR DATA "trans delta" not
   understood]. NVWastelandClearNight has no clouds (`skylpha.dds` on layers 1-3) and a
   darker night ambient (121, 128, 213) than NVWastelandClear (172, 170, 215).
+- **Star texture alpha** [observed]: `SkyStars.dds` (512², DXT5) has colour in 6,225
+  texels but non-zero alpha in only ~430, and its shader property sets the
+  alpha-texture flag. The owner's in-game night shots show sparse, faint stars, so the
+  renderer weights star colour by texture alpha (additive) [hypothesis].
+- **Image space** [documented: xEdit wbDefinitionsFNV.pas IMGS, IMAD, WTHR, WRLD]: WRLD
+  `INAM` names the worldspace's image space (IMGS); WTHR ` IAD`..`IAD` name one
+  image space adapter (IMAD) per time of day (sunrise, day, sunset, night, high noon,
+  midnight). IMGS `DNAM` holds HDR, bloom, get-hit, night-eye and cinematic values
+  (saturation, contrast average luminance, contrast, brightness, tint colour and value);
+  the cinematic block starts at byte 100 from form version 10 (skin dimmer added) and at
+  96 before [documented]; DNAM sizes 152 (69 records), 148 (12) and 132 (11) [observed].
+  IMAD keeps multiply/add key lists (time, value) per parameter (`IAD`..`IAD`
+  multiply and `QIAD`..`TIAD` add for the cinematic ones) and a tint colour key list
+  (TNAM: time, RGBA). WastelandNV → NVDefaultExterior: saturation 1.1, contrast 1.1 around
+  luminance 0.2, brightness 1.0, tint (0.98, 0.57, 0.00) at 0.33 [observed]. NVWastelandClear
+  (and ClearNight) link NVWastelandSunriseIS, NVWastelandIS (day and high noon),
+  NVWastelandSunsetIS and NVWastelandNightIS. At time 0 their keys are: day brightness
+  ×1.3, amber tint (1.0, 0.74, 0.05) at 0.39; sunset saturation ×0.8, contrast +0.3, tint
+  (1.0, 0.44, 0.10) at 0.39; night contrast ×1.2, tint (0.22, 0.47, 0.93) at 0.63
+  [observed]. Later keys look like defaults (tint white at 0 or pure blue at 1).
+  The renderer grades the tonemapped picture with the base image space × each adapter's
+  time-0 keys (value × mult + add), the adapter tint giving the colour and scaling the
+  base tint amount, blended by time of day like the weather colours [hypothesis, chosen
+  against the owner's screenshots: replacing the amount made night far too blue].
+  Formula on display values: saturation around luminance, tint towards
+  luminance × tint colour, brightness factor, contrast around the average luminance
+  [hypothesis]. The IMGS flags byte (saturation, contrast, tint, brightness) is 0 in
+  NVDefaultExterior; its role is unknown. HDR eye adaptation is not applied.
 - **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
   the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
   [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600
@@ -374,9 +416,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
 ## 9. Open questions
 
 1. Engine-defined base objects (FormIDs < 0x800): which are visible? (Assumed none.)
-2. Texture-layer details: quadrant order, blending of `layer` numbers, the default
-   texture when `BTXT` is absent, and how the 17 × 17 alpha grid maps to vertices.
-   Verify by comparing renders with in-game screenshots.
+2. Texture-layer details: quadrant order and blending of `layer` numbers. (The alpha
+   grid orientation and the default texture are in §3.) Verify by comparing renders with
+   in-game screenshots.
 3. XCLW sentinel 3.4028235e38: confirm that the worldspace water height applies.
    Water drawing (§6): fog distance measure, the fog amounts and ANAM opacity, noise
    layer units; to settle with in-game captures at Lake Mead at several heights and
