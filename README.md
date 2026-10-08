@@ -17,7 +17,8 @@ viewer renders meshes with textures, skinning and animation
 | 1 | BSA reader, ESM/ESP parser, load order, schemas | container + load order complete; layouts for 40/107 record types; xEdit cross-check pending |
 | 2 | NIF, DDS, KF assets, viewer | 160/160 block types, 1,036,695 blocks exact; 56/56 parity scenarios; viewer (owner visual check pending) |
 | 3 | World and rendering | in progress: world data checked on the full load order; free-camera explorer draws terrain and objects (no LOD, sky, water or SpeedTree yet) |
-| 4–7 | Simulation, scripting, gameplay, UI/audio/saves | not started |
+| 4 | Core simulation | started: headless `fnv-sim` (forms, references, inventories, leveled lists, activation, delta state, action traces); container contents match an independent oracle; collision next ([docs/design/layer4.md](docs/design/layer4.md)) |
+| 5–7 | Scripting, gameplay, UI/audio/saves | not started |
 
 ## Where things go (separate from the game)
 
@@ -69,6 +70,7 @@ crates/
   fnv-dds       DDS: header, formats, mip layout
   fnv-vfs       read-only virtual file system (archives in precedence order + loose files)
   fnv-world     worldspaces, cells, references, landscape across a load order
+  fnv-sim       Layer 4 core simulation: forms, references, inventories, activation (headless)
   fnvtool       CLI used by the parity lab (JSON on stdout)
 engine/         Bevy workspace (its own): nvf-assets, nvf-viewer (asset viewer), nvforever (game)
 schemas/fnv/    record layouts as data (fnv.schema/1)
