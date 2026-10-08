@@ -32,8 +32,8 @@ const WIND_DIRECTION_DEG: f32 = 30.0;
 pub struct WindParams {
     /// xyz: wind direction (Bevy world space, horizontal, unit); w: strength 0-1.
     pub wind: Vec4,
-    /// x: time (s); y: rock angular speed; z: rustle angular speed (rad/s); w: tree
-    /// height in the mesh's own units.
+    /// x: unused (time comes from the view globals); y: rock angular speed; z: rustle
+    /// angular speed (rad/s); w: tree height in the mesh's own units.
     pub motion: Vec4,
 }
 
@@ -108,14 +108,16 @@ fn angular_speeds(rock: f32, rustle: f32) -> (f32, f32) {
     (tau * (0.2 + 0.6 * rock.max(0.0)), tau * (0.5 + 1.5 * rustle.max(0.0)))
 }
 
-/// Feed every tree material the time and the weather's wind (WTHR DATA wind speed / 255,
-/// faded with the weather; none indoors).
+/// Give every tree material the weather's wind (WTHR DATA wind speed / 255, faded with
+/// the weather; none indoors). Materials are only touched when the wind or the set of
+/// trees changes: a changed material is prepared again with every entity drawn with it,
+/// which every frame cost a third of the frame rate while cells streamed [observed].
 fn wind(
-    time: Res<Time>,
     sky: Res<crate::sky::SkyState>,
     cache: Res<TreeCache>,
     mut leaves: ResMut<Assets<LeafMaterial>>,
     mut bark: ResMut<Assets<BarkMaterial>>,
+    mut last: Local<(Vec4, usize)>,
 ) {
     let speed = |w: &fnv_world::sky::Weather| w.wind_speed as f32 / 255.0;
     let now = speed(&sky.weather);
@@ -126,23 +128,31 @@ fn wind(
     let strength = if sky.interior.is_some() { 0.0 } else { strength };
     let a = WIND_DIRECTION_DEG.to_radians();
     // Game (x, y, z) is Bevy (x, z, -y).
-    let dir = Vec3::new(a.cos(), 0.0, -a.sin()).extend(strength);
-    let t = time.elapsed_secs();
-    let set = |w: &mut WindParams| {
-        w.wind = dir;
-        w.motion.x = t;
-    };
+    // Steps of 1/1000 so a weather fade touches the materials a few hundred times at most.
+    let dir = Vec3::new(a.cos(), 0.0, -a.sin()).extend((strength * 1000.0).round() / 1000.0);
+    let built = cache.0.len();
+    if *last == (dir, built) {
+        return;
+    }
+    *last = (dir, built);
+    let set = |w: &mut WindParams| w.wind = dir;
     for v in cache.0.values().flatten() {
         for p in &v.parts {
             match &p.material {
                 PartMaterial::Bark(h) => {
-                    if let Some(mut m) = bark.get_mut(h) {
-                        set(&mut m.extension.wind);
+                    // Read first: taking the asset mutably marks it changed.
+                    if bark.get(h).is_some_and(|m| m.extension.wind.wind != dir) {
+                        if let Some(mut m) = bark.get_mut(h) {
+                            set(&mut m.extension.wind);
+                        }
                     }
                 }
                 PartMaterial::Leaves(h) => {
-                    if let Some(mut m) = leaves.get_mut(h) {
-                        set(&mut m.extension.wind);
+                    // Read first: taking the asset mutably marks it changed.
+                    if leaves.get(h).is_some_and(|m| m.extension.wind.wind != dir) {
+                        if let Some(mut m) = leaves.get_mut(h) {
+                            set(&mut m.extension.wind);
+                        }
                     }
                 }
             }

@@ -17,16 +17,20 @@
     mesh_view_bindings::view,
     view_transformations::position_world_to_clip,
 }
+#import bevy_render::globals::Globals
 #ifdef PREPASS_PIPELINE
 #import bevy_pbr::prepass_io::{Vertex, VertexOutput}
+// The prepass view bind group holds the globals at binding 1 (the main pass at 11).
+@group(0) @binding(1) var<uniform> globals: Globals;
 #else
 #import bevy_pbr::forward_io::{Vertex, VertexOutput}
+#import bevy_pbr::mesh_view_bindings::globals
 #endif
 
 struct TreeWind {
     // xyz: wind direction (world, horizontal, unit); w: strength 0-1.
     wind: vec4<f32>,
-    // x: time (s); y: rock angular speed; z: rustle angular speed (rad/s); w: tree
+    // x: unused; y: rock angular speed; z: rustle angular speed (rad/s); w: tree
     // height in local units.
     motion: vec4<f32>,
 }
@@ -50,7 +54,8 @@ fn rock(world_from_local: mat4x4<f32>, local: vec3<f32>) -> vec3<f32> {
     let h = clamp(local.z / height, 0.0, 1.5);
     // Each tree has its own phase, from where it stands.
     let phase = dot(origin.xz, vec2<f32>(0.0131, 0.0173));
-    let t = tree_wind.motion.x * tree_wind.motion.y;
+    // Seconds since start-up (wraps after an hour: one jump in the motion per hour).
+    let t = globals.time * tree_wind.motion.y;
     // Leaning with the wind, plus two unrelated swings.
     let swing = 0.5 + 0.35 * sin(t + phase) + 0.15 * sin(2.31 * t + 1.7 * phase);
     return tree_wind.wind.xyz * (tree_wind.wind.w * ROCK * h * h * height * scale * swing);
@@ -68,7 +73,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // Rustle: each card (all four corners share its position) gets its own phase.
     let s = length(world_from_local[0].xyz);
     let phase = dot(vertex.position, vec3<f32>(311.7, 173.3, 237.1));
-    let r = sin(tree_wind.motion.x * tree_wind.motion.z + phase);
+    let r = sin(globals.time * tree_wind.motion.z + phase);
     let a = tree_wind.wind.w * TILT * r;
     let c = cos(a);
     let sn = sin(a);
