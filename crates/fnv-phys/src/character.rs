@@ -36,6 +36,20 @@ pub struct CharacterParams {
     pub max_fall_speed: Option<f32>,
     /// Mass used to push dynamic bodies; 0 disables pushing [hypothesis].
     pub push_mass: f32,
+    /// Depth of the feet below a water surface at which a character that is not on the
+    /// ground starts to swim [observed: a fall into Lake Mead stopped between 94.5 and
+    /// 100.2 below the surface; physics.md §6.6].
+    pub swim_depth: f32,
+    /// Depth of the feet below the surface where a swimming character floats; swimming up
+    /// moves it only from this height or deeper [observed: 102.52; swimming up at 45° the
+    /// feet rose one loop's step past it and sank back to it, physics.md §6.6].
+    pub float_depth: f32,
+    /// Speed at which a swimming character above its floating height sinks to it, units/s
+    /// [observed: 12.0-12.5, physics.md §6.6].
+    pub swim_sink_speed: f32,
+    /// A jump out of the water rises this many times `jump_height` [observed: apex 124.2
+    /// against 61.6 on land; `fJumpSwimmingMult` reads 2; physics.md §6.6].
+    pub swim_jump_mult: f32,
 }
 
 impl Default for CharacterParams {
@@ -51,6 +65,10 @@ impl Default for CharacterParams {
             skin: 0.5,
             max_fall_speed: None,
             push_mass: 80.0,
+            swim_depth: 100.0,
+            float_depth: 102.5,
+            swim_sink_speed: 12.1,
+            swim_jump_mult: 2.0,
         }
     }
 }
@@ -76,6 +94,10 @@ pub struct CharacterInput {
     /// Desired horizontal velocity (x, y), units/s.
     pub velocity: [f32; 2],
     pub jump: bool,
+    /// Desired vertical velocity while swimming, units/s (positive up), e.g. the forward
+    /// speed times the sine of the view pitch: the game swims along the view [observed,
+    /// physics.md §6.6]. Ignored on land.
+    pub vertical: f32,
 }
 
 /// What one step did.
@@ -89,6 +111,8 @@ pub struct CharacterStep {
     pub landed_speed: Option<f32>,
     /// Gap kept from the support this step ([`CharacterParams::rest_gap`]).
     pub gap: f32,
+    /// Swimming after the step.
+    pub swimming: bool,
     /// Entities touched during the step, sorted.
     pub touched: Vec<Owner>,
 }
@@ -110,6 +134,10 @@ pub struct Character {
     /// Gap kept from the support (the controller's offset), from the last support found
     /// ([`CharacterParams::rest_gap`]).
     pub gap: f32,
+    /// Swimming (physics.md §6.6): no gravity, the input's vertical velocity applies.
+    /// Kept by [`PhysWorld::place_character`], as the game keeps it across `SetPos`
+    /// [observed].
+    pub swimming: bool,
 }
 
 impl Character {
@@ -137,7 +165,8 @@ impl Character {
             }),
             max_slope_climb_angle: p.max_slope_deg.to_radians(),
             min_slope_slide_angle: p.max_slope_deg.to_radians(),
-            snap_to_ground: (p.step_height > 0.0).then_some(CharacterLength::Absolute(p.step_height * k)),
+            // A swimming character is not pulled down onto what lies below it.
+            snap_to_ground: (p.step_height > 0.0 && !self.swimming).then_some(CharacterLength::Absolute(p.step_height * k)),
             ..Default::default()
         }
     }
@@ -163,6 +192,7 @@ impl PhysWorld {
             grounded: false,
             ignore_layers: crate::layers::character_ignores(),
             gap: params.skin,
+            swimming: false,
         };
         let body =
             self.insert_body(RigidBodyBuilder::kinematic_position_based().translation(c.center(self.k)).user_data(owner.encode()));
@@ -200,12 +230,31 @@ impl PhysWorld {
         self.update_queries();
         let dt = self.params.dt;
         let g = self.params.gravity;
-        if input.jump && c.grounded {
-            c.vertical_speed = (2.0 * g * c.params.jump_height.max(0.0)).sqrt();
+        let surface = self.water_surface_at(c.feet[0], c.feet[1]);
+        // Out of the water: no surface here, or the feet above it [hypothesis: the game
+        // kept swimming with the feet at the surface after a SetPos, physics.md §6.6].
+        if c.swimming && surface.is_none_or(|s| c.feet[2] > s) {
+            c.swimming = false;
         }
-        c.vertical_speed -= g * dt;
-        if let Some(max) = c.params.max_fall_speed {
-            c.vertical_speed = c.vertical_speed.max(-max);
+        if let (true, Some(s)) = (c.swimming, surface) {
+            // Jumping works only above the floating height, and leaves the water [observed:
+            // tapped 61 below the surface while sinking, a jump of twice the land height;
+            // tapped twice at the floating height, nothing; physics.md §6.6].
+            if input.jump && c.feet[2] > s - c.params.float_depth + FLOAT_TOLERANCE {
+                c.swimming = false;
+                c.vertical_speed = (2.0 * g * (c.params.jump_height * c.params.swim_jump_mult).max(0.0)).sqrt();
+            } else {
+                c.vertical_speed = swim_vertical(&c.params, c.feet[2], s, input.vertical, dt);
+            }
+        }
+        if !c.swimming {
+            if input.jump && c.grounded {
+                c.vertical_speed = (2.0 * g * c.params.jump_height.max(0.0)).sqrt();
+            }
+            c.vertical_speed -= g * dt;
+            if let Some(max) = c.params.max_fall_speed {
+                c.vertical_speed = c.vertical_speed.max(-max);
+            }
         }
         let k = self.k;
         let mut desired = Vector::new(input.velocity[0] * dt, input.velocity[1] * dt, c.vertical_speed * dt);
@@ -254,7 +303,7 @@ impl PhysWorld {
         // cosine, where sliding the flat velocity along the slope gives the cosine
         // squared (244) [observed: L4.phys.walk.porch_steps capture, physics.md §6.3].
         // Down a slope the flat velocity is kept, as before [hypothesis: not captured].
-        if let Some((_, _, n)) = support.filter(|&(_, toi, n)| c.grounded && c.vertical_speed <= 0.0 && n.z >= walkable && n.z < LEVEL && toi < c.gap / n.z + 1.0) {
+        if let Some((_, _, n)) = support.filter(|&(_, toi, n)| !c.swimming && c.grounded && c.vertical_speed <= 0.0 && n.z >= walkable && n.z < LEVEL && toi < c.gap / n.z + 1.0) {
             // In the vertical plane of the heading: the game kept its heading across a
             // slope that also fell to the side [observed: L4.phys.walk.hill_run], where
             // sliding along the surface turned the character downhill.
@@ -341,7 +390,14 @@ impl PhysWorld {
         let was_grounded = c.grounded;
         c.grounded = moved.grounded;
         let mut landed_speed = None;
-        if moved.grounded && c.vertical_speed <= 0.0 {
+        if c.swimming {
+            // Swimming down onto the ground ends swimming, with no landing [observed: a
+            // swimmer reaching the bed walked up it; no landing is [hypothesis]].
+            if moved.grounded && c.vertical_speed <= 0.0 {
+                c.swimming = false;
+                c.vertical_speed = 0.0;
+            }
+        } else if moved.grounded && c.vertical_speed <= 0.0 {
             if !was_grounded {
                 landed_speed = Some(falling_speed.max(0.0));
             }
@@ -351,14 +407,52 @@ impl PhysWorld {
             c.vertical_speed = 0.0;
         }
         c.feet = arr3(vec3(c.feet) + moved.translation / k);
+        // Falling (not on the ground) with the feet `swim_depth` below the surface starts
+        // swimming: the fall stops there, with no landing [observed: physics.md §6.6].
+        if !c.swimming && !c.grounded && c.vertical_speed < 0.0 {
+            let water = self.water_surface_at(c.feet[0], c.feet[1]);
+            if water.is_some_and(|s| c.feet[2] <= s - c.params.swim_depth) {
+                c.swimming = true;
+                c.vertical_speed = 0.0;
+            }
+        }
         self.w.bodies[c.body].set_next_kinematic_translation(c.center(k));
         let mut touched: Vec<Owner> =
             touched_handles.iter().filter_map(|&h| Owner::decode(self.w.colliders.get(h)?.user_data)).collect();
         touched.sort();
         touched.dedup();
-        CharacterStep { feet: c.feet, grounded: c.grounded, sliding: moved.is_sliding_down_slope, landed_speed, gap: c.gap, touched }
+        CharacterStep {
+            feet: c.feet,
+            grounded: c.grounded,
+            sliding: moved.is_sliding_down_slope,
+            landed_speed,
+            gap: c.gap,
+            swimming: c.swimming,
+            touched,
+        }
     }
 }
+
+/// Vertical speed of a swimming character with its feet at `feet_z` under a surface at
+/// `surface`, asked to move vertically at `want` (physics.md §6.6, all [observed] at Lake
+/// Mead): diving (`want` < 0) always applies; swimming up applies from the floating height
+/// (`float_depth` under the surface) or deeper; otherwise, above the floating height, the
+/// character sinks at `swim_sink_speed` and stops at that height; at or below it, it stays
+/// at its depth (no buoyancy).
+pub fn swim_vertical(p: &CharacterParams, feet_z: f32, surface: f32, want: f32, dt: f32) -> f32 {
+    let float = surface - p.float_depth;
+    if want < 0.0 || (want > 0.0 && feet_z <= float + FLOAT_TOLERANCE) {
+        want
+    } else if feet_z > float {
+        -p.swim_sink_speed.min((feet_z - float) / dt.max(1e-6))
+    } else {
+        0.0
+    }
+}
+
+/// How close above the floating height still counts as at it, game units (rounding of the
+/// sink's last step) [engineering choice].
+const FLOAT_TOLERANCE: f32 = 0.01;
 
 /// Normal z above which a hit counts as an exactly level surface (see `move_character`).
 const LEVEL: f32 = 0.99999;

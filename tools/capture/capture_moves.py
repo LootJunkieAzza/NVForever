@@ -9,11 +9,16 @@ Inputs (the files the candidate runs, parity-lab/inputs/layer4/):
   (z below the set height by 1 unit, at most UNTIL_FALL loops), then DROP_SETTLE loops,
   and reads the position, then again after DROP_SETTLE more loops.
 - walk scripts (`fnv.phys.walk-script/1`) with a `capture` block: `name`, `set_z` (the
-  SetPos height of the start), `heading_deg` (compass: 0 north, 90 east), `keys`
-  (controls held from the start: "forward", and "run" = the Run key, which walks while
-  Always Run is on), `jump` (tap Jump with the keys), `settle_frames`, `samples` (game loops
-  sampled after the keys go down). The script's moving segments must point along
-  `heading_deg`. In game: SetPos, SetAngle Z, wait, then one sample per loop of
+  SetPos height of the start), `heading_deg` (compass: 0 north, 90 east; the view), `keys`
+  (controls held from the start: "forward", "back", "left", "right", and "run" = the Run
+  key, which walks while Always Run is on), `jump` (tap Jump with the keys), `settle_frames`, `samples` (game loops
+  sampled after the keys go down), and optionally `pitch_deg` (SetAngle X before the keys,
+  positive looks down; back to 0 after) and `reset_at` ([x, y, z]: SetPos there first, wait
+  RESET_FRAMES, then close menus with the console's CloseAllMenus, again after the start's
+  SetPos, and record MenuMode before the samples; e.g. to stand on land so that the player
+  is not swimming any more, physics.md 6.6). The script's moving segments
+  (and their `swim_velocity`) must point along `heading_deg`. In game: SetPos, SetAngle Z,
+  wait, then one sample per loop of
   "x y z t s" (t: milliseconds of game clock since the start, at TimeScale 30 a real
   millisecond each 1/120000 hour; s: GetSecondsPassed), keys released at the end.
 
@@ -39,7 +44,10 @@ import capture_steps as cs
 
 UNTIL_FALL = 1800
 DROP_SETTLE = 300
-KEYS = {"forward": 0, "run": 9}   # control codes [documented: GECK wiki TapControl]
+RESET_FRAMES = 300
+KEYS = {"forward": 0, "back": 1, "left": 2, "right": 3, "run": 9}   # control codes [documented: GECK wiki TapControl]
+# Direction of motion of a key relative to the view, compass degrees (forward + right).
+KEY_DIRECTION = {"forward": (1, 0), "back": (-1, 0), "left": (0, -1), "right": (0, 1)}
 JUMP = 12
 CTX = (cs.MASTERS, None)
 
@@ -110,24 +118,44 @@ def walk_steps(doc):
     c = doc["capture"]
     name = name_of(doc)
     h = float(c["heading_deg"])
-    for s in doc["segments"]:
-        v = s.get("velocity")
-        if v and math.hypot(*v) > 0 and abs((heading_of(v) - h + 180) % 360 - 180) > 0.5:
-            raise InputError(f"{name}: a segment moves at heading {heading_of(v):.1f}, the capture at {h}")
     keys = c.get("keys", ["forward"])
     if not keys or any(k not in KEYS for k in keys):
         raise InputError(f"{name}: keys are some of {sorted(KEYS)}")
+    f = sum(KEY_DIRECTION.get(k, (0, 0))[0] for k in keys)
+    r = sum(KEY_DIRECTION.get(k, (0, 0))[1] for k in keys)
+    move = (h + math.degrees(math.atan2(r, f))) % 360.0 if (f, r) != (0, 0) else h
+    for s in doc["segments"]:
+        for v in (s.get("velocity"), (s.get("swim_velocity") or [])[:2]):
+            if v and math.hypot(*v) > 0 and abs((heading_of(v) - move + 180) % 360 - 180) > 0.5:
+                raise InputError(f"{name}: a segment moves at heading {heading_of(v):.1f}, the keys at {move:.1f}")
     x, y = doc["start"][:2]
     down = [f"let iK := GetControl {KEYS[k]}\nHoldKey iK" for k in reversed(keys)]
     up = [f"let iK := GetControl {KEYS[k]}\nReleaseKey iK" for k in keys]
     if c.get("jump"):
         down.append(f"TapControl {JUMP}")
-    steps = [setpos(x, y, c["set_z"]), script(f"player.SetAngle Z {cs.number(h)}"), {"frames": int(c.get("settle_frames", 120))},
-             {"remember": fn(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"]), "as": "t0"}]
+    steps = []
+    reset = c.get("reset_at")
+    if reset is not None:
+        if not (isinstance(reset, list) and len(reset) == 3):
+            raise InputError(f"{name}: \"reset_at\" is [x, y, z]")
+        steps += [setpos(*reset), {"frames": RESET_FRAMES}, {"console": "CloseAllMenus"}, {"frames": 60}]
+    steps += [setpos(x, y, c["set_z"]), script(f"player.SetAngle Z {cs.number(h)}")]
+    pitch = c.get("pitch_deg")
+    if pitch is not None:
+        steps.append(script(f"player.SetAngle X {cs.number(float(pitch))}"))
+    if reset is not None:
+        # Arriving somewhere new can open a menu that stops the clock (physics.md 6.6).
+        steps.append({"console": "CloseAllMenus"})
+    steps += [{"frames": int(c.get("settle_frames", 120))}]
+    if reset is not None:
+        steps.append(cs.query(fn(["float fV"], ["let fV := MenuMode", "SetFunctionValue fV"]), f"{name} menumode", "menumode"))
+    steps += [{"remember": fn(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"]), "as": "t0"}]
     steps += [cs.query(SAMPLE, f"{name} s{i:03d}", "sample") for i in range(5)]
     steps.append(script(*"\n".join(down).split("\n"), decls=["int iK"]))
     steps += [cs.query(SAMPLE, f"{name} s{i:03d}", "sample") for i in range(5, 5 + int(c.get("samples", 150)))]
     steps += [script(*"\n".join(up).split("\n"), decls=["int iK"]), {"frames": 60}]
+    if pitch is not None:
+        steps.append(script("player.SetAngle X 0"))
     return steps
 
 
