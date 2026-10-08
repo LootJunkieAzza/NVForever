@@ -18,7 +18,9 @@ LAB_INPUTS = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer
 EDIDS = {e.lower(): 0x00010000 + i for i, e in enumerate([
     "Stimpak", "Caps001", "GSDocMitchellHouseIntDoorREF", "WeapNV9mmPistol", "ArmorLeather",
     "OutfitWasteland01", "Ammo9mm", "LootChemsStimpak50", "LL0NPCWastelandCaps35", "VFactionSquadStimpaks",
-    "VendorChestStimpaksBoomer", "ClutterHouseholdJunkNV"])}
+    "VendorChestStimpaksBoomer", "ClutterHouseholdJunkNV", "AmmoMissilelauncherScrounger", "Ammo10mmScrounger",
+    "Ammo20GaScrounger", "CapsFortuneFinder", "NVDLC01ChipsChangeFortuneFinder", "VendorFlakShrapnelMiniNukes",
+    "VendorArmorRare75", "VendorBasicMedicalSupplies100", "LootChemsNVAll50", "LL2Tier4ExplosivesMixed50"])}
 
 
 def actions(*acts):
@@ -230,6 +232,26 @@ class JobTests(unittest.TestCase):
             cs.cases_job(doc, "x", "s", 0, EDIDS)
 
 
+    def test_cases_job_sets_reads_and_restores_globals(self):
+        doc = {"format": "fnv.sim.cases/1", "cases": [{"label": "a", "list": "Ammo10mmScrounger", "count": 4,
+                                                       "globals": {"ScroungerOdds": 50}},
+                                                      {"label": "b", "list": "LootChemsStimpak50"}]}
+        steps = cs.cases_job(doc, "x", "s", 2, EDIDS)["steps"]
+        i_rem = next(i for i, s in enumerate(steps) if s.get("as") == "case0g0")
+        self.assertIn("let fV := ScroungerOdds", steps[i_rem]["remember"])
+        self.assertEqual(steps[i_rem + 1], {"console": "set ScroungerOdds to 50"})
+        fields = [(s.get("label"), s.get("field")) for s in steps if "query" in s]
+        i_set, i_base = fields.index(("a", "global.ScroungerOdds")), fields.index(("a", "base.slot0"))
+        i_after, i_last = fields.index(("a", "global_after.ScroungerOdds")), fields.index(("a", "draw1.num"))
+        self.assertTrue(i_set < i_base and i_last < i_after)
+        i_restore = steps.index({"console": "set ScroungerOdds to %{case0g0}"})
+        self.assertTrue(i_restore < next(i for i, s in enumerate(steps) if s.get("label") == "b"))
+        self.assertFalse(any(s.get("field", "").startswith("global") for s in steps if s.get("label") == "b"))
+        with self.assertRaises(cs.InputError):
+            cs.cases_job({"format": "fnv.sim.cases/1", "cases": [{"label": "c", "list": "X",
+                                                                  "globals": {"0x000645CD": 5}}]}, "x", "s", 1, EDIDS)
+
+
 class OutputTests(unittest.TestCase):
     def test_to_global_follows_the_recorded_mod_indices(self):
         mods = {0: "FalloutNV.esm", 2: "DeadMoney.esm", 4: "OldWorldBlues.esm"}  # a mod sits at 01
@@ -292,6 +314,18 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(a["outcomes"], {"0x0000000F x10, 0x00015169 x2": 1, "0x00015169 x1": 2, "nothing": 1})
         self.assertEqual((a["samples"], a["failed_draws"]), (4, 2))
         self.assertEqual((b["samples"], b["outcomes"], b["level"]), (0, {}, 5))
+
+    def test_samples_golden_records_the_globals_read(self):
+        slots = lambda prefix: [{"label": "a", "field": f"{prefix}.slot{i}", "value": "00000000x0"}  # noqa: E731
+                                for i in range(cs.SLOTS)] + [{"label": "a", "field": f"{prefix}.num", "value": 0.0}]
+        res = [{"label": "a", "field": "global.ScroungerOdds", "value": 50.0}] + slots("base") + slots("draw0")
+        res += [{"label": "a", "field": "global_after.ScroungerOdds", "error": "script call failed"}]
+        cases = {"format": "fnv.sim.cases/1", "cases": [{"label": "a", "list": "X", "globals": {"ScroungerOdds": 50}}]}
+        (a,) = cs.samples_golden(*cs.read_output(out_lines(res)), cases)["cases"]
+        self.assertEqual(a["outcomes"], {"nothing": 1})
+        self.assertEqual(a["globals"], {"ScroungerOdds": 50})
+        self.assertEqual(a["globals_read"], {"ScroungerOdds": 50.0})
+        self.assertEqual(a["globals_read_after"], {"ScroungerOdds": None})
 
     def test_cli_round_trip(self):
         with tempfile.TemporaryDirectory() as d:
