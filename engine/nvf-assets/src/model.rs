@@ -12,6 +12,7 @@
 
 use crate::anim_play::{Clip, Playing};
 use crate::data::GameData;
+use crate::nif_material::NifMaterial;
 use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material, shape_props, shape_skin, to_bevy};
 use crate::texture::TextureCache;
 use bevy::asset::RenderAssetUsages;
@@ -31,7 +32,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct PreparedShape {
     pub mesh: Handle<Mesh>,
-    pub material: Handle<StandardMaterial>,
+    pub material: Handle<NifMaterial>,
     /// Shape transform in NIF (game) space relative to the root node's own frame: the
     /// root's transform is not included (see [`PreparedModel::root`]).
     pub transform: Affine3A,
@@ -40,6 +41,9 @@ pub struct PreparedShape {
     /// [`ModelCtx::model_with_cpu`]. GPU meshes are render-world only: once uploaded,
     /// their vertex data can no longer be read from the main world.
     pub cpu: Option<Arc<Mesh>>,
+    /// The shader property sets BSShaderFlags bit 29 "External_Emittance": a reference
+    /// that names an emittance source (REFR XEMI) drives its colour.
+    pub external_emittance: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -74,7 +78,7 @@ pub struct RigShape {
     /// The node entity the mesh goes on.
     pub node: usize,
     pub mesh: Handle<Mesh>,
-    pub material: Handle<StandardMaterial>,
+    pub material: Handle<NifMaterial>,
     /// Inverse bind poses and the joint nodes, for skinned shapes.
     pub skin: Option<(Handle<SkinnedMeshInverseBindposes>, Vec<usize>)>,
 }
@@ -127,7 +131,7 @@ impl Rig {
 }
 
 /// A mesh with its material, ready to spawn.
-pub type MeshAndMaterial = (Handle<Mesh>, Handle<StandardMaterial>);
+pub type MeshAndMaterial = (Handle<Mesh>, Handle<NifMaterial>);
 
 /// Prepared models by archive path; `None` remembers a failure.
 #[derive(Resource, Default)]
@@ -157,7 +161,7 @@ impl ModelCache {
 pub struct ModelCtx<'w> {
     pub cache: ResMut<'w, ModelCache>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
-    pub materials: ResMut<'w, Assets<StandardMaterial>>,
+    pub materials: ResMut<'w, Assets<NifMaterial>>,
     pub images: ResMut<'w, Assets<Image>>,
     pub textures: ResMut<'w, TextureCache>,
     pub data: Res<'w, GameData>,
@@ -327,7 +331,14 @@ impl ModelCtx<'_> {
                     r.shapes.push(RigShape { node, mesh, material: material.clone(), skin });
                 }
             }
-            out.shapes.push(PreparedShape { cpu, mesh, material, transform: t, name: o.name.clone() });
+            out.shapes.push(PreparedShape {
+                cpu,
+                mesh,
+                material,
+                transform: t,
+                name: o.name.clone(),
+                external_emittance: props.external_emittance(),
+            });
             out.triangles += tris;
         }
         out.rig = rig.map(|(r, _)| r);
