@@ -170,16 +170,20 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    corner jitter is fixed, gravity / jump / run / walk are measured in game (physics.md
    §6.3). Captured the same day: B11 15/20 after fixes (open: Havok trees, rocks within
    the game's spread, a pushed drop), traces fence_slide 6/6, fence_stop 6/6,
-   porch_steps 6/6, running_jump 0/6 (air control open), hill_run / portal_wall (goldens
-   with an early onset; physics.md §4.2, §6.3, §6.4).
+   porch_steps 6/6, running_jump 0/6 (air control open), hill_run 6/6 and portal_wall
+   5/6 (goldens rebuilt with the corrected onset on the owner's decision, no longer
+   held-out evidence; the steep downhill row is open; physics.md §4.2, §6.3, §6.4,
+   layer4-captures.md §1).
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
-   Status 2026-10-08 (`nvforever --play`, docs/design/layer4-play.md §6): walking with
-   collision, taking items, containers and doors work in unattended runs, including the
-   106 doors into another worldspace (Mojave ↔ Freeside, Freeside ↔ Strip, DLC
-   worldspaces): physics and rendering switch to the destination worldspace. Open:
-   play by a person with keys and mouse, scripted doors (the Strip gate), the remaining
-   movement traces above, dialogue and barter.
+   Status 2026-10-08 (`engine/nvf-play`, docs/design/layer4-play.md §6): walking with
+   collision, doors, containers and taking items pass unattended in Goodsprings, Doc
+   Mitchell's house and the gas station; interior starts and door destinations over
+   nothing move to a door arrival, and falls out of an interior are caught (physics.md
+   §6.7); the 106 doors into another worldspace (Mojave ↔ Freeside, Freeside ↔ Strip,
+   DLC worldspaces) switch physics and rendering to the destination worldspace. Open:
+   play by hand, scripted doors (the Strip gate), dialogue and barter, dropped items in
+   the world.
 
 ## 5. Open questions and verification steps for the owner
 
@@ -256,6 +260,7 @@ PR.
 | 2 | Physics and character controller | `claude/layer4-phys` | `crates/fnv-phys`, `crates/fnvtool/src/phys_cmd.rs`, `docs/spec-notes/physics.md`, the physics row of `dependencies.md` | rapier3d world from placed references + LAND terrain; ray and shape queries; kinematic capsule controller; dynamic clutter; deterministic stepping | 1's shape API (stub first), `fnv-world` |
 | 3 | Simulation core | `claude/layer4-sim-*` | `crates/fnv-sim`, `crates/fnvtool/src/sim_cmd.rs`, `parity-lab/scenarios/layer4_sim.json`, `parity-lab/inputs/layer4/`, `docs/spec-notes/simulation.md`, this file (except §2.8 detail owned by 1/2 in their spec notes), README Layer 4 row | per-stack extra data, equip, encumbrance, game clock, respawn, enable-parent propagation, PGRE, schema gaps (IMOD, CHIP, CCRD, CMNY, NOTE), distribution comparator for leveled lists | — |
 | 4 | Engine integration | `claude/layer4-play` | new Bevy crate `engine/nvf-play`; one registration line in `engine/nvforever` | player controller in the game, crosshair activation, container/inventory screen | 2 and 3; coordinate with the renderer owner of `engine/` |
+| 5 | Static actors (added 2026-10-08) | `claude/static-actors-*` | `crates/fnv-actor`, `fnvtool actor`, `tools/capture/oracle_actor.py`, `parity-lab/scenarios/layer3_actors.json`, `docs/spec-notes/actors.md`, `engine/nvforever/src/actors.rs`, an additive part-assembly API in `engine/nvf-assets`, schema layouts HAIR/EYES/HDPT/RACE `INDX` | placed NPCs drawn as one entity each (skeleton + body, head, hair, head parts, worn armour), idle pose, no AI; FaceGen and creatures as later parts. Plan: docs/design/static-actors.md | 3 (leveled lists, inventories); coordinate with the renderer owner of `engine/` |
 
 Retired scenario (owner decision 2026-10-07): `L4.sim.trace.goodsprings_respawn` — its
 24 h case passed in game only because the save's merchant restock time was due (hidden
