@@ -64,6 +64,22 @@ impl Cell {
     pub fn has_water(&self) -> bool {
         self.data_flags & 2 != 0
     }
+
+    /// Height of the cell's water surface: none without the "has water" flag; XCLW when it
+    /// holds a real height; otherwise, outdoors, the worldspace's default water height
+    /// (WRLD DNAM), passed as `world_default` [hypothesis for the fallback, world.md §6:
+    /// 15,963 WastelandNV cells store the 3.4e38 sentinel]. The rule the renderer draws
+    /// water with and the physics swims in (physics.md §6.6).
+    pub fn water_surface(&self, world_default: Option<f32>) -> Option<f32> {
+        if !self.has_water() {
+            return None;
+        }
+        match self.water_height {
+            Some(h) if h.is_finite() && h.abs() < 1.0e30 => Some(h),
+            _ if self.is_interior() => None,
+            _ => world_default,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
