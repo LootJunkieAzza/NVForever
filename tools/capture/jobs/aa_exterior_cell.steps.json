@@ -1,0 +1,33 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_exterior_cell",
+ "title": "Exterior cell check (instant)",
+ "start": "Stand OUTSIDE in Goodsprings (near Doc Mitchell's house or the gas station).",
+ "steps": [
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "c00 player cell (outdoors)",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "c01 player x",
+   "field": "x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "c02 player y",
+   "field": "y"
+  },
+  {
+   "query": "float fM\nref rF\nref rC\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1064553\nlet rC := rF.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "c03 Doc Mitchell exterior door 0x103E69 cell, asked outdoors",
+   "field": "cell"
+  },
+  {
+   "query": "float fM\nref rF\nfloat fV\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rF := BuildRef fM 1064553\nlet fV := rF.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "c04 that door disabled",
+   "field": "disabled"
+  }
+ ]
+}

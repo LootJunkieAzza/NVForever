@@ -1,0 +1,68 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "aa_diag3",
+ "title": "Script syntax check 3 (instant)",
+ "start": "Any save; best inside Doc Mitchell's house.",
+ "steps": [
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "e01 cell id inline string",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (GetNthModName 0)\nEnd\n",
+   "label": "e02 mod name inline",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue ($ 3)\nEnd\n",
+   "label": "e03 ToString inline",
+   "field": "v"
+  },
+  {
+   "query": "Begin Function { }\nSetFunctionValue (\"a\" + \"b\")\nEnd\n",
+   "label": "e04 concat inline",
+   "field": "v"
+  },
+  {
+   "query": "ref rI\nBegin Function { }\nlet rI := player.GetInventoryObject 0\nSetFunctionValue (GetFormIDString rI)\nEnd\n",
+   "label": "e05 inventory slot 0 id",
+   "field": "v"
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetRawFormIDString rC)\nEnd\n",
+   "label": "e06 raw formid string",
+   "field": "v"
+  },
+  {
+   "query": "ref rC\nfloat fV\nBegin Function { }\nlet rC := player.GetParentCell\nlet fV := GetSourceModIndex rC\nSetFunctionValue fV\nEnd\n",
+   "label": "e07 cell source mod index",
+   "field": "v"
+  },
+  {
+   "query": "ref rC\nref rD\nfloat fV\nBegin Function { }\nlet rC := player.GetParentCell\nlet rD := BuildRef 0 1064441\nlet fV := rC == rD\nSetFunctionValue fV\nEnd\n",
+   "label": "e08 cell equals Doc Mitchell house",
+   "field": "v"
+  },
+  {
+   "query": "string_var sV\nBegin Function { }\nset sV to sv_Construct \"abc\"\nSetFunctionValue sV\nEnd\n",
+   "label": "e09 sv_Construct with set",
+   "field": "v"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetNumLoadedMods\nSetFunctionValue fV\nEnd\n",
+   "label": "e10 num loaded mods",
+   "field": "v"
+  },
+  {
+   "query": "ref rI\nfloat fV\nBegin Function { }\nlet rI := player.GetInventoryObject 0\nlet fV := player.GetItemCount rI\nSetFunctionValue fV\nEnd\n",
+   "label": "e11 inventory slot 0 count",
+   "field": "v"
+  },
+  {
+   "query": "ref rI\nBegin Function { }\nlet rI := player.GetInventoryObject 999\nSetFunctionValue (GetFormIDString rI)\nEnd\n",
+   "label": "e12 slot beyond end id",
+   "field": "v"
+  }
+ ]
+}

@@ -15,23 +15,44 @@ use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use crate::clock::{self, Calendar};
 use crate::form::FormId;
-use crate::forms::{BaseData, FormStore};
-use crate::inventory::Inventory;
+use crate::forms::{BaseData, FormStore, ItemKind, SPECIAL};
+use crate::inventory::{unequipped, Extra, Inventory};
 use crate::leveled::{self, LeveledError};
 use crate::refs::{PlacedRef, RefTable};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SimConfig {
     pub seed: u64,
-    /// Level used for leveled lists (the player's level). [hypothesis: containers
-    /// resolve against the player's level]
+    /// Level used for leveled lists (the player's level). [observed in game: `AddItem` of
+    /// a list resolves against the player's level (`L4.sim.leveled.basic`); that
+    /// containers do too is hypothesis]
     pub player_level: u16,
+    /// Hardcore mode: ammunition has weight. (Absent in older snapshots.)
+    #[serde(default)]
+    pub hardcore: bool,
+    /// Game hours a cell must stay unloaded before its respawning containers refill.
+    /// `None`: the `iHoursToRespawnCell` game setting when a plugin defines it, else
+    /// [`DEFAULT_RESPAWN_HOURS`] (see [`World::respawn_hours`]).
+    #[serde(default)]
+    pub respawn_hours: Option<f32>,
 }
+
+/// Respawn delay when neither the config nor a plugin sets one: the engine's built-in
+/// value of `iHoursToRespawnCell` [observed in game: `GetGameSetting
+/// iHoursToRespawnCell` = 72.0; no master defines the setting]. Merchant containers
+/// restock faster, by a separate rule not modelled yet (Ringo's cash box: empty after
+/// 1 h and 6 h away, full after 12 h and 24 h; `RefTable::is_merchant_container`).
+pub const DEFAULT_RESPAWN_HOURS: f32 = 72.0;
+
+/// The game setting that holds the cell-respawn delay [observed in game: the running
+/// game answers `GetGameSetting iHoursToRespawnCell`].
+pub const RESPAWN_SETTING: &str = "iHoursToRespawnCell";
 
 impl Default for SimConfig {
     fn default() -> Self {
-        SimConfig { seed: 0, player_level: 1 }
+        SimConfig { seed: 0, player_level: 1, hardcore: false, respawn_hours: None }
     }
 }
 
@@ -58,6 +79,16 @@ pub struct RefState {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub lock: Option<LockState>,
     pub open: bool,
+    /// Item references: condition (XHLP on placed weapons and armour) and owner.
+    #[serde(skip_serializing_if = "Extra::is_plain", default)]
+    pub extra: Extra,
+    /// Actor values changed at run time, by lower-case name (S.P.E.C.I.A.L. so far).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub actor_values: BTreeMap<String, f32>,
+    /// Merchant containers: GameDaysPassed of the last restock (`None`: not restocked
+    /// since the simulation started).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_restock: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -74,6 +105,18 @@ pub enum SimError {
     BadCount(i32),
     #[error("{0} is not in the world (deleted)")]
     Deleted(FormId),
+    #[error("{0} cannot be equipped")]
+    NotEquippable(FormId),
+    #[error("{actor} has no unequipped {item}")]
+    NotCarried { actor: FormId, item: FormId },
+    #[error("unknown actor value {0:?}")]
+    UnknownActorValue(String),
+    #[error("{0} has no actor values")]
+    NoActorValues(FormId),
+    #[error("the game setting {0} is not defined by any plugin")]
+    MissingSetting(String),
+    #[error("the global {0} is not defined by any plugin")]
+    MissingGlobal(String),
     #[error(transparent)]
     Leveled(#[from] LeveledError),
 }
@@ -88,6 +131,7 @@ pub enum Outcome {
     OpenedContainer { container: FormId },
     Locked { level: u8 },
     Teleported { to_door: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3] },
+    Disarmed { item: FormId },
     DoorToggled { open: bool },
     Talk { actor: FormId },
     Activated,
@@ -107,6 +151,24 @@ pub struct Activation {
     pub script: Option<FormId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Equip {
+    /// Aid items are used up instead of worn.
+    pub consumed: bool,
+    /// Items unequipped to make room.
+    pub unequipped: Vec<FormId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Encumbrance {
+    pub weight: f64,
+    pub capacity: f64,
+    pub over: bool,
+    /// Carried items whose weight is unknown (not counted).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unknown_weight: Vec<FormId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub format: String,
@@ -115,6 +177,12 @@ pub struct Snapshot {
     pub rng_word_pos: String,
     pub next_dynamic: u32,
     pub refs: BTreeMap<FormId, RefState>,
+    /// Globals whose value differs from the plugins (absent in older snapshots).
+    #[serde(default)]
+    pub globals: BTreeMap<FormId, f32>,
+    /// Unloaded cells: GameDaysPassed when each was detached (absent in older snapshots).
+    #[serde(default)]
+    pub detached_cells: BTreeMap<FormId, f32>,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
@@ -124,6 +192,10 @@ pub struct World<'a> {
     pub placed: &'a RefTable,
     cfg: SimConfig,
     refs: BTreeMap<FormId, RefState>,
+    /// Globals set at run time (scripts, the clock); others keep their authored value.
+    globals: BTreeMap<FormId, f32>,
+    /// Unloaded cells and the GameDaysPassed at which they were unloaded.
+    detached_cells: BTreeMap<FormId, f32>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -135,6 +207,8 @@ impl<'a> World<'a> {
             placed,
             cfg,
             refs: BTreeMap::new(),
+            globals: BTreeMap::new(),
+            detached_cells: BTreeMap::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -171,22 +245,7 @@ impl<'a> World<'a> {
             None if id == FormId::PLAYER_REF => (FormId::PLAYER_BASE, None),
             None => return Err(SimError::UnknownRef(id)),
         };
-        let inventory = match self.forms.entries(base) {
-            Some(entries) => {
-                let mut inv = Inventory::new();
-                let mut out = Vec::new();
-                for e in entries {
-                    leveled::resolve(self.forms, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
-                }
-                for e in out {
-                    if e.count > 0 {
-                        inv.add(e.item, e.count);
-                    }
-                }
-                Some(inv)
-            }
-            None => None,
-        };
+        let inventory = self.roll_inventory(base)?;
         Ok(RefState {
             base,
             cell: placed.and_then(|p| p.cell),
@@ -199,10 +258,80 @@ impl<'a> World<'a> {
             // A reference with lock data starts locked. [hypothesis]
             lock: placed.and_then(|p| p.lock).map(|l| LockState { level: l.level, key: l.key, locked: true }),
             open: false,
+            extra: Extra {
+                condition: placed.and_then(|p| p.health),
+                owner: placed.and_then(|p| p.owner),
+                equipped: false,
+            },
+            actor_values: BTreeMap::new(),
+            last_restock: None,
         })
     }
 
+    /// A fresh inventory for a container or actor base: its carried items with leveled
+    /// lists resolved. `None` for bases without carried items.
+    fn roll_inventory(&mut self, base: FormId) -> Result<Option<Inventory>, SimError> {
+        let Some(entries) = self.forms.entries(base) else { return Ok(None) };
+        let mut inv = Inventory::new();
+        let mut out = Vec::new();
+        for e in entries {
+            let from = out.len();
+            leveled::resolve(self.forms, e.item, e.count, self.cfg.player_level, &mut self.rng, &mut out)?;
+            // COED on an entry applies to whatever it resolves to. [hypothesis]
+            for r in &mut out[from..] {
+                r.extra = e.extra;
+            }
+        }
+        for e in out {
+            if e.count > 0 {
+                inv.add_extra(e.item, e.count, e.extra);
+            }
+        }
+        Ok(Some(inv))
+    }
+
+    /// Merchant restock, checked whenever a merchant container's inventory is accessed:
+    /// once `respawn_hours` have passed since its last restock, its contents are replaced
+    /// by a fresh roll of its base's carried items (anything sold into it is lost) and
+    /// the restock time becomes now. A container never restocked counts from the
+    /// simulation's start (the authored GameDaysPassed).
+    /// [observed in game for Ringo's cash box, docs/spec-notes/simulation.md §3,
+    /// `L4.sim.trace.goodsprings_merchant_restock` passes 4/4: it restocks while the
+    /// player stays in the cell (no cell event needed), not after 5 h or 10 h absences;
+    /// emptied, it reads 200 caps again 72 h and 84 h later; a restock replaces the
+    /// contents (an added stimpak was gone); a fixed day-0 grid is ruled out.
+    /// Still only bounded or open: the period (second restock 2.50–3.01 days after the
+    /// first observed one, consistent with 72 h), "on access" vs "on a schedule" (both
+    /// look the same through GetItemCount), other merchants, and the start of the first
+    /// period in a new game (hypothesis here)]
+    fn restock_if_due(&mut self, id: FormId) -> Result<(), SimError> {
+        if !self.placed.is_merchant_container(id) {
+            return Ok(());
+        }
+        let Ok(now) = self.calendar().map(|c| c.days_passed) else { return Ok(()) };
+        let start = match self.forms.global_by_edid(clock::GAME_DAYS_PASSED) {
+            Some((_, v)) => v,
+            None => return Ok(()),
+        };
+        let s = self.get(id)?;
+        if s.deleted {
+            return Ok(());
+        }
+        let since = s.last_restock.unwrap_or(start);
+        let base = s.base;
+        // Same f32 slack as cell respawn.
+        if (now as f64 - since as f64) * 24.0 + 1e-3 < self.respawn_hours() as f64 {
+            return Ok(());
+        }
+        let inv = self.roll_inventory(base)?;
+        let s = self.get(id)?;
+        s.inventory = inv;
+        s.last_restock = Some(now);
+        Ok(())
+    }
+
     fn inventory(&mut self, id: FormId) -> Result<&mut Inventory, SimError> {
+        self.restock_if_due(id)?;
         let s = self.get(id)?;
         if s.deleted {
             return Err(SimError::Deleted(id));
@@ -258,20 +387,23 @@ impl<'a> World<'a> {
             return Err(SimError::BadCount(count));
         }
         self.inventory(to)?;
-        let n = self.inventory(from)?.remove(item, count);
-        if n > 0 {
-            self.inventory(to)?.add(item, n);
+        let groups = unequipped(self.inventory(from)?.take(item, count));
+        let dest = self.inventory(to)?;
+        let mut n = 0;
+        for (e, c) in groups {
+            dest.add_extra(item, c, e);
+            n += c;
         }
         Ok(n)
     }
 
-    /// Move everything; returns the stacks moved.
+    /// Move everything; returns the stacks moved. Extra data (condition, owner) moves
+    /// with the items; equipped items are unequipped.
     pub fn transfer_all(&mut self, from: FormId, to: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
         self.inventory(to)?;
         let stacks: Vec<_> = self.inventory(from)?.iter().collect();
         for &(item, n) in &stacks {
-            self.inventory(from)?.remove(item, n);
-            self.inventory(to)?.add(item, n);
+            self.transfer(from, to, item, n)?;
         }
         Ok(stacks)
     }
@@ -284,32 +416,263 @@ impl<'a> World<'a> {
         Ok(stacks)
     }
 
-    /// Drop items from an inventory into the world as a new reference at the owner's
-    /// position. Returns the new reference.
-    pub fn drop_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<Option<FormId>, SimError> {
-        let n = self.remove_item(from, item, count)?;
-        if n == 0 {
-            return Ok(None);
+    /// Drop items from an inventory into the world at the holder's position, one new
+    /// reference per group of identical extra data [hypothesis]. Returns the new
+    /// references.
+    pub fn drop_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
+        if count <= 0 {
+            return Err(SimError::BadCount(count));
         }
-        let owner = self.get(from)?.clone();
-        let id = FormId(self.next_dynamic);
-        self.next_dynamic += 1;
-        self.refs.insert(
-            id,
-            RefState {
-                base: item,
-                cell: owner.cell,
-                pos: owner.pos,
-                rot: [0.0; 3],
-                enabled: true,
-                deleted: false,
-                count: n,
-                inventory: None,
-                lock: None,
-                open: false,
-            },
-        );
-        Ok(Some(id))
+        let groups = unequipped(self.inventory(from)?.take(item, count));
+        let holder = self.get(from)?.clone();
+        let mut out = Vec::new();
+        for (extra, n) in groups {
+            let id = FormId(self.next_dynamic);
+            self.next_dynamic += 1;
+            self.refs.insert(
+                id,
+                RefState {
+                    base: item,
+                    cell: holder.cell,
+                    pos: holder.pos,
+                    rot: [0.0; 3],
+                    enabled: true,
+                    deleted: false,
+                    count: n,
+                    inventory: None,
+                    lock: None,
+                    open: false,
+                    extra,
+                    actor_values: BTreeMap::new(),
+                    last_restock: None,
+                },
+            );
+            out.push(id);
+        }
+        Ok(out)
+    }
+
+    /// Equip one carried `item` on `actor`. Weapons replace the equipped weapon; armour
+    /// replaces equipped armour that shares a body slot (BMDT biped flags); aid items
+    /// are consumed (their effects are Layer 6). [hypothesis: in-game equip rules as the
+    /// GECK wiki describes `EquipItem`; to be captured]
+    pub fn equip(&mut self, actor: FormId, item: FormId) -> Result<Equip, SimError> {
+        let it = self.forms.item(item).ok_or(SimError::NotAnItem(item))?.clone();
+        let forms = self.forms;
+        let inv = self.inventory(actor)?;
+        if it.kind == ItemKind::Aid {
+            return match inv.remove(item, 1) {
+                1 => Ok(Equip { consumed: true, unequipped: Vec::new() }),
+                _ => Err(SimError::NotCarried { actor, item }),
+            };
+        }
+        if !matches!(it.kind, ItemKind::Weapon | ItemKind::Armor) {
+            return Err(SimError::NotEquippable(item));
+        }
+        if inv.count(item) == 0 {
+            return Err(SimError::NotCarried { actor, item });
+        }
+        let clashes = |other: FormId| -> bool {
+            let Some(o) = forms.item(other) else { return false };
+            match (it.kind, o.kind) {
+                (ItemKind::Weapon, ItemKind::Weapon) => true,
+                (ItemKind::Armor, ItemKind::Armor) => it.slots.unwrap_or(0) & o.slots.unwrap_or(0) != 0,
+                _ => false,
+            }
+        };
+        let mut unequipped = Vec::new();
+        for other in inv.equipped() {
+            if clashes(other) && inv.clear_equipped(other) {
+                unequipped.push(other);
+            }
+        }
+        if !inv.set_equipped(item) {
+            return Err(SimError::NotCarried { actor, item });
+        }
+        Ok(Equip { consumed: false, unequipped })
+    }
+
+    /// Unequip `item`; returns whether it was equipped.
+    pub fn unequip(&mut self, actor: FormId, item: FormId) -> Result<bool, SimError> {
+        Ok(self.inventory(actor)?.clear_equipped(item))
+    }
+
+    /// An actor value: S.P.E.C.I.A.L. from the base NPC_ record unless changed at run
+    /// time. (Template NPCs take stats from their template: not followed yet.)
+    pub fn actor_value(&mut self, actor: FormId, name: &str) -> Result<f32, SimError> {
+        let key = name.to_ascii_lowercase();
+        let idx = SPECIAL.iter().position(|n| *n == key).ok_or_else(|| SimError::UnknownActorValue(name.into()))?;
+        let s = self.get(actor)?;
+        if let Some(v) = s.actor_values.get(&key) {
+            return Ok(*v);
+        }
+        let base = s.base;
+        match self.forms.get(base).map(|b| &b.data) {
+            Some(BaseData::Actor(a)) => a.attributes.map(|a| a[idx] as f32).ok_or(SimError::NoActorValues(actor)),
+            _ => Err(SimError::NoActorValues(actor)),
+        }
+    }
+
+    pub fn set_actor_value(&mut self, actor: FormId, name: &str, value: f32) -> Result<(), SimError> {
+        let key = name.to_ascii_lowercase();
+        self.actor_value(actor, &key)?;
+        self.get(actor)?.actor_values.insert(key, value);
+        Ok(())
+    }
+
+    fn setting(&self, edid: &str) -> Result<f32, SimError> {
+        self.forms.setting_f32(edid).ok_or_else(|| SimError::MissingSetting(edid.into()))
+    }
+
+    /// Carried weight against capacity. Capacity = fAVDCarryWeightsBase +
+    /// fAVDCarryWeightMult × Strength (150 + 10 × Strength in the masters); the actor is
+    /// over-encumbered when the weight exceeds it. [observed in game: capacity 200 at
+    /// Strength 5 and 160 at Strength 1, equipped items counted — xNVSE capture,
+    /// `L4.sim.trace.goodsprings_weight_and_time`; the over-encumbered threshold itself
+    /// (weight > capacity) is still hypothesis]
+    pub fn encumbrance(&mut self, actor: FormId) -> Result<Encumbrance, SimError> {
+        let strength = self.actor_value(actor, "strength")?;
+        let capacity = self.setting("fAVDCarryWeightsBase")? + self.setting("fAVDCarryWeightMult")? * strength;
+        let (forms, hardcore) = (self.forms, self.cfg.hardcore);
+        let t = self.inventory(actor)?.totals(forms, hardcore);
+        Ok(Encumbrance {
+            weight: t.weight,
+            capacity: capacity as f64,
+            over: t.weight > capacity as f64,
+            unknown_weight: t.unknown_weight,
+        })
+    }
+
+    /// Whether a reference is enabled, following its enable-parent chain. A reference
+    /// with an enable parent takes the parent's effective state (inverted when the
+    /// "opposite" flag is set) and its own flag is ignored; a chain that ends at a
+    /// reference that does not exist, or loops, falls back to the reference's own flag.
+    /// [hypothesis: GECK wiki "Enable Parent"; to be captured] Does not materialise
+    /// anything, so it never consumes randomness.
+    pub fn is_enabled(&self, id: FormId) -> Result<bool, SimError> {
+        let own = |w: &World, id: FormId| -> Option<bool> {
+            match w.refs.get(&id) {
+                Some(s) => Some(s.enabled),
+                None => w.placed.get(id).map(|p| !p.initially_disabled()),
+            }
+        };
+        let start = own(self, id).ok_or(SimError::UnknownRef(id))?;
+        let mut invert = false;
+        let mut cur = id;
+        let mut seen = vec![id];
+        loop {
+            let Some(ep) = self.placed.get(cur).and_then(|p| p.enable_parent) else {
+                return Ok(own(self, cur).unwrap_or(start) ^ invert);
+            };
+            if seen.contains(&ep.reference) || own(self, ep.reference).is_none() {
+                return Ok(start);
+            }
+            invert ^= ep.opposite;
+            seen.push(ep.reference);
+            cur = ep.reference;
+        }
+    }
+
+    /// Current value of a global.
+    pub fn global(&self, id: FormId) -> Result<f32, SimError> {
+        match self.globals.get(&id) {
+            Some(v) => Ok(*v),
+            None => self.forms.globals.get(&id).copied().ok_or(SimError::UnknownForm(id)),
+        }
+    }
+
+    pub fn set_global(&mut self, id: FormId, value: f32) -> Result<(), SimError> {
+        if !self.forms.globals.contains_key(&id) {
+            return Err(SimError::UnknownForm(id));
+        }
+        self.globals.insert(id, value);
+        Ok(())
+    }
+
+    fn time_global(&self, edid: &str) -> Result<(FormId, f32), SimError> {
+        let (id, _) = self.forms.global_by_edid(edid).ok_or_else(|| SimError::MissingGlobal(edid.to_string()))?;
+        Ok((id, self.global(id)?))
+    }
+
+    /// The clock as stored in the time globals.
+    pub fn calendar(&self) -> Result<Calendar, SimError> {
+        Ok(Calendar {
+            year: self.time_global(clock::GAME_YEAR)?.1,
+            month: self.time_global(clock::GAME_MONTH)?.1,
+            day: self.time_global(clock::GAME_DAY)?.1,
+            hour: self.time_global(clock::GAME_HOUR)?.1,
+            days_passed: self.time_global(clock::GAME_DAYS_PASSED)?.1,
+        })
+    }
+
+    /// Advance game time by `hours` (waiting, sleeping, fast travel).
+    pub fn advance_hours(&mut self, hours: f64) -> Result<Calendar, SimError> {
+        let c = self.calendar()?.advance(hours);
+        for (edid, v) in [
+            (clock::GAME_YEAR, c.year),
+            (clock::GAME_MONTH, c.month),
+            (clock::GAME_DAY, c.day),
+            (clock::GAME_HOUR, c.hour),
+            (clock::GAME_DAYS_PASSED, c.days_passed),
+        ] {
+            let (id, _) = self.time_global(edid)?;
+            self.globals.insert(id, v);
+        }
+        Ok(c)
+    }
+
+    /// Advance game time by `seconds` of real time at the current TimeScale.
+    pub fn advance_real_seconds(&mut self, seconds: f64) -> Result<Calendar, SimError> {
+        let scale = self.time_global(clock::TIME_SCALE)?.1 as f64;
+        self.advance_hours(seconds * scale / 3600.0)
+    }
+
+    /// The respawn delay in game hours: the config's, else the `iHoursToRespawnCell`
+    /// setting from the plugins, else [`DEFAULT_RESPAWN_HOURS`].
+    pub fn respawn_hours(&self) -> f32 {
+        self.cfg
+            .respawn_hours
+            .or_else(|| self.forms.setting_f32(RESPAWN_SETTING))
+            .unwrap_or(DEFAULT_RESPAWN_HOURS)
+    }
+
+    /// The engine unloads `cell` (the player left it).
+    pub fn detach_cell(&mut self, cell: FormId) -> Result<(), SimError> {
+        let now = self.calendar()?.days_passed;
+        self.detached_cells.insert(cell, now);
+        Ok(())
+    }
+
+    /// The engine loads `cell` again. If it stayed unloaded for at least
+    /// `respawn_hours`, the containers in it whose base has the Respawns flag go back
+    /// to their authored state: their next use rolls new contents, and anything left in
+    /// them is lost. [hypothesis: the cell-reset behaviour commonly described for this
+    /// engine generation; other references are not reset yet] Returns the containers
+    /// reset.
+    pub fn attach_cell(&mut self, cell: FormId) -> Result<Vec<FormId>, SimError> {
+        let Some(since) = self.detached_cells.remove(&cell) else { return Ok(Vec::new()) };
+        let now = self.calendar()?.days_passed;
+        // GameDaysPassed is an f32 global, so an exact delay can come out a hair short
+        // (72 h measured as 71.99999 h): compare with a thousandth of an hour of slack.
+        let elapsed_hours = (now as f64 - since as f64) * 24.0;
+        if elapsed_hours + 1e-3 < self.respawn_hours() as f64 {
+            return Ok(Vec::new());
+        }
+        let forms = self.forms;
+        let respawns = |base: FormId| matches!(forms.get(base).map(|b| &b.data), Some(BaseData::Container(c)) if c.respawns);
+        let reset: Vec<FormId> = self
+            .placed
+            .by_cell
+            .get(&cell)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|id| self.refs.get(id).is_some_and(|s| respawns(s.base)))
+            .collect();
+        for id in &reset {
+            self.refs.remove(id);
+        }
+        Ok(reset)
     }
 
     pub fn set_enabled(&mut self, id: FormId, enabled: bool) -> Result<(), SimError> {
@@ -338,14 +701,30 @@ impl<'a> World<'a> {
         Ok(())
     }
 
-    /// `actor` activates `target`.
+    /// `actor` activates `target`, as the scripted `Activate` function does (the parity
+    /// traces are captured with `<ref>.Activate player`). Interactive activation can only
+    /// reach what the player can see, so keeping taken or disabled references out of
+    /// reach is the engine's job, not this function's.
     pub fn activate(&mut self, actor: FormId, target: FormId) -> Result<Activation, SimError> {
         self.get(actor)?;
         let t = self.get(target)?.clone();
         let base = self.forms.get(t.base);
         let script = base.and_then(|b| b.script);
         let done = |outcome, unlocked_with| Activation { outcome, unlocked_with, script };
-        if t.deleted || !t.enabled {
+        // Scripted activation of an item gives its stack on every call, whether the
+        // reference was already taken or is disabled, and leaves the reference's enabled
+        // state alone. [observed in game, docs/spec-notes/simulation.md §5: one stimpak
+        // reference activated three times gave 1, 2, 3 stimpaks; a hand-taken one gave
+        // another; a never-taken cap disabled with `Disable` still gave a cap and stayed
+        // disabled; GetDisabled and GetParentCell do not change after a pick-up]
+        if let Some(BaseData::Item(_)) = base.map(|b| &b.data) {
+            self.inventory(actor)?.add_extra(t.base, t.count, t.extra);
+            self.get(target)?.deleted = true;
+            return Ok(done(Outcome::PickedUp { item: t.base, count: t.count, owner: t.extra.owner }, None));
+        }
+        // Other types: a taken or disabled reference does nothing. [hypothesis: doors,
+        // containers and activators on disabled references are not captured yet]
+        if t.deleted || !self.is_enabled(target)? {
             return Ok(done(Outcome::Disabled, None));
         }
         let Some(base) = base else {
@@ -368,19 +747,22 @@ impl<'a> World<'a> {
             }
         }
         let outcome = match &base.data {
-            BaseData::Item(_) => {
-                self.inventory(actor)?.add(t.base, t.count);
-                self.get(target)?.deleted = true;
-                let owner = self.placed.get(target).and_then(|p| p.owner);
-                Outcome::PickedUp { item: t.base, count: t.count, owner }
+            BaseData::Item(_) => unreachable!("items are handled above"),
+            BaseData::Container(_) => {
+                self.restock_if_due(target)?;
+                Outcome::OpenedContainer { container: target }
             }
-            BaseData::Container(_) => Outcome::OpenedContainer { container: target },
             BaseData::Door(_) => match self.placed.get(target).and_then(|p| p.teleport) {
                 Some(tp) => {
-                    let cell = match self.placed.get(tp.door) {
+                    let door_cell = match self.placed.get(tp.door) {
                         Some(d) => d.cell,
                         None => self.peek(tp.door).and_then(|d| d.cell),
                     };
+                    // Into a worldspace, the actor ends up in the exterior cell that
+                    // contains the destination, not necessarily the destination door's.
+                    // [observed in game: leaving Doc Mitchell's house puts the player in
+                    // Goodsprings, WastelandNV grid -18,0]
+                    let cell = door_cell.map(|c| self.placed.exterior_cell_at(c, tp.pos).unwrap_or(c));
                     let a = self.get(actor)?;
                     a.cell = cell;
                     a.pos = tp.pos;
@@ -396,6 +778,15 @@ impl<'a> World<'a> {
             BaseData::Actor(_) => Outcome::Talk { actor: target },
             BaseData::Activator | BaseData::Furniture => Outcome::Activated,
             BaseData::LeveledItem(_) => Outcome::NoDefault { sig: "LVLI".into() },
+            // A placed explosive: disarming it gives the weapon that fires it.
+            // [hypothesis: in-game disarming of placed mines; the Explosives skill check
+            // and the chance to trigger are Layer 6]
+            BaseData::Projectile { item: Some(item) } => {
+                self.inventory(actor)?.add(*item, 1);
+                self.get(target)?.deleted = true;
+                Outcome::Disarmed { item: *item }
+            }
+            BaseData::Projectile { item: None } => Outcome::NoDefault { sig: "PROJ".into() },
         };
         Ok(done(outcome, unlocked_with))
     }
@@ -407,6 +798,8 @@ impl<'a> World<'a> {
             rng_word_pos: self.rng.get_word_pos().to_string(),
             next_dynamic: self.next_dynamic,
             refs: self.refs.clone(),
+            globals: self.globals.clone(),
+            detached_cells: self.detached_cells.clone(),
         }
     }
 
@@ -419,6 +812,8 @@ impl<'a> World<'a> {
         w.rng.set_word_pos(pos);
         w.next_dynamic = s.next_dynamic;
         w.refs = s.refs.clone();
+        w.globals = s.globals.clone();
+        w.detached_cells = s.detached_cells.clone();
         Ok(w)
     }
 }

@@ -1,19 +1,137 @@
-//! Inventories: item stacks keyed by base form.
+//! Inventories: item stacks keyed by base form, each split into groups of identical
+//! extra data (condition, owner, equipped).
 //!
-//! Stacks are plain counts per base item. Per-instance extra data (condition,
-//! ownership, weapon mods, equipped state) is not modelled yet; it becomes a list of
-//! extra-data entries per stack when Layer 6 needs it (docs/design/layer4.md §2.5).
+//! The data has per-item extra data in two places [observed, docs/spec-notes/
+//! simulation.md §3]: COED after a carried-item entry (owner, condition as a fraction)
+//! and XHLP on placed weapons and armour (condition as a fraction). A stack whose items
+//! carry no extra data serialises as a bare count, so simple inventories read as
+//! `{"0x0000000F": 12}`.
+//!
+//! Removal order [hypothesis]: items without extra data first, then unequipped items
+//! with extra data in the order they arrived, equipped items last.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::form::FormId;
-use crate::forms::FormStore;
+use crate::forms::{FormStore, ItemKind};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct Extra {
+    /// Condition as a fraction of the item's full health.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub condition: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub owner: Option<FormId>,
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub equipped: bool,
+}
+
+impl Extra {
+    pub fn is_plain(&self) -> bool {
+        *self == Extra::default()
+    }
+
+    fn unequipped(self) -> Extra {
+        Extra { equipped: false, ..self }
+    }
+}
+
+/// One base item's groups, each (extra data, count > 0), in arrival order with the
+/// plain group (if any) first.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Stack {
+    groups: Vec<(Extra, i32)>,
+}
+
+impl Stack {
+    fn total(&self) -> i32 {
+        self.groups.iter().map(|g| g.1).sum()
+    }
+
+    fn add(&mut self, extra: Extra, n: i32) {
+        match self.groups.iter_mut().find(|g| g.0 == extra) {
+            Some(g) => g.1 = g.1.saturating_add(n),
+            None if extra.is_plain() => self.groups.insert(0, (extra, n)),
+            None => self.groups.push((extra, n)),
+        }
+    }
+
+    /// Take up to `n`, in removal order; returns what was taken.
+    fn take(&mut self, mut n: i32) -> Vec<(Extra, i32)> {
+        let mut order: Vec<usize> = (0..self.groups.len()).collect();
+        order.sort_by_key(|&i| (self.groups[i].0.equipped, !self.groups[i].0.is_plain()));
+        let mut out = Vec::new();
+        for i in order {
+            if n <= 0 {
+                break;
+            }
+            let g = &mut self.groups[i];
+            let t = g.1.min(n);
+            g.1 -= t;
+            n -= t;
+            out.push((g.0, t));
+        }
+        self.groups.retain(|g| g.1 > 0);
+        out
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(into = "BTreeMap<FormId, StackRepr>", from = "BTreeMap<FormId, StackRepr>")]
 pub struct Inventory {
-    items: BTreeMap<FormId, i32>,
+    items: BTreeMap<FormId, Stack>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum StackRepr {
+    Plain(i32),
+    Detailed { count: i32, groups: Vec<GroupRepr> },
+}
+
+#[derive(Serialize, Deserialize)]
+struct GroupRepr {
+    count: i32,
+    #[serde(flatten)]
+    extra: Extra,
+}
+
+impl From<Inventory> for BTreeMap<FormId, StackRepr> {
+    fn from(inv: Inventory) -> Self {
+        inv.items
+            .into_iter()
+            .map(|(id, s)| {
+                let r = match s.groups.as_slice() {
+                    [(e, n)] if e.is_plain() => StackRepr::Plain(*n),
+                    g => StackRepr::Detailed {
+                        count: s.total(),
+                        groups: g.iter().map(|&(extra, count)| GroupRepr { count, extra }).collect(),
+                    },
+                };
+                (id, r)
+            })
+            .collect()
+    }
+}
+
+impl From<BTreeMap<FormId, StackRepr>> for Inventory {
+    fn from(m: BTreeMap<FormId, StackRepr>) -> Self {
+        let mut inv = Inventory::new();
+        for (id, r) in m {
+            match r {
+                StackRepr::Plain(n) if n > 0 => inv.add(id, n),
+                StackRepr::Plain(_) => 0,
+                StackRepr::Detailed { groups, .. } => {
+                    for g in groups.into_iter().filter(|g| g.count > 0) {
+                        inv.add_extra(id, g.count, g.extra);
+                    }
+                    0
+                }
+            };
+        }
+        inv
+    }
 }
 
 /// Total weight and value, with the items whose weight or value is not known yet.
@@ -30,27 +148,36 @@ impl Inventory {
         Inventory::default()
     }
 
-    /// Add `n` (> 0) of `item`; returns the new count.
+    /// Add `n` (> 0) of `item` without extra data; returns the new total.
     pub fn add(&mut self, item: FormId, n: i32) -> i32 {
+        self.add_extra(item, n, Extra::default())
+    }
+
+    /// Add `n` (> 0) of `item` with extra data; returns the new total.
+    pub fn add_extra(&mut self, item: FormId, n: i32, extra: Extra) -> i32 {
         debug_assert!(n > 0);
-        let c = self.items.entry(item).or_default();
-        *c = c.saturating_add(n);
-        *c
+        let s = self.items.entry(item).or_default();
+        s.add(extra, n);
+        s.total()
+    }
+
+    /// Remove up to `n` of `item`; returns the groups removed.
+    pub fn take(&mut self, item: FormId, n: i32) -> Vec<(Extra, i32)> {
+        let Some(s) = self.items.get_mut(&item) else { return Vec::new() };
+        let out = s.take(n.max(0));
+        if s.groups.is_empty() {
+            self.items.remove(&item);
+        }
+        out
     }
 
     /// Remove up to `n` of `item`; returns how many were removed.
     pub fn remove(&mut self, item: FormId, n: i32) -> i32 {
-        let Some(c) = self.items.get_mut(&item) else { return 0 };
-        let taken = (*c).min(n.max(0));
-        *c -= taken;
-        if *c == 0 {
-            self.items.remove(&item);
-        }
-        taken
+        self.take(item, n).iter().map(|g| g.1).sum()
     }
 
     pub fn count(&self, item: FormId) -> i32 {
-        self.items.get(&item).copied().unwrap_or(0)
+        self.items.get(&item).map_or(0, Stack::total)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -61,17 +188,65 @@ impl Inventory {
         self.items.len()
     }
 
-    /// Stacks in FormID order.
+    /// Totals per base item in FormID order.
     pub fn iter(&self) -> impl Iterator<Item = (FormId, i32)> + '_ {
-        self.items.iter().map(|(&k, &v)| (k, v))
+        self.items.iter().map(|(&k, s)| (k, s.total()))
     }
 
-    pub fn totals(&self, forms: &FormStore) -> Totals {
+    /// Every group: (item, extra data, count), in FormID then group order.
+    pub fn groups(&self) -> impl Iterator<Item = (FormId, Extra, i32)> + '_ {
+        self.items.iter().flat_map(|(&k, s)| s.groups.iter().map(move |&(e, n)| (k, e, n)))
+    }
+
+    pub fn equipped(&self) -> Vec<FormId> {
+        self.groups().filter(|g| g.1.equipped).map(|g| g.0).collect()
+    }
+
+    pub fn is_equipped(&self, item: FormId) -> bool {
+        self.items.get(&item).is_some_and(|s| s.groups.iter().any(|g| g.0.equipped))
+    }
+
+    /// Mark one unequipped unit of `item` as equipped (plain units first). Returns false
+    /// when there is none.
+    pub fn set_equipped(&mut self, item: FormId) -> bool {
+        let Some(s) = self.items.get_mut(&item) else { return false };
+        let Some(i) = (0..s.groups.len())
+            .filter(|&i| !s.groups[i].0.equipped)
+            .min_by_key(|&i| !s.groups[i].0.is_plain())
+        else {
+            return false;
+        };
+        let e = s.groups[i].0;
+        s.groups[i].1 -= 1;
+        s.groups.retain(|g| g.1 > 0);
+        s.add(Extra { equipped: true, ..e }, 1);
+        true
+    }
+
+    /// Unequip every equipped unit of `item`. Returns false when none was equipped.
+    pub fn clear_equipped(&mut self, item: FormId) -> bool {
+        let Some(s) = self.items.get_mut(&item) else { return false };
+        let eq: Vec<(Extra, i32)> = s.groups.iter().copied().filter(|g| g.0.equipped).collect();
+        if eq.is_empty() {
+            return false;
+        }
+        s.groups.retain(|g| !g.0.equipped);
+        for (e, n) in eq {
+            s.add(e.unequipped(), n);
+        }
+        true
+    }
+
+    /// Weight and value. Ammunition weighs nothing outside Hardcore mode [observed in
+    /// game: 100 9mm rounds left the carried weight unchanged, non-Hardcore —
+    /// `L4.sim.trace.goodsprings_weight_and_time`; the Hardcore side is still hypothesis].
+    pub fn totals(&self, forms: &FormStore, hardcore: bool) -> Totals {
         let mut t = Totals::default();
         for (id, n) in self.iter() {
             match forms.item(id) {
                 Some(i) => {
                     match i.weight {
+                        _ if i.kind == ItemKind::Ammo && !hardcore => {}
                         Some(w) => t.weight += w as f64 * n as f64,
                         None => t.unknown_weight.push(id),
                     }
@@ -88,6 +263,11 @@ impl Inventory {
         }
         t
     }
+}
+
+/// Strip the equipped flag from removed groups (items leaving an inventory).
+pub fn unequipped(groups: Vec<(Extra, i32)>) -> Vec<(Extra, i32)> {
+    groups.into_iter().map(|(e, n)| (e.unequipped(), n)).collect()
 }
 
 #[cfg(test)]
@@ -119,25 +299,69 @@ mod tests {
         assert_eq!(back.count(FormId(0x1)), 7);
     }
 
+    #[test]
+    fn extra_data_groups() {
+        let (gun, owner) = (FormId(0x20), FormId(0x99));
+        let worn = Extra { condition: Some(0.5), ..Extra::default() };
+        let mut inv = Inventory::new();
+        inv.add_extra(gun, 1, worn);
+        inv.add(gun, 2);
+        inv.add_extra(gun, 1, Extra { owner: Some(owner), ..worn });
+        assert_eq!(inv.count(gun), 4);
+        // Plain units are equipped first.
+        assert!(inv.set_equipped(gun));
+        assert!(inv.is_equipped(gun));
+        let j = serde_json::to_value(&inv).unwrap();
+        assert_eq!(j["0x00000020"]["count"], 4);
+        assert_eq!(serde_json::from_value::<Inventory>(j.clone()).unwrap(), inv);
+        // Removal: plain first, then unequipped extras in arrival order, equipped last.
+        let taken = inv.take(gun, 3);
+        assert_eq!(taken, vec![(Extra::default(), 1), (worn, 1), (Extra { owner: Some(owner), ..worn }, 1)]);
+        assert_eq!(inv.equipped(), vec![gun]);
+        let last = unequipped(inv.take(gun, 1));
+        assert_eq!(last, vec![(Extra::default(), 1)]);
+        assert!(inv.is_empty());
+        // Unequip merges back.
+        inv.add(gun, 2);
+        inv.set_equipped(gun);
+        assert!(inv.clear_equipped(gun));
+        assert!(!inv.clear_equipped(gun));
+        assert_eq!(serde_json::to_string(&inv).unwrap(), r#"{"0x00000020":2}"#);
+        assert!(!Inventory::new().set_equipped(gun));
+    }
+
     proptest! {
-        /// Counts never go negative and the total is conserved by add/remove.
+        /// Counts never go negative and the total is conserved by add/remove/equip.
         #[test]
-        fn conservation(ops in proptest::collection::vec((0u32..4, 1i32..50, any::<bool>()), 0..200)) {
+        fn conservation(ops in proptest::collection::vec((0u32..4, 1i32..50, 0u8..4), 0..200)) {
             let mut inv = Inventory::new();
             let mut expect = [0i64; 4];
-            for (item, n, add) in ops {
-                if add {
-                    inv.add(FormId(item), n);
-                    expect[item as usize] += n as i64;
-                } else {
-                    let got = inv.remove(FormId(item), n);
-                    prop_assert!(got >= 0 && got <= n);
-                    expect[item as usize] -= got as i64;
+            for (item, n, op) in ops {
+                let id = FormId(item);
+                match op {
+                    0 => {
+                        inv.add(id, n);
+                        expect[item as usize] += n as i64;
+                    }
+                    1 => {
+                        inv.add_extra(id, n, Extra { condition: Some(0.5), ..Extra::default() });
+                        expect[item as usize] += n as i64;
+                    }
+                    2 => {
+                        inv.set_equipped(id);
+                    }
+                    _ => {
+                        let got = inv.remove(id, n);
+                        prop_assert!(got >= 0 && got <= n);
+                        expect[item as usize] -= got as i64;
+                    }
                 }
                 for (i, e) in expect.iter().enumerate() {
                     prop_assert_eq!(inv.count(FormId(i as u32)) as i64, *e);
                     prop_assert!(*e >= 0);
                 }
+                let back: Inventory = serde_json::from_value(serde_json::to_value(&inv).unwrap()).unwrap();
+                prop_assert_eq!(&back, &inv);
             }
         }
     }
