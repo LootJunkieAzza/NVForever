@@ -110,6 +110,12 @@ What it does now:
   NightQuestScript's `VNight` rule (night weather 21:00-04:18) and crossfades weathers
   (colours, fog and a second set of cloud layers) over half a game hour. `--day <n>`
   sets the days passed (moon phase; default the `GameDaysPassed` global).
+- Image-space grade (world.md §6, `imagespace.rs`/`imagespace.wgsl`): a full-screen pass
+  after tonemapping with the worldspace's image space and the weather's adapters for the
+  time of day (warm amber by day, darker grey-navy at night); `--no-grade` turns it off.
+  Compared with the owner's screenshots: night ground still a little bright (HDR eye
+  adaptation not applied), and the game still shows sunset colours at 20:00 where the
+  renderer is already at night (time-of-day keys to revisit).
 - Distant LOD (`--lod-radius`, default 8 chunks = 32 cells; `--no-lod`): the game's
   level-4 terrain chunks and object LOD blocks (world.md §7) around the camera. Terrain
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles

@@ -13,7 +13,8 @@
 //!   which the night weather fills with a starfield; layer 3 the low dome, which the
 //!   clear day weather fills with `NVCloudlight.dds`].
 //!
-//! - The climate's night-sky model (CLMT MODL, `Sky\Stars.nif`, additive ONE/ONE),
+//! - The climate's night-sky model (CLMT MODL, `Sky\Stars.nif`, additive, weighted by
+//!   the star texture's alpha),
 //!   coloured by the weather's "stars" colour and faded in as the sun sinks from 0° to
 //!   −12° (sunset to full dark) [hypothesis: the stars colour is white by day, so the
 //!   weather alone does not hide them].
@@ -36,6 +37,8 @@ use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded};
 use fnv_nif::NifFile;
+use fnv_world::imagespace::{adapter, cinematic_at, image_space, weather_adapters, Adapter, Cinematic};
+use std::collections::HashMap;
 use fnv_world::sky::{
     climate, default_weather, global_value, moon_phase, smoothstep, sun_direction, weather, Climate, ColorType, Weather, MOON_PHASES,
 };
@@ -106,6 +109,10 @@ pub struct SkyState {
     /// The climate's weathers with their gates, when the weather follows the climate
     /// (no --weather).
     choices: Vec<Choice>,
+    /// The worldspace's base image space (WRLD INAM); None turns the grade off.
+    pub image_space: Option<Cinematic>,
+    /// Each weather's image space adapters per time of day, by weather form ID.
+    adapters: HashMap<u32, [Option<Adapter>; 6]>,
     changed: bool,
 }
 
@@ -153,6 +160,16 @@ impl SkyState {
                 .collect()
         };
         let w = weather(world.lo, world.schema, wid).ok_or("weather unreadable")?;
+        let image_space = worldspace_image_space(world);
+        let adapters = choices
+            .iter()
+            .map(|c| &c.weather)
+            .chain(std::iter::once(&w))
+            .map(|w| {
+                let ids = weather_adapters(world.lo, world.schema, w);
+                (w.form_id, ids.map(|id| id.and_then(|id| adapter(world.lo, world.schema, id))))
+            })
+            .collect();
         let mut s = SkyState {
             climate: clim,
             weather: w,
@@ -166,6 +183,8 @@ impl SkyState {
             prev: None,
             fade: 1.0,
             choices,
+            image_space,
+            adapters,
             changed: true,
         };
         s.follow_climate(true);
@@ -229,6 +248,19 @@ impl SkyState {
                 let old = p.color(&self.climate, ty, self.hour);
                 std::array::from_fn(|i| old[i] + (cur[i] - old[i]) * self.fade)
             }
+            None => cur,
+        }
+    }
+
+    /// The image-space grade now: the base image space with the weather's adapters for
+    /// the time of day, blended across a weather fade; none indoors yet [interim].
+    pub fn cinematic(&self) -> Cinematic {
+        let Some(base) = self.image_space.filter(|_| self.interior.is_none()) else { return Cinematic::default() };
+        let none = [None; 6];
+        let at = |w: &Weather| cinematic_at(&base, self.adapters.get(&w.form_id).unwrap_or(&none), &self.climate, self.hour);
+        let cur = at(&self.weather);
+        match &self.prev {
+            Some(p) => at(p).lerp(&cur, self.fade),
             None => cur,
         }
     }
@@ -309,6 +341,20 @@ impl SkyState {
             self.weather.edid.as_deref().unwrap_or("?")
         )
     }
+}
+
+/// The worldspace's image space (WRLD INAM), or its parent's.
+fn worldspace_image_space(world: &WorldData) -> Option<Cinematic> {
+    let inam = |id: u32| {
+        let (pi, r) = fnv_world::fields::winner(world.lo, id)?;
+        let f = fnv_world::fields::Fields::new(r, pi, world.schema).ok()?;
+        fnv_world::fields::global(world.lo, pi, fnv_world::fields::formid_of(&f.get(b"INAM")?)?)
+    };
+    let ws = &world.index.worldspaces[&world.world];
+    let id = inam(world.world).or_else(|| ws.parent.and_then(inam))?;
+    let c = image_space(world.lo, world.schema, id);
+    info!("image space {id:#010x}: {c:?}");
+    c
 }
 
 /// A global variable's Editor ID.
@@ -548,12 +594,15 @@ pub fn setup_sky(
                 Stars,
                 Mesh3d(meshes.add(sky_mesh(shape, vec![[1.0; 4]; shape.positions.len()]))),
                 MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, 0.0)),
+                    base_color: Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, 1.0)),
                     base_color_texture: tex,
                     unlit: true,
                     fog_enabled: false,
-                    // Alpha 0 with premultiplied blending: result = src + dst (ONE/ONE).
-                    alpha_mode: AlphaMode::Premultiplied,
+                    // Additive, weighted by the texture's alpha: SkyStars.dds has colour in
+                    // 6,225 texels but alpha in only ~430, and the game shows sparse, faint
+                    // stars [observed: owner's screenshots; the shader property sets the
+                    // alpha-texture flag; hypothesis: the game weights by alpha].
+                    alpha_mode: AlphaMode::Add,
                     cull_mode: None,
                     depth_bias: SKY_SORT_BIAS + 30.0,
                     ..default()
@@ -677,7 +726,7 @@ pub fn update_night_sky(
         if refresh {
             if let Some(mut mat) = materials.get_mut(&m.0) {
                 let c = sky.color(ColorType::Stars);
-                mat.base_color = Color::LinearRgba(LinearRgba::new(c[0] * star_vis, c[1] * star_vis, c[2] * star_vis, 0.0));
+                mat.base_color = Color::LinearRgba(LinearRgba::new(c[0] * star_vis, c[1] * star_vis, c[2] * star_vis, 1.0));
             }
         }
     }

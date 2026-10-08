@@ -15,6 +15,12 @@ pub const SPACING: f32 = CELL_SIZE / (SIDE as f32 - 1.0);
 pub const HEIGHT_SCALE: f32 = 8.0;
 /// Alpha-layer vertices per quadrant edge (a quadrant is half a cell plus the shared row).
 pub const QUAD_SIDE: usize = 17;
+/// Diffuse texture (relative to `textures\`) for a quadrant without BTXT and for layers
+/// with a null LTEX. The game's `Fallout_default.ini` sets
+/// `SDefaultLandDiffuseTexture=DirtWasteland01.dds` [documented]; that it lives in
+/// `landscape\` is a [hypothesis] (the only file of that name in the archives
+/// [observed]). See docs/spec-notes/world.md §3.
+pub const DEFAULT_DIFFUSE: &str = "landscape\\dirtwasteland01.dds";
 /// Names of the quadrant enum in `schemas/fnv/world.json` (LandQuadrant), by index.
 pub const QUADRANTS: [&str; 4] = ["Bottom Left", "Bottom Right", "Top Left", "Top Right"];
 
