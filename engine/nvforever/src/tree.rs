@@ -1,15 +1,16 @@
 //! SpeedTree trees (TREE references): geometry generated from the `.spt` parameters by
-//! `fnv_spt` (docs/spec-notes/speedtree.md §5), scaled to the record's billboard size. Branches
-//! use the standard material with the bark texture; leaf cards use [`LeafMaterial`],
-//! which turns every card towards the camera (leaf.wgsl).
+//! `fnv_spt` (docs/spec-notes/speedtree.md §5), scaled to the record's billboard size.
+//! Branches use [`BarkMaterial`] with the bark texture; leaf cards use [`LeafMaterial`],
+//! which turns every card towards the camera. Both move in the wind (tree.wgsl).
 
 use bevy::asset::embedded_asset;
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::NoAutoAabb;
 use bevy::ecs::system::SystemParam;
-use bevy::pbr::{ExtendedMaterial, MaterialExtension};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline};
 use bevy::prelude::*;
-use bevy::render::render_resource::AsBindGroup;
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
 use bevy::shader::ShaderRef;
 use nvf_assets::model::ModelCtx;
 use std::collections::HashMap;
@@ -18,17 +19,72 @@ use std::sync::Arc;
 use crate::world::WorldData;
 
 pub type LeafMaterial = ExtendedMaterial<StandardMaterial, LeafCards>;
+pub type BarkMaterial = ExtendedMaterial<StandardMaterial, BarkWind>;
 
-/// Material extension: only the vertex shaders change (main pass and prepass).
+const SHADER: &str = "embedded://nvforever/tree.wgsl";
+
+/// Wind direction in game space (degrees from +x towards +y). The records give none
+/// [observed: WTHR DATA has a wind speed but no direction], so it is fixed [chosen].
+const WIND_DIRECTION_DEG: f32 = 30.0;
+
+/// The `TreeWind` uniform of tree.wgsl.
+#[derive(Clone, Copy, Debug, Default, ShaderType, Reflect)]
+pub struct WindParams {
+    /// xyz: wind direction (Bevy world space, horizontal, unit); w: strength 0-1.
+    pub wind: Vec4,
+    /// x: time (s); y: rock angular speed; z: rustle angular speed (rad/s); w: tree
+    /// height in the mesh's own units.
+    pub motion: Vec4,
+}
+
+/// Leaf cards: camera-facing, rocking and rustling (vertex shaders of the main pass and
+/// the prepass, so depth and shadows match).
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
-pub struct LeafCards {}
+pub struct LeafCards {
+    #[uniform(100)]
+    pub wind: WindParams,
+}
+
+/// Bark: rocking with the leaves.
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
+pub struct BarkWind {
+    #[uniform(100)]
+    pub wind: WindParams,
+}
 
 impl MaterialExtension for LeafCards {
     fn vertex_shader() -> ShaderRef {
-        "embedded://nvforever/leaf.wgsl".into()
+        SHADER.into()
     }
     fn prepass_vertex_shader() -> ShaderRef {
-        "embedded://nvforever/leaf.wgsl".into()
+        SHADER.into()
+    }
+    fn specialize(
+        _: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _: &MeshVertexBufferLayoutRef,
+        _: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        descriptor.vertex.shader_defs.push("TREE_LEAVES".into());
+        Ok(())
+    }
+}
+
+impl MaterialExtension for BarkWind {
+    fn vertex_shader() -> ShaderRef {
+        SHADER.into()
+    }
+    fn prepass_vertex_shader() -> ShaderRef {
+        SHADER.into()
+    }
+    fn specialize(
+        _: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _: &MeshVertexBufferLayoutRef,
+        _: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        descriptor.vertex.shader_defs.push("TREE_BARK".into());
+        Ok(())
     }
 }
 
@@ -36,14 +92,67 @@ pub struct TreePlugin;
 
 impl Plugin for TreePlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "leaf.wgsl");
-        app.add_plugins(MaterialPlugin::<LeafMaterial>::default()).init_resource::<TreeCache>();
+        embedded_asset!(app, "tree.wgsl");
+        app.add_plugins((MaterialPlugin::<LeafMaterial>::default(), MaterialPlugin::<BarkMaterial>::default()))
+            .init_resource::<TreeCache>()
+            .add_systems(Update, wind.after(crate::sky::update_sky));
+    }
+}
+
+/// The CNAM rock and rustle speeds as angular speeds (rad/s) [tuned by eye:
+/// WastelandShrub01 (rock 0.07, rustle 0.35) rocks about every 4 s and rustles about
+/// once a second; trees with 1.0 and 1.0 about twice as fast]. How far trees move is
+/// set in tree.wgsl.
+fn angular_speeds(rock: f32, rustle: f32) -> (f32, f32) {
+    let tau = std::f32::consts::TAU;
+    (tau * (0.2 + 0.6 * rock.max(0.0)), tau * (0.5 + 1.5 * rustle.max(0.0)))
+}
+
+/// Feed every tree material the time and the weather's wind (WTHR DATA wind speed / 255,
+/// faded with the weather; none indoors).
+fn wind(
+    time: Res<Time>,
+    sky: Res<crate::sky::SkyState>,
+    cache: Res<TreeCache>,
+    mut leaves: ResMut<Assets<LeafMaterial>>,
+    mut bark: ResMut<Assets<BarkMaterial>>,
+) {
+    let speed = |w: &fnv_world::sky::Weather| w.wind_speed as f32 / 255.0;
+    let now = speed(&sky.weather);
+    let strength = match &sky.prev {
+        Some(p) => speed(p) + (now - speed(p)) * sky.fade.clamp(0.0, 1.0),
+        None => now,
+    };
+    let strength = if sky.interior.is_some() { 0.0 } else { strength };
+    let a = WIND_DIRECTION_DEG.to_radians();
+    // Game (x, y, z) is Bevy (x, z, -y).
+    let dir = Vec3::new(a.cos(), 0.0, -a.sin()).extend(strength);
+    let t = time.elapsed_secs();
+    let set = |w: &mut WindParams| {
+        w.wind = dir;
+        w.motion.x = t;
+    };
+    for v in cache.0.values().flatten() {
+        for p in &v.parts {
+            match &p.material {
+                PartMaterial::Bark(h) => {
+                    if let Some(mut m) = bark.get_mut(h) {
+                        set(&mut m.extension.wind);
+                    }
+                }
+                PartMaterial::Leaves(h) => {
+                    if let Some(mut m) = leaves.get_mut(h) {
+                        set(&mut m.extension.wind);
+                    }
+                }
+            }
+        }
     }
 }
 
 #[derive(Clone)]
 pub enum PartMaterial {
-    Bark(Handle<StandardMaterial>),
+    Bark(Handle<BarkMaterial>),
     Leaves(Handle<LeafMaterial>),
 }
 
@@ -70,6 +179,7 @@ pub struct TreeCache(HashMap<u32, Option<Arc<TreeVisual>>>);
 pub struct TreeCtx<'w> {
     cache: ResMut<'w, TreeCache>,
     leaf_materials: ResMut<'w, Assets<LeafMaterial>>,
+    bark_materials: ResMut<'w, Assets<BarkMaterial>>,
 }
 
 impl TreeCtx<'_> {
@@ -77,7 +187,7 @@ impl TreeCtx<'_> {
         if let Some(v) = self.cache.0.get(&tree) {
             return v.clone();
         }
-        let made = build(world, tree, models, &mut self.leaf_materials).map(Arc::new);
+        let made = build(world, tree, models, &mut self.leaf_materials, &mut self.bark_materials).map(Arc::new);
         if made.is_none() {
             warn!("TREE {tree:08X}: no generated geometry, drawing its billboard");
         }
@@ -86,7 +196,13 @@ impl TreeCtx<'_> {
     }
 }
 
-fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &mut Assets<LeafMaterial>) -> Option<TreeVisual> {
+fn build(
+    world: &WorldData,
+    tree: u32,
+    models: &mut ModelCtx,
+    leaf_materials: &mut Assets<LeafMaterial>,
+    bark_materials: &mut Assets<BarkMaterial>,
+) -> Option<TreeVisual> {
     let rec = fnv_world::placed::tree_record(world.lo, world.schema, tree)?;
     let bytes = models.data.read(&rec.model)?;
     let spt = match fnv_spt::Tree::parse(&bytes) {
@@ -99,12 +215,16 @@ fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &m
     let g = fnv_spt::generate(&spt);
     let scale = rec.size? / g.width().max(g.top()).max(1e-6);
     let mut parts = Vec::new();
+    let (rock, rustle) = angular_speeds(rec.rock_speed.unwrap_or(1.0), rec.rustle_speed.unwrap_or(1.0));
+    let wind = WindParams { wind: Vec4::ZERO, motion: Vec4::new(0.0, rock, rustle, g.top()) };
+    // Room for the swing (tree.wgsl ROCK: a quarter of the height at the top).
+    let sway = 0.3 * g.top();
 
     if !g.indices.is_empty() {
         let bark = bark_texture(&spt.bark_texture);
         let image = bark.and_then(|b| models.textures.get(&b, true, &models.data, &mut models.images, models.formats.as_deref()));
         let mut mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::RENDER_WORLD);
-        let aabb = bounds(g.positions.iter().copied(), 0.0);
+        let aabb = bounds(g.positions.iter().copied(), sway);
         if let Some(d) = rec.branch_dimming {
             let c: Vec<[f32; 4]> = g.positions.iter().map(|p| dim_colour(g.brightness(d, p[2]))).collect();
             mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, c);
@@ -113,12 +233,15 @@ fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &m
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, g.normals.clone());
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, g.uvs.clone());
         mesh.insert_indices(bevy::mesh::Indices::U32(g.indices.clone()));
-        let mat = models.materials.add(StandardMaterial {
-            base_color: if image.is_some() { Color::WHITE } else { Color::srgb(0.3, 0.25, 0.2) },
-            base_color_texture: image,
-            perceptual_roughness: 0.9,
-            reflectance: 0.2,
-            ..default()
+        let mat = bark_materials.add(BarkMaterial {
+            base: StandardMaterial {
+                base_color: if image.is_some() { Color::WHITE } else { Color::srgb(0.3, 0.25, 0.2) },
+                base_color_texture: image,
+                perceptual_roughness: 0.9,
+                reflectance: 0.2,
+                ..default()
+            },
+            extension: BarkWind { wind },
         });
         parts.push(TreePart { mesh: models.meshes.add(mesh), material: PartMaterial::Bark(mat), aabb });
     }
@@ -151,7 +274,7 @@ fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &m
             }
             indices.extend([first, first + 1, first + 2, first, first + 2, first + 3]);
         }
-        let aabb = bounds(pos.iter().copied(), reach);
+        let aabb = bounds(pos.iter().copied(), reach + sway);
         let mut mesh = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::RENDER_WORLD);
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nor);
@@ -171,7 +294,7 @@ fn build(world: &WorldData, tree: u32, models: &mut ModelCtx, leaf_materials: &m
                 reflectance: 0.1,
                 ..default()
             },
-            extension: LeafCards {},
+            extension: LeafCards { wind },
         });
         parts.push(TreePart { mesh: models.meshes.add(mesh), material: PartMaterial::Leaves(mat), aabb });
     }
@@ -227,6 +350,15 @@ pub fn spawn(commands: &mut Commands, parent: Entity, v: &TreeVisual, rt: Mat4, 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn wind_speeds() {
+        let (rock, rustle) = super::angular_speeds(0.07, 0.35);
+        let period = |w: f32| std::f32::consts::TAU / w;
+        assert!((period(rock) - 4.0).abs() < 0.3, "{}", period(rock));
+        assert!((period(rustle) - 1.0).abs() < 0.1, "{}", period(rustle));
+        assert_eq!(super::angular_speeds(-1.0, -1.0), super::angular_speeds(0.0, 0.0));
+    }
+
     #[test]
     fn bark_paths() {
         assert_eq!(
