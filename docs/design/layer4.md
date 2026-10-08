@@ -176,10 +176,19 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    porch_steps 6/6, running_jump 0/6 (air control open), hill_run 6/6 and portal_wall
    5/6 (goldens rebuilt with the corrected onset on the owner's decision, no longer
    held-out evidence; the steep downhill row is open; physics.md §4.2, §6.3, §6.4,
-   layer4-captures.md §1). Swimming (physics.md §6.6):
+   layer4-captures.md §1).
+   Status 2026-10-08 (late) [observed]: air control (gain 0.30 = `fJumpMoveMult`, full
+   target when a key is down at take-off) and the landing speed profiles are modelled from
+   the `mv_air` / `mv_air2` calibrations: running_jump 6/6. The body is now a radius-22
+   cylinder on a cone bottom fitted to fence-edge drops, and a falling body no longer
+   slides off steep contacts: B11 17/20 against the median golden (rock a now passes);
+   the Havok tree rows are still 14 and 10 low, against a contradiction between the tree and the fence edge that
+   is open (physics.md §6.4.1). The sinking on edges depends on the fall speed, which is
+   not modelled.
+   Swimming (physics.md §6.6):
    swim_dam_forward 10/10, swim_bay_back 8/8; placed water modelled (Water-layer
-   phantoms), held-out swim_guardian 5/6 and swim_h2o 2/5 (three rows need the capture's
-   carried swimming state); swim_cove_dive 3/6 and swim_lake_shore 3/8 kept as designed
+   phantoms), held-out swim_guardian 6/6 and swim_h2o 1/5 (three rows need the capture's
+   carried swimming state, shallow_a is the stair edge of §6.4.1); swim_cove_dive 3/6 and swim_lake_shore 3/8 kept as designed
    (inputs without the stroke cycle, the shore captured with its cell unloaded; retirement
    asked of the owner); banks of 12–58° (`sw_banks*`) agree while swimming and on leaving
    the water [observed 2026-10-08].
