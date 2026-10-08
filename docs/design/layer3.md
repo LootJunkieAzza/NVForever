@@ -105,12 +105,20 @@ What it does now:
   0.42) is brighter than its day ambient (0.14), so nights look brighter than late
   afternoon; the weather's per-time image-space links (world.md §6, not read yet)
   probably adjust this in game.
+- Night sky (world.md §6): the climate's star model and a phased moon disc, faded in by
+  sun elevation. The climate's weather follows the hour: the renderer stands in for
+  NightQuestScript's `VNight` rule (night weather 21:00-04:18) and crossfades weathers
+  (colours, fog and a second set of cloud layers) over half a game hour. `--day <n>`
+  sets the days passed (moon phase; default the `GameDaysPassed` global).
 - Distant LOD (`--lod-radius`, default 8 chunks = 32 cells; `--no-lod`): the game's
   level-4 terrain chunks and object LOD blocks (world.md §7) around the camera. Terrain
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
   entirely inside are dropped and the vertices inside are sunk 2,000 units so the
   border triangles slope under the loaded terrain. Object blocks are drawn only over
-  squares with no loaded cell. Interim rules, to compare with screenshots; small dark
+  squares with no loaded cell. Terrain chunks are shaded by their model-space normal
+  maps alone (world.md §7): each vertex gets an up normal and an east tangent so the
+  standard tangent-space normal mapping reads the map as model-space normals; the
+  untextured water-height shape is skipped (water planes cover it). Interim rules, to compare with screenshots; small dark
   boxes on distant ridges (probably rock formations in the object LOD) to check.
 - SpeedTree trees (TREE): interim billboards, two crossed alpha-tested quads with the
   tree's billboard texture at its BNAM size (world.md §2); full `.spt` geometry later.

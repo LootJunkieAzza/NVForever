@@ -53,6 +53,44 @@ pub struct Climate {
     /// Sunrise begin/end and sunset begin/end in hours.
     pub sunrise: (f32, f32),
     pub sunset: (f32, f32),
+    /// MODL: the night-sky model (NVDefaultClimate: `Sky\Stars.nif`) [observed].
+    pub model: Option<String>,
+    /// TNAM "moons / phase length" byte as stored (NVDefaultClimate: 131).
+    pub moons: u8,
+}
+
+/// Moon phases in order, as named by the textures `textures\sky\masser_<phase>.dds`
+/// [observed: those eight files ship; hypothesis: the cycle runs full, waning, new,
+/// waxing].
+pub const MOON_PHASES: [&str; 8] = ["full", "three_wan", "half_wan", "one_wan", "new", "one_wax", "half_wax", "three_wax"];
+
+impl Climate {
+    /// Days per moon phase: the low six bits of the moons byte; the top two bits flag
+    /// the moons shown [hypothesis: xEdit names the byte "Moons / Phase Length";
+    /// NVDefaultClimate stores 131 = bit 7 and 3].
+    pub fn moon_phase_length(&self) -> u8 {
+        self.moons & 0x3F
+    }
+
+    /// Whether any moon flag (bit 6 or 7) is set.
+    pub fn has_moon(&self) -> bool {
+        self.moons & 0xC0 != 0
+    }
+}
+
+/// Index into [`MOON_PHASES`] after `days_passed` game days (phase 0 on day 0)
+/// [hypothesis].
+pub fn moon_phase(days_passed: f32, phase_length: u8) -> usize {
+    if phase_length == 0 {
+        return 0;
+    }
+    ((days_passed / phase_length as f32).floor() as i64).rem_euclid(MOON_PHASES.len() as i64) as usize
+}
+
+/// Smooth 0..1 ramp of `x` from `edge0` to `edge1` (either order).
+pub fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -103,6 +141,8 @@ pub fn climate(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Climate> {
     let h = |k: &str| num(&t, k).map_or(0.0, climate_hours);
     c.sunrise = (h("sunrise_begin"), h("sunrise_end"));
     c.sunset = (h("sunset_begin"), h("sunset_end"));
+    c.model = f.string(b"MODL").filter(|s| !s.is_empty());
+    c.moons = num(&t, "moons_phase_length").unwrap_or(0.0) as u8;
     Some(c)
 }
 
@@ -363,6 +403,23 @@ mod tests {
 
     fn clim() -> Climate {
         Climate { sunrise: (6.0, 8.0), sunset: (18.0, 20.0), ..Default::default() }
+    }
+
+    #[test]
+    fn moon_phases() {
+        let c = Climate { moons: 131, ..Default::default() };
+        assert_eq!(c.moon_phase_length(), 3);
+        assert!(c.has_moon());
+        assert_eq!(moon_phase(0.0, 3), 0);
+        assert_eq!(moon_phase(2.9, 3), 0);
+        assert_eq!(moon_phase(3.0, 3), 1);
+        assert_eq!(moon_phase(23.9, 3), 7);
+        assert_eq!(moon_phase(24.0, 3), 0);
+        assert_eq!(moon_phase(-1.0, 3), 7);
+        assert_eq!(moon_phase(10.0, 0), 0);
+        assert!((smoothstep(0.0, -12.0, -6.0) - 0.5).abs() < 1e-6);
+        assert_eq!(smoothstep(0.0, -12.0, 5.0), 0.0);
+        assert_eq!(smoothstep(0.0, -12.0, -20.0), 1.0);
     }
 
     #[test]
