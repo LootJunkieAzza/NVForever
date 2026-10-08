@@ -114,7 +114,7 @@ What it does now:
 - Water (`engine/nvforever/src/water.rs`, `water.wgsl`): one plane per "has water"
   cell at its water height, in loaded cells and, out to the LOD range, in every cell
   whose water lies above its lowest landscape point (distant water). A custom material
-  fogs what lies behind the surface by its distance from the camera (depth prepass),
+  fogs what lies behind the surface by the view ray's length in the water (depth prepass),
   shallow to deep colour, reflects the weather's sky gradient with a fresnel weight,
   adds a sun highlight and ripples from three scrolling noise layers. The model and
   its hypotheses: world.md §6. No reflections of the world, refraction or under-water

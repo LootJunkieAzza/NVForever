@@ -220,11 +220,12 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   one per noise layer, R = layer 1 [hypothesis]; it is not a normal map (the RGB
   vectors average length 0.52).
 - **How the engine draws water** [hypothesis, the renderer's model; compared by eye with
-  an in-game screenshot at Boulder Beach]: what lies behind the surface is fogged by its
-  distance from the camera, linearly from the above-fog near to far distance, to
-  opaque, shading from the shallow to the deep colour. Fogging by the distance travelled
-  through the water instead, or capping the fog at the "amount", left the lake bed
-  visible far out, unlike the game. The water reflects the sky when reflective
+  an in-game screenshot at Boulder Beach]: what lies behind the surface is fogged by the
+  length of the view ray inside the water, linearly from the above-fog near to far
+  distance, to opaque, shading from the shallow to the deep colour. Capping the fog at
+  the "amount" left the lake bed visible far out; fogging by the distance from the
+  camera made the water opaque right at the shoreline when seen from a few metres up
+  (an abrupt clear-to-opaque edge); both unlike the game. The water reflects the sky when reflective
   (otherwise its reflection colour) with weight reflectivity × mix(1, Schlick fresnel,
   fresnel amount); the sun adds a highlight with exponent = shininess. Noise layer i
   repeats every UV scale units (0 → the noise normals UV scale), scrolls at wind speed
