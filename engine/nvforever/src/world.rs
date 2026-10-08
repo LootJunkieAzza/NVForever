@@ -239,6 +239,7 @@ pub fn travel(
     }
     streamer.interior = t.interior;
     sky.set_interior(t.interior.and_then(|id| fnv_world::lighting::cell_lighting(world.lo, world.schema, id)));
+    sky.interior_grade = t.interior.and_then(|id| crate::sky::SkyState::cell_grade(world.lo, world.schema, id));
     lod.set_enabled(&mut commands, t.interior.is_none() && !args.no_lod);
 }
 

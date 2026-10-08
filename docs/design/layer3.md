@@ -110,6 +110,12 @@ What it does now:
   NightQuestScript's `VNight` rule (night weather 21:00-04:18) and crossfades weathers
   (colours, fog and a second set of cloud layers) over half a game hour. `--day <n>`
   sets the days passed (moon phase; default the `GameDaysPassed` global).
+- Image-space grade (world.md §6, `imagespace.rs`/`imagespace.wgsl`): a full-screen pass
+  after tonemapping with the worldspace's image space and the weather's adapters for the
+  time of day (warm amber by day, darker grey-navy at night); `--no-grade` turns it off.
+  Compared with the owner's screenshots: night ground still a little bright (HDR eye
+  adaptation not applied), and the game still shows sunset colours at 20:00 where the
+  renderer is already at night (time-of-day keys to revisit).
 - Distant LOD (`--lod-radius`, default 8 chunks = 32 cells; `--no-lod`): the game's
   level-4 terrain chunks and object LOD blocks (world.md §7) around the camera. Terrain
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
@@ -125,9 +131,13 @@ What it does now:
   boxes on distant ridges (probably rock formations in the object LOD) to check.
 - SpeedTree trees (TREE): geometry generated from the `.spt` parameters by `fnv-spt`
   (speedtree.md §5): bark tubes with the standard material, leaf cards turned towards
-  the camera by a vertex shader (leaf.wgsl, also in the prepass so depth and shadows
+  the camera by a vertex shader (tree.wgsl, also in the prepass so depth and shadows
   match), scaled to the billboard size. Leaf cards cast shadows but receive none (their
-  own light-facing shadow copies blackened the lower half of every bush). A tree that fails to generate falls back to its
+  own light-facing shadow copies blackened the lower half of every bush); instead the
+  crown darkens towards its bottom by the TREE record's CNAM leaf and branch dimming,
+  as vertex colours (speedtree.md §6). Trees rock and their leaves rustle in the
+  weather's wind (WTHR wind speed, TREE CNAM rock and rustle speeds; tree.wgsl, also in
+  the shadow pass). A tree that fails to generate falls back to its
   billboard: one upright quad turned towards the camera every frame, normals up.
 - Interiors: `--cell <interior Editor ID>` loads that one cell with its own lighting
   (XCLL merged with its lighting template, world.md §8) instead of sky, LOD and terrain;
@@ -202,7 +212,7 @@ game units unchanged.
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
 7. **Water** (second version done: WATR fog, fresnel world reflections, refraction, under-water fog, noise layers, rain and wake ripples, distant water; falling rain to do with the script engine, Layer 4): worldspace / cell water height, WATR records, placeable water (PWAT).
-8. **SpeedTree** (first version done; leaf lighting, wind and distant billboards to do):
+8. **SpeedTree** (done: geometry, leaf dimming, wind; distant billboards to do):
    TREE references (18,050 in WastelandNV, nearly all WastelandShrub01) use SpeedTree
    `.spt` parameter files from `trees\`; format study in speedtree.md, parser and
    generator in `crates/fnv-spt`, `fnvtool spt list|dump`.

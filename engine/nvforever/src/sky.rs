@@ -13,7 +13,8 @@
 //!   which the night weather fills with a starfield; layer 3 the low dome, which the
 //!   clear day weather fills with `NVCloudlight.dds`].
 //!
-//! - The climate's night-sky model (CLMT MODL, `Sky\Stars.nif`, additive ONE/ONE),
+//! - The climate's night-sky model (CLMT MODL, `Sky\Stars.nif`, additive, weighted by
+//!   the star texture's alpha),
 //!   coloured by the weather's "stars" colour and faded in as the sun sinks from 0° to
 //!   −12° (sunset to full dark) [hypothesis: the stars colour is white by day, so the
 //!   weather alone does not hide them].
@@ -24,7 +25,8 @@
 //! Without those meshes the sky falls back to a sphere with the same weights. The sun is
 //! a directional light (colour "sunlight") with cascaded shadow maps plus a textured disc
 //! (the climate's sun texture, colour "sun"). Ambient light uses "ambient", fog "fog"
-//! with the weather's day/night distances.
+//! with the weather's day/night distances; an unset range (far not beyond near) takes the
+//! other one, and a weather with neither has no fog [hypothesis, world.md §6].
 
 use crate::fly::FlyCam;
 use crate::world::{game_to_bevy, WorldData};
@@ -36,6 +38,8 @@ use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded};
 use fnv_nif::NifFile;
+use fnv_world::imagespace::{adapter, cinematic_at, image_space, weather_adapters, Adapter, Cinematic};
+use std::collections::HashMap;
 use fnv_world::sky::{
     climate, default_weather, global_value, moon_phase, smoothstep, sun_direction, weather, Climate, ColorType, Weather, MOON_PHASES,
 };
@@ -91,6 +95,8 @@ pub struct SkyState {
     pub fog_override: Option<(f32, f32)>,
     /// Interior mode: the cell's own lighting replaces sky, sun and weather.
     pub interior: Option<fnv_world::lighting::CellLighting>,
+    /// Interior mode: the cell's own image space (CELL XCIM) grades the picture.
+    pub interior_grade: Option<Cinematic>,
     /// Sun shadows reach this far from the camera (game units); 0 = no shadows.
     pub shadow_distance: f32,
     /// Test aid: game hours per real second (0: time stands still).
@@ -106,6 +112,10 @@ pub struct SkyState {
     /// The climate's weathers with their gates, when the weather follows the climate
     /// (no --weather).
     choices: Vec<Choice>,
+    /// The worldspace's base image space (WRLD INAM); None turns the grade off.
+    pub image_space: Option<Cinematic>,
+    /// Each weather's image space adapters per time of day, by weather form ID.
+    adapters: HashMap<u32, [Option<Adapter>; 6]>,
     changed: bool,
 }
 
@@ -153,12 +163,23 @@ impl SkyState {
                 .collect()
         };
         let w = weather(world.lo, world.schema, wid).ok_or("weather unreadable")?;
+        let image_space = worldspace_image_space(world);
+        let adapters = choices
+            .iter()
+            .map(|c| &c.weather)
+            .chain(std::iter::once(&w))
+            .map(|w| {
+                let ids = weather_adapters(world.lo, world.schema, w);
+                (w.form_id, ids.map(|id| id.and_then(|id| adapter(world.lo, world.schema, id))))
+            })
+            .collect();
         let mut s = SkyState {
             climate: clim,
             weather: w,
             hour,
             fog_override: None,
             interior: None,
+            interior_grade: None,
             shadow_distance: 0.0,
             time_scale: 0.0,
             clock_running: false,
@@ -166,6 +187,8 @@ impl SkyState {
             prev: None,
             fade: 1.0,
             choices,
+            image_space,
+            adapters,
             changed: true,
         };
         s.follow_climate(true);
@@ -233,21 +256,48 @@ impl SkyState {
         }
     }
 
-    /// Fog near and far, blended across a weather fade.
-    pub fn fog(&self) -> (f32, f32) {
-        let (n, f) = self.weather.fog_at(&self.climate, self.hour);
+    /// The image-space grade now: the base image space with the weather's adapters for
+    /// the time of day, blended across a weather fade; none indoors yet [interim].
+    pub fn cinematic(&self) -> Cinematic {
+        if self.interior.is_some() {
+            return self.interior_grade.unwrap_or_default();
+        }
+        let Some(base) = self.image_space else { return Cinematic::default() };
+        let none = [None; 6];
+        let at = |w: &Weather| cinematic_at(&base, self.adapters.get(&w.form_id).unwrap_or(&none), &self.climate, self.hour);
+        let cur = at(&self.weather);
         match &self.prev {
-            Some(p) => {
-                let (pn, pf) = p.fog_at(&self.climate, self.hour);
-                (pn + (n - pn) * self.fade, pf + (f - pf) * self.fade)
-            }
-            None => (n, f),
+            Some(p) => at(p).lerp(&cur, self.fade),
+            None => cur,
+        }
+    }
+
+    /// Fog near, far and strength (0..1), blended across a weather fade; `None` when
+    /// neither weather has fog. Fading to or from a weather without fog fades the
+    /// strength and keeps the other weather's distances.
+    pub fn fog(&self) -> Option<(f32, f32, f32)> {
+        let cur = self.weather.fog_at(&self.climate, self.hour);
+        let prev = match &self.prev {
+            Some(p) => p.fog_at(&self.climate, self.hour),
+            None => return cur.map(|(n, f)| (n, f, 1.0)),
+        };
+        let t = self.fade;
+        match (prev, cur) {
+            (Some((pn, pf)), Some((n, f))) => Some((pn + (n - pn) * t, pf + (f - pf) * t, 1.0)),
+            (Some((n, f)), None) => Some((n, f, 1.0 - t)),
+            (None, Some((n, f))) => Some((n, f, t)),
+            (None, None) => None,
         }
     }
 
     /// Recompute sky, light and fog next frame (e.g. after something else changed the fog).
     pub fn refresh(&mut self) {
         self.changed = true;
+    }
+
+    /// The image-space grade of an interior cell (CELL XCIM), if it names one.
+    pub fn cell_grade(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, cell: u32) -> Option<Cinematic> {
+        fnv_world::lighting::cell_image_space(lo, schema, cell).and_then(|f| fnv_world::imagespace::image_space(lo, schema, f))
     }
 
     /// Switch between interior lighting (`Some`) and the worldspace's sky (`None`).
@@ -309,6 +359,20 @@ impl SkyState {
             self.weather.edid.as_deref().unwrap_or("?")
         )
     }
+}
+
+/// The worldspace's image space (WRLD INAM), or its parent's.
+fn worldspace_image_space(world: &WorldData) -> Option<Cinematic> {
+    let inam = |id: u32| {
+        let (pi, r) = fnv_world::fields::winner(world.lo, id)?;
+        let f = fnv_world::fields::Fields::new(r, pi, world.schema).ok()?;
+        fnv_world::fields::global(world.lo, pi, fnv_world::fields::formid_of(&f.get(b"INAM")?)?)
+    };
+    let ws = &world.index.worldspaces[&world.world];
+    let id = inam(world.world).or_else(|| ws.parent.and_then(inam))?;
+    let c = image_space(world.lo, world.schema, id);
+    info!("image space {id:#010x}: {c:?}");
+    c
 }
 
 /// A global variable's Editor ID.
@@ -548,12 +612,15 @@ pub fn setup_sky(
                 Stars,
                 Mesh3d(meshes.add(sky_mesh(shape, vec![[1.0; 4]; shape.positions.len()]))),
                 MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, 0.0)),
+                    base_color: Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, 1.0)),
                     base_color_texture: tex,
                     unlit: true,
                     fog_enabled: false,
-                    // Alpha 0 with premultiplied blending: result = src + dst (ONE/ONE).
-                    alpha_mode: AlphaMode::Premultiplied,
+                    // Additive, weighted by the texture's alpha: SkyStars.dds has colour in
+                    // 6,225 texels but alpha in only ~430, and the game shows sparse, faint
+                    // stars [observed: owner's screenshots; the shader property sets the
+                    // alpha-texture flag; hypothesis: the game weights by alpha].
+                    alpha_mode: AlphaMode::Add,
                     cull_mode: None,
                     depth_bias: SKY_SORT_BIAS + 30.0,
                     ..default()
@@ -677,7 +744,7 @@ pub fn update_night_sky(
         if refresh {
             if let Some(mut mat) = materials.get_mut(&m.0) {
                 let c = sky.color(ColorType::Stars);
-                mat.base_color = Color::LinearRgba(LinearRgba::new(c[0] * star_vis, c[1] * star_vis, c[2] * star_vis, 0.0));
+                mat.base_color = Color::LinearRgba(LinearRgba::new(c[0] * star_vis, c[1] * star_vis, c[2] * star_vis, 1.0));
             }
         }
     }
@@ -829,11 +896,18 @@ pub fn update_sky(
     ambient.color = to_color(amb);
     ambient.brightness = unit;
 
-    let (near, far) = sky.fog_override.unwrap_or_else(|| sky.fog());
-    fog.color = to_color(sky.color(ColorType::Fog));
+    // No fog: the fog colour's alpha scales the whole effect, so zero turns it off.
+    let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());
+    let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
+    fog.color = to_color(sky.color(ColorType::Fog)).with_alpha(strength);
     fog.falloff = FogFalloff::Linear { start: near.max(0.0), end: far.max(near + 1.0) };
     if sky.time_scale <= 0.0 {
-        info!("sky: {}  fog {near:.0}..{far:.0}", sky.describe());
+        let desc = match range {
+            Some(_) if strength < 1.0 => format!("{near:.0}..{far:.0} x{strength:.2}"),
+            Some(_) => format!("{near:.0}..{far:.0}"),
+            None => "none".into(),
+        };
+        info!("sky: {}  fog {desc}", sky.describe());
     }
 }
 

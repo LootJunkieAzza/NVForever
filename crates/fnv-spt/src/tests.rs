@@ -130,4 +130,10 @@ fn generated_tree() {
     // The trunk grows straight up from the origin to 0.1; branches reach higher.
     assert!(g.top() > 0.1 && g.top() < 0.4, "top {}", g.top());
     assert!(g.leaves.iter().all(|l| l.map == 0 && (l.normal[2] > 0.0)));
+    // Dimming: the floor at and below the bottom of the crown, 1 at its top.
+    let [lo, hi] = g.crown;
+    assert!(lo < hi);
+    assert_eq!((g.brightness(0.2, lo - 1.0), g.brightness(0.2, lo), g.brightness(0.2, hi)), (0.2, 0.2, 1.0));
+    let mid = g.brightness(0.2, lo + 0.25 * (hi - lo));
+    assert!((mid - (0.2 + 0.8 * 0.25f32.cbrt())).abs() < 1e-5, "{mid}");
 }

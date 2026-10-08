@@ -15,8 +15,8 @@ pub struct Leaf {
     pub size: [f32; 2],
     /// Attachment point as a fraction of width and height from the bottom left.
     pub pivot: [f32; 2],
-    /// Lighting normal: away from the middle of the crown, tilted up (an interim rule
-    /// for leaf lighting, chosen by eye).
+    /// Lighting normal: horizontally away from the middle of the crown, tilted up 45°
+    /// (a rule chosen by eye; speedtree.md §6).
     pub normal: [f32; 3],
 }
 
@@ -29,6 +29,8 @@ pub struct Geometry {
     pub uvs: Vec<[f32; 2]>,
     pub indices: Vec<u32>,
     pub leaves: Vec<Leaf>,
+    /// Lowest and highest leaf attachment point (z): the crown, for dimming.
+    pub crown: [f32; 2],
 }
 
 impl Geometry {
@@ -61,6 +63,17 @@ impl Geometry {
         }
         (hi[0] - lo[0]).max(hi[1] - lo[1])
     }
+
+    /// Brightness at height z for a dimming value (TREE CNAM leaf or branch dimming):
+    /// `dimming` at the bottom of the crown and below, rising to 1 at its top along the
+    /// cube root of the height in the crown (speedtree.md §6) [hypothesis: the curve is
+    /// fitted to the top-to-bottom brightness of two billboards]. A display-space factor.
+    pub fn brightness(&self, dimming: f32, z: f32) -> f32 {
+        let [lo, hi] = self.crown;
+        let h = if hi > lo { ((z - lo) / (hi - lo)).clamp(0.0, 1.0) } else { 1.0 };
+        let d = dimming.clamp(0.0, 1.0);
+        d + (1.0 - d) * h.cbrt()
+    }
 }
 
 /// Generate the tree. Deterministic: the same parameters give the same geometry.
@@ -72,6 +85,12 @@ pub fn generate(tree: &Tree) -> Geometry {
     let radius = trunk.radius().sample(0.0, rng.f()).max(0.0);
     grow(tree, 0, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], length, radius, &mut rng, &mut g);
     light_leaves(&mut g.leaves);
+    let zs = || g.leaves.iter().map(|l| l.position[2]);
+    g.crown = if g.leaves.is_empty() {
+        [0.0, g.top()]
+    } else {
+        [zs().fold(f32::MAX, f32::min), zs().fold(f32::MIN, f32::max)]
+    };
     g
 }
 
@@ -185,9 +204,13 @@ fn light_leaves(leaves: &mut [Leaf]) {
         c = add(c, l.position);
     }
     c = scale(c, 1.0 / leaves.len() as f32);
+    // Outward around the crown only (no vertical part): the top-to-bottom darkening is
+    // left to the CNAM dimming (Geometry::brightness), which would otherwise be counted
+    // twice by down-facing normals under the crown.
     for l in leaves.iter_mut() {
         let out = sub(l.position, c);
-        let n = if dot(out, out) > 1e-12 { norm(out) } else { [0.0, 0.0, 1.0] };
+        let out = [out[0], out[1], 0.0];
+        let n = if dot(out, out) > 1e-12 { norm(out) } else { [0.0, 0.0, 0.0] };
         l.normal = norm(add(n, [0.0, 0.0, 1.0]));
     }
 }
