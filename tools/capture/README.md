@@ -439,8 +439,23 @@ a capture made with them agrees with the golden made by hand:
 ```
 python tools/capture/capture_steps.py compare C:/fnv-private/goldens/sim/<name>.trace.json <substitute>.trace.json --tolerance <t>
 ```
+**AI observer (`observe.py`, plugin version 6):** a bot that watches NPCs for spans of
+game time and records their AI state (package, procedure, targets, combat, detection,
+sitting/sleeping, position, …) for the actors near the player and for named actors
+wherever they are; it moves the player only by teleport and by holding Forward through
+xNVSE. Design, fields and their sources: `docs/spec-notes/ai-observer.md`. First the
+diagnostic job (after copying the current DLL), then a campaign:
+```
+python tools/capture/capture_run.py --game "<FNV folder>" --save nvftest tools/capture/jobs/aa_observe_diag.steps.json
+python tools/capture/observe.py run tools/capture/observe/goodsprings.campaign.json --game "<FNV folder>" --data "<Data>" --timeline C:/fnv-private/capture/observe/goodsprings.timeline.json
+python tools/capture/observe.py report C:/fnv-private/capture/out/obs_goodsprings_town_day.<time>.jsonl --data "<Data>" --text
+```
+`run` restarts the game after a crash or hang and retries the session that was cut off
+(`--retries`, default 2); its report goes to `C:\fnv-private\capture\observe\<campaign>\`.
+
 Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, automatic mode,
-layouts), `tests/test_capture_steps.py` and `tests/test_capture_run.py`.
+observe step, layouts), `tests/test_capture_steps.py`, `tests/test_capture_run.py` and
+`tests/test_observe.py`.
 
 **Movement captures** (`capture_moves.py`, Layer 4 physics): jobs made from the
 candidate's own inputs (`fnv.phys.drops/1` files and walk scripts with a `capture` block,
