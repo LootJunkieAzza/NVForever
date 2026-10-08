@@ -237,7 +237,13 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   fresnel amount); the sun adds a highlight with exponent = shininess. Noise layer i
   repeats every UV scale units (0 → the noise normals UV scale), scrolls at wind speed
   repeats per second towards its compass wind direction, and its height is channel i ×
-  amplitude × noise normals scale × 2 (factor tuned by eye). Unknown: the roles of ANAM
+  amplitude × noise normals scale × 2 (factor tuned by eye). What lies behind the surface
+  is refracted: sampled with a screen offset along the wave normal's tilt, growing over
+  the first 200 units of water (tuned by eye; the engine's rule is unknown). Under water
+  the camera's distance fog becomes the water's under fog (near / far, -2500 / 5500 for
+  NVCleanWater) in its deep colour lit by the sun and ambient light; looking up, the sky
+  shows only within Snell's window (refractive index 1.33) and the surface reflects the
+  water body outside it. The under fog "amount" is unused like the above one. Unknown: the roles of ANAM
   opacity, the fog amounts, sun power and the four unnamed leading DNAM floats.
 
 ## 7. Distant LOD

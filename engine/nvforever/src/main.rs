@@ -12,6 +12,7 @@ mod lod;
 mod reflection;
 mod sky;
 mod terrain;
+mod underwater;
 mod water;
 mod world;
 
