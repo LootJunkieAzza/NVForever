@@ -168,8 +168,11 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 5. Collision: shape conversion vs oracle; Havok scale measured; then movement traces.
    Status 2026-10-08: the controller rests on contact shells like the arrival rule, the
    corner jitter is fixed, gravity / jump / run / walk are measured in game (physics.md
-   §6.3). Captured the same day: B11 15/20 after fixes (open: Havok trees, rocks within
-   the game's spread, a pushed drop), traces fence_slide 6/6, fence_stop 6/6,
+   §6.3). Captured the same day: B11 15/20 after fixes, 14/20 since Portal Box markers
+   are solid again (open: Havok trees; follow-up 2026-10-08 [observed]: rock b and the
+   maize push are the game's own spread over repeated identical drops, rock a lands on a
+   step edge where the game's player passes; owner asked about goldens from repeated
+   drops, physics.md §4.2), traces fence_slide 6/6, fence_stop 6/6,
    porch_steps 6/6, running_jump 0/6 (air control open), hill_run 6/6 and portal_wall
    5/6 (goldens rebuilt with the corrected onset on the owner's decision, no longer
    held-out evidence; the steep downhill row is open; physics.md §4.2, §6.3, §6.4,
