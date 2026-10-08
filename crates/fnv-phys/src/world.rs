@@ -38,6 +38,16 @@ impl Default for PhysParams {
     }
 }
 
+/// Contact shell of the terrain, game units: actors rest about this high above the LAND
+/// surface, as they rest about 0.7 units (a stored shape radius of 0.1 times the Havok
+/// scale) above static models (physics.md §6.2). Derived from in-game rest heights
+/// [observed: after door teleports and drops the player rested 3.32–3.85 units above the
+/// triangulated LAND surface and 0.54–1.05 above static floors, the same band shifted by
+/// 2.8 units; 0.7 + 2.8 = 3.5]. That the excess is a shell (a Havok convex radius of the
+/// landscape shape) rather than a raised surface is [hypothesis]; queries still report
+/// the bare surface.
+pub const TERRAIN_SHELL: f32 = 3.5;
+
 /// What a collider belongs to. Stored in the collider's `user_data`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -155,6 +165,9 @@ pub struct PhysWorld {
     refs: BTreeMap<u32, Vec<RigidBodyHandle>>,
     /// Per-triangle material codes of triangle-mesh colliders.
     materials: HashMap<ColliderHandle, Vec<u32>>,
+    /// Contact shells (game units) of reference colliders that have one
+    /// (`CollisionObject::shell` times the reference's scale).
+    shells: HashMap<ColliderHandle, f32>,
     /// Colliders changed since the broad phase was last updated.
     dirty: bool,
     /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
@@ -175,6 +188,7 @@ impl PhysWorld {
             terrain: BTreeMap::new(),
             refs: BTreeMap::new(),
             materials: HashMap::new(),
+            shells: HashMap::new(),
             dirty: false,
             new_bodies: Vec::new(),
             steps: 0,
@@ -235,7 +249,7 @@ impl PhysWorld {
                 Motion::Dynamic => RigidBodyBuilder::dynamic(),
             };
             let body = self.insert_body(builder.pose(body_pose).user_data(owner.encode()));
-            report.colliders += self.attach(body, owner, o, leaves);
+            report.colliders += self.attach(body, owner, o, leaves, o.shell * pose.scale);
             if o.motion == Motion::Dynamic {
                 self.set_mass(body, o.mass);
             }
@@ -249,7 +263,7 @@ impl PhysWorld {
         report
     }
 
-    fn attach(&mut self, body: RigidBodyHandle, owner: Owner, o: &CollisionObject, leaves: Vec<Leaf>) -> usize {
+    fn attach(&mut self, body: RigidBodyHandle, owner: Owner, o: &CollisionObject, leaves: Vec<Leaf>, shell: f32) -> usize {
         let n = leaves.len();
         for leaf in leaves {
             let mut c = ColliderBuilder::new(leaf.shape).position(leaf.pose).user_data(owner.encode());
@@ -262,6 +276,9 @@ impl PhysWorld {
             let h = self.w.insert_collider(c, Some(body));
             if !leaf.materials.is_empty() {
                 self.materials.insert(h, leaf.materials);
+            }
+            if shell.is_finite() && shell > 0.0 {
+                self.shells.insert(h, shell);
             }
         }
         n
@@ -297,6 +314,7 @@ impl PhysWorld {
         if let Some(body) = self.w.bodies.get(b) {
             for c in body.colliders() {
                 self.materials.remove(c);
+                self.shells.remove(c);
             }
         }
         self.w.remove_body(b);
@@ -398,6 +416,7 @@ impl PhysWorld {
             terrain: self.terrain.clone(),
             refs: self.refs.clone(),
             materials: self.materials.clone(),
+            shells: self.shells.clone(),
             dirty: self.dirty,
             new_bodies: self.new_bodies.clone(),
             steps: self.steps,
@@ -425,6 +444,15 @@ impl PhysWorld {
             }
         }
         h
+    }
+
+    /// Contact shell of a collider, game units: [`TERRAIN_SHELL`] for terrain, the
+    /// collision object's shell for a reference's collider, 0 otherwise.
+    pub(crate) fn shell_of(&self, c: ColliderHandle) -> f32 {
+        match self.w.colliders.get(c).and_then(|co| Owner::decode(co.user_data)) {
+            Some(Owner::Terrain { .. }) => TERRAIN_SHELL,
+            _ => self.shells.get(&c).copied().unwrap_or(0.0),
+        }
     }
 
     /// Material code of triangle `triangle` of a triangle-mesh collider.
@@ -508,6 +536,9 @@ pub struct RayHit {
     pub normal: [f32; 3],
     /// Havok material code of the triangle hit, for triangle meshes.
     pub material: Option<u32>,
+    /// Contact shell of the collider hit, game units ([`TERRAIN_SHELL`],
+    /// `CollisionObject::shell`); the hit point itself is on the bare surface.
+    pub shell: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
@@ -552,6 +583,7 @@ impl Queries<'_> {
             point: arr3(ray.point_at(hit.time_of_impact) / k),
             normal: arr3(hit.normal),
             material: self.world.material_of(c, hit.subshape),
+            shell: self.world.shell_of(c),
         }
     }
 
