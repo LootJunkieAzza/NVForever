@@ -300,3 +300,9 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
 `fnvtool collide objects` (`fnv.collide.objects/1`) and `fnvtool collide survey`
 (`fnv.collide.survey/1`) are defined in docs/spec-notes/collision.md §5 together with the
 collision notes.
+
+# Layer 4 (core simulation)
+
+`fnvtool sim containers` (`fnv.sim.containers/1`), `fnvtool sim run`
+(`fnv.sim.actions/1` → `fnv.sim.trace/1`) and `fnvtool sim forms` (`fnv.sim.forms/1`)
+are defined in docs/spec-notes/simulation.md §7 together with the simulation notes.
