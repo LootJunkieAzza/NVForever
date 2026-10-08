@@ -11,6 +11,7 @@ mod fly;
 mod lod;
 mod reflection;
 mod ripples;
+mod imagespace;
 mod sky;
 mod terrain;
 mod underwater;
@@ -93,6 +94,10 @@ struct Args {
     /// Game days passed, for the moon phase (default: the GameDaysPassed global).
     #[arg(long)]
     day: Option<f32>,
+    /// Do not apply the image-space grade (the worldspace's image space and the weather's
+    /// adapters), for comparisons.
+    #[arg(long)]
+    no_grade: bool,
     /// Sun shadows reach this far from the camera (game units); 0 turns them off.
     #[arg(long, default_value_t = 16_000.0)]
     shadow_distance: f32,
@@ -212,6 +217,9 @@ fn main() -> AppExit {
         Err(e) => return fail(e),
     };
     sky_state.shadow_distance = args.shadow_distance.max(0.0);
+    if args.no_grade {
+        sky_state.image_space = None;
+    }
     sky_state.time_scale = args.time_scale.max(0.0);
     sky_state.days_passed = args.day.or_else(|| sky::find_global(&world, "GameDaysPassed")).unwrap_or(0.0).floor();
     if let Some(dir) = &args.timelapse {
@@ -269,6 +277,7 @@ fn main() -> AppExit {
             }),
     )
     .add_plugins((ArchivePlugin(game), water::WaterPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins(imagespace::ImageSpacePlugin)
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
@@ -357,6 +366,7 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         }),
         Transform::from_translation(pos).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)),
         FlyCam { yaw, pitch, speed: 800.0 },
+        imagespace::ImageSpaceGrade::default(),
         sky::initial_fog(),
         // Water reads the depth of what lies behind it (water.rs).
         bevy::core_pipeline::prepass::DepthPrepass,
