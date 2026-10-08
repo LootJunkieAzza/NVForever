@@ -264,6 +264,32 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   so it is not a plain colour multiplier there. How their multipliers (up to 10, e.g.
   the saloon's neon tubes ×7.5) and the 717 NiMaterialColorController / 317
   BSMaterialEmittanceMultController blocks (blinking bulbs) affect brightness is open.
+- **Normal maps** use DirectX-style green: +G points *down* the image (towards
+  increasing v), +R to the right [observed]. Seven texture sets in `Fallout -
+  Textures.bsa` ship a parallax height map (`_p`) beside the normal map (`_n`): McCarran
+  flagstone, rubble piles, REPCONN HQ, concrete impact decal, Citadel rubble, station
+  chips. Correlating the normal map with the height-map gradient (image y downward, 256²
+  mip) gives corr(R, dH/dx) from −0.33 to −0.88 (as expected, brighter = higher) and
+  corr(G, dH/dy) from −0.24 to −0.93, the sign of a downward green axis. Bevy assumes
+  upward green (glTF), so the renderers set `flip_normal_map_y`. Unflipped, bumps were
+  lit from below: rock faces looked inside-out and glistened at the wrong edges.
+- **Specular** [observed, 500 random meshes from `Fallout - Meshes.bsa`]: of 738
+  NiMaterialProperty blocks on BSShaderPPLightingProperty shapes, 697 (94%) have a
+  black specular colour, 18 white, 23 other; 1,011 of 1,279 such shader properties set
+  BSShaderFlags bit 0 "Specular" [documented: nif.xml]. Black specular colours include
+  weapons (20 of 30 weapon materials) and the canyon rocks; the recurring value
+  (0.682, 0.729, 0.796) with glossiness 1 looks like an exporter default. Normal-map
+  alpha holds an authored mask [documented: nif.xml calls slot 1 "normal (+ gloss in
+  alpha)"]: `NV_RockFormations_01_N.dds` (DXT5) averages 22/255 (median 18, 90th
+  percentile 49). Normal maps are 2,873 DXT5, 425 DXT1 (alpha reads 1, i.e. full
+  mask), 125 DXT3 and 5 R8G8B8. Glossiness spans 0–320 and clusters at 10 and 60–70
+  (rocks: 67). The renderers ignore the specular colour, scale specular by the
+  normal-map alpha when the Specular flag is set (none when it is clear), and read
+  glossiness as a Blinn-Phong exponent for the highlight size [hypothesis: the
+  per-texture masks are authored while the colour is almost always black, so the colour
+  is presumably unused]. Reading glossiness 67 as a plain roughness of 0.33 and
+  ignoring the mask made the canyon rocks look wet (owner's screenshot, Goodsprings
+  rain); with the mask they are matte. To confirm against in-game captures.
 
 ## 7. Coverage status
 
