@@ -345,10 +345,11 @@ def diag_job():
     steps.append(cs.query(count_script(f"GetNumRefs {ACTOR_TYPE} 1"), "scan", "GetNumRefs"))
     for name, kind, expr in HEADER:
         steps.append(cs.query(header_script(kind, expr), "header", name))
-    # Every field on its own, on the second actor of the scan (the first may be the player).
+    # Every field on its own, on the first actor of the scan (the player is not in it
+    # [observed 2026-10-08, aa_observe_diag]).
     for part in PARTS:
         for f in part:
-            script = probe_part([f], [], [], nearby_select(1), True).replace("%{i}", "1")
+            script = probe_part([f], [], [], nearby_select(1), True).replace("%{i}", "0")
             steps.append(cs.query(script, "field", f[0]))
     for k, part in enumerate(PARTS):
         for i in range(3):

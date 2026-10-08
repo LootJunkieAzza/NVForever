@@ -130,157 +130,157 @@
    "field": "player_in_combat"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  SetFunctionValue ((GetFormIDString rA))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  SetFunctionValue ((GetFormIDString rA))\nendif\nEnd\n",
    "label": "field",
    "field": "id"
   },
   {
-   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetBaseObject\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
+   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetBaseObject\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
    "label": "field",
    "field": "base"
   },
   {
-   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetParentCell\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
+   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetParentCell\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
    "label": "field",
    "field": "cell"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetPos X\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetPos X\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "x"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetPos Y\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetPos Y\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "y"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetPos Z\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetPos Z\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "z"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetAngle Z\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetAngle Z\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "heading"
   },
   {
-   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetCurrentPackage\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
+   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetCurrentPackage\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
    "label": "field",
    "field": "package"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetCurrentAIPackage\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetCurrentAIPackage\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "package_type"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetCurrentAIProcedure\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetCurrentAIProcedure\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "procedure"
   },
   {
-   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetPackageTarget\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
+   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetPackageTarget\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
    "label": "field",
    "field": "package_target"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsInCombat\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsInCombat\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "in_combat"
   },
   {
-   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetCombatTarget\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
+   "query": "ref rA\nref rX0\nint iN\nfloat fS\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let rX0 := rA.GetCombatTarget\n  SetFunctionValue ((GetFormIDString rX0))\nendif\nEnd\n",
    "label": "field",
    "field": "combat_target"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetDetected player\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetDetected player\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "detects_player"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetIsAlerted\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetIsAlerted\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "alerted"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetAlarmed\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetAlarmed\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "alarmed"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetSitting\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetSitting\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "sitting"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetSleeping\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetSleeping\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "sleeping"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetKnockedState\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetKnockedState\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "knocked"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsTalking\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsTalking\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "talking"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetDead\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetDead\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "dead"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetUnconscious\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetUnconscious\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "unconscious"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetDisabled\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetDisabled\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "disabled"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsSneaking\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsSneaking\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "sneaking"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsRunning\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsRunning\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "running"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsWeaponOut\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsWeaponOut\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "weapon_out"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsMoving\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsMoving\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "moving"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetAV Health\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetAV Health\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "health"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsPersistent\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.IsPersistent\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "persistent"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetIsCreature\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetIsCreature\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "creature"
   },
   {
-   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 1\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetPlayerTeammate\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
+   "query": "ref rA\nint iN\nfloat fS\nfloat fV0\nBegin Function { }\nlet rA := GetFirstRef 200 1\nlet iN := 0\nwhile iN < 0\n  let rA := GetNextRef\n  let iN := iN + 1\nloop\nlet fS := 0\nif rA\n  let fS := 1\n  if rA.GetDisabled\n    let fS := 0\n  endif\nendif\nif fS == 0\n  SetFunctionValue 0\nelse\n  let fV0 := rA.GetPlayerTeammate\n  SetFunctionValue (($ fV0))\nendif\nEnd\n",
    "label": "field",
    "field": "teammate"
   },
