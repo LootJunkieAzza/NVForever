@@ -23,7 +23,7 @@ use auto::{Auto, AutoAction, AutoState, AUTO_FILE, AUTO_USED_FILE};
 use ffi::*;
 use runner::{Event, Host, Job, Runner, Value};
 
-pub const PLUGIN_VERSION: u32 = 3;
+pub const PLUGIN_VERSION: u32 = 4;
 const PLUGIN_NAME: &CStr = c"NVForeverCapture";
 pub const DEFAULT_DIR: &str = r"C:\fnv-private\capture";
 
