@@ -92,6 +92,27 @@
    "field": "menumode"
   },
   {
+   "console": "cow WastelandNV 6 13"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 24576\n  if player.GetPos X < 28672\n    if player.GetPos Y >= 53248\n      if player.GetPos Y < 57344\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "llv_line menumode",
+   "field": "value"
+  },
+  {
    "script": "Begin Function { }\nplayer.SetPos X 24700\nplayer.SetPos Y 54400\nplayer.SetPos Z 3092\nSetFunctionValue 1\nEnd\n"
   },
   {
@@ -1651,6 +1672,27 @@
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
    "label": "llv_line after 0029",
    "field": "sample"
+  },
+  {
+   "console": "cow WastelandNV 6 13"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 24576\n  if player.GetPos X < 28672\n    if player.GetPos Y >= 53248\n      if player.GetPos Y < 57344\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "llv_line walk menumode",
+   "field": "value"
   },
   {
    "script": "Begin Function { }\nplayer.SetPos X 24700\nplayer.SetPos Y 54400\nplayer.SetPos Z 3092\nSetFunctionValue 1\nEnd\n"
@@ -4414,6 +4456,27 @@
    "field": "sample"
   },
   {
+   "console": "cow WastelandNV 14 9"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 57344\n  if player.GetPos X < 61440\n    if player.GetPos Y >= 36864\n      if player.GetPos Y < 40960\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "bb_line menumode",
+   "field": "value"
+  },
+  {
    "script": "Begin Function { }\nplayer.SetPos X 55500\nplayer.SetPos Y 37536\nplayer.SetPos Z 2964\nSetFunctionValue 1\nEnd\n"
   },
   {
@@ -5973,6 +6036,27 @@
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
    "label": "bb_line after 0029",
    "field": "sample"
+  },
+  {
+   "console": "cow WastelandNV 13 10"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 53248\n  if player.GetPos X < 57344\n    if player.GetPos Y >= 40960\n      if player.GetPos Y < 45056\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_12 menumode",
+   "field": "value"
   },
   {
    "script": "Begin Function { }\nplayer.SetPos X 52497\nplayer.SetPos Y 40721\nplayer.SetPos Z 2790\nSetFunctionValue 1\nEnd\n"
@@ -7536,6 +7620,27 @@
    "field": "sample"
   },
   {
+   "console": "cow WastelandNV 12 10"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 49152\n  if player.GetPos X < 53248\n    if player.GetPos Y >= 40960\n      if player.GetPos Y < 45056\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_16 menumode",
+   "field": "value"
+  },
+  {
    "script": "Begin Function { }\nplayer.SetPos X 52365\nplayer.SetPos Y 40878\nplayer.SetPos Z 2773\nSetFunctionValue 1\nEnd\n"
   },
   {
@@ -9095,6 +9200,27 @@
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
    "label": "lm_16 after 0029",
    "field": "sample"
+  },
+  {
+   "console": "cow WastelandNV 31 7"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 126976\n  if player.GetPos X < 131072\n    if player.GetPos Y >= 28672\n      if player.GetPos Y < 32768\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_25 menumode",
+   "field": "value"
   },
   {
    "script": "Begin Function { }\nplayer.SetPos X 127744\nplayer.SetPos Y 30532\nplayer.SetPos Z 2814\nSetFunctionValue 1\nEnd\n"
@@ -10658,6 +10784,27 @@
    "field": "sample"
   },
   {
+   "console": "cow WastelandNV 30 23"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 122880\n  if player.GetPos X < 126976\n    if player.GetPos Y >= 94208\n      if player.GetPos Y < 98304\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_30 menumode",
+   "field": "value"
+  },
+  {
    "script": "Begin Function { }\nplayer.SetPos X 125631\nplayer.SetPos Y 96115\nplayer.SetPos Z 2974\nSetFunctionValue 1\nEnd\n"
   },
   {
@@ -12217,6 +12364,27 @@
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
    "label": "lm_30 after 0029",
    "field": "sample"
+  },
+  {
+   "console": "cow WastelandNV 36 7"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 147456\n  if player.GetPos X < 151552\n    if player.GetPos Y >= 28672\n      if player.GetPos Y < 32768\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_41 menumode",
+   "field": "value"
   },
   {
    "script": "Begin Function { }\nplayer.SetPos X 148405\nplayer.SetPos Y 29256\nplayer.SetPos Z 3079\nSetFunctionValue 1\nEnd\n"
@@ -13780,6 +13948,27 @@
    "field": "sample"
   },
   {
+   "console": "cow WastelandNV 17 10"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 69632\n  if player.GetPos X < 73728\n    if player.GetPos Y >= 40960\n      if player.GetPos Y < 45056\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_45 menumode",
+   "field": "value"
+  },
+  {
    "script": "Begin Function { }\nplayer.SetPos X 73810\nplayer.SetPos Y 43379\nplayer.SetPos Z 3968\nSetFunctionValue 1\nEnd\n"
   },
   {
@@ -15339,6 +15528,27 @@
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
    "label": "lm_45 after 0029",
    "field": "sample"
+  },
+  {
+   "console": "cow WastelandNV 30 24"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 122880\n  if player.GetPos X < 126976\n    if player.GetPos Y >= 98304\n      if player.GetPos Y < 102400\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_49 menumode",
+   "field": "value"
   },
   {
    "script": "Begin Function { }\nplayer.SetPos X 125823\nplayer.SetPos Y 101351\nplayer.SetPos Z 3157\nSetFunctionValue 1\nEnd\n"
@@ -16902,6 +17112,27 @@
    "field": "sample"
   },
   {
+   "console": "cow WastelandNV 19 9"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 77824\n  if player.GetPos X < 81920\n    if player.GetPos Y >= 36864\n      if player.GetPos Y < 40960\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "lm_58 menumode",
+   "field": "value"
+  },
+  {
    "script": "Begin Function { }\nplayer.SetPos X 79227\nplayer.SetPos Y 38477\nplayer.SetPos Z 3730\nSetFunctionValue 1\nEnd\n"
   },
   {
@@ -18463,6 +18694,27 @@
    "field": "sample"
   },
   {
+   "console": "cow WastelandNV 7 14"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 28672\n  if player.GetPos X < 32768\n    if player.GetPos Y >= 57344\n      if player.GetPos Y < 61440\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "llv_14 menumode",
+   "field": "value"
+  },
+  {
    "script": "Begin Function { }\nplayer.SetPos X 28288\nplayer.SetPos Y 58596\nplayer.SetPos Z 3098\nSetFunctionValue 1\nEnd\n"
   },
   {
@@ -20022,6 +20274,27 @@
    "query": "float fX\nfloat fY\nfloat fZ\nfloat fT\nfloat fSw\nfloat fP\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nlet fT := (GetCurrentTime - %{t0}) * 120000\nlet fSw := player.IsSwimming\nlet fP := player.GetAngle X\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fT) + \" \" + ($ fSw) + \" \" + ($ fP))\nEnd\n",
    "label": "llv_14 after 0029",
    "field": "sample"
+  },
+  {
+   "console": "cow WastelandNV 7 14"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos X >= 28672\n  if player.GetPos X < 32768\n    if player.GetPos Y >= 57344\n      if player.GetPos Y < 61440\n        let fV := 1\n      endif\n    endif\n  endif\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "llv_25 menumode",
+   "field": "value"
   },
   {
    "script": "Begin Function { }\nplayer.SetPos X 32949\nplayer.SetPos Y 59293\nplayer.SetPos Z 3076\nSetFunctionValue 1\nEnd\n"
