@@ -341,10 +341,8 @@ pub fn update_water_sky(sky: Res<SkyState>, cache: Res<WaterCache>, mut material
             let f = linear(l.fog_color);
             (f, f)
         }
-        None => {
-            let (c, w, h) = (&sky.climate, &sky.weather, sky.hour);
-            (Vec3::from_array(w.color(c, ColorType::SkyUpper, h)), Vec3::from_array(w.color(c, ColorType::Horizon, h)))
-        }
+        // Blended across a weather fade, like the dome.
+        None => (Vec3::from_array(sky.color(ColorType::SkyUpper)), Vec3::from_array(sky.color(ColorType::Horizon))),
     };
     let (upper, horizon) = (upper.extend(1.0), horizon.extend(1.0));
     for h in cache.materials.values() {
