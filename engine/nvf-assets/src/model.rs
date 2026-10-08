@@ -41,6 +41,9 @@ pub struct PreparedShape {
     /// [`ModelCtx::model_with_cpu`]. GPU meshes are render-world only: once uploaded,
     /// their vertex data can no longer be read from the main world.
     pub cpu: Option<Arc<Mesh>>,
+    /// The shader property sets BSShaderFlags bit 29 "External_Emittance": a reference
+    /// that names an emittance source (REFR XEMI) drives its colour.
+    pub external_emittance: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -328,7 +331,14 @@ impl ModelCtx<'_> {
                     r.shapes.push(RigShape { node, mesh, material: material.clone(), skin });
                 }
             }
-            out.shapes.push(PreparedShape { cpu, mesh, material, transform: t, name: o.name.clone() });
+            out.shapes.push(PreparedShape {
+                cpu,
+                mesh,
+                material,
+                transform: t,
+                name: o.name.clone(),
+                external_emittance: props.external_emittance(),
+            });
             out.triangles += tris;
         }
         out.rig = rig.map(|(r, _)| r);

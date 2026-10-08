@@ -473,6 +473,26 @@ impl PhysWorld {
         self.dirty = true;
     }
 
+    /// Bounding box (game units: min and max corners) of every collider on a fixed body —
+    /// terrain and references' static collision, not characters or dynamic bodies; `None`
+    /// when there are none.
+    pub fn fixed_bounds(&self) -> Option<([f32; 3], [f32; 3])> {
+        let mut out: Option<([f32; 3], [f32; 3])> = None;
+        for (_, c) in self.w.colliders.iter() {
+            if !c.parent().is_some_and(|b| self.w.bodies[b].is_fixed()) {
+                continue;
+            }
+            let a = c.compute_aabb();
+            let (lo, hi) = (arr3(a.mins / self.k), arr3(a.maxs / self.k));
+            let b = out.get_or_insert((lo, hi));
+            for i in 0..3 {
+                b.0[i] = b.0[i].min(lo[i]);
+                b.1[i] = b.1[i].max(hi[i]);
+            }
+        }
+        out
+    }
+
     pub fn stats(&self) -> Stats {
         let mut s = Stats { terrain_cells: self.terrain.len(), refs: self.refs.len(), steps: self.steps, ..Default::default() };
         for (_, b) in self.w.bodies.iter() {

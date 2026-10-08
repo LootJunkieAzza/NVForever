@@ -322,6 +322,14 @@ pub enum SimCmd {
         #[arg(long)]
         no_physics: bool,
     },
+    /// Every teleport door by where it leads (interior, same worldspace, another
+    /// worldspace), with the doors into another worldspace listed (fnv.sim.doors/1).
+    Doors {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
