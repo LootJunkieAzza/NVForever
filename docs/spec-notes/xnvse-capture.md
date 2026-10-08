@@ -237,3 +237,12 @@ substitutes do everything the Wait menu does (e.g. health regeneration, NPC sche
 cell respawn were not compared); a new kind of observation needs its own comparison.
 `hour` is the default choice for unattended jobs (no TimeScale change, no dependence on
 frame rate); `timescale` lets the game run the time, if a scenario needs that.
+
+Further agreement [observed 2026-10-08]: the backlog captures `bl_restock_timing`,
+`bl_primm_restock` and `bl_container_respawn` were each run with `hour` and with
+`timescale`; every refill, respawn and non-refill came out the same (only leveled
+contents rolled differently). Merchant restocks and cell respawns happen at day
+boundaries or on cell load, both of which `hour` passes through, so this agreement is
+expected [hypothesis]. Travel with the console's `coc` (`--go-to-cell`, also used to leave
+and re-enter a cell in `bl_container_respawn`) arrived on the first check every time; it
+is a teleport, not a walk through a door.
