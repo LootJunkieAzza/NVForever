@@ -46,7 +46,7 @@ directory's `jobs\`). Results are in the notes named.
 | `aa_exterior_cell` | `GetParentCell` of a persistent exterior ref, outdoors | grid cell containing the position; simulation.md §5 |
 | `aa_respawn_delay` | `iHoursToRespawnCell`; 1/6/12 h away | 72 in game; merchant box separate rule; simulation.md §3 |
 | `aa_vendor_restock` | merchant box: no-leave 24 h, 5 h across midnight, 10 h | restock without leaving; not midnight; simulation.md §3 |
-| `aa_auto_trial` | read-only; first unattended run (`capture_run.py`): menu load, auto start, quit | not run yet (xnvse-capture.md §6) |
+| `aa_auto_trial` | read-only; first unattended run (`capture_run.py`): menu load, auto start, quit | works (second try; the first hung the game, fixed in the plugin); xnvse-capture.md §6 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)

@@ -363,9 +363,10 @@ failed steps, problems (game did not start, crashed, old plugin, timeout) and th
 plugin's log lines from this run. `--trace-dir C:/fnv-private/goldens/sim` also builds the
 trace goldens of ended jobs. Jobs with manual steps are refused unless `--attended`
 (someone presses End after each); other jobs already pending in `jobs\` are refused
-unless `--include-pending`. Exit code 0 means every job ended. The console lines for
-loading and quitting are not yet confirmed in game (xnvse-capture.md §6); run the trial
-first and change them with `--menu-console` / `--quit-console` if needed:
+unless `--include-pending`. Exit code 0 means every job ended. The default console lines
+for loading and quitting (`load <save>`, `qqq`) worked on the owner's install
+(xnvse-capture.md §6); `--menu-console` / `--quit-console` change them. The read-only
+trial, to check a new setup:
 ```
 python tools/capture/capture_run.py --game "<FNV folder>" --save nvftest tools/capture/jobs/aa_auto_trial.steps.json
 ```

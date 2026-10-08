@@ -160,14 +160,12 @@ recorded per step, not fatal.
   of automatic runs run with the lock released, and a message that arrives while the
   plugin is busy never waits (a save load is handled at the next message, a game loop is
   skipped). capture_run.py now gives up when the game stays "Not Responding" for 120 s.
-- Automatic runs still rest on [hypothesis] points, to be settled by the trial job
-  `tools/capture/jobs/aa_auto_trial.steps.json` (read-only) on the owner's install:
-  (2) the console line `load <save file name without
-  .fos>` run through `RunScriptLine` at the main menu loads that save; (3) `qqq` closes
-  the game. The console lines are data in `auto.json`, so a different line needs no
-  plugin rebuild. Also untested: whether `save <name>` typed in the console writes
-  `<name>.fos` (capture_run.py checks for that file in the default Saves folder).
-
+- Second automatic trial (2026-10-08, fixed plugin) [observed]: `load nvftest` at the
+  main menu loaded `nvftest.fos` (made with the console line `save nvftest`); the log's
+  "save loaded" came *before* the console call returned "ok", so the save does load inside
+  the call and xNVSE dispatches PostLoadGame from there (the mechanism above). The job
+  `aa_auto_trial` then started by itself and ended with no failed step; `qqq` closed the
+  game. Unattended runs work for jobs without manual steps.
 - Fractional game time (GameHour, GameDaysPassed after waiting) needs a capture that can
   stop or account for the running clock without crashing the game; not observed yet.
 
