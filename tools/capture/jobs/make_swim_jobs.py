@@ -336,6 +336,17 @@ def guardian():
     return j
 
 
+def banks_rest():
+    """The banks sw_banks did not reach: its second run hung after lm_12 when the game
+    lost the focus to another program's window (the owner, 2026-10-08)."""
+    steps = list(PROTECT) + go_there()
+    for b in BANKS[1:]:
+        steps += bank_trial(b)
+    j = cs.job("sw_banks_b", START, steps, cs.MASTERS)
+    j["title"] = "Swimming: out of the water up banks of 16 to 58 degrees (the rest of sw_banks; about 3 min, no input)"
+    return j
+
+
 def diag():
     """Which sample scripts compile, and whether the clock runs after the coc."""
     clock = cs.function(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"])
@@ -386,7 +397,7 @@ def diag2():
 
 
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o(), banks(), guardian()):
+    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o(), banks(), banks_rest(), guardian()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)
