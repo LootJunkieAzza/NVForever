@@ -86,6 +86,9 @@ struct Args {
     /// Do not draw distant LOD.
     #[arg(long)]
     no_lod: bool,
+    /// Sun shadows reach this far from the camera (game units); 0 turns them off.
+    #[arg(long, default_value_t = 16_000.0)]
+    shadow_distance: f32,
     /// World units per terrain texture repeat [hypothesis; docs/design/layer3.md].
     #[arg(long, default_value_t = 4096.0 / 6.0)]
     terrain_tile: f32,
@@ -194,6 +197,7 @@ fn main() -> AppExit {
         Ok(s) => s,
         Err(e) => return fail(e),
     };
+    sky_state.shadow_distance = args.shadow_distance.max(0.0);
     if let Some(id) = interior {
         sky_state.interior = fnv_world::lighting::cell_lighting(world.lo, world.schema, id);
     }
