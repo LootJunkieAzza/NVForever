@@ -791,8 +791,9 @@ step of 16.5 past the line at most, by the controller's rule below].
 `swim_sink_speed` 12.1, `swim_jump_mult` 2; `crates/fnv-phys/src/character.rs`,
 `swim_vertical`; water areas `crates/fnv-phys/src/water.rs`). Water is a flat surface over
 each loaded exterior cell's square with `Cell::water_surface` (CELL XCLW, else the
-worldspace default, for cells flagged "has water": the renderer's rule); no collider.
-(Interiors first used their XCLW too; `sw_h2o` refuted that, below.) A character **starts swimming** after a step that ends with it off
+worldspace default, for cells flagged "has water": the renderer's rule), plus the box of
+each placed water reference (below); no collider. (Interiors first used their XCLW too;
+`sw_h2o` refuted that, below.) A character **starts swimming** after a step that ends with it off
 the ground, falling, with its feet `swim_depth` or more below the surface: its fall stops
 there, with no landing (so no fall damage) [observed]; the stop is after that step, not
 clamped to the line (the game's extra step at high speed, above, is not modelled). While
@@ -803,8 +804,9 @@ height the character otherwise sinks at 12.1 units/s and stops at it; below it n
 moves it vertically (no buoyancy) [all observed]. Jump works only above the floating
 height and gives a jump of `swim_jump_mult` × `jump_height` that leaves the water
 [observed: the two cases above]. Swimming **ends** when the swimmer moves down onto
-walkable ground (it then walks) [observed: leaving the lake], when it jumps, or where no
-water is above its feet [hypothesis]. A character on the ground never starts swimming,
+walkable ground (it then walks) [observed: leaving the lake], when it jumps, or where there
+is no water at all [hypothesis]; feet above the surface do not end it [observed:
+`swim_h2o_drops`, below; the first implementation ended it there]. A character on the ground never starts swimming,
 however deep [observed: walking in]. The swimming state survives `place_character`, as
 the game's does across `SetPos` [observed]. Walking speeds are the caller's: `nvf-play`
 swims at 348 (Always Run) and 100.8 (walk) in every direction, along the view
@@ -989,6 +991,32 @@ walking 86; feet when swimming ends, seconds after the keys, and after 4 s):
 (The candidate ends swimming on any ground it is pushed onto, walkable or not, and then
 stands at the foot of the 49° and 58° banks.)
 
+**`sw_banks` results: the Lake Las Vegas saw-tooth was a capture artefact** (2026-10-08)
+[observed]. The first run travelled between the banks by long `SetPos` moves only: the
+owner saw the land drawn as distant LOD around the player (the full cells not loaded),
+three trials froze (positions and clock still) and the game crashed. `sw_scenarios` had
+reached Lake Las Vegas the same way (a `SetPos` from Goodsprings), so its swimmer met a bank
+without terrain collision; what lifted it onto the bare LAND surface every ~30 units is
+whatever the game does for an actor below an unloaded landscape (not studied). The job
+now loads each bank's own cell with the console's `cow WastelandNV <x> <y>` before short
+`SetPos` moves (`bank_trial`). In the second run the game lost the focus to another
+program's window after four trials and hung (the owner: other sessions' engine runs take
+the focus; Fallout stops running in the background); those four trials, compared with the
+candidate at equal times after the motion onset (the game ran at about 50 loops per
+second, so sample counts are not times):
+
+| Trial | Feet − LAND, lowest | Game leaves the water | Candidate − game (x, y, z) |
+|---|---|---|---|
+| `llv_line` (27°, running) | +4.15 | at the bank, 1.5 s | within 5 except t2.0–2.5 (−20, +1, +11: meeting the bank); t4.0 (+5, −7, +2) |
+| `llv_line walk` | +4.39 | 6.1 s | swimming ±21 along the line (the walking stroke varies 82–122, the candidate holds 86 [hypothesis]); walking within 8 |
+| `bb_line` (28–34°, running from the float) | +4.05 | at once | walking up: the candidate up to 17 ahead and 12 higher by t4.0 (land walking up slope, not swimming) |
+| `lm_12` (12.5°) | +3.95 | 1.2 s | within 3 to t2.0 (frozen from 2.3 s, the focus loss) |
+
+So, with its cell loaded, the game's swimmer meets a 12–34° bank with its capsule (never
+below the LAND's contact shell) and walks out, as the candidate does; the "different
+shape while swimming" [hypothesis] is withdrawn. The run's later trials (16°–58°) are in
+`sw_banks_b`.
+
 **Placed water** (2026-10-08) [observed: the masters and `Fallout - Meshes.bsa`, read-only].
 The reference in `NVDLC03SLH2OINT` is REFR 0x03014467, base PWAT 0x03014465
 (`NVDLC03CleanWater2048x2048`: OBND ±1024 × ±1024 × 0, MODL
@@ -1079,7 +1107,9 @@ the placements that have collision; ground rays span the loaded terrain and plac
 with 1,000 units to spare.
 
 Both documents list `water`: `[{"grid": [x, y] | null (the interior), "surface": z}]`, the
-water areas of the loaded cells (`Cell::water_surface`, §6.6); probes report `swimming` and
+water areas of the loaded cells (`Cell::water_surface`, §6.6), then one entry per placed
+water volume `{"grid": null, "ref", "surface", "centre", "half_extents"}` (§6.6; `refs.counts`
+gains `water_volume` for references whose model holds one); probes report `swimming` and
 `water_surface` (the surface above the final feet, or null).
 
 `refs.counts` keys appear only when non-zero: `placed`, `unreadable`, `deleted`,
@@ -1142,7 +1172,9 @@ axes, default 0) for `steps` steps, and `jump` presses jump on its first step. W
 character swims, a segment's optional `swim_velocity` ([x, y, z], units/s) is used
 instead, scaled by the stroke cycle of its optional `stroke` (`"forward"`, `"back"` or
 `"side"`; `fnv_phys::swim`, §6.6) counted from the first swimming step with a non-zero
-`swim_velocity`. Output:
+`swim_velocity`; without `stroke` the speed is constant (§6.6 says why that stays the
+default). A segment's optional `place` ([x, y, z]) puts the feet there before its first
+step, keeping the swimming state, as the game's `SetPos` does. Output:
 the `phys cell` document's world fields (`cell` ... `refs`, with `params` and `character`
 as used), then
 

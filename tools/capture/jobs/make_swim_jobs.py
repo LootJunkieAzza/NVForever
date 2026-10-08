@@ -300,7 +300,8 @@ def bank_trial(bank, controls=(0,), n=240, tag=""):
               num("MenuMode", f"{label} menumode", "value")]
     return travel + [setpos(*reset), {"console": "CloseAllMenus"}, {"frames": 180}, num("player.GetPos Z", f"{label} reset", "z"),
             setpos(sx, sy, surface), angles(heading), {"console": "CloseAllMenus"}, remember_t0()] + \
-        samples(f"{label} settle", 30) + [{"frames": 270}] + move(label, list(controls), n=n, after=30)
+        samples(f"{label} settle", 30) + [{"frames": 270}, {"console": "CloseAllMenus"}, {"frames": 30},
+                                          num("MenuMode", f"{label} keys menumode", "value")] +         move(label, list(controls), n=n, after=30)
 
 
 def banks():
@@ -336,14 +337,18 @@ def guardian():
     return j
 
 
-def banks_rest():
-    """The banks sw_banks did not reach: its second run hung after lm_12 when the game
-    lost the focus to another program's window (the owner, 2026-10-08)."""
+def banks_rest(name="sw_banks_b", which=None):
+    """Banks sw_banks did not capture: its second run hung after lm_12 when the game lost
+    the focus to another program's window (the owner, 2026-10-08); in sw_banks_b the game
+    clock stopped while five trials waited in the water (a menu opened after the travel's
+    CloseAllMenus [hypothesis: a level-up after map markers were discovered]), so the
+    trials now close menus again just before the keys."""
     steps = list(PROTECT) + go_there()
     for b in BANKS[1:]:
-        steps += bank_trial(b)
-    j = cs.job("sw_banks_b", START, steps, cs.MASTERS)
-    j["title"] = "Swimming: out of the water up banks of 16 to 58 degrees (the rest of sw_banks; about 3 min, no input)"
+        if which is None or b[0] in which:
+            steps += bank_trial(b)
+    j = cs.job(name, START, steps, cs.MASTERS)
+    j["title"] = f"Swimming: out of the water up banks ({name}, the rest of sw_banks; no input)"
     return j
 
 
@@ -397,7 +402,8 @@ def diag2():
 
 
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o(), banks(), banks_rest(), guardian()):
+    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o(), banks(), banks_rest(),
+              banks_rest("sw_banks_c", {"lm_16", "lm_45", "lm_49", "lm_58", "llv_25"}), guardian()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)
