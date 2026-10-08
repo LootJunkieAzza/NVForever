@@ -7,7 +7,7 @@
 //! Models are read by the caller too ([`ModelCollision`]); fnv-phys never reads NIF
 //! blocks (docs/design/layer4.md §7).
 
-use crate::primitive::{primitive, primitive_object, BoundsMeaning, COLLISION_MARKER};
+use crate::primitive::{primitive, primitive_object, BoundsMeaning, PrimitiveKind, COLLISION_MARKER};
 use fnv_collide::CollisionObject;
 use fnv_esm::{LoadOrder, Schema};
 use fnv_world::placed::base_object;
@@ -40,7 +40,9 @@ pub struct RefCollision {
 /// `tally` is called once for each outcome, with the names of the `refs.counts` of
 /// `fnv.phys.cell/1` (physics.md §7): `no_base`, `collision_primitive`, `bad_primitive`,
 /// `no_model`, `speedtree`, `awaiting_collision`, `model_without_collision`,
-/// `model_unreadable`.
+/// `model_unreadable`, `collision_marker_portal_box` (a "Portal Box" CollisionMarker, left
+/// out), `open_door_moving_parts` (an open-by-default door whose keyframed
+/// parts were left out).
 pub fn ref_collision(
     lo: &LoadOrder,
     schema: &Schema,
@@ -54,12 +56,18 @@ pub fn ref_collision(
     };
     let mut out = RefCollision { base_sig: Some(base.sig), objects: Vec::new() };
     if pl.base == Some(COLLISION_MARKER) {
-        match primitive(lo, schema, pl.form_id).and_then(|p| primitive_object(&p, BoundsMeaning::HalfExtents)) {
-            Some(o) => {
-                out.objects.push(o);
-                tally("collision_primitive");
-            }
-            None => tally("bad_primitive"),
+        match primitive(lo, schema, pl.form_id) {
+            // A "Portal Box" CollisionMarker did not stop a player dropped onto it, where
+            // two "Box" ones did [observed: B11, 0x0011E6E6 against 0x0010AE97 and
+            // 0x00176AD0; physics.md §4.2]; left out [hypothesis for the 2,901 others].
+            Some(p) if p.kind == PrimitiveKind::PortalBox => tally("collision_marker_portal_box"),
+            p => match p.and_then(|p| primitive_object(&p, BoundsMeaning::HalfExtents)) {
+                Some(o) => {
+                    out.objects.push(o);
+                    tally("collision_primitive");
+                }
+                None => tally("bad_primitive"),
+            },
         }
     }
     match base.model_path() {
@@ -70,6 +78,18 @@ pub fn ref_collision(
             None => tally("awaiting_collision"),
             Some(ms) => match ms.objects(&m) {
                 Ok(o) if o.is_empty() => tally("model_without_collision"),
+                Ok(o) if &base.sig == b"DOOR" && pl.open_by_default => {
+                    // An open door's moving part is out of the doorway: a player dropped
+                    // on a closed-looking gate flagged Open by Default fell straight
+                    // through it [observed: B11, gate 0x0010757E]. Its open pose comes
+                    // from the door's animation, which is not read; the keyframed parts
+                    // are left out [hypothesis], the static ones (posts, frame) kept.
+                    let before = out.objects.len();
+                    out.objects.extend(o.iter().filter(|c| c.motion != fnv_collide::Motion::Keyframed).cloned());
+                    if out.objects.len() - before < o.len() {
+                        tally("open_door_moving_parts");
+                    }
+                }
                 Ok(o) => out.objects.extend(o.iter().cloned()),
                 Err(_) => tally("model_unreadable"),
             },
