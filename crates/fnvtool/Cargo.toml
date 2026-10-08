@@ -18,6 +18,7 @@ fnv-bsa = { path = "../fnv-bsa" }
 fnv-esm = { path = "../fnv-esm" }
 fnv-nif = { path = "../fnv-nif" }
 fnv-dds = { path = "../fnv-dds" }
+fnv-spt = { path = "../fnv-spt" }
 fnv-vfs = { path = "../fnv-vfs" }
 fnv-world = { path = "../fnv-world" }
 fnv-phys = { path = "../fnv-phys" }
