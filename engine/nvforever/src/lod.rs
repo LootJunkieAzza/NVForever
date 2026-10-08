@@ -46,6 +46,19 @@ impl LodState {
         LodState { radius, enabled, world_name: name, built_for: None, entities: HashMap::new(), chunks: 0, blocks: 0 }
     }
 
+    /// Turn distant LOD on or off (off: its entities are removed now).
+    pub fn set_enabled(&mut self, commands: &mut Commands, enabled: bool) {
+        self.enabled = enabled;
+        self.built_for = None;
+        for (_, es) in self.entities.drain() {
+            for e in es {
+                commands.entity(e).despawn();
+            }
+        }
+        self.chunks = 0;
+        self.blocks = 0;
+    }
+
     fn terrain_path(&self, x: i32, y: i32) -> String {
         format!("meshes\\landscape\\lod\\{0}\\{0}.level{LEVEL}.x{x}.y{y}.nif", self.world_name)
     }
