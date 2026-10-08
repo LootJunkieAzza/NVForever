@@ -174,6 +174,8 @@ pub struct PhysWorld {
     /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
     new_bodies: Vec<RigidBodyHandle>,
     steps: u64,
+    /// Water surface heights by area (`crate::water`).
+    pub(crate) water: BTreeMap<crate::water::WaterArea, f32>,
 }
 
 impl PhysWorld {
@@ -193,6 +195,7 @@ impl PhysWorld {
             dirty: false,
             new_bodies: Vec::new(),
             steps: 0,
+            water: BTreeMap::new(),
         }
     }
 
@@ -421,6 +424,7 @@ impl PhysWorld {
             dirty: self.dirty,
             new_bodies: self.new_bodies.clone(),
             steps: self.steps,
+            water: self.water.clone(),
         }
     }
 

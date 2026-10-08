@@ -10,7 +10,9 @@ use fnv_collide::CollisionObject;
 use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
 use fnv_phys::terrain::height_at;
-use fnv_phys::{layers, ref_collision, CharacterInput, CharacterParams, Filter, ModelCollision, Owner, PhysParams, PhysWorld, RefPose};
+use fnv_phys::{
+    layers, ref_collision, CharacterInput, CharacterParams, Filter, ModelCollision, Owner, PhysParams, PhysWorld, RefPose, WaterArea,
+};
 use fnv_world::land::{load_land, LandParts, SIDE, SPACING};
 use fnv_world::placed::placement;
 use fnv_world::{cell_of, Cell, WorldIndex, CELL_SIZE};
@@ -249,6 +251,10 @@ impl Built<'_> {
                 "refs": c.refs.len(),
             })).collect::<Vec<_>>(),
             "terrain": {"cells": self.grids.len() - self.no_heights, "no_heights": self.no_heights},
+            "water": self.world.water().map(|(a, z)| json!({
+                "grid": match a { WaterArea::Exterior(x, y) => json!([x, y]), WaterArea::Interior => Value::Null },
+                "surface": z,
+            })).collect::<Vec<_>>(),
             "refs": {
                 "counts": self.counts,
                 "by_base_type": self.by_base,
@@ -318,6 +324,16 @@ pub(crate) fn build<'a>(
                 let h = c.land.and_then(|l| load_land(lo, schema, l, LandParts::HEIGHTS)).and_then(|l| l.heights);
                 grids.insert((x, y), h);
             }
+        }
+    }
+    // Water: every loaded exterior cell's surface over its square, or the interior's
+    // (`Cell::water_surface`, physics.md §6.6).
+    for c in &cells {
+        let surface = c.water_surface(ws.and_then(|w| w.default_water_height));
+        match c.grid {
+            Some((x, y)) if ws.is_some() => world.set_water(WaterArea::Exterior(x, y), surface),
+            None if c.is_interior() => world.set_water(WaterArea::Interior, surface),
+            _ => {}
         }
     }
     let mut no_heights = 0;
@@ -543,6 +559,8 @@ fn probe(b: &mut Built, params: CharacterParams, (x, y, z): (f32, f32, Option<f3
         "final_feet": last.feet,
         "grounded": last.grounded,
         "sliding": last.sliding,
+        "swimming": last.swimming,
+        "water_surface": world.water_surface_at(f[0], f[1]),
         "rest_above_terrain": terrain_z.map(|t| last.feet[2] - t),
         "gap": last.gap,
         "support": support.map(|h| json!({"owner": owner_json(&h.owner), "z": h.point[2], "shell": h.shell})),
@@ -609,6 +627,8 @@ struct Script {
 struct Segment {
     steps: usize,
     velocity: [f32; 2],
+    /// Velocity (x, y, z) used instead of `velocity` while the character swims.
+    swim_velocity: Option<[f32; 3]>,
     jump: bool,
 }
 
@@ -629,7 +649,11 @@ impl Script {
                 None => [0.0, 0.0],
                 Some(w) => [num(&w[0], "velocity[0]")?, num(&w[1], "velocity[1]")?],
             };
-            segments.push(Segment { steps, velocity, jump: s.get("jump").and_then(Value::as_bool).unwrap_or(false) });
+            let swim_velocity = match s.get("swim_velocity") {
+                None => None,
+                Some(w) => Some([num(&w[0], "swim_velocity[0]")?, num(&w[1], "swim_velocity[1]")?, num(&w[2], "swim_velocity[2]")?]),
+            };
+            segments.push(Segment { steps, velocity, swim_velocity, jump: s.get("jump").and_then(Value::as_bool).unwrap_or(false) });
         }
         let total: usize = segments.iter().map(|s| s.steps).sum();
         if total > 1_000_000 {
@@ -680,6 +704,10 @@ impl Script {
                 "skin" => c.skin = f,
                 "max_fall_speed" => c.max_fall_speed = Some(f),
                 "push_mass" => c.push_mass = f,
+                "swim_depth" => c.swim_depth = f,
+                "float_depth" => c.float_depth = f,
+                "swim_sink_speed" => c.swim_sink_speed = f,
+                "swim_jump_mult" => c.swim_jump_mult = f,
                 _ => bail!("unknown parameter {k}"),
             }
         }
@@ -717,7 +745,7 @@ fn walk_cmd(
     let total: usize = script.segments.iter().map(|s| s.steps).sum();
     let (mut step, mut path, mut prev) = (0usize, 0.0f64, c.feet);
     let (mut min_z, mut max_z) = (c.feet[2], c.feet[2]);
-    let (mut jumps, mut landings, mut airborne) = (0usize, 0usize, 0usize);
+    let (mut jumps, mut landings, mut airborne, mut swim_steps) = (0usize, 0usize, 0usize, 0usize);
     let mut touched: BTreeMap<Owner, usize> = BTreeMap::new();
     let mut trace = Vec::new();
     let mut observations = Vec::new();
@@ -725,12 +753,17 @@ fn walk_cmd(
         for i in 0..seg.steps {
             let jump = seg.jump && i == 0;
             let was_grounded = c.grounded;
-            let s = world.move_character(&mut c, CharacterInput { velocity: seg.velocity, jump });
+            let input = match seg.swim_velocity.filter(|_| c.swimming) {
+                Some([vx, vy, vz]) => CharacterInput { velocity: [vx, vy], jump, vertical: vz },
+                None => CharacterInput { velocity: seg.velocity, jump, vertical: 0.0 },
+            };
+            let s = world.move_character(&mut c, input);
             world.step();
             step += 1;
             jumps += (jump && was_grounded) as usize;
             landings += s.landed_speed.is_some() as usize;
             airborne += !s.grounded as usize;
+            swim_steps += s.swimming as usize;
             path += ((s.feet[0] - prev[0]) as f64).hypot((s.feet[1] - prev[1]) as f64);
             prev = s.feet;
             min_z = min_z.min(s.feet[2]);
@@ -739,7 +772,7 @@ fn walk_cmd(
                 *touched.entry(*o).or_default() += 1;
             }
             for (label, _) in script.observe.iter().filter(|(_, at)| *at == step) {
-                observations.push(json!({"label": label, "feet": s.feet, "grounded": s.grounded}));
+                observations.push(json!({"label": label, "feet": s.feet, "grounded": s.grounded, "swimming": s.swimming}));
             }
             if step.is_multiple_of(every) || step == total {
                 trace.push(json!({
@@ -750,6 +783,7 @@ fn walk_cmd(
                     "sliding": s.sliding,
                     "landed_speed": s.landed_speed,
                     "gap": s.gap,
+                    "swimming": s.swimming,
                     "touched": s.touched.iter().map(owner_json).collect::<Vec<_>>(),
                 }));
             }
@@ -767,6 +801,7 @@ fn walk_cmd(
         "jumps": jumps,
         "landings": landings,
         "airborne_steps": airborne,
+        "swimming_steps": swim_steps,
         "touched": touched.iter().map(|(o, n)| json!({"owner": owner_json(o), "steps": n})).collect::<Vec<_>>(),
     });
     v["trace"] = json!(trace);
