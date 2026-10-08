@@ -153,6 +153,8 @@ pub(crate) struct Meshes {
     vfs: fnv_vfs::Vfs,
     schema: fnv_nif::Schema,
     cache: BTreeMap<String, Result<Arc<Vec<CollisionObject>>, String>>,
+    /// Water volumes (Water-layer phantoms) of the models read, by path.
+    water: BTreeMap<String, Arc<Vec<CollisionObject>>>,
 }
 
 impl Meshes {
@@ -167,7 +169,7 @@ impl Meshes {
         };
         let schema = fnv_nif::Schema::load_dir(&dir).with_context(|| dir.display().to_string())?;
         let vfs = fnv_vfs::Vfs::open_default(data_dir).with_context(|| data_dir.display().to_string())?;
-        Ok(Some(Meshes { vfs, schema, cache: BTreeMap::new() }))
+        Ok(Some(Meshes { vfs, schema, cache: BTreeMap::new(), water: BTreeMap::new() }))
     }
 }
 
@@ -182,11 +184,20 @@ impl ModelCollision for Meshes {
             Some(Err(e)) => Err(e.to_string()),
             Some(Ok(data)) => NifFile::parse(&data, Some(&self.schema)).map_err(|e| e.to_string()).map(|file| {
                 let dec = Decoded::new(&file, &data, &self.schema);
-                Arc::new(fnv_collide::nif::collision_objects(&file, &dec).0)
+                let (solid, phantoms, _) = fnv_collide::nif::collision_and_phantoms(&file, &dec);
+                let water: Vec<CollisionObject> = phantoms.into_iter().filter(|o| o.layer == layers::WATER).collect();
+                if !water.is_empty() {
+                    self.water.insert(path.to_string(), Arc::new(water));
+                }
+                Arc::new(solid)
             }),
         };
         self.cache.insert(path.to_string(), r.clone());
         r
+    }
+
+    fn water(&mut self, path: &str) -> Arc<Vec<CollisionObject>> {
+        self.water.get(path).cloned().unwrap_or_default()
     }
 }
 
@@ -255,7 +266,13 @@ impl Built<'_> {
             "water": self.world.water().map(|(a, z)| json!({
                 "grid": match a { WaterArea::Exterior(x, y) => json!([x, y]), WaterArea::Interior => Value::Null },
                 "surface": z,
-            })).collect::<Vec<_>>(),
+            })).chain(self.world.placed_water().map(|w| json!({
+                "grid": Value::Null,
+                "ref": fid(w.form_id),
+                "surface": w.surface,
+                "centre": w.centre,
+                "half_extents": w.half,
+            }))).collect::<Vec<_>>(),
             "refs": {
                 "counts": self.counts,
                 "by_base_type": self.by_base,
@@ -330,7 +347,7 @@ pub(crate) fn build<'a>(
     // Water: every loaded exterior cell's surface over its square (`Cell::water_surface`,
     // physics.md §6.6). Not an interior's XCLW: in NVDLC03SLH2OINT the player swam at the
     // height of a placed water object, not at the cell's XCLW [observed: sw_h2o]; placed
-    // water is not modelled yet.
+    // water comes with its reference below.
     for c in &cells {
         if let (Some((x, y)), Some(w)) = (c.grid, ws) {
             world.set_water(WaterArea::Exterior(x, y), c.water_surface(w.default_water_height));
@@ -383,6 +400,9 @@ pub(crate) fn build<'a>(
         let rc = ref_collision(lo, schema, &pl, models, &mut |what| *counts.entry(what).or_default() += 1);
         if let Some(sig) = rc.base_sig {
             *by_base.entry(String::from_utf8_lossy(&sig).into_owned()).or_default() += 1;
+        }
+        if !rc.water.is_empty() {
+            world.add_placed_water(&RefPose::from_placement(&pl), &rc.water);
         }
         let objects = rc.objects;
         if objects.is_empty() {
@@ -632,6 +652,9 @@ struct Segment {
     /// The swim stroke whose speed cycle scales `swim_velocity` (physics.md §6.6).
     stroke: Option<Stroke>,
     jump: bool,
+    /// Feet put here (teleport, the swimming state kept, as the game's `SetPos`) before
+    /// the segment's first step.
+    place: Option<[f32; 3]>,
     /// Horizontal view direction (x, y) for the landing profiles (physics.md §6.4.1).
     view: Option<[f32; 2]>,
 }
@@ -664,12 +687,17 @@ impl Script {
                 Some(Some("side")) => Some(Stroke::Side),
                 Some(_) => bail!("\"stroke\" is \"forward\", \"back\" or \"side\""),
             };
+            let place = match s.get("place") {
+                None => None,
+                Some(w) => Some([num(&w[0], "place[0]")?, num(&w[1], "place[1]")?, num(&w[2], "place[2]")?]),
+            };
             segments.push(Segment {
                 steps,
                 velocity,
                 swim_velocity,
                 stroke,
                 jump: s.get("jump").and_then(Value::as_bool).unwrap_or(false),
+                place,
                 view: match s.get("view") {
                     None => None,
                     Some(w) => Some([num(&w[0], "view[0]")?, num(&w[1], "view[1]")?]),
@@ -775,6 +803,10 @@ fn walk_cmd(
     let mut trace = Vec::new();
     let mut observations = Vec::new();
     for seg in &script.segments {
+        if let Some(p) = seg.place {
+            world.place_character(&mut c, p);
+            prev = c.feet;
+        }
         for i in 0..seg.steps {
             let jump = seg.jump && i == 0;
             let was_grounded = c.grounded;

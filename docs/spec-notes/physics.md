@@ -1029,7 +1029,7 @@ hang), two fence drops where the game slid 5–6 units outwards, `collision_mark
 (unchanged), `noncollidable_maize` (unchanged; another workstream). The B11 rock rows
 pass with this body (the rock investigation belongs to workstream "B11 rocks and maize",
 whose rows these numbers only report). One row moved out of tolerance:
-`L4.phys.drops.swim_h2o` `shallow_a` (the scenario already failed on its other four rows)
+`L4.phys.drops.swim_h2o` `shallow_a` (three of its other rows fail for another reason, §6.6)
 ends at −246.3 against the game's −236.0 (it was −241.4 with the old capsule, inside the
 8-unit tolerance). The drop starts 14 units above a step: the 30-unit riser of the
 catwalk stairs 0x030144E3 (top at −240, floor −270) runs about 7 units west of the
@@ -1217,8 +1217,9 @@ step of 16.5 past the line at most, by the controller's rule below].
 `swim_sink_speed` 12.1, `swim_jump_mult` 2; `crates/fnv-phys/src/character.rs`,
 `swim_vertical`; water areas `crates/fnv-phys/src/water.rs`). Water is a flat surface over
 each loaded exterior cell's square with `Cell::water_surface` (CELL XCLW, else the
-worldspace default, for cells flagged "has water": the renderer's rule); no collider.
-(Interiors first used their XCLW too; `sw_h2o` refuted that, below.) A character **starts swimming** after a step that ends with it off
+worldspace default, for cells flagged "has water": the renderer's rule), plus the box of
+each placed water reference (below); no collider. (Interiors first used their XCLW too;
+`sw_h2o` refuted that, below.) A character **starts swimming** after a step that ends with it off
 the ground, falling, with its feet `swim_depth` or more below the surface: its fall stops
 there, with no landing (so no fall damage) [observed]; the stop is after that step, not
 clamped to the line (the game's extra step at high speed, above, is not modelled). While
@@ -1229,8 +1230,9 @@ height the character otherwise sinks at 12.1 units/s and stops at it; below it n
 moves it vertically (no buoyancy) [all observed]. Jump works only above the floating
 height and gives a jump of `swim_jump_mult` × `jump_height` that leaves the water
 [observed: the two cases above]. Swimming **ends** when the swimmer moves down onto
-walkable ground (it then walks) [observed: leaving the lake], when it jumps, or where no
-water is above its feet [hypothesis]. A character on the ground never starts swimming,
+walkable ground (it then walks) [observed: leaving the lake], when it jumps, or where there
+is no water at all [hypothesis]; feet above the surface do not end it [observed:
+`swim_h2o_drops`, below; the first implementation ended it there]. A character on the ground never starts swimming,
 however deep [observed: walking in]. The swimming state survives `place_character`, as
 the game's does across `SetPos` [observed]. Walking speeds are the caller's: `nvf-play`
 swims at 348 (Always Run) and 100.8 (walk) in every direction, along the view
@@ -1336,6 +1338,255 @@ swimmer meets the shore and how fast it walks up a 27° bank out of water.
   reference: [hypothesis], one interior). Exterior cell water is unaffected (four places
   agree). The renderer still draws interior water planes at XCLW (Layer 3, unchanged).
 
+**Should `phys walk` apply the stroke cycle by default?** (decision 2026-10-08) No: a
+segment swims at its `swim_velocity` unless it names a `stroke`. The game's speed follows a
+stroke whenever a movement key is held [observed: every run], but (1) which stroke depends
+on the key (forward, back, sideways cycles differ), and a segment's velocity does not say
+which key the game held; (2) the cycle is a fraction of the game's 339, so applied to a
+segment's own speed it reproduces the game only when that speed is 339; the two old
+inputs ask for 348 (the 2-s average of the first implementation), and treating
+`swim_velocity` as a direction only would make an explicit number meaningless (and the
+walking swim, 86, has no cycle [hypothesis]). So `swim_cove_dive` and `swim_lake_shore`
+cannot express what the game does; with the inputs unchanged they keep failing. Checked
+with scratch copies of the inputs (not in the lab): `"stroke": "forward"` at 339 along the
+same directions brings `swim_cove_dive` to 6/6 (within 2.1 units; **the dive's 23–27-unit
+drift from t0.75 is the stroke cycle**: at t1.00–t1.50 the game is past the stroke's peak
+of 412 units/s) and `swim_lake_shore` to 5/8 before the bank (within 2.3); the stroke at 348
+drifts by 2.7 % (9.3 units at t1.50 of the dive). Question for the owner: retire the two
+scenarios and replace them with inputs that name the stroke at 339 (and, for the shore, a
+capture with the cell loaded; below)?
+
+**Retired and redesigned (owner decision 2026-10-09).** `L4.phys.walk.swim_cove_dive` and
+`.swim_lake_shore` are retired (their inputs removed; the goldens stay private and unused):
+their inputs ask for a constant 348 units/s that the game never swims, and the shore's bank
+rows were captured with the cell not loaded. Replacements, at places no capture has used,
+with the forward stroke at 339 and each capture loading its cell with `cow` first (job
+`sw_redesign`, `make_swim_jobs.py` `redesign()`):
+
+- `L4.phys.walk.swim_cove_stroke`: Cottonwood Cove (surface −2300) from (70250, −90750),
+  heading 45°, view 30° down, forward held 2 s over 604–625 units of water (terrain only).
+- `L4.phys.walk.swim_lake_exit`: Lake Las Vegas (3000) from (29875, 56623), heading 132.3°,
+  level, forward held 2.5 s to the 24.1° bank of cell (7, 13) and up it (terrain only).
+
+**Predictions of the candidate** (written 2026-10-09 before the capture), feet (x, y, z):
+
+- `swim_cove_stroke`: t0.25 (70301.9, −90698.1, −2444.9); t0.50 (70354.8, −90645.2, −2488.1);
+  t0.75 (70415.6, −90584.4, −2537.7); t1.00 (70478.3, −90521.7, −2588.9); t1.25 (70536.8,
+  −90463.2, −2636.7); t1.50 (70585.1, −90414.9, −2676.1); t1.75 (70617.5, −90382.5, −2702.5);
+  t2.00 (70668.0, −90332.0, −2743.8).
+- `swim_lake_exit`: t0.25 (29937.7, 56566.0, 2897.5); t0.50 (30001.6, 56507.9, 2897.5); t0.75
+  (30075.1, 56441.0, 2897.5); t1.00 (30150.8, 56372.1, 2897.5); t1.25 (30220.9, 56308.4,
+  2900.9, walking); t1.50 (30279.0, 56255.4, 2935.6); t1.75 (30337.2, 56202.4, 2970.4); t2.00
+  (30396.1, 56148.8, 3002.6); t2.25 (30452.0, 56098.0, 3043.9); t2.50 (30508.9, 56046.2,
+  3081.3).
+
+Watch: the floating height after a standing-start entry (102.5–105.1 below in earlier
+captures; the candidate 102.5), and the walk up the 24° bank (the candidate climbed the
+steeper banks of `sw_banks*` faster than the game).
+
+**Results** (`sw_redesign`, 2026-10-09; goldens `phys/swim_cove_stroke.walk.json`,
+`phys/swim_lake_exit.walk.json`; MenuMode 0 and the clock running throughout) [observed]:
+`swim_cove_stroke` 8/8: x and y within 1.2 at every row; z 3.5–4.5 lower in the game, which
+floated at −2405.98 (106.0 below the surface, the entry overshoot) where the candidate
+floats at 102.5. `swim_lake_exit` 10/10: within 1.4 while swimming (to t1.25, when both
+reach the bed); walking up the 24° bank the candidate moves ahead, 3.6 at t1.50 growing to
+9.7 at t2.50 (inside the tolerance of 10; the faster climb on slopes seen in `sw_banks*`,
+a land-controller question). The stroke cycle at 339 and the exit onto the bank hold at
+two more places.
+
+**Leaving the water: what the two shores show** (re-read of `sw_scenarios` and `sw_trial`
+against the LAND under each sample, `fnvtool phys cell` rays with and without meshes,
+2026-10-08) [observed]:
+
+- At Lake Las Vegas the swimmer met no LAND at all. Floating at 2895.22 it moved west at
+  the stroke speed into the 27.3° bank with z unchanged, so its feet went 0 → 29.3 below
+  the LAND under them over ten loops; in the next loop z rose 30.5 and the feet were
+  **exactly on the LAND surface** (0.01 above it, no contact shell); then the same again:
+  the depth before each rise was 28.3–30.6 and after it 0.01, 0.02, 1.1, 2.5, 2.8 and 0.7
+  below the LAND, six times, with the 12-units/s sink between rises and the horizontal
+  speed unchanged throughout (5.5–6.6 units per loop). It ended blocked by the rock
+  references at the top of the bank (layer Terrain), 7.6 below the LAND under it.
+- At Boulder Beach the swimmer collided with the LAND as a walking capsule does: floating
+  at S − 102.49 and walking towards a 33.9° slope, z stayed level until the LAND under the
+  feet was 7.7 below them, then the feet rose with the bed 4.4–4.8 above it (walking); the
+  run-out line, swum while still sinking, met 28° and rose 4.3 above the LAND. So the
+  slopes at the two places are alike (the run-out line's 28–34° is not the 12° average of
+  the walk-in line) and the bank angle does not explain the difference.
+- That after each rise the feet are on the bare surface, not on its 3.5 shell, points to a
+  placement from the LAND heights (or a ray), not to the swept capsule [hypothesis].
+
+Candidate explanations [hypothesis]: (P) the place: the swimmer's capsule does not collide
+with the LAND at Lake Las Vegas (why is open), and something puts the feet back on the LAND
+surface when they are about 30 below it; (S) the state: the Lake Las Vegas swimmer had
+overshot to 104.78 below the surface while the Boulder Beach one floated at 102.49, or ran
+where the other walked, and that changes its collision.
+
+**Predictions for `sw_banks`** (written 2026-10-08 before its run; job
+`tools/capture/jobs/make_swim_jobs.py` `banks()`). Each trial stands on land, is put at the
+surface 450 units out from where the bed reaches the floating height (enters by falling),
+floats for 5 s and then holds forward (Always Run; one trial walks) up the bank for 4 s
+(8 s walking). Banks of terrain only, found from the LAND heights: Lake Mead (S 2600) at
+12.5°, 16.4°, 25.3°, 30.4°, 41.5°, 45.1°, 49.3° and 58.3°; Lake Las Vegas (S 3000) at 14.3°
+and 24.7°; and the two lines above again (Lake Las Vegas running and walking, Boulder
+Beach running from the floating height). The game, from (P): every Lake Las Vegas trial
+shows the saw-tooth (feet into the LAND by about 30, then on its surface) whatever the
+slope and speed; every Lake Mead trial meets the bed with its capsule, walks out up to
+the steepest walkable slope (45° in the candidate, itself [hypothesis], §6.3) and stays
+in the water below steeper banks. From (S): a trial that floats 102.5 below the surface
+walks out wherever the slope allows, at either lake. The candidate (stroke cycle forward,
+walking 86; feet when swimming ends, seconds after the keys, and after 4 s):
+
+| Trial | Floats at | Stops swimming | Feet after 4 s (8 s walking) |
+|---|---|---|---|
+| `llv_line` | 2897.5 | (25260.7, 55100.0, 2897.5), 1.42 s | (24853.9, 55178.2, 3096.8), walking |
+| `llv_line walk` | 2897.5 | (25263.6, 55100.0, 2897.5), 6.05 s | (25120.8, 55097.7, 2965.0), walking |
+| `bb_line` | 2497.5 | (57654.8, 37536.0, 2497.5), 0.13 s | (56383.2, 37551.1, 2823.3), walking |
+| `lm_12` | 2497.5 | (53036.9, 41260.9, 2497.5), 1.03 s | (52376.3, 40600.2, 2855.5), walking |
+| `lm_16` | 2497.5 | (52732.2, 41467.0, 2497.5), 1.22 s | (52273.9, 40727.0, 2855.9), walking |
+| `lm_25` | 2497.5 | (127744.0, 31263.2, 2497.5), 1.12 s | (127746.2, 30366.3, 2886.9), walking |
+| `lm_30` | 2497.5 | (126233.8, 96529.7, 2497.5), 1.12 s | (125606.1, 96021.3, 2949.9), walking |
+| `lm_41` | 2497.5 | (148483.0, 29976.2, 2497.5), 1.13 s | (148414.1, 29270.0, 3068.6), walking |
+| `lm_45` | 2497.5 | (73210.5, 43005.3, 2497.5), 1.18 s | (73328.8, 43001.9, 2574.0), stopped on the slope |
+| `lm_49` | 2497.5 | (126474.7, 101636.6, 2497.5), 1.17 s | (126336.5, 101799.5, 2498.2), at the foot of the bank |
+| `lm_58` | 2497.5 | (78840.5, 37877.0, 2497.5), 1.17 s | (78844.3, 37875.0, 2498.1), at the foot of the bank |
+| `llv_14` | 2897.5 | (28980.2, 58903.3, 2897.5), 1.05 s | (28086.8, 58507.9, 3066.6), walking |
+| `llv_25` | 2897.5 | (32261.8, 59390.7, 2897.5), 1.22 s | (33160.1, 59263.3, 3103.6), walking |
+
+(The candidate ends swimming on any ground it is pushed onto, walkable or not, and then
+stands at the foot of the 49° and 58° banks.)
+
+**`sw_banks` results: the Lake Las Vegas saw-tooth was a capture artefact** (2026-10-08)
+[observed]. The first run travelled between the banks by long `SetPos` moves only: the
+owner saw the land drawn as distant LOD around the player (the full cells not loaded),
+three trials froze (positions and clock still) and the game crashed. `sw_scenarios` had
+reached Lake Las Vegas the same way (a `SetPos` from Goodsprings), so its swimmer met a bank
+without terrain collision; what lifted it onto the bare LAND surface every ~30 units is
+whatever the game does for an actor below an unloaded landscape (not studied). The job
+now loads each bank's own cell with the console's `cow WastelandNV <x> <y>` before short
+`SetPos` moves (`bank_trial`). In the second run the game lost the focus to another
+program's window after four trials and hung (the owner: other sessions' engine runs take
+the focus; Fallout stops running in the background); those four trials, compared with the
+candidate at equal times after the motion onset (the game ran at about 50 loops per
+second, so sample counts are not times):
+
+| Trial | Feet − LAND, lowest | Game leaves the water | Candidate − game (x, y, z) |
+|---|---|---|---|
+| `llv_line` (27°, running) | +4.15 | at the bank, 1.5 s | within 5 except t2.0–2.5 (−20, +1, +11: meeting the bank); t4.0 (+5, −7, +2) |
+| `llv_line walk` | +4.39 | 6.1 s | swimming ±21 along the line (the walking stroke varies 82–122, the candidate holds 86 [hypothesis]); walking within 8 |
+| `bb_line` (28–34°, running from the float) | +4.05 | at once | walking up: the candidate up to 17 ahead and 12 higher by t4.0 (land walking up slope, not swimming) |
+| `lm_12` (12.5°) | +3.95 | 1.2 s | within 3 to t2.0 (frozen from 2.3 s, the focus loss) |
+
+So, with its cell loaded, the game's swimmer meets a 12–34° bank with its capsule (never
+below the LAND's contact shell) and walks out, as the candidate does; the "different
+shape while swimming" [hypothesis] is withdrawn.
+
+The other banks (`sw_banks_b`, `sw_banks_c`, same job per trial; in `sw_banks_b` the game
+clock stopped while five trials waited in the water although MenuMode read 0 after the
+travel, so `sw_banks_c` closes menus again just before the keys and reran those five
+[observed: MenuMode 0 there, every trial ran]; why the clock stopped is not known, a
+level-up menu after discovering map markers is [hypothesis]):
+
+| Bank | Game | Candidate − game while swimming / after |
+|---|---|---|
+| `lm_16` (16.4°) | walks out at 1.2 s | within 2 / within 9 to t3.5 |
+| `lm_25` (25.3°) | walks out | within 2 / within 10 |
+| `lm_30` (30.4°) | walks out | within 2 / within 10 to t3.0 |
+| `lm_41` (41.5°) | walks out up the 41.5° bank | within 2 / the candidate 16 ahead and 16 higher from t2.0 (faster up the steep slope) |
+| `lm_45` (45.1°) | walks up the bank's 105 units of 45.4° (z +107 in 0.75 s) to the cliff above it, then edges along its foot | within 2 / the candidate stops 35–46 lower (its 45° limit) |
+| `lm_49` (49.3°) | stands at the bank's foot (4.4 above the floating height) and drifts sideways along it, 75 units in 3 s | within 2 / z within 4; the candidate drifts sideways faster (+62 at t3.5) |
+| `lm_58` (58.3°) | stands at the foot, creeps 1 unit | within 2 / within 10 |
+| `llv_14` (14.3°), `llv_25` (24.7°) | walk out | within 2 / within 14 |
+
+So the swimming part and the moment of leaving the water agree at every bank, and the game
+leaves the water exactly where the candidate does: moving onto ground ends swimming
+[observed]. **The steepest walkable slope lies between 45.1° and 49.3°** [observed: walked
+up 45.1–45.4°, stood below 49.3° and 58.3°]; the candidate's 45° (§6, a [hypothesis]) is
+inside that range only just, and the 41.5° and 45.1° banks also show the candidate climbing
+steep slopes faster than the game. Both are land-controller questions (§6.3, the slope
+limit and the speed along steep slopes) and are left to that work; nothing here changes
+the swim rules.
+
+**Placed water** (2026-10-08) [observed: the masters and `Fallout - Meshes.bsa`, read-only].
+The reference in `NVDLC03SLH2OINT` is REFR 0x03014467, base PWAT 0x03014465
+(`NVDLC03CleanWater2048x2048`: OBND ±1024 × ±1024 × 0, MODL
+`Water_Placeable\WaterP2048x2048.NIF`, DNAM 8 bytes whose second u32 is the WATR
+0x0301454D `NVDLC03CleanWater`), scale 2, no rotation, at (−584, −656, −328). The model
+holds a 2048 × 2048 quad at z 0 (the visible surface) and a `bhkSimpleShapePhantom` on
+Havok layer 11 (Water) whose shape is a box of half extents (146.3, 146.3, 73.2) Havok units
+moved down by 73.2: in game units (× 7) the column under the quad, 2048 × 2048 and 1024
+deep, its top at the quad. All eight placeable water models (the 11 PWAT bases of the ten
+masters use them) hold the same: a Water-layer phantom box under the quad, top at the quad
+(1024 deep, the bathtub's 13; `WaterPCircle512` has another shape type under its phantom).
+No other mesh of the game's archives has a Water-layer phantom (the 40 phantoms of all
+archives: triggers, traps, the water models). 86 PWAT references stand in interiors, some
+with an XCLW, some without.
+
+Model [hypothesis: the phantom box is the water, its top the surface]: a reference whose
+model holds Water-layer phantoms is water inside each phantom's box, transformed by the
+reference (`fnv_phys::PlacedWater`; `fnv_collide::nif::collision_and_phantoms` reads the
+phantoms, which never collide); the surface is the box's top. For `NVDLC03SLH2OINT`: surface
+−328, footprint x −2632…1464, y −2704…1392, bottom −2376. Checked against `swim_h2o_drops`
+[observed]: deep_a now stops at −433.2 (game −432.36); with the swimming state carried
+from one drop to the next as the capture did (a walk script whose segments start with
+`place`), deep_b, mid_a and mid_b sink from −227 at 12 units/s to −287.5 after 5 s and
+−348.0 after 10 s (game −289.0/−349.6, −290.1/−350.7, −289.3/−349.9). So the golden is
+consistent with water at −328 *and* with the swimming state surviving 101 units above
+the surface; the lab's drops are fresh probes and cannot carry that state, so those three
+rows keep failing (the scenario's design, not the golden; question for the owner below).
+shallow_a: the drop point is 10 units from the 30-unit riser of the catwalk stairs
+0x030144E3 (steps at −240 and −270); the game stood at −236.04, 4 above the upper step,
+the candidate on the step's edge at −241.3 with the capsule (within the scenario's 8) and
+−246.3 with the cone-bottomed body of §6.4.1 (outside it); not a water question (§6.4.1).
+**Refuted: "swimming ends when the feet are above the surface"** (the first
+implementation's [hypothesis]): the h2o player swam 101 units above the placed surface,
+and the Lake Las Vegas one 74 above the lake [observed]. Swimming now ends only on ground,
+on a jump, or where there is no water at all [the last: hypothesis].
+
+**`swim_h2o` retired and redesigned (owner decision 2026-10-09).** `L4.phys.drops.swim_h2o`
+is retired (input removed, golden kept unused): its capture placed the player while it still
+swam from the previous drop, which the candidate's fresh probes cannot reproduce. Its
+replacement `L4.phys.drops.swim_h2o_fresh` (job `sw_h2o_fresh`, a fresh `coc` before every
+drop, as `sw_guardian`) keeps the five points at −227 and adds two over floors past the
+swimming depth (122.5 and 130.4 below the placed surface) and two short of it (75.3 and 78.9
+below). **Predictions of the candidate** (written 2026-10-09 before the capture), feet z:
+deep_a −433.2 and deep_b −433.2 (swimming; the fall stops past S − 100 at about S − 105);
+mid_a −366.6 and mid_b −366.6 (standing on floors 40 below the surface); shallow_a −246.3 (the
+stair edge, §6.4.1); past_depth_a −433.2 and past_depth_b −433.2 (swimming, 17 and 25 above
+their floors); short_depth_a −402.2 and short_depth_b −405.7 (standing in water, on floors
+75–79 below the surface).
+
+**`sw_h2o_fresh` results** (2026-10-09; golden `phys/swim_h2o_fresh.drops.json`; MenuMode 0
+before every drop) [observed]: deep_a −432.36, deep_b −432.87, past_depth_a −432.87,
+past_depth_b −435.40 (swimming; within 2.2 of the candidate), mid_a and mid_b −366.45 (on
+their floors, 40 below the surface; within 0.2), short_depth_a −402.29 and short_depth_b
+−405.81 (on their floors 75–79 below the surface, not swimming; within 0.1): lab 8/9. So the
+game's swimming depth lies between 79 and 122 below the surface (the candidate's 100 is
+inside), and a fresh drop into placed water stops 104.4–107.4 below its surface.
+shallow_a, beside the stair riser: −238.07 in this fresh drop (−236.04 when the old
+capture's swimmer sank onto it at 12 units/s); the candidate −246.3 with the cone-bottomed
+body, 8.2 off (tolerance 8). A step-edge question with a fall-speed dependence (§6.4.1),
+not water.
+
+**Predictions for `sw_guardian`** (held-out scenario `L4.phys.drops.swim_guardian`,
+input `parity-lab/inputs/layer4/swim_guardian_drops.drops.json`; written 2026-10-08 before
+the run). `CampGuardianCaves` holds `NVCleanWater2048x2048` (0x0013F31A) at scale 3 and
+z 6528 (footprint y −8704…−2560) while its XCLW is 6712. Drops 5 above the placed surface,
+each after a fresh `coc` (not swimming): inside the box `in_deep` (−4900, −8450), `in_edge`
+(−4800, −8650), `in_north` (−5250, −7800) → swimming, stopped at 6425.5 (the fall stops
+one step past S − 100); just outside its south edge `out_near` (−4800, −8760), `out_mid`
+(−4800, −8800), `out_far` (−4850, −8850) → no water, standing on the floor at 6206.0,
+6224.9, 6256.1. If the cell's XCLW were the water, every drop would stop at once (the
+drop height is already 179 below 6712); if the water reached past the box, the `out_*`
+drops would swim at about 6425.
+
+**`sw_guardian` results** (2026-10-08; golden `phys/swim_guardian_drops.drops.json`)
+[observed]: in_deep 6420.82, in_edge 6425.52, in_north 6421.33 (swimming: stopped 102.5–107.2
+below the placed surface), out_near 6206.29, out_mid 6221.17, out_far 6260.48 (on the floor):
+every z within 4.7 of the prediction. The water is the placed reference's box, not the
+cell's XCLW (6712), and it ends at the box's edge (54 units inside: swimming; 56 outside:
+on the floor). The lab gave 5/6 with the capsule (`out_far` landed on a sloping floor and
+slid 10.4 units in y where the game stayed: a landing question, not water) and gives 6/6
+with the cone-bottomed body of §6.4.1.
 
 ### 6.7 Interior starts and falls: safe spots (`engine/nvf-play`, `player/safe.rs`)
 
@@ -1432,7 +1683,9 @@ the placements that have collision; ground rays span the loaded terrain and plac
 with 1,000 units to spare.
 
 Both documents list `water`: `[{"grid": [x, y] | null (the interior), "surface": z}]`, the
-water areas of the loaded cells (`Cell::water_surface`, §6.6); probes report `swimming` and
+water areas of the loaded cells (`Cell::water_surface`, §6.6), then one entry per placed
+water volume `{"grid": null, "ref", "surface", "centre", "half_extents"}` (§6.6; `refs.counts`
+gains `water_volume` for references whose model holds one); probes report `swimming` and
 `water_surface` (the surface above the final feet, or null).
 
 `refs.counts` keys appear only when non-zero: `placed`, `unreadable`, `deleted`,
@@ -1498,7 +1751,9 @@ velocity is the keys' velocity: the controller applies the air and landing rules
 character swims, a segment's optional `swim_velocity` ([x, y, z], units/s) is used
 instead, scaled by the stroke cycle of its optional `stroke` (`"forward"`, `"back"` or
 `"side"`; `fnv_phys::swim`, §6.6) counted from the first swimming step with a non-zero
-`swim_velocity`. Output:
+`swim_velocity`; without `stroke` the speed is constant (§6.6 says why that stays the
+default). A segment's optional `place` ([x, y, z]) puts the feet there before its first
+step, keeping the swimming state, as the game's `SetPos` does. Output:
 the `phys cell` document's world fields (`cell` ... `refs`, with `params` and `character`
 as used), then
 
