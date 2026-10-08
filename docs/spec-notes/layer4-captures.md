@@ -34,7 +34,7 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.phys.walk.swim_cove_stroke`, `.swim_lake_exit` | captured 2026-10-09 (`sw_redesign`, `cow` to each cell first) | 8/8, 10/10 | held out, passed as predicted; the lake exit's walk up the bank reaches 9.7 of the 10 tolerance (faster climb on slopes, physics.md §6.6) |
 | `L4.phys.walk.swim_dam_forward`, `.swim_bay_back` | captured 2026-10-08 (`sw_heldout2`) | 10/10, 8/8 | held out after the stroke cycle; passed as predicted |
 | ~~`L4.phys.drops.swim_h2o`~~ | captured 2026-10-08 (`sw_h2o`) | fails (interior water reverted) | held out; interior water is a placed water object at −328, not XCLW (physics.md §6.6). Follow-up: placed water modelled (Water-layer phantom boxes): deep_a and shallow_a pass (2/5); deep_b, mid_a, mid_b were placed while the capture's player still swam from deep_a (SetPos keeps the state) and the lab's fresh probes cannot carry it (a scratch walk script with `place` segments reproduces them within 2.7); redesign? (question to the owner); retired 2026-10-09 (owner), golden kept unused |
-| `L4.phys.drops.swim_h2o_fresh` | designed 2026-10-09 (`sw_h2o_fresh`, a fresh `coc` before each drop); predictions in physics.md §6.6 | to capture | held out; replaces `swim_h2o` |
+| `L4.phys.drops.swim_h2o_fresh` | captured 2026-10-09 (`sw_h2o_fresh`, a fresh `coc` before each drop) | 8/9 | held out; replaces `swim_h2o`; every water row as predicted (swimming depth between 79 and 122); shallow_a 8.2 off on the stair edge (physics.md §6.4.1, §6.6) |
 | `L4.phys.drops.swim_guardian` | captured 2026-10-08 (`sw_guardian`, this workstream) | 5/6, 6/6 with the cone-bottomed body (physics.md §6.4.1) | held out; placed water as predicted (z within 4.7, edge of the box confirmed, XCLW not water); with the capsule `out_far` slid 10 units on landing (physics.md §6.6) |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
 
@@ -172,6 +172,7 @@ directory's `jobs\`). Results are in the notes named.
 | `sw_banks_b`, `sw_banks_c` | the other banks (16–58°) | swimming within 2 everywhere; walks out up to 45.1°, stands at the foot of 49.3° and 58.3° (steepest walkable slope 45.1–49.3°); five trials of `sw_banks_b` had the clock stopped in the water, rerun in `sw_banks_c` with menus closed before the keys; physics.md §6.6 |
 | `sw_guardian` | held-out `L4.phys.drops.swim_guardian` (placed water, `CampGuardianCaves`) | as predicted; physics.md §6.6 |
 | `sw_redesign` | held-out `L4.phys.walk.swim_cove_stroke`, `.swim_lake_exit` (replacing the retired cove and shore scenarios) | as predicted; physics.md §6.6 |
+| `sw_h2o_fresh` | held-out `L4.phys.drops.swim_h2o_fresh` (replacing the retired `swim_h2o`) | water rows as predicted; physics.md §6.6 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)
