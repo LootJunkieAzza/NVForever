@@ -36,12 +36,17 @@ fly camera, screenshots and the lab's frame captures keep working).
   simulation removed.
 - Door travel: activation sends `Travel`; `nvforever` reloads render cells (interior or
   exterior, sky lighting, LOD) and physics rebuilds its cells and places the player.
+  The worldspace is a run-time value (`Location`): a door into another worldspace
+  switches physics (terrain, persistent references, water height) and rendering
+  (`nvforever/src/worldspace.rs`: cells, sky and weather from the new climate, image
+  space, distant LOD and generated terrain, distant water) to it.
 
 ## 3. Interfaces (in the skeleton; changes go through the coordinator)
 
 | Item | Kind | Written by | Read by |
 |---|---|---|---|
-| `PlayData`, `PlayWorld` | plugin input / resource: `'static` load order, schema, `WorldIndex`, worldspace, start pose, test aids | nvforever | all |
+| `PlayData`, `PlayWorld` | plugin input / resource: `'static` load order, schema, `WorldIndex`, the worldspace the game starts in, start pose, test aids | nvforever | all |
+| `Location` | resource: the worldspace and the interior (if any) the player is in now; from `PlayData` at the start, changed when physics applies a `Travel` | P | U (F9 aid), any part that needs the current worldspace |
 | `SimState` | resource: `fnv_sim::world::World<'static>` + forms + refs; clock advanced in real time | sim.rs | A, U |
 | `PlayState` | Bevy state `Playing` / `Menu` | U (enter/leave menus) | P (no movement/look in menus), A |
 | `PlaySet` | system sets, chained in `Update`: `Input` → `Physics` → `Activation` → `Ui` → `Sync` | lib.rs | all |
@@ -49,9 +54,19 @@ fly camera, screenshots and the lab's frame captures keep working).
 | `PlayerCamera` | component on the `Camera3d` | nvforever | P, A |
 | `Player` | resource: look angles, eye height, feet (game space) | P | A |
 | `RefVisual(u32)` | component on every render entity spawned for a placed reference | nvforever | A |
-| `Travel { interior, feet, heading_deg }` | message | A | nvforever, P |
+| `Travel { world, interior, feet, heading_deg }` | message: into an interior (`interior: Some`, `world: None`) or out into worldspace `world` (the current one or another); `Travel::destination(from)` gives the new `Location` | A | nvforever (render, worldspace switch), P |
 | `OpenContainer { container }` | message | A | U |
 | `RefChanged { form_id }` | message: the sim changed a reference's presence | A, U | A (visual sync), P (collision) |
+
+Coordinator change 2026-10-08 (worldspace travel, branch `claude/layer4-play-worldspace`):
+`Travel` gained `world`; `Location` was added; `PlayData::world` is only the start.
+`PhysState::worldspace` / `PhysState::set_world` hold physics' worldspace, and the sim's
+player reference follows it (`World::worldspace_of`: a reference's worldspace is its
+cell's, so position, cell and worldspace change together and snapshots keep them).
+`outcome::effects` no longer takes the current worldspace: an exterior destination always
+names its worldspace and the receivers compare. Each worldspace's own records are used;
+taking data from a parent worldspace by WRLD PNAM is not implemented (no shipped child
+worldspace asks for it: world.md §6).
 
 ## 4. Parts
 
@@ -130,12 +145,49 @@ drives the menus):
 - Goodsprings gas station: the metal box 0x001629C1 is targeted at 99 units and E opens
   the container menu; the menu test aid takes all of Ringo's 200 caps and stores items back.
 
+Doors into another worldspace (2026-10-08). The ten masters have 106 such doors between
+22 worldspaces, all reciprocal, 6 locked [observed: `fnvtool sim doors`, simulation.md
+§5]. Test aids added: `NVF_PLAY_TEST_SHOTS=<seconds,...>` saves screenshots,
+`NVF_PLAY_TEST_FACE=<seconds:FormID,...>` puts the player 100 units in front of a door
+on its arrival side, facing it (a stand-in for walking up to it; `nvf-play/src/test_aid.rs`).
+Unattended runs, each with screenshots before and after every travel, all exit 0:
+- Mojave north gate 0x00116420 → FreesideNorthWorld and back through 0x00116424: physics
+  and render both log the switch (WastelandNV ↔ FreesideNorthWorld; climate
+  NVDefaultClimate ↔ NVUrbanClearClimate); feet 1003.50 on a floor at 1000.00 (shell
+  3.50; terrain 1000.00) in Freeside, 4344.46 on 4343.76 back at the Mojave gate. The
+  frames after travel match direct starts at the same poses.
+- One run through four worldspaces: TheStripWorldNew gate 0x0013BB0D → FreesideWorld
+  (feet 1033.23 on 1032.53), side door 0x00133953 → FreesideNorthWorld (1027.50 on
+  1024.00), north gate 0x00116424 → WastelandNV (4344.46 on 4343.76); after three
+  switches the Mojave frame matches a direct start.
+- Atomic Wrangler (started inside with the default `--world WastelandNV`): the front door
+  0x00116E2D leads out into FreesideWorld (switch logged; feet 1014.50 on 1011.00).
+- Big MT ↔ Higgs Village (0x0300BF95 / 0x0300BEBB): both switches; Higgs uses
+  NVDefaultClimate, Big MT NVDLC03BigMTClimate; generated distant terrain baked for Big MT.
+- Unchanged: the Doc Mitchell front door still lands at 8693.53 on 8690.03 with no
+  worldspace switch; `--auto-walk 300` in Goodsprings stays on the terrain (+3.5) until a
+  house stops it; the moving-camera smoke test exits 0.
+- Not compared with the game: where the game puts the player after a cross-worldspace
+  door. A capture for the owner (not run; other sessions use the game): from a save at the
+  Mojave north gate, activate 0x00116420 by script, then log `GetPos x/y/z`,
+  `GetParentCell`, `GetParentWorldspace` and the heading; the same back through
+  0x00116424, and for the Strip side 0x0013BB0D. NVForever predicts FreesideNorthGate
+  0x0012DA5C at (8288, 6896, 1003.50) heading 220.7, and FreesideExtNorthGate 0x000DABEA
+  at (−9721.49, 111797.62, 4344.46) heading 35.0.
+
 Open:
 - Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
 - A start position over empty space in an interior falls forever (Ringo's cash box
   0x001629C0 stands outside the gas station's room, reached in game through barter).
-- Doors into another worldspace are refused (`Travel` has no worldspace yet); dialogue and
-  barter are not built; dropped items are not rendered and have no collision.
+- Dialogue and barter are not built; dropped items are not rendered and have no collision.
+- Locked doors that scripts open in the game stay locked: the Freeside → Strip gate
+  0x00116425 is level 255 with key 0x00119875 (the Securitron's check opens it; scripts
+  are Layer 5).
+- Renderer, seen in the worldspace tests and the same with a direct start (not the
+  switch): NVUrbanClear (Freeside) is overexposed and Big MT's sky is white at noon.
+- Starting the game in an interior leaves generated distant terrain off for the start
+  worldspace after going out (main.rs builds the job only for an exterior start); a
+  worldspace switch builds it for the new worldspace.
 - ~~Controller jitter against some rocks reproduces in `fnvtool phys walk`~~ Fixed:
   concave corners stop the character instead of alternating between faces (physics.md
   §6.1); the controller now rests on contact shells like the arrival (§6.2).

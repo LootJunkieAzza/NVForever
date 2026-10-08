@@ -571,6 +571,19 @@ impl<'a> World<'a> {
         })
     }
 
+    /// The worldspace a reference is in now: that of its cell (`None` in an interior).
+    /// The cell is the truth: a teleport into another worldspace moves the actor into an
+    /// exterior cell of that worldspace, so position, cell and worldspace change
+    /// together and a snapshot keeps them (it stores the cell). Does not materialise
+    /// anything.
+    pub fn worldspace_of(&self, id: FormId) -> Option<FormId> {
+        let cell = match self.peek(id) {
+            Some(s) => s.cell,
+            None => self.placed.get(id)?.cell,
+        };
+        self.placed.world_of(cell?)
+    }
+
     /// Whether a reference is enabled, following its enable-parent chain. A reference
     /// with an enable parent takes the parent's effective state (inverted when the
     /// "opposite" flag is set) and its own flag is ignored; a chain that ends at a
