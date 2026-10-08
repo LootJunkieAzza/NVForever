@@ -295,6 +295,12 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
   world.md (cell membership of references, shared LAND edges, normals against heights,
   base object types).
 
+# Layer 4 (collision geometry)
+
+`fnvtool collide objects` (`fnv.collide.objects/1`) and `fnvtool collide survey`
+(`fnv.collide.survey/1`) are defined in docs/spec-notes/collision.md §5 together with the
+collision notes.
+
 # Layer 4 (core simulation)
 
 `fnvtool sim containers` (`fnv.sim.containers/1`), `fnvtool sim run`
