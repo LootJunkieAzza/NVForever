@@ -1,5 +1,7 @@
-// NIF surface material (nif_material.rs): Bevy's standard PBR fragment with two changes,
-// both [hypothesis, docs/spec-notes/nif.md §6 "Emissive light", "Specular"]:
+// NIF surface material (nif_material.rs): Bevy's standard PBR fragment with three changes,
+// all [hypothesis, docs/spec-notes/nif.md §6 "Emissive light", "Specular", "View-angle
+// falloff"]:
+// - the alpha is scaled by the view-angle falloff (blended effect shapes only);
 // - the emissive light is modulated by the surface colour (diffuse texture × vertex
 //   colour), as NIF emissive is;
 // - ambient light is diffuse only: the specular part Bevy adds for its ambient light is
@@ -26,12 +28,32 @@
 }
 #endif
 
+struct NifSurface {
+    // x start angle (cosine), y stop angle (cosine), z start opacity, w stop opacity;
+    // (1, 0, 1, 1) when the shape has no falloff.
+    falloff: vec4<f32>,
+}
+
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
+
+// View-angle falloff of BSShaderNoLightingProperty (docs/spec-notes/nif.md §6): linear in
+// the cosine from the start opacity at the start angle to the stop opacity at the stop
+// angle, held beyond either end [hypothesis: linear and clamped].
+fn falloff_opacity(cos_angle: f32, p: vec4<f32>) -> f32 {
+    let t = clamp((cos_angle - p.y) / (p.x - p.y), 0.0, 1.0);
+    return mix(p.w, p.z, t);
+}
+
 @fragment
 fn fragment(
     in: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
+    // |N·V|: the normal is already flipped towards the viewer on back faces of double-sided
+    // shapes; abs() also covers single-sided ones seen edge-on.
+    let cos_angle = abs(dot(normalize(pbr_input.world_normal), pbr_input.V));
+    pbr_input.material.base_color.a *= falloff_opacity(cos_angle, surface.falloff);
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
     // base_color already holds texture × vertex colour × material colour.
     let e = pbr_input.material.emissive;
