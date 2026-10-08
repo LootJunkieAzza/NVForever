@@ -84,7 +84,13 @@ hex text; needs a ref variable), `GetNumItems`, `GetInventoryObject`,
   game), `steps` (array). A step is one of: `{"script": text}` (run a function script,
   ignore its result), `{"console": line}`, `{"query": text, "label": l, "field": f}`
   (run, record the result), `{"manual": text}` (show the text, wait for End), `{"frames":
-  n}` (wait n game loops).
+  n}` (wait n game loops). From plugin version 3: `{"until": text, "max_frames": n}` (run
+  the function script once per game loop until it returns a non-zero number, at most n
+  times; records `{"kind": "waited", "step", "frames"}`, or an error when n is reached) and
+  `{"remember": text, "as": name}` (run it and keep the number; records `{"kind":
+  "remembered", "step", "name", "value"}`). In any later step text of the same job,
+  `%{name}` is replaced by the remembered number before the step runs. Older plugins skip
+  a job that uses these (logged as "skipping"; capture_run.py reports it).
 - **Run**: after a save has loaded (PostLoadGame with success), the plugin announces the
   first pending job (alphabetical) with `MessageEx` and waits for End; it then runs one
   step per game loop; a failed step is recorded and the job continues (errors are
@@ -93,6 +99,18 @@ hex text; needs a ref variable), `GetNumItems`, `GetInventoryObject`,
   "nvse_version", "runtime_version"}`, then one `{"kind": "result", "step", "label",
   "field", "value" | "error"}` per query (`value`: number, string or null), then
   `{"kind": "end", "steps"}`; a job is moved to `jobs\done\` only after its end line.
+- **Automatic runs** (plugin version 2): if the capture directory holds `auto.json`
+  (`fnv.capture.auto/1`: `expires` Unix seconds, `menu_console` lines, `menu_frames`
+  (default 300), `start_frames` (120), `quit_console` lines, `quit_frames` (60)) when the
+  plugin loads, and it has not expired, the plugin renames it to `auto.used.json` (so
+  the next launch is a normal session) and then: counts game loops before any save has
+  loaded and runs the `menu_console` lines once after `menu_frames` of them; after a
+  save load starts each pending job by itself `start_frames` loops after it is announced
+  (End is not needed; **manual steps still wait for End**); when no job is left, runs the
+  `quit_console` lines once after `quit_frames` loops. Every console line and its result
+  is logged. A missing, expired or unreadable file means a normal session.
+  `capture_run.py` writes the file, starts the game through `nvse_loader.exe`, waits
+  for the end lines and removes the file again if the plugin never read it.
 - Every job starts with one query per master, label `__modindex__`, field = plugin
   name, value = `GetModIndex` (255 = not loaded), so load-order FormIDs in the output can
   be mapped back to plugin + local FormID (`capture_steps.py`).
@@ -138,9 +156,93 @@ recorded per step, not fatal.
 
 ## 6. Open points
 
+- First automatic trial (2026-10-08) [observed]: xNVSE sends MainGameLoop while the main
+  menu is shown (the log's "first game loop" came 2 s after the plugin loaded, before any
+  save load). The console line `load nvftest`, run from the plugin's MainGameLoop handler,
+  started loading the save and did not return; the plugin still held its own lock, the
+  game's next message to the plugin waited for that lock, and the game hung on the
+  loading screen ("Not Responding") [hypothesis for the mechanism: the save loads inside
+  the console call and xNVSE dispatches messages from there]. Plugin fix: console lines
+  of automatic runs run with the lock released, and a message that arrives while the
+  plugin is busy never waits (a save load is handled at the next message, a game loop is
+  skipped). capture_run.py now gives up when the game stays "Not Responding" for 120 s.
+- Second automatic trial (2026-10-08, fixed plugin) [observed]: `load nvftest` at the
+  main menu loaded `nvftest.fos` (made with the console line `save nvftest`); the log's
+  "save loaded" came *before* the console call returned "ok", so the save does load inside
+  the call and xNVSE dispatches PostLoadGame from there (the mechanism above). The job
+  `aa_auto_trial` then started by itself and ended with no failed step; `qqq` closed the
+  game. Unattended runs work for jobs without manual steps.
 - Fractional game time (GameHour, GameDaysPassed after waiting) needs a capture that can
   stop or account for the running clock without crashing the game; not observed yet.
 
 - `advance_time`, `detach_cell` / `attach_cell` and `transfer` of single items have no
   console equivalent and become manual steps (Wait menu, walking through a door, the
   container menu).
+
+## 7. Scripted substitutes for manual steps
+
+Goal: jobs without manual steps can run unattended (§4, capture_run.py). A substitute is
+used for a scenario only after a capture made with it agrees with the capture made by
+hand (`capture_steps.py compare`, numbers within a stated tolerance); until then the
+manual step stays. Results of the first checks (2026-10-08, all runs unattended, plugin
+version 3) are at the end of this section.
+
+- **Settling after a door** (`capture_steps.py actions --settle auto`, replaces the End
+  confirmation of `--confirm-after`): scripted `Activate` on a load door already moved
+  the player through it in `goodsprings_doc_mitchell` [observed 2026-10-07]; only the
+  wait for the loading screen was manual. The substitute waits (`until`) for the player's
+  parent cell to differ from the door's, then 300 game loops. Check: rerun
+  `goodsprings_doc_mitchell` this way and compare with its golden, which includes the
+  player's position after the door (z within the character controller's settling).
+- **Waiting** (`--time`, replaces the Wait menu for `advance_time`). Two candidates, both
+  [hypothesis] until compared: `hour` sets `GameHour` to its value plus the hours (at most
+  24 at a time, possibly past 24) and leaves the rest of the calendar to the game; and
+  `timescale` raises `TimeScale` to 3600 (one game hour per real second), waits (`until`)
+  for `GameDaysPassed` to reach its remembered start plus hours/24, and restores the
+  remembered TimeScale, so the game runs the time itself. Raising TimeScale was not part
+  of the crash tests (§5: only lowering it, and moving the clock at a low TimeScale). The
+  trial job `tools/capture/jobs/aa_time_substitutes.steps.json` records every calendar
+  global after each candidate (and after setting `GameDaysPassed` alone); the scenario
+  checks rerun `goodsprings_merchant_restock` (restock behaviour) and
+  `goodsprings_weight_and_time` (calendar values) with each candidate.
+- **Leaving and returning to a cell** (`detach_cell`, `attach_cell`) and **container-menu
+  transfers** (`transfer`) stay manual: the actions name a cell, not the door to use, and
+  `RemoveItem` + `AddItem` is not known to be the same as a menu transfer.
+
+Results [observed 2026-10-08, saves `nvftest` (inside GSGasStation) and `nvfdoc` (Doc
+Mitchell's house)]:
+
+- `aa_time_substitutes` (calendar after each candidate; the clock also runs a few game
+  seconds between steps): setting `GameHour` 24 hours forward (to 33.3) gave GameHour
+  9.32 again, GameDaysPassed +1.000 and GameDay +1, so the game wraps the hour and carries
+  the day itself; +6 hours moved GameHour +6.005 and GameDaysPassed +0.250. TimeScale 3600
+  until GameDaysPassed + 1: 1,433 game loops, overshoot about 2 game minutes (GameDaysPassed
+  +1.0013), GameDay +1, TimeScale back to 30, no crash; +6 hours: 360 loops. Setting
+  `GameDaysPassed` alone (+1) left GameDay unchanged, so it is not a substitute.
+- `goodsprings_merchant_restock` rerun with `--time hour` and with `--time timescale`:
+  identical to the golden made with the Wait menu (0, 200, 0, 200 caps; 0 differences).
+- `goodsprings_weight_and_time` rerun with each: identical to its golden (weights,
+  capacities, GameDay/GameMonth across the month end; 0 differences).
+- `goodsprings_doc_mitchell` rerun with `--settle auto`: the player had left the house's
+  cell at the first check after `Activate` on the front door; after the 300-loop pause
+  every observation matched the golden except the position after the door, which
+  differed by 0.0002 (y) and 0.005 (z) game units, well inside the scenario's 1-unit
+  tolerance (0 differences at `--tolerance 0.01`).
+
+So for these scenarios `--time hour`, `--time timescale` and `--settle auto` give the same
+observations as the manual steps, and the scenarios can be captured unattended. This is
+equivalence for what they observe (item counts, merchant restock at 72 and 84 hours,
+calendar values, weights, cell and position after a door), not a proof that the
+substitutes do everything the Wait menu does (e.g. health regeneration, NPC schedules and
+cell respawn were not compared); a new kind of observation needs its own comparison.
+`hour` is the default choice for unattended jobs (no TimeScale change, no dependence on
+frame rate); `timescale` lets the game run the time, if a scenario needs that.
+
+Further agreement [observed 2026-10-08]: the backlog captures `bl_restock_timing`,
+`bl_primm_restock` and `bl_container_respawn` were each run with `hour` and with
+`timescale`; every refill, respawn and non-refill came out the same (only leveled
+contents rolled differently). Merchant restocks and cell respawns happen at day
+boundaries or on cell load, both of which `hour` passes through, so this agreement is
+expected [hypothesis]. Travel with the console's `coc` (`--go-to-cell`, also used to leave
+and re-enter a cell in `bl_container_respawn`) arrived on the first check every time; it
+is a teleport, not a walk through a door.

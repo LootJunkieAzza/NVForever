@@ -37,7 +37,11 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   Mine 10, Bottlecap Mine 3, all with the Land Mine or Mine Drop animation type — and 7
   use projectiles that several weapons fire [observed]. They are armed mines and charges;
   activating one disarms it and yields that weapon [hypothesis; the Explosives check and
-  the chance to set it off are Layer 6].
+  the chance to set it off are Layer 6]. In game [observed 2026-10-08, `bl_placed_mines`, Nipton house 8,
+  god mode on]: the four frag mines stayed enabled and did not move for 600 game loops
+  after the player arrived, and a scripted `<mine>.Activate player` changed nothing (no
+  Frag Mine 0x0000433C in the inventory, the mine still enabled, same position). Whether
+  the player's own activation disarms one is not captured (needs someone at the game).
 - **Enable parents** (XESP: parent reference, flag bit 0 "Set Enable State to Opposite of
   Parent" [documented: xEdit]): 5,171 references have one, 759 with the opposite flag;
   162 chains are two deep, none deeper; no chain loops or names a missing reference
@@ -126,6 +130,38 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   ACHR/ACRE `XMRC` "Merchant Container" names them [documented: xEdit]; Ringo's
   reference 0x00104C7D points at 0x001629C0, and FalloutNV.esm has 77 XMRC links
   [observed].
+  **Superseded by the 2026-10-08 captures** (`bl_restock_timing`, `bl_restock_schedule`,
+  unattended, `GameHour` and TimeScale substitutes giving the same results; save `nvftest`
+  inside GSGasStation, the box's last restock before the captures at midnight of day 11):
+  the restock time is **not** the access time. Emptied at 12.388 and left unread for
+  100 h, the box was full at 16.556; emptied again at once, it was **full again at
+  17.556** (24 h later). Read and emptied every 2 hours, it refilled just after the
+  midnights of days 14, 21 and 24 (first reads at 14.063, 21.077, 24.007), and was full at
+  the first read (20.658) after 100 unread hours [observed]. Every refill seen in any
+  capture (also days 7 and 10 in `aa_vendor_period`, day 17 here) came just after a
+  midnight (GameDaysPassed crossing a whole number). Rule consistent with all of them
+  [hypothesis]: **at each midnight d, a merchant container whose contents changed since its
+  last restock L, with d − L ≥ 3 days, is restocked (contents replaced) and L = d.** Here
+  L = 11 → 14 → 17 (in the unread gap) → 20 skipped (untouched and full since 17) → 21
+  (emptied at 20.658, 4 days after 17) → 24. The "changed since" condition rests on that
+  one skipped midnight; "skipped when full" or "skipped when untouched" fit equally. The
+  period matches `iHoursToRespawnCell` (72 h) [hypothesis that it is the source].
+  A merchant box whose base lacks the Respawns flag (Primm, Prospector's Den,
+  0x0017409C, base `VLootSackVendorWastelandT2RSPros`; `bl_primm_restock`, both
+  substitutes) was emptied and **never refilled in 7 days** of daily reads [observed]; so
+  the flag gates merchant restocks too. After its `RemoveAllItems` it reported
+  `GetItemCount` of caps 1 with `GetNumItems` 0, every read [observed; unexplained].
+  Its contents on arrival differed between two loads of the same save (540 and 380 caps,
+  42 stacks each) [observed]: the save did not hold them (cell never visited by that
+  character) and they were rolled when the cell first loaded [hypothesis].
+  **Cell respawn of ordinary containers** (`bl_container_respawn`, both substitutes;
+  General Store, the player leaving and returning with the console's `coc`): the fridge
+  0x00105824 (base `VLootFridgeClosedTier1WastelandRS`, Respawns flag), emptied, was still
+  empty after 24 h and after 70 h away and held new contents (4–5 stacks) after 74 h away,
+  twice; the toolbox 0x001057FF (no Respawns flag) stayed empty throughout [observed]. So
+  the 72 h cell respawn (`iHoursToRespawnCell`) applies to containers with the Respawns
+  flag, measured from leaving the cell, between 70 and 74 hours [observed]; the exact
+  boundary and whether a midnight is involved are not settled.
 - **Inventory model**: one stack per base item, split into groups of identical extra data
   (condition, owner, equipped). Removing more than is held removes what is there and
   reports that number [hypothesis: GECK `RemoveItem` behaviour as commonly described; to
@@ -151,8 +187,8 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   2026-10-07, `L4.sim.trace.goodsprings_weight_and_time`: GetAV CarryWeight 200 at
   Strength 5 and 160 at Strength 1; GetAV InventoryWeight 18.5 for a 9mm pistol (1.5),
   leather armour (15), brahmin-skin outfit (2) and 100 9mm rounds (0.029 each), unchanged
-  by equipping]. Over-encumbered when weight exceeds capacity [hypothesis]; Hardcore
-  ammunition weight not captured yet. Strength comes from NPC_ DATA attributes
+  by equipping]. Weights add exactly (199 teddy bears at 1.0 → 199, plus spoons at 0.5 → 200.5, 201) [observed, `bl_encumbrance`]. Over-encumbered when weight exceeds capacity [hypothesis]: neither `IsPlayerOverencumbered` nor `GetIsPlayerOverencumbered` exists in the runtime's script compiler ("unknown variable", with and without `player.`) [observed], so the threshold is not captured yet. Hardcore
+  ammunition: 100 9mm rounds weigh 0 normally and **2.9 with Hardcore on** (0.029 each, the AMMO DAT2 weight), 0 again when switched off [observed, `bl_encumbrance`, `player.SetHardcore`]; `IsHardcore` read 0 throughout, even while the ammunition weighed 2.9 [observed; unexplained]. Strength comes from NPC_ DATA attributes
   (S.P.E.C.I.A.L. as seven u8 in that order [documented: xEdit]); the player base form
   authors 5 for every attribute [observed]. NPCs that take stats from a template are not
   followed yet.
@@ -255,6 +291,11 @@ nesting, levels between entries' levels with the all-levels flag set.
   month 9; from day 31, month 9 at 20:00, waiting 6 hours gives day 1, month 10. This
   fits month 9 = October (31 days) but does not yet distinguish it from a rollover of an
   out-of-range day 31 in a 30-day month; a capture across the end of a 30-day month would.
+  **Settled** [observed 2026-10-08, `bl_calendar`: day 27 of every month of 2281 and of
+  February 2280, then +24 h five times]: months count from 0 with Gregorian lengths 31,
+  28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 (GameMonth 9 = October); day 31 of month 11
+  rolls to day 1, month 0 of the next year; **February 2280 has 28 days** — no leap days,
+  although 2280 is a Gregorian leap year.
   While the player is in menus the clock keeps running at TimeScale (a first capture read
   GameHour 14.136 for 14), so fractional time is not compared
   (docs/spec-notes/xnvse-capture.md §5).
