@@ -59,13 +59,14 @@ impl Cinematic {
 }
 
 /// An IMGS record's cinematic grade. The cinematic block follows 14 HDR floats, the skin
-/// dimmer (form version 10+), bloom (3), get hit (3) and night eye (4): byte 100, or 96
-/// before form version 10 [documented: xEdit IMGS; observed: DNAM sizes 152, 148 and 132].
+/// dimmer, bloom (3), get hit (3) and night eye (4): byte 100 in a 152-byte DNAM, byte 96
+/// in the 148- and 132-byte ones [observed: docs/spec-notes/world.md §6; xEdit ties the
+/// skin dimmer to form version 10, but form versions 11-13 still read correctly at 96].
 pub fn image_space(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Cinematic> {
     let (pi, r) = winner(lo, fid)?;
     let f = Fields::new(r, pi, schema).ok()?;
     let raw = &f.raw(b"DNAM")?.data;
-    let base = if r.header.form_version >= 10 { 100 } else { 96 };
+    let base = if raw.len() >= 152 { 100 } else { 96 };
     let at = |i: usize| raw.get(base + 4 * i..base + 4 * i + 4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
     Some(Cinematic {
         saturation: at(0)?,

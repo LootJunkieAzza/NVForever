@@ -134,10 +134,18 @@ cell entity), and `RefChanged` is sent by the inventory menu for each dropped re
 
 Unattended checks on the merged branch (test aids: `--auto-walk`, `--pos/--heading/--pitch`,
 `NVF_PLAY_TEST_ACTIVATE=<seconds,...>` presses E, `NVF_PLAY_TEST_MENU=<container|nearest>`
-drives the menus; since 2026-10-08 also `NVF_PLAY_TEST_DROP=<s>:<item>[:stack]` drops
-through the inventory menu, `NVF_PLAY_TEST_LOOK=<s>:<heading>:<pitch>`,
+drives the menus — it opens the container from wherever the player is and does not move
+them —, and since 2026-10-08 `NVF_PLAY_TEST_NEAR=<reference FormID>` starts the player on
+a standing spot from which that reference can be activated, looking at it: on rings 60–100
+units around it, grounded on something other than the reference, room for the capsule,
+the eye within reach (150) of a point of it whose view ray hits its collision first
+(60, 30, 90 or 0 units above its position), else nothing in between; with no such spot
+the start is kept and a warning logged; the reference must be in the cell or worldspace
+played; since 2026-10-08 also `NVF_PLAY_TEST_DROP=<s>:<item>[:stack]` drops through the
+inventory menu, `NVF_PLAY_TEST_LOOK=<s>:<heading>:<pitch>`,
 `NVF_PLAY_TEST_GOTO=<s>:<x>:<y>:<z>` and `NVF_PLAY_TEST_SHOTS=<s>:<png>` (nvf-play
-`test_aid.rs`); with any `NVF_PLAY_TEST_*` set the cursor is not grabbed):
+`test_aid.rs`); with any `NVF_PLAY_TEST_*` set the cursor is not grabbed, so the desktop
+mouse no longer turns the view in unattended runs):
 - Goodsprings, `--auto-walk 300`: placed on the terrain (feet 8369.0 on 8368.0), walks,
   cells stream, a house blocks the way.
 - Doc Mitchell's house: the stimpak 0x00105BF3 is targeted by its collision at 110 units,
@@ -149,6 +157,22 @@ through the inventory menu, `NVF_PLAY_TEST_LOOK=<s>:<heading>:<pitch>`,
   the terrain's contact shell, 8693.53.
 - Goodsprings gas station: the metal box 0x001629C1 is targeted at 99 units and E opens
   the container menu; the menu test aid takes all of Ringo's 200 caps and stores items back.
+- Interior starts and falls (2026-10-08, physics.md §6.7): a start beside Ringo's cash box
+  0x001629C0 (outside the gas station's room) now warns and moves to the arrival of door
+  0x00109040 into the cell, feet (511, −5951, 7554.2) on the floor, instead of falling for
+  ever; walking off the box (`--pos` on it, `--auto-walk 100`) is caught 800 units under
+  the cell's lowest collision and put back at that arrival, then walks into the room. A
+  door destination with nothing under it is moved the same way (Doc Mitchell's front door
+  from outside still arrives normally: floor 7360, no warning). With
+  `NVF_PLAY_TEST_NEAR=001629C1` and E at 6 s the metal box is targeted by collision at
+  106 units and opens; `NVF_PLAY_TEST_MENU=001629C1` still opens it and runs its script;
+  `NVF_PLAY_TEST_NEAR=001629C0` finds no spot (the box is outside the room) and keeps the
+  start. Doc Mitchell's house with the new aid: stimpak 0x00105BF3 targeted at 75 and
+  taken; front door 0x00103E61 targeted at 72, E arrives at 8693.53 on 8690.03 as before.
+  Goodsprings `--auto-walk 300` is unchanged (feet 8371.5 on terrain 8368.0; the terrain
+  net is untouched). One unattended run's target changed while the player stood still
+  [hypothesis: real mouse motion over the focused window, which grabs the cursor without
+  `--auto-walk`]; reruns were steady.
 - Dropped items (2026-10-08, `--cell GSDocMitchellHouse --play --pos 2032,1954,7472
   --heading 90 --pitch -28`): E takes the stimpak 0x00105BF3 (collision, 103 units); the
   drop aid drops it from the inventory: reference 0xFF000000 at (2082.0, 1954.0, 7390.7),
@@ -171,8 +195,6 @@ through the inventory menu, `NVF_PLAY_TEST_LOOK=<s>:<heading>:<pitch>`,
 
 Open:
 - Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
-- A start position over empty space in an interior falls forever (Ringo's cash box
-  0x001629C0 stands outside the gas station's room, reached in game through barter).
 - Doors into another worldspace are refused (`Travel` has no worldspace yet); dialogue and
   barter are not built.
 - Dropped armour is drawn with its base form's MODL, as placed armour is: for the Pip-Boy
@@ -188,3 +210,6 @@ Open:
   concave corners stop the character instead of alternating between faces (physics.md
   §6.1); the controller now rests on contact shells like the arrival (§6.2).
 - Up to ~50 ms per physics cell load in one frame.
+- Interior safety net: a start or walk onto a reference outside an interior's room (the
+  top of Ringo's cash box) stands there until it falls; what the game does with `coc` and
+  with a start over nothing is not captured (proposed capture in physics.md §6.7).
