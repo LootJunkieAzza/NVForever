@@ -393,7 +393,7 @@ impl Settle for PhysSettle<'_> {
                 Err(_) => plugin(pl),
             }
         };
-        let mut b = build(lo, schema, ix, centre, 1, PhysParams::default(), self.meshes.as_mut(), &in_world);
+        let mut b = build(lo, schema, ix, centre, 1, &[], PhysParams::default(), self.meshes.as_mut(), &in_world);
         let filter = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
         let a = b.world.arrival(pos, &CharacterParams::default(), &filter);
         let support = a.support.map(|h| {
