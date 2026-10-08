@@ -295,6 +295,21 @@ Lab comparator: **keyed** on `grid` for `/cells` (all fields, float tolerance 1e
   world.md (cell membership of references, shared LAND edges, normals against heights,
   base object types).
 
+## `fnvtool phys ...` (Layer 4 physics)
+
+`phys cell` (`fnv.phys.cell/1`: the physics world around a cell and probe characters
+dropped in it), `phys walk` (`fnv.phys.walk/1`: a scripted character walk traced step by
+step), `phys heights` (`fnv.phys.heights/1`: terrain height under fixed points of every
+landscape cell, parity lab `L4.phys.heights.*`) and `phys terrain` (`fnv.phys.terrain/1`:
+terrain colliders checked against the LAND heights of a worldspace). Their contract lives
+in docs/spec-notes/physics.md §7.
+
+# Layer 4 (collision geometry)
+
+`fnvtool collide objects` (`fnv.collide.objects/1`) and `fnvtool collide survey`
+(`fnv.collide.survey/1`) are defined in docs/spec-notes/collision.md §5 together with the
+collision notes.
+
 # Layer 4 (core simulation)
 
 `fnvtool sim containers` (`fnv.sim.containers/1`), `fnvtool sim run`
