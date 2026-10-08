@@ -117,3 +117,41 @@ written.
   controller places the actor (the +7.44 offset is in the golden).
 - **B10 placed explosives (PGRE)** — **partly done 2026-10-08** (`bl_placed_mines`): inert while the player stands in the cell; scripted `Activate` does nothing. Open: the player's own activation (attended). The 297 PGRE are spread over five masters, not only Old World Blues (simulation.md §1). Was: are the 297 OWB placed grenades live in game? Needs an
   OWB save near one (`fnvtool sim forms` lists them).
+- **B11 collision layer matrix** (design; unattended). Settles which Havok layers stop the
+  player and which stop dropped items (physics.md §4 and §6 question 4; today
+  `layers::character_ignores` is chosen from the layer names), and doubles as a check of
+  the Havok scale (collision.md §6). Method: a **drop test**, which needs no one at the
+  controls. For each layer, pick a few references of that layer with a flat top in open
+  ground (`fnvtool phys cell` lists every collider with its layer and bounds; prefer
+  exterior Goodsprings and interiors already used by other jobs). Then, with god mode on:
+  1. *Player*: `player.setpos x/y` over the object's centre and `player.setpos z` to
+     200 units above its top; wait about 3 s of game loops; read `player.GetPos z`.
+     Resting near the top (as for the rug, within a couple of units) = the layer blocks
+     the player; resting on what lies below = it does not. Repeat with the same drop over
+     bare ground next to it as the control.
+  2. *Clutter*: `player.placeatme` a light clutter item (a tin can, MISC with Clutter
+     collision) and move it over the object with `<ref>.setpos`; read its `GetPos z`
+     after a few seconds. This fills the clutter row of the matrix.
+  Layers to cover first: Static, AnimStatic, Transparent, Clutter, Trigger, Water,
+  Non Collidable, Invisible Wall, Collision Box, Debris Small/Large, Prop, trees
+  (SpeedTree, no Havok blocks: does the player fall through or rest on a hidden shape?)
+  and CollisionMarker boxes. Candidate side: `fnvtool phys cell --drop x,y,z` gives the
+  same rest height per probe, so each case can become a keyed `L4.phys` scenario
+  (rest z with a tolerance of a few units). Risk: an object that moves when hit (dynamic
+  clutter) falls with the probe; use statics for the player row.
+
+## 4. Owner answers (2026-10-08, in game, attended)
+
+Recorded where the rule lives, tagged [observed by the owner in game, 2026-10-08]:
+
+- A locked container with its key in the inventory opens directly on activation, no
+  prompt (simulation.md §5).
+- NPC carried-item entries with count 0 give nothing (simulation.md §3).
+- Notes, casino chips, caravan money and caravan cards weigh nothing, like caps
+  (simulation.md §3; `Inventory::totals` counts them as 0).
+- Disabled references are not drawn, have no collision and cannot be interacted with
+  (simulation.md §1, physics.md §4; `fnvtool phys cell` now also leaves out references
+  disabled through their enable parent).
+- `GetPos Z` is the feet: the player standing on a rug at z 7360 in Doc Mitchell's house
+  reads 7361.05 (physics.md §6).
+

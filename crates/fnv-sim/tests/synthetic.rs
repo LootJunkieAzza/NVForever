@@ -143,6 +143,10 @@ const HAT: u32 = 0x173; // ARMO, slot Hair, weight 1
 const SUIT: u32 = 0x174; // ARMO, slot Upper Body, weight 15
 const AID: u32 = 0x175; // ALCH, weight 0.5
 const BULLETS: u32 = 0x176; // AMMO, weight 0.1 (Hardcore only)
+const NOTE: u32 = 0x178; // NOTE: no weight field
+const CHIP: u32 = 0x179; // CHIP: no weight field
+const CMNY: u32 = 0x17A; // CMNY: no weight field
+const CARD: u32 = 0x17B; // CCRD: value only
 const LOCKER: u32 = 0x121; // CONT: PISTOL x1 with COED condition 0.75
 const MINE: u32 = 0x177; // WEAP firing MINE_PROJ
 const MINE_PROJ: u32 = 0x180; // PROJ
@@ -158,6 +162,13 @@ fn plugin_bytes() -> Vec<u8> {
         &record(b"MISC", 0, STIMPAK, &[sub(b"EDID", z("TestStim")), sub(b"DATA", value_weight(25, 0.5))]),
         &record(b"MISC", 0, CAPS, &[sub(b"EDID", z("TestCaps")), sub(b"DATA", value_weight(1, 0.0))]),
     ]);
+    let weightless = [
+        top(b"NOTE", &record(b"NOTE", 0, NOTE, &[sub(b"EDID", z("TestNote"))])),
+        top(b"CHIP", &record(b"CHIP", 0, CHIP, &[sub(b"EDID", z("TestChip"))])),
+        top(b"CCRD", &record(b"CCRD", 0, CARD, &[sub(b"EDID", z("TestCard")), sub(b"DATA", 2u32.to_le_bytes().to_vec())])),
+        top(b"CMNY", &record(b"CMNY", 0, CMNY, &[sub(b"EDID", z("TestMoney"))])),
+    ]
+    .concat();
     let keym = record(b"KEYM", 0, KEY, &[sub(b"EDID", z("TestKey")), sub(b"DATA", value_weight(0, 0.0))]);
     let furn = record(b"FURN", 0, CHAIR, &[sub(b"EDID", z("TestChair"))]);
     let lvli = cat(&[
@@ -278,6 +289,7 @@ fn plugin_bytes() -> Vec<u8> {
         &top(b"GMST", &gmst),
         &top(b"MISC", &misc),
         &top(b"KEYM", &keym),
+        &weightless,
         &top(b"FURN", &furn),
         &top(b"LVLI", &lvli),
         &top(b"CONT", &cat(&[&cont, &locker])),
@@ -696,6 +708,19 @@ fn encumbrance_uses_strength_and_settings() {
     hc.add_item(p, id(BULLETS), 100).unwrap();
     assert!((hc.encumbrance(p).unwrap().weight - 10.0).abs() < 1e-4);
     assert!(matches!(w.encumbrance(id(SAFE_REF)), Err(SimError::NoActorValues(_))));
+}
+
+#[test]
+fn notes_chips_and_caravan_items_weigh_nothing() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(SUIT), 1).unwrap();
+    for item in [NOTE, CHIP, CMNY, CARD] {
+        w.add_item(p, id(item), 50).unwrap();
+    }
+    let e = w.encumbrance(p).unwrap();
+    assert_eq!((e.weight, e.unknown_weight), (15.0, vec![]));
 }
 
 #[test]
