@@ -3,7 +3,7 @@
 //! camera (docs/design/layer3.md). Read-only: plugins and archives are only read.
 //!
 //! Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
-//! F12 screenshot, Esc quit. With `--play` the camera is the player instead (Layer 4,
+//! F12 screenshot, Esc quit (with `--play`, Esc in a menu closes the menu). With `--play` the camera is the player instead (Layer 4,
 //! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md).
 
 mod fly;
@@ -367,8 +367,15 @@ fn overlay(
     );
 }
 
-fn keys(input: Res<ButtonInput<KeyCode>>, mut commands: Commands, mut n: Local<u32>) {
-    if input.just_pressed(KeyCode::Escape) {
+fn keys(
+    input: Res<ButtonInput<KeyCode>>,
+    play_state: Option<Res<State<nvf_play::PlayState>>>,
+    mut commands: Commands,
+    mut n: Local<u32>,
+) {
+    // With --play, Esc in a menu closes the menu (nvf-play) instead of quitting.
+    let in_menu = play_state.is_some_and(|s| *s.get() == nvf_play::PlayState::Menu);
+    if input.just_pressed(KeyCode::Escape) && !in_menu {
         commands.write_message(AppExit::Success);
     }
     if input.just_pressed(KeyCode::F12) {
