@@ -25,7 +25,8 @@
 //! Without those meshes the sky falls back to a sphere with the same weights. The sun is
 //! a directional light (colour "sunlight") with cascaded shadow maps plus a textured disc
 //! (the climate's sun texture, colour "sun"). Ambient light uses "ambient", fog "fog"
-//! with the weather's day/night distances.
+//! with the weather's day/night distances; an unset range (far not beyond near) takes the
+//! other one, and a weather with neither has no fog [hypothesis, world.md §6].
 
 use crate::fly::FlyCam;
 use crate::world::{game_to_bevy, WorldData};
@@ -268,15 +269,21 @@ impl SkyState {
         }
     }
 
-    /// Fog near and far, blended across a weather fade.
-    pub fn fog(&self) -> (f32, f32) {
-        let (n, f) = self.weather.fog_at(&self.climate, self.hour);
-        match &self.prev {
-            Some(p) => {
-                let (pn, pf) = p.fog_at(&self.climate, self.hour);
-                (pn + (n - pn) * self.fade, pf + (f - pf) * self.fade)
-            }
-            None => (n, f),
+    /// Fog near, far and strength (0..1), blended across a weather fade; `None` when
+    /// neither weather has fog. Fading to or from a weather without fog fades the
+    /// strength and keeps the other weather's distances.
+    pub fn fog(&self) -> Option<(f32, f32, f32)> {
+        let cur = self.weather.fog_at(&self.climate, self.hour);
+        let prev = match &self.prev {
+            Some(p) => p.fog_at(&self.climate, self.hour),
+            None => return cur.map(|(n, f)| (n, f, 1.0)),
+        };
+        let t = self.fade;
+        match (prev, cur) {
+            (Some((pn, pf)), Some((n, f))) => Some((pn + (n - pn) * t, pf + (f - pf) * t, 1.0)),
+            (Some((n, f)), None) => Some((n, f, 1.0 - t)),
+            (None, Some((n, f))) => Some((n, f, t)),
+            (None, None) => None,
         }
     }
 
@@ -881,11 +888,18 @@ pub fn update_sky(
     ambient.color = to_color(amb);
     ambient.brightness = unit;
 
-    let (near, far) = sky.fog_override.unwrap_or_else(|| sky.fog());
-    fog.color = to_color(sky.color(ColorType::Fog));
+    // No fog: the fog colour's alpha scales the whole effect, so zero turns it off.
+    let range = sky.fog_override.map(|(n, f)| (n, f, 1.0)).or_else(|| sky.fog());
+    let (near, far, strength) = range.unwrap_or((0.0, 0.0, 0.0));
+    fog.color = to_color(sky.color(ColorType::Fog)).with_alpha(strength);
     fog.falloff = FogFalloff::Linear { start: near.max(0.0), end: far.max(near + 1.0) };
     if sky.time_scale <= 0.0 {
-        info!("sky: {}  fog {near:.0}..{far:.0}", sky.describe());
+        let desc = match range {
+            Some(_) if strength < 1.0 => format!("{near:.0}..{far:.0} x{strength:.2}"),
+            Some(_) => format!("{near:.0}..{far:.0}"),
+            None => "none".into(),
+        };
+        info!("sky: {}  fog {desc}", sky.describe());
     }
 }
 

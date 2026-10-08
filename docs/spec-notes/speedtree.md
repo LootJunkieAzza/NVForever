@@ -145,6 +145,42 @@ that tall [observed].
   `.spt` name, ICON = leaf texture, SNAM = seeds, CNAM = leaf curvature, leaf angles,
   dimming, shadow radius, rock and rustle speeds, BNAM = billboard size.
 
+### Leaf and branch dimming (CNAM) [hypothesis]
+
+The billboards darken from the top of the crown to the bottom, and the darkening is
+stronger the lower the record's leaf dimming [observed: mean luminance of the opaque
+billboard pixels in four bands, top to bottom, bottom ÷ top]:
+
+| Tree | CNAM leaf dimming | Bands | Bottom ÷ top |
+|---|---|---|---|
+| WastelandShrub01 | 0.05 | 47 38 32 22 | 0.47 |
+| EuonymusBush01 | 0.3 | 63 61 52 37 | 0.59 |
+| WhiteOak01 | 0.7 | 71 67 65 70 | ~1 (bottom band is mostly trunk) |
+
+Reading used: leaf dimming is the brightness of the lowest leaves of the crown;
+brightness = d + (1 − d) · h^(1/3), with h the leaf's height in the crown (0 at the
+lowest leaf, 1 at the highest), applied as a display-space factor (to the power 2.2 in
+the linear renderer). Branch dimming does the same for bark, by vertex height. The
+cube root is fitted: the square root gave a WastelandShrub01 render 0.36 bottom ÷ top
+against the billboard's 0.47, the cube root 0.42 (the rest of the gradient there comes
+from the sun). Leaf normals point horizontally out of the crown, tilted up 45°, so the
+top-to-bottom darkening is not counted twice.
+
+### Wind [hypothesis; amplitudes and speeds chosen by eye]
+
+The records give a wind strength and two speeds, not the motion: WTHR DATA wind speed
+(0-255; 50 for most weathers, 127 HVDustStorm, 130 NVHooverFinalBattle [observed]) and
+TREE CNAM rock speed and rustle speed (WastelandShrub01 0.07 and 0.35; EuonymusBush01
+and WhiteOak01 1.0 and 1.0 [observed]). No record gives a wind direction [observed:
+WTHR DATA has none]; NVForever uses a fixed one. NVForever's motion (tree.wgsl): the
+whole tree leans along the wind and swings about that lean, the offset growing with
+the square of the height in the tree, up to a quarter of the tree's height at full
+strength (wind speed 255); each leaf card also tilts (up to 0.35 rad) and flutters
+along the wind with its own phase. Rock and rustle speeds map to angular speeds
+2π(0.2 + 0.6 rock) and 2π(0.5 + 1.5 rustle): WastelandShrub01 rocks about every 4 s
+and rustles about once a second. The same motion runs in the shadow and depth passes.
+The `.spt` wind section (16000-16014, per level) is not used: its meaning is unknown.
+
 ## 7. Open questions
 
 - Meanings of 2001/2003/2006/2007; the remaining curves (6001-6003, 6017).
@@ -152,5 +188,7 @@ that tall [observed].
 - EuonymusBush01 comes out too wide (§4); WhiteOak01's OBND (1567 high) is twice its
   billboard (768).
 - How SNAM seeds beyond the first are used (WhiteOak01 has five: variants per reference?).
-- Leaf lighting (CNAM dimming, 3000-3010, 9000-9014) and wind (16000s, CNAM speeds).
+- Leaf curvature and leaf angles (CNAM), 3000-3010, 9000-9014; whether dimming also
+  depends on depth into the crown, not only height; the `.spt` wind section
+  (16000s); the wind direction and how the original maps the CNAM speeds.
 - Fronds (13000/14000 sections).

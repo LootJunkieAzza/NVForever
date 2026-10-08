@@ -3,8 +3,10 @@
 //!
 //! With `--survey` instead of a climate: for every weather with six times of day, how
 //! often the high-noon and midnight colours equal the day and night ones, or are black.
+//! With `--fog`: every weather's FNAM fog distances, flagging zero or empty (far <= near)
+//! ranges, and which climates list each such weather.
 //!
-//! cargo run --release -p fnv-world --example weather_dump -- <Data dir> <esm schema dir> [climate EDID | --survey]
+//! cargo run --release -p fnv-world --example weather_dump -- <Data dir> <esm schema dir> [climate EDID | --survey | --fog]
 
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_world::fields::Fields;
@@ -25,6 +27,10 @@ fn main() {
     let lo = LoadOrder::new(&plugins).unwrap();
     if want == "--survey" {
         survey(&lo, &schema);
+        return;
+    }
+    if want == "--fog" {
+        fog_survey(&lo, &schema);
         return;
     }
     let mut clim_id = None;
@@ -103,6 +109,55 @@ fn survey(lo: &LoadOrder, schema: &Schema) {
         println!("{:10} {:9} {:10} {:14} {:14}", names[t], c[0], c[1], c[2], c[3]);
     }
     println!("black midnight ambient but non-black night ambient: {} {:?}", black_mid_ambient.len(), &black_mid_ambient[..black_mid_ambient.len().min(12)]);
+}
+
+fn fog_survey(lo: &LoadOrder, schema: &Schema) {
+    // Weather form ID -> climates listing it.
+    let mut users: std::collections::HashMap<u32, Vec<String>> = Default::default();
+    for (pi, recs) in lo.records.iter().enumerate() {
+        for r in recs.iter().filter(|r| &r.header.sig == b"CLMT") {
+            let Some(c) = lo.to_global(pi, r.header.form_id).and_then(|id| climate(lo, schema, id)) else { continue };
+            for w in &c.weathers {
+                users.entry(w.weather).or_default().push(c.edid.clone().unwrap_or_default());
+            }
+        }
+    }
+    let (mut total, mut no_fnam, mut zero, mut empty) = (0, 0, 0, 0);
+    for (pi, recs) in lo.records.iter().enumerate() {
+        for r in recs.iter().filter(|r| &r.header.sig == b"WTHR") {
+            let Some(id) = lo.to_global(pi, r.header.form_id) else { continue };
+            if fnv_world::fields::winner(lo, id).is_some_and(|(wpi, _)| wpi != pi) {
+                continue; // overridden later; the winner is listed in its own plugin
+            }
+            let Some(w) = weather(lo, schema, id) else { continue };
+            total += 1;
+            let has = Fields::new(r, pi, schema).is_ok_and(|f| f.get(b"FNAM").is_some());
+            let f = w.fog;
+            let tag = if !has {
+                no_fnam += 1;
+                "NO-FNAM"
+            } else if f[..4].iter().all(|v| *v == 0.0) {
+                zero += 1;
+                "ZERO"
+            } else if f[1] <= f[0] || f[3] <= f[2] {
+                empty += 1;
+                "EMPTY"
+            } else {
+                ""
+            };
+            let fog_col = w.colors.get(1).map(|c| format!("{:?}", &c[..c.len().min(4)])).unwrap_or_default();
+            println!(
+                "{:7} {:18} {:#010x} {:32} day {:>9.0}..{:<9.0} night {:>9.0}..{:<9.0} power {:.2}/{:.2} fogcol {fog_col} climates {:?}",
+                tag,
+                MASTERS[pi],
+                id,
+                w.edid.clone().unwrap_or_default(),
+                f[0], f[1], f[2], f[3], f[4], f[5],
+                users.get(&id).cloned().unwrap_or_default()
+            );
+        }
+    }
+    println!("weathers {total}: no FNAM {no_fnam}, all-zero {zero}, far <= near {empty}");
 }
 
 /// Every subrecord of a record as little-endian f32 values (image-space records hold floats,
