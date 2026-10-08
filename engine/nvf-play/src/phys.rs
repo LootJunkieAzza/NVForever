@@ -220,10 +220,14 @@ impl PhysState {
             PhysCell::Interior(id) => (d.index.cells.get(&id), None),
         };
         let mut loaded = LoadedCell::default();
-        // The cell's water (`Cell::water_surface`, the rule the renderer draws it with).
-        let world_water = d.index.worldspaces.get(&d.world).and_then(|w| w.default_water_height);
-        let surface = record.and_then(|c| c.water_surface(world_water));
-        self.world.set_water(water_area(cell), surface);
+        // An exterior cell's water (`Cell::water_surface`, the rule the renderer draws it
+        // with); not an interior's XCLW, where the game swam at a placed water object's
+        // height instead [observed: physics.md §6.6; placed water not modelled yet].
+        if let PhysCell::Exterior(..) = cell {
+            let world_water = d.index.worldspaces.get(&d.world).and_then(|w| w.default_water_height);
+            let surface = record.and_then(|c| c.water_surface(world_water));
+            self.world.set_water(water_area(cell), surface);
+        }
         if let (PhysCell::Exterior(x, y), Some(land)) = (cell, record.and_then(|c| c.land)) {
             loaded.heights = load_land(d.lo, d.schema, land, LandParts::HEIGHTS).and_then(|l| l.heights);
             if let Some(h) = &loaded.heights {
