@@ -64,8 +64,14 @@ pub struct Weather {
     /// Fog distances: day near, day far, night near, night far, day power, night power.
     pub fog: [f32; 6],
     pub cloud_textures: [Option<String>; 4],
+    /// PNAM `cloud_colors[layer][time]` as RGB bytes; 4 or 6 times per layer, like NAM0.
+    pub cloud_colors: Vec<Vec<[u8; 3]>>,
+    /// ONAM cloud speed per layer (raw bytes).
+    pub cloud_speeds: [u8; 4],
+    /// LNAM maximum cloud layers.
+    pub max_cloud_layers: Option<u32>,
     /// DATA flags bit 2 "Rainy" [documented: xEdit]; set on Honest Hearts' two Zion rain
-    /// weathers and no FalloutNV.esm weather [observed].
+    /// weathers and no other weather in the masters [observed].
     pub rainy: bool,
 }
 
@@ -119,6 +125,18 @@ pub fn weather(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Weather> {
     for (i, s) in [b"DNAM", b"CNAM", b"ANAM", b"BNAM"].iter().enumerate() {
         w.cloud_textures[i] = f.string(s).filter(|s| !s.is_empty());
     }
+    let clouds: Vec<[u8; 3]> =
+        f.get(b"PNAM").and_then(|v| v.as_array().map(|a| a.iter().filter_map(byte_color).collect())).unwrap_or_default();
+    // Four layers; 4 or 6 times each [observed: 64 or 96 bytes].
+    if clouds.len().is_multiple_of(4) && !clouds.is_empty() {
+        w.cloud_colors = clouds.chunks(clouds.len() / 4).map(|c| c.to_vec()).collect();
+    }
+    if let Some(sp) = f.get(b"ONAM").and_then(|v| v.as_array().cloned()) {
+        for (i, v) in sp.iter().take(4).enumerate() {
+            w.cloud_speeds[i] = v.as_u64().unwrap_or(0) as u8;
+        }
+    }
+    w.max_cloud_layers = f.get(b"LNAM").and_then(|v| v.as_u64()).map(|v| v as u32);
     w.rainy = f
         .get(b"DATA")
         .and_then(|d| d.get("flags").and_then(|fl| num(fl, "value")))
@@ -180,16 +198,12 @@ pub fn time_keys(c: &Climate, hour: f32, six: bool) -> [(TimeOfDay, f32); 2] {
 impl Weather {
     /// A colour type at `hour`, linear RGB in 0..1 (bytes treated as sRGB).
     pub fn color(&self, c: &Climate, ty: ColorType, hour: f32) -> [f32; 3] {
-        let Some(set) = self.colors.get(ty as usize) else { return [0.0; 3] };
-        let six = set.len() >= 6;
-        let mut out = [0.0; 3];
-        for (k, w) in time_keys(c, hour, six) {
-            let col = set.get(k as usize).copied().unwrap_or([0; 3]);
-            for i in 0..3 {
-                out[i] += w * srgb_to_linear(col[i]);
-            }
-        }
-        out
+        blend(self.colors.get(ty as usize), c, hour)
+    }
+
+    /// Cloud layer `layer`'s colour at `hour`, linear RGB (same time model as [`Self::color`]).
+    pub fn cloud_color(&self, c: &Climate, layer: usize, hour: f32) -> [f32; 3] {
+        blend(self.cloud_colors.get(layer), c, hour)
     }
 
     /// Fog near and far at `hour`, blending day and night values with [`day_factor`].
@@ -197,6 +211,23 @@ impl Weather {
         let d = day_factor(c, hour);
         (self.fog[2] + (self.fog[0] - self.fog[2]) * d, self.fog[3] + (self.fog[1] - self.fog[3]) * d)
     }
+}
+
+/// A per-time colour set blended at `hour`, linear RGB (bytes treated as sRGB). Only the
+/// four main times are used: in 67 of the 90 six-time weathers (the Mojave's included)
+/// the midnight ambient is black, and 64 of those have a non-black night ambient; high
+/// noon is black in 29 [observed, `crates/fnv-world/examples/weather_dump.rs --survey`;
+/// hypothesis: the game does not use those two columns, docs/spec-notes/world.md §6].
+fn blend(set: Option<&Vec<[u8; 3]>>, c: &Climate, hour: f32) -> [f32; 3] {
+    let Some(set) = set else { return [0.0; 3] };
+    let mut out = [0.0; 3];
+    for (k, w) in time_keys(c, hour, false) {
+        let col = set.get(k as usize).copied().unwrap_or([0; 3]);
+        for i in 0..3 {
+            out[i] += w * srgb_to_linear(col[i]);
+        }
+    }
+    out
 }
 
 pub fn srgb_to_linear(c: u8) -> f32 {
