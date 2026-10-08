@@ -1,5 +1,4 @@
-//! ArchivePlugin: the game's virtual file system and the NIF schema as resources, and the
-//! materials that models drawn from them need (view-angle falloff).
+//! ArchivePlugin: the game's virtual file system and the NIF schema as resources.
 
 use bevy::prelude::*;
 use fnv_nif::Schema;
@@ -36,7 +35,7 @@ pub struct ArchivePlugin(pub GameData);
 
 impl Plugin for ArchivePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(crate::falloff::FalloffPlugin)
+        app.add_plugins(crate::nif_material::NifMaterialPlugin)
             .insert_resource(self.0.clone())
             .init_resource::<crate::texture::TextureCache>()
             .init_resource::<crate::model::ModelCache>();
