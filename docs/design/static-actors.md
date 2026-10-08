@@ -1,8 +1,11 @@
 # Static actors: NPCs drawn as one assembled entity (workstream 5)
 
-Status 2026-10-08: **part A in progress** (schema layouts, `fnv-actor` resolution,
-`fnvtool actor forms | appearance | meshes`; facts and rules in
-docs/spec-notes/actors.md). Owner request 2026-10-08: render placed NPCs (no AI, no
+Status 2026-10-08: **parts A and B done**, part C (FaceGen) next. Part A: schema
+layouts, `fnv-actor` resolution, `fnvtool actor forms | appearance | meshes`, the
+independent oracle `tools/capture/oracle_actor.py` and `L3.actors.appearance` (all 1,149
+deterministic actors equal). Part B: `nvf_assets::actor` assembles each placed NPC on
+one skeleton in the game (`nvforever`, `--no-actors` turns it off); facts and rules in
+docs/spec-notes/actors.md. Owner request 2026-10-08: render placed NPCs (no AI, no
 movement) with the parts of a humanoid — skeleton, body, hands, head, eyes, mouth, hair,
 beard and worn armour — put together as **a single entity** per actor. Creatures follow
 as a later part (§4, part D).
