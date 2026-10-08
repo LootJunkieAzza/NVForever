@@ -392,6 +392,28 @@ def supervise(jobs, capture_dir, game, save, retries, stage_dir, clock=time.time
         cs.write(job, paths[name])
     state = {n: {"status": "pending", "cut_off": 0, "outputs": []} for n in jobs}
     report = {"format": RUN_FORMAT, "save": save, "started": int(clock()), "rounds": [], "problems": []}
+    try:
+        _rounds(jobs, paths, state, report, capture_dir, game, save, retries, clock, sleep, run)
+    except KeyboardInterrupt:
+        # Ctrl+C: keep what the running sessions wrote, close the game, tidy up.
+        todo = [n for n, s in state.items() if s["status"] not in ("ended", "given up")]
+        for n, s in cr.jobs_state(capture_dir, todo, report.get("_round_start", report["started"])).items():
+            if s["output"] and s["output"] not in state[n]["outputs"]:
+                state[n]["outputs"].append(s["output"])
+            state[n]["status"] = "ended" if s["status"] == "ended" else "interrupted"
+        if game.running():
+            game.kill()
+        report["problems"].append("interrupted (Ctrl+C); the game was closed")
+    report.pop("_round_start", None)
+    for n in jobs:
+        stale = os.path.join(capture_dir, "jobs", f"{n}.steps.json")
+        if state[n]["status"] != "ended" and os.path.exists(stale):
+            os.remove(stale)  # an unfinished session must not run in a later, unrelated session
+    report["sessions"] = state
+    return report
+
+
+def _rounds(jobs, paths, state, report, capture_dir, game, save, retries, clock, sleep, run):
     max_rounds = (retries + 1) * len(jobs) + 1
     for _ in range(max_rounds):
         todo = sorted(n for n, s in state.items() if s["status"] not in ("ended", "given up"))
@@ -404,6 +426,7 @@ def supervise(jobs, capture_dir, game, save, retries, stage_dir, clock=time.time
         if game.running():
             game.kill()
         timeout = int(sum(session_seconds(jobs[n][0]) for n in todo) * 1.5) + SESSION_MARGIN * len(todo)
+        report["_round_start"] = int(clock())
         rr = run({n: (paths[n], jobs[n][1]) for n in todo}, todo, capture_dir, game, save, timeout,
                  kill_on_timeout=True, clock=clock, sleep=sleep)
         report["rounds"].append({"sessions": todo, "problems": rr["problems"],
@@ -428,12 +451,6 @@ def supervise(jobs, capture_dir, game, save, retries, stage_dir, clock=time.time
         if not progress:
             report["problems"].append("stopped: a round made no progress (no session started)")
             break
-    for n in jobs:
-        stale = os.path.join(capture_dir, "jobs", f"{n}.steps.json")
-        if state[n]["status"] != "ended" and os.path.exists(stale):
-            os.remove(stale)  # a given-up session must not run in a later, unrelated run
-    report["sessions"] = state
-    return report
 
 
 # --------------------------------------------------------------------------- report
@@ -481,6 +498,19 @@ def read_samples(lines, source=""):
     return mods, observations
 
 
+def game_time(head):
+    """Game time in hours for a sample: the day from GameDaysPassed, the time of day from
+    GameHour (which schedules follow). After the clock was moved with `set GameHour`,
+    GameDaysPassed lagged GameHour by about 0.054 h [observed 2026-10-08, campaign
+    goodsprings]; whole days are taken from GameDaysPassed, rounded to agree with GameHour."""
+    days, hour = head.get("days"), head.get("hour")
+    if not isinstance(days, (int, float)):
+        return None
+    if not isinstance(hour, (int, float)):
+        return days * 24
+    return 24 * round((days * 24 - hour) / 24) + hour
+
+
 def decode_subject(parts, part_fields, mods):
     rec = {}
     for values, names in zip(parts, part_fields):
@@ -522,10 +552,10 @@ def timeline(sources, names=None):
                 head = {}
                 for (name, kind), v in zip(header_fields, smp.get("header", [])):
                     head[name] = parse_value(kind, v, mods) if kind == "ref" else v
-                if not isinstance(head.get("days"), (int, float)):
+                t = game_time(head)
+                if t is None:
                     problems.append(f"{source}: sample {smp.get('n')} has no game time; skipped")
                     continue
-                t = head["days"] * 24
                 # One record per actor and sample: a named actor that is also near the
                 # player is in both groups; the nearby record wins and marks it seen.
                 merged_recs = {}
@@ -624,7 +654,7 @@ def summarise(a):
             cells.append(cell)
         if st.get("in_combat"):
             combat += span
-    return {"hours_observed": a["last"] - a["first"], "segments": len(a["segments"]),
+    return {"hours_observed": sum(s["to"] - s["from"] for s in a["segments"]), "segments": len(a["segments"]),
             "hours_by_package": by_package, "hours_by_procedure": by_procedure, "cells": cells, "combat_hours": combat}
 
 

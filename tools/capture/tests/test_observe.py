@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
@@ -168,6 +169,13 @@ class Timeline(unittest.TestCase):
         self.assertEqual(tl["actors"]["0xFF000801"]["segments"][0]["state"]["in_combat"], 1.0)
         self.assertIn("BobREF", ob.text_summary(tl))
 
+    def test_time_of_day_comes_from_game_hour(self):
+        # GameDaysPassed lagging GameHour by ~0.054 h, as observed after `set GameHour`.
+        self.assertAlmostEqual(ob.game_time({"days": 12 + 21.9493 / 24, "hour": 22.0032}), 12 * 24 + 22.0032)
+        self.assertAlmostEqual(ob.game_time({"days": 13 + 0.01 / 24, "hour": 23.99}), 12 * 24 + 23.99, msg="across midnight")
+        self.assertAlmostEqual(ob.game_time({"days": 2.5}), 60.0)
+        self.assertIsNone(ob.game_time({"hour": 3}))
+
     def test_crashed_output_is_read_up_to_its_last_line(self):
         lines = output([(1.0, [actor("00001001")], []), (1.1, [actor("00001001")], [])], end=False)
         lines.append('{"kind": "sample", "step": 3, "n": 2, "head')
@@ -248,6 +256,32 @@ class Supervise(unittest.TestCase):
         rep, calls = self.supervise([{}])
         self.assertEqual(len(calls), 1)
         self.assertIn("no progress", rep["problems"][0])
+
+    def test_ctrl_c_keeps_outputs_closes_the_game_and_tidies_up(self):
+        game = self.Game()
+        out = os.path.join(self.dir, "out")
+        os.makedirs(out)
+
+        def run(jobs, names, capture_dir, game_, save, timeout, **kw):
+            for n, (path, _) in jobs.items():
+                with open(os.path.join(capture_dir, "jobs", f"{n}.steps.json"), "w") as f:
+                    f.write("{}")
+            with open(os.path.join(out, f"obs_c_a.{int(time.time()) + 1}.jsonl"), "w") as f:
+                f.write('{"kind": "start"}\n{"kind": "end"}\n')
+            with open(os.path.join(out, f"obs_c_b.{int(time.time()) + 1}.jsonl"), "w") as f:
+                f.write('{"kind": "start"}\n{"kind": "sample"}\n')
+            game_.alive = True
+            raise KeyboardInterrupt
+
+        rep = ob.supervise(self.jobs, self.dir, game, "nvftest", 1, os.path.join(self.dir, "stage"), run=run)
+        self.assertEqual(rep["sessions"]["obs_c_a"]["status"], "ended")
+        self.assertEqual(rep["sessions"]["obs_c_b"]["status"], "interrupted")
+        self.assertEqual(len(rep["sessions"]["obs_c_b"]["outputs"]), 1, "the partial output is kept")
+        self.assertEqual(game.kills, 1)
+        self.assertEqual(os.listdir(os.path.join(self.dir, "jobs")), ["obs_c_a.steps.json"],
+                         "only the ended job's file is left (the plugin moves it to done/ itself)")
+        self.assertIn("interrupted", rep["problems"][0])
+        self.assertNotIn("_round_start", rep)
 
     def test_cli_rejects_bad_input(self):
         path = os.path.join(self.dir, "c.json")

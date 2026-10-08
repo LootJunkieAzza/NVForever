@@ -10,8 +10,8 @@ version 4). Owner decision 2026-10-08: an **observer** only (no playthrough), ba
 xNVSE only (no JIP or other plugins), the player moved by teleport and by xNVSE key
 emulation.
 
-Status: the diagnostic job ran in game on 2026-10-08 with no failed step (results in §6);
-campaigns not yet run. In-game claims not tagged [documented] or [observed] are
+Status: the diagnostic job ran in game on 2026-10-08 with no failed step (results in
+§6); the first campaign ran in part (findings in §7). In-game claims not tagged [documented] or [observed] are
 [hypothesis].
 
 ## 1. What is recorded
@@ -127,13 +127,16 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
 - **Run** (`observe.py run`): copies the session jobs into the capture directory and runs
   them with `capture_run.run` (auto.json, nvse_loader, quit). After a crash, hang or
   timeout it starts the game again with the sessions that have not ended; a session cut
-  off more than `--retries` times is given up and its job file removed. Stops at once if
+  off more than `--retries` times is given up and its job file removed. Ctrl+C keeps the
+  outputs written so far, closes the game, removes unfinished job files and still writes
+  the report (`--only SESSION` reruns the rest). Stops at once if
   the plugin is too old to read the jobs or the game does not start. Report
   `fnv.observe.run/1` in `<capture dir>/observe/<campaign>/`.
 - **Timeline** (`observe.py report`, `fnv.observe.timeline/1`): per actor (global FormID;
   `0xFF…` for references created at run time), segments of unchanged AI state (cell,
   package, package type, procedure, targets, combat, detection, sitting, sleeping, … and
-  `seen`) with their game-time span in hours (GameDaysPassed × 24), samples, start and
+  `seen`) with their game-time span in hours (whole days from GameDaysPassed, time of day
+  from GameHour; §7), samples, start and
   end position and path length; every change of a state field as an event; per actor
   hours by package and by procedure, and cells visited. With `--data`, forms are named by
   Editor ID. A file cut off by a crash is read up to its last complete line.
@@ -162,7 +165,70 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
    `observe.py run tools/capture/observe/goodsprings.campaign.json --game <FNV> --data <Data> --timeline C:/fnv-private/capture/observe/goodsprings.timeline.json`.
    Outputs stay in `C:\fnv-private` and are never committed.
 
-## 7. Questions the observations are for (Layer 6)
+## 7. First campaign: Goodsprings, partial [observed 2026-10-08]
+
+Campaign `goodsprings` from save `nvftest` (early game: Sunny is waiting to meet the
+player). `saloon_evening` ran to its end (18:05–00:05, 1451 samples every 30 loops);
+`town_day` was stopped by the owner after 254 samples (06:05–08:11); `walk_to_sunny` did
+not run. 0 errors in 1705 samples; a sample with 13 tracked and 2–9 nearby actors took
+about 2 ms (median; the longest, 0.66 s, are hitches such as cell loads). Times below
+are GameHour (§5).
+
+- **Clock**: after `set GameHour`, GameDaysPassed lagged GameHour by about 0.054 h
+  (n=933: GameHour 22.0032, GameDaysPassed × 24 mod 24 = 21.9493), so timelines take the
+  time of day from GameHour; whole days from GameDaysPassed.
+- **Disabled in this save**: TrudyRef, GSJoeCobbRef, GoodspringsSettler02Ref
+  (GetDisabled 1). They report no package (GetCurrentPackage none), package type 0 and
+  procedure 0, and do not move.
+- **Schedule switches are not all at the hour.** At 22:00 the package changed at the
+  first sample after 22:00 (22:00.19) for GSChetRef (GSChetStoreSandbox →
+  GSChetSleep22x8), EasyPeteRef (EasyPeteChairPackage14x4 → EasyPeteSleepPackage) and
+  GoodspringsSettler04Ref (GoodspringsSettlerSaloonPackage → a GET_UP package), but for
+  RingoRef only at 22:03.46 (GSRingoSandboxPackage6x16 → GSRingoSleepPackage22x8).
+  EasyPeteRef left its sleep package at 08:06.20 (→ EasyPeteChairPackage8x4). Samples
+  were 0.25 game minutes apart in the evening and 0.5 in the morning, so the delays are
+  real [hypothesis: packages are re-evaluated per actor at intervals of a few game
+  minutes, not at the hour].
+- **Getting up**: GoodspringsSettler04Ref, seated in the saloon (GetSitting 3) when its
+  sleep package began, first ran a package created at run time (`0xFF00130A`, type
+  GET_UP, procedure GET_UP, GetSitting 4 = getting ready to stand) for 2.3 game minutes,
+  then the sleep package with procedure TRAVEL.
+- **Unloaded actors do not move.** Tracked actors outside the loaded area kept the same
+  position for hours (path 0); exterior ones report no cell (GetParentCell none) while
+  unloaded, interior ones keep their cell. GetSleeping was 0 for unloaded actors in SLEEP
+  procedure (the sleep idle is not played) [hypothesis for the reason].
+- **Unloaded actors jump to their package location at a switch.** EasyPeteRef, unloaded
+  outside, was in GSHouseInterior03 at the sample its sleep package began (22:00.19),
+  and in exterior cell `0x000E1AA6` at the sample its chair package began (08:06.20).
+- **An actor that walks out of the loaded area takes time to arrive.**
+  GoodspringsSettler04Ref walked out of the saloon (path 824 units, left the cell at
+  22:07.72), had no cell for about an hour, and appeared in GSHouseInterior02 at 23:07.55
+  with procedure SLEEP [hypothesis: the time is the unloaded travel time; the distance is
+  not recorded].
+- **After a 6-hour clock jump** (00:05 → 06:05 with `set GameHour`) the actors already
+  had their morning packages at the first sample (GoodspringsSettler04Ref was back in the
+  saloon), with procedure TRAVEL; GSChetRef, RingoRef and GoodspringsSettler04Ref changed
+  procedure together at 06:18.66 (to SANDBOX, SANDBOX, DONE).
+- **Sandbox cycle** (GoodspringsSettler01Ref, GSSettlerAAMSandbox6x16, loaded, 06:05–
+  08:11): WANDER (4–14 min) → TRAVEL to an idle marker (1–5 min, package target
+  `0x0010B1A6` or `0x0010B1A7`) → USE_IDLE_MARKER (12–26 min) → WANDER, alternating
+  between the two markers.
+- **Patrol**: GSVictorRef (VGSVictorCircuitPatrol, procedure PATROL) went through the
+  patrol markers `0x0016ADC6`, `C7`, `C8`, `CC`, `CE` in that order, the package target
+  changing as each was reached, at 220–280 units per game minute. It kept
+  moving after leaving the depth-1 scan (still in loaded cells) and stopped, with no
+  cell, at 07:42 (unloaded). In the evening, unloaded, it reported procedure DONE with
+  target VES01VictorGSHomeBase. It detected the player (GetDetected 1) for part of the
+  time it passed.
+- **Packages created at run time**: SunnyRef reported `0xFF001309` (type DIALOGUE,
+  procedure DIALOGUE_ACTIVATE, target the player) while loaded in the saloon, and
+  SunnyMeetPlayerDialoguePackage, same type and target, while unloaded [hypothesis: a
+  run-time copy is made for a loaded actor]. CheyenneREF accompanied SunnyRef
+  (CheyenneAccompany, ACCOMPANY, target SunnyRef).
+- Creatures near the player (bighorners, brahmin, a raven) ran
+  DefaultSandboxEditorLocation16 / 512.
+
+## 8. Questions the observations are for (Layer 6)
 
 - Schedules: at what game time does each NPC switch package, compared with the
   schedule fields of its PACK records (decoded offline)? How long after the scheduled
