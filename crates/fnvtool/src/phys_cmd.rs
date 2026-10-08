@@ -9,11 +9,10 @@ use fnv_esm::{LoadOrder, Schema};
 use fnv_collide::CollisionObject;
 use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
-use fnv_phys::primitive::{primitive, primitive_object, BoundsMeaning, COLLISION_MARKER};
 use fnv_phys::terrain::height_at;
-use fnv_phys::{layers, CharacterInput, CharacterParams, Filter, Owner, PhysParams, PhysWorld, RefPose};
+use fnv_phys::{layers, ref_collision, CharacterInput, CharacterParams, Filter, ModelCollision, Owner, PhysParams, PhysWorld, RefPose};
 use fnv_world::land::{load_land, LandParts, SIDE, SPACING};
-use fnv_world::placed::{base_object, placement};
+use fnv_world::placed::placement;
 use fnv_world::{cell_of, Cell, WorldIndex, CELL_SIZE};
 use rayon::prelude::*;
 use serde_json::{json, Value};
@@ -130,7 +129,9 @@ impl Meshes {
         let vfs = fnv_vfs::Vfs::open_default(data_dir).with_context(|| data_dir.display().to_string())?;
         Ok(Some(Meshes { vfs, schema, cache: BTreeMap::new() }))
     }
+}
 
+impl ModelCollision for Meshes {
     /// The solid collision objects of a model (empty when it has none).
     fn objects(&mut self, path: &str) -> Result<Arc<Vec<CollisionObject>>, String> {
         if let Some(r) = self.cache.get(path) {
@@ -285,39 +286,12 @@ fn build<'a>(
             *counts.entry("disabled_by_parent").or_default() += 1;
             continue;
         }
-        let Some(base) = pl.base.and_then(|b| base_object(lo, schema, b)) else {
-            *counts.entry("no_base").or_default() += 1;
-            continue;
-        };
-        *by_base.entry(String::from_utf8_lossy(&base.sig).into_owned()).or_default() += 1;
-        let mut objects: Vec<CollisionObject> = Vec::new();
-        // A CollisionMarker carries its own box or sphere (physics.md §4.1).
-        if pl.base == Some(COLLISION_MARKER) {
-            match primitive(lo, schema, r).and_then(|p| primitive_object(&p, BoundsMeaning::HalfExtents)) {
-                Some(o) => {
-                    objects.push(o);
-                    *counts.entry("collision_primitive").or_default() += 1;
-                }
-                None => *counts.entry("bad_primitive").or_default() += 1,
-            }
+        let models = meshes.as_deref_mut().map(|m| m as &mut dyn ModelCollision);
+        let rc = ref_collision(lo, schema, &pl, models, &mut |what| *counts.entry(what).or_default() += 1);
+        if let Some(sig) = rc.base_sig {
+            *by_base.entry(String::from_utf8_lossy(&sig).into_owned()).or_default() += 1;
         }
-        match base.model_path() {
-            None if objects.is_empty() => {
-                *counts.entry("no_model").or_default() += 1;
-                continue;
-            }
-            None => {}
-            // SpeedTree models hold no Havok blocks (physics.md §4).
-            Some(m) if m.ends_with(".spt") => *counts.entry("speedtree").or_default() += 1,
-            Some(m) => match meshes.as_deref_mut() {
-                None => *counts.entry("awaiting_collision").or_default() += 1,
-                Some(ms) => match ms.objects(&m) {
-                    Ok(o) if o.is_empty() => *counts.entry("model_without_collision").or_default() += 1,
-                    Ok(o) => objects.extend(o.iter().cloned()),
-                    Err(_) => *counts.entry("model_unreadable").or_default() += 1,
-                },
-            },
-        }
+        let objects = rc.objects;
         if objects.is_empty() {
             continue;
         }

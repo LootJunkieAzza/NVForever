@@ -55,7 +55,7 @@ impl TerrainCtx<'_, '_, '_> {
             .cache
             .textures
             .entry(id)
-            .or_insert_with(|| land_texture(&world.lo, world.schema, id).and_then(|t| t.diffuse))
+            .or_insert_with(|| land_texture(world.lo, world.schema, id).and_then(|t| t.diffuse))
             .clone()
     }
 
@@ -161,7 +161,7 @@ pub fn spawn_terrain(
     grid: (i32, i32),
     tm: &mut TerrainCtx,
 ) {
-    let Some(land) = load_land(&world.lo, world.schema, land_id, LandParts::ALL) else { return };
+    let Some(land) = load_land(world.lo, world.schema, land_id, LandParts::ALL) else { return };
     if land.heights.is_none() {
         return;
     }

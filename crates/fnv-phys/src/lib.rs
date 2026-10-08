@@ -9,6 +9,8 @@
 //! - [`character`]: the character controller
 //! - [`layers`]: Havok collision layer numbers and names
 //! - [`primitive`]: collision primitives placed on references (CollisionMarker boxes)
+//! - [`placed`]: the collision objects of a placed reference (shared by the tools and the
+//!   game)
 //!
 //! Units and axes are the game's: lengths in game units, Z up, rotations row-major 3×3
 //! rotating column vectors (as in `fnv_collide::shape` and `fnv_world::transform`).
@@ -18,6 +20,7 @@
 pub mod character;
 pub mod convert;
 pub mod layers;
+pub mod placed;
 pub mod primitive;
 pub mod terrain;
 pub mod world;
@@ -25,6 +28,7 @@ pub mod world;
 pub use character::{Character, CharacterInput, CharacterParams, CharacterStep};
 pub use convert::ConvertError;
 pub use layers::LayerSet;
+pub use placed::{ref_collision, ModelCollision, RefCollision};
 pub use world::{
     AddReport, BodyState, Filter, Key, Owner, PhysParams, PhysWorld, Queries, RayHit, RefPose, Stats, Stepper, SweepHit,
 };

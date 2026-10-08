@@ -9,6 +9,7 @@ use fnv_world::placed::{base_object, placement, BaseObject, Placement};
 use fnv_world::transform::ref_rotation;
 use fnv_world::{cell_of, WorldIndex, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
+use nvf_play::RefVisual;
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
@@ -22,9 +23,10 @@ const DRAWN: [&[u8; 4]; 20] = [
 
 #[derive(Resource)]
 pub struct WorldData {
-    pub lo: LoadOrder<'static>,
+    /// Leaked (they live for the whole run) so `nvf-play` can share them.
+    pub lo: &'static LoadOrder<'static>,
     pub schema: &'static EsmSchema,
-    pub index: WorldIndex,
+    pub index: &'static WorldIndex,
     pub world: u32,
     /// The worldspace's persistent references by the grid square they stand in.
     pub persistent_by_grid: HashMap<(i32, i32), Vec<u32>>,
@@ -39,14 +41,14 @@ impl WorldData {
             .map(|p| EsmPlugin::open(data_dir.join(p)).map_err(|e| format!("{p}: {e}")))
             .collect::<Result<_, _>>()?;
         let plugins: &'static [EsmPlugin] = Box::leak(plugins.into_boxed_slice());
-        let lo = LoadOrder::new(plugins).map_err(|e| e.to_string())?;
-        let index = WorldIndex::build(&lo, schema);
+        let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).map_err(|e| e.to_string())?));
+        let index: &'static WorldIndex = Box::leak(Box::new(WorldIndex::build(lo, schema)));
         let w = index.world_by_name(world).ok_or_else(|| format!("no worldspace {world}"))?;
         let world_id = w.form_id;
         let mut persistent_by_grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
         if let Some(pc) = w.persistent_cell.and_then(|c| index.cells.get(&c)) {
             for &r in &pc.refs {
-                if let Some(p) = placement(&lo, schema, r) {
+                if let Some(p) = placement(lo, schema, r) {
                     persistent_by_grid.entry(cell_of(p.position[0], p.position[1])).or_default().push(r);
                 }
             }
@@ -69,7 +71,7 @@ impl WorldData {
         match p.enable_parent {
             None => true,
             Some(_) if depth > 16 => false,
-            Some((parent, opposite)) => match placement(&self.lo, self.schema, parent) {
+            Some((parent, opposite)) => match placement(self.lo, self.schema, parent) {
                 Some(pp) => self.enabled(&pp, depth + 1) != opposite,
                 None => !opposite,
             },
@@ -192,6 +194,27 @@ pub fn stream(
     }
 }
 
+/// `nvf_play::Travel` (door teleports): drop the loaded cells, switch between the
+/// worldspace and an interior; streaming reloads around the camera, which the player
+/// systems have moved to the destination.
+pub fn travel(
+    mut commands: Commands,
+    mut msgs: MessageReader<nvf_play::Travel>,
+    world: Res<WorldData>,
+    mut streamer: ResMut<Streamer>,
+    mut sky: ResMut<crate::sky::SkyState>,
+    mut lod: ResMut<crate::lod::LodState>,
+    args: Res<crate::Args>,
+) {
+    let Some(t) = msgs.read().last().copied() else { return };
+    for (_, e) in streamer.loaded.drain() {
+        commands.entity(e).despawn();
+    }
+    streamer.interior = t.interior;
+    sky.set_interior(t.interior.and_then(|id| fnv_world::lighting::cell_lighting(world.lo, world.schema, id)));
+    lod.set_enabled(&mut commands, t.interior.is_none() && !args.no_lod);
+}
+
 fn ref_affine(p: &Placement) -> Affine3A {
     let m = Mat3::from_cols_array(&ref_rotation(p.rotation)).transpose(); // row-major
     Affine3A::from_mat3_translation(m * p.scale, Vec3::from_array(p.position))
@@ -227,15 +250,15 @@ fn load_cell(
     }
     let to_cell = Affine3A::from_translation(-origin);
     for r in refs {
-        let Some(p) = placement(&world.lo, world.schema, r) else { continue };
+        let Some(p) = placement(world.lo, world.schema, r) else { continue };
         if !world.enabled(&p, 0) {
             stats.refs_skipped_disabled += 1;
             continue;
         }
-        let base: Option<BaseObject> = p.base.and_then(|b| base_object(&world.lo, world.schema, b));
+        let base: Option<BaseObject> = p.base.and_then(|b| base_object(world.lo, world.schema, b));
         let Some(base) = base.filter(|b| DRAWN.contains(&&b.sig)) else {
             stats.refs_skipped_type += 1;
-            let t = base_type_name(p.base.and_then(|b| base_object(&world.lo, world.schema, b)).as_ref());
+            let t = base_type_name(p.base.and_then(|b| base_object(world.lo, world.schema, b)).as_ref());
             *stats.skipped_types.entry(t).or_default() += 1;
             continue;
         };
@@ -249,7 +272,7 @@ fn load_cell(
             // crossed quads (interim; docs/design/layer3.md).
             if let Some((mesh, mat)) = billboard(world, base.form_id, models) {
                 let rt = to_cell * ref_affine(&p);
-                commands.entity(cell_e).with_child((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_matrix(Mat4::from(rt))));
+                commands.entity(cell_e).with_child((Mesh3d(mesh), MeshMaterial3d(mat), Transform::from_matrix(Mat4::from(rt)), RefVisual(r)));
                 stats.shapes += 1;
             }
             stats.refs_speedtree += 1;
@@ -279,6 +302,7 @@ fn load_cell(
                 Mesh3d(s.mesh.clone()),
                 MeshMaterial3d(s.material.clone()),
                 Transform::from_matrix(m),
+                RefVisual(r),
             ));
             stats.shapes += 1;
         }
@@ -292,7 +316,7 @@ fn load_cell(
 /// squared (scale tuned by eye). Negative and off-by-default lights are not drawn.
 fn spawn_light(commands: &mut Commands, cell_e: Entity, world: &WorldData, ligh: u32, at: Vec3, scale: f32) -> bool {
     use fnv_world::lighting::{light_data, light_flags};
-    let Some(l) = light_data(&world.lo, world.schema, ligh) else { return false };
+    let Some(l) = light_data(world.lo, world.schema, ligh) else { return false };
     if l.flags & (light_flags::NEGATIVE | light_flags::OFF_BY_DEFAULT) != 0 || l.radius <= 0.0 {
         return false;
     }
@@ -343,7 +367,7 @@ fn spawn_water(
     let mat = match models.cache.water_material(wid) {
         Some(m) => m,
         None => {
-            let Some(w) = fnv_world::sky::water(&world.lo, world.schema, wid) else { return };
+            let Some(w) = fnv_world::sky::water(world.lo, world.schema, wid) else { return };
             let noise = w.noise_texture.as_deref().and_then(|t| {
                 let a = &mut *models;
                 a.textures.get(t, false, &a.data, &mut a.images, a.formats.as_deref())
@@ -388,7 +412,7 @@ fn billboard(world: &WorldData, tree: u32, models: &mut ModelCtx) -> Option<(Han
         return b;
     }
     let made = (|| {
-        let ([w, h], tex) = fnv_world::placed::tree_billboard(&world.lo, world.schema, tree)?;
+        let ([w, h], tex) = fnv_world::placed::tree_billboard(world.lo, world.schema, tree)?;
         let a = &mut *models;
         let image = a.textures.get(&tex, true, &a.data, &mut a.images, a.formats.as_deref())?;
         let hw = w / 2.0;
