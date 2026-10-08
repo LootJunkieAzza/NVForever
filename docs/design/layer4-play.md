@@ -1,7 +1,9 @@
 # Layer 4 in the game: `engine/nvf-play` (workstream 4)
 
 Status 2026-10-08: skeleton and parts P, A and U merged on `claude/layer4-play`
-(each part built in its own worktree and branch by one coordinating session). Exit
+(each part built in its own worktree and branch by one coordinating session); dropped
+items drawn, colliding, falling and taken back since `claude/layer4-play-dropped`
+(`dropped.rs`, §4 Part U). Exit
 criterion: M4 (docs/design/layer4.md §4.6) — the player walks the Mojave with collision,
 opens doors and containers and takes items. Integration checks (§6) pass unattended; real
 keyboard and mouse play has not been tried by a person yet.
@@ -39,6 +41,11 @@ fly camera, screenshots and the lab's frame captures keep working).
 
 ## 3. Interfaces (in the skeleton; changes go through the coordinator)
 
+Coordinator for the dropped-items change (2026-10-08, branch `claude/layer4-play-dropped`):
+`RefVisual` now also marks render entities of references the simulation created,
+`RenderCell` is new (the only change in `engine/nvforever`: one component on each streamed
+cell entity), and `RefChanged` is sent by the inventory menu for each dropped reference.
+
 | Item | Kind | Written by | Read by |
 |---|---|---|---|
 | `PlayData`, `PlayWorld` | plugin input / resource: `'static` load order, schema, `WorldIndex`, worldspace, start pose, test aids | nvforever | all |
@@ -48,10 +55,11 @@ fly camera, screenshots and the lab's frame captures keep working).
 | `PhysState` | resource: `PhysWorld`, `Stepper`, the player's `Character` | P | A (ray queries; remove taken refs) |
 | `PlayerCamera` | component on the `Camera3d` | nvforever | P, A |
 | `Player` | resource: look angles, eye height, feet (game space) | P | A |
-| `RefVisual(u32)` | component on every render entity spawned for a placed reference | nvforever | A |
+| `RefVisual(u32)` | component on every render entity spawned for a reference: placed ones (nvforever), created ones (dropped items, `dropped.rs`) | nvforever, `dropped.rs` | A (visual sync, render-bounds targeting) |
+| `RenderCell` | component on each render cell entity nvforever streams in (`Exterior { world, x, y }` / `Interior(id)`); its transform is the cell origin | nvforever | `dropped.rs` (spawns created references as the cell's children, so they go with it) |
 | `Travel { interior, feet, heading_deg }` | message | A | nvforever, P |
 | `OpenContainer { container }` | message | A | U |
-| `RefChanged { form_id }` | message: the sim changed a reference's presence | A, U | A (visual sync), P (collision) |
+| `RefChanged { form_id }` | message: the sim changed a reference's presence (taken, dropped, enabled, disabled), placed or created | A, U (one per dropped reference) | A (visual sync), P (collision; created references load with their physics cell) |
 
 ## 4. Parts
 
@@ -93,8 +101,17 @@ fly camera, screenshots and the lab's frame captures keep working).
 - `OpenContainer` opens a two-column menu (container / player) in `PlayState::Menu`:
   item names, counts, weight and value, take one / take all / store, close (Esc or E).
   Tab opens the player's inventory alone: equip/unequip (`World::equip`), drop
-  (`World::drop_item` → `RefChanged` for the new reference is out of scope: no render of
-  dropped items yet; list it as open), encumbrance from `World::encumbrance`.
+  (`World::drop_item` → `RefChanged` for each new reference), encumbrance from
+  `World::encumbrance`.
+- Dropped items (`dropped.rs` and `phys.rs`; added 2026-10-08): created
+  references are drawn from their base form's model at the simulation's pose as children
+  of their `RenderCell` (so render streaming and door travel unload and reload them);
+  taken ones are despawned; their model's collision loads with their physics cell, dynamic
+  objects fall and settle (`Stepper`) and the settled pose is written back to the
+  simulation (`PhysState::settle_created`). The crosshair finds them by collision or render
+  bounds, and E takes them back through `World::activate`. Whether the game's dropped
+  items fall is a hypothesis with a capture written for the owner (simulation.md §5 "After
+  the drop").
 - The cursor is released in menus and grabbed again on close.
 - Accept: unit tests on the menu model (rows from an inventory, transfers through the
   sim); in game, open Ringo's cash box (`GSGasStation`) or a container in Doc Mitchell's
@@ -117,7 +134,10 @@ fly camera, screenshots and the lab's frame captures keep working).
 
 Unattended checks on the merged branch (test aids: `--auto-walk`, `--pos/--heading/--pitch`,
 `NVF_PLAY_TEST_ACTIVATE=<seconds,...>` presses E, `NVF_PLAY_TEST_MENU=<container|nearest>`
-drives the menus):
+drives the menus; since 2026-10-08 also `NVF_PLAY_TEST_DROP=<s>:<item>[:stack]` drops
+through the inventory menu, `NVF_PLAY_TEST_LOOK=<s>:<heading>:<pitch>`,
+`NVF_PLAY_TEST_GOTO=<s>:<x>:<y>:<z>` and `NVF_PLAY_TEST_SHOTS=<s>:<png>` (nvf-play
+`test_aid.rs`); with any `NVF_PLAY_TEST_*` set the cursor is not grabbed):
 - Goodsprings, `--auto-walk 300`: placed on the terrain (feet 8369.0 on 8368.0), walks,
   cells stream, a house blocks the way.
 - Doc Mitchell's house: the stimpak 0x00105BF3 is targeted by its collision at 110 units,
@@ -129,13 +149,41 @@ drives the menus):
   the terrain's contact shell, 8693.53.
 - Goodsprings gas station: the metal box 0x001629C1 is targeted at 99 units and E opens
   the container menu; the menu test aid takes all of Ringo's 200 caps and stores items back.
+- Dropped items (2026-10-08, `--cell GSDocMitchellHouse --play --pos 2032,1954,7472
+  --heading 90 --pitch -28`): E takes the stimpak 0x00105BF3 (collision, 103 units); the
+  drop aid drops it from the inventory: reference 0xFF000000 at (2082.0, 1954.0, 7390.7),
+  drawn (`stimpak01.nif`) and given its dynamic collision; when the menu closes it falls
+  and comes to rest on its side on the floor at z 7360.97 (floor 7360) 1.58 s later;
+  looking down (pitch −62) the crosshair finds it by its render bounds at 125 units, E
+  takes it back (`PickedUp`, count 1), its render entity is despawned and the inventory
+  shows Stimpak x1 again. Screenshots checked: on the shelf, upright in the air, on its
+  side on the floor, gone.
+- Dropped items across cell unload (same run style, `NVF_PLAY_TEST_GOTO` to the front
+  door): one stimpak dropped inside, the player leaves through the front door (the inside
+  drop is unloaded with the interior) and drops the second outside: 0xFF000001 at
+  (−73115.2, 1327.2, 8723.6), within 0.3 units of the game's own drop point for this spot
+  (simulation.md §5), drawn in exterior cell (−18, 0), at rest on the ground at 8692.71.
+  Back in through the exterior door 0x00103E69, the inside stimpak is drawn and collides
+  again where its pose was last written back (it had not quite settled when the player
+  left) and settles 1.7 lower; the outside one is unloaded. Out again: the outside
+  stimpak is drawn at its resting pose and does not move (screenshots before and after
+  match).
 
 Open:
 - Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
 - A start position over empty space in an interior falls forever (Ringo's cash box
   0x001629C0 stands outside the gas station's room, reached in game through barter).
 - Doors into another worldspace are refused (`Travel` has no worldspace yet); dialogue and
-  barter are not built; dropped items are not rendered and have no collision.
+  barter are not built.
+- Dropped armour is drawn with its base form's MODL, as placed armour is: for the Pip-Boy
+  Glove that is `meshes\characters\_male\lefthandpipboyglove.nif`, a worn-hand model
+  without collision [observed, gas station check], so the dropped glove floats where it
+  was dropped. Which of ARMO's models (MODL, MOD2–MOD4) is the one lying on the ground is
+  not in the spec notes yet.
+- Whether dropped items fall in the game (the scripted capture says no, the engine says
+  yes [hypothesis]; capture written, simulation.md §5). Placed dynamic clutter that
+  physics moves (pushed, knocked down) is not written back to the simulation; only
+  created references are.
 - ~~Controller jitter against some rocks reproduces in `fnvtool phys walk`~~ Fixed:
   concave corners stop the character instead of alternating between faces (physics.md
   §6.1); the controller now rests on contact shells like the arrival (§6.2).

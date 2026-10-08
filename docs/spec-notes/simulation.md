@@ -393,6 +393,37 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
   leaves the reference at count 1; the player's own activation (`World::activate`, the
   engine) still takes the whole stack [hypothesis; not captured]. The simulation places drops at that offset (holder heading from its z
   rotation, §5 crosshair notes) [hypothesis for other actors and items].
+- **After the drop: does a dropped item fall?** Two observations pull different ways:
+  - The scripted drop above (`ld_drop_refs`, tgm and tdetect on) read `GetPos Z` 8723.86
+    right after `player.Drop` and again 600 frames (10 s) later: the drop point, 30 units
+    above the feet [observed, `C:\fnv-private\capture\out\ld_drop_refs.*.jsonl`].
+  - Clutter does fall under Havok, and `GetPos` follows it: a whiskey bottle placed with
+    `PlaceAtMe` and moved by `SetPos` bounced or rolled 50–300 units (B11 clutter row,
+    physics.md §4.2) [observed].
+  - Possible readings, none tested: a scripted `Drop` creates the item's Havok body at
+    rest (asleep until something touches it), while `SetPos` wakes a body; or the
+    dropped stimpak was held by something we do not model [hypothesis]. A drop from the
+    inventory menu (what the engine offers) is not captured at all.
+  - **What the engine does** [hypothesis] (`engine/nvf-play/src/dropped.rs`,
+    `phys.rs`): an item dropped from the inventory menu gets its model's collision; when
+    the model says dynamic it falls under gravity and settles. The stimpak's model
+    (`meshes\clutter\health\stimpak01.nif`) has one dynamic object on the Clutter layer
+    [observed: `fnvtool phys cell --cell GSDocMitchellHouse --list-refs`, 0x00105BF3]. A
+    drop starts with rotation 0 (`World::drop_item`) [hypothesis]. While it moves, its
+    pose (and, outdoors, the grid cell containing it) is written back to the reference, so
+    reloads and snapshots find it at rest. `fnvtool sim run` applies no physics to created
+    references, so scripted traces keep a drop at the drop point, as the capture did.
+  - **Capture for the owner** (not run: other sessions are using the game; about 2 min,
+    the last part needs a person). From `nvfdoc`, outside the front door, tgm:
+    (1) `player.Drop` a stimpak, find the new reference with the `GetFirstRef 201 0 0`
+    scan (as `ld_drop_refs` does) and read `GetPos X/Y/Z` and `GetAngle X/Y/Z` after 0,
+    1, 3 and 10 s; (2) `<ref>.SetPos Z (<ref>.GetPos Z + 1)` and read the position again
+    after 3 s: if it now falls, scripted drops start at rest; (3) by hand: Pip-Boy →
+    drop one stimpak → close, wait 10 s, then in the console `prid <ref>` and
+    `getpos z`, `getangle x`, `getangle y`: whether a menu drop falls, where it rests
+    (above the porch floor or the terrain, x/y spread from the drop point) and whether
+    it lies on its side. If (3) stays put, `crate::phys::PhysState::add_created` should
+    add created references' dynamic objects at rest (or as keyframed) instead.
 - **Crosshair activation in the game** (`engine/nvf-play/src/activate.rs`; values and
   rules to be captured, none observed yet):
   - **Reach**: 150 game units from the eye [hypothesis: placeholder, about two metres at
