@@ -188,9 +188,9 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    Swimming (physics.md §6.6):
    swim_dam_forward 10/10, swim_bay_back 8/8; placed water modelled (Water-layer
    phantoms), held-out swim_guardian 6/6 and swim_h2o 1/5 (three rows need the capture's
-   carried swimming state, shallow_a is the stair edge of §6.4.1); swim_cove_dive 3/6 and swim_lake_shore 3/8 kept as designed
-   (inputs without the stroke cycle, the shore captured with its cell unloaded; retirement
-   asked of the owner); banks of 12–58° (`sw_banks*`) agree while swimming and on leaving
+   carried swimming state, shallow_a is the stair edge of §6.4.1); swim_cove_dive and
+   swim_lake_shore retired 2026-10-09 and replaced by swim_cove_stroke and swim_lake_exit
+   (below); banks of 12–58° (`sw_banks*`) agree while swimming and on leaving
    the water [observed 2026-10-08].
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
@@ -287,6 +287,13 @@ Retired scenario (owner decision 2026-10-07): `L4.sim.trace.goodsprings_respawn`
 save state), and it exercised a merchant box rather than the 72 h cell respawn it was
 meant for; replaced by `L4.sim.trace.goodsprings_merchant_restock`. A cell-respawn
 scenario on a non-merchant Respawns container is still to be designed.
+
+Retired scenarios (owner decision 2026-10-09): `L4.phys.walk.swim_cove_dive` and
+`L4.phys.walk.swim_lake_shore` — their inputs swim at a constant 348 units/s, which the
+game never does (the speed follows a stroke cycle averaging 339), and the shore's bank rows
+were captured with the cell not loaded (travel by a long SetPos); replaced by
+`L4.phys.walk.swim_cove_stroke` and `.swim_lake_exit` at new places, captured with the cell
+loaded by `cow` (physics.md §6.6).
 
 Workstream 3 runs as two sessions since 2026-10-07 (owner's split by agreement between
 them): **3-core** (`claude/layer4-sim-core`: `crates/fnv-sim`, `crates/fnvtool/src/sim_cmd.rs`)
