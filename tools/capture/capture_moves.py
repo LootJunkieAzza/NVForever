@@ -9,9 +9,9 @@ Inputs (the files the candidate runs, parity-lab/inputs/layer4/):
   (z below the set height by 1 unit, at most UNTIL_FALL loops), then DROP_SETTLE loops,
   and reads the position, then again after DROP_SETTLE more loops.
 - walk scripts (`fnv.phys.walk-script/1`) with a `capture` block: `name`, `set_z` (the
-  SetPos height of the start), `heading_deg` (compass: 0 north, 90 east), `keys`
-  (controls held from the start: "forward", and "run" = the Run key, which walks while
-  Always Run is on), `jump` (tap Jump with the keys), `settle_frames`, `samples` (game loops
+  SetPos height of the start), `heading_deg` (compass: 0 north, 90 east; the view), `keys`
+  (controls held from the start: "forward", "back", "left", "right", and "run" = the Run
+  key, which walks while Always Run is on), `jump` (tap Jump with the keys), `settle_frames`, `samples` (game loops
   sampled after the keys go down), and optionally `pitch_deg` (SetAngle X before the keys,
   positive looks down; back to 0 after) and `reset_at` ([x, y, z]: SetPos there first, wait
   RESET_FRAMES, then close menus with the console's CloseAllMenus, again after the start's
@@ -45,7 +45,9 @@ import capture_steps as cs
 UNTIL_FALL = 1800
 DROP_SETTLE = 300
 RESET_FRAMES = 300
-KEYS = {"forward": 0, "run": 9}   # control codes [documented: GECK wiki TapControl]
+KEYS = {"forward": 0, "back": 1, "left": 2, "right": 3, "run": 9}   # control codes [documented: GECK wiki TapControl]
+# Direction of motion of a key relative to the view, compass degrees (forward + right).
+KEY_DIRECTION = {"forward": (1, 0), "back": (-1, 0), "left": (0, -1), "right": (0, 1)}
 JUMP = 12
 CTX = (cs.MASTERS, None)
 
@@ -116,13 +118,16 @@ def walk_steps(doc):
     c = doc["capture"]
     name = name_of(doc)
     h = float(c["heading_deg"])
-    for s in doc["segments"]:
-        for v in (s.get("velocity"), (s.get("swim_velocity") or [])[:2]):
-            if v and math.hypot(*v) > 0 and abs((heading_of(v) - h + 180) % 360 - 180) > 0.5:
-                raise InputError(f"{name}: a segment moves at heading {heading_of(v):.1f}, the capture at {h}")
     keys = c.get("keys", ["forward"])
     if not keys or any(k not in KEYS for k in keys):
         raise InputError(f"{name}: keys are some of {sorted(KEYS)}")
+    f = sum(KEY_DIRECTION.get(k, (0, 0))[0] for k in keys)
+    r = sum(KEY_DIRECTION.get(k, (0, 0))[1] for k in keys)
+    move = (h + math.degrees(math.atan2(r, f))) % 360.0 if (f, r) != (0, 0) else h
+    for s in doc["segments"]:
+        for v in (s.get("velocity"), (s.get("swim_velocity") or [])[:2]):
+            if v and math.hypot(*v) > 0 and abs((heading_of(v) - move + 180) % 360 - 180) > 0.5:
+                raise InputError(f"{name}: a segment moves at heading {heading_of(v):.1f}, the keys at {move:.1f}")
     x, y = doc["start"][:2]
     down = [f"let iK := GetControl {KEYS[k]}\nHoldKey iK" for k in reversed(keys)]
     up = [f"let iK := GetControl {KEYS[k]}\nReleaseKey iK" for k in keys]

@@ -64,6 +64,16 @@ class Jobs(unittest.TestCase):
         with self.assertRaises(cm.InputError):
             cm.make_job([doc], "j", "s")
 
+    def test_back_key_moves_against_the_view(self):
+        doc = json.loads(json.dumps(WALK))
+        doc["segments"][1]["velocity"] = [0.0, -300.0]
+        doc["capture"]["keys"] = ["back"]
+        body = cm.make_job([doc], "j", "s")["steps"][len(cs.MASTERS):]
+        self.assertTrue(any("GetControl 1" in s.get("script", "") for s in body))
+        doc["capture"]["keys"] = ["forward"]
+        with self.assertRaises(cm.InputError):
+            cm.make_job([doc], "j", "s")
+
     def test_heading_must_match_the_segments(self):
         doc = json.loads(json.dumps(WALK))
         doc["capture"]["heading_deg"] = 90
