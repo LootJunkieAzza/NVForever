@@ -300,8 +300,8 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   luminance 0.2, brightness 1.0, tint (0.98, 0.57, 0.00) at 0.33 [observed]. NVWastelandClear
   (and ClearNight) link NVWastelandSunriseIS, NVWastelandIS (day and high noon),
   NVWastelandSunsetIS and NVWastelandNightIS. At time 0 their keys are: day brightness
-  ×1.3, amber tint (1.0, 0.74, 0.05) at 0.39; sunset saturation ×0.8, contrast +0.3, tint
-  (1.0, 0.44, 0.10) at 0.39; night contrast ×1.2, tint (0.22, 0.47, 0.93) at 0.63
+  ×1.3, amber tint (1.0, 0.74, 0.05) at 0.39; sunset saturation ×0.8, track 0x12 +0.3, tint
+  (1.0, 0.44, 0.10) at 0.39; night track 0x12 ×1.2, tint (0.22, 0.47, 0.93) at 0.63
   [observed]. Later keys look like defaults (tint white at 0 or pure blue at 1).
   The renderer grades the tonemapped picture with the base image space × each adapter's
   time-0 keys (value × mult + add), the adapter tint giving the colour and scaling the
@@ -311,6 +311,42 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   luminance × tint colour, brightness factor, contrast around the average luminance
   [hypothesis]. The IMGS flags byte (saturation, contrast, tint, brightness) is 0 in
   NVDefaultExterior; its role is unknown. HDR eye adaptation is not applied.
+- **IMAD cinematic track order** [documented: xEdit wbDefinitionsFNV.pas IMAD names
+  `IAD`..`IAD` saturation, contrast, contrast avg lum, brightness; IMGS DNAM
+  stores saturation, contrast avg lum, contrast, brightness]. The data fits the IMGS order
+  better, 0x12 = contrast avg lum and 0x13 = contrast [hypothesis], and the renderers
+  read it so. Evidence [observed, `crates/fnv-world/examples/weather_dump.rs --imad` over
+  the ten masters, 299 IMAD and 92 IMGS records]: IMGS contrast lies between 0.8 and 1.9,
+  avg lum between -0.06 and 5.0 (0 in 14 records). 59 adapters set 0x13 outright
+  (multiply 0, add v) and every v lies in 0.8..1.9. 65 set 0x12 outright; 10 of those set
+  it to 0 (among them NVWastelandHazyIS, NVWastelandHazyNoonIS, NVWastelandSunriseHazyIS,
+  WastelandDayISFX and FriendOfTheNightInteriorISFX), one
+  to 0.05 and one to 0.3. As a contrast, 0 flattens the picture to one grey. The time-0
+  multipliers on 0x12 also reach 4.0 (NVWastelandHeavyHazeIS), 6.5 (Dead Money's
+  NVDLC01WestTownIS) and 0.2 (NVUrbanNightIS), far outside the contrast range.
+- **Freeside and Big MT at noon** [observed 2026-10-08, renderer screenshots at 12:00]:
+  both worldspaces use the Mojave's base image space NVDefaultExterior (WRLD INAM
+  0x0008809D). NVUrbanClear (NVUrbanClearClimate) links NVWastelandSunriseIS,
+  NVWastelandHeavyHazeIS (day and high noon), NVWastelandSunsetIS and NVUrbanNightIS
+  (night and midnight). HeavyHaze's time-0 keys equal NVWastelandIS's plus saturation
+  ×0.8, 0x12 ×4.0 and 0x13 ×0.8; NVWastelandIS leaves 0x11..0x13 at ×1 + 0.
+  NVDLC03BigMTWeather links NVDLC03BigMTSunRiseISFX, -HighNoonISFX (day and high noon),
+  -SunsetISFX and -NightISFX, which all multiply 0x12 by 2.0 (saturation ×0.5..0.675,
+  tint (0.33, 0.33, 0.72)). Read as contrast, the grade became 4.4 around 0.16 in
+  Freeside (after its brightness ×1.43) and 2.2 around 0.2 in Big MT: display values
+  above about 0.25 (Freeside) and 0.56 (Big MT) clipped to white, hence the white skies
+  and the overexposed, oversaturated Freeside. With `--no-grade` both frames looked normal. Read in the IMGS order, Freeside
+  gets avg lum 0.8 and contrast 0.88 (lifted blacks, desaturated: a haze, as the
+  adapter's name says) and Big MT avg lum 0.4 and contrast 1.1. The Mojave at noon is
+  unchanged; its sunset grade becomes contrast 1.1 around 0.5 (was 1.4 around 0.2) and
+  its night contrast 1.1 around 0.24 (was 1.32 around 0.2), slightly darker and flatter.
+- **Capture to confirm** (owner, in game, no mods that change image spaces): at 12:00
+  (`set GameHour to 12`), screenshots in Freeside (FreesideNorthWorld, cell 2,1, near
+  8288, 6896, 1131 facing 220°), in Big MT (NVDLC03BigMT near 5616, -33232, -805
+  facing north) and at Goodsprings at 19:00 and 02:00 as references. Expected under this
+  hypothesis: Freeside's noon hazy and slightly washed out, never clipped white; Big MT's
+  sky blue-grey with clouds; the Goodsprings sunset slightly flatter than a high-contrast
+  grade.
 - **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
   the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
   [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600
