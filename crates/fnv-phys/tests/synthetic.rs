@@ -250,7 +250,7 @@ fn settle(w: &mut PhysWorld, c: &mut Character, steps: usize) -> CharacterStep {
 fn walk(w: &mut PhysWorld, c: &mut Character, velocity: [f32; 2], steps: usize) -> Vec<CharacterStep> {
     (0..steps)
         .map(|_| {
-            let s = w.move_character(c, CharacterInput { velocity, jump: false });
+            let s = w.move_character(c, CharacterInput { velocity, jump: false, ..Default::default() });
             w.step();
             s
         })
@@ -342,7 +342,7 @@ fn character_jump_apex() {
     let mut apex = z0;
     let mut grounded_again = false;
     for i in 0..120 {
-        let s = w.move_character(&mut c, CharacterInput { velocity: [0.0, 0.0], jump: i == 0 });
+        let s = w.move_character(&mut c, CharacterInput { velocity: [0.0, 0.0], jump: i == 0, ..Default::default() });
         w.step();
         apex = apex.max(s.feet[2]);
         if i > 5 && s.grounded {
@@ -367,7 +367,7 @@ fn character_ceiling_stops_jump() {
     settle(&mut w, &mut c, 10);
     let mut apex: f32 = 0.0;
     for i in 0..60 {
-        let s = w.move_character(&mut c, CharacterInput { velocity: [0.0, 0.0], jump: i == 0 });
+        let s = w.move_character(&mut c, CharacterInput { velocity: [0.0, 0.0], jump: i == 0, ..Default::default() });
         w.step();
         apex = apex.max(s.feet[2]);
     }
@@ -421,7 +421,7 @@ fn character_runs_are_deterministic() {
         let mut trace = Vec::new();
         for i in 0..300u32 {
             let a = i as f32 * 0.05;
-            let s = w.move_character(&mut c, CharacterInput { velocity: [120.0 * a.cos(), 120.0 * a.sin()], jump: i.is_multiple_of(97) });
+            let s = w.move_character(&mut c, CharacterInput { velocity: [120.0 * a.cos(), 120.0 * a.sin()], jump: i.is_multiple_of(97), ..Default::default() });
             w.step();
             trace.push((s.feet.map(f32::to_bits), w.state_digest()));
         }
@@ -468,7 +468,7 @@ fn bodies_added_then_queried_still_simulate() {
 fn snapshot_continues_identically() {
     let mut a = scene();
     let mut ca = a.add_character(1, CharacterParams::default(), [-50.0, -50.0, 5.0]);
-    let input = |i: u32| CharacterInput { velocity: [100.0, 60.0 - i as f32 * 0.4], jump: i.is_multiple_of(53) };
+    let input = |i: u32| CharacterInput { velocity: [100.0, 60.0 - i as f32 * 0.4], jump: i.is_multiple_of(53), ..Default::default() };
     for i in 0..90u32 {
         a.move_character(&mut ca, input(i));
         a.step();
@@ -654,4 +654,140 @@ fn walking_on_level_ground_loses_no_step() {
         assert!((dx - 77.0 * w.params.dt).abs() < 1e-2, "step {i}: moved {dx}");
         prev = s.feet;
     }
+}
+
+// --- swimming (physics.md §6.6) ---
+
+/// The flat ground of [`ground`] under water whose surface is 500 units above it.
+fn lake() -> PhysWorld {
+    let mut w = ground();
+    for x in -1..=0 {
+        for y in -1..=0 {
+            w.set_water(WaterArea::Exterior(x, y), Some(500.0));
+        }
+    }
+    w
+}
+
+fn swim(w: &mut PhysWorld, c: &mut Character, velocity: [f32; 2], vertical: f32, jump: bool, steps: usize) -> CharacterStep {
+    let mut last = None;
+    for i in 0..steps {
+        last = Some(w.move_character(c, CharacterInput { velocity, jump: jump && i == 0, vertical }));
+        w.step();
+    }
+    last.unwrap()
+}
+
+#[test]
+fn a_fall_into_water_stops_and_floats() {
+    let mut w = lake();
+    let p = CharacterParams::default();
+    let mut c = w.add_character(1, p, [0.0, 0.0, 500.0]);
+    let mut landed = false;
+    let mut entered_at = None;
+    for i in 0..240 {
+        let s = w.move_character(&mut c, CharacterInput::default());
+        w.step();
+        landed |= s.landed_speed.is_some();
+        if s.swimming && entered_at.is_none() {
+            entered_at = Some((i, s.feet[2]));
+        }
+    }
+    let (_, z) = entered_at.expect("swims");
+    // The fall stops in the step that takes the feet past the swimming depth.
+    assert!(z <= 500.0 - p.swim_depth && z > 500.0 - p.swim_depth - 7.0, "{z}");
+    assert!(!landed);
+    assert!(c.swimming && !c.grounded);
+    // Above the floating height it sinks to it and stays.
+    assert!((c.feet[2] - (500.0 - p.float_depth)).abs() < 0.01 || c.feet[2] < 500.0 - p.float_depth, "{:?}", c.feet);
+}
+
+#[test]
+fn walking_on_the_bottom_does_not_swim() {
+    let mut w = lake();
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, TERRAIN_SHELL]);
+    let steps = walk(&mut w, &mut c, [86.8, 0.0], 120);
+    assert!(steps.iter().all(|s| s.grounded && !s.swimming));
+    assert!((c.feet[0] - 173.6).abs() < 1.0, "{:?}", c.feet);
+}
+
+#[test]
+fn swimming_follows_the_view_and_has_no_buoyancy() {
+    let mut w = lake();
+    let p = CharacterParams::default();
+    let mut c = w.add_character(1, p, [0.0, 0.0, 405.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 120);
+    assert!(c.swimming);
+    let float = 500.0 - p.float_depth;
+    assert!((c.feet[2] - float).abs() < 0.01, "{:?}", c.feet);
+    // Horizontal swimming keeps the floating height.
+    swim(&mut w, &mut c, [348.0, 0.0], 0.0, false, 60);
+    assert!((c.feet[0] - 348.0).abs() < 1.0 && (c.feet[2] - float).abs() < 0.01, "{:?}", c.feet);
+    // Diving at 30 degrees down for half a second.
+    let (s, k) = 30f32.to_radians().sin_cos();
+    swim(&mut w, &mut c, [348.0 * k, 0.0], -348.0 * s, false, 30);
+    assert!((c.feet[2] - (float - 87.0)).abs() < 1.0, "{:?}", c.feet);
+    // Released, it stays at its depth.
+    let z = c.feet[2];
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 120);
+    assert!((c.feet[2] - z).abs() < 0.01 && c.swimming, "{:?}", c.feet);
+    // Swimming up stops within one step above the floating height and sinks back.
+    let mut top = f32::MIN;
+    for _ in 0..90 {
+        let st = swim(&mut w, &mut c, [0.0, 0.0], 246.0, false, 1);
+        top = top.max(st.feet[2]);
+    }
+    assert!(top > float && top <= float + 246.0 / 60.0 + 0.01, "{top}");
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 60);
+    assert!((c.feet[2] - float).abs() < 0.01, "{:?}", c.feet);
+}
+
+#[test]
+fn jumping_works_only_above_the_floating_height() {
+    let mut w = lake();
+    let p = CharacterParams::default();
+    let mut c = w.add_character(1, p, [0.0, 0.0, 405.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 120);
+    let float = c.feet[2];
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, true, 30);
+    assert!((c.feet[2] - float).abs() < 0.01 && c.swimming, "{:?}", c.feet);
+    // Placed above the floating height (the swimming state is kept), it jumps out at twice
+    // the land height and falls back into the water.
+    w.place_character(&mut c, [0.0, 0.0, 440.0]);
+    assert!(c.swimming);
+    let mut top = f32::MIN;
+    for i in 0..120 {
+        let st = swim(&mut w, &mut c, [0.0, 0.0], 0.0, i == 0, 1);
+        top = top.max(st.feet[2]);
+    }
+    let rise = top - 440.0;
+    assert!((rise - 2.0 * p.jump_height).abs() < 6.0, "{rise}");
+    assert!(c.swimming);
+}
+
+#[test]
+fn swimming_down_to_the_bottom_ends_swimming() {
+    let mut w = lake();
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 405.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 60);
+    assert!(c.swimming);
+    swim(&mut w, &mut c, [0.0, 0.0], -348.0, false, 120);
+    assert!(!c.swimming && c.grounded, "{:?}", c.feet);
+    assert!((c.feet[2] - TERRAIN_SHELL).abs() < 0.05, "{:?}", c.feet);
+}
+
+#[test]
+fn swim_vertical_rules() {
+    let p = CharacterParams::default();
+    let dt = 1.0 / 60.0;
+    let float = 500.0 - p.float_depth;
+    // Diving always applies; rising only from the floating height or below it.
+    assert_eq!(fnv_phys::character::swim_vertical(&p, float + 30.0, 500.0, -100.0, dt), -100.0);
+    assert_eq!(fnv_phys::character::swim_vertical(&p, float - 30.0, 500.0, 100.0, dt), 100.0);
+    assert_eq!(fnv_phys::character::swim_vertical(&p, float, 500.0, 100.0, dt), 100.0);
+    assert_eq!(fnv_phys::character::swim_vertical(&p, float + 30.0, 500.0, 100.0, dt), -p.swim_sink_speed);
+    // Sinking stops at the floating height; below it there is no buoyancy.
+    let v = fnv_phys::character::swim_vertical(&p, float + 0.1, 500.0, 0.0, dt);
+    assert!((v * dt + 0.1).abs() < 1e-4, "{v}");
+    assert_eq!(fnv_phys::character::swim_vertical(&p, float - 50.0, 500.0, 0.0, dt), 0.0);
 }
