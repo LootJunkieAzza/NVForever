@@ -19,6 +19,7 @@ mod tree;
 mod underwater;
 mod water;
 mod world;
+mod worldspace;
 
 use bevy::image::{ImageAddressMode, ImageSamplerDescriptor};
 use bevy::prelude::*;
@@ -370,7 +371,7 @@ fn main() -> AppExit {
         // nvf-play's own sets.
         // Streaming follows the camera, which the player systems move: stream after them.
         app.add_plugins(nvf_play::PlayPlugin(data))
-            .add_systems(Update, world::travel.before(world::stream))
+            .add_systems(Update, (worldspace::switch, world::travel).chain().before(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
     }
     if args.screenshot.is_some() {

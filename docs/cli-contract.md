@@ -324,5 +324,6 @@ collision notes.
 # Layer 4 (core simulation)
 
 `fnvtool sim containers` (`fnv.sim.containers/1`), `fnvtool sim run`
-(`fnv.sim.actions/1` → `fnv.sim.trace/1`) and `fnvtool sim forms` (`fnv.sim.forms/1`)
-are defined in docs/spec-notes/simulation.md §7 together with the simulation notes.
+(`fnv.sim.actions/1` → `fnv.sim.trace/1`), `fnvtool sim forms` (`fnv.sim.forms/1`) and
+`fnvtool sim doors` (`fnv.sim.doors/1`) are defined in docs/spec-notes/simulation.md §7
+together with the simulation notes.

@@ -226,6 +226,15 @@ impl DistantWater {
     pub fn surface(&mut self, world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
         *self.surfaces.entry(g).or_insert_with(|| visible_surface(world, g))
     }
+
+    /// Forget every surface and remove every plane (the worldspace changed).
+    pub fn clear(&mut self, commands: &mut Commands) {
+        for (_, e) in self.planes.drain() {
+            commands.entity(e).despawn();
+        }
+        self.surfaces.clear();
+        self.built_for = None;
+    }
 }
 
 fn visible_surface(world: &WorldData, g: (i32, i32)) -> Option<(f32, u32)> {
