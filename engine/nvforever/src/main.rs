@@ -9,8 +9,12 @@
 
 mod fly;
 mod lod;
+mod reflection;
+mod ripples;
 mod sky;
 mod terrain;
+mod underwater;
+mod water;
 mod world;
 
 use bevy::image::{ImageAddressMode, ImageSamplerDescriptor};
@@ -260,7 +264,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins(ArchivePlugin(game))
+    .add_plugins((ArchivePlugin(game), water::WaterPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
@@ -350,6 +354,10 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         Transform::from_translation(pos).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)),
         FlyCam { yaw, pitch, speed: 800.0 },
         sky::initial_fog(),
+        // Water reads the depth of what lies behind it (water.rs).
+        bevy::core_pipeline::prepass::DepthPrepass,
+        // The world and the water (which the reflection camera leaves out).
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER]),
     )).id();
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);

@@ -225,8 +225,74 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
 - **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
   the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
   [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600
-  [observed]. WATR: noise texture `NNAM`, opacity `ANAM`, visual data `DNAM` (colours
-  shallow/deep/reflection at bytes 48/52/56 among 49 fields) [documented].
+  [observed]. WATR: noise texture `NNAM`, opacity `ANAM`, flags `FNAM` (bit 1
+  reflective), visual data `DNAM` (colours shallow/deep/reflection at bytes 48/52/56
+  among 49 fields, fog near/far/amount above and under water, fresnel and
+  reflectivity amounts, shininess, three noise layers with wind direction, wind speed,
+  UV scale and amplitude) [documented: xEdit names].
+- **Lake Mead water** [observed]: cells around Boulder Beach (13,9) use XCWT
+  NVCleanWater (0x1009CA): ANAM 50, FNAM reflective, shallow (52,75,66), deep
+  (22,41,34), reflection (21,32,23), above fog -80 / 850 / 0.75, under fog
+  -2500 / 5500 / 1.0, reflectivity 0.6, fresnel 0.75, shininess 500, sun power 826,
+  noise normals scale 13.41 and UV scale 1000, layers (direction°, speed, UV scale,
+  amplitude) (180, 0.065, 0, 0.30), (10, 0.033, 0, 0.525), (67, 0.029, 0, 0.138).
+  Nearly every WastelandNV cell sets "has water" (DATA bit 1); those without XCLW use the
+  worldspace default -2300, below the landscape.
+- **Noise texture** [observed]: `textures\water\wastelandwaterpotomac.dds` is
+  256 × 256 A8R8G8B8, alpha constant 255; R, G and B are uncorrelated (|r| < 0.07 for R
+  against G and B; G/B 0.62), each tileable, with feature sizes growing from R to B
+  (autocorrelation at a 16-texel lag 0.56 / 0.77 / 0.92). Read as three height layers,
+  one per noise layer, R = layer 1 [hypothesis]; it is not a normal map (the RGB
+  vectors average length 0.52).
+- **How the engine draws water** [hypothesis, the renderer's model; compared by eye with
+  an in-game screenshot at Boulder Beach]: what lies behind the surface is fogged by the
+  length of the view ray inside the water, linearly from the above-fog near to far
+  distance, to opaque, shading from the shallow to the deep colour. Capping the fog at
+  the "amount" left the lake bed visible far out; fogging by the distance from the
+  camera made the water opaque right at the shoreline when seen from a few metres up
+  (an abrupt clear-to-opaque edge); both unlike the game. The water reflects the world when reflective
+  (otherwise its reflection colour): the renderer mirrors the camera in the water plane
+  nearest it, renders what lies above that plane into a texture and samples it at the
+  fragment's screen position, offset along the wave-perturbed reflected ray; water at
+  other heights reflects the weather's sky gradient. Seen in-game: the dock posts and
+  the far hills at Boulder Beach are reflected with a ripple wobble [observed, owner's
+  screenshot]. How far the ripples displace the reflection (the DNAM "distortion
+  amount", 600 for NVCleanWater, may be it) is unknown; the renderer's offset is tuned by
+  eye. The reflection is weighted with weight reflectivity × mix(1, Schlick fresnel,
+  fresnel amount); the sun adds a highlight with exponent = shininess. Noise layer i
+  repeats every UV scale units (0 → the noise normals UV scale), scrolls at wind speed
+  repeats per second towards its compass wind direction, and its height is channel i ×
+  amplitude × noise normals scale × 2 (factor tuned by eye). What lies behind the surface
+  is refracted: sampled with a screen offset along the wave normal's tilt, growing over
+  the first 200 units of water (tuned by eye; the engine's rule is unknown). Under water
+  the camera's distance fog becomes the water's under fog (near / far, -2500 / 5500 for
+  NVCleanWater) in its deep colour lit by the sun and ambient light; looking up, the sky
+  shows only within Snell's window (refractive index 1.33) and the surface reflects the
+  water body outside it. The under fog "amount" is unused like the above one. Unknown: the roles of ANAM
+  opacity, the fog amounts, sun power and the four unnamed leading DNAM floats.
+- **Ripples** [hypothesis, the renderer's model]: DNAM's "rain" and "displacement"
+  groups (starting size, force, velocity, falloff, dampner; NVCleanWater: rain 0.05 /
+  0.1 / 0.6 / 0.985 / 2.0, displacement 0.01 / 0.4 / 0.6 / 0.985 / 10.0) are read as two
+  damped wave simulations: force = how far a drop or a moving body pushes the surface
+  down, velocity = the wave-equation coefficient (kept at the 2-D stability limit 0.5),
+  falloff = damping per step (60 steps a second). Starting size and dampner are unused
+  (unknown). Rain drops fall while the weather is "Rainy"; a body (the player's feet,
+  or the free camera) near the surface leaves a wake and splashes when it crosses it.
+  Grid (256 × 256 cells of 4 units around the camera), drop and wake radii, rain rate and
+  ripple height are tuned by eye; the game's own simulation is not known.
+- **Rain** [observed]: WTHR DATA flags bit 2 "Rainy" is set on exactly two weathers in
+  the masters, Honest Hearts' NVDLC02ZVRainWeather and NVDLC02TheNarrowsRainWeather (none
+  in FalloutNV.esm, Dead Money, Old World Blues, Lonesome Road; no weather sets bit 3
+  "Snow"). The weather record names no rain texture or model: the falling rain is
+  content. Four activators (NVDLC02Rain, NVDLC02Rain2, NVDLC02RainUp, NVDLC02RainUp2,
+  models `meshes\nvdlc02\sky\nvdlc02rain*.nif`) are driven by the quest
+  NVDLC02RainQuest's script NVDLC02rainscript. In plain terms, every frame while it
+  rains and the player is outdoors and above a height of 4878 units (Zion Canyon's
+  default water height is 5000), the script moves two rain references onto the player
+  and enables them (one at an offset given by a global), switches to the "up" variants
+  while the player looks steeply up or down, keeps them going for a few seconds after
+  the rain stops, and toggles the rain ambience sound and an interior rain-sound marker.
+  So drawing Zion rain needs the script engine (Layer 4); the renderer does not draw it.
 
 ## 7. Distant LOD
 
@@ -279,6 +345,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
    texture when `BTXT` is absent, and how the 17 × 17 alpha grid maps to vertices.
    Verify by comparing renders with in-game screenshots.
 3. XCLW sentinel 3.4028235e38: confirm that the worldspace water height applies.
+   Water drawing (§6): fog distance measure, the fog amounts and ANAM opacity, noise
+   layer units; to settle with in-game captures at Lake Mead at several heights and
+   distances from the shore.
 4. Weather selection rule and the meaning of WLST globals (see §6).
 5. Light brightness and falloff (LIGH radius, falloff exponent) and the XCLL rotation
    angles; to calibrate against in-game interior screenshots.
