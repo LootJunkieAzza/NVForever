@@ -124,8 +124,13 @@ What it does now:
   within two cells below the camera. Refraction: the water is drawn after the opaque
   pass with Bevy's view transmission texture (a copy of it), which it samples with a
   wave offset and composites itself over. Under water (`underwater.rs`), the camera's
-  fog becomes the water type's under fog; Snell's window from below. The model and its
-  hypotheses: world.md §6.
+  fog becomes the water type's under fog; Snell's window from below. Ripples
+  (`ripples.rs`): two damped wave simulations on a grid around the camera, fed by rain
+  drops while the weather is "Rainy" and by the camera or player moving through the
+  surface, added to the wave normal. The model and its hypotheses: world.md §6.
+- Rain itself is not drawn: in the masters only Honest Hearts' two Zion weathers are
+  rainy, and their rain is scripted content (activators that a quest script moves onto
+  the player, world.md §6), so it comes with the script engine (Layer 4).
 
 Measured on the owner's machine (i7-7700HQ, GTX 1050): 5 × 5 cells around Goodsprings
 (1,948 references drawn, 3,085 shapes, 224 models, 506 terrain layers) load in 2.5 s;
@@ -165,7 +170,7 @@ game units unchanged.
 6. **Lighting, sky, weather** (first version done; clouds, stars, interiors to do): sun direction and colours from the climate/weather records
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
-7. **Water** (second version done: WATR fog, fresnel world reflections, refraction, under-water fog, noise layers, distant water; rain and displacement ripples to do): worldspace / cell water height, WATR records, placeable water (PWAT).
+7. **Water** (second version done: WATR fog, fresnel world reflections, refraction, under-water fog, noise layers, rain and wake ripples, distant water; falling rain to do with the script engine, Layer 4): worldspace / cell water height, WATR records, placeable water (PWAT).
 8. **SpeedTree** (interim: billboards): TREE references (18,050 in WastelandNV, e.g. the desert shrubs) use
    SpeedTree `.spt` models from `trees\`, a non-NIF format; needs its own clean-room
    format study before they can be drawn.
