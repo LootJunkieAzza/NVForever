@@ -193,6 +193,26 @@ def fall_breath():
     return j
 
 
+def breath():
+    """(f) only: two minutes held at the bottom with god mode off and Health raised (the
+    sw_fall_breath run died at its last land fall before reaching this part), and the
+    700-unit fall into the water again (how far below the swimming depth a fall stops)."""
+    dx, dy = DEEP
+    lx, ly, lz = LAND
+    on_land = [setpos(lx, ly, lz + 4), angles(90), {"frames": 120}]
+    steps = list(PROTECT) + go_there()
+    steps += on_land + [setpos(dx, dy, WATER_Z + 700), angles(90), remember_t0()] + samples("fall water 700 again", 240)
+    steps += on_land + [setpos(dx, dy, WATER_Z), angles(90), {"frames": 300}]
+    steps += [num("player.GetAV Health", "before tgm", "health"), {"console": "tgm"}, {"frames": 10},
+              script("player.ModAV Health 5000"), {"frames": 30}, num("player.GetAV Health", "raised", "health")]
+    steps += [remember_t0(), angles(90, 89), hold(0)] + samples("held under", 480, every=15, health=True)
+    steps += [release(0), angles(90, 0)] + samples("released", 300, every=2, health=True)
+    steps += [{"console": "tgm"}, {"frames": 10}, num("player.GetAV Health", "end", "health")]
+    j = cs.job("sw_breath", START, steps, cs.MASTERS)
+    j["title"] = "Swimming: two minutes held under water (health), a fall into the water (about 3 min, no input)"
+    return j
+
+
 def diag():
     """Which sample scripts compile, and whether the clock runs after the coc."""
     clock = cs.function(["float fV"], ["let fV := GetCurrentTime", "SetFunctionValue fV"])
@@ -243,7 +263,7 @@ def diag2():
 
 
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath()):
+    for j in (diag(), diag2(), trial(), fall_breath(), breath()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)
