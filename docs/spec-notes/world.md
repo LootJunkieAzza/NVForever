@@ -200,8 +200,37 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
 - **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
   the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
   [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600
-  [observed]. WATR: noise texture `NNAM`, opacity `ANAM`, visual data `DNAM` (colours
-  shallow/deep/reflection at bytes 48/52/56 among 49 fields) [documented].
+  [observed]. WATR: noise texture `NNAM`, opacity `ANAM`, flags `FNAM` (bit 1
+  reflective), visual data `DNAM` (colours shallow/deep/reflection at bytes 48/52/56
+  among 49 fields, fog near/far/amount above and under water, fresnel and
+  reflectivity amounts, shininess, three noise layers with wind direction, wind speed,
+  UV scale and amplitude) [documented: xEdit names].
+- **Lake Mead water** [observed]: cells around Boulder Beach (13,9) use XCWT
+  NVCleanWater (0x1009CA): ANAM 50, FNAM reflective, shallow (52,75,66), deep
+  (22,41,34), reflection (21,32,23), above fog -80 / 850 / 0.75, under fog
+  -2500 / 5500 / 1.0, reflectivity 0.6, fresnel 0.75, shininess 500, sun power 826,
+  noise normals scale 13.41 and UV scale 1000, layers (direction°, speed, UV scale,
+  amplitude) (180, 0.065, 0, 0.30), (10, 0.033, 0, 0.525), (67, 0.029, 0, 0.138).
+  Nearly every WastelandNV cell sets "has water" (DATA bit 1); those without XCLW use the
+  worldspace default -2300, below the landscape.
+- **Noise texture** [observed]: `textures\water\wastelandwaterpotomac.dds` is
+  256 × 256 A8R8G8B8, alpha constant 255; R, G and B are uncorrelated (|r| < 0.07 for R
+  against G and B; G/B 0.62), each tileable, with feature sizes growing from R to B
+  (autocorrelation at a 16-texel lag 0.56 / 0.77 / 0.92). Read as three height layers,
+  one per noise layer, R = layer 1 [hypothesis]; it is not a normal map (the RGB
+  vectors average length 0.52).
+- **How the engine draws water** [hypothesis, the renderer's model; compared by eye with
+  an in-game screenshot at Boulder Beach]: what lies behind the surface is fogged by its
+  distance from the camera, linearly from the above-fog near to far distance, to
+  opaque, shading from the shallow to the deep colour. Fogging by the distance travelled
+  through the water instead, or capping the fog at the "amount", left the lake bed
+  visible far out, unlike the game. The water reflects the sky when reflective
+  (otherwise its reflection colour) with weight reflectivity × mix(1, Schlick fresnel,
+  fresnel amount); the sun adds a highlight with exponent = shininess. Noise layer i
+  repeats every UV scale units (0 → the noise normals UV scale), scrolls at wind speed
+  repeats per second towards its compass wind direction, and its height is channel i ×
+  amplitude × noise normals scale × 2 (factor tuned by eye). Unknown: the roles of ANAM
+  opacity, the fog amounts, sun power and the four unnamed leading DNAM floats.
 
 ## 7. Distant LOD
 
@@ -254,6 +283,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
    texture when `BTXT` is absent, and how the 17 × 17 alpha grid maps to vertices.
    Verify by comparing renders with in-game screenshots.
 3. XCLW sentinel 3.4028235e38: confirm that the worldspace water height applies.
+   Water drawing (§6): fog distance measure, the fog amounts and ANAM opacity, noise
+   layer units; to settle with in-game captures at Lake Mead at several heights and
+   distances from the shore.
 4. Weather selection rule and the meaning of WLST globals (see §6).
 5. Light brightness and falloff (LIGH radius, falloff exponent) and the XCLL rotation
    angles; to calibrate against in-game interior screenshots.
