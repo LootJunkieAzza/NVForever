@@ -394,6 +394,122 @@
      "type": "f32"
     }
    ]
+  },
+  "ImageSpaceData": {
+   "struct": [
+    {
+     "name": "eye_adapt_speed",
+     "type": "f32"
+    },
+    {
+     "name": "blur_radius",
+     "type": "f32"
+    },
+    {
+     "name": "blur_passes",
+     "type": "f32"
+    },
+    {
+     "name": "emissive_mult",
+     "type": "f32"
+    },
+    {
+     "name": "target_lum",
+     "type": "f32"
+    },
+    {
+     "name": "upper_lum_clamp",
+     "type": "f32"
+    },
+    {
+     "name": "bright_scale",
+     "type": "f32"
+    },
+    {
+     "name": "bright_clamp",
+     "type": "f32"
+    },
+    {
+     "name": "lum_ramp_no_tex",
+     "type": "f32"
+    },
+    {
+     "name": "lum_ramp_min",
+     "type": "f32"
+    },
+    {
+     "name": "lum_ramp_max",
+     "type": "f32"
+    },
+    {
+     "name": "sunlight_dimmer",
+     "type": "f32"
+    },
+    {
+     "name": "grass_dimmer",
+     "type": "f32"
+    },
+    {
+     "name": "tree_dimmer",
+     "type": "f32"
+    },
+    {
+     "name": "rest",
+     "type": "bytes"
+    }
+   ]
+  },
+  "TimeKey": {
+   "struct": [
+    {
+     "name": "time",
+     "type": "f32"
+    },
+    {
+     "name": "value",
+     "type": "f32"
+    }
+   ]
+  },
+  "ColorKey": {
+   "struct": [
+    {
+     "name": "time",
+     "type": "f32"
+    },
+    {
+     "name": "red",
+     "type": "f32"
+    },
+    {
+     "name": "green",
+     "type": "f32"
+    },
+    {
+     "name": "blue",
+     "type": "f32"
+    },
+    {
+     "name": "alpha",
+     "type": "f32"
+    }
+   ]
+  },
+  "ImageSpaceAdapterHeader": {
+   "struct": [
+    {
+     "name": "animatable",
+     "type": "u32"
+    },
+    {
+     "name": "duration",
+     "type": "f32"
+    },
+    {
+     "name": "rest",
+     "type": "bytes"
+    }
+   ]
   }
  },
  "records": {
@@ -530,6 +646,42 @@
      },
      "confidence": "documented",
      "note": "xEdit wbDefinitionsCommon.pas wbWeatherSounds"
+    },
+    "\u0000IAD": {
+     "name": "Sunrise Image Space Adapter",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WTHR wbFormIDCk(_00_IAD, IMAD)"
+    },
+    "\u0001IAD": {
+     "name": "Day Image Space Adapter",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WTHR wbFormIDCk(_01_IAD, IMAD)"
+    },
+    "\u0002IAD": {
+     "name": "Sunset Image Space Adapter",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WTHR wbFormIDCk(_02_IAD, IMAD)"
+    },
+    "\u0003IAD": {
+     "name": "Night Image Space Adapter",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WTHR wbFormIDCk(_03_IAD, IMAD)"
+    },
+    "\u0004IAD": {
+     "name": "High Noon Image Space Adapter",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WTHR wbFormIDCk(_04_IAD, IMAD)"
+    },
+    "\u0005IAD": {
+     "name": "Midnight Image Space Adapter",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas WTHR wbFormIDCk(_05_IAD, IMAD)"
     }
    }
   },
@@ -623,6 +775,470 @@
      "type": "LightingData",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas LGTM record"
+    }
+   }
+  },
+  "IMGS": {
+   "name": "Image Space",
+   "confidence": "documented",
+   "subrecords": {
+    "DNAM": {
+     "name": "Data",
+     "type": "ImageSpaceData",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMGS DNAM: 14 HDR floats, then (form version 10+) skin dimmer, then bloom (3), get hit (3), night eye (tint RGB, brightness), cinematic (saturation, contrast avg lum, contrast, brightness, tint RGB, tint value), 4 unknown bytes, (version 10+) 12 unused, (version 13+) a flags byte and 3 unused. Observed sizes 152 (69 records), 148 (12), 132 (11, no skin dimmer); the version-dependent part stays in rest and fnv_world::imagespace reads it by form version"
+    }
+   }
+  },
+  "IMAD": {
+   "name": "Image Space Adapter",
+   "confidence": "documented",
+   "subrecords": {
+    "DNAM": {
+     "name": "Data",
+     "type": "ImageSpaceAdapterHeader",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD DNAM: animatable, duration, then per-parameter mult/add key counts and effect settings (kept as rest)"
+    },
+    "TNAM": {
+     "name": "Tint Color",
+     "type": {
+      "array": "ColorKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD TNAM wbColorInterpolator: time, RGBA"
+    },
+    "NAM3": {
+     "name": "Fade Color",
+     "type": {
+      "array": "ColorKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD NAM3"
+    },
+    "\u0000IAD": {
+     "name": "Eye Adapt Speed Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_00_IAD): time, value"
+    },
+    "@IAD": {
+     "name": "Eye Adapt Speed Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_40_IAD): time, value"
+    },
+    "\u0001IAD": {
+     "name": "Blur Radius Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_01_IAD): time, value"
+    },
+    "AIAD": {
+     "name": "Blur Radius Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_41_IAD): time, value"
+    },
+    "\u0002IAD": {
+     "name": "Skin Dimmer Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_02_IAD): time, value"
+    },
+    "BIAD": {
+     "name": "Skin Dimmer Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_42_IAD): time, value"
+    },
+    "\u0003IAD": {
+     "name": "Emissive Mult Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_03_IAD): time, value"
+    },
+    "CIAD": {
+     "name": "Emissive Mult Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_43_IAD): time, value"
+    },
+    "\u0004IAD": {
+     "name": "Target LUM Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_04_IAD): time, value"
+    },
+    "DIAD": {
+     "name": "Target LUM Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_44_IAD): time, value"
+    },
+    "\u0005IAD": {
+     "name": "Upper LUM Clamp Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_05_IAD): time, value"
+    },
+    "EIAD": {
+     "name": "Upper LUM Clamp Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_45_IAD): time, value"
+    },
+    "\u0006IAD": {
+     "name": "Bright Scale Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_06_IAD): time, value"
+    },
+    "FIAD": {
+     "name": "Bright Scale Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_46_IAD): time, value"
+    },
+    "\u0007IAD": {
+     "name": "Bright Clamp Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_07_IAD): time, value"
+    },
+    "GIAD": {
+     "name": "Bright Clamp Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_47_IAD): time, value"
+    },
+    "\bIAD": {
+     "name": "LUM Ramp No Tex Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_08_IAD): time, value"
+    },
+    "HIAD": {
+     "name": "LUM Ramp No Tex Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_48_IAD): time, value"
+    },
+    "\tIAD": {
+     "name": "LUM Ramp Min Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_09_IAD): time, value"
+    },
+    "IIAD": {
+     "name": "LUM Ramp Min Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_49_IAD): time, value"
+    },
+    "\nIAD": {
+     "name": "LUM Ramp Max Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_0A_IAD): time, value"
+    },
+    "JIAD": {
+     "name": "LUM Ramp Max Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_4A_IAD): time, value"
+    },
+    "\u000bIAD": {
+     "name": "Sunlight Dimmer Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_0B_IAD): time, value"
+    },
+    "KIAD": {
+     "name": "Sunlight Dimmer Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_4B_IAD): time, value"
+    },
+    "\fIAD": {
+     "name": "Grass Dimmer Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_0C_IAD): time, value"
+    },
+    "LIAD": {
+     "name": "Grass Dimmer Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_4C_IAD): time, value"
+    },
+    "\rIAD": {
+     "name": "Tree Dimmer Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_0D_IAD): time, value"
+    },
+    "MIAD": {
+     "name": "Tree Dimmer Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_4D_IAD): time, value"
+    },
+    "\u000eIAD": {
+     "name": "Bloom Blur Radius Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_0E_IAD): time, value"
+    },
+    "NIAD": {
+     "name": "Bloom Blur Radius Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_4E_IAD): time, value"
+    },
+    "\u000fIAD": {
+     "name": "Bloom Alpha Mult Interior Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_0F_IAD): time, value"
+    },
+    "OIAD": {
+     "name": "Bloom Alpha Mult Interior Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_4F_IAD): time, value"
+    },
+    "\u0010IAD": {
+     "name": "Bloom Alpha Mult Exterior Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_10_IAD): time, value"
+    },
+    "PIAD": {
+     "name": "Bloom Alpha Mult Exterior Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_50_IAD): time, value"
+    },
+    "\u0011IAD": {
+     "name": "Cinematic Saturation Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_11_IAD): time, value"
+    },
+    "QIAD": {
+     "name": "Cinematic Saturation Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_51_IAD): time, value"
+    },
+    "\u0012IAD": {
+     "name": "Cinematic Contrast Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_12_IAD): time, value"
+    },
+    "RIAD": {
+     "name": "Cinematic Contrast Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_52_IAD): time, value"
+    },
+    "\u0013IAD": {
+     "name": "Cinematic Contrast Avg Lum Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_13_IAD): time, value"
+    },
+    "SIAD": {
+     "name": "Cinematic Contrast Avg Lum Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_53_IAD): time, value"
+    },
+    "\u0014IAD": {
+     "name": "Cinematic Brightness Mult",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_14_IAD): time, value"
+    },
+    "TIAD": {
+     "name": "Cinematic Brightness Add",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolatorsMultAdd(_54_IAD): time, value"
+    },
+    "BNAM": {
+     "name": "Blur Radius",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(BNAM): time, value"
+    },
+    "VNAM": {
+     "name": "Double Vision Strength",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(VNAM): time, value"
+    },
+    "RNAM": {
+     "name": "Radial Blur Strength",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(RNAM): time, value"
+    },
+    "SNAM": {
+     "name": "Radial Blur Ramp Up",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(SNAM): time, value"
+    },
+    "UNAM": {
+     "name": "Radial Blur Start",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(UNAM): time, value"
+    },
+    "NAM1": {
+     "name": "Radial Blur Ramp Down",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(NAM1): time, value"
+    },
+    "NAM2": {
+     "name": "Radial Blur Down Start",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(NAM2): time, value"
+    },
+    "WNAM": {
+     "name": "Depth of Field Strength",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(WNAM): time, value"
+    },
+    "XNAM": {
+     "name": "Depth of Field Distance",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(XNAM): time, value"
+    },
+    "YNAM": {
+     "name": "Depth of Field Range",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(YNAM): time, value"
+    },
+    "NAM4": {
+     "name": "Motion Blur Strength",
+     "type": {
+      "array": "TimeKey"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IMAD wbTimeInterpolators(NAM4): time, value"
     }
    }
   }
