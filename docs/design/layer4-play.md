@@ -235,7 +235,9 @@ on the main thread, and in two walking runs, and get bit-identical worlds
 (`phys/tests.rs`, physics.md §5); parity-lab L4 results are unchanged. Re-checked: the
 Goodsprings walk (feet 3.5 above the terrain, stopped by the house 0x00177CA4 where it
 stopped before), the stimpak and the front door (feet 8693.53, shell 3.50), the
-`--auto-fly` smoke test.
+`--auto-fly` smoke test; after merging the worldspace doors, the same runs gave longest
+streaming frames of 3.5 and 3.4 ms, and the Mojave north gate round trip lands as
+recorded above (1003.50 in Freeside, 4344.46 back).
 
 Open:
 - Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
