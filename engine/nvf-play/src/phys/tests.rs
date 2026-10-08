@@ -64,6 +64,7 @@ fn fake_cell(job: &Job) -> Prepared {
             scale: 1.0,
             enable_parent: None,
             open_by_default: false,
+            emittance: None,
         };
         let obj = object(if dynamic { 15.0 } else { 50.0 }, if dynamic { Motion::Dynamic } else { Motion::Static });
         let prepared = PreparedRef::new(&params, &RefPose::from_placement(&pl), &[obj]);
