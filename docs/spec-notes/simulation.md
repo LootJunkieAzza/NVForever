@@ -299,8 +299,11 @@ nesting, levels between entries' levels with the all-levels flag set.
   **0x000DAEBB "Goodsprings" (WastelandNV grid −18, 0)**, not in 0x000846EA, the
   WastelandNV persistent cell that holds the destination door: after a teleport into a
   worldspace the actor is in the exterior grid cell containing its position. The z offset
-  is presumably the character controller settling the actor [hypothesis; physics
-  workstream].
+  is the arrival rest height: the destination lies 3.6 units under the terrain, and the
+  player is pushed up to 3.84 units above the LAND surface, on the terrain's contact
+  shell (3.5) and within the band the player rests in after any door [observed: captures
+  `dt_teleport_rest`, `dt_rest_detail`, `dt_door_arrivals`; rule and evidence in
+  physics.md §6.2; `fnvtool sim run` applies the rule, §7].
 - **Scripted `Activate` on item references** [observed 2026-10-07, two follow-up captures
   in Doc Mitchell's house]: `ref.Activate player` adds the item's stack every time — three
   activations of stimpak 0x00105BF3 gave 1, 2, 3 stimpaks; a stimpak taken by hand
@@ -504,7 +507,7 @@ Lab comparator: **keyed** on `formid` over `/containers`, all fields.
 Lab comparator: **keyed** on `formid` over `/items`, all fields (`L4.sim.items`, against
 the independent oracle).
 
-### `fnvtool sim run <lo> --schema <dir> --actions <file>` → `fnv.sim.trace/1`
+### `fnvtool sim run <lo> --schema <dir> --actions <file> [--nif-schema <dir>] [--no-physics]` → `fnv.sim.trace/1`
 
 Input `fnv.sim.actions/1` (`parity-lab/inputs/layer4/*.actions.json`): `seed`,
 `player_level`, `actions` (ops: `activate`, `add_item`, `remove_item`, `transfer`,
@@ -525,12 +528,26 @@ stack without extra data is a count; otherwise `{"count": n, "groups": [{"count"
 "condition": c, "owner": id, "equipped": true}]}`. References and forms are named by
 global FormID, Editor ID, or `"player"`.
 
+**Teleports come to rest by physics** (2026-10-08): when `activate` moves an actor through
+a teleport door, `sim run` builds the destination's collision world the way `fnvtool phys
+cell` does (an interior cell, or the exterior cell containing the destination with the
+squares around it; terrain, collision primitives and model collision read with the NIF
+schema from `--nif-schema`, default `nif` next to `--schema`; references present by the
+simulation's state, the plugins' flags for references it has not touched) and puts the
+actor where `fnv_phys`'s arrival rule says it comes to rest (physics.md §6.2; the same
+function the game uses after a door). The step's result then carries
+`"settled": {"pos": [x, y, z], "support": {"owner": {"kind": "terrain", "grid": [x, y]} |
+{"kind": "ref", "formid", "object", "layer"}, "z": <bare surface>, "shell": <units>} | null}`
+beside the stored destination `pos`, and later `get_pos` reports the settled position.
+`--no-physics` keeps the stored destination (the contract before this change). Without a
+NIF schema only terrain and collision primitives support the actor.
+
 ```json
 {"format": "fnv.sim.trace/1", "seed": 0, "player_level": 1,
  "steps": [{"step": 0, "op": "activate", "result": {"result": "picked_up", "...": "..."}}],
  "observations": [{"label": "caps after taking five", "step": 10, "count": 5},
-                  {"label": "player after leaving", "step": 19, "cell": "0x000846EA",
-                   "pos": [-73162.93, 1312.43, 8686.43], "rot": [0.0, 0.0, 1.27]}],
+                  {"label": "player after leaving", "step": 19, "cell": "0x000DAEBB",
+                   "pos": [-73162.93, 1312.43, 8693.88], "rot": [0.0, 0.0, 1.27]}],
  "final": {"0x00000014": {"base": "0x00000007", "inventory": {"0x0000000F": 12}, "...": "..."}}}
 ```
 
