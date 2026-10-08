@@ -2,6 +2,7 @@
 //! references; unload cells that fall out of range.
 
 use crate::terrain::{spawn_terrain, TerrainCtx, TerrainMaterials};
+use crate::water::{water_material, WaterCtx};
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_esm::{LoadOrder, Plugin as EsmPlugin, Schema as EsmSchema};
@@ -150,13 +151,14 @@ pub fn stream(
     camera: Query<&GlobalTransform, With<Camera3d>>,
     mut models: ModelCtx,
     mut terrain: TerrainMaterials,
+    mut water: WaterCtx,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     if let Some(id) = streamer.interior {
         if streamer.loaded.is_empty() {
             let t0 = std::time::Instant::now();
             let s = &mut *streamer;
-            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, s);
+            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, s);
             commands.entity(root).add_child(e);
             streamer.loaded.insert((i32::MIN, i32::MIN), e);
             streamer.stats.cells_loaded += 1;
@@ -188,7 +190,7 @@ pub fn stream(
     for c in missing.into_iter().take(streamer.per_frame) {
         let t0 = std::time::Instant::now();
         let s = &mut *streamer;
-        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, s);
+        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, s);
         commands.entity(root).add_child(e);
         streamer.loaded.insert(c, e);
         streamer.stats.cells_loaded += 1;
@@ -228,6 +230,7 @@ fn load_cell(
     key: CellKey,
     models: &mut ModelCtx,
     terrain: &mut TerrainMaterials,
+    water: &mut WaterCtx,
     streamer: &mut Streamer,
 ) -> Entity {
     let (hide, light_scale, stats) = (&streamer.hide, streamer.light_scale, &mut streamer.stats);
@@ -248,7 +251,7 @@ fn load_cell(
         }
     }
     if let Some(c) = cell {
-        spawn_water(commands, cell_e, world, c, models, stats);
+        spawn_water(commands, cell_e, world, c, models, water, stats);
     }
     let to_cell = Affine3A::from_translation(-origin);
     for r in refs {
@@ -363,6 +366,7 @@ fn spawn_water(
     world: &WorldData,
     c: &fnv_world::Cell,
     models: &mut ModelCtx,
+    water: &mut WaterCtx,
     stats: &mut StreamStats,
 ) {
     if !c.has_water() {
@@ -372,40 +376,9 @@ fn spawn_water(
     // The same surface the physics swims in (`Cell::water_surface`, physics.md §6.6).
     let Some(height) = c.water_surface(ws.default_water_height) else { return };
     let Some(wid) = c.water_type.or(ws.water) else { return };
-    let mat = match models.cache.water_material(wid) {
-        Some(m) => m,
-        None => {
-            let Some(w) = fnv_world::sky::water(world.lo, world.schema, wid) else { return };
-            let noise = w.noise_texture.as_deref().and_then(|t| {
-                let a = &mut *models;
-                a.textures.get(t, false, &a.data, &mut a.images, a.formats.as_deref())
-            });
-            let lin = |c: [u8; 3]| c.map(fnv_world::sky::srgb_to_linear);
-            let s = lin(w.shallow);
-            let m = models.materials.add(StandardMaterial {
-                base_color: Color::LinearRgba(LinearRgba::new(s[0], s[1], s[2], (w.opacity as f32 / 255.0).clamp(0.3, 0.95))),
-                normal_map_texture: noise,
-                perceptual_roughness: 0.08,
-                reflectance: 0.6,
-                alpha_mode: AlphaMode::Blend,
-                cull_mode: None,
-                ..default()
-            });
-            models.cache.set_water_material(wid, m.clone());
-            m
-        }
-    };
+    let Some(mat) = water_material(world, wid, models, water) else { return };
     let s = CELL_SIZE;
-    let mut mesh = Mesh::from(Plane3d::new(Vec3::Z, Vec2::splat(s / 2.0)));
-    // Repeat the noise map every 1024 units [hypothesis].
-    if let Some(bevy::mesh::VertexAttributeValues::Float32x2(uv)) = mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0) {
-        for t in uv.iter_mut() {
-            t[0] *= s / 1024.0;
-            t[1] *= s / 1024.0;
-        }
-    }
-    let _ = mesh.generate_tangents();
-    let mesh = models.meshes.add(mesh);
+    let mesh = water.plane(&mut models.meshes);
     commands.entity(cell_e).with_child((
         Mesh3d(mesh),
         MeshMaterial3d(mat),
