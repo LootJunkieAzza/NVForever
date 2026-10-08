@@ -180,6 +180,10 @@ Not a scenario.
 
 1. What each collision layer collides with, and the player capsule's size, step height
    and slope limit (workstream 2's capture list).
-2. Whether the engine uses exactly 7.
+2. Whether the engine uses exactly 7. No in-game test planned: the data already put the
+   ratio at 6.999 for every shape family (§2), and a 0.014 % difference is about 0.3 units
+   over a 2,000-unit building, below what `GetPos` captures could resolve. A wrong
+   factor would show in the B11 drop test (layer4-captures.md) as probes resting
+   visibly above or inside objects.
 3. `meshes\triggers\collisionboxstatic.nif` (20.0.0.4, no block-size table) is not analysed
    by the commands; `fnv_collide::nif::collision_objects` reads it when called directly.

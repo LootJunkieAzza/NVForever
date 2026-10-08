@@ -247,6 +247,12 @@ impl Inventory {
                 Some(i) => {
                     match i.weight {
                         _ if i.kind == ItemKind::Ammo && !hardcore => {}
+                        // The records have no weight field; in game they weigh nothing,
+                        // like caps [observed by the owner, inventory screen, 2026-10-08].
+                        None if matches!(
+                            i.kind,
+                            ItemKind::Note | ItemKind::CasinoChip | ItemKind::CaravanMoney | ItemKind::CaravanCard
+                        ) => {}
                         Some(w) => t.weight += w as f64 * n as f64,
                         None => t.unknown_weight.push(id),
                     }
