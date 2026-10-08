@@ -116,9 +116,13 @@ pub struct Extracted {
     pub render: Option<Aabb>,
     /// Render vertices in mesh-root space (for fit measurements).
     pub render_points: Vec<[f32; 3]>,
-    /// Phantom (trigger) bodies: (collision object block, body type); their shape trees
-    /// are not followed.
+    /// Phantom (trigger) bodies: (collision object block, body type).
     pub phantoms: Vec<(usize, String)>,
+    /// The phantoms' shape trees, read as collision objects are (their layer from the
+    /// phantom's `havok_filter`; the phantom's own transform is not applied [observed:
+    /// identity rotation and zero translation in every placeable water model]). Kept apart
+    /// from `objects`: they are volumes (triggers, water), not solid.
+    pub phantom_objects: Vec<RawCollision>,
     /// Anything that could not be followed (dangling ref, unknown shape type).
     pub problems: Vec<String>,
 }
@@ -424,9 +428,9 @@ pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
             continue;
         };
         let body_type = file.blocks[body_ref as usize].type_name.clone();
-        if PHANTOM_TYPES.contains(&body_type.as_str()) {
-            out.phantoms.push((co as usize, body_type));
-            continue;
+        let phantom = PHANTOM_TYPES.contains(&body_type.as_str());
+        if phantom {
+            out.phantoms.push((co as usize, body_type.clone()));
         }
         let info = body.strukt("rigid_body_info");
         let f4 = |n: &str| info.and_then(|s| s.floats(n)).map(|v| [v[0], v[1], v[2], v.get(3).copied().unwrap_or(0.0)]);
@@ -442,10 +446,13 @@ pub fn extract(file: &NifFile, dec: &Decoded) -> Extracted {
             shell: 0.0,
         };
         let shape = body.block_ref("shape").and_then(|r| w.shape(r));
-        out.problems.append(&mut w.problems);
+        if !phantom {
+            out.problems.append(&mut w.problems);
+        }
         let Some(shape) = shape else { continue };
         let t = f4("translation").unwrap_or_default();
-        out.objects.push(RawCollision {
+        let list = if phantom { &mut out.phantom_objects } else { &mut out.objects };
+        list.push(RawCollision {
             object_block: co as usize,
             object_type,
             node_block: i,
@@ -529,6 +536,18 @@ pub fn collision_objects(file: &NifFile, dec: &Decoded) -> (Vec<crate::shape::Co
     let ex = extract(file, dec);
     let objs = ex.objects.iter().map(RawCollision::to_object).collect();
     (objs, ex.problems)
+}
+
+/// Solid collision objects and phantom volumes of a mesh in game units, with the problems
+/// met while reading (one parse for both).
+pub fn collision_and_phantoms(
+    file: &NifFile,
+    dec: &Decoded,
+) -> (Vec<crate::shape::CollisionObject>, Vec<crate::shape::CollisionObject>, Vec<String>) {
+    let ex = extract(file, dec);
+    let objs = ex.objects.iter().map(RawCollision::to_object).collect();
+    let phantoms = ex.phantom_objects.iter().map(RawCollision::to_object).collect();
+    (objs, phantoms, ex.problems)
 }
 
 impl crate::shape::CollisionObject {

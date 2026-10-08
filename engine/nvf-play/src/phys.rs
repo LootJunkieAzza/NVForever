@@ -71,6 +71,8 @@ pub struct PhysState {
     persistent_by_grid: HashMap<(i32, i32), Vec<u32>>,
     /// Collision objects per model path (lower case).
     models: HashMap<String, Result<Arc<Vec<CollisionObject>>, String>>,
+    /// Water volumes (Water-layer phantoms) of the models read, by path (lower case).
+    water_models: HashMap<String, Arc<Vec<CollisionObject>>>,
 }
 
 impl Default for PhysState {
@@ -88,6 +90,7 @@ impl Default for PhysState {
             prev_feet: [0.0; 3],
             persistent_by_grid: HashMap::new(),
             models: HashMap::new(),
+            water_models: HashMap::new(),
         }
     }
 }
@@ -161,6 +164,7 @@ pub fn in_world(sim: &SimState, pl: &Placement) -> bool {
 struct Models<'a> {
     data: &'a GameData,
     cache: &'a mut HashMap<String, Result<Arc<Vec<CollisionObject>>, String>>,
+    water: &'a mut HashMap<String, Arc<Vec<CollisionObject>>>,
 }
 
 impl ModelCollision for Models<'_> {
@@ -175,7 +179,12 @@ impl ModelCollision for Models<'_> {
             Some(Err(e)) => Err(e.to_string()),
             Some(Ok(bytes)) => NifFile::parse(&bytes, Some(schema)).map_err(|e| e.to_string()).map(|file| {
                 let dec = Decoded::new(&file, &bytes, schema);
-                Arc::new(fnv_collide::nif::collision_objects(&file, &dec).0)
+                let (solid, phantoms, _) = fnv_collide::nif::collision_and_phantoms(&file, &dec);
+                let water: Vec<CollisionObject> = phantoms.into_iter().filter(|o| o.layer == fnv_phys::layers::WATER).collect();
+                if !water.is_empty() {
+                    self.water.insert(key.clone(), Arc::new(water));
+                }
+                Arc::new(solid)
             }),
         };
         if let Err(e) = &r {
@@ -183,6 +192,10 @@ impl ModelCollision for Models<'_> {
         }
         self.cache.insert(key, r.clone());
         r
+    }
+
+    fn water(&mut self, path: &str) -> Arc<Vec<CollisionObject>> {
+        self.water.get(&path.to_ascii_lowercase()).cloned().unwrap_or_default()
     }
 }
 
@@ -337,7 +350,7 @@ impl PhysState {
             *counts.entry("not_present").or_default() += 1;
             return false;
         }
-        let mut models = ctx.data.map(|data| Models { data, cache: &mut self.models });
+        let mut models = ctx.data.map(|data| Models { data, cache: &mut self.models, water: &mut self.water_models });
         let rc = ref_collision(
             ctx.d.lo,
             ctx.d.schema,
@@ -345,6 +358,11 @@ impl PhysState {
             models.as_mut().map(|m| m as &mut dyn ModelCollision),
             &mut |what| *counts.entry(what).or_default() += 1,
         );
+        // Placed water (physics.md §6.6): volumes only, removed with the reference.
+        if !rc.water.is_empty() {
+            self.world.add_placed_water(&RefPose::from_placement(&pl), &rc.water);
+            *counts.entry("water_volume_refs").or_default() += 1;
+        }
         if rc.objects.is_empty() {
             return false;
         }
@@ -441,7 +459,7 @@ impl PhysState {
             *counts.entry("awaiting_collision").or_default() += 1;
             return false;
         };
-        let objects = match (Models { data, cache: &mut self.models }).objects(&path) {
+        let objects = match (Models { data, cache: &mut self.models, water: &mut self.water_models }).objects(&path) {
             Ok(o) if !o.is_empty() => o,
             _ => {
                 *self.stats.counts.entry("created_without_collision").or_default() += 1;
