@@ -1,0 +1,29 @@
+//! Layer 4 core simulation for the Fallout: New Vegas reimplementation: headless,
+//! deterministic, and free of rendering or engine dependencies (spec section 7:
+//! "deterministic, headless-testable simulation core").
+//!
+//! - [`form`]: global FormIDs
+//! - [`forms`]: base forms the simulation needs (items, containers, doors, actors,
+//!   leveled lists, globals), read through the Layer 1 schema
+//! - [`refs`]: placed references with their extra data
+//! - [`inventory`], [`leveled`]: item stacks and leveled-list resolution
+//! - [`world`]: runtime state as a delta over the plugins, activation, snapshots
+//! - [`actions`]: scripted action sequences and traces (the parity scenario format)
+//!
+//! Design and status: `docs/design/layer4.md`; behaviour notes with confidence tags:
+//! `docs/spec-notes/simulation.md`.
+
+pub mod actions;
+pub mod extract;
+pub mod form;
+pub mod forms;
+pub mod inventory;
+pub mod leveled;
+pub mod refs;
+pub mod world;
+
+pub use form::FormId;
+pub use forms::FormStore;
+pub use inventory::Inventory;
+pub use refs::RefTable;
+pub use world::{SimConfig, Snapshot, World};
