@@ -241,6 +241,63 @@ def air():
     return j
 
 
+def air2():
+    """Diagnostic (no scenario), after `mv_air`: which input sets the horizontal speed the
+    player approaches in the air (the key held at take-off, the speed at take-off, or a
+    small air control), how the speed decays with no key at other speeds and times, and
+    the speed after landings with other keys or a key pressed only after the landing
+    (physics.md 6.3). Settings read: the jump settings named for Oblivion's engine
+    [documented: UESP CS wiki, Category:Jumping]; names unknown to this game fail
+    harmlessly (the step records an error)."""
+    x, y = RUN_START
+    steps = list(PROTECT) + leave_doc_house()
+    for name in ("fJumpMoveBase", "fJumpMoveMult", "fJumpDoubleMult", "fJumpFallTimeMin", "fJumpHeightMin"):
+        steps.append(num(f'GetNumericGameSetting "{name}"', f"setting {name}", "value"))
+
+    def start(label, z=GROUND_Z + 4):
+        return [setpos(x, y, z), script("player.SetAngle Z 0"), {"frames": 120}, remember_t0()] + samples(f"{label} pre", 3)
+
+    def tail(*controls):
+        return [release(c) for c in controls] + [{"frames": 40}]
+
+    # Run, jump, release in the air, press again: back to the run speed or to the air control.
+    steps += start("repress") + [hold(0)] + samples("repress run", 20) + [script("TapControl 12")]
+    steps += samples("repress air", 10) + [release(0)] + samples("repress released", 8) + [hold(0)]
+    steps += samples("repress again", 60) + tail(0)
+    # Run, jump, switch to Back in the air.
+    steps += start("back in air") + [hold(0)] + samples("back in air run", 20) + [script("TapControl 12")]
+    steps += samples("back in air air", 10) + [release(0), hold(1)] + samples("back in air back", 60) + tail(1)
+    # Run, jump, add Right in the air (Forward still held).
+    steps += start("right in air") + [hold(0)] + samples("right in air run", 20) + [script("TapControl 12")]
+    steps += samples("right in air air", 10) + [hold(3)] + samples("right in air both", 60) + tail(0, 3)
+    # Back and Jump pressed together from standing (as the running-jump scenario forward):
+    # the rise towards the backward speed, then a landing with Back held.
+    steps += start("back jump") + [hold(1), script("TapControl 12")] + samples("back jump air", 90) + tail(1)
+    # Forward pressed one loop after Jump (before the take-off) and three loops after.
+    for label, wait in (("forward after 1", 1), ("forward after 3", 3)):
+        steps += start(label) + [script("TapControl 12")] + samples(f"{label} wait", wait) + [hold(0)]
+        steps += samples(f"{label} held", 80) + tail(0)
+    # Releases: from a walking jump, and from a running jump at the apex.
+    steps += start("walk release") + [hold(9), hold(0)] + samples("walk release walk", 20) + [script("TapControl 12")]
+    steps += samples("walk release air", 8) + [release(0)] + samples("walk release after", 50) + tail(9)
+    steps += start("apex release") + [hold(0)] + samples("apex release run", 20) + [script("TapControl 12")]
+    steps += samples("apex release air", 26) + [release(0)] + samples("apex release after", 40) + [{"frames": 40}]
+    # A fall without a jump with Forward held from the start, and its landing.
+    steps += start("fall forward", GROUND_Z + 150) + [hold(0)] + samples("fall forward held", 90) + tail(0)
+    # A standing jump with no key; Forward pressed three loops after the landing.
+    steps += start("press after landing") + [script("TapControl 12")] + samples("press after landing air", 58)
+    steps += [hold(0)] + samples("press after landing held", 50) + tail(0)
+    j = cs.job("mv_air2", START, steps, cs.MASTERS)
+    j["title"] = "Air control diagnostics: ten jumps and a fall with held keys (about 1.5 min, no input)"
+    return j
+
+
+def drops_job(name, file):
+    """Diagnostic drops (a `fnv.phys.drops/1` file in this folder)."""
+    doc = cs.load_json(os.path.join(HERE, file))
+    return cm.make_job([doc], name, START, leave_door=DOC_DOOR, console_first=["tgm", "tdetect"])
+
+
 def main():
     jobs = [trial(),
             lab_job("mv_b11_drops", ["b11_goodsprings.drops.json"]),
@@ -248,7 +305,8 @@ def main():
                                   "move_running_jump.walk.json", "move_porch_steps.walk.json"]),
             clutter(), values(), air(),
             lab_job("mv_followup_traces", ["move_hill_run.walk.json", "move_portal_wall.walk.json"]),
-            diag_job()]
+            diag_job(), air2(), drops_job("mv_diag_fence_edge", "diag_fence_edge.drops.json"),
+            drops_job("mv_diag_fence_low", "diag_fence_low.drops.json")]
     for j in jobs:
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
