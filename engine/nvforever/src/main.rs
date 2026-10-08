@@ -9,6 +9,7 @@
 
 mod fly;
 mod lod;
+mod lodgen;
 mod reflection;
 mod ripples;
 mod sky;
@@ -90,6 +91,19 @@ struct Args {
     /// Do not draw distant LOD.
     #[arg(long)]
     no_lod: bool,
+    /// Do not generate distant terrain from the landscape records; draw only the game's
+    /// LOD chunks (docs/design/generated-lod.md).
+    #[arg(long)]
+    no_lodgen: bool,
+    /// Generated terrain replaces the game's LOD within this many 4-cell chunks.
+    #[arg(long, default_value_t = 4)]
+    lodgen_radius: i32,
+    /// Generated terrain: diffuse texels per chunk side (power of two; normals get half).
+    #[arg(long, default_value_t = 1024)]
+    lodgen_res: usize,
+    /// Generated terrain: mesh vertex step in landscape grid vertices (1, 2, 4, 8, 16 or 32).
+    #[arg(long, default_value_t = 2)]
+    lodgen_step: usize,
     /// Game days passed, for the moon phase (default: the GameDaysPassed global).
     #[arg(long)]
     day: Option<f32>,
@@ -151,6 +165,39 @@ struct Overlay;
 fn parse_vec<const N: usize>(s: &str) -> Option<[f32; N]> {
     let v: Vec<f32> = s.split(',').map(|x| x.trim().parse().ok()).collect::<Option<_>>()?;
     v.try_into().ok()
+}
+
+/// The generated-terrain job: parameters, cache folder (NVForever's home, never the game's
+/// folder) and shared data (docs/design/generated-lod.md).
+fn lodgen_job(args: &Args, world: &WorldData, game: &GameData) -> Result<lodgen::GenJob, String> {
+    let (res, step) = (args.lodgen_res, args.lodgen_step);
+    if !(16..=4096).contains(&res) || !res.is_power_of_two() {
+        return Err(format!("--lodgen-res {res}: expected a power of two from 16 to 4096"));
+    }
+    if step == 0 || 32 % step != 0 {
+        return Err(format!("--lodgen-step {step}: expected 1, 2, 4, 8, 16 or 32"));
+    }
+    let params = lodgen::GenParams { res, step, tile: args.terrain_tile };
+    let world_name = world.index.worldspaces[&world.world].edid.clone().unwrap_or_default();
+    let cache = fnv_install::EngineHome::default_root().map(|root| {
+        let (key, manifest) = lodgen::cache_key(&params, &world_name, &args.data, &args.plugins);
+        let dir = fnv_install::EngineHome::new(root).cache().join("lod").join(world_name.to_ascii_lowercase()).join(key);
+        info!("generated LOD cache: {}", dir.display());
+        lodgen::GenCache { dir, manifest, game: fnv_install::GameInstall::open(&args.data).ok() }
+    });
+    if cache.is_none() {
+        warn!("no NVForever home folder: generated LOD is not cached");
+    }
+    Ok(lodgen::GenJob {
+        lo: world.lo,
+        schema: world.schema,
+        index: world.index,
+        world: world.world,
+        data: game.clone(),
+        params,
+        cache,
+        mips: Default::default(),
+    })
 }
 
 fn main() -> AppExit {
@@ -248,6 +295,14 @@ fn main() -> AppExit {
         pitch_deg: args.pitch,
         auto_walk: args.auto_walk,
     });
+    let lodgen = if args.no_lod || args.no_lodgen || interior.is_some() {
+        None
+    } else {
+        match lodgen_job(&args, &world, &game) {
+            Ok(job) => Some(lod::GenState::new(job, args.lodgen_radius.clamp(0, args.lod_radius))),
+            Err(e) => return fail(e),
+        }
+    };
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -273,7 +328,7 @@ fn main() -> AppExit {
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
     .insert_resource(fly::AutoFly(args.auto_fly))
-    .insert_resource(lod::LodState::new(&world, args.lod_radius, !args.no_lod && interior.is_none()))
+    .insert_resource(lod::LodState::new(&world, args.lod_radius, !args.no_lod && interior.is_none(), lodgen))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
     .insert_resource(Streamer {
@@ -312,12 +367,14 @@ fn main() -> AppExit {
         app.add_systems(Update, screenshot_and_exit);
     }
     if let Some(secs) = args.run_seconds {
-        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, mut commands: Commands, mut t: Local<f32>| {
-            *t += time.delta_secs();
-            if *t >= secs {
+        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, lod: Res<lod::LodState>, mut commands: Commands, mut t: Local<(f32, u32)>| {
+            t.0 += time.delta_secs();
+            t.1 += 1;
+            if t.0 >= secs {
+                let (baked, cached) = lod.gen.as_ref().map_or((0, 0), |g| (g.baked, g.cached));
                 info!(
-                    "run finished after {:.1}s: {} cells loaded in total, {} loaded now",
-                    *t, streamer.stats.cells_loaded, streamer.loaded.len()
+                    "run finished after {:.1}s: {} cells loaded in total, {} loaded now, {} frames ({:.1} per second), generated LOD chunks {} baked, {} from the cache",
+                    t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached
                 );
                 commands.write_message(AppExit::Success);
             }
@@ -393,12 +450,12 @@ fn overlay(
     let c = fnv_world::cell_of(g.x, g.y);
     let s = &streamer.stats;
     t.0 = format!(
-        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {} (animated {})  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  LOD chunks {} blocks {}  lights {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
+        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {} (animated {})  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  LOD chunks {} generated {} (baking {}) blocks {}  lights {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
         g.x, g.y, g.z, c.0, c.1,
         streamer.loaded.len(), s.cells_loaded, s.load_ms,
         s.refs_drawn, s.refs_animated, s.refs_skipped_disabled, s.refs_skipped_type, s.refs_speedtree, s.refs_no_model, s.shapes,
         models.len(), models.failures.len(), textures.failures.len(), terrain.layers, terrain.quadrants_without_base,
-        s.water_planes, lod.chunks, lod.blocks, s.lights, sky.describe(),
+        s.water_planes, lod.chunks, lod.generated, lod.gen_pending(), lod.blocks, s.lights, sky.describe(),
     );
 }
 
@@ -488,13 +545,14 @@ fn screenshot_and_exit(
     models: Res<ModelCache>,
     textures: Res<TextureCache>,
     sky: Res<sky::SkyState>,
+    lod: Res<lod::LodState>,
     mut commands: Commands,
 ) {
     *frames += 1;
     *elapsed += time.delta_secs();
     let side = (2 * streamer.radius + 1) as usize;
     let want = if streamer.interior.is_some() { 1 } else { side * side };
-    if ready_at.is_none() && streamer.loaded.len() >= want {
+    if ready_at.is_none() && streamer.loaded.len() >= want && lod.gen_pending() == 0 {
         *ready_at = Some(*elapsed);
         let s = &streamer.stats;
         info!(

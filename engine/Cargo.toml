@@ -21,9 +21,12 @@ fnv-world = { path = "../crates/fnv-world" }
 fnv-sim = { path = "../crates/fnv-sim" }
 fnv-phys = { path = "../crates/fnv-phys" }
 fnv-collide = { path = "../crates/fnv-collide" }
+fnv-install = { path = "../crates/fnv-install" }
 nvf-assets = { path = "nvf-assets" }
 nvf-play = { path = "nvf-play" }
 clap = { version = "4", features = ["derive", "env"] }
+# BC1 encode/decode on the CPU (generated LOD, docs/design/generated-lod.md); MIT.
+texpresso = { version = "2.0.2", default-features = false }
 
 # Bevy is slow unoptimised; optimise dependencies even in dev builds.
 [profile.dev]
