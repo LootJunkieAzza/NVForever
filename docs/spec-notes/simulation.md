@@ -53,6 +53,9 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   It is the "Persistent" flag [documented: UESP].
 - Record flag **0x800** ("Initially Disabled" [documented: UESP]) is set on 4,723
   references [observed]. The simulation starts such references disabled [hypothesis].
+  A disabled reference is not drawn, has no collision and cannot be interacted with by
+  the player [observed by the owner in game, 2026-10-08] (scripted `Activate` on a disabled item still
+  gives the item, §5).
 - The ten masters place 427,022 references: 419,341 REFR, 3,942 ACHR, 3,739 ACRE
   [observed]. 1,492 REFR name base FormIDs that no plugin defines, all in the
   engine-reserved range below 0x800: 0x20 (1,228; every one carries portal data XPOD)
@@ -80,7 +83,10 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   items`). CCRD also holds two INTV u32, suit then card value (xEdit enums: suit 1 Hearts,
   2 Spades, 3 Diamonds, 4 Clubs, 5 Joker; value 1 Ace, 2–10, 12 Jack, 13 Queen, 14 King,
   15 Joker) [documented: xEdit]; `CardClubs2Tops` ("2 of Clubs") has INTV 4 then 2
-  [observed], consistent with that reading. Schema layouts for IMOD, CHIP, CCRD, CMNY were
+  [observed], consistent with that reading. Notes, casino chips, caravan money and
+  caravan cards weigh nothing in the inventory, like caps [observed by the owner in game, 2026-10-08];
+  carried-weight totals count them as 0 (their `sim items` weight stays `null`, as the
+  records have no field). Schema layouts for IMOD, CHIP, CCRD, CMNY were
   added 2026-10-07 and decode every instance in the ten masters (`fnvtool esm coverage`)
   [observed]. Five AMMO records, all flagged Non-Playable creature ammunition
   (e.g. `AmmoBloatflyDart`), have no DAT2 and therefore no weight [observed].
@@ -90,7 +96,9 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   **105 entries have count 0** (none negative; none on containers, so all on NPC_/CREA,
   e.g. the Vault 21 gamblers' templates); 6 entries name non-items (three STAT/MSTT in the
   test container `TestQAMisc`, three uncarriable LIGH on the Gomorrah bouncers).
-  The simulation gives nothing for a count-0 or non-item entry [hypothesis].
+  The simulation gives nothing for a count-0 or non-item entry: NPCs with count-0
+  entries carry nothing for them [observed by the owner in game, 2026-10-08]; non-item entries stay
+  [hypothesis].
 - **CONT DATA**: flags u8 (bit 1 "Respawns"), weight f32 [documented: xEdit]. 3,417
   container bases; 177 respawn; 845 have no CNTO [observed].
 - **Respawn** [hypothesis: cell reset as commonly described for this engine generation]:
@@ -276,7 +284,8 @@ nesting, levels between entries' levels with the all-levels flag set.
   open/closed; NPC/creature → dialogue (Layer 6); activator, talking activator,
   furniture → no default effect beyond the script event. Locked doors and containers
   refuse activation unless the activator carries the key, in which case they unlock
-  first. A base form's script (SCRI) receives OnActivate; whether an OnActivate block
+  first (a locked container with its key in the inventory opens directly, no prompt
+  [observed by the owner in game, 2026-10-08]). A base form's script (SCRI) receives OnActivate; whether an OnActivate block
   suppresses the default is Layer 5 [hypothesis].
 - **In game** [observed 2026-10-07, `L4.sim.trace.goodsprings_doc_mitchell`, scripted
   `Activate` with the player as activator, Doc Mitchell's house]: three stimpak and five

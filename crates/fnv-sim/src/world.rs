@@ -738,8 +738,9 @@ impl<'a> World<'a> {
             self.get(target)?.deleted = true;
             return Ok(done(Outcome::PickedUp { item: t.base, count: t.count, owner: t.extra.owner }, None));
         }
-        // Other types: a taken or disabled reference does nothing. [hypothesis: doors,
-        // containers and activators on disabled references are not captured yet]
+        // Other types: a taken or disabled reference does nothing. [observed by the
+        // owner in game, 2026-10-08: disabled references cannot be interacted with; not
+        // captured by script for doors, containers and activators]
         if t.deleted || !self.is_enabled(target)? {
             return Ok(done(Outcome::Disabled, None));
         }
@@ -748,8 +749,9 @@ impl<'a> World<'a> {
             return Ok(done(Outcome::NoDefault { sig: String::from_utf8_lossy(&sig).into_owned() }, None));
         };
         // Locks apply to doors and containers. A locked target opens if the actor
-        // carries its key. [hypothesis: matches the GECK wiki's description of
-        // keys; lockpicking is Layer 6]
+        // carries its key, without a prompt. [observed by the owner in game,
+        // 2026-10-08, for a container; doors per the GECK wiki's description of keys;
+        // lockpicking is Layer 6]
         let mut unlocked_with = None;
         if matches!(base.data, BaseData::Door(_) | BaseData::Container(_)) {
             if let Some(l) = t.lock.filter(|l| l.locked) {

@@ -67,6 +67,8 @@ fn resolve_at(
     out: &mut Vec<Entry>,
     depth: u32,
 ) -> Result<(), LeveledError> {
+    // A count-0 carried-item entry gives nothing [observed by the owner in game,
+    // 2026-10-08: NPCs with such entries carry nothing for them].
     if count <= 0 {
         return Ok(());
     }

@@ -113,20 +113,25 @@ Portal, Acoustic Space, Actor Zone, Projectile Zone, Cloud/Gas Trap, Avoid Box, 
 Sphere, Door Detection, the pick layers, Spell Explosion, Debris Small and Shell Casing
 (`layers::character_ignores`) [hypothesis: chosen from the names; capture question §6].
 
-`fnvtool phys cell` skips deleted references and initially disabled ones [hypothesis:
-disabled references have no collision until enabled; the enable state belongs to
-`fnv-sim`, which will add and remove bodies as references change state]. Models come from
+`fnvtool phys cell` skips deleted references, initially disabled ones and ones disabled
+through their enable parent (the renderer's rule, `engine/nvforever/src/world.rs`):
+disabled references are not drawn and have no collision [observed by the owner in game, 2026-10-08]. The
+enable state at run time belongs to `fnv-sim`, which will add and remove bodies as
+references change state. Models come from
 the game's archives and loose files (`fnv_vfs`, default archive order) and are converted
 once per model; SpeedTree models (`.spt`, trees) hold no Havok blocks and get no collision
 [observed: they are not NIF files; whether trees block the player in-game is a capture
 question, §6].
 
 On the owner's install, Goodsprings with the cells around it (radius 1): 1,136 placed
-references; 849 get collision (1,430 colliders from 167 of the 194 distinct models, none
+references; 839 get collision (1,369 colliders from 167 of the 194 distinct models, none
 unreadable), 211 use a model without collision objects, 43 are trees, 25 have no model, 8
-are initially disabled, 8 CollisionMarker primitives [observed: `fnvtool phys cell --cell
-Goodsprings`]. 64 probe characters dropped on an 8 × 8 grid over the cell all come to
-rest, 21 of them on references (rocks, buildings), the others on terrain [observed].
+are initially disabled, 10 are disabled through their enable parent, 8 CollisionMarker
+primitives [observed: `fnvtool phys cell --cell Goodsprings`, 2026-10-08; before the
+enable-parent rule the 10 were included, 849 references and 1,430 colliders]. 64 probe
+characters dropped on an 8 × 8 grid over the cell all come to rest, 21 of them on
+references (rocks, buildings), the others on terrain [observed, before the enable-parent
+rule].
 
 ### 4.1 Placed collision primitives (CollisionMarker)
 
@@ -224,8 +229,15 @@ which is not read (charter). Questions for the owner:
 
 1. Can you record the measurements in the table on a pinned save (console `getpos` /
    `setpos`), or should an xNVSE logging plugin sample the player's position per frame?
-2. Is the player's `GetPos Z` the feet (bottom of the capsule)? We assume so.
-3. Do disabled references block movement?
+2. ~~Is the player's `GetPos Z` the feet (bottom of the capsule)?~~ Yes [observed by the owner in game, 2026-10-08]:
+   in Doc Mitchell's house the lowest object, a rug, has `GetPos Z` 7360 and the player
+   standing on it 7361.05 (a first aid box on the lowest shelf 7389.94); a capsule centre
+   would be about half the capsule height higher.
+3. ~~Do disabled references block movement?~~ No: they are not drawn, have no collision
+   and no interaction [observed by the owner in game, 2026-10-08] (§4).
+4. **Collision layer matrix** (open): which layers block the player and which block
+   dropped items. Proposed capture, backlog item B11 (layer4-captures.md): a scripted drop
+   test, no one at the controls.
 
 ### 6.1 The player in the game (`engine/nvf-play`, Layer 4 Part P)
 
@@ -303,13 +315,14 @@ coordinates need `--drop=-1,2` or `--x=-18`.
 ```
 
 (The example above predates mesh collision; with it, Goodsprings counts
-`"with_collision": 849, "colliders": 1430` and no `awaiting_collision`, §4.) Without
+`"with_collision": 839, "colliders": 1369`, `"disabled_by_parent": 10` and no `awaiting_collision`, §4.) Without
 `--drop`, an exterior probe falls at the cell's centre and an interior one at the middle of
 the placements that have collision; ground rays span the loaded terrain and placements
 with 1,000 units to spare.
 
 `refs.counts` keys appear only when non-zero: `placed`, `unreadable`, `deleted`,
-`initially_disabled`, `no_base`, `no_model`, `collision_primitive` (CollisionMarker
+`initially_disabled`, `disabled_by_parent` (enabled itself but disabled at the start by
+its enable-parent chain, §4), `no_base`, `no_model`, `collision_primitive` (CollisionMarker
 primitives added), `bad_primitive`, `speedtree`, `model_without_collision`,
 `model_unreadable`, `awaiting_collision` (meshes not loaded), `with_collision`
 (references added to the world), `colliders` (their collider count) and `object_errors`.
