@@ -25,7 +25,18 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 Substitute checks (xnvse-capture.md §7): the same scenarios regenerated with
 `--time hour|timescale` or `--settle auto` (job names `cmp_<scenario>_<mode>`, kept with
 the private jobs) and compared with the golden made by hand:
-`capture_steps.py compare <golden> <substitute trace>`.
+`capture_steps.py compare <golden> <substitute trace>`. Done 2026-10-08: restock (hour,
+timescale), weight and time (hour, timescale) and Doc Mitchell (`--settle auto`) all agree
+with their goldens (xnvse-capture.md §7), so these scenarios can be recaptured unattended:
+
+```
+python tools/capture/capture_steps.py actions parity-lab/inputs/layer4/<name>.actions.json --data "<Data>" --time hour --settle auto [--confirm-after N] --start "<save>" -o <dir>/<name>.steps.json
+python tools/capture/capture_run.py --game "<FNV folder>" --save <save> --kill-on-timeout --trace-dir <dir> <dir>/<name>.steps.json
+```
+Saves: `nvftest` (inside the Goodsprings gas station) for the restock scenario, `nvfdoc`
+(Doc Mitchell's house, items in place) for Doc Mitchell and weight and time. Write new
+traces somewhere other than the goldens directory and compare them; never overwrite a
+golden.
 
 Regenerating a scenario job (Editor IDs resolved from the masters, read-only):
 
@@ -52,7 +63,7 @@ directory's `jobs\`). Results are in the notes named.
 | `aa_respawn_delay` | `iHoursToRespawnCell`; 1/6/12 h away | 72 in game; merchant box separate rule; simulation.md §3 |
 | `aa_vendor_restock` | merchant box: no-leave 24 h, 5 h across midnight, 10 h | restock without leaving; not midnight; simulation.md §3 |
 | `aa_auto_trial` | read-only; first unattended run (`capture_run.py`): menu load, auto start, quit | works (second try; the first hung the game, fixed in the plugin); xnvse-capture.md §6 |
-| `aa_time_substitutes` | how each scripted substitute for the Wait menu moves the calendar | not run yet (xnvse-capture.md §7) |
+| `aa_time_substitutes` | how each scripted substitute for the Wait menu moves the calendar | `GameHour` past 24 and TimeScale 3600 both carry the calendar; `GameDaysPassed` alone does not; xnvse-capture.md §7 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)
