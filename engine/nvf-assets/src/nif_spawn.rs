@@ -74,7 +74,7 @@ pub(crate) fn affine(t: &NifTransform) -> Affine3A {
 /// Rendering-relevant properties accumulated from an object and its ancestors.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Props {
-    textures: Vec<String>,
+    pub(crate) textures: Vec<String>,
     alpha: Option<(i64, i64)>,
     material_alpha: Option<f32>,
     emissive: Option<[f32; 3]>,
