@@ -625,6 +625,68 @@ and in a walking jump.
   controller comes to rest on thin, steep branch triangles and their edges, where rapier's
   controller slides off them; open.
 
+### 6.5 Ladders
+
+New Vegas has no climbable ladders: the only ladder-like uses are door-style transitions
+that teleport the player up or down [observed by the owner in game, 2026-10-08]. They are
+load doors (or activators with a teleport) and go through the existing door/teleport path
+(`Travel`, the arrival rule of §6.2); the controller has no ladder mode.
+
+### 6.6 Swimming
+
+**Water in the data** [observed: the ten masters, read-only, 2026-10-08]. A water surface
+belongs to a cell with CELL DATA bit 1 ("has water"): at its XCLW height, or at the
+worldspace's default (WRLD DNAM second float) when XCLW is absent or the 3.4e38 sentinel
+(world.md §6; the fallback is [hypothesis] there and here). WastelandNV's default is
+−2300 (DNAM −2500 land, −2300 water); 44,025 exterior cells of all worldspaces carry the
+flag, most with the surface far below their land. In WastelandNV 767 cells have land below
+their surface: 421 at −2300 (the Colorado River below Hoover Dam, Cottonwood Cove), 330 at
+2600 (Lake Mead: Boulder Beach, Callville Bay, the Fisherman's Shack), Lake Las Vegas
+(3000, 4 cells), the Devil's Throat (2290), the Gypsum train yard (4050), Camp Forlorn Hope
+(5360) and five single cells (4100 to 7800). Interior cells with the flag and a real XCLW:
+47, e.g. `SLGoodspringsCaveINT` (204), `Vault22b` (7320.1), the Old Vegas sewers
+(`OVWestSewers01` 5360 …), `NVDLC03SLH2OINT` (−232); others store 14095.9 or heights
+above their floors whose meaning is not checked.
+
+Chosen for captures: **Boulder Beach** on Lake Mead, `BoulderBeachCampground`
+(WastelandNV (13, 9), surface 2600 in XCLW of the shore cells). From the shore point
+(56992, 37536), LAND 12 above the surface, the bed falls east at about 12°: 44 below the
+surface 256 units out, 140 at 768, 326 at 1536, about 800 at the deep point (59500, 38500);
+`fnvtool phys walk` east from the shore touches only terrain for 1,735 units.
+
+Settings in the masters whose names mention water or swimming [observed: GMST records]:
+`fJumpSwimmingMult` 2, `fSwimRadiationDamageMult` 0.1, `fExplosionWaterRadiusRatio` 0.1;
+no breath or drowning setting is stored in the masters (any would be an executable
+default, not read). Script functions: `IsSwimming`, `IsInDangerousWater` [documented:
+script-functions-catalogue.md]; no function to read breath exists without JIP (not
+installed).
+
+**Predictions (written 2026-10-08, before the captures `sw_trial` and `sw_fall_breath`,
+`tools/capture/jobs/make_swim_jobs.py`).** Game, all [hypothesis], from nothing but a
+human of 128 units in water:
+
+- (a) Walking in, `IsSwimming` turns 1 when the feet are about 90 units below the surface
+  (water at the chest, 0.7 of the capsule) and the feet stop following the bed; walking
+  out it turns 0 at the same depth (no hysteresis).
+- (b) Floating, the feet stay about 90 below the surface (eye just above it), within a
+  unit, no bobbing.
+- (c) Swimming is slower than running: forward about 100–150 units/s with Always Run, the
+  Run key (walk) slower, backwards slower than forwards, sideways like forwards.
+- (d) Forward with the view pitched moves along the view (vertical speed = speed ×
+  sin(pitch)); pitch alone does nothing; released under water the player rises back to
+  the floating height; the Jump key at the surface does nothing or a small jump
+  (`fJumpSwimmingMult` 2 suggests a multiplier for jumping out of water).
+- (e) A fall into deep water stops in the water with no damage; the same falls onto land
+  cost health from 700 units up.
+- (f) Held under water with god mode off, health starts falling after some tens of
+  seconds (drowning).
+
+Candidate before this work (`fnv-phys` ignores layer 11 Water and has no water volumes):
+walking in, the character keeps walking along the bed and ends 780 loops later at about
+2380 (`phys walk` above: z falls 2617 → 2233 over 20.5 s); it never swims, floats or
+dives,
+and a fall into the lake ends on the bed.
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>
