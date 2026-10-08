@@ -112,8 +112,10 @@ What it does now:
   border triangles slope under the loaded terrain. Object blocks are drawn only over
   squares with no loaded cell. Interim rules, to compare with screenshots; small dark
   boxes on distant ridges (probably rock formations in the object LOD) to check.
-- SpeedTree trees (TREE): interim billboards, two crossed alpha-tested quads with the
-  tree's billboard texture at its BNAM size (world.md §2); full `.spt` geometry later.
+- SpeedTree trees (TREE): interim billboards, one upright alpha-tested quad with the
+  tree's billboard texture at its BNAM size (world.md §2), turned about the vertical axis
+  towards the camera every frame, normals up (lit like the ground); full `.spt` geometry
+  later. (Two fixed crossed quads showed an X from above and from most sides.)
 - Interiors: `--cell <interior Editor ID>` loads that one cell with its own lighting
   (XCLL merged with its lighting template, world.md §8) instead of sky, LOD and terrain;
   the camera starts at the middle of its references. Lights: every enabled LIGH

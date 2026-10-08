@@ -293,7 +293,7 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, world::stream, lod::update_lod, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, world::stream, world::face_billboards, lod::update_lod, overlay, keys).chain())
     .add_systems(Update, nvf_assets::anim_play::advance_instances)
     .add_systems(Update, timelapse.after(sky::update_sky));
     if let Some(data) = play {
