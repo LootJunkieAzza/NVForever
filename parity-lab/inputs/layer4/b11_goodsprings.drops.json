@@ -1,0 +1,329 @@
+{
+ "schema": "fnv.phys.drops/1",
+ "name": "b11_goodsprings",
+ "description": "B11 (docs/spec-notes/layer4-captures.md): the player dropped onto one or two references of each collision layer in and around Goodsprings, 200 units above the top a vertical ray finds at the reference's position (300 above a SpeedTree's base); does the layer stop the player, and at what height does it rest. Targets chosen 2026-10-08 with `fnvtool phys cell --cell Goodsprings --list-refs`.",
+ "seconds": 10,
+ "drops": [
+  {
+   "label": "collision_marker_a",
+   "at": [
+    -75128.0,
+    -3520.0,
+    8573.0
+   ],
+   "target": {
+    "ref": "0x0010AE97",
+    "base": "CollisionMarker",
+    "layers": [
+     "Unidentified"
+    ],
+    "top_z": 8373.0
+   }
+  },
+  {
+   "label": "collision_marker_b",
+   "at": [
+    -72145.0,
+    705.8,
+    8771.0
+   ],
+   "target": {
+    "ref": "0x0011E6E6",
+    "base": "CollisionMarker",
+    "layers": [
+     "Unidentified"
+    ],
+    "top_z": 8571.05
+   }
+  },
+  {
+   "label": "collision_marker_c",
+   "at": [
+    -69349.5,
+    7330.3,
+    8951.0
+   ],
+   "target": {
+    "ref": "0x00176AD0",
+    "base": "CollisionMarker",
+    "layers": [
+     "Unidentified"
+    ],
+    "top_z": 8750.99
+   }
+  },
+  {
+   "label": "static_fence_rail",
+   "at": [
+    -70416.0,
+    -1240.0,
+    8414.4
+   ],
+   "target": {
+    "ref": "0x0017B647",
+    "base": "NVFencePickBurntMid01",
+    "layers": [
+     "Static"
+    ],
+    "top_z": 8214.4
+   }
+  },
+  {
+   "label": "static_mailbox",
+   "at": [
+    -72194.7,
+    1302.6,
+    8652.8
+   ],
+   "target": {
+    "ref": "0x00107583",
+    "base": "MailboxDestroyed",
+    "layers": [
+     "AnimStatic",
+     "Static"
+    ],
+    "top_z": 8452.8
+   }
+  },
+  {
+   "label": "animstatic_gate",
+   "at": [
+    -73007.2,
+    1335.5,
+    8969.4
+   ],
+   "target": {
+    "ref": "0x0010757E",
+    "base": "NVFencePickBurntGate",
+    "layers": [
+     "AnimStatic",
+     "Static"
+    ],
+    "top_z": 8769.39
+   }
+  },
+  {
+   "label": "havok_tree_a",
+   "at": [
+    -74300.2,
+    -1166.8,
+    8756.5
+   ],
+   "target": {
+    "ref": "0x001076CC",
+    "base": "TreeHardwoodPebblesDirt01",
+    "layers": [
+     "Trees"
+    ],
+    "top_z": 8556.49
+   }
+  },
+  {
+   "label": "havok_tree_b",
+   "at": [
+    -67447.9,
+    6572.0,
+    8987.9
+   ],
+   "target": {
+    "ref": "0x00107504",
+    "base": "TreeHardwoodPebblesDirt01",
+    "layers": [
+     "Trees"
+    ],
+    "top_z": 8787.87
+   }
+  },
+  {
+   "label": "props_crate",
+   "at": [
+    -69523.7,
+    2820.8,
+    8616.0
+   ],
+   "target": {
+    "ref": "0x0010B8D0",
+    "base": "NVGSCrateContainer",
+    "layers": [
+     "Props"
+    ],
+    "top_z": 8415.96
+   }
+  },
+  {
+   "label": "props_barrel",
+   "at": [
+    -68969.3,
+    4479.7,
+    8614.5
+   ],
+   "target": {
+    "ref": "0x0016CCF5",
+    "base": "NVWoodBarrel",
+    "layers": [
+     "Props"
+    ],
+    "top_z": 8414.49
+   }
+  },
+  {
+   "label": "terrain_rock_a",
+   "at": [
+    -69877.6,
+    718.6,
+    8523.0
+   ],
+   "target": {
+    "ref": "0x001075A0",
+    "base": "NVNRockCanyon08",
+    "layers": [
+     "Terrain"
+    ],
+    "top_z": 8323.01
+   }
+  },
+  {
+   "label": "terrain_rock_b",
+   "at": [
+    -69656.2,
+    1618.6,
+    8686.4
+   ],
+   "target": {
+    "ref": "0x00107587",
+    "base": "NVNRockCanyon08",
+    "layers": [
+     "Terrain"
+    ],
+    "top_z": 8486.44
+   }
+  },
+  {
+   "label": "noncollidable_agave",
+   "at": [
+    -74480.4,
+    1261.9,
+    8904.2
+   ],
+   "target": {
+    "ref": "0x0010B1C5",
+    "base": "nevadaagave02",
+    "layers": [
+     "Non Collidable"
+    ],
+    "top_z": 8704.21
+   }
+  },
+  {
+   "label": "noncollidable_maize",
+   "at": [
+    -74593.0,
+    1416.8,
+    8989.2
+   ],
+   "target": {
+    "ref": "0x0010B1BB",
+    "base": "MaizePickable",
+    "layers": [
+     "Non Collidable"
+    ],
+    "top_z": 8789.22
+   }
+  },
+  {
+   "label": "noncollidable_agave_pickable",
+   "at": [
+    -67457.0,
+    7781.1,
+    8748.0
+   ],
+   "target": {
+    "ref": "0x0016AF20",
+    "base": "NevadaAgavePickable",
+    "layers": [
+     "Non Collidable"
+    ],
+    "top_z": 8548.04
+   }
+  },
+  {
+   "label": "noncollidable_maize_group",
+   "at": [
+    -68442.9,
+    6297.6,
+    8766.7
+   ],
+   "target": {
+    "ref": "0x0010638F",
+    "base": "MaizeWitheredGroup2b",
+    "layers": [
+     "Non Collidable"
+    ],
+    "top_z": 8566.68
+   }
+  },
+  {
+   "label": "transparent_small_fence_end",
+   "at": [
+    -76120.0,
+    3376.0,
+    9180.3
+   ],
+   "target": {
+    "ref": "0x001075CC",
+    "base": "CLFenceEndLT01",
+    "layers": [
+     "Transparent Small"
+    ],
+    "top_z": 8980.35
+   }
+  },
+  {
+   "label": "transparent_small_yucca",
+   "at": [
+    -71351.3,
+    997.4,
+    8603.0
+   ],
+   "target": {
+    "ref": "0x0010A17D",
+    "base": "YuccaCNV",
+    "layers": [
+     "Transparent Small"
+    ],
+    "top_z": 8403.0
+   }
+  },
+  {
+   "label": "speedtree_shrub",
+   "at": [
+    -68593.0,
+    3398.2,
+    8639.7
+   ],
+   "target": {
+    "ref": "0x00106357",
+    "base": "WastelandShrub01",
+    "layers": [
+     "(SpeedTree, no Havok blocks)"
+    ],
+    "base_z": 8339.69
+   }
+  },
+  {
+   "label": "control_open_ground",
+   "at": [
+    -72400.0,
+    4100.0,
+    8552.0
+   ],
+   "target": {
+    "ref": null,
+    "base": "LAND",
+    "layers": [
+     "terrain"
+    ]
+   }
+  }
+ ]
+}

@@ -1290,6 +1290,255 @@
     "terrain",
     "M4"
    ]
+  },
+  {
+   "id": "L4.phys.drops.b11_goodsprings",
+   "layer": 4,
+   "description": "B11 collision layer matrix, player row (docs/spec-notes/layer4-captures.md): the player dropped onto references of each collision layer around Goodsprings (parity-lab/inputs/layer4/b11_goodsprings.drops.json); final feet against an unattended in-game capture (job mv_b11_drops, tools/capture/capture_moves.py). Tolerance 8 units: SetPos drops in game came to rest 0-7.5 units above the contact shell (physics.md 6.2, dt_rest_detail); a layer that does or does not stop the player changes the height by 16 units or more.",
+   "oracle": {
+    "golden": "phys/b11_goodsprings.drops.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "cell",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--cell",
+     "Goodsprings",
+     "--drops-file",
+     "{lab_root}/inputs/layer4/b11_goodsprings.drops.json"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 8.0
+   },
+   "tags": [
+    "physics",
+    "collision",
+    "layers",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.phys.walk.fence_slide",
+   "layer": 4,
+   "description": "Movement trace, running at 45 degrees into a fence and sliding along it: feet every 0.25 s after the run starts (parity-lab/inputs/layer4/move_fence_slide.walk.json, run speed 344 units/s observed in the mv_trial capture) against an unattended in-game capture with held keys (job mv_traces, tools/capture/capture_moves.py; positions interpolated in time from the movement onset). Tolerance 10 units: one game loop of onset uncertainty is 5.7 units at run speed and positions varied up to 3.2 units around a constant speed (physics.md 6.3).",
+   "oracle": {
+    "golden": "phys/move_fence_slide.walk.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "walk",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV",
+     "--script",
+     "{lab_root}/inputs/layer4/move_fence_slide.walk.json",
+     "--every",
+     "1000"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 10.0
+   },
+   "tags": [
+    "physics",
+    "movement",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.phys.walk.fence_stop",
+   "layer": 4,
+   "description": "Movement trace, running straight into a fence (stop distance: capsule radius and contact gaps): feet every 0.25 s after the run starts (parity-lab/inputs/layer4/move_fence_stop.walk.json, run speed 344 units/s observed in the mv_trial capture) against an unattended in-game capture with held keys (job mv_traces, tools/capture/capture_moves.py; positions interpolated in time from the movement onset). Tolerance 10 units: one game loop of onset uncertainty is 5.7 units at run speed and positions varied up to 3.2 units around a constant speed (physics.md 6.3).",
+   "oracle": {
+    "golden": "phys/move_fence_stop.walk.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "walk",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV",
+     "--script",
+     "{lab_root}/inputs/layer4/move_fence_stop.walk.json",
+     "--every",
+     "1000"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 10.0
+   },
+   "tags": [
+    "physics",
+    "movement",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.phys.walk.running_jump",
+   "layer": 4,
+   "description": "Movement trace, a running jump on flat ground: feet every 0.25 s after the run starts (parity-lab/inputs/layer4/move_running_jump.walk.json, run speed 344 units/s observed in the mv_trial capture) against an unattended in-game capture with held keys (job mv_traces, tools/capture/capture_moves.py; positions interpolated in time from the movement onset). Tolerance 10 units: one game loop of onset uncertainty is 5.7 units at run speed and positions varied up to 3.2 units around a constant speed (physics.md 6.3).",
+   "oracle": {
+    "golden": "phys/move_running_jump.walk.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "walk",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV",
+     "--script",
+     "{lab_root}/inputs/layer4/move_running_jump.walk.json",
+     "--every",
+     "1000"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 10.0
+   },
+   "tags": [
+    "physics",
+    "movement",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.phys.walk.porch_steps",
+   "layer": 4,
+   "description": "Movement trace, running up Doc Mitchell's porch steps into the door: feet every 0.25 s after the run starts (parity-lab/inputs/layer4/move_porch_steps.walk.json, run speed 344 units/s observed in the mv_trial capture) against an unattended in-game capture with held keys (job mv_traces, tools/capture/capture_moves.py; positions interpolated in time from the movement onset). Tolerance 10 units: one game loop of onset uncertainty is 5.7 units at run speed and positions varied up to 3.2 units around a constant speed (physics.md 6.3).",
+   "oracle": {
+    "golden": "phys/move_porch_steps.walk.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "phys",
+     "walk",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--world",
+     "WastelandNV",
+     "--script",
+     "{lab_root}/inputs/layer4/move_porch_steps.walk.json",
+     "--every",
+     "1000"
+    ],
+    "timeout_s": 300
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "feet"
+    ],
+    "abs_tol": 10.0
+   },
+   "tags": [
+    "physics",
+    "movement",
+    "M4",
+    "needs-local-capture"
+   ]
   }
  ]
 }

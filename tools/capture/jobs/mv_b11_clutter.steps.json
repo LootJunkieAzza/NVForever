@@ -1,0 +1,267 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "mv_b11_clutter",
+ "title": "B11 clutter row: a bottle dropped on each layer (about 1 min, no input)",
+ "start": "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -72145\nrR.SetPos Y 705.8\nrR.SetPos Z 8771\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle collision_marker_b",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -72194.7\nrR.SetPos Y 1302.6\nrR.SetPos Z 8652.8\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle static_mailbox",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -74300.2\nrR.SetPos Y -1166.8\nrR.SetPos Z 8756.5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle havok_tree_a",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -69523.7\nrR.SetPos Y 2820.8\nrR.SetPos Z 8616\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle props_crate",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -69877.6\nrR.SetPos Y 718.6\nrR.SetPos Z 8523\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle terrain_rock_a",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -74480.4\nrR.SetPos Y 1261.9\nrR.SetPos Z 8904.2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle noncollidable_agave",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -74593\nrR.SetPos Y 1416.8\nrR.SetPos Z 8989.2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle noncollidable_maize",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -68442.9\nrR.SetPos Y 6297.6\nrR.SetPos Z 8766.7\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle noncollidable_maize_group",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -71351.3\nrR.SetPos Y 997.4\nrR.SetPos Z 8603\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle transparent_small_yucca",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -68593\nrR.SetPos Y 3398.2\nrR.SetPos Z 8639.7\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle speedtree_shrub",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -72400\nrR.SetPos Y 4100\nrR.SetPos Z 8552\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  let fX := rB.GetPos X\n  let fY := rB.GetPos Y\n  let fZ := rB.GetPos Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "bottle control_open_ground",
+   "field": "pos"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rB\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rB := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rB\n  rB.Disable\n  rB.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  }
+ ]
+}
