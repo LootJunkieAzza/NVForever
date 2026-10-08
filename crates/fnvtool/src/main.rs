@@ -3,10 +3,12 @@
 //! Exit codes: 0 success, 1 the input could not be processed, 2 usage error.
 
 mod bsa_cmd;
+mod collide_cmd;
 mod dds_cmd;
 mod esm_cmd;
 mod install_cmd;
 mod nif_cmd;
+mod phys_cmd;
 mod sim_cmd;
 mod source;
 mod world_cmd;
@@ -54,9 +56,121 @@ enum Cmd {
     /// Worldspaces, cells, placed references and landscape across a load order.
     #[command(subcommand)]
     World(WorldCmd),
+    /// Physics world built from the game data: terrain, collision, probe characters.
+    #[command(subcommand)]
+    Phys(PhysCmd),
+    /// Layer 4 collision geometry: Havok collision blocks of meshes.
+    #[command(subcommand)]
+    Collide(CollideCmd),
     /// Layer 4 core simulation: forms, references, inventories, activation.
     #[command(subcommand)]
     Sim(SimCmd),
+}
+
+#[derive(Subcommand)]
+pub enum PhysCmd {
+    /// Build the static world around a cell and drop probe characters (fnv.phys.cell/1).
+    Cell {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Cell Editor ID or load-order FormID.
+        #[arg(long)]
+        cell: Option<String>,
+        /// Worldspace Editor ID or FormID, with --x and --y.
+        #[arg(long)]
+        world: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        x: Option<i32>,
+        #[arg(long, allow_hyphen_values = true)]
+        y: Option<i32>,
+        /// Exterior cells loaded around the centre cell, in grid squares.
+        #[arg(long, default_value_t = 1)]
+        radius: i32,
+        /// Drop point "x,y" or "x,y,z" in world units (repeatable; default: the centre
+        /// of the cell, 100 units above the ground).
+        #[arg(long = "drop", allow_hyphen_values = true)]
+        drops: Vec<String>,
+        /// Simulated seconds per probe.
+        #[arg(long, default_value_t = 5.0)]
+        seconds: f32,
+        /// NIF schema directory for mesh collision (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Leave mesh collision out (terrain and collision primitives only).
+        #[arg(long)]
+        no_meshes: bool,
+    },
+    /// A scripted character walk through the world built around its start, traced step
+    /// by step (fnv.phys.walk/1).
+    Walk {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Walk script (JSON, `fnv.phys.walk-script/1`, physics.md §7).
+        #[arg(long)]
+        script: PathBuf,
+        /// Interior cell to walk in (Editor ID or FormID).
+        #[arg(long)]
+        cell: Option<String>,
+        /// Worldspace to walk in (Editor ID or FormID); the cells around the start load.
+        #[arg(long)]
+        world: Option<String>,
+        /// Exterior cells loaded around the start cell, in grid squares.
+        #[arg(long, default_value_t = 1)]
+        radius: i32,
+        /// Record every Nth step (the last step is always recorded).
+        #[arg(long, default_value_t = 1)]
+        every: usize,
+        /// NIF schema directory for mesh collision (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Leave mesh collision out (terrain and collision primitives only).
+        #[arg(long)]
+        no_meshes: bool,
+    },
+    /// Terrain height under fixed sample points of every landscape cell of a worldspace,
+    /// found by vertical rays against the physics terrain (fnv.phys.heights/1).
+    Heights {
+        #[command(flatten)]
+        w: WorldArgs,
+        #[arg(long)]
+        world: String,
+    },
+    /// Vertical rays on every landscape cell of a worldspace against the analytic
+    /// terrain surface (fnv.phys.terrain/1).
+    Terrain {
+        #[command(flatten)]
+        w: WorldArgs,
+        #[arg(long)]
+        world: String,
+        /// Scattered sample points per cell (grid vertices and lines are added).
+        #[arg(long, default_value_t = 64)]
+        samples: usize,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CollideCmd {
+    /// Statistics of every collision object and the measured stored-to-game scale
+    /// (fnv.collide.survey/1).
+    Survey {
+        /// BSA archives, loose .nif files or directories.
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Only files whose path contains this text (case-insensitive).
+        #[arg(long)]
+        filter: Option<String>,
+    },    /// Every solid collision object of every mesh in an archive, in game units
+    /// (fnv.collide.objects/1).
+    Objects {
+        archive: PathBuf,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Only files whose path contains this text (case-insensitive).
+        #[arg(long)]
+        filter: Option<String>,
+    },
 }
 
 #[derive(Args)]
@@ -374,6 +488,8 @@ fn main() -> ExitCode {
         Cmd::Nif(c) => nif_cmd::run(c),
         Cmd::Dds(c) => dds_cmd::run(c),
         Cmd::World(c) => world_cmd::run(c),
+        Cmd::Phys(c) => phys_cmd::run(c),
+        Cmd::Collide(c) => collide_cmd::run(c),
         Cmd::Sim(c) => sim_cmd::run(c),
     };
     match res {
