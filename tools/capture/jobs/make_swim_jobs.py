@@ -239,7 +239,9 @@ def heldout2():
 
 
 def h2o():
-    """Interior water (held out): drops in NVDLC03SLH2OINT after coc there."""
+    """Interior water (held out): drops in NVDLC03SLH2OINT after coc there. Historical:
+    the scenario was retired by the owner on 2026-10-09 (the drops carried the swimming
+    state from one to the next) and its input removed; `sw_h2o.steps.json` stays as run."""
     lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
     doc = cs.load_json(os.path.join(lab, "swim_h2o_drops.drops.json"))
     steps = list(PROTECT) + [{"console": f"coc {H2O_CELL}"}, {"until": cs.in_cell_until(H2O_CELL_ID, CTX), "max_frames": cs.DOOR_LOOPS},
@@ -320,22 +322,33 @@ GUARDIAN_CELL = "CampGuardianCaves"   # interior with placed water (z 6528) and 
 GUARDIAN_CELL_ID = "0x0013DD63"
 
 
-def guardian():
-    """Placed water, held out: drops in CampGuardianCaves, each after a fresh coc (so the
-    player is not swimming when placed; sw_h2o carried the swimming state from one drop to
-    the next, physics.md 6.6)."""
+def fresh_drops(job, cell, cell_id, input_name, title):
+    """Drops in an interior, each after a fresh coc (so the player is not swimming when
+    placed; sw_h2o carried the swimming state from one drop to the next, physics.md 6.6)."""
     lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
-    doc = cs.load_json(os.path.join(lab, "swim_guardian_drops.drops.json"))
+    doc = cs.load_json(os.path.join(lab, input_name))
     steps = list(PROTECT)
     for d in doc["drops"]:
-        steps += [{"console": f"coc {GUARDIAN_CELL}"}, {"until": cs.in_cell_until(GUARDIAN_CELL_ID, CTX), "max_frames": cs.DOOR_LOOPS},
+        steps += [{"console": f"coc {cell}"}, {"until": cs.in_cell_until(cell_id, CTX), "max_frames": cs.DOOR_LOOPS},
                   {"frames": cs.AFTER_DOOR_FRAMES}, {"console": "CloseAllMenus"}, {"frames": 60},
                   num("MenuMode", f"{d['label']} menumode", "value"), num("player.GetPos Z", f"{d['label']} before", "z")]
         steps += cm.drop_steps(dict(doc, drops=[d]))
-    j = cs.job("sw_guardian", "nvfdoc (Doc Mitchell's house); coc CampGuardianCaves before each drop (god mode, AI detection off).",
-               steps, cs.MASTERS)
-    j["title"] = "Placed water drops: swim_guardian_drops (no input needed)"
+    j = cs.job(job, f"nvfdoc (Doc Mitchell's house); coc {cell} before each drop (god mode, AI detection off).", steps, cs.MASTERS)
+    j["title"] = title
     return j
+
+
+def guardian():
+    """Placed water, held out: drops in CampGuardianCaves."""
+    return fresh_drops("sw_guardian", GUARDIAN_CELL, GUARDIAN_CELL_ID, "swim_guardian_drops.drops.json",
+                       "Placed water drops: swim_guardian_drops (no input needed)")
+
+
+def h2o_fresh():
+    """Placed water, held out: swim_h2o_fresh in NVDLC03SLH2OINT (replaces sw_h2o's
+    sequential drops; owner decision 2026-10-09)."""
+    return fresh_drops("sw_h2o_fresh", H2O_CELL, H2O_CELL_ID, "swim_h2o_fresh.drops.json",
+                       "Placed water drops: swim_h2o_fresh (no input needed)")
 
 
 def banks_rest(name="sw_banks_b", which=None):
@@ -421,8 +434,8 @@ def diag2():
 
 
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath(), breath(), heldout2(), h2o(), banks(), banks_rest(),
-              banks_rest("sw_banks_c", {"lm_16", "lm_45", "lm_49", "lm_58", "llv_25"}), guardian(), redesign()):
+    for j in (diag(), diag2(), trial(), fall_breath(), breath(), heldout2(), banks(), banks_rest(),
+              banks_rest("sw_banks_c", {"lm_16", "lm_45", "lm_49", "lm_58", "llv_25"}), guardian(), h2o_fresh(), redesign()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)
