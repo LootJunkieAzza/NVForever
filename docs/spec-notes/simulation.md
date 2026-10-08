@@ -255,9 +255,38 @@ consistent with three independent rolls), all-levels vs highest eligible level
 (`VFactionSquadStimpaks`: always 1 stimpak at player level 10, always 3 at level 30, in
 game and candidate), Use All (`VendorChestStimpaksBoomer`), a uniform pick of 18
 (`ClutterHouseholdJunkNV`). Console `AddItem` with a leveled list resolves it against
-the player's level [observed, same captures]. Not covered yet: LVLG globals, deep
-nesting, levels between entries' levels with the all-levels flag set.
-1. Roll 0–99; below chance none (or the LVLG global's value) yields nothing.
+the player's level [observed, same captures].
+
+Also **consistent with the game** for backlog B8 [observed in game, 2026-10-08,
+`L4.sim.leveled.b8`, `parity-lab/inputs/layer4/leveled_b8.cases.json`: 300 `AddItem`
+draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten cases]:
+- **LVLG replaces chance none, at the global's current value.** The 41 lists with LVLG
+  [observed] use `ScroungerOdds` (0x000645CD), `FortuneFinderOdds` (0x000645CC), both
+  authored 100 and 100 in the save, or one-list vendor globals. With the global set from
+  the console (`set ScroungerOdds to …`; read back unchanged before and after the
+  draws): `AmmoMissilelauncherScrounger` (LVLD 0) at 100 gave nothing in 300/300;
+  `Ammo20GaScrounger` (LVLD 100) at 25 gave the ammo in 238/300 (75 % expected);
+  `Ammo10mmScrounger` (LVLD 0, each item) ×4 at 50 gave 0–4 rounds 14/78/122/70/16
+  (binomial 4, ½: 19/75/113/75/19). So the global overrides LVLD in both directions
+  (not a maximum or minimum of the two), and a value set at run time counts. Not
+  covered: fractional or out-of-range values (the candidate truncates and clamps to
+  0–100 [hypothesis]).
+- **All levels, player level between entry levels:** `CapsFortuneFinder` (entries at
+  1–6, 8, 8, 9; global set to 0) at level 7 gave only the six entries of levels ≤ 6,
+  41–62 each; `VendorArmorRare75` (chance none 25, entries at 5, 5, 5, 7, 7, 12, 12) at
+  level 10 gave nothing 69 and the five entries of levels ≤ 7, 36–54 each.
+- **Level equal to an entry's level is eligible:** `VendorFlakShrapnelMiniNukes`
+  (entries ×1 at 1, ×2 at 5, ×3 at 8, ×3 at 11) at level 8: ×1/×2/×3 = 100/97/103.
+- **Count without "each item":** `NVDLC01ChipsChangeFortuneFinder` ×2 (all levels, global
+  40) at level 12: nothing 110, 40/50/60 chips 66/71/53 (twice the entries of levels 1, 5,
+  10); no mixed sums, so one roll times the count.
+- **Nesting:** `VendorBasicMedicalSupplies100` (3 deep; sublists with entries at levels 1
+  and 2/3; an entry ×5 naming the "each item" list `LootChemsStimpak75`, chance none 25)
+  at level 2 gave 2–5 stimpaks as well as 1 (2/12/16/16 for ×2–×5), so a nested entry's
+  count reaches an "each item" sublist as that many rolls; `LootChemsNVAll50` (3 deep,
+  chance none 50 at the top and in a sublist; 17 outcomes) and `LL2Tier4ExplosivesMixed50`
+  (5 deep, Use All at the top, chance none in sublists; 36 outcomes seen) agree too.
+1. Roll 0–99; below chance none (or the LVLG global's current value) yields nothing.
 2. Eligible entries have level ≤ the requesting level (the player's level; for
    containers [hypothesis], for AddItem [observed]).
 3. Use All: every eligible entry. Otherwise one entry uniformly from all eligible entries
@@ -271,7 +300,9 @@ nesting, levels between entries' levels with the all-levels flag set.
   "Leveled Lock"). Observed only on CONT (321) and DOOR (341) references; levels
   0 (63), 25 (120), 50 (182), 75 (91), 100 (34), 255 (172); 161 name a key, always a
   KEYM; 104 level-255 locks have no key [observed]. Level 255 is "requires key"
-  [hypothesis]. A reference with XLOC starts locked [hypothesis].
+  [hypothesis; a level-255 trunk with a key refused scripted activation without the key
+  and showed no lockpick menu, see "Locks in game" below]. A reference with XLOC starts
+  locked [observed for three containers: `GetLocked` 1 on arrival].
 - **XTEL** (door FormID, position, rotation, flag) makes a door a teleport [documented:
   xEdit]. 1,378 references have XTEL; 1,376 pairs are reciprocal (the destination door's
   XTEL points back); 0x00087A6B → 0x000827BA and 0x000CAEB5 → 0x000CAFA5 point at doors
@@ -299,10 +330,14 @@ nesting, levels between entries' levels with the all-levels flag set.
   **0x000DAEBB "Goodsprings" (WastelandNV grid −18, 0)**, not in 0x000846EA, the
   WastelandNV persistent cell that holds the destination door: after a teleport into a
   worldspace the actor is in the exterior grid cell containing its position. The z offset
-  is presumably the character controller settling the actor [hypothesis; physics
-  workstream].
+  is the arrival rest height: the destination lies 3.6 units under the terrain, and the
+  player is pushed up to 3.84 units above the LAND surface, on the terrain's contact
+  shell (3.5) and within the band the player rests in after any door [observed: captures
+  `dt_teleport_rest`, `dt_rest_detail`, `dt_door_arrivals`; rule and evidence in
+  physics.md §6.2; `fnvtool sim run` applies the rule, §7].
 - **Scripted `Activate` on item references** [observed 2026-10-07, two follow-up captures
-  in Doc Mitchell's house]: `ref.Activate player` adds the item's stack every time — three
+  in Doc Mitchell's house]: `ref.Activate player` adds the item every time (one item,
+  even from a stack; see "Dropping and taking back" below) — three
   activations of stimpak 0x00105BF3 gave 1, 2, 3 stimpaks; a stimpak taken by hand
   (0x00105BF5) still gave one more; a cap reference that was never taken but disabled with
   `Disable` (GetDisabled 1) also gave its cap and stayed disabled. `GetDisabled` stays 0
@@ -316,7 +351,48 @@ nesting, levels between entries' levels with the all-levels flag set.
   stores the door; the player's own cell outdoors was likewise the grid cell containing
   their position (0x000DAEBD, grid −19, 0, at x −73989.5, y 3750.2) [observed].
 - **Created references** (dropped items) get FormIDs from 0xFF000000 upwards, a load
-  slot no plugin can use [hypothesis for the original engine's numbering].
+  slot no plugin can use [hypothesis for the starting number; observed in game: dropped
+  stimpaks got 0xFF001315, 0xFF001316, 0xFF001317 in turn, `GetSourceModIndex` 255].
+- **Locks in game** [observed 2026-10-08, unattended captures from `nvftest`,
+  `L4.sim.trace.goodsprings_locked_safe_key` / `_no_key` and `ld_lock_levels`; scripted
+  `<container>.Activate player`, then `MenuMode 1008` (container menu [documented: GECK
+  wiki GetMenuTargetRef]) and `CloseAllMenus`]:
+  - A locked container activated by script without its key opens nothing: no container
+    menu, and at level 255 no lockpick menu either (MenuMode 0); contents and lock are
+    unchanged. With its key in the activator's inventory it opens the container menu at
+    once and is **unlocked for good** (`GetLocked` 0 afterwards, `GetLockLevel` still 255
+    for a level-255 trunk), the key stays in the inventory; locked again with `Lock` and
+    the key removed it refuses again, with the key back it opens again. Scripted
+    activation therefore follows the same key rule as the owner's interactive test.
+  - After `Unlock` the container opens on activation; `Lock` without a level relocks it
+    at its old level, `Lock 255` / `Lock 100` set the level (`GetLockLevel` 255 / 100).
+  - **`GetLocked` reads 1 for every locked container, also at level 255** — the
+    authored "requires key" trunk 0x0015D0D0 (BlackMountainRadio2, `BMLootTrunk`) and a
+    level-25 safe after `Lock 255` — not the 2 ("locked out") the GECK wiki lists for an
+    impossible level. The simulation reports 0 / 1; 2 stays for broken locks (Layer 6).
+  - A container in a cell the player is not in (Ringo's gas station seen from another
+    interior) did not open its menu when activated by script, though `GetLocked`,
+    `Unlock` and `RemoveAllItems` worked on it [observed, a mis-ordered first run]; the
+    scenarios therefore activate containers in the player's cell only.
+- **Dropping and taking back** [observed 2026-10-08, `nvfdoc`, the player just outside Doc
+  Mitchell's front door, `L4.sim.trace.goodsprings_drop_and_retake`, `ld_drop_refs`,
+  `ld_drop_stack`]: `player.Drop <item> n` makes **one** reference holding all n (count 1,
+  2, 3 by `GetRefCount`), placed **50 units in front of the player along its heading and
+  30 units above its feet** (player at x −73162.92, y 1312.39, z 8693.86, `GetAngle Z`
+  72.81°; item at −73115.16, 1327.17, 8723.86: offset 47.77 / 14.78 / 30.00, i.e. 50 ×
+  (sin, cos) of the heading). It stayed exactly there for 10 s (no fall observed). A
+  scripted `<dropped>.Activate player` gives **one** item, whatever the reference's count:
+  a dropped pair gave 1 (player 3 → 4) and a dropped three gave 1 (1 → 2); afterwards the
+  reference counts 1, is no longer listed by `GetFirstRef 201 0 0` (taken) but still by
+  `GetFirstRef 201 0 1`, and is not disabled [observed]. The GECK wiki notes the same
+  loss of a stack for scripted activation of a stacked item [documented: GECK wiki
+  Activate, bugs]. A **placed** stack behaves the same (`ld_placed_stack`, BB rounds
+  0x001730EA with XCNT 12 in GSHouseInterior03): one round, `GetRefCount` 1 afterwards,
+  a second scripted activation one more round [observed]. The simulation's scripted
+  activation (`World::activate_scripted`, the trace op `activate`) gives one item and
+  leaves the reference at count 1; the player's own activation (`World::activate`, the
+  engine) still takes the whole stack [hypothesis; not captured]. The simulation places drops at that offset (holder heading from its z
+  rotation, §5 crosshair notes) [hypothesis for other actors and items].
 - **Crosshair activation in the game** (`engine/nvf-play/src/activate.rs`; values and
   rules to be captured, none observed yet):
   - **Reach**: 150 game units from the eye [hypothesis: placeholder, about two metres at
@@ -411,6 +487,10 @@ level-1 character without perks or implants, so no modifier changes carry weight
 (`player.setlevel <n>`), repeat `samples` times: `player.removeallitems`, then
 `player.additem <list> <count>`, then note every item and count the inventory now holds
 (the inventory screen, or `player.getitemcount <id>` for the list's possible items).
+A case with `globals` first sets each one from the console (`set <global> to <value>`)
+and reads it back before and after the draws (the golden keeps `globals_read` and
+`globals_read_after` next to the counts; a value that drifted means the draws did not
+run with the value asked for), then restores it.
 Record each draw's outcome key (§7) and add up the counts per key. That console
 `AddItem` resolves a leveled list, against the player's level, the way containers and
 actors do is a [hypothesis] [`AddItem` documented: GECK wiki]; a resolution inside a
@@ -504,19 +584,30 @@ Lab comparator: **keyed** on `formid` over `/containers`, all fields.
 Lab comparator: **keyed** on `formid` over `/items`, all fields (`L4.sim.items`, against
 the independent oracle).
 
-### `fnvtool sim run <lo> --schema <dir> --actions <file>` → `fnv.sim.trace/1`
+### `fnvtool sim run <lo> --schema <dir> --actions <file> [--nif-schema <dir>] [--no-physics]` → `fnv.sim.trace/1`
 
 Input `fnv.sim.actions/1` (`parity-lab/inputs/layer4/*.actions.json`): `seed`,
 `player_level`, `actions` (ops: `activate`, `add_item`, `remove_item`, `transfer`,
 `transfer_all`, `drop_item`, `remove_all_items`, `get_item_count`, `get_pos`,
 `get_disabled`, `get_global`, `set_global`, `advance_time`, `equip_item`,
-`unequip_item`, `get_av`, `set_av`, `get_weight`, `detach_cell`, `attach_cell`, `lock`,
-`unlock`, `enable`, `disable`), optional `hardcore` (default false) and `report`.
+`unequip_item`, `get_av`, `set_av`, `get_weight`, `get_locked`, `detach_cell`,
+`attach_cell`, `lock`, `unlock`, `enable`, `disable`), optional `hardcore` (default false)
+and `report`.
 Queries (`get_*`) produce observations; `get_disabled` reports `disabled` (the in-game
 `GetDisabled`), `get_global` and `get_av` report `value` (`get_av` knows the seven
 S.P.E.C.I.A.L. attributes), `get_weight` reports `weight`, `capacity` and `over`
 (in-game: `GetAV InventoryWeight`, `GetAV CarryWeight` [hypothesis on the actor value
-names]). `drop_item` reports `references` (one per group of identical extra data).
+names]). `get_locked` reports `locked` (the in-game `GetLocked`: 0 not locked, 1 locked,
+§5). `activate` is the scripted `Activate` (an item reference gives one item of its
+stack, §5). An `activate` step with a `label` is also an observation: `opened` is true when the
+activation opened the target's inventory (in game: `MenuMode 1008` right after it; the
+capture then closes every menu with `CloseAllMenus`). `drop_item` reports `references`
+(one per group of identical extra data). A reference named `created:<item>` (item by
+Editor ID or FormID) is the newest reference created at run time from that base form that
+is still in the world (not taken, enabled); in game it is found by scanning the item
+references of the player's cell (`GetFirstRef 201 0 0` / `GetNextRef`) for one of that
+base with `GetSourceModIndex` 255 — the last one met when there are several, so a
+scenario keeps at most one such reference in the world at a time.
 `detach_cell {cell}` / `attach_cell {cell}` (cell by global FormID or Editor ID) mark the
 cell unloaded / loaded again; `attach_cell` reports `reset`, the references whose
 contents respawned (§3 "Respawn"). `activate` on a placed explosive (PGRE) reports
@@ -525,12 +616,26 @@ stack without extra data is a count; otherwise `{"count": n, "groups": [{"count"
 "condition": c, "owner": id, "equipped": true}]}`. References and forms are named by
 global FormID, Editor ID, or `"player"`.
 
+**Teleports come to rest by physics** (2026-10-08): when `activate` moves an actor through
+a teleport door, `sim run` builds the destination's collision world the way `fnvtool phys
+cell` does (an interior cell, or the exterior cell containing the destination with the
+squares around it; terrain, collision primitives and model collision read with the NIF
+schema from `--nif-schema`, default `nif` next to `--schema`; references present by the
+simulation's state, the plugins' flags for references it has not touched) and puts the
+actor where `fnv_phys`'s arrival rule says it comes to rest (physics.md §6.2; the same
+function the game uses after a door). The step's result then carries
+`"settled": {"pos": [x, y, z], "support": {"owner": {"kind": "terrain", "grid": [x, y]} |
+{"kind": "ref", "formid", "object", "layer"}, "z": <bare surface>, "shell": <units>} | null}`
+beside the stored destination `pos`, and later `get_pos` reports the settled position.
+`--no-physics` keeps the stored destination (the contract before this change). Without a
+NIF schema only terrain and collision primitives support the actor.
+
 ```json
 {"format": "fnv.sim.trace/1", "seed": 0, "player_level": 1,
  "steps": [{"step": 0, "op": "activate", "result": {"result": "picked_up", "...": "..."}}],
  "observations": [{"label": "caps after taking five", "step": 10, "count": 5},
-                  {"label": "player after leaving", "step": 19, "cell": "0x000846EA",
-                   "pos": [-73162.93, 1312.43, 8686.43], "rot": [0.0, 0.0, 1.27]}],
+                  {"label": "player after leaving", "step": 19, "cell": "0x000DAEBB",
+                   "pos": [-73162.93, 1312.43, 8693.88], "rot": [0.0, 0.0, 1.27]}],
  "final": {"0x00000014": {"base": "0x00000007", "inventory": {"0x0000000F": 12}, "...": "..."}}}
 ```
 
@@ -551,7 +656,10 @@ Leveled-list outcome histograms: the candidate side of the distribution scenario
 
 (Counts in the examples are illustrative.) `list` is an LVLI named by Editor ID or global FormID (`"0x…"`); `level` (default 1) is
 the requesting level; `count` (default 1) the number requested, as in a CNTO entry or
-`AddItem`; `samples` (> 0) the number of independent draws. Output:
+`AddItem`; `samples` (> 0) the number of independent draws; `globals` (optional) maps
+globals, by Editor ID or global FormID, to the values they hold during the case's draws
+(as if set from the console first; e.g. a list's LVLG global), the others keeping their
+authored values. Output:
 
 ```json
 {"format": "fnv.sim.samples/1", "seed": 0,
@@ -560,7 +668,8 @@ the requesting level; `count` (default 1) the number requested, as in a CNTO ent
             "outcomes": {"nothing": 10012, "0x00015169 x1": 9988}}]}
 ```
 
-- Cases in input order; `list` as a global FormID string.
+- Cases in input order; `list` as a global FormID string; `globals` echoed as given
+  (only when the case has any). A name that is not a global is a case error.
 - One draw resolves `count` of `list` at `level` with the leveled-list rules of §4
   (nested lists included). The items drawn are added up per item FormID; the outcome key
   is the items in ascending FormID order, each written `"0x%08X x<n>"`, joined by `", "`;

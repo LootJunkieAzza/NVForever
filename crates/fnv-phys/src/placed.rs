@@ -40,7 +40,8 @@ pub struct RefCollision {
 /// `tally` is called once for each outcome, with the names of the `refs.counts` of
 /// `fnv.phys.cell/1` (physics.md §7): `no_base`, `collision_primitive`, `bad_primitive`,
 /// `no_model`, `speedtree`, `awaiting_collision`, `model_without_collision`,
-/// `model_unreadable`.
+/// `model_unreadable`, `open_door_moving_parts` (an open-by-default door whose keyframed
+/// parts were left out).
 pub fn ref_collision(
     lo: &LoadOrder,
     schema: &Schema,
@@ -54,6 +55,9 @@ pub fn ref_collision(
     };
     let mut out = RefCollision { base_sig: Some(base.sig), objects: Vec::new() };
     if pl.base == Some(COLLISION_MARKER) {
+        // Box and Portal Box markers alike: a run into a Portal Box marker stopped at the
+        // wall [observed: L4.phys.walk.portal_wall], although a drop onto the 2-unit top
+        // of another fell through (physics.md §4.2, open).
         match primitive(lo, schema, pl.form_id).and_then(|p| primitive_object(&p, BoundsMeaning::HalfExtents)) {
             Some(o) => {
                 out.objects.push(o);
@@ -70,6 +74,18 @@ pub fn ref_collision(
             None => tally("awaiting_collision"),
             Some(ms) => match ms.objects(&m) {
                 Ok(o) if o.is_empty() => tally("model_without_collision"),
+                Ok(o) if &base.sig == b"DOOR" && pl.open_by_default => {
+                    // An open door's moving part is out of the doorway: a player dropped
+                    // on a closed-looking gate flagged Open by Default fell straight
+                    // through it [observed: B11, gate 0x0010757E]. Its open pose comes
+                    // from the door's animation, which is not read; the keyframed parts
+                    // are left out [hypothesis], the static ones (posts, frame) kept.
+                    let before = out.objects.len();
+                    out.objects.extend(o.iter().filter(|c| c.motion != fnv_collide::Motion::Keyframed).cloned());
+                    if out.objects.len() - before < o.len() {
+                        tally("open_door_moving_parts");
+                    }
+                }
                 Ok(o) => out.objects.extend(o.iter().cloned()),
                 Err(_) => tally("model_unreadable"),
             },

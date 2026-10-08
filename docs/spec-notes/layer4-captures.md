@@ -17,10 +17,19 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.sim.items` | `sim/items.json` (oracle) | pass | independent oracle, 3,972 items |
 | `L4.sim.trace.goodsprings_weight_and_time` | captured | pass 9/9 | GameHour/GameDaysPassed fractions not observed (clock runs in menus) |
 | `L4.sim.leveled.basic` | captured (2,100 draws) | pass 7/7 | 300 `AddItem` draws per case |
-| `L4.sim.trace.goodsprings_doc_mitchell` | captured | 5/6 | fails only on z after the door (+7.44): needs the character controller (workstream 2); do not tune |
+| `L4.sim.leveled.b8` | captured 2026-10-08 unattended (`nvftest`, 3,000 draws) | pass 10/10 | B8: LVLG globals set from the console, all-levels between/at entry levels, count without each item, nesting 3–5 deep; 300 draws per case, no failed draw, globals read back unchanged |
+| `L4.sim.trace.goodsprings_doc_mitchell` | captured | pass 6/6 | z after the door (+7.44 over the XTEL z) is the arrival rest height on the terrain's contact shell (physics.md §6.2); the candidate's 8693.53 is 0.34 under the golden, inside the band the game itself spreads over |
 | `L4.sim.trace.goodsprings_merchant_restock` | captured | pass 4/4 | merchant restock; needs no hidden restock time (the start's place in the 7-day cycle matters, simulation.md §3) |
 | `L4.sim.trace.goodsprings_merchant_midnight_restock` | captured 2026-10-08 unattended (`nvftest`, `--time hour`) | pass 11/11 | restock days (GameDaysPassed 0 or 3 mod 7); it refuted the midnight rule it was designed for |
 | `L4.sim.trace.x13_enable_parents` | captured 2026-10-08 (coc into X-13, god mode) | pass 13/13 | B1 done |
+| `L4.sim.trace.goodsprings_locked_safe_key` | captured 2026-10-08 unattended (`nvftest`, `--go-to-cell GSHouseInterior02`, tgm, tdetect) | pass 13/13 | key opens the lock for good (GetLocked 0) |
+| `L4.sim.trace.goodsprings_locked_safe_no_key` | captured 2026-10-08 unattended (`nvftest`, player in the gas station, tgm, tdetect) | pass 13/13 after the GetLocked fix (12/13 before: level 255 reads 1, not 2) | a first run made after the key job, with the player in another cell, is not used (activation of a container outside the player's cell opens nothing) |
+| `L4.sim.trace.goodsprings_drop_and_retake` | captured 2026-10-08 unattended (`nvfdoc`, `--confirm-after 2 --settle auto`, tgm, tdetect) | 4/6 after the fixes (2/6 before: scripted pick-up of a stack, drop position); the remaining 2 fail only on z, +7.44 from the player's own settled height after the door (B9, workstream 2); do not tune | dropped refs found with `created:<item>` (GetFirstRef scan) |
+| `L4.phys.drops.b11_goodsprings` | captured 2026-10-08 (`mv_b11_drops`, coordinator, re-made `nvfdoc`) | 12/20 at capture, 15/20 after the fixes (physics.md §4.2) | B11 player row; trees, rocks, maize push open |
+| `L4.phys.walk.fence_slide`, `.fence_stop` | captured 2026-10-08 (`mv_traces`) | 6/6, 6/6 | held out, passed as predicted |
+| `L4.phys.walk.porch_steps` | captured 2026-10-08 (`mv_traces`) | 5/6 → 6/6 | speed kept along uphill slopes (physics.md §6.3) |
+| `L4.phys.walk.running_jump` | captured 2026-10-08 (`mv_traces`) | 0/6 | air control and landing open (physics.md §6.3) |
+| `L4.phys.walk.hill_run`, `.portal_wall` | captured 2026-10-08 (`mv_followup_traces`, this workstream) | 2/6 and 4/6 as installed; 6/6 and 5/6 against goldens rebuilt with the corrected onset (scratch, physics.md §6.4) | the installed goldens use an onset two loops early |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
 
 Substitute checks (xnvse-capture.md §7): the same scenarios regenerated with
@@ -48,7 +57,20 @@ python tools/capture/capture_steps.py trace C:/fnv-private/capture/out/<name>.<t
 python tools/capture/capture_steps.py samples C:/fnv-private/capture/out/leveled_basic.<time>.jsonl --cases parity-lab/inputs/layer4/leveled_basic.cases.json -o C:/fnv-private/goldens/sim/leveled_basic.samples.json
 ```
 
-`goodsprings_doc_mitchell` needs `--confirm-after 18` (the front door's loading screen).
+`leveled_b8` (unattended; 42,196 steps, about 12 minutes): `capture_steps.py cases
+parity-lab/inputs/layer4/leveled_b8.cases.json --data "<Data>" --draws 300 --start "…"`,
+then `capture_run.py --game "<FNV folder>" --save nvftest --kill-on-timeout <job>`, then
+`samples` into a file outside the goldens directory, checked (no `failed_draws`;
+`globals_read` and `globals_read_after` equal to the values asked for) before it was
+copied to the new golden `sim/leveled_b8.samples.json`. Cases with `globals` set them
+from the console and restore them afterwards.
+
+`goodsprings_doc_mitchell` needs `--confirm-after 18` (the front door's loading screen),
+`goodsprings_drop_and_retake` `--confirm-after 2`; `goodsprings_locked_safe_key` travels with
+`--go-to-cell GSHouseInterior02`. The lock and drop jobs were made with `--time hour
+--settle auto --console-first tgm --console-first tdetect`. Run each lock job in its own
+`capture_run.py` session: jobs run alphabetically in one session, and the key job's
+travel would leave the player outside the gas station for the no-key job.
 
 ## 2. Diagnostic and follow-up captures (hand-written jobs)
 
@@ -74,6 +96,19 @@ directory's `jobs\`). Results are in the notes named.
 | `bl_placed_mines` (B10) | are placed mines live; scripted activation | inert for 600 loops; scripted Activate does nothing; simulation.md §1 |
 | `mr_diag_reads`, `mr_diag_calendar`, `mr_diag_month_short`, `mr_diag_long_untouched`, `mr_diag_ringo`, `mr_diag_untouched_3d`, `_4d` (`make_restock_jobs.py`) | why the midnight rule failed: refill times with 2- or 6-hourly reads, the save's calendar, Ringo's state | restocks only on days 0 or 3 mod 7; simulation.md §3 |
 | `mr_predict_days` (`make_restock_jobs.py`) | held-out check of the restock days, made after the rule was stated | refilled on 31, 35, 38, 42 and no day between; simulation.md §3 |
+| `leveled_b8_smoke` (generated: the `leveled_b8` cases with `--draws 3`) | does setting, reading back and restoring a case's global work unattended | yes: values read back as set, restored to the save's 100 (`ScroungerOdds`, `FortuneFinderOdds`); no errors |
+| `ld_lock_levels` (`make_lock_drop_jobs.py`) | GetLocked / GetLockLevel at level 255 (scripted `Lock 255`, authored trunk with key), menus after scripted activation | GetLocked 1 at 255; no menu without the key, container menu with it; simulation.md §5 |
+| `ld_drop_refs` (`make_lock_drop_jobs.py`) | references a drop creates, what a scripted pick-up leaves | one ref per drop (0xFF00xxxx), 50 ahead / 30 up, taken refs left out of `GetFirstRef … 0`; simulation.md §5 |
+| `ld_drop_stack` (`make_lock_drop_jobs.py`) | scripted Activate on dropped stacks of 2 and 3 | gives 1 item, the stack is taken; simulation.md §5 |
+| `ld_placed_stack` (`make_lock_drop_jobs.py`) | scripted Activate on a placed XCNT 12 stack (BB rounds, GSHouseInterior03) | gives 1 round, the stack then counts 1; a second activation gives 1 more; simulation.md §5 |
+| `dt_teleport_rest` | rest height after Doc Mitchell's door over time; `SetPos` placements and drops at the destination, on flat and sloped terrain | 3.84 above the LAND surface, a stable height; triangulation confirmed; physics.md §6.2 |
+| `dt_rest_detail` | fall traces, repeated drops, drop grids, Doc Mitchell's porch | `SetPos` drops end 3.5–11 above terrain (unreliable); porch 1.04 above the floor; physics.md §6.2 |
+| `dt_door_arrivals` | eleven door teleports around Goodsprings (predictions of a first rule, shell + 0.35, written before the run; 0x00105228 ran late and 0x0010903F not at all) | rest 0.54–1.05 above statics, 3.32–3.85 above terrain; physics.md §6.2 |
+| `mv_b11_clutter` | B11 clutter row | bottles bounce 50–300 units; only Trees and Terrain readable (they stop clutter); physics.md §4.2 |
+| `mv_values` | eye height, reach, other speeds, long fall | eye about 123 (pick-sphere model), reach 120–123 feet-to-face at 30°, back 272.8, sneak 197.7, g 686.0, no terminal speed to 1,841; physics.md §6 |
+| `mv_air` | air control calibration | in-air momentum kept, decays 0.84/loop when released, 15 units/s from a mid-air press; physics.md §6.3 |
+| `mv_diag_trees_rocks` | ±30 drop grids on the B11 tree and rock | rock agrees within 4 at 7 of 9; tree 43–303 higher everywhere; physics.md §6.4 |
+| `mv_trial` (`make_movement_jobs.py`) | what works unattended for movement: GetSecondsPassed, `$` of floats, bound keys, settings, held keys, a tapped jump, a fall | all of it; gravity 684–686, jump apex 61.6, run 344, walk 86.8, settings; physics.md §6.3 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)
@@ -110,14 +145,22 @@ written.
   readable with `IsPlayerOverencumbered` / `GetIsPlayerOverencumbered` (both on the GECK
   wiki; check which compiles); ammo weight in Hardcore mode (`SetHardcore` / `IsHardcore`
   exist on the wiki; a throwaway save, since Hardcore cannot be undone in a save).
-- **B8 leveled lists**: lists with an LVLG global, deep nesting, all-levels lists with
-  entries between levels (new cases in a second `.cases.json`, same procedure as
-  `leveled_basic`).
-- **B9 Doc Mitchell z**: no capture needed; re-run the lab once workstream 2's character
+- **B8 leveled lists** — **done 2026-10-08** (`L4.sim.leveled.b8`, 10 cases, 300 draws
+  each, unattended; the candidate passes 10/10; facts in simulation.md §4): the LVLG
+  global replaces chance none at its current value, all-levels lists with the level
+  between or equal to entry levels, a count without "each item", nesting 3–5 deep. The
+  candidate's `World` now reads LVLG globals at their run-time values. Open: fractional
+  or out-of-range global values; leveled lists resolved in containers and on actors
+  rather than by `AddItem` (still [hypothesis] that they resolve the same way). Was:
+  lists with an LVLG global, deep nesting, all-levels lists with entries between levels.
+- **B9 Doc Mitchell z** — **done 2026-10-08** (`dt_teleport_rest`, `dt_rest_detail`, `dt_door_arrivals`: the player rests on a contact shell, 0.7 above statics and 3.5 above the terrain, within −0.18…+0.35; physics.md §6.2). Open: what picks the height inside that band; why `SetPos` drops sometimes hang 7–11 units above the terrain. Was: no capture needed; re-run the lab once workstream 2's character
   controller places the actor (the +7.44 offset is in the golden).
 - **B10 placed explosives (PGRE)** — **partly done 2026-10-08** (`bl_placed_mines`): inert while the player stands in the cell; scripted `Activate` does nothing. Open: the player's own activation (attended). The 297 PGRE are spread over five masters, not only Old World Blues (simulation.md §1). Was: are the 297 OWB placed grenades live in game? Needs an
   OWB save near one (`fnvtool sim forms` lists them).
-- **B11 collision layer matrix** (design; unattended). Settles which Havok layers stop the
+- **B11 collision layer matrix** — **designed 2026-10-08, jobs ready, not run** (the game
+  was needed elsewhere): `mv_b11_drops` (player row, 20 drops, scenario
+  `L4.phys.drops.b11_goodsprings`, predictions physics.md §4.2) and `mv_b11_clutter`
+  (clutter row, a whiskey bottle on 11 targets, no scenario). Was: (design; unattended). Settles which Havok layers stop the
   player and which stop dropped items (physics.md §4 and §6 question 4; today
   `layers::character_ignores` is chosen from the layer names), and doubles as a check of
   the Havok scale (collision.md §6). Method: a **drop test**, which needs no one at the
@@ -140,6 +183,12 @@ written.
   (rest z with a tolerance of a few units). Risk: an object that moves when hit (dynamic
   clutter) falls with the probe; use statics for the player row.
 
+- **B12 step and slope limits** (design). The highest ledge walked onto and the steepest
+  LAND square run up: held keys work unattended (physics.md §6.3), so a run at ledges of
+  graded heights (e.g. stacked crates, porch and road edges measured with `fnvtool phys
+  cell --ray`) and up LAND squares of known steepness, positions sampled per loop, would
+  settle both; targets not chosen yet.
+
 ## 4. Owner answers (2026-10-08, in game, attended)
 
 Recorded where the rule lives, tagged [observed by the owner in game, 2026-10-08]:
@@ -155,3 +204,25 @@ Recorded where the rule lives, tagged [observed by the owner in game, 2026-10-08
 - `GetPos Z` is the feet: the player standing on a rug at z 7360 in Doc Mitchell's house
   reads 7361.05 (physics.md §6).
 
+## 5. Movement jobs ready to run (2026-10-08)
+
+Made by `python tools/capture/jobs/make_movement_jobs.py` (the scenario jobs from the lab
+inputs through `tools/capture/capture_moves.py job`); all start from save `nvfdoc`, leave
+Doc Mitchell's house through the front door, and set god mode and AI detection off. Run
+each in its own session (they all start inside the house):
+
+```
+python tools/capture/capture_run.py --game "<FNV folder>" --save nvfdoc --kill-on-timeout -o C:/fnv-private/capture/run_<job>.json tools/capture/jobs/<job>.steps.json
+```
+
+| Job | Steps | What | After the run |
+|---|---|---|---|
+| `mv_b11_drops` | 155 | B11 player row: 20 drops (scenario `L4.phys.drops.b11_goodsprings`) | `python tools/capture/capture_moves.py golden C:/fnv-private/capture/out/mv_b11_drops.<time>.jsonl parity-lab/inputs/layer4/b11_goodsprings.drops.json -o C:/fnv-private/goldens/phys/b11_goodsprings.drops.json` |
+| `mv_traces` | 663 | four runs with held keys (scenarios `L4.phys.walk.*`) | `capture_moves.py golden <jsonl> parity-lab/inputs/layer4/move_<name>.walk.json -o C:/fnv-private/goldens/phys/move_<name>.walk.json` for `fence_slide`, `fence_stop`, `running_jump`, `porch_steps` |
+| `mv_b11_clutter` | 72 | B11 clutter row (a bottle on 11 targets) | read the `bottle <target>` results; no golden |
+| `mv_values` | 1,231 | eye height and reach (crosshair against the yard fence: pitch 0–70° at 40 and 80 units, distance 90–180 at 30° down), speeds backwards, sideways, diagonal and sneaking, a 2,500-unit fall | analysis into physics.md §6.3; no golden |
+
+Predictions for the scenario jobs are in physics.md §4.2 and §6.3 (written before the
+runs). For `mv_values` [hypothesis, from the candidate's placeholders]: with the eye 112
+above the feet (feet 8355.85) the crosshair would leave the fence top (8422.4) at about
+48.7° down from 40 units and 29.6° from 80; the reach would be 150 from the eye.

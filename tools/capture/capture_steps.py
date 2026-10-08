@@ -16,8 +16,14 @@ the parity lab's scenario inputs and turns the plugin's output into goldens:
       console lines before anything else (e.g. tgm, tdetect); --go-to-cell moves the
       player to an interior cell by Editor ID with the console's coc and waits until
       the player is in it
+      An activate with a label records `opened` (MenuMode 1008, the container menu)
+      and closes every menu again (CloseAllMenus); `created:<item>` names the reference
+      a drop created (found by scanning the player's cell); a drop is followed by a
+      longer pause so the item can come to rest
   capture_steps.py cases <x.cases.json> --data <Data> --draws N --start TEXT [-o job]
-      fnv.sim.cases/1 -> job; N AddItem draws per case, each followed by an inventory dump
+      fnv.sim.cases/1 -> job; N AddItem draws per case, each followed by an inventory dump;
+      a case's "globals" are set from the console first, read back before and after the
+      draws, and restored afterwards
   capture_steps.py trace <out.jsonl> [-o golden.trace.json]
       plugin output -> fnv.sim.trace/1 golden (observations only)
   capture_steps.py samples <out.jsonl> --cases <x.cases.json> [-o golden.samples.json]
@@ -95,9 +101,19 @@ def function(decls, body, returns_value=True):
     return "\n".join(lines + ["End"]) + "\n"
 
 
+CREATED_PREFIX = "created:"
+# GetFirstRef form type of inventory items [documented: GECK wiki GetFirstRef, "201 for
+# inventory items"].
+INVENTORY_ITEM_REFS = 201
+# GetSourceModIndex of a reference created at run time: such references take FormIDs in
+# the 0xFF load slot [hypothesis, docs/spec-notes/simulation.md section 5].
+CREATED_MOD_INDEX = 255
+
+
 class Names:
-    """Turns scenario names into script operands: player, or ref variables built from
-    (mod index, local FormID) with BuildRef."""
+    """Turns scenario names into script operands: player, ref variables built from
+    (mod index, local FormID) with BuildRef, or for `created:<item>` a ref variable found
+    by scanning the player's cell (the FormID a drop gives is not known in advance)."""
 
     def __init__(self, masters, edids):
         self.masters = masters
@@ -125,6 +141,8 @@ class Names:
     def operand(self, name):
         if isinstance(name, str) and name.lower() == "player":
             return "player"
+        if isinstance(name, str) and name.lower().startswith(CREATED_PREFIX):
+            return self.created(name[len(CREATED_PREFIX):])
         fid = self.global_id(name)
         index, local = fid >> 24, fid & 0xFFFFFF
         if index >= len(self.masters):
@@ -139,6 +157,28 @@ class Names:
         var = f"rF{self.count}"
         self.decls.append(f"ref {var}")
         self.setup.append(f"let {var} := BuildRef {self.mods[plugin]} {local}")
+        return var
+
+    def created(self, item):
+        """A ref variable holding a reference created at run time (mod index 255) whose
+        base is `item`, among the item references in the player's cell that have not been
+        taken (GetFirstRef / GetNextRef). With several, the last one the scan meets is
+        used, so scenarios keep one such reference in the world at a time; none leaves
+        the variable empty and the step fails in game."""
+        base = self.operand(item)
+        self.count += 1
+        var = f"rF{self.count}"
+        self.decls += [f"ref {var}", "ref rScan", "ref rScanBase"]
+        self.setup += [f"let rScan := GetFirstRef {INVENTORY_ITEM_REFS} 0 0",
+                       "while rScan != 0",
+                       "  let rScanBase := rScan.GetBaseObject",
+                       f"  if rScanBase == {base}",
+                       f"    if rScan.GetSourceModIndex == {CREATED_MOD_INDEX}",
+                       f"      let {var} := rScan",
+                       "    endif",
+                       "  endif",
+                       "  let rScan := GetNextRef",
+                       "loop"]
         return var
 
 
@@ -218,6 +258,12 @@ LOOPS_PER_HOUR = 600
 # (the player is placed and settles after the loading screen).
 DOOR_LOOPS = 3600
 AFTER_DOOR_FRAMES = 300
+# Game loops after a drop: the dropped item falls under physics before its position is
+# read [hypothesis that 5 s at 60 frames per second is enough to come to rest].
+DROP_FRAMES = 300
+# Menu code of the container menu [documented: GECK wiki GetMenuTargetRef, "1008 the
+# container/actor inventory currently open"].
+CONTAINER_MENU = 1008
 
 
 def global_query(name):
@@ -300,6 +346,16 @@ def action_steps(i, a, ctx, time_mode="wait-menu"):
     anything that changes the game."""
     if a.get("op") == "advance_time":
         return time_steps(i, a.get("hours"), time_mode)
+    if a.get("op") == "activate" and a.get("label"):
+        # Observed by what the activation opened; then every menu is closed again
+        # (console-only CloseAllMenus [documented: GECK wiki]) so the job can go on.
+        return _action_steps(i, a, ctx) + [
+            {"frames": SETTLE_FRAMES_LONG},
+            query(function(["float fV"], [f"let fV := MenuMode {CONTAINER_MENU}", "SetFunctionValue fV"]),
+                  a["label"], "opened"),
+            {"console": "CloseAllMenus"}, {"frames": SETTLE_FRAMES_LONG}]
+    if a.get("op") == "drop_item":
+        return _action_steps(i, a, ctx) + [{"frames": DROP_FRAMES}]
     steps = _action_steps(i, a, ctx)
     if not any("query" in s or "manual" in s for s in steps):
         steps.append({"frames": SETTLE_FRAMES_LONG if a.get("op") in SLOW_OPS else SETTLE_FRAMES})
@@ -352,6 +408,8 @@ def _action_steps(i, a, ctx):
             for axis in ("X", "Y", "Z")]
     if op == "get_disabled":
         return [query(number_query("{0}.GetDisabled", ctx, [g("of")]), label, "disabled")]
+    if op == "get_locked":
+        return [query(number_query("{0}.GetLocked", ctx, [g("of")]), label, "locked")]
     if op == "get_global":
         name = plain_name(g("name"), "get_global: the global")
         return [query(function(["float fV"], [f"let fV := {name}", "SetFunctionValue fV"]), label, "value")]
@@ -390,6 +448,10 @@ def actions_job(doc, name, start, edids=None, masters=MASTERS, confirm_after=(),
     return job(name, start, steps, masters)
 
 
+GLOBAL_PREFIX = "global"  # a case's global, read after it was set
+GLOBAL_AFTER_PREFIX = "global_after"  # and after the draws
+
+
 def dump_steps(label, prefix):
     return [query(slot_query(i), label, f"{prefix}.slot{i}") for i in range(SLOTS)] + [
         query(function(["float fV"], ["let fV := player.GetNumItems", "SetFunctionValue fV"]), label, f"{prefix}.num")]
@@ -402,15 +464,27 @@ def cases_job(doc, name, start, draws, edids=None, masters=MASTERS):
         raise InputError("--draws must be positive")
     ctx = (masters, edids)
     steps = []
-    for c in doc.get("cases", []):
+    for ci, c in enumerate(doc.get("cases", [])):
+        # Globals (e.g. a list's LVLG global): set from the console as a player would,
+        # read back before and after the draws, restored after the case.
+        globals_ = c.get("globals") or {}
+        if not isinstance(globals_, dict):
+            raise InputError(f"case {c.get('label')!r}: globals must map names to numbers")
+        names = [plain_name(g, "a case's global") for g in globals_]
+        for gi, g in enumerate(names):
+            steps.append({"remember": global_query(g), "as": f"case{ci}g{gi}"})
+            steps.append({"console": f"set {g} to {number(globals_[g])}"})
         steps.append({"console": f"player.setlevel {int(c.get('level', 1))}"})
         steps.append({"frames": 5})
+        steps.extend(query(global_query(g), c["label"], f"{GLOBAL_PREFIX}.{g}") for g in names)
         steps.append({"script": run_script(["player.RemoveAllItems"], ctx, [])})
         steps.extend(dump_steps(c["label"], "base"))
         draw = run_script(["player.RemoveAllItems", f"player.AddItem {{0}} {int(c.get('count', 1))} 1"], ctx, [c["list"]])
         for n in range(draws):
             steps.append({"script": draw})
             steps.extend(dump_steps(c["label"], f"draw{n}"))
+        steps.extend(query(global_query(g), c["label"], f"{GLOBAL_AFTER_PREFIX}.{g}") for g in names)
+        steps.extend({"console": f"set {g} to %{{case{ci}g{gi}}}"} for gi, g in enumerate(names))
     steps.append({"script": run_script(["player.RemoveAllItems"], ctx, [])})
     return job(name, start, steps, masters)
 
@@ -466,10 +540,10 @@ def trace_golden(mods, results):
             o["error"] = r["error"]
             continue
         v, field = r.get("value"), r["field"]
-        if field == "count":
-            o["count"] = int(round(v))
-        elif field == "disabled":
-            o["disabled"] = bool(v)
+        if field in ("count", "locked"):
+            o[field] = int(round(v))
+        elif field in ("disabled", "opened"):
+            o[field] = bool(v)
         elif field == "cell":
             o["cell"] = to_global(v, mods) if v and int(v, 16) else None
         elif field.startswith("pos."):
@@ -500,8 +574,12 @@ def outcome_key(before, after):
 
 def samples_golden(mods, results, cases_doc):
     dumps = {}  # (label, prefix) -> {"items": {}, "num": n, "bad": bool}
+    read = {}  # (label, prefix) -> {global: value or None}, prefix GLOBAL_PREFIX or GLOBAL_AFTER_PREFIX
     for r in results:
         prefix, _, part = r.get("field", "").partition(".")
+        if prefix in (GLOBAL_PREFIX, GLOBAL_AFTER_PREFIX):
+            read.setdefault((r["label"], prefix), {})[part] = None if "error" in r else r.get("value")
+            continue
         d = dumps.setdefault((r["label"], prefix), {"items": {}, "num": None, "bad": False})
         if "error" in r:
             d["bad"] = True
@@ -529,6 +607,10 @@ def samples_golden(mods, results, cases_doc):
                "samples": sum(h.values()), "outcomes": dict(sorted(h.items()))}
         if failed:
             row["failed_draws"] = failed
+        if c.get("globals"):
+            row["globals"] = c["globals"]
+            row["globals_read"] = read.get((label, GLOBAL_PREFIX), {})
+            row["globals_read_after"] = read.get((label, GLOBAL_AFTER_PREFIX), {})
         cases.append(row)
     return {"format": "fnv.sim.samples/1", "source": "in-game capture (nvf_capture)",
             "mod_indices": {str(k): v for k, v in sorted(mods.items())}, "cases": cases}

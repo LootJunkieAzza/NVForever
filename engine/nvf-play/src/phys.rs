@@ -20,7 +20,7 @@ use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
 use fnv_phys::terrain::height_at;
 use fnv_phys::{
-    ref_collision, Character, CharacterParams, Filter, ModelCollision, PhysParams, PhysWorld, RayHit, RefPose, Stepper,
+    ref_collision, Arrival, Character, CharacterParams, Filter, ModelCollision, PhysParams, PhysWorld, RayHit, RefPose, Stepper,
 };
 use fnv_sim::FormId;
 use fnv_world::land::{load_land, LandParts};
@@ -327,11 +327,13 @@ impl PhysState {
     }
 
     /// Put the player's character (created on first use) with its feet on whatever is
-    /// under `feet`, searching from `up` above to `down` below (1 unit above the hit, as
+    /// under `feet`, searching from `up` above to `down` below, on that support's contact
+    /// shell (`CharacterParams::rest_gap`, where the controller keeps it and where
     /// `fnvtool phys walk` starts), or at `feet` when nothing is there. Returns the hit.
     pub fn place_player(&mut self, feet: [f32; 3], up: f32, down: f32) -> Option<RayHit> {
         let hit = self.ground_below(feet, up, down);
-        let at = hit.as_ref().map_or(feet, |h| [feet[0], feet[1], h.point[2] + 1.0]);
+        let params = self.player.as_ref().map_or_else(CharacterParams::default, |c| c.params);
+        let at = hit.as_ref().map_or(feet, |h| [feet[0], feet[1], h.point[2] + params.rest_gap(h.shell)]);
         match self.player.as_mut() {
             Some(c) => self.world.place_character(c, at),
             None => self.player = Some(self.world.add_character(0, CharacterParams::default(), at)),
@@ -339,6 +341,25 @@ impl PhysState {
         self.prev_feet = at;
         self.stepper = Stepper::default();
         hit
+    }
+
+    /// Put the player's character (created on first use) where an actor teleported to
+    /// `feet` comes to rest: `fnv_phys`'s arrival rule, the one `fnvtool sim run` applies
+    /// (physics.md §6.2).
+    pub fn arrive_player(&mut self, feet: [f32; 3]) -> Arrival {
+        let params = self.player.as_ref().map_or_else(CharacterParams::default, |c| c.params);
+        let mut filter = Filter { exclude_layers: fnv_phys::layers::character_ignores(), ..Default::default() };
+        if let Some(c) = &self.player {
+            filter.exclude.push(c.key());
+        }
+        let a = self.world.arrival(feet, &params, &filter);
+        match self.player.as_mut() {
+            Some(c) => self.world.place_character(c, a.feet),
+            None => self.player = Some(self.world.add_character(0, params, a.feet)),
+        }
+        self.prev_feet = a.feet;
+        self.stepper = Stepper::default();
+        a
     }
 }
 
@@ -383,20 +404,17 @@ fn travel(
     let ctx = LoadCtx { d: &d, sim: &sim, data: data.as_deref() };
     let cell = phys.cell_at(t.feet);
     phys.load(&ctx, cell);
-    // Door markers stand about at floor level: search from half a capsule above to four
-    // capsules below [engineering choice].
-    let h = CharacterParams::default().height;
-    let hit = phys.place_player(t.feet, h / 2.0, 4.0 * h);
+    let hit = phys.arrive_player(t.feet).support;
     let feet = phys.player.as_ref().map_or(t.feet, |c| c.feet);
     player.feet = feet;
     player.heading = t.heading_deg.to_radians();
     info!(
-        "travel to {}: feet ({:.0}, {:.0}, {:.1}), floor {}",
+        "travel to {}: feet ({:.0}, {:.0}, {:.2}), floor {}",
         t.interior.map_or("the worldspace".to_string(), |c| format!("interior {c:08X}")),
         feet[0],
         feet[1],
         feet[2],
-        hit.map_or("not found".to_string(), |h| format!("z {:.1}", h.point[2]))
+        hit.map_or("not found".to_string(), |h| format!("z {:.2} (shell {:.2})", h.point[2], h.shell))
     );
 }
 
