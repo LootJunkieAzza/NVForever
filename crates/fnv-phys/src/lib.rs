@@ -7,6 +7,7 @@
 //! - [`terrain`]: one heightfield per exterior cell
 //! - [`world`]: the world, bodies, stepping, queries
 //! - [`character`]: the character controller
+//! - [`air`]: horizontal motion in the air and after landings
 //! - [`arrival`]: where an actor comes to rest after a teleport (shared by the tools and
 //!   the game)
 //! - [`layers`]: Havok collision layer numbers and names
@@ -21,6 +22,7 @@
 //! Design: docs/design/layer4.md §2.8 and §7 (workstream 2); facts, hypotheses and the
 //! CLI contract: docs/spec-notes/physics.md.
 
+pub mod air;
 pub mod arrival;
 pub mod character;
 pub mod convert;

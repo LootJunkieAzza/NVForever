@@ -9,6 +9,7 @@
 //! so dynamic bodies collide with it. Every value of [`CharacterParams`] is an unknown of
 //! the original game [hypothesis]; physics.md §6 lists what to capture.
 
+use crate::air;
 use crate::convert::{arr3, vec3};
 use crate::world::{Key, Owner, PhysWorld, TERRAIN_SHELL};
 use rapier3d::control::{CharacterAutostep, CharacterCollision, CharacterLength, KinematicCharacterController};
@@ -22,6 +23,13 @@ pub struct CharacterParams {
     pub radius: f32,
     /// Total capsule height, feet to top of head, game units [hypothesis].
     pub height: f32,
+    /// Shape of the bottom: 0 for a capsule's hemisphere; else a cone with its apex at
+    /// the feet rising this many units per unit of horizontal distance to the full
+    /// `radius` (physics.md §6.4.1: on an edge the game's player rests 1.46 units lower
+    /// per unit it stands off the edge, which no rounded bottom allows).
+    pub bottom_slope: f32,
+    /// Radius of the flat tip of a cone bottom (0 for a point), game units.
+    pub bottom_flat: f32,
     /// Highest ledge climbed without jumping [hypothesis].
     pub step_height: f32,
     /// Steepest walkable slope, degrees from horizontal; steeper slopes are slid down
@@ -50,6 +58,11 @@ pub struct CharacterParams {
     /// A jump out of the water rises this many times `jump_height` [observed: apex 124.2
     /// against 61.6 on land; `fJumpSwimmingMult` reads 2; physics.md §6.6].
     pub swim_jump_mult: f32,
+    /// Horizontal motion in the air and after landings follows the game's rules
+    /// ([`crate::air`]: the velocity approaches the keys' velocity in the air, a fixed
+    /// speed profile after a landing) [observed, physics.md §6.4.1]; off, the keys'
+    /// velocity applies at once everywhere.
+    pub air_control: bool,
 }
 
 impl Default for CharacterParams {
@@ -57,8 +70,10 @@ impl Default for CharacterParams {
     /// jump height, measured in game (§6.3).
     fn default() -> Self {
         CharacterParams {
-            radius: 18.0,
+            radius: 22.0,
             height: 128.0,
+            bottom_slope: 1.58,
+            bottom_flat: 3.2,
             step_height: 24.0,
             max_slope_deg: 45.0,
             jump_height: 61.6,
@@ -69,6 +84,7 @@ impl Default for CharacterParams {
             float_depth: 102.5,
             swim_sink_speed: 12.1,
             swim_jump_mult: 2.0,
+            air_control: true,
         }
     }
 }
@@ -98,6 +114,9 @@ pub struct CharacterInput {
     /// speed times the sine of the view pitch: the game swims along the view [observed,
     /// physics.md §6.6]. Ignored on land.
     pub vertical: f32,
+    /// Horizontal view direction (x, y), when known: after a landing a key pointing behind
+    /// it plays the backward landing profile ([`crate::air`]); `None` plays the forward one.
+    pub view: Option<[f32; 2]>,
 }
 
 /// What one step did.
@@ -138,6 +157,16 @@ pub struct Character {
     /// Kept by [`PhysWorld::place_character`], as the game keeps it across `SetPos`
     /// [observed].
     pub swimming: bool,
+    /// Horizontal velocity of the last step, units/s (what the air rules start from).
+    pub velocity: [f32; 2],
+    /// A movement key was held when the character left the ground: in the air it
+    /// approaches the keys' full velocity, not the small air control ([`crate::air`]).
+    pub air_full: bool,
+    /// Seconds since the last landing while on the ground, for the landing speed profile;
+    /// `None` once it is over, or when the character never landed.
+    pub since_landing: Option<f32>,
+    /// Seconds since the character left the ground (0 on the ground).
+    pub air_time: f32,
 }
 
 impl Character {
@@ -156,7 +185,9 @@ impl Character {
         let p = &self.params;
         KinematicCharacterController {
             up: Vector::Z,
-            offset: CharacterLength::Absolute(self.gap.max(p.skin) * k),
+            // Walls and anything swept against keep a static shell's gap; the support's own
+            // (larger on terrain) is kept by `move_character`'s settling on the support.
+            offset: CharacterLength::Absolute(self.gap.min(WALL_GAP).max(p.skin) * k),
             slide: true,
             autostep: (p.step_height > 0.0).then_some(CharacterAutostep {
                 max_height: CharacterLength::Absolute(p.step_height * k),
@@ -165,17 +196,42 @@ impl Character {
             }),
             max_slope_climb_angle: p.max_slope_deg.to_radians(),
             min_slope_slide_angle: p.max_slope_deg.to_radians(),
-            // A swimming character is not pulled down onto what lies below it.
-            snap_to_ground: (p.step_height > 0.0 && !self.swimming).then_some(CharacterLength::Absolute(p.step_height * k)),
+            // Snapping down onto the ground is `move_character`'s (with each support's gap).
+            snap_to_ground: None,
             ..Default::default()
         }
     }
 }
 
+/// The character's shape around its centre (half the height above the feet): a vertical
+/// capsule, or with `bottom_slope` a cone under a cylinder (convex hull of the apex and two
+/// rings of [`RING_POINTS`] points circumscribing the radius).
 fn capsule(p: &CharacterParams, k: f32) -> SharedShape {
-    let half = (p.height / 2.0 - p.radius).max(0.0) * k;
+    let half = p.height / 2.0;
+    let flat = p.bottom_flat.clamp(0.0, p.radius);
+    let cone = p.bottom_slope * (p.radius - flat);
+    if p.bottom_slope > 0.0 && cone < p.height {
+        let r = p.radius / (std::f32::consts::PI / RING_POINTS as f32).cos();
+        let tip = flat / (std::f32::consts::PI / RING_POINTS as f32).cos();
+        let mut points = vec![Vector::new(0.0, 0.0, -half) * k];
+        for i in 0..RING_POINTS {
+            let a = i as f32 / RING_POINTS as f32 * std::f32::consts::TAU;
+            for (rr, z) in [(tip, -half), (r, cone - half), (r, half)] {
+                points.push(Vector::new(rr * a.cos(), rr * a.sin(), z) * k);
+            }
+        }
+        if let Some(hull) = SharedShape::convex_hull(&points) {
+            return hull;
+        }
+    }
+    let half = (half - p.radius).max(0.0) * k;
     SharedShape::capsule(Vector::Z * -half, Vector::Z * half, p.radius * k)
 }
+
+/// Points per ring of a cone-bottomed character shape [engineering choice: the polygon
+/// circumscribes the circle, so the radius is reached between points and exceeded by
+/// under 0.3% at them].
+const RING_POINTS: usize = 48;
 
 impl PhysWorld {
     /// Add a character standing with its feet at `feet`.
@@ -193,6 +249,10 @@ impl PhysWorld {
             ignore_layers: crate::layers::character_ignores(),
             gap: params.skin,
             swimming: false,
+            velocity: [0.0, 0.0],
+            air_full: false,
+            since_landing: None,
+            air_time: 0.0,
         };
         let body =
             self.insert_body(RigidBodyBuilder::kinematic_position_based().translation(c.center(self.k)).user_data(owner.encode()));
@@ -211,6 +271,8 @@ impl PhysWorld {
         c.feet = feet;
         c.vertical_speed = 0.0;
         c.grounded = false;
+        c.velocity = [0.0, 0.0];
+        c.since_landing = None;
         let center = c.center(self.k);
         self.w.bodies[c.body].set_translation(center, true);
         self.mark_dirty();
@@ -249,8 +311,9 @@ impl PhysWorld {
                 c.vertical_speed = swim_vertical(&c.params, c.feet[2], s, input.vertical, dt);
             }
         }
+        let jumping = !c.swimming && input.jump && c.grounded;
         if !c.swimming {
-            if input.jump && c.grounded {
+            if jumping {
                 c.vertical_speed = (2.0 * g * c.params.jump_height.max(0.0)).sqrt();
             }
             c.vertical_speed -= g * dt;
@@ -259,7 +322,7 @@ impl PhysWorld {
             }
         }
         let k = self.k;
-        let mut desired = Vector::new(input.velocity[0] * dt, input.velocity[1] * dt, c.vertical_speed * dt);
+        let fall = c.vertical_speed * dt;
         let ignore = c.ignore_layers;
         let solid = move |_: ColliderHandle, co: &Collider| match Owner::decode(co.user_data) {
             Some(Owner::Ref { layer, .. }) => !ignore.contains(layer),
@@ -269,7 +332,7 @@ impl PhysWorld {
         let walkable = c.params.max_slope_deg.to_radians().cos();
 
         // The support and the gap to keep from it.
-        let reach = c.params.step_height + 2.0 * TERRAIN_SHELL + (-desired.z).max(0.0);
+        let reach = c.params.step_height + 2.0 * TERRAIN_SHELL + (-fall).max(0.0);
         let support = {
             let q = self.w.query_pipeline_with_filter(filter);
             let opts = ShapeCastOptions {
@@ -299,6 +362,27 @@ impl PhysWorld {
                 c.feet[2] += lift;
             }
         }
+        let on_walkable = support.is_some_and(|(_, toi, n)| n.z >= walkable && toi <= c.gap / n.z + SUPPORT_MARGIN);
+
+        let key = input.velocity;
+        // Horizontal velocity this step: the keys' on the ground (after a landing, its
+        // speed profile) and while swimming; in the air it approaches them (physics.md
+        // §6.4.1).
+        let horizontal = if c.swimming || !c.params.air_control {
+            key
+        } else if (c.grounded || on_walkable) && !jumping {
+            air::ground_velocity(key, input.view, c.since_landing.map(|t| (t * 60.0).round() as usize))
+        } else {
+            if jumping {
+                c.air_full = !air::is_zero(key);
+                c.air_time = 0.0;
+            } else if !c.air_full && !air::is_zero(key) && c.air_time <= air::AIR_FULL_WINDOW + 1e-4 {
+                // Pressed just after leaving the ground: as if held at take-off.
+                c.air_full = true;
+            }
+            air::air_step(c.velocity, key, c.air_full, dt)
+        };
+        let mut desired = Vector::new(horizontal[0] * dt, horizontal[1] * dt, fall);
 
         // Up a walkable slope the character keeps its speed along the surface: the game
         // ran up a 32-degree ramp at 288 units/s horizontally, its run speed times the
@@ -320,7 +404,29 @@ impl PhysWorld {
         let kcc = c.controller(k);
         let pos = Pose::from_translation(c.center(k));
         let mut collisions: Vec<CharacterCollision> = Vec::new();
-        let mut moved = {
+        // Off walkable ground the vertical motion does not slide: a falling player that
+        // meets a branch or an edge stays where it touched, at any steepness [observed:
+        // the B11 tree drops and `mv_diag_fence_edge` kept their x and y within 0-5 units,
+        // physics.md §6.4.1], where rapier's controller slides it off contacts steeper than
+        // the slope limit. The horizontal motion is made first, sliding along walls.
+        let two_phase = !c.swimming && !on_walkable;
+        let mut moved = if two_phase {
+            let q = self.w.query_pipeline_with_filter(filter);
+            let air = KinematicCharacterController { snap_to_ground: None, ..kcc };
+            let h = air.move_shape(dt, &q, c.shape.as_ref(), &pos, Vector::new(desired.x, desired.y, 0.0) * k, |hit| collisions.push(hit));
+            let fall = KinematicCharacterController { slide: false, autostep: None, ..air };
+            let from = Pose::from_translation(pos.translation + h.translation);
+            let mut hits = Vec::new();
+            let v = fall.move_shape(dt, &q, c.shape.as_ref(), &from, Vector::Z * desired.z * k, |hit| hits.push(hit));
+            // Moving down and stopped short by something facing up: it holds the character.
+            let perched = desired.z < 0.0 && v.translation.z / k > desired.z + 1e-3 && hits.iter().any(|h| h.hit.normal1.z > 0.0);
+            collisions.extend(hits);
+            rapier3d::control::EffectiveCharacterMovement {
+                translation: h.translation + v.translation,
+                grounded: v.grounded || perched,
+                is_sliding_down_slope: false,
+            }
+        } else {
             let q = self.w.query_pipeline_with_filter(filter);
             kcc.move_shape(dt, &q, c.shape.as_ref(), &pos, desired * k, |hit| collisions.push(hit))
         };
@@ -350,7 +456,7 @@ impl PhysWorld {
             }
         }
         let mut horizontal = [desired.x, desired.y];
-        if wedged(horizontal, &walls) {
+        if !two_phase && wedged(horizontal, &walls) {
             horizontal = [0.0, 0.0];
             collisions.clear();
             let q = self.w.query_pipeline_with_filter(filter);
@@ -362,7 +468,7 @@ impl PhysWorld {
         // (the slope tangent direction is degenerate for a vertical normal): about one step
         // in sixty of a walk across flat ground went nowhere [observed: tests]. Continue
         // such a step with the horizontal motion it lost.
-        for _ in 0..2 {
+        for _ in 0..(if two_phase { 0 } else { 2 }) {
             let want = Vector::new(horizontal[0], horizontal[1], 0.0) * k;
             let missing = want - Vector::new(moved.translation.x, moved.translation.y, 0.0);
             let level_only = !collisions.is_empty() && collisions.iter().all(|h| h.hit.normal1.z > LEVEL);
@@ -378,6 +484,39 @@ impl PhysWorld {
             moved.grounded = more.grounded;
             moved.is_sliding_down_slope = more.is_sliding_down_slope;
         }
+        // Settle on the support: the feet rest its contact shell above it (`rest_gap`,
+        // physics.md §6.2) on walkable ground, lifted when closer (landing, or after walking
+        // onto terrain from a static floor) and pulled down within `step_height` when the
+        // step started on the ground (descents; a swimming or rising character is left).
+        if !c.swimming && c.vertical_speed <= 0.0 && (on_walkable || moved.grounded) {
+            let at = Pose::from_translation(pos.translation + moved.translation);
+            let q = self.w.query_pipeline_with_filter(filter);
+            let opts = ShapeCastOptions {
+                max_time_of_impact: (c.params.step_height + 2.0 * TERRAIN_SHELL) * k,
+                target_distance: 0.0,
+                stop_at_penetration: true,
+                compute_impact_geometry_on_penetration: true,
+            };
+            let below = q.cast_shape(&at, -Vector::Z, c.shape.as_ref(), opts).map(|(h, hit)| (h, hit.time_of_impact / k, hit.normal1));
+            if let Some((h, toi, n)) = below.filter(|&(_, _, n)| n.z >= walkable) {
+                let gap = c.params.rest_gap(self.shell_of(h));
+                let mut d = toi - gap / n.z;
+                if d > 0.0 && !(on_walkable && d <= c.params.step_height) {
+                    d = 0.0;
+                }
+                if d < 0.0 {
+                    let opts = ShapeCastOptions { max_time_of_impact: -d * k, target_distance: c.params.skin * k, stop_at_penetration: false, compute_impact_geometry_on_penetration: true };
+                    if let Some((_, up)) = q.cast_shape(&at, Vector::Z, c.shape.as_ref(), opts) {
+                        d = d.max(-up.time_of_impact / k);
+                    }
+                }
+                if d != 0.0 || on_walkable {
+                    moved.translation.z -= d * k;
+                    moved.grounded = true;
+                    c.gap = gap;
+                }
+            }
+        }
         if c.params.push_mass > 0.0 && !collisions.is_empty() {
             let w = &mut self.w;
             let mut q = w.broad_phase.as_query_pipeline_mut(
@@ -391,6 +530,24 @@ impl PhysWorld {
         let falling_speed = -c.vertical_speed;
         let was_grounded = c.grounded;
         c.grounded = moved.grounded;
+        // The velocity the next step starts from: what was asked, or what the world let
+        // through when a wall took part of it.
+        let asked = [desired.x / dt, desired.y / dt];
+        let got = [moved.translation.x / k / dt, moved.translation.y / k / dt];
+        c.velocity = if got[0].hypot(got[1]) < 0.95 * asked[0].hypot(asked[1]) { got } else { asked };
+        if was_grounded && !c.grounded && !jumping {
+            // Walked off an edge: the keys held now decide the air target.
+            c.air_full = !air::is_zero(key);
+            c.air_time = 0.0;
+        }
+        c.air_time = if c.grounded { 0.0 } else { c.air_time + dt };
+        c.since_landing = if c.grounded && !was_grounded {
+            (falling_speed >= air::LANDING_MIN_SPEED).then_some(0.0)
+        } else if c.grounded {
+            c.since_landing.map(|t| t + dt).filter(|&t| ((t * 60.0).round() as usize) < air::LANDING_SPEEDS.len())
+        } else {
+            None
+        };
         let mut landed_speed = None;
         if c.swimming {
             // Swimming down onto the ground ends swimming, with no landing [observed: a
@@ -455,6 +612,17 @@ pub fn swim_vertical(p: &CharacterParams, feet_z: f32, surface: f32, want: f32, 
 /// How close above the floating height still counts as at it, game units (rounding of the
 /// sink's last step) [engineering choice].
 const FLOAT_TOLERANCE: f32 = 0.01;
+
+/// Gap kept from walls and other obstacles met while moving, game units [observed: the
+/// game stopped 21.9 from the yard fence's face (`L4.phys.walk.fence_stop`): a radius of
+/// 21.2 (§6.4.1) and the fence's 0.7 shell; that each obstacle's own shell is kept is
+/// [hypothesis], as is the terrain's 3.5 against terrain walls].
+const WALL_GAP: f32 = 0.7;
+
+/// How much farther than its gap a walkable support may be and still count as standing
+/// on it, game units [engineering choice: covers one step's gravity, 0.19 units, and the
+/// controller's nudges].
+const SUPPORT_MARGIN: f32 = 1.0;
 
 /// Normal z above which a hit counts as an exactly level surface (see `move_character`).
 const LEVEL: f32 = 0.99999;

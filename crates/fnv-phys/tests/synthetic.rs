@@ -684,7 +684,7 @@ fn lake() -> PhysWorld {
 fn swim(w: &mut PhysWorld, c: &mut Character, velocity: [f32; 2], vertical: f32, jump: bool, steps: usize) -> CharacterStep {
     let mut last = None;
     for i in 0..steps {
-        last = Some(w.move_character(c, CharacterInput { velocity, jump: jump && i == 0, vertical }));
+        last = Some(w.move_character(c, CharacterInput { velocity, jump: jump && i == 0, vertical, view: None }));
         w.step();
     }
     last.unwrap()
@@ -853,4 +853,102 @@ fn placed_water_is_the_box_of_its_reference() {
     // Removed with its reference.
     assert!(w.remove_ref(7));
     assert_eq!(w.water_surface_at(1000.0, 0.0), None);
+}
+
+// --- air control, landings, edges (physics.md §6.4.1) ---
+
+/// Per-step horizontal displacements of a character told `velocity` with Jump pressed in
+/// the first step, from standing on the ground.
+fn jump_steps(w: &mut PhysWorld, c: &mut Character, velocity: [f32; 2], steps: usize) -> Vec<(f32, CharacterStep)> {
+    let mut prev = c.feet;
+    (0..steps)
+        .map(|i| {
+            let s = w.move_character(c, CharacterInput { velocity, jump: i == 0, ..Default::default() });
+            w.step();
+            let d = (s.feet[0] - prev[0]).hypot(s.feet[1] - prev[1]);
+            prev = s.feet;
+            (d, s)
+        })
+        .collect()
+}
+
+#[test]
+fn a_jump_with_the_run_starts_slow_in_the_air() {
+    let mut w = ground();
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 10.0]);
+    settle(&mut w, &mut c, 60);
+    let dt = w.params.dt;
+    let steps = jump_steps(&mut w, &mut c, [0.0, 339.5], 90);
+    // In the air the speed closes 0.3 of the gap to the keys' speed per 1/60 s.
+    let mut v = 0.0;
+    for (i, (d, s)) in steps.iter().take(30).enumerate() {
+        assert!(!s.grounded, "step {i} still in the air");
+        v += fnv_phys::air::AIR_GAIN * (339.5 - v);
+        assert!((d / dt - v).abs() < 0.5, "step {i}: {} against {v}", d / dt);
+    }
+    // After the landing the landing profile, then the keys' speed again.
+    let land = steps.iter().position(|(_, s)| s.landed_speed.is_some()).expect("lands");
+    for (j, &want) in fnv_phys::air::LANDING_SPEEDS.iter().enumerate() {
+        let (d, _) = steps[land + 1 + j];
+        assert!((d / dt - want).abs() < 0.5, "landing step {j}: {} against {want}", d / dt);
+    }
+    let (d, _) = steps[land + 1 + fnv_phys::air::LANDING_SPEEDS.len()];
+    assert!((d / dt - 339.5).abs() < 0.5);
+}
+
+#[test]
+fn a_key_pressed_only_in_the_air_gives_air_control() {
+    let mut w = ground();
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 10.0]);
+    settle(&mut w, &mut c, 60);
+    let dt = w.params.dt;
+    jump_steps(&mut w, &mut c, [0.0, 0.0], 5);
+    let steps = jump_steps(&mut w, &mut c, [0.0, 344.0], 40);
+    let (d, s) = &steps[39];
+    assert!(!s.grounded && (d / dt - fnv_phys::air::AIR_CONTROL_SPEED).abs() < 0.2, "{}", d / dt);
+}
+
+#[test]
+fn a_key_pressed_just_after_take_off_counts_as_held() {
+    let mut w = ground();
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 10.0]);
+    settle(&mut w, &mut c, 60);
+    let dt = w.params.dt;
+    jump_steps(&mut w, &mut c, [0.0, 0.0], 2);
+    let steps = jump_steps(&mut w, &mut c, [0.0, 344.0], 30);
+    let (d, s) = &steps[29];
+    assert!(!s.grounded && (d / dt - 344.0).abs() < 0.5, "{}", d / dt);
+}
+
+#[test]
+fn a_falling_character_rests_on_an_edge_without_sliding() {
+    // A thin wall (3.5 wide, top at 70) and drops beside its centre line.
+    let mut w = ground();
+    w.add_ref(&at(1, [0.0, 0.0, 35.0]), &[object(boxed([1.75, 200.0, 35.0]), Motion::Static)]);
+    let p = CharacterParams::default();
+    for d in [8.0f32, 12.0, 16.0] {
+        let mut c = w.add_character(2, p, [d, 0.0, 270.0]);
+        let s = settle(&mut w, &mut c, 180);
+        w.remove_character(c);
+        // Past its flat tip the cone bottom touches the edge `bottom_slope` units lower per
+        // unit off it, keeping the skin along its surface's normal.
+        let e = d - 1.75;
+        let want = 70.0 - p.bottom_slope * (e - p.bottom_flat) + p.skin * (1.0 + p.bottom_slope * p.bottom_slope).sqrt();
+        assert!((s.feet[0] - d).abs() < 0.01 && s.feet[1].abs() < 0.01, "{d}: slid to {:?}", s.feet);
+        assert!((s.feet[2] - want).abs() < 0.3, "{d}: {:?} against {want}", s.feet);
+        assert!(s.grounded);
+    }
+}
+
+#[test]
+fn walls_keep_a_static_shell_gap_while_on_terrain() {
+    let mut w = ground();
+    // A wall whose south face is at y = 50.
+    w.add_ref(&at(1, [0.0, 60.0, 100.0]), &[object(boxed([500.0, 10.0, 100.0]), Motion::Static)]);
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+    settle(&mut w, &mut c, 30);
+    let s = walk(&mut w, &mut c, [0.0, 200.0], 90).pop().unwrap();
+    assert!(s.gap == TERRAIN_SHELL && (s.feet[2] - TERRAIN_SHELL).abs() < 0.02, "{:?}", s.feet);
+    let stop = 50.0 - c.params.radius - 0.7;
+    assert!((s.feet[1] - stop).abs() < 0.1, "{:?} against {stop}", s.feet);
 }
