@@ -136,6 +136,84 @@ class JobTests(unittest.TestCase):
                                      {"op": "transfer", "from": "a", "to": "b", "item": "c", "count": 2}), "x", "s")
         self.assertTrue(all("manual" in s for s in job["steps"][len(cs.MASTERS):]))
 
+    def test_time_substitutes(self):
+        acts = actions({"op": "advance_time", "hours": 30})
+        hour = cs.actions_job(acts, "x", "s", time_mode="hour")["steps"][len(cs.MASTERS):]
+        scripts = [s["script"] for s in hour if "script" in s]
+        self.assertEqual(len(scripts), 2, "at most 24 hours at a time")
+        self.assertIn("let fH := GameHour + 24\nset GameHour to fH", scripts[0])
+        self.assertIn("GameHour + 6\n", scripts[1])
+        self.assertTrue(all("frames" in s for s in hour if "script" not in s))
+        ts = cs.actions_job(acts, "x", "s", time_mode="timescale")["steps"][len(cs.MASTERS):]
+        self.assertEqual([s.get("as") for s in ts[:2]], ["days0", "scale0"])
+        self.assertIn("GameDaysPassed", ts[0]["remember"])
+        self.assertIn("TimeScale", ts[1]["remember"])
+        self.assertEqual(ts[2], {"console": f"set TimeScale to {cs.FAST_TIMESCALE}"})
+        self.assertIn("if GameDaysPassed >= %{days0} + 1.25\n", ts[3]["until"])
+        self.assertEqual(ts[3]["max_frames"], 30 * cs.LOOPS_PER_HOUR)
+        self.assertEqual(ts[4], {"console": "set TimeScale to %{scale0}"})
+        self.assertIn("frames", ts[5])
+        with self.assertRaises(cs.InputError):
+            cs.actions_job(actions({"op": "advance_time", "hours": 0}), "x", "s", time_mode="hour")
+        with self.assertRaises(cs.InputError):
+            cs.actions_job(acts, "x", "s", time_mode="sleep")
+
+    def test_settle_auto_waits_for_the_cell_change(self):
+        acts = actions({"op": "activate", "actor": "player", "target": "0x00010000"},
+                       {"op": "add_item", "to": "player", "item": "0x0000000F", "count": 1},
+                       {"op": "get_pos", "of": "player"})
+        steps = cs.actions_job(acts, "x", "s", confirm_after={0, 1}, settle_mode="auto")["steps"][len(cs.MASTERS):]
+        self.assertFalse(any("manual" in s for s in steps))
+        until = [s for s in steps if "until" in s]
+        self.assertEqual(len(until), 1, "only an activation waits for a cell change")
+        self.assertIn("let rD := rF1.GetParentCell", until[0]["until"])
+        self.assertIn("BuildRef fM1 65536", until[0]["until"])
+        self.assertEqual(until[0]["max_frames"], cs.DOOR_LOOPS)
+        self.assertEqual(sum(1 for s in steps if s.get("frames") == cs.AFTER_DOOR_FRAMES), 2)
+
+    def test_console_first_and_go_to_cell(self):
+        acts = actions({"op": "get_disabled", "of": "0x00010000"})
+        edids = {"nvdlc03x13": 0x0300328C}
+        steps = cs.actions_job(acts, "x", "s", edids, console_first=["tgm", "tdetect"],
+                               go_to_cell="NVDLC03X13")["steps"][len(cs.MASTERS):]
+        self.assertEqual(steps[:3], [{"console": "tgm"}, {"console": "tdetect"}, {"console": "coc NVDLC03X13"}])
+        self.assertIn('let fM1 := GetModIndex "OldWorldBlues.esm"', steps[3]["until"])
+        self.assertIn("BuildRef fM1 12940", steps[3]["until"])
+        self.assertIn("if rP == rF1", steps[3]["until"])
+        self.assertEqual(steps[4], {"frames": cs.AFTER_DOOR_FRAMES})
+        self.assertIn("query", steps[5])
+        with self.assertRaises(cs.InputError):
+            cs.actions_job(acts, "x", "s", edids, go_to_cell="NVDLC03X13; qqq")
+        with self.assertRaises(cs.InputError):
+            cs.actions_job(acts, "x", "s", edids, go_to_cell="NoSuchCell")
+
+    def test_compare_traces(self):
+        def trace(*obs):
+            return {"format": "fnv.sim.trace/1", "observations": list(obs)}
+        a = trace({"label": "box", "count": 3}, {"label": "p", "cell": "0x1", "pos": [1.0, 2.0, 3.0]}, {"label": "d", "disabled": True})
+        b = trace({"label": "box", "count": 3}, {"label": "p", "cell": "0x1", "pos": [1.0, 2.0, 3.4]}, {"label": "d", "disabled": True})
+        self.assertEqual(cs.compare_traces(a, a), [])
+        self.assertEqual(cs.compare_traces(a, b), ["p: pos [1.0, 2.0, 3.0] vs [1.0, 2.0, 3.4]"])
+        self.assertEqual(cs.compare_traces(a, b, tolerance=0.5), [])
+        c = trace({"label": "box", "count": 0}, {"label": "new", "count": 1}, {"label": "d", "disabled": 1})
+        diffs = cs.compare_traces(a, c)
+        self.assertIn("box: count 3 vs 0", diffs)
+        self.assertIn("p: only in first", diffs)
+        self.assertIn("new: only in second", diffs)
+        self.assertIn("d: disabled true vs 1", diffs, "a boolean is not a number")
+        c2 = trace({"label": "box", "count": 3, "error": "script call failed"})
+        self.assertIn('box: error null vs "script call failed"', cs.compare_traces(trace({"label": "box", "count": 3}), c2))
+        with self.assertRaises(cs.InputError):
+            cs.compare_traces(a, {"format": "fnv.sim.samples/1"})
+        with tempfile.TemporaryDirectory() as tmp:
+            pa, pb = os.path.join(tmp, "a.json"), os.path.join(tmp, "b.json")
+            cs.write(a, pa)
+            cs.write(b, pb)
+            with redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cs.main(["compare", pa, pb]), 2)
+                self.assertEqual(cs.main(["compare", pa, pb, "--tolerance", "0.5"]), 0)
+            self.assertIn("1 difference(s)", out.getvalue())
+
     def test_cases_job(self):
         doc = {"format": "fnv.sim.cases/1", "cases": [{"label": "a", "list": "LootChemsStimpak50", "level": 10, "count": 3},
                                                        {"label": "b", "list": "0x00177FAF"}]}

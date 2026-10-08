@@ -206,8 +206,8 @@ impl RefTable {
 
     /// Whether `id` holds a merchant's stock (an actor reference names it in XMRC).
     /// [documented: xEdit "Merchant Container" on ACHR/ACRE; observed in game: such a
-    /// container restocks faster than the 72 h cell respawn — the rule is being
-    /// captured, docs/spec-notes/simulation.md §3]
+    /// container restocks on fixed days, not by the 72 h cell respawn — see
+    /// `world::is_merchant_restock_day`, docs/spec-notes/simulation.md §3]
     pub fn is_merchant_container(&self, id: FormId) -> bool {
         self.merchant_containers.contains_key(&id)
     }
