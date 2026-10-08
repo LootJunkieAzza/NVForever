@@ -168,8 +168,11 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 5. Collision: shape conversion vs oracle; Havok scale measured; then movement traces.
    Status 2026-10-08: the controller rests on contact shells like the arrival rule, the
    corner jitter is fixed, gravity / jump / run / walk are measured in game (physics.md
-   §6.3). Captured the same day: B11 15/20 after fixes (open: Havok trees, rocks within
-   the game's spread, a pushed drop), traces fence_slide 6/6, fence_stop 6/6,
+   §6.3). Captured the same day: B11 15/20 after fixes, 14/20 since Portal Box markers
+   are solid again (open: Havok trees; follow-up 2026-10-08 [observed]: rock b and the
+   maize push are the game's own spread over repeated identical drops, rock a lands on a
+   step edge where the game's player passes; owner asked about goldens from repeated
+   drops, physics.md §4.2), traces fence_slide 6/6, fence_stop 6/6,
    porch_steps 6/6, running_jump 0/6 (air control open), hill_run 6/6 and portal_wall
    5/6 (goldens rebuilt with the corrected onset on the owner's decision, no longer
    held-out evidence; the steep downhill row is open; physics.md §4.2, §6.3, §6.4,
@@ -180,10 +183,12 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    collision, doors, containers and taking items pass unattended in Goodsprings, Doc
    Mitchell's house and the gas station; interior starts and door destinations over
    nothing move to a door arrival, and falls out of an interior are caught (physics.md
-   §6.7); items dropped from the inventory are drawn, collide, fall and settle, survive
-   cell unloads and are taken back with E (whether the game's dropped items fall is open,
-   simulation.md §5). Open: play by hand, doors into another worldspace, dialogue and
-   barter.
+   §6.7); the 106 doors into another worldspace (Mojave ↔ Freeside, Freeside ↔ Strip,
+   DLC worldspaces) switch physics and rendering to the destination worldspace; items
+   dropped from the inventory are drawn, collide, fall and settle, survive cell unloads
+   and worldspace changes and are taken back with E (whether the game's dropped items
+   fall is open, simulation.md §5). Open: play by hand, scripted doors (the Strip gate),
+   dialogue and barter.
 
 ## 5. Open questions and verification steps for the owner
 
