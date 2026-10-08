@@ -31,6 +31,7 @@ use bevy::prelude::*;
 use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task};
 use fnv_world::{cell_of, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
+use nvf_assets::ShapeMaterial;
 use nvf_assets::texture::dds_image;
 use std::collections::{HashMap, HashSet};
 
@@ -273,8 +274,10 @@ fn spawn_chunk(
 ) -> ChunkEntities {
     let overlaps = cx <= hi.0 && cx + LEVEL > lo.0 && cy <= hi.1 && cy + LEVEL > lo.1;
     let mut out = ChunkEntities::default();
-    let mut add = |commands: &mut Commands, mesh: Handle<Mesh>, material: Handle<StandardMaterial>, t: Transform| {
-        let e = commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), t)).id();
+    let mut add = |commands: &mut Commands, mesh: Handle<Mesh>, material: &ShapeMaterial, t: Transform| {
+        let mut e = commands.spawn((Mesh3d(mesh), t));
+        material.insert(&mut e);
+        let e = e.id();
         commands.entity(root).add_child(e);
         out.entities.push(e);
     };
@@ -298,7 +301,7 @@ fn spawn_chunk(
         };
         if let Some(m) = mesh {
             let t = Transform::from_translation(Vec3::new(cx as f32 * CELL_SIZE, cy as f32 * CELL_SIZE, 0.0));
-            add(commands, m, gc.material.clone(), t);
+            add(commands, m, &ShapeMaterial::Standard(gc.material.clone()), t);
         }
         terrain_drawn = Some(true);
     } else {
@@ -328,13 +331,13 @@ fn spawn_chunk(
                 // Push LOD terrain behind loaded terrain where both exist. Its normal map is
                 // in model space (green = north, module docs), so it must not get the
                 // green flip that tangent-space NIF normal maps need.
-                if let Some(mut mat) = models.materials.get_mut(&s.material) {
+                if let Some(mut mat) = s.material.standard().and_then(|h| models.materials.get_mut(h)) {
                     if mat.depth_bias == 0.0 {
                         mat.depth_bias = -50.0;
                     }
                     mat.flip_normal_map_y = false;
                 }
-                add(commands, mesh, s.material.clone(), Transform::from_matrix(Mat4::from(st)));
+                add(commands, mesh, &s.material, Transform::from_matrix(Mat4::from(st)));
             }
             terrain_drawn = Some(false);
         }
@@ -346,7 +349,7 @@ fn spawn_chunk(
         if let Some(model) = model {
             for s in &model.shapes {
                 let st = model.root * s.transform;
-                add(commands, s.mesh.clone(), s.material.clone(), Transform::from_matrix(Mat4::from(st)));
+                add(commands, s.mesh.clone(), &s.material, Transform::from_matrix(Mat4::from(st)));
             }
             block = true;
         }
