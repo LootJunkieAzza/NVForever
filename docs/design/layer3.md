@@ -80,7 +80,9 @@ What it does now:
   normals, vertex colours (sRGB → linear).
 - Materials as in the viewer, plus: nodes named `EditorMarker*` are skipped, additive and
   multiplicative NIF blend modes are honoured, alpha test wins over blending, and
-  BSShaderNoLightingProperty is unlit (nif.md §6). Helper shapes (properties but no
+  BSShaderNoLightingProperty is unlit (nif.md §6). Emissive = colour × multiplier ×
+  glow map from texture-set slot 2 (neon signs, lit windows; nif.md §6 "Emissive
+  light"); material colour and emittance controllers are not evaluated yet. Helper shapes (properties but no
   shader property and no texture: bone boxes, collision proxies) are skipped (nif.md §6).
 - Animated and skinned objects: skinned shapes are drawn in their bind pose. Models with
   an embedded `Idle` sequence (flags, vultures, dust effects) are spawned per reference
@@ -88,10 +90,21 @@ What it does now:
   (`nvf_assets::model::Rig`, `anim_play::Playing`); overlay "animated" counts them.
   Morph controllers (the flags' small ripples) are not evaluated yet.
 - Sky, sun, ambient light and fog from the worldspace's climate and weather at a time
-  of day (`--hour`, `[`/`]` keys; `--weather`; `--fog near,far` override): a vertex-coloured
-  sky dome (sky-lower / horizon / sky-upper), a directional light with the weather's
-  sunlight colour along a sun path, a sun disc with the climate's sun texture, ambient and
-  fog colours (world.md §6). Light levels are tuned by eye until screenshots exist.
+  of day (`--hour`, `[`/`]` keys; `--weather`; `--fog near,far` override): the game's
+  `meshes\sky\atmosphere.nif` dome coloured by its vertex weights (sky-lower / horizon /
+  sky-upper) and the four `clouds.nif` layers with the weather's cloud textures and
+  colours (world.md §6), a directional light with the weather's sunlight colour along a
+  sun path, a sun disc with the climate's sun texture, ambient and fog colours. Colours
+  use the four main times of day only (world.md §6). Light levels: a colour of 1.0 lights
+  a white surface to 1.0 on screen (sun π / exposure, ambient 1 / exposure), from the
+  game's texture × (ambient + sunlight · N·L) model [hypothesis]; this replaced levels
+  tuned by eye that were about 4× too bright in sunlight. Sun shadows: four cascades out to
+  `--shadow-distance` (default 16,000 units; 0 turns them off). The directional light
+  fades out within ~6° of the horizon, where it switches between sun and moon
+  [interim]. Observed in the time-lapse: NVWastelandClear's night ambient (luminance
+  0.42) is brighter than its day ambient (0.14), so nights look brighter than late
+  afternoon; the weather's per-time image-space links (world.md §6, not read yet)
+  probably adjust this in game.
 - Distant LOD (`--lod-radius`, default 8 chunks = 32 cells; `--no-lod`): the game's
   level-4 terrain chunks and object LOD blocks (world.md §7) around the camera. Terrain
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
@@ -106,7 +119,10 @@ What it does now:
   the camera starts at the middle of its references. Lights: every enabled LIGH
   reference becomes a point (or spot) light, indoors and out (`--light-scale`, tuned by
   eye in GSDocMitchellHouse).
-- Test aids: `--auto-fly <speed>` flies the camera forward, `--run-seconds <n>` exits
+- Test aids: `--time-scale <h/s>` runs the clock at that many game hours per real second
+  once the start cells are loaded, logging a "time-lapse" sample (sun elevation, light
+  and sky luminance) every game hour; `--timelapse <dir>` also saves a frame per hour
+  (the day/night smoke test in CLAUDE.md). `--auto-fly <speed>` flies the camera forward, `--run-seconds <n>` exits
   after n seconds; together a headless smoke test of streaming and LOD rebuilds (40 s at
   4000 units/s streams 200-260 cells). Meshes on the GPU are render-world only and cannot
   be read back; code that derives meshes later (LOD trimming) asks the model cache for

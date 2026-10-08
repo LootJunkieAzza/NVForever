@@ -14,6 +14,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::{RenderLayers, VisibilitySystems};
 use bevy::camera::{Hdr, RenderTarget};
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::light::SimulationLightSystems;
 use bevy::math::reflection_matrix;
 use bevy::pbr::DistanceFog;
 use bevy::prelude::*;
@@ -52,7 +53,10 @@ impl Plugin for ReflectionPlugin {
             (resize_reflection, update_reflection)
                 .chain()
                 .after(TransformSystems::Propagate)
-                .before(VisibilitySystems::UpdateFrusta),
+                .before(VisibilitySystems::UpdateFrusta)
+                // Cascades are built only for active cameras: switch on before that, or
+                // the renderer finds an active view without sun shadow cascades.
+                .before(SimulationLightSystems::UpdateDirectionalLightCascades),
         );
     }
 }
