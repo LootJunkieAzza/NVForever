@@ -171,8 +171,8 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    §6.3). Captured the same day: B11 15/20 after fixes, 14/20 since Portal Box markers
    are solid again (open: Havok trees; follow-up 2026-10-08 [observed]: rock b and the
    maize push are the game's own spread over repeated identical drops, rock a lands on a
-   step edge where the game's player passes; owner asked about goldens from repeated
-   drops, physics.md §4.2), traces fence_slide 6/6, fence_stop 6/6,
+   step edge where the game's player passes; on the owner's decision the golden is now
+   the median of five repeats per drop: 16/20, physics.md §4.2), traces fence_slide 6/6, fence_stop 6/6,
    porch_steps 6/6, running_jump 0/6 (air control open), hill_run 6/6 and portal_wall
    5/6 (goldens rebuilt with the corrected onset on the owner's decision, no longer
    held-out evidence; the steep downhill row is open; physics.md §4.2, §6.3, §6.4,
