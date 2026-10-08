@@ -170,14 +170,18 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    docs/spec-notes/simulation.md §6). Can you run console commands on a pinned save in
    Doc Mitchell's house, or do you prefer that we build the xNVSE logging plugin first?
    → Owner 2026-10-07: build the plugin (`nvf_capture`, tools/capture/README.md §10).
-2. What happens in-game when activating a locked container *with* its key in the
-   inventory: does it open directly (our hypothesis) or prompt?
-3. Count-0 carried items on NPCs (e.g. the Vault 21 gamblers): do those NPCs carry
-   anything for those entries?
+2. ~~What happens in-game when activating a locked container *with* its key in the
+   inventory: does it open directly (our hypothesis) or prompt?~~ → Owner 2026-10-08: it
+   opens directly, no prompt (simulation.md §5).
+3. ~~Count-0 carried items on NPCs (e.g. the Vault 21 gamblers): do those NPCs carry
+   anything for those entries?~~ → Owner 2026-10-08: nothing; the entry is empty
+   (simulation.md §3).
 4. ~~Schema gaps that block weight/value~~ — closed 2026-10-07: IMOD, CHIP, CCRD, CMNY
    layouts added from xEdit and decoding every instance; NOTE and CHIP have no value or
    weight field and CMNY only an "Absolute Value" (docs/spec-notes/simulation.md §3). Do
    notes, casino chips and caravan money weigh anything in-game (inventory screen)?
+   → Owner 2026-10-08: notes, casino chips, caravan money and caravan cards weigh nothing,
+   like caps; the carried weight counts them as 0.
 5. Placed grenades (PGRE, 297 in OldWorldBlues.esm) are not simulated yet: are they
    live explosives in-game, or decoration?
 6. Cell respawn delay: `iHoursToRespawnCell` is not in any master (an engine default).
@@ -192,6 +196,11 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    still needs a save inside X-13. Update 2026-10-08: `x13_enable_parents` 13/13;
    merchant restocks follow fixed days (GameDaysPassed 0 or 3 modulo 7, spec note §3),
    checked by `goodsprings_merchant_midnight_restock` 11/11.
+8. Answered by the owner 2026-10-08 (physics.md §4, §6): disabled references are not
+   drawn, have no collision and cannot be interacted with; `GetPos Z` is the feet (player
+   7361.05 standing on a rug at 7360 in Doc Mitchell's house). Still open: the collision
+   layer matrix — a scripted drop test is proposed as backlog item B11
+   (layer4-captures.md); the Havok scale needs no in-game test (collision.md §6).
 
 ## 6. Updated spec notes
 
