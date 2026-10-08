@@ -24,7 +24,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::form::FormId;
-use crate::world::{SimConfig, World};
+use crate::world::{Outcome, SimConfig, World};
 
 pub const ACTIONS_FORMAT: &str = "fnv.sim.actions/1";
 pub const TRACE_FORMAT: &str = "fnv.sim.trace/1";
@@ -139,14 +139,22 @@ pub fn resolve_cell(w: &World, s: &str) -> Result<FormId, String> {
     w.placed.cell_by_edid(s).ok_or_else(|| format!("no cell named {s:?}"))
 }
 
-fn step(w: &mut World, a: &Action) -> Result<Value, String> {
+fn step<'b>(w: &mut World, a: &Action, settle: Option<&mut (dyn Settle + 'b)>) -> Result<Value, String> {
     let r = |w: &World, s: &str| resolve_ref(w, s);
     let f = |w: &World, s: &str| resolve_form(w, s);
     let e = |e: crate::world::SimError| e.to_string();
     Ok(match a {
         Action::Activate { actor, target } => {
             let (a, t) = (r(w, actor)?, r(w, target)?);
-            serde_json::to_value(w.activate(a, t).map_err(e)?).expect("serialisable")
+            let act = w.activate(a, t).map_err(e)?;
+            let mut v = serde_json::to_value(&act).expect("serialisable");
+            if let (Outcome::Teleported { cell, pos, .. }, Some(settle)) = (&act.outcome, settle) {
+                if let Some((p, note)) = settle.settle(w, *cell, *pos) {
+                    w.get(a).map_err(e)?.pos = p;
+                    v["settled"] = json!({"pos": p, "support": note});
+                }
+            }
+            v
         }
         Action::AddItem { to, item, count } => {
             let (to, item) = (r(w, to)?, f(w, item)?);
@@ -240,12 +248,28 @@ fn step(w: &mut World, a: &Action) -> Result<Value, String> {
     })
 }
 
+/// Where an actor put somewhere by a teleport comes to rest. The simulation keeps no
+/// geometry, so the caller supplies this: `fnvtool sim run` builds the destination's
+/// physics world and applies `fnv_phys`'s arrival rule (docs/spec-notes/physics.md §6.2,
+/// simulation.md §7). Without one, the actor keeps the stored destination.
+pub trait Settle {
+    /// The resting position of an actor just put at `pos` in `cell`, with a note for the
+    /// trace (what supports it); `None` keeps `pos`.
+    fn settle(&mut self, w: &World, cell: Option<FormId>, pos: [f32; 3]) -> Option<([f32; 3], Value)>;
+}
+
 pub fn config(s: &Script) -> SimConfig {
     SimConfig { seed: s.seed, player_level: s.player_level, hardcore: s.hardcore, ..SimConfig::default() }
 }
 
-/// Run every action on `w` and build the trace document.
+/// Run every action on `w` and build the trace document (teleported actors keep the
+/// stored destination).
 pub fn run(w: &mut World, s: &Script) -> Result<Value, String> {
+    run_with(w, s, None)
+}
+
+/// [`run`], with teleported actors settled by `settle`.
+pub fn run_with<'b>(w: &mut World, s: &Script, mut settle: Option<&mut (dyn Settle + 'b)>) -> Result<Value, String> {
     if s.format != ACTIONS_FORMAT {
         return Err(format!("unsupported actions format {:?} (expected {ACTIONS_FORMAT})", s.format));
     }
@@ -253,7 +277,7 @@ pub fn run(w: &mut World, s: &Script) -> Result<Value, String> {
     let mut observations = Vec::new();
     for (i, a) in s.actions.iter().enumerate() {
         let mut o = json!({"step": i, "op": a.op()});
-        let res = step(w, a);
+        let res = step(w, a, settle.as_deref_mut());
         if let Action::GetItemCount { label, .. }
         | Action::GetPos { label, .. }
         | Action::GetDisabled { label, .. }

@@ -32,6 +32,7 @@ fn object(shape: Shape, motion: Motion) -> CollisionObject {
         friction: 0.5,
         restitution: 0.0,
         shape,
+        shell: 0.0,
     }
 }
 
@@ -525,4 +526,38 @@ fn collision_marker_primitives_become_boxes() {
     assert_eq!((r.bodies, r.colliders, r.errors.len()), (1, 1, 0));
     assert!(down(&mut w, 500.0, 595.0).is_some_and(|h| h.owner.key() == Key::Ref(0x21_0001)));
     assert!(down(&mut w, 515.0, 500.0).is_some_and(|h| h.owner.key() == Key::Terrain(0, 0)));
+}
+
+#[test]
+fn arrival_rests_on_the_support_shell() {
+    let mut w = ground();
+    // A static slab (top at z = 40) carrying a 0.7-unit shell, at x = 500.
+    let mut slab = object(boxed([50.0, 50.0, 20.0]), Motion::Static);
+    slab.shell = 0.7;
+    w.add_ref(&at(0x10, [500.0, 0.0, 20.0]), &[slab]);
+    let p = CharacterParams::default();
+    let f = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
+    // Below the terrain, on it, or above it: the feet end on the terrain's shell.
+    for z in [-8.0, 0.0, 3.0, 60.0] {
+        let a = w.arrival([100.0, 100.0, z], &p, &f);
+        assert!((a.feet[2] - TERRAIN_SHELL).abs() < 1e-3, "from {z}: {:?}", a.feet);
+        let s = a.support.expect("terrain under the point");
+        assert!(matches!(s.owner, Owner::Terrain { .. }) && s.point[2].abs() < 1e-3 && s.shell == TERRAIN_SHELL);
+        assert_eq!((a.feet[0], a.feet[1]), (100.0, 100.0));
+    }
+    // On the slab: its shell, from just under its top as from above.
+    for z in [38.0, 40.0, 90.0] {
+        let a = w.arrival([500.0, 0.0, z], &p, &f);
+        assert!((a.feet[2] - 40.7).abs() < 1e-3, "from {z}: {:?}", a.feet);
+        assert_eq!(a.support.unwrap().owner, Owner::Ref { form_id: 0x10, object: 0, layer: 1 });
+    }
+    // The shell scales with the reference.
+    let mut slab = object(boxed([50.0, 50.0, 20.0]), Motion::Static);
+    slab.shell = 0.7;
+    w.add_ref(&RefPose { scale: 2.0, ..at(0x11, [-500.0, 0.0, 40.0]) }, &[slab]);
+    let a = w.arrival([-500.0, 0.0, 80.0], &p, &f);
+    assert!((a.feet[2] - 81.4).abs() < 1e-3, "{:?}", a.feet);
+    // Nothing in range: the actor stays where it was put.
+    let a = w.arrival([100.0, 100.0, 5_000.0], &p, &f);
+    assert_eq!((a.feet, a.support), ([100.0, 100.0, 5_000.0], None));
 }
