@@ -20,7 +20,8 @@ Assumptions:
   WTHR, CLMT, LGTM, IMGS, TREE, MSTT, ...) are added to `schemas/fnv` from xEdit's
   public definitions as in Layer 1, never hard-coded.
 - Actors (ACHR/ACRE) are placed by Layer 3 only as markers; drawing NPCs and creatures
-  needs records from Layers 4–6 (race, body parts, equipment).
+  needs records from Layers 4–6 (race, body parts, equipment). Static NPCs assembled as
+  one entity per actor are planned as workstream 5 (docs/design/static-actors.md).
 - The first target is static and correct (M3). Physics, scripts and AI stay out.
 
 ## 2. Findings and design
