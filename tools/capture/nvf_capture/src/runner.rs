@@ -423,8 +423,12 @@ impl Runner {
                     end_pressed: bool, host: &mut dyn Host, ev: &mut Vec<Event>) -> State {
         let out = |ev: &mut Vec<Event>, line: Json| ev.push(Event::Output { job: job.to_string(), line });
         let vars = &self.vars;
-        let stop_drive = |ev: &mut Vec<Event>, host: &mut dyn Host, loops: u32, reason: &str| {
-            out(ev, json!({"kind": "drive", "step": step, "loops": loops, "reason": reason}));
+        let stop_drive = |ev: &mut Vec<Event>, host: &mut dyn Host, loops: u32, reason: &str, value: Option<f64>| {
+            let mut line = json!({"kind": "drive", "step": step, "loops": loops, "reason": reason});
+            if let Some(v) = value {
+                line["value"] = json!(v);
+            }
+            out(ev, line);
             if let Some(d) = &o.drive_end {
                 if let Err(e) = expand(d, vars).and_then(|t| host.script(&t)) {
                     out(ev, json!({"kind": "error", "step": step, "error": format!("drive_end: {e}")}));
@@ -435,14 +439,14 @@ impl Runner {
             if let Some(d) = &o.drive {
                 drive_loops += 1;
                 let reason = match expand(d, vars).and_then(|t| host.script(&t)) {
-                    Ok(Value::Number(n)) if n != 0.0 => Some("arrived".to_string()),
-                    Ok(_) if o.drive_frames > 0 && drive_loops >= o.drive_frames => Some("max_frames".to_string()),
+                    Ok(Value::Number(n)) if n != 0.0 => Some(("arrived".to_string(), Some(n))),
+                    Ok(_) if o.drive_frames > 0 && drive_loops >= o.drive_frames => Some(("max_frames".to_string(), None)),
                     Ok(_) => None,
-                    Err(e) => Some(format!("error: {e}")),
+                    Err(e) => Some((format!("error: {e}"), None)),
                 };
-                if let Some(r) = reason {
+                if let Some((r, value)) = reason {
                     drive_on = false;
-                    stop_drive(ev, host, drive_loops, &r);
+                    stop_drive(ev, host, drive_loops, &r, value);
                 }
             }
         }
@@ -464,7 +468,7 @@ impl Runner {
         };
         if let Some(reason) = done {
             if drive_on {
-                stop_drive(ev, host, drive_loops, "observation ended");
+                stop_drive(ev, host, drive_loops, "observation ended", None);
             }
             out(ev, json!({"kind": "observed", "step": step, "label": o.label, "samples": sample, "reason": reason}));
             return State::Running { step: step + 1, wait: 0, manual: false, polls: 0 };
@@ -736,6 +740,7 @@ mod tests {
         assert_eq!(out[1]["fields"], json!({"header": ["h"]}));
         assert_eq!(out[1]["groups"], json!(["actors"]));
         assert_eq!(out[3]["reason"], "arrived");
+        assert_eq!(out[3]["value"], 1.0, "the drive's non-zero result is recorded");
         assert_eq!(out[3]["loops"], 2);
         let s = &out[2];
         assert_eq!(s["n"], 0);

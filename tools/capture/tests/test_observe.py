@@ -82,6 +82,8 @@ class ScriptRules(unittest.TestCase):
         self.assertEqual(o["every"], 30)
         self.assertIn("%{t0} + 0.0833", o["until"])
         self.assertIn("player.GetHeadingAngle rF1", o["drive"])
+        self.assertIn(f"let fA := {ob.WALK_UNREACHABLE}", o["drive"], "a target in another interior is unreachable")
+        self.assertNotIn("return", o["drive"])
         self.assertIn("BuildRef fM1 4098", o["drive"], "Ann = 0x1002")
         tracked = o["groups"][1]
         self.assertIn("BuildRef fM1 4097", tracked["probe"][0])

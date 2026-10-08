@@ -88,7 +88,9 @@ max}], every, until?, max_samples, drive?, drive_frames?, drive_end?}}`
 - `drive` runs once per game loop from the start until it returns non-zero (`arrived`)
   or `drive_frames` loops (`max_frames`), or fails (`error: …`); `drive_end` then runs
   once, also when the observation ends first; written as `{"kind": "drive", step,
-  loops, reason}`.
+  loops, reason, value?}` (`value`: the drive's non-zero result, from plugin version 5;
+  a walk returns 1 when it arrived and 2 when the target is unreachable, i.e. it or the
+  player is in an interior and they are not in the same cell).
 - Every probe walks the scan from its first actor (a script cannot keep the iterator
   between calls), so a sample costs about n²/2 GetNextRef steps per part for n actors;
   `us` shows what this costs in game.
@@ -110,7 +112,8 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
 
 - **Campaign** `fnv.observe.campaign/1`: `name`, optional `save`, `defaults`, `sessions`
   (each: `name`, `hours` of game time, optional `hour` to move the clock to first,
-  `go` = `{"coc": cell}` | `{"cow": [world, x, y]}` | `{"moveto": ref}`, `walk` =
+  `go` = `{"coc": cell}` | `{"cow": [world, x, y]}` | `{"moveto": ref}` (teleport to an
+  actor, wherever it is), `walk` =
   `{"to": ref, "within": units, "max_frames": n}`, `track` = [ref Editor IDs],
   `every`, `depth`, `settle_frames`, `timescale`, `max_actors`, `console_first`).
   Example: `tools/capture/observe/goodsprings.campaign.json`.
@@ -169,8 +172,10 @@ actors are skipped in the nearby scan and recorded (field `disabled`) when track
 
 Campaign `goodsprings` from save `nvftest` (early game: Sunny is waiting to meet the
 player). `saloon_evening` ran to its end (18:05–00:05, 1451 samples every 30 loops);
-`town_day` was stopped by the owner after 254 samples (06:05–08:11); `walk_to_sunny` did
-not run. 0 errors in 1705 samples; a sample with 13 tracked and 2–9 nearby actors took
+`town_day` was stopped by the owner after 254 samples (06:05–08:11) and then run in full
+(2941 samples, 06:05 to 06:05 the next day, every 60 loops), followed by `walk_to_sunny`
+(504 samples, 10:05–11:05, every 15 loops). Findings from the first part are listed
+first, then those of the full day. 0 errors in 1705 samples; a sample with 13 tracked and 2–9 nearby actors took
 about 2 ms (median; the longest, 0.66 s, are hitches such as cell loads). Times below
 are GameHour (§5).
 
@@ -227,6 +232,41 @@ are GameHour (§5).
   (CheyenneAccompany, ACCOMPANY, target SunnyRef).
 - Creatures near the player (bighorners, brahmin, a raven) ran
   DefaultSandboxEditorLocation16 / 512.
+
+Full day (`town_day`, player standing at the Goodsprings coc marker):
+
+- **Schedule switches come in batches for actors that are not loaded.** At 22:00 on day
+  13, EasyPeteRef (loaded, sitting outside) changed package at 22:00.23, while GSChetRef
+  (general store), RingoRef (gas station) and GoodspringsSettler04Ref (saloon), all in
+  unloaded interiors, changed in the same sample at 22:12.80. At 06:00 on day 14 the
+  same three changed together at 06:00.34. With the evening of day 12 (22:00.19 for
+  three, 22:03.46 for Ringo) the delay after the hour was 0–13 game minutes [hypothesis:
+  unloaded actors are re-evaluated together at intervals, loaded ones more often].
+- **EasyPeteRef's day**, matching its package names: EasyPeteSleepPackage until 08:00.41,
+  EasyPeteChairPackage8x4 until 12:00, a GET_UP package for 0.5 game minutes,
+  EasyPeteEat12x2 from 12:00.85 to 14:07.99 (the switch 8 minutes after 14:00),
+  EasyPeteChairPackage14x4 until 22:00.23, GET_UP for one minute, then the sleep package.
+  Every change from a chair package went through a run-time GET_UP package
+  (`0xFF001314`, `0xFF001316`), as GoodspringsSettler04Ref's did on day 12.
+- **Conversations between NPCs**: on day 13 GoodspringsSettler01Ref (sandboxing) ran
+  the run-time package `0xFF001316` (type DIALOGUE, procedure DIALOGUE_ACTIVATE, then
+  DIALOGUE) from 22:44.06, GoodspringsSettler04Ref (on its sleep package since 22:12.80)
+  had the same package at 22:48.12, and both went back to their own packages in the same
+  sample at 22:48.64. FormID `0xFF001316` had
+  been EasyPeteRef's GET_UP package 45 minutes before: run-time package FormIDs are
+  reused.
+- **GSVictorRef had no package** (GetCurrentPackage none, package type 0, procedure 0)
+  from 10:11.89 on day 13 to 06:22.58 on day 14, while enabled, alive and in exterior
+  cell `0x000E1AAF`; before and after, VGSVictorCircuitPatrol. Not explained yet; the
+  package's schedule and conditions are in the masters (to read offline).
+- GoodspringsSettler01Ref changed state 150 times in 30 hours (its sandbox cycle);
+  GSBighorner01Ref and 03Ref about 150 each (sandboxing creatures).
+- **Walking to an actor in another interior does not work**: `walk_to_sunny` steered the
+  player, outside in Goodsprings, toward SunnyRef's coordinates inside the saloon
+  (SunnyMeetPlayerDialoguePackage, type 34 DIALOGUE, procedure 43 DIALOGUE_ACTIVATE,
+  target the player); the player walked about 3,100 units east and stayed against an
+  obstacle until the drive's limit (3600 loops). Walks now stop as unreachable in that
+  case (§3); to reach an actor anywhere, a session teleports with `{"moveto": ref}`.
 
 ## 8. Questions the observations are for (Layer 6)
 
