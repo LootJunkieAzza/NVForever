@@ -5,6 +5,7 @@
 mod bsa_cmd;
 mod collide_cmd;
 mod dds_cmd;
+mod spt_cmd;
 mod esm_cmd;
 mod install_cmd;
 mod nif_cmd;
@@ -53,6 +54,9 @@ enum Cmd {
     /// DDS textures.
     #[command(subcommand)]
     Dds(DdsCmd),
+    /// SpeedTree .spt tree parameter files.
+    #[command(subcommand)]
+    Spt(SptCmd),
     /// Worldspaces, cells, placed references and landscape across a load order.
     #[command(subcommand)]
     World(WorldCmd),
@@ -321,6 +325,18 @@ pub enum SimCmd {
 }
 
 #[derive(Subcommand)]
+pub enum SptCmd {
+    /// Parse every .spt in an archive and generate each tree (fnv.spt.listing/1).
+    List { archive: PathBuf },
+    /// Every entry of one .spt, from an archive (--path) or a loose file (fnv.spt.dump/1).
+    Dump {
+        source: PathBuf,
+        #[arg(long)]
+        path: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum DdsCmd {
     /// Header, format and mip layout of every .dds in an archive (fnv.dds.listing/1).
     List { archive: PathBuf },
@@ -506,6 +522,7 @@ fn main() -> ExitCode {
         Cmd::Esm(c) => esm_cmd::run(c),
         Cmd::Nif(c) => nif_cmd::run(c),
         Cmd::Dds(c) => dds_cmd::run(c),
+        Cmd::Spt(c) => spt_cmd::run(c),
         Cmd::World(c) => world_cmd::run(c),
         Cmd::Phys(c) => phys_cmd::run(c),
         Cmd::Collide(c) => collide_cmd::run(c),
