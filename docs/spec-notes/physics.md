@@ -497,10 +497,10 @@ Engineering choices, not game values: mouse look 0.0025 rad per mouse count, pit
 limited to ±89°; physics loads the 3×3 exterior cells around the player (one more ring
 before unloading) or the one interior, at most one cell per frame, the player's own cell
 first, and the character waits while its cell is not loaded; the start drops the
-character on whatever a downward ray from the start eye finds (from far above if
-nothing), on the hit's contact shell (§6.2); `Travel` puts the character where the arrival rule of
+character on whatever a downward ray from the start eye finds (outdoors from far above if
+nothing; indoors the start moves to a door arrival, §6.7), on the hit's contact shell (§6.2); `Travel` puts the character where the arrival rule of
 §6.2 says (`PhysState::arrive_player` → `PhysWorld::arrival`); a character more than 1,000 units below the
-terrain is put back on the ground (logged as a warning).
+terrain is put back on the ground (logged as a warning); indoors, §6.7.
 
 References get collision by the same rule as `fnvtool phys cell`
 (`fnv_phys::ref_collision`); whether one is in the world is the simulation's: not
@@ -739,13 +739,16 @@ and in a walking jump.
   snapping to the slope: z differs by 47 at t0.25; snapping down steep slopes is open.
 - `move_hill_run`: the game ran straight west at 306 horizontal + 134 vertical; the
   prediction drifted 87 units south (the slope projection also turned the motion
-  downhill), fixed by keeping the heading (above). Note: the golden builder took the
-  movement onset at a first change of 0.1 in z, two loops before the run started; for
-  `move_hill_run` and `move_portal_wall` its observation times are 0.031 s early. The
-  builder now uses the horizontal position (`capture_moves.py`); the two goldens were
-  left as built. Rebuilt in a scratch folder they give hill_run 6/6 and portal_wall 5/6
-  (only the airborne z at t0.25 differs); as installed hill_run fails 4 rows by 10–12
-  units.
+  downhill), fixed by keeping the heading (above). Golden onset: the builder first took
+  the movement onset at a 0.08–0.1 change in z one sample (0.031 s of game clock) before
+  the run started, so the first goldens' observation times were 0.031 s early. The
+  builder now uses the horizontal position (`capture_moves.py`), and on the owner's
+  decision (2026-10-08) both goldens were replaced by a rebuild from the same raw capture
+  (layer4-captures.md §1, log). Against the rebuild hill_run passes 6/6 and portal_wall
+  5/6: only the airborne z at t0.25 differs (−46.7). Before the replacement, the same
+  candidate scored 3/6 and 4/6. Both results were seen before the rebuild was installed,
+  so these two scenarios are no longer independent held-out evidence. A fresh
+  re-capture to confirm the onset within the game's spread is still to be made.
 - `mv_diag_trees_rocks` (drops on a ±30 grid; candidate as now):
 
 | Drop | Game feet (x, y, z) | Candidate z | Δz |
@@ -1063,6 +1066,59 @@ swimmer meets the shore and how fast it walks up a 27° bank out of water.
   until placed water is modelled (its extent from the model, its height from the
   reference: [hypothesis], one interior). Exterior cell water is unaffected (four places
   agree). The renderer still draws interior water planes at XCLW (Layer 3, unchanged).
+
+
+### 6.7 Interior starts and falls: safe spots (`engine/nvf-play`, `player/safe.rs`)
+
+Problem [observed 2026-10-08, `nvforever --play --cell GSGasStation`]: Ringo's cash box
+0x001629C0 (CaravanCashRingo, at 681.9, −4815.7, 7552.3) stands outside the gas station's
+room (the game reaches it through barter). A start 60 units beside it (`--pos
+681.9,-4755,7552.3 --eye-height 112`) found nothing below and fell for ever (feet 7552 →
+−9152 in 8 s); a start on it stood on the box's top (its collision, layer 10, z 7587.7)
+and walking off fell for ever. Interiors have no terrain, so the exterior rule (1,000
+units under the terrain) never caught it.
+
+What the data offers: **XTEL** gives each door's destination (door, position, rotation)
+[documented: xEdit; simulation.md §5]; a door teleports its activator to that position
+in the destination door's cell [hypothesis for the default activation, simulation.md §5;
+observed for Doc Mitchell's front door]. So the XTEL positions of the doors whose
+destination door is in a cell are the places the game itself puts the player in that
+cell. GSGasStation has one: door 0x00109040 (outside, in WastelandNV; locked, level 255)
+→ door 0x0010903F inside, arrival feet (511, −5951, 7554.2), heading 0° [observed]. Other
+markers (XMRK map markers, a "COCMarkerHeading" base) are not used: their meaning is not
+in these notes, and what the console's `coc` does in an interior is not documented here.
+
+Rules (`nvf_play::player::safe`) [hypothesis unless tagged otherwise]:
+- **Candidates**: the door arrivals into the cell (XTEL position and z rotation of every
+  door whose destination door is in it, one-way doors included), nearest to the
+  requested position first [engineering choice].
+- **Standing test** [engineering choice]: the arrival rule's ray (half a capsule above to
+  four capsules below, §6.2) hits a support whose normal is within `max_slope_deg` and
+  that is not the reference the spot is for; the capsule (lifted by two skins) overlaps
+  nothing there. The first candidate that passes is used and the arrival rule settles
+  the feet; the player faces the XTEL heading.
+- **Start** (`place_initial`): indoors, when the downward ray from the start eye finds
+  nothing, the start moves to that spot, with a warning naming both positions (the far
+  above ray stays for exterior starts under the terrain; indoors it would land on a roof).
+- **Door destination** with nothing under it (checked once after each `Travel` into an
+  interior): moved the same way.
+- **Fall** (`interior_net`): feet more than **800 units** below the lowest bound of the
+  cell's static collision (`PhysWorld::fixed_bounds`) [engineering choice, like the
+  exterior's 1,000] → back to where the character last stood (if it can still stand
+  there), else to a door arrival; with neither it is held at that depth (warned once).
+  "Last stood" is cleared by `Travel`.
+
+Results [observed 2026-10-08]: the start beside the box lands on the floor at the door
+arrival; walking off the box is caught 800 units under the cell's lowest collision
+(7532) and put at the door arrival (its last footing, the box's edge, no longer passes the
+standing test), from where it walks into the room.
+
+**Capture proposed for the owner** (not run; the game is in use by other sessions):
+`coc GSGasStation`, then read `player.GetPos x|y|z` and `player.GetAngle z` (does `coc`
+put the player at the door arrival (511, −5951, ~7554), at a marker, or elsewhere?);
+then `player.SetPos` to x 682, y −4755, z 7552 (over nothing) and read z every 0.5 s for
+10 s (does the game let the player fall, stop them, or move them?). Either result would
+replace a [hypothesis] above.
 
 ## 7. CLI contract
 
