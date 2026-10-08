@@ -13,6 +13,7 @@ mod reflection;
 mod ripples;
 mod sky;
 mod terrain;
+mod tree;
 mod underwater;
 mod water;
 mod world;
@@ -264,7 +265,7 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_plugins((ArchivePlugin(game), water::WaterPlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
+    .add_plugins((ArchivePlugin(game), water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
@@ -308,12 +309,13 @@ fn main() -> AppExit {
         app.add_systems(Update, screenshot_and_exit);
     }
     if let Some(secs) = args.run_seconds {
-        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, mut commands: Commands, mut t: Local<f32>| {
-            *t += time.delta_secs();
-            if *t >= secs {
+        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, mut commands: Commands, mut t: Local<(f32, u32)>| {
+            t.0 += time.delta_secs();
+            t.1 += 1;
+            if t.0 >= secs {
                 info!(
-                    "run finished after {:.1}s: {} cells loaded in total, {} loaded now",
-                    *t, streamer.stats.cells_loaded, streamer.loaded.len()
+                    "run finished after {:.1}s: {} cells loaded in total, {} loaded now, {} frames ({:.1} per second)",
+                    t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0
                 );
                 commands.write_message(AppExit::Success);
             }
