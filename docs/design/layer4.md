@@ -168,8 +168,10 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
 5. Collision: shape conversion vs oracle; Havok scale measured; then movement traces.
    Status 2026-10-08: the controller rests on contact shells like the arrival rule, the
    corner jitter is fixed, gravity / jump / run / walk are measured in game (physics.md
-   §6.3); B11 and four movement traces are designed with their predictions and wait for a
-   capture (layer4-captures.md §5).
+   §6.3). Captured the same day: B11 15/20 after fixes (open: Havok trees, rocks within
+   the game's spread, a pushed drop), traces fence_slide 6/6, fence_stop 6/6,
+   porch_steps 6/6, running_jump 0/6 (air control open), hill_run / portal_wall (goldens
+   with an early onset; physics.md §4.2, §6.3, §6.4).
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
 

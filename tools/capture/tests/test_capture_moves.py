@@ -86,6 +86,15 @@ class Goldens(unittest.TestCase):
         self.assertEqual([o["label"] for o in g["observations"]], ["t0.25"])
         self.assertAlmostEqual(g["observations"][0]["feet"][1], 75.0)
 
+    def test_walk_onset_ignores_settling_in_z(self):
+        results = []
+        for i in range(25):
+            t = i * 1000.0 / 60.0
+            y = 0.0 if i < 6 else 5.0 * (i - 5)
+            z = 104.0 if i < 3 else 103.9
+            results.append(res(f"w s{i:03d}", "sample", f"0 {y} {z} {t} 0.016"))
+        self.assertEqual(cm.walk_golden(WALK, results)["onset_sample"], 5)
+
     def test_walk_without_motion_is_an_error(self):
         results = [res(f"w s{i:03d}", "sample", f"0 0 104 {i * 16.0} 0.016") for i in range(10)]
         with self.assertRaises(cm.InputError):

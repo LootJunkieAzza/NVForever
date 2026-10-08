@@ -113,6 +113,12 @@ def trial():
     return j
 
 
+def diag_job():
+    """Drops around the B11 tree and rock (tools/capture/jobs/diag_trees_rocks.drops.json)."""
+    doc = cs.load_json(os.path.join(HERE, "diag_trees_rocks.drops.json"))
+    return cm.make_job([doc], "mv_diag_trees_rocks", START, leave_door=DOC_DOOR, console_first=["tgm", "tdetect"])
+
+
 def lab_job(name, files):
     """A scenario capture: the candidate's own inputs (capture_moves.py)."""
     docs = [cs.load_json(os.path.join(LAB_INPUTS, f)) for f in files]
@@ -210,12 +216,39 @@ def values():
     return j
 
 
+def air():
+    """Calibration (no scenario): horizontal motion in the air. The running-jump capture
+    showed the speed rising from 102 to 340 units/s over about 0.2 s after a jump started
+    together with the run, and dips after landing (physics.md §6.3); these runs separate
+    a key pressed in mid-air, a jump out of a run already at speed, a key released in
+    mid-air, and a walking jump."""
+    x, y = RUN_START
+    steps = list(PROTECT) + leave_doc_house()
+
+    def start(label):
+        return [setpos(x, y, GROUND_Z + 4), script("player.SetAngle Z 0"), {"frames": 120}, remember_t0()] + samples(f"{label} pre", 5)
+
+    steps += start("air late forward") + [script("TapControl 12")] + samples("air late forward up", 8)
+    steps += [hold(0)] + samples("air late forward held", 80) + [release(0), {"frames": 30}]
+    steps += start("run then jump") + [hold(0)] + samples("run then jump run", 25) + [script("TapControl 12")]
+    steps += samples("run then jump air", 90) + [release(0), {"frames": 30}]
+    steps += start("run jump release") + [hold(0)] + samples("run jump release run", 20) + [script("TapControl 12")]
+    steps += samples("run jump release air", 8) + [release(0)] + samples("run jump release after", 70) + [{"frames": 30}]
+    steps += start("walk jump") + [hold(9), hold(0)] + samples("walk jump walk", 20) + [script("TapControl 12")]
+    steps += samples("walk jump air", 70) + [release(0), release(9), {"frames": 30}]
+    j = cs.job("mv_air", START, steps, cs.MASTERS)
+    j["title"] = "Air control calibration: four jumps with held keys (about 1 min, no input)"
+    return j
+
+
 def main():
     jobs = [trial(),
             lab_job("mv_b11_drops", ["b11_goodsprings.drops.json"]),
             lab_job("mv_traces", ["move_fence_slide.walk.json", "move_fence_stop.walk.json",
                                   "move_running_jump.walk.json", "move_porch_steps.walk.json"]),
-            clutter(), values()]
+            clutter(), values(), air(),
+            lab_job("mv_followup_traces", ["move_hill_run.walk.json", "move_portal_wall.walk.json"]),
+            diag_job()]
     for j in jobs:
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
