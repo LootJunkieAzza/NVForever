@@ -10,7 +10,7 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use fnv_dds::{to_rgba8, Dds, Format};
 use fnv_esm::{LoadOrder, Schema};
-use fnv_world::land::{land_texture, load_land, LandParts, QUAD_SIDE, SIDE, SPACING};
+use fnv_world::land::{land_texture, load_land, LandParts, DEFAULT_DIFFUSE, QUAD_SIDE, SIDE, SPACING};
 use fnv_world::{WorldIndex, CELL_SIZE};
 use nvf_assets::GameData;
 use std::collections::HashMap;
@@ -18,13 +18,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// Bumped whenever the generated output changes for the same inputs (part of the cache key).
-pub const GENERATOR_VERSION: u32 = 1;
+pub const GENERATOR_VERSION: u32 = 2;
 /// Cells per chunk side (the game's level-4 grid, world.md §7).
 pub const CHUNK_CELLS: i32 = 4;
 const CHUNK_SIZE: f32 = CHUNK_CELLS as f32 * CELL_SIZE;
 /// Depth of the skirts hung from open mesh edges (game units).
 const SKIRT: f32 = 256.0;
-/// Colour of a quadrant without a base texture (as terrain.rs draws it, sRGB).
+/// Colour where a base texture cannot be loaded (as terrain.rs draws it, sRGB).
 const NO_BASE_SRGB: [f32; 3] = [0.45, 0.42, 0.38];
 
 /// Generation parameters (also part of the cache key).
@@ -512,11 +512,14 @@ impl GenJob {
                     continue;
                 };
                 let mut tex = |id: Option<u32>| -> Option<Arc<Mip>> {
-                    let id = id?;
-                    let path = ltex
-                        .entry(id)
-                        .or_insert_with(|| land_texture(self.lo, self.schema, id).and_then(|t| t.diffuse))
-                        .clone()?;
+                    // No LTEX (no BTXT, or a null layer texture): the default, as terrain.rs.
+                    let path = match id {
+                        None => DEFAULT_DIFFUSE.to_string(),
+                        Some(id) => ltex
+                            .entry(id)
+                            .or_insert_with(|| land_texture(self.lo, self.schema, id).and_then(|t| t.diffuse))
+                            .clone()?,
+                    };
                     self.mips.get(&self.data, &path, target)
                 };
                 let quads = std::array::from_fn(|q| {
