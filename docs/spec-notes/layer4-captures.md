@@ -19,7 +19,7 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.sim.leveled.basic` | captured (2,100 draws) | pass 7/7 | 300 `AddItem` draws per case |
 | `L4.sim.trace.goodsprings_doc_mitchell` | captured | 5/6 | fails only on z after the door (+7.44): needs the character controller (workstream 2); do not tune |
 | `L4.sim.trace.goodsprings_merchant_restock` | captured | pass 4/4 | save-independent merchant restock |
-| `L4.sim.trace.x13_enable_parents` | **missing** | — | backlog item B1 |
+| `L4.sim.trace.x13_enable_parents` | captured 2026-10-08 (coc into X-13, god mode) | pass 13/13 | B1 done |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
 
 Substitute checks (xnvse-capture.md §7): the same scenarios regenerated with
@@ -64,6 +64,13 @@ directory's `jobs\`). Results are in the notes named.
 | `aa_vendor_restock` | merchant box: no-leave 24 h, 5 h across midnight, 10 h | restock without leaving; not midnight; simulation.md §3 |
 | `aa_auto_trial` | read-only; first unattended run (`capture_run.py`): menu load, auto start, quit | works (second try; the first hung the game, fixed in the plugin); xnvse-capture.md §6 |
 | `aa_time_substitutes` | how each scripted substitute for the Wait menu moves the calendar | `GameHour` past 24 and TimeScale 3600 both carry the calendar; `GameDaysPassed` alone does not; xnvse-capture.md §7 |
+| `bl_calendar` (B5) | month lengths, year end, leap year | months 0-based, Gregorian lengths, no leap day; simulation.md §5b |
+| `bl_encumbrance` (B7) | over-encumbered threshold, Hardcore ammo weight | ammo 0.029 each in Hardcore; no over-encumbered function compiles; simulation.md §3 |
+| `bl_restock_timing`, `_ts` (B4) | restock on access or on a schedule | refilled 24 h after an access-time refill: not access time; simulation.md §3 |
+| `bl_restock_schedule` (B4) | refill times, 2-hourly reads over 292 h | refills just after midnights 14, 21, 24; midnight rule; simulation.md §3 |
+| `bl_primm_restock`, `_ts` (B2) | merchant box without the Respawns flag | never refilled in 7 days; simulation.md §3 |
+| `bl_container_respawn`, `_ts` (B3) | 72 h cell respawn, fridge (Respawns) and toolbox | fridge: empty at 24/70 h, refilled at 74 h; toolbox never; simulation.md §3 |
+| `bl_placed_mines` (B10) | are placed mines live; scripted activation | inert for 600 loops; scripted Activate does nothing; simulation.md §1 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
 
 ## 3. Backlog (captures still to make)
@@ -71,32 +78,32 @@ directory's `jobs\`). Results are in the notes named.
 Each item: what it settles, where to stand, and how. "Design" means a job still has to be
 written.
 
-- **B1 `x13_enable_parents`** (scenario exists, golden missing). Needs a save inside X-13
+- **B1 `x13_enable_parents`** — **done 2026-10-08** (golden captured unattended with `--go-to-cell NVDLC03X13`, god mode and AI detection off; the scenario passes 13/13). Was: scenario exists, golden missing. Needs a save inside X-13
   in Old World Blues (cell `NVDLC03X13`). Read-only: disables/enables two root parents and
   reads GetDisabled along the chains. Generate with `capture_steps.py actions
   parity-lab/inputs/layer4/x13_enable_parents.actions.json --data … --start "Inside X-13"`.
-- **B2 merchant box without the Respawns flag** (design). Does it restock at all? Easiest:
+- **B2 merchant box without the Respawns flag** — **done 2026-10-08** (`bl_primm_restock`: never refilled in 7 days). Was: design. Does it restock at all? Easiest:
   Primm, Prospector's Den merchant — container 0x0017409C
   (`VendorContainerPrimmDenMerchantREF`, base `VLootSackVendorWastelandT2RSPros`, stored in
   cell `NVVendorChestsCell`), merchant 0x00173F9B in `SLProspectorsDenInt`. Same pattern as
   `goodsprings_merchant_restock` (empty, wait ≥ 72 h, read; repeat). The other six are
   listed by `fnvtool sim forms` under references.merchant_containers.without_respawns_flag.
-- **B3 cell respawn on an ordinary container** (design). The 72 h cell-respawn rule
+- **B3 cell respawn on an ordinary container** — **done 2026-10-08** (`bl_container_respawn`: Respawns fridge refilled after 74 h away, not after 70 h; toolbox never). Open: the exact boundary between 70 and 74 h. Was: design. The 72 h cell-respawn rule
   (`iHoursToRespawnCell` = 72) is not yet observed on a non-merchant container. Candidate:
   the Goodsprings General Store fridge 0x00105824 (`VLootFridgeClosedTier1WastelandRS`,
   leveled contents, cell `GSGeneralStore`). Leveled contents are random, so observe the
   number of stacks (`GetNumItems`; needs a trace op or a distribution-style check) or use
   a respawning container with fixed contents. Leave the cell between empty and read.
-- **B4 merchant restock: on access or on a schedule** (design). All captures fit both.
+- **B4 merchant restock: on access or on a schedule** — **done 2026-10-08**: neither as stated; restocks happen at midnights, at least 3 days after the last one, skipped while the box is untouched (`bl_restock_timing`, `bl_restock_schedule`; simulation.md §3). Open: test the "changed since" condition directly (empty a box, put the original contents back, see whether the next due midnight restocks it). Was: design. All captures fit both.
   Idea: after an observed restock, empty the box and read it only rarely vs every hour
   around the 72 h mark; under "on access" the restock time follows the reads.
-- **B5 calendar: is GameMonth 9 October?** Set day 30 of month 10 (November if 0-based,
+- **B5 calendar** — **done 2026-10-08** (`bl_calendar`: 0-based Gregorian months, no leap day). Was: is GameMonth 9 October? Set day 30 of month 10 (November if 0-based,
   30 days) at 20:00 (TimeScale 30!), wait 6 h, read GameDay/GameMonth. Day 1 of month 11
   means 0-based months with Gregorian lengths; day 31 means otherwise.
 - **B6 fractional game time** (design). GameHour/GameDaysPassed after waits drift with
   menu time (×30); low TimeScale crashes when the clock moves. Possible: read the clock
   immediately before and after each Wait and compare differences, not absolutes.
-- **B7 encumbrance edges**: over-encumbered threshold (weight = capacity vs > capacity),
+- **B7 encumbrance edges** — **partly done 2026-10-08** (`bl_encumbrance`): Hardcore ammunition weight captured; the threshold is still open because neither over-encumbered function compiles in the runtime (an observable alternative is needed, e.g. whether fast travel or running is refused, which needs someone at the game). Was: over-encumbered threshold (weight = capacity vs > capacity),
   readable with `IsPlayerOverencumbered` / `GetIsPlayerOverencumbered` (both on the GECK
   wiki; check which compiles); ammo weight in Hardcore mode (`SetHardcore` / `IsHardcore`
   exist on the wiki; a throwaway save, since Hardcore cannot be undone in a save).
@@ -105,5 +112,5 @@ written.
   `leveled_basic`).
 - **B9 Doc Mitchell z**: no capture needed; re-run the lab once workstream 2's character
   controller places the actor (the +7.44 offset is in the golden).
-- **B10 placed explosives (PGRE)**: are the 297 OWB placed grenades live in game? Needs an
+- **B10 placed explosives (PGRE)** — **partly done 2026-10-08** (`bl_placed_mines`): inert while the player stands in the cell; scripted `Activate` does nothing. Open: the player's own activation (attended). The 297 PGRE are spread over five masters, not only Old World Blues (simulation.md §1). Was: are the 297 OWB placed grenades live in game? Needs an
   OWB save near one (`fnvtool sim forms` lists them).
