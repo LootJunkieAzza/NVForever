@@ -1,0 +1,18 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "goodsprings_fight",
+ "title": "The Goodsprings gunfight, settlers against the Powder Gangers (owner's save nvfCombatTown, saved just before it starts); the player stands where the save left it, in god mode",
+ "save": "nvfCombatTown",
+ "defaults": {
+  "every": 5,
+  "depth": 2,
+  "console_first": ["tgm"],
+  "track": ["DocMitchellREF", "SunnyRef", "TrudyRef", "RingoRef", "EasyPeteRef", "GSChetRef", "GSJoeCobbRef",
+            "CheyenneREF", "GSVictorRef", "GoodspringsSettler01Ref", "GoodspringsSettler02Ref",
+            "GoodspringsSettler03Ref", "GoodspringsSettler04Ref",
+            "GSPG01Ref", "GSPG02Ref", "GSPG03Ref", "GSPG04Ref", "GSPG05Ref", "GSPG06Ref"]
+ },
+ "sessions": [
+  {"name": "gunfight", "hours": 2, "settle_frames": 1}
+ ]
+}

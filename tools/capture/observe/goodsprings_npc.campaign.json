@@ -1,0 +1,21 @@
+{
+ "format": "fnv.observe.campaign/1",
+ "name": "goodsprings_npc",
+ "title": "Goodsprings with Joe Cobb enabled (owner's save nvfNPC): residents and the Powder Gangers over a day, the saloon evening, approaches",
+ "save": "nvfNPC",
+ "defaults": {
+  "every": 60,
+  "depth": 1,
+  "track": ["DocMitchellREF", "SunnyRef", "TrudyRef", "RingoRef", "EasyPeteRef", "GSChetRef", "GSJoeCobbRef",
+            "CheyenneREF", "GSVictorRef", "GoodspringsSettler01Ref", "GoodspringsSettler02Ref",
+            "GoodspringsSettler03Ref", "GoodspringsSettler04Ref",
+            "GSPG01Ref", "GSPG02Ref", "GSPG03Ref", "GSPG04Ref", "GSPG05Ref", "GSPG06Ref"]
+ },
+ "sessions": [
+  {"name": "town_day", "go": {"coc": "Goodsprings"}, "hour": 6, "hours": 24},
+  {"name": "saloon_evening", "go": {"coc": "GSProspectorSaloonInterior"}, "hour": 18, "hours": 6, "every": 30},
+  {"name": "meet_joe_cobb", "go": {"moveto": "GSJoeCobbRef"}, "hour": 12, "hours": 1, "every": 15},
+  {"name": "walk_to_trudy", "go": {"coc": "GSProspectorSaloonInterior"}, "hour": 10, "hours": 1, "every": 15,
+   "walk": {"to": "TrudyRef", "within": 150, "approach": 0}}
+ ]
+}
