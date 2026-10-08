@@ -243,6 +243,27 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   artefacts, drawing them alpha-tested matches the expected look, so the test wins.
   Destination factor ONE (additive) is kept as additive [hypothesis, to confirm against
   screenshots].
+- **Emissive light** [observed, `crates/fnv-nif/examples/glow_survey.rs` over
+  `Fallout - Meshes.bsa`]: of 42,074 visible shapes drawn by a
+  BSShaderPPLightingProperty, 2,687 have a non-black NiMaterialProperty emissive colour;
+  2,030 of those carry a `_g` texture in texture-set slot 2 (13 `_e`, 119 other names,
+  523 none). Glow maps are black except for the parts meant to shine: e.g.
+  `NV_24-Sign_e.dds` (Goodsprings "OPEN 24 HOURS" sign) holds the red, blue, white and
+  yellow neon tubes on black, while the diffuse map under them is flat bright paint.
+  Face-gen and hair shapes use slot 2 for `_sk`/hair maps, all with a black emissive
+  colour. Emissive multipliers range from 0 to 12 (906 at 1.0, 484 at 2.0, 463 at 10.0).
+  The renderers emit emissive colour × emissive multiplier × glow map (slot 2, unless the
+  face-gen or hair flag is set), uniformly when there is no glow map [hypothesis].
+  This matches the in-game sign: neon tubes coloured as in the glow map on a dark
+  board. Applying the emissive colour to the whole surface (the earlier rule) turned the
+  sign white. The Prospector Saloon's string lights put their *normal* map in slot 2
+  (`NVQueenPalmLights_n.dds`, emissive white); as a glow map it makes the bulbs lavender,
+  which is also how they look in game [observed, owner's screenshot].
+  BSShaderNoLightingProperty shapes are drawn unlit and ignore the emissive colour: 2,663
+  of them have a black emissive colour (hangar lights, casino stairs) yet show in game,
+  so it is not a plain colour multiplier there. How their multipliers (up to 10, e.g.
+  the saloon's neon tubes ×7.5) and the 717 NiMaterialColorController / 317
+  BSMaterialEmittanceMultController blocks (blinking bulbs) affect brightness is open.
 
 ## 7. Coverage status
 
