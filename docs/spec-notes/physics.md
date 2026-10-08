@@ -259,7 +259,7 @@ limited to ±89°; physics loads the 3×3 exterior cells around the player (one 
 before unloading) or the one interior, at most one cell per frame, the player's own cell
 first, and the character waits while its cell is not loaded; the start drops the
 character on whatever a downward ray from the start eye finds (from far above if
-nothing), 1 unit above the hit; `Travel` puts the character where the arrival rule of
+nothing), on the hit's contact shell (§6.2); `Travel` puts the character where the arrival rule of
 §6.2 says (`PhysState::arrive_player` → `PhysWorld::arrival`); a character more than 1,000 units below the
 terrain is put back on the ground (logged as a warning).
 
@@ -277,6 +277,14 @@ Seen in NVForever, not in the game [observed]: walking east into the rock 0x000E
 of back-and-forth path) and creeps up 0.2 units/s; `fnvtool phys walk` from
 (-31455, -18200) at velocity (600, 0) reproduces it to the unit, so it is the
 controller's, not the game integration's.
+
+A rapier quirk found while testing the contact shells [observed: rapier 0.36.0]: when the sweep meets
+an exactly level surface (normal straight up) its slope tangent direction is degenerate,
+and if the computed tangent dips a hair below horizontal the whole remaining horizontal
+motion of the step is dropped: once in 60 steps of a walk along a terrain cell seam the
+character moved 0.06 units instead of 1.28. `move_character` continues such a step with
+the horizontal motion it lost, only when every hit of the step was level (test
+`walking_on_level_ground_loses_no_step`). Re-check when upgrading rapier.
 
 ### 6.2 Rest height after a teleport (arrival rule)
 
@@ -348,9 +356,27 @@ now uses the shell, near the middle of what was observed (Δ − shell averages 
 fifteen values in the table), rather than the end that matches
 the scenario's golden.
 
-Not done: the walking controller (§6) still rests `skin` (0.5) above the bare surface, so
-in `nvforever --play` the player sinks from the arrival height to that within a step; a
-controller that keeps contact shells, and the in-game rest band while idle, are open.
+**The walking controller keeps the same shells** (`CharacterParams::rest_gap`, one rule
+for both: the support's shell, at least the numerical `skin`). Each step a short
+downward capsule sweep finds the support; its gap becomes the controller's offset (the
+distance rapier's controller keeps between the capsule and everything it sweeps
+against), and a capsule closer than that to a walkable support (after walking from a
+static floor onto terrain, after a `place_character`) is lifted to it, never into a
+ceiling. On level ground a character dropped or walking comes to rest at
+`surface + shell`, the arrival rule's height, and stays there (within 0.01 over a
+second, the controller's nudges) [observed: tests `character_rests_on_contact_shells`,
+`arrival_rests_on_the_support_shell`; `fnvtool phys cell` probes at Doc Mitchell's door
+rest 3.55 above the terrain under the feet, 8693.56 against the arrival rule's 8693.53 and
+the game's 8693.87, and at the porch drop of `dt_rest_detail` 0.71 above the SCOL floor
+against the game's 1.04]. On a slope the capsule keeps the gap along the surface normal,
+as a convex radius would, so its feet stand `gap / cos(slope)` above the surface under
+the capsule's lowest point [hypothesis: unmeasured in game]. Consequences of rapier
+having one offset per character: while the support is the terrain, the character also
+keeps 3.5 units from walls (0.7 would be the walls' own shell) [hypothesis, not
+observed]; walking from terrain onto a static floor flush with it the feet drop by 2.8,
+and back again they rise by 2.8 within a step, which matches the band shift but whose
+timing in game is not observed. Open: what places an arrival inside the band (−0.18 …
++0.35), and the in-game rest band of a standing player over time.
 
 ## 7. CLI contract
 
@@ -408,8 +434,15 @@ collision needs the NIF schema: `--nif-schema <dir>`, by default `nif` next to t
 `{"kind": "terrain", "grid": [x, y]}`, `{"kind": "ref", "formid", "object", "layer",
 "layer_name"}` or `{"kind": "character", "id"}`.
 `terrain_z` is `height_at` at the drop point (null outside loaded land);
-`rest_above_terrain` = final feet z − `terrain_z` (the capsule rests `skin` above the
-surface along the contact normal, so slightly more than `skin` on slopes).
+`rest_above_terrain` = final feet z − `terrain_z` (the capsule rests its support's gap
+above the surface along the contact normal, §6.2, so slightly more than the gap on
+slopes). `gap` is the gap kept in the last step (`CharacterParams::rest_gap` of the
+support: 3.5 on terrain, a model's shell, at least `skin`); `support` (`owner`, bare
+surface `z`, `shell`) is what the arrival rule's ray finds under the final feet (from
+half a capsule above to four below, ignoring the layers the character passes through,
+the probe itself excluded; null if nothing) and `rest_above_support` = final feet z −
+`support.z`, which on level ground equals the support's shell when the controller and
+the arrival rule agree.
 Output is deterministic (no timings).
 
 ### `fnvtool phys walk ... --script <file> (--world <edid|formid> | --cell <edid|formid>) [--radius N] [--every N] [--nif-schema <dir>] [--no-meshes]` → `fnv.phys.walk/1`
@@ -428,7 +461,9 @@ the world once per script step. The script (`fnv.phys.walk-script/1`):
               {"steps": 1, "velocity": [250.0, 0.0], "jump": true}]}
 ```
 
-`start` is the feet `[x, y]` (then 1 unit above what a downward ray finds) or `[x, y, z]`;
+`start` is the feet `[x, y]` (then on the contact shell of what a downward ray finds,
+ignoring the layers the character passes through: `z + rest_gap(shell)`, §6.2) or
+`[x, y, z]`;
 `hz` the step rate (default 60, sets `dt`); `params` overrides `gravity` or any character
 parameter (`radius`, `height`, `step_height`, `max_slope_deg`, `jump_height`, `skin`,
 `max_fall_speed`, `push_mass`); each segment holds a horizontal velocity (units/s, world
@@ -443,7 +478,8 @@ as used), then
              "landings": 2, "airborne_steps": 52,
              "touched": [{"owner": {"kind": "terrain", "grid": [-18, 0]}, "steps": 359}]},
  "trace": [{"step": 1, "feet": [-71680.0, 2048.0, 8368.5], "vertical_speed": 0.0,
-            "grounded": true, "sliding": false, "landed_speed": null, "touched": []}]}
+            "grounded": true, "sliding": false, "landed_speed": null, "gap": 3.5,
+            "touched": []}]}
 ```
 
 `trace` holds every `--every`th step and the last. Runs are deterministic: the same
