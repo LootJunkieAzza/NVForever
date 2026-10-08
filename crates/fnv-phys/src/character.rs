@@ -13,7 +13,7 @@ use crate::convert::{arr3, vec3};
 use crate::world::{Key, Owner, PhysWorld, TERRAIN_SHELL};
 use rapier3d::control::{CharacterAutostep, CharacterCollision, CharacterLength, KinematicCharacterController};
 use rapier3d::math::{Pose, Vector};
-use rapier3d::parry::query::ShapeCastOptions;
+use rapier3d::parry::query::{DefaultQueryDispatcher, PersistentQueryDispatcher, ShapeCastOptions};
 use rapier3d::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
@@ -193,6 +193,8 @@ impl PhysWorld {
     /// §6.2): before moving, a short downward sweep finds the support; its gap becomes the
     /// controller's offset for the step, and a capsule closer to a walkable support than
     /// that gap (e.g. having walked from a static floor onto terrain) is lifted to it.
+    /// Wedged into a concave corner of walls, the character does not move horizontally
+    /// (see [`wedged`]).
     pub fn move_character(&mut self, c: &mut Character, input: CharacterInput) -> CharacterStep {
         self.update_queries();
         let dt = self.params.dt;
@@ -254,7 +256,38 @@ impl PhysWorld {
             kcc.move_shape(dt, &q, c.shape.as_ref(), &pos, desired * k, |hit| collisions.push(hit))
         };
         let mut touched_handles: Vec<ColliderHandle> = collisions.iter().map(|h| h.handle).collect();
-        let horizontal = [desired.x, desired.y];
+        // Walls hit while sliding, and walls the capsule already touches (within its gap
+        // and a margin): a step's slide does not always reach both faces of a corner.
+        let wall = |n: Vector| {
+            let l = n.x.hypot(n.y);
+            (n.z < walkable && n.z > -walkable && l > 1e-3).then(|| [n.x / l, n.y / l])
+        };
+        let mut walls: Vec<[f32; 2]> = collisions.iter().filter_map(|h| wall(h.hit.normal1)).collect();
+        {
+            let q = self.w.query_pipeline_with_filter(filter);
+            let reach = (c.gap.max(c.params.skin) + WALL_MARGIN) * k;
+            let aabb = c.shape.compute_aabb(&pos).loosened(reach);
+            let mut manifolds: Vec<ContactManifold> = Vec::new();
+            for (_, co) in q.intersect_aabb_conservative(aabb) {
+                let pos12 = pos.inv_mul(co.position());
+                manifolds.clear();
+                let _ = DefaultQueryDispatcher.contact_manifolds(&pos12, c.shape.as_ref(), co.shape(), reach, &mut manifolds, &mut None);
+                for m in &manifolds {
+                    if m.points.iter().any(|p| p.dist <= reach) {
+                        // `local_n1` points from the capsule towards the obstacle.
+                        walls.extend(wall(-(pos.rotation * m.local_n1)));
+                    }
+                }
+            }
+        }
+        let mut horizontal = [desired.x, desired.y];
+        if wedged(horizontal, &walls) {
+            horizontal = [0.0, 0.0];
+            collisions.clear();
+            let q = self.w.query_pipeline_with_filter(filter);
+            moved = kcc.move_shape(dt, &q, c.shape.as_ref(), &pos, Vector::new(0.0, 0.0, desired.z) * k, |hit| collisions.push(hit));
+            touched_handles.extend(collisions.iter().map(|h| h.handle));
+        }
         // rapier 0.36 drops the whole remaining horizontal motion when its sweep meets an
         // exactly level surface and the slide's tangent comes out a hair below horizontal
         // (the slope tangent direction is degenerate for a vertical normal): about one step
@@ -311,3 +344,57 @@ impl PhysWorld {
 
 /// Normal z above which a hit counts as an exactly level surface (see `move_character`).
 const LEVEL: f32 = 0.99999;
+
+/// Distance beyond the gap within which a wall the capsule already touches counts for
+/// [`wedged`], game units [engineering choice].
+const WALL_MARGIN: f32 = 0.5;
+
+/// Whether a horizontal motion `v` is wedged between the walls whose horizontal normals
+/// (unit, pointing out of each wall) are given: every wall it pushes into would, after
+/// sliding along it, push into another. The only motion along both is then up the crease
+/// of the walls, which for walls a character cannot climb means no horizontal motion
+/// (the multi-plane clip of sliding controllers). rapier's controller slides along one
+/// wall at a time and, in a concave corner, alternated between the faces: the capsule
+/// went back and forth about 2 units per step [observed: `fnvtool phys walk` into rock
+/// 0x000EDE82, physics.md §6.1].
+pub fn wedged(v: [f32; 2], walls: &[[f32; 2]]) -> bool {
+    let speed = v[0].hypot(v[1]);
+    if speed < 1e-6 {
+        return false;
+    }
+    let eps = 1e-3 * speed;
+    let dot = |a: [f32; 2], b: [f32; 2]| a[0] * b[0] + a[1] * b[1];
+    let pushed: Vec<[f32; 2]> = walls.iter().copied().filter(|&n| dot(v, n) < -eps).collect();
+    if pushed.len() < 2 {
+        return false;
+    }
+    pushed.iter().all(|&a| {
+        let d = dot(v, a);
+        let slid = [v[0] - d * a[0], v[1] - d * a[1]];
+        walls.iter().any(|&b| dot(a, b) < 0.999 && dot(slid, b) < -eps)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn corners_wedge_but_single_walls_and_open_sides_do_not() {
+        let west = [-1.0, 0.0]; // a wall east of the character, facing west
+        let south = [0.0, -1.0]; // a wall north of it, facing south
+        // Into the inside corner (north-east): stuck.
+        assert!(wedged([1.0, 0.2], &[west, south]));
+        assert!(wedged([1.0, 1.0], &[west, south]));
+        // Along the corner's open side: slides.
+        assert!(!wedged([1.0, -0.2], &[west, south]));
+        // One wall, or the same wall twice: slides.
+        assert!(!wedged([1.0, 0.2], &[west]));
+        assert!(!wedged([1.0, 0.2], &[west, west]));
+        // A V-shaped notch: two faces at 30 degrees either side of the motion.
+        let (s, c) = 30f32.to_radians().sin_cos();
+        assert!(wedged([1.0, 0.0], &[[-c, -s], [-c, s]]));
+        // Not moving: nothing to decide.
+        assert!(!wedged([0.0, 0.0], &[west, south]));
+    }
+}

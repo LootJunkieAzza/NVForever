@@ -563,6 +563,44 @@ fn arrival_rests_on_the_support_shell() {
     assert_eq!((a.feet, a.support), ([100.0, 100.0, 5_000.0], None));
 }
 
+/// Two static walls forming a notch that opens to the west, apex at (200, 0), faces at
+/// `half_angle` degrees either side of the x axis.
+fn notch(w: &mut PhysWorld, half_angle: f32) {
+    let a = half_angle.to_radians();
+    let (s, c) = a.sin_cos();
+    for (id, sign) in [(60u32, 1.0f32), (61, -1.0)] {
+        // Wall along the line from the apex towards (-c, sign·s); the notch's inside is
+        // on the side of normal (-s, -sign·c).
+        let along = [-c, sign * s];
+        let out = [s, sign * c];
+        let centre = [200.0 + along[0] * 100.0 + out[0] * 5.0, along[1] * 100.0 + out[1] * 5.0, 100.0];
+        w.add_ref(&RefPose { rotation: rz(-sign * a), ..at(id, centre) }, &[object(boxed([100.0, 5.0, 100.0]), Motion::Static)]);
+    }
+}
+
+#[test]
+fn character_wedged_in_a_corner_stays_put() {
+    // Regression: rapier's controller slid along one face of a concave corner at a time
+    // and went back and forth (about 2 units per step against rock 0x000EDE82,
+    // physics.md §6.1).
+    for half_angle in [20.0f32, 30.0, 45.0] {
+        let mut w = ground();
+        notch(&mut w, half_angle);
+        let mut c = w.add_character(1, CharacterParams::default(), [0.0, 3.0, 1.0]);
+        settle(&mut w, &mut c, 30);
+        let steps = walk(&mut w, &mut c, [300.0, 20.0], 180);
+        let tail = &steps[120..];
+        let path: f32 = tail.windows(2).map(|p| (p[1].feet[0] - p[0].feet[0]).hypot(p[1].feet[1] - p[0].feet[1])).sum();
+        let first = tail[0].feet;
+        let last = tail[tail.len() - 1].feet;
+        assert!(last[0] > 100.0, "{half_angle}°: reached the notch: {last:?}");
+        let net = (last[0] - first[0]).hypot(last[1] - first[1]);
+        // Pressed into the corner it may still settle deeper, but never back and forth.
+        assert!(path < 1.0 && path - net < 0.1, "{half_angle}°: path {path}, net {net} over the last 60 steps");
+        assert!((last[2] - first[2]).abs() < 0.01, "{half_angle}°: crept from {} to {}", first[2], last[2]);
+    }
+}
+
 #[test]
 fn character_rests_on_contact_shells() {
     // Terrain (shell 3.5) and a static slab with a 0.7 shell whose top is at z = 40.
