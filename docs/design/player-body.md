@@ -15,7 +15,7 @@ Where it sits: the player's own body is Layer 4 play (`nvf-play` owns the contro
 the camera) drawn with the Layer 3 actor assembly (`nvforever`); choosing clips for an
 actor under direct control is the small, player-only part of Layer 6 animation
 selection that this needs. NPC animation stays as it was (one idle clip, actors.md §7).
-Facts: docs/spec-notes/animation.md §8 (clips, first-person rig), docs/spec-notes/
+Facts: docs/spec-notes/animation.md §9 (clips, first-person rig), docs/spec-notes/
 controls.md (bindings).
 
 ## 1. What the player sees
@@ -63,7 +63,7 @@ Mouse look uses the game's `fMouseSensitivity` (0.002 radians per count) and
 ### 1.3 Animation
 
 Both rigs play layered clips (`nvf_assets::anim_blend`) chosen by
-`fnv_actor::locomotion`, each from its own folder: an idle, movement, sneaking, swimming,
+`fnv_actor::player_clips`, each from its own folder: an idle, movement, sneaking, swimming,
 jumping and landing, turning on the spot, and the weapon drawn (equip clip; at its
 `Attach` key the weapon model moves from its holster to the right hand), held (Aim; in
 third person bent up and down with the pitch by `aimup`/`aimdown`), aimed down the
@@ -90,9 +90,9 @@ exist. The draw/holster timing follows the clips of the rig in view.
 
 | Item | Where | Notes |
 |---|---|---|
-| Clip choice (headless) | `crates/fnv-actor/src/locomotion.rs` | candidate files per situation, covering the third- and first-person folder layouts; direction and aim weights; block clips; text keys (`ClipKeys`); the draw/holster state machine (`WeaponHands`); WEAP animation type → prefix |
+| Clip choice (headless) | `crates/fnv-actor/src/player_clips.rs` | candidate files per situation, covering the third- and first-person folder layouts; direction and aim weights; block clips; text keys (`ClipKeys`); the draw/holster state machine (`WeaponHands`). NPC locomotion and NPC weapons are `locomotion.rs` and `weapon.rs` (workstream 5 parts G and H); the weapon-type prefix is theirs (`weapon::AnimType::prefix`) |
 | First-person parts (headless) | `crates/fnv-actor/src/first_person.rs` | which parts show, `…1st.nif` hands, the `Arms` shape rule |
-| WEAP models | `crates/fnv-actor/src/records.rs` (`ActorForms::weapons`) | MODL, DNAM animation type, WNAM and its STAT's MODL |
+| WEAP models | `crates/fnv-actor/src/records.rs` (`ActorForms::weapons`, part H's record) | adds WNAM and its STAT's MODL |
 | Worn-armour override | `crates/fnv-actor/src/resolve.rs` (`resolve_wearing`) | `resolve` unchanged for NPCs |
 | Layered playback | `engine/nvf-assets/src/anim_blend.rs` (`Animator`) | priority blending per bone, fades, a shared phase for movement clips, once/loop modes, model-space bone transforms |
 | Clip data | `engine/nvf-assets/src/anim_play.rs` (`Clip`) | track priorities, text keys, `root_speed()` |
@@ -111,11 +111,11 @@ Menu Mode (Tab) are read through the bindings.
 
 ## 3. Rules and values [hypothesis unless tagged]
 
-- Clip choice and fallbacks: animation.md §8 and `locomotion.rs`. Weapon-type movement
+- Clip choice and fallbacks: animation.md §9 and `player_clips.rs`. Weapon-type movement
   clips are used while the weapon is out and exist for that direction; otherwise the
   unarmed movement clip with the aim pose over it. Female players use
   `locomotion\female\` (male clips as fallback).
-- Blending: priority first, then weight (animation.md §8.4); fades from `Blend:N` keys
+- Blending: priority first, then weight (animation.md §9.4); fades from `Blend:N` keys
   (N/30 s), 0.2 s without one, 0.2 s out. The accumulation root is held at the identity:
   root motion is the character controller's.
 - First person: `Bip01 Looking` turned about the actor's right axis by the pitch;
@@ -155,5 +155,5 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
    letting go? Does holding it in first person zoom out instead?
 3. The Pip-Boy: in first person the game shows `pipboy3000\pipboyarm.nif` on the left
    arm; the simulation does not equip the Pip-Boy at the start, so it is not drawn yet.
-4. In-game references would settle the hypotheses of animation.md §8 (captures listed
+4. In-game references would settle the hypotheses of animation.md §9 (captures listed
    in its §7): holster positions, aim poses, sneak speeds sideways and backwards.

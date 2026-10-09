@@ -9,7 +9,9 @@ and the behaviour that docs/design/layer5.md §3.3–3.5 left as [hypothesis]. T
 
 Private files (never committed): definitions, jobs and outputs under
 `C:\fnv-private\capture\` (`quest\`, `out\`), goldens under `C:\fnv-private\goldens\quest\`.
-Nothing was saved in game; every change a job makes is lost when the game quits.
+No job saved the game; every change a job makes is lost when the game quits. One round 4
+trial let the game's own scripted `autosave` (VCG01 stage 55) run, which wrote
+`autosave.fos` (§10).
 
 Tags as everywhere: [documented] (source named), [observed] (this capture or the masters),
 [hypothesis].
@@ -105,8 +107,8 @@ starts before VCG01's stage 0 (the stage whose result script stops VCG00), earli
 Doc Mitchell's first line (stage 3) and the name menu (stage 10): every VCG01 stage can be
 captured from it.
 
-**Neither save is at the start of VCG01.** A save at the very beginning of a new game
-(before Doc Mitchell speaks) is needed to capture the chain itself (owner, §7).
+**Neither `nvftest` nor `nvfdoc` is at the start of VCG01.** `nvfnew` is, and the chain
+is captured from it in §10.
 
 ## 3. Predictions (written before each run)
 
@@ -394,7 +396,7 @@ a `given` does not match the save.
   owner: start a new game, and as soon as the player can look around, open the console and
   `save nvfnew` (the plain name lets `capture_run.py --save nvfnew` load it). Captures from
   it would drive VCG01's stages with SetStage and record stage, objectives, variables and
-  the player's controls after each.
+  the player's controls after each. (Done: `nvfnew`, §2 and §10.)
 - VCG02 has stage 5 done but is not running in both saves (§2), against §5.1's "SetStage
   starts a stopped quest". Not explained.
 - Job scripts cannot issue the vanilla `set quest.var to …` (§1); §5.5 rests on the job's
@@ -914,3 +916,265 @@ C:/fnv-private/goldens/quest3/quest3_<name>.trace.json`.
 - Reputation: only five of the 13 FalloutNV reputations were changed (the others are
   watched by quest scripts or near the saves); all five follow the same fractions, so the
   rule is taken as general [hypothesis for the other eight and the DLC ones].
+
+## 10. Round 4: the intro chain from the new-game save `nvfnew` (2026-10-09)
+
+Fourth capture round (workstream 5C, branch `claude/layer5-captures-4`), made without
+reading the runtime (`crates/fnv-game`, `crates/fnv-script/src/vm*`) or scripts.md §4 and
+later (only §10's open questions). Same install and plugin (v7) as §1–9; save `nvfnew`
+(§2: VCG00 at stage 90, VCG01 running with nothing done). Unattended through
+`capture_run.py`, one job per game session. The stage results, INFO result scripts and
+object scripts named below were read from the masters' source text (`SCTX`, with `fnvtool
+esm decode`); facts from them are [observed in the masters], facts from the runs
+[observed].
+
+**One run saved the game.** VCG01 stage 55's result script calls `autosave`. Trial
+`q5d_trial_drive1` drove the chain through 55 and the game wrote `autosave.fos` at the
+moment stage 55 ran (09:45:56; the Saves folder listing changed during that run only),
+although both INI files on the install have `bAllowScriptedAutosave=0` [observed]. The
+owner's previous autosave (05:43) is now `autosave.fos.bak`; the older `.bak` was
+replaced. Nothing was written back (no writes to the Saves folder). No other run reached
+stage 55 (the run script compares the Saves folder listing before and after every run;
+unchanged in all other runs). Every scenario input avoids stage 55 (§10.6).
+
+Files: trial jobs written by `tools/capture/jobs/make_quest4_jobs.py` into
+`C:\fnv-private\capture\quest4\` (6–16 MB each, not committed: every state sample carries
+a scan of 90 menu codes); scenario inputs `parity-lab/inputs/layer5/intro_*.actions.json`
+(`make_inputs4.py`, the holdout by `make_inputs4_holdout.py`); scenarios
+`parity-lab/scenarios/layer5_intro.json`; goldens `goldens/intro/` (private).
+
+### 10.1 Summary
+
+| Question | Answer | Tag |
+|---|---|---|
+| What happens after loading nvfnew with no input? | Nothing moves: one pack plugin's message box is open (`MenuMode 1001`) and holds GameMode; VCG00's countdown (fTimer 3.0) and the world clock stand still (GameDaysPassed +0.00007 in 15 s) | [observed] |
+| Which box? | One of the four pack plugins' "items added" boxes; which one opens first varies (Tribal Pack in six of the sessions where it was identified, Classic Pack in four); the others follow one at a time as their quests run, each after the previous one is closed | [observed] |
+| Does a key press close it? | xNVSE `TapKey 28` (Enter) did not; the console's `CloseAllMenus` did, like the player's OK (the next pack box then opened and its items were given) | [observed] |
+| Which stages fire on their own? | All but the player's choices: VCG00 95 and 100, VCG01 0, 1, 3 by timers; 5, 8, 10, 25, 30, 36, 45, 55 at the end of Doc Mitchell's lines; 7, 15, 35, 50 by timers; 40 inside the race menu (VCG01's `MenuMode 1036` block) | [observed] |
+| Where does the player have to act? | The pack boxes; the name menu (stage 10, `MenuMode 1051`); the race menu (36, 1036); walking to the vigor tester (its trigger sets 60); using it (OnActivate: SPECIAL menu 1074, stage 65); the couch and the psych test (dialogue choices, ending in 85); the tag-skill menu (90, 1048); the trait menu (102, 1084); the exit trigger (115); Doc's farewell dialogue (Pip-Boy, hardcore choice, VGenericTimer event 3 → 200) | [observed]; the trigger, couch and dialogue scripts [observed in the masters] |
+| Does a menu stop script time? | Yes: the stopwatch (an object script's GetSecondsPassed timer) did not move in 120 frames of the name menu; quest timers resumed where they stopped (15 came 1 s after the name menu closed) | [observed] |
+| Timer accuracy | Every timer step came within 0.09 s of its fTimer sum (3.0, 0.2, 2.8, 3.25, 1.0, 3.0), read one frame late; two sessions differed by at most 1/64 s | [observed] |
+
+### 10.2 The opening without input [observed, `q5d_trial_open`]
+
+State lines of VCG00/VCG01 every three game loops (about 40 loops per second in these
+sessions), screenshots every 50 samples:
+- From the load: a pack box, the screen white behind it (VCG00 stage 0's `imod
+  WhiteISFX`); VCG00 stage 90, fTimer 3.0; VCG01 0, nothing done; player controls
+  disabled except looking (`GetPlayerControlsDisabled` per control: 1 1 1 0 1 0 0),
+  Victor disabled, no Pip-Boy, the player in Doc Mitchell's house (cell 0x00103DF9) at
+  the start marker, Doc 60 units away; TimeScale 30. Four rounds of `TapKey 28` and 2,000
+  loops changed nothing.
+- `CloseAllMenus` → GameMode ran: VCG00 fTimer fell (2.834 three loops later) and the
+  object-script stopwatch started; 6, 8 and 19 samples later the next pack boxes opened
+  (each stopping both again). After the fourth close, all four packs' items were given
+  (`VDLCPackQuest.nGiven` 4) and no box came back.
+- Then, by the stopwatch (seconds of script time from the first close): VCG00 95 at 3.04,
+  100 one sample later with VCG00 stopped and VCG01 0 done in the same sample (stage 100
+  sets VCG01 0, whose script stops VCG00), VCG01 1 at 3.29 (0.2 s), 3 at 6.13 (2.8 s),
+  Doc talking; 5 at 9.05 (the end of Doc's first line), 7 at 12.30 (3.25 s), 8 one sample
+  later (stage 7 sets fTimer 0), 10 at 27.81 (the end of Doc's three next lines) with menu
+  1051 open, the screenshot showing "Enter character name". Nothing changed for the rest
+  of the run (900 samples): the chain waits for the name.
+
+Stage 10's source line is `GetPlayerName;` [observed in the masters]; the name menu
+opened at that stage [observed]. Menu code 1004 reads open the whole time while
+`MenuMode` (no code) reads 0 [observed; hypothesis: the HUD].
+
+### 10.3 Driving the chain [observed, `q5d_trial_drive1`, `q5d_trial_drive2`]
+
+Menus closed with `CloseAllMenus`, stages waited for with `GetStageDone` polled every
+loop. Natural order (`q5d_trial_drive1`), seconds of script time from the first box
+closed:
+
+| Stage | Seconds | Set by | State seen |
+|---|---|---|---|
+| VCG00 95, 100; VCG01 0 | 3.0 (+1 frame) | VCG00's countdown; 100's script | VCG00 stopped, completed 0; Victor disabled, house door destroyed, Pip-Boy 0 |
+| VCG01 1, 3 | +0.2, +2.8 | VCG01's timer | Doc speaks |
+| 5, 7, 8 | line, +3.25, +1 frame | Doc's line; timer | |
+| 10 | +15.4 (three lines) | Doc's last line | name menu 1051; stopwatch frozen |
+| 15 | 1.0 after the close | timer | |
+| 25, 30 | lines | Doc's lines | |
+| 35, 36 | +3.0; line | timer; Doc's line | race menu 1036 open, **40 already done** in it |
+| 45, 50 | lines; +3.0 | Doc's lines; timer | |
+| 55 | lines (10 s) | Doc's last line | objective 10 shown, CGTutorial 2, controls: move and look enabled; **autosave written** |
+| 60 | set by the job | (the tester trigger's SetStage) | Doc's next line shows objective 30 (10 s later) |
+| 65 | inside Activate | the tester's OnActivate (`Activate player 1`) | SPECIAL menu 1074; objective 30 completed, tester destroyed |
+| 70 | 1.0 after the close | timer, Doc's reaction block | nDocReaction 0, nMostExtremeStat 5, bLow 1, fMaxDeviation 0.5 |
+| 75, 76, 79 | end of Doc's reaction line | the line's result; 75's and 76's scripts | all three done in one frame |
+| 80 | 13 s of lines | the psych intro lines | objective 40 shown |
+
+CGTutorial 2 (set by 55) has two entries whose conditions select the PC or the console
+movement message (functions 309 and 523 [observed in the masters]); no message box was
+open in the 30 s after it [observed]. The three tutorial waits timed out.
+
+**Reaction block.** The player's SPECIAL are all 5 in nvfnew: Intelligence is checked
+first (deviation 0.5, bLow 1), the others tie and do not replace it (`>`), so
+nMostExtremeStat 5, and below the reaction thresholds nDocReaction stays 0 [observed;
+matches the source].
+
+**Without stage 55** (`q5d_trial_drive2`): with the first pack box still open (no
+GameMode), `SetStage VCG01 0` stopped VCG00 at 90 (95, 100 never done) and set VCG01's
+timer (0.2, frozen); `SetStage VCG01 60` and objective 30 shown by the job. After the
+boxes, Doc's 60 `SayTo` played the first line of his topic again (its result set 5;
+GetStage stayed 60, so no timer stage followed). From there every later step ran as in
+the natural order, and:
+- **The psych test** (`VCG01Test`): the job set the scores the answers' result scripts
+  add (sneak 2, science 3, speech 1, small guns 2, medicine 1, survival 1) and
+  `bDoFinalCalculation` 1; within one quest delay (0.5 s) the quest script tagged Guns,
+  Science and Sneak (sneak bias: `nSkillsLeftToBeat` 2), set `bDoFinalCalculation` 2 and
+  stopped the quest.
+- 85 → 90 after 1 s (tag-skill menu 1048), 95 1 s after closing it, 98 after Doc's lines,
+  100 after 1 s, 102 on the next frame (fTimer 0) with the trait menu 1084, 105 1 s after
+  closing it, 110 after Doc's lines (objective 50 shown).
+- 115 (the exit trigger's SetStage, set by the job): Doc's package moved him, but no
+  dialogue menu opened in 1,800 loops.
+- The farewell dialogue's result scripts were then run by the job: adding and equipping
+  the Pip-Boy **ended the game** (the job's next step never ran; no end line).
+
+**Stage 200** (`L5.intro.complete`, both runs): VGenericTimer with fTimer 0.1 and nEvent
+3, started → VCG01 200 done, VCG01 **completed and stopped**, GameHour 8.005; VMQ01
+running at 10 with objectives 10, 25, 30 shown (20 not); **VCG02 running** at 5 with
+objective 3 shown; VCG04 running; VGenericTimer stopped (its own StopQuest), nEvent 3;
+the cemetery map marker enabled. So VCG02's stopped state in `nvftest`/`nvfdoc` (§2, §7)
+came after VCG02 stage 5, not from it [observed].
+
+### 10.4 Contract additions (`fnv.script.actions/1`, §4, §8.2, §9.2)
+
+Additions only. Frames as in §4.1 unless given. Menu codes are `MenuMode` codes; those
+seen: 1001 message box, 1036 race menu, 1048 tag-skill menu, 1051 name menu, 1074 the
+vigor tester's SPECIAL menu, 1084 trait menu [observed with the stage that opened each].
+
+| op | fields | what it does | observation |
+|---|---|---|---|
+| `start_stopwatch` | — | zero of `seconds` (below); 1 + 2 | — |
+| `set_quest_var` (existing) + `stopwatch: true` | | sets the variable and starts the stopwatch in the same frame; 1 + 10 | — |
+| `dismiss_message_boxes` | `max`, `wait_frames`, optional `label` | up to `max` times: wait (checking each frame, at most `wait_frames`) for a message box, then close menus; the player pressing OK on each box as it opens | with `label`: `closed` (boxes that were open when closed) |
+| `close_menus` | — | closes the open menu as the player's OK / Done would (the console's `CloseAllMenus`; a name menu closes with the name it had); 1 + 3 | — |
+| `wait_quest` | `quest`, `field` (a quest field, §4.1), `value` (true/false/number), `max_frames`, `label`, optional `stopwatch` | waits, checking once per frame, until the field equals `value`, at most `max_frames`; one frame later reads the field again and with `stopwatch` the stopwatch | `found` (bool); with `stopwatch` and found, `seconds` |
+| `wait_menu` | `menu` (code), `max_frames`, `label`, optional `stopwatch` | the same for "menu `menu` is open" | as `wait_quest` |
+| `get_menus` | `menus` (codes), `label` | whether each menu is open; 1 per code | `menu.<code>` (bool) |
+| `get_tag_skills` | `skills` (actor value names), `label` | `IsPlayerTagSkill`; 1 per skill | `tag.<Skill>` (bool) |
+| `get_ref` (existing) + field `destroyed` | | `GetDestroyed` (SetDestroyed by VCG01 0 and 65) | bool |
+
+`given` gains `{"kind": "menu", "menu": <code>, "open": bool}`: a menu open at the start.
+nvfnew loads with a message box open, which holds GameMode until it is closed; the inputs
+set stages while it holds (`L5.intro.tester`, `.complete`). For the candidate this is "a
+message box is open before action 0"; the pack plugins' own quests then show theirs.
+
+**The stopwatch.** Seconds of script time: in the game the timer of the skull in Doc
+Mitchell's house (FalloutNV 0x00104C10, `VCG01BrahminSkullSCRIPT`: GameMode counts
+`timer` down by GetSecondsPassed while `runTimer` is 1; with `grabbed` 0 nothing happens
+when it runs out), set to 100000 and read as 100000 − `timer`. An object script, because
+round 3's stopwatch (VCG00) is observed here. It stops while a menu is open (§8.3 e).
+For the candidate: frames × `frame_seconds` outside menus since the last
+`start_stopwatch` / `set_quest_var` with `stopwatch`.
+
+**Tolerance of `seconds`** (`L5.intro.*` compare with `abs_tol` 0.1): the stopwatch is
+read the frame after the wait saw the change, `start_stopwatch` takes effect a frame after
+the previous read, and GetSecondsPassed comes in 1/64 s steps (§5.4). At the 25–40 loops
+per second of the capture sessions a frame is 0.025–0.04 s; at the candidate's 1/60 s it
+is 0.017 s. Two frames plus one step is under 0.1 s. Measured: restarted timers came at
+0.95–1.0 × their fTimer (0.953 and 0.961 for 1.0 s, 2.969 for 3.0 s); the two passes
+differed by at most 1/64 s (§10.7).
+
+### 10.5 What was not driven, and why
+
+- **Stage 55 and anything that needs it**: its result script autosaves (above). The
+  natural stage 60 also needs 55 first: Doc's 60 `SayTo` takes the next unsaid line of
+  his topic, which before 55 is the line whose result sets 55. The scenarios therefore
+  jump to 60 and 80 with SetStage while the first pack box holds GameMode.
+- **The psych test dialogue and Doc's farewell dialogue**: dialogue menus with player
+  choices; Doc's farewell conversation did not even open within 1,800 loops of stage 115
+  (his package had not reached the trigger point). Their result scripts were run by the
+  job instead (the test's scores; VGenericTimer event 3).
+- **The Pip-Boy**: adding and equipping it from a job script ended the game (once, not
+  repeated); the real result script also calls `ResetPipBoyManager` and shows a tutorial
+  message. Not part of any scenario.
+- **The hardcore-mode message** (`VCG01CasualHardcoreMessageREF.Activate player 1`, a
+  message box whose button chooses the mode, read by `GetButtonPressed`): not driven.
+- **Walking into the tester trigger / sitting on the couch / walking out**: replaced by
+  the stage those scripts set (60, objective 40 completed with `bBeganTest`, 115).
+
+### 10.6 Scenarios and goldens
+
+`parity-lab/scenarios/layer5_intro.json`, comparator keyed on `label` over
+`/observations`; inputs `parity-lab/inputs/layer5/intro_<name>.actions.json`; goldens
+`goldens/intro/intro_<name>.trace.json` (private). The current candidate rejects the
+given kind `menu` (checked 2026-10-09 with this branch's fnvtool on the three visible
+inputs: `unknown variant menu`; without it the new ops and `set_quest_var`'s `stopwatch` field are the first unknown
+names; without those, the rest of `intro_tester` and `intro_complete` parses and runs), so the scenarios error until 5B adds §10.4.
+The candidate was not run on the holdout.
+
+| Scenario | Rows | Tolerance | What |
+|---|---|---|---|
+| `L5.intro.opening` | 31 | 0.1 | VCG00 90 → VCG01 50 in the game's own order: pack boxes, timers with seconds, Doc's lines (found only: line lengths are audio), name and race menus (stage 40 inside the race menu, script time stopped in the name menu), the state at 50; ends by disabling Doc so that his last lines cannot reach 55 before the game quits |
+| `L5.intro.tester` | 14 | 0.1 | 0 and 60 set while a box holds GameMode; the tester's OnActivate (65 inside Activate, menu 1074, destroyed, objective 30 completed); 65's timer; the reaction variables; 75/76/79 in one frame; 80 |
+| `L5.intro.complete` | 23 | 0.1 | the psych test's tag skills; 85 → 110 with the two menus and 1 s timers; 115; VGenericTimer event 3 → 200, VMQ01 10, VCG02 5, VCG04, GameHour 8 |
+| `L5.intro.r4_holdout` | — | 0.0001 | **holdout** |
+
+Every `given` is a fact of nvfnew: a message box open, VCG00 at 90 (fTimer not given: it
+read 3.0 or 1.763 at the start of a job, depending on how soon the first box opened; the
+inputs set it), VCG01 untouched, VCG01Test, CGTutorial, VDLCPackQuest and the four pack
+quests running, VCG02/VCG03/VCG04/VMQ01/VGenericTimer stopped, the cemetery marker
+disabled, SPECIAL all 5. Which pack's flag is set at the start varies, so it is not
+given and the number of boxes closed is not observed.
+
+Rebuilding (owner's machine; both run locks first; never save in game):
+
+```
+python parity-lab/inputs/layer5/make_inputs4.py
+python tools/capture/capture_quests.py job parity-lab/inputs/layer5/intro_<name>.actions.json --name q5d_intro_<name> --start nvfnew --data "<Data>" -o C:/fnv-private/capture/quest4/q5d_intro_<name>.steps.json
+python tools/capture/capture_run.py --game "<FNV>" --save nvfnew --kill-on-timeout C:/fnv-private/capture/quest4/q5d_intro_<name>.steps.json
+python tools/capture/capture_quests.py golden C:/fnv-private/capture/out/q5d_intro_<name>.<time>.jsonl --actions parity-lab/inputs/layer5/intro_<name>.actions.json -o C:/fnv-private/goldens/intro/intro_<name>.trace.json
+```
+
+### 10.7 Stability
+
+Every scenario job ran twice more with the final inputs, in separate game sessions (plan
+r4-p5, passes A and B, 2026-10-09 10:09–10:19), after a first pair of runs with an earlier
+form of the inputs (per-pack givens, which failed in pass 2 because the first box was
+another pack's: the reason those givens were dropped). Every `given` matched the save in
+both final passes (`golden` refuses otherwise), and pass B matched pass A under each
+scenario's comparator with 0 differences, holdout included. Numbers that differed: the
+stopwatch readings, by at most 1/64 s (0.0156; e.g. VCG01 15 at 0.953 and 0.969 s), and
+GameHour after 200 (by 0.00001 h). Pass A's traces are the goldens. The stopwatch
+readings: VCG00 95 at 3.031 s, 100 at 3.078, VCG01 0 at 3.109, 1 at 3.281, 3 at 6.086
+(one start); after restarts, 7 at 3.219, 15 at 0.953, 35 at 2.969, 50 at 2.984, 70 at
+0.961, 95 at 0.961, 100 and 102 at 0.984, 105 at 0.969; 0.0 after 120 frames of the
+name menu. The Saves folder was unchanged after every one of these runs.
+
+### 10.8 Predictions (written before each run; plans r4-p1 to r4-p5)
+
+- Po1 (nothing moves after the load because a menu is open) — **held** (a pack box).
+- Po2 (`CloseAllMenus` lets the chain run until the race menu) — **refuted** in part: the
+  chain stopped at the name menu (stage 10), which was not predicted.
+- Pp1 (`TapKey 28` closes a message box) — **refuted**; the four boxes, one at a time —
+  **held**.
+- Pp2/Pp3 (VCG00 3 s, VCG01 0.2 s, 2.8 s, Doc's lines chaining 5 → 10, 3.25 s) — **held**;
+  "stage 10 opens no menu" — **refuted** (name menu).
+- Pd1–Pd2 (name menu closed by `CloseAllMenus`, 15 one second later; race menu at 36 with
+  40 set inside it) — **held**.
+- Pd3 (55: objective 10, CGTutorial 2 with two message boxes, **no autosave** because of
+  the INI setting) — objective and stage **held**; no box appeared; the autosave
+  prediction was **wrong** and the game saved.
+- Pd4 (tester → 65 inside Activate, reaction 0/5/1/0.5, 75–79 together, 80) — **held**.
+- r4-p4 (drive2: stages while the box holds, Doc's first line again setting 5, tags Guns,
+  Science and Sneak, 85–110 timers and menus, 200 with VCG02 running) — **held**; Doc's
+  dialogue at 115 and the Pip-Boy were not predicted to fail.
+- r4-p5 (scenario jobs) — all visible predictions **held**; the holdout's prediction is in
+  the session notes only.
+
+### 10.9 Open items
+
+- **The owner's autosave was overwritten** by the game's own `autosave` (VCG01 55) in one
+  trial; the previous one is `autosave.fos.bak`. See the PR's owner review.
+- Stage 55 and the natural stage 60 need either the owner's consent to let the game
+  autosave during captures, or a way to stop scripted autosaves that does not write
+  outside the capture folder.
+- The psych test and farewell dialogues (player choices, Layer 6), the Pip-Boy (crash),
+  the hardcore message, the couch and the walk to the exit are not captured.
+- CGTutorial stage 2's two conditional entries showed no message box; which entry ran is
+  not visible.
+- Which pack box opens first, and when, varies between sessions [observed]; why is not
+  known [hypothesis: the order in which the four pack quests first run after the load].
