@@ -206,7 +206,7 @@ impl ModelCollision for Meshes {
 pub(crate) struct Built<'a> {
     pub(crate) world: PhysWorld,
     cells: Vec<&'a Cell>,
-    grids: BTreeMap<(i32, i32), Option<Vec<f32>>>,
+    pub(crate) grids: BTreeMap<(i32, i32), Option<Vec<f32>>>,
     no_heights: usize,
     counts: BTreeMap<&'static str, usize>,
     by_base: BTreeMap<String, usize>,

@@ -26,6 +26,7 @@ fnv-actor = { path = "../crates/fnv-actor" }
 fnv-combat = { path = "../crates/fnv-combat" }
 fnv-phys = { path = "../crates/fnv-phys" }
 fnv-collide = { path = "../crates/fnv-collide" }
+fnv-nav = { path = "../crates/fnv-nav" }
 fnv-install = { path = "../crates/fnv-install" }
 nvf-assets = { path = "nvf-assets" }
 nvf-play = { path = "nvf-play" }
