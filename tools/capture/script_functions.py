@@ -220,6 +220,15 @@ def parse_xedit(path):
     return table
 
 
+def xedit_from_catalogue(path):
+    """The same table rebuilt from an earlier catalogue's `condition_index` and
+    `xedit_param_types` (for regenerating without a copy of the xEdit source)."""
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    return {f["condition_index"]: (f["name"], list(f.get("xedit_param_types") or []))
+            for f in doc["functions"] if f.get("condition_index") is not None}
+
+
 # --------------------------------------------------------------------------- plugins
 
 def iter_script_units(buf, plugin):
@@ -606,13 +615,20 @@ def main(argv=None):
     ap.add_argument("--wiki", required=True)
     ap.add_argument("--data", required=True)
     ap.add_argument("--xedit")
+    ap.add_argument("--xedit-from-catalogue", metavar="FUNCTIONS_JSON",
+                    help="take the xEdit table from an earlier functions.json instead")
     ap.add_argument("--notes")
     ap.add_argument("--out", default="schemas/script/functions.json")
     ap.add_argument("--out-md", default="docs/spec-notes/script-functions-catalogue.md")
     args = ap.parse_args(argv)
     try:
         wiki = parse_wiki(args.wiki)
-        xedit = parse_xedit(args.xedit) if args.xedit else {}
+        if args.xedit:
+            xedit = parse_xedit(args.xedit)
+        elif args.xedit_from_catalogue:
+            xedit = xedit_from_catalogue(args.xedit_from_catalogue)
+        else:
+            xedit = {}
         notes = {}
         if args.notes:
             with open(args.notes, encoding="utf-8") as fh:
