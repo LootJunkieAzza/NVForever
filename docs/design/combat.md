@@ -119,16 +119,53 @@ frames) go into a spec note, `docs/spec-notes/combat-data.md`, each tagged. Wher
 matters, they are checked against the records themselves: for example, how fire rate
 values spread across automatic and semi-automatic weapons [observed].
 
-### 4.2 The headless model
+### 4.2 What the GECK wiki export documents
+
+The owner exported Category:Items on 2026-10-09: 17 pages, kept privately at
+`C:\fnv-private\geckwiki\Items.xml` and never committed. The ones combat uses are
+Weapons, Ammo, Armor, Equip Type, Ragdoll Template and Destructible Object Data. They
+give the editor's names for fields. C1 matches those names to xEdit's subrecord fields
+and writes the meanings into `combat-data.md` in our own words. What they settle for
+this design [documented: GECK wiki, page named]:
+
+- **Weapons.** Damage is per hit (per shot for guns). Fire Rate (shots per second) only
+  matters for automatic weapons. A semi-automatic's rate follows its attack animation
+  and Attack Multiplier, and for NPCs the semi-automatic fire delays. Min Spread is
+  the cone's median angle in degrees, while the Spread field is unused in New Vegas.
+  Melee reach is `fCombatDistance` × the actor's scale × Reach. Crit % Mult is divided
+  by Fire Rate for automatic weapons. The page also covers Ammo Use (rounds per shot),
+  projectiles per shot, Limb Dmg Mult, the damage type (which resistance applies), Kill
+  Impulse and Impulse Dist, and the On Hit dismember/explode choice. Min and Max Range
+  are for the combat AI only. The Action Points and Damage to Weapon Multiplier
+  overrides, Sight FOV, Regen Rate (ammo that recharges, no manual reload), the
+  flags (Automatic, NPCs Use Ammo, Minor Crime, No Jam After Reload, …), the effects
+  of weapon mods, the reload and attack animation choices, and the Animation
+  Multiplier are there too. Reload Time and Jam Time are unused.
+- **Ammo.** The ammo's projectile and its non-zero projectiles per shot replace the
+  weapon's, and the weapon's damage is shared among the projectiles. Speed is unused.
+  An impact script runs on actors that are hit. Ammo Effects can be listed. "Ammo
+  Consumed" adds items such as casings to the shooter's inventory, with a percentage
+  chance.
+- **Armor.** AR is DR, a percentage capped by `fMaxArmorRating`. DT is a separate field.
+  The Light/Medium/Heavy class sets a movement speed penalty.
+- **Ragdoll Template.** `.rdt` files override the skeleton's rigid bodies and
+  constraints per armour piece. This matters for the later ragdoll step.
+
+These change the design in three places: the base damage is split across projectiles
+(§5.3), the ammo's projectile wins (§4.3), and the spread cone starts from Min Spread
+(§5.1).
+
+### 4.3 The headless model
 
 New crate `crates/fnv-combat` (depends on `fnv-esm`, `fnv-sim`; no engine). Its first
 module, `data`, holds:
 
 - `CombatForms`: an index over the loaded masters, built once like
   `fnv_actor::records::ActorForms`.
-- `WeaponStats`: `DATA` + `DNAM` + `CRDT` + ammo, with the projectile resolved through
-  the weapon's ammo (AMMO `DAT2`) or the weapon's own projectile field, whichever the
-  sources say wins.
+- `WeaponStats`: `DATA` + `DNAM` + `CRDT` + ammo. The loaded ammo's projectile (AMMO
+  `DAT2`) replaces the weapon's own projectile; ammo with none uses the weapon's. A
+  non-zero projectiles-per-shot on the ammo likewise replaces the weapon's count
+  [documented: GECK wiki Ammo].
 - `AmmoStats`, `ProjectileStats`, `ExplosionStats`, `BodyParts`, `ImpactSet`; armour
   DT and DR; the actor's base health inputs.
 
@@ -139,7 +176,7 @@ resolves nothing.
 `fnv_actor::records::Weapon` stays the visual reader. The two readers share no code
 until a change gives a reason to.
 
-### 4.3 Tool and checks
+### 4.4 Tool and checks
 
 - `fnvtool combat weapon <form>` / `projectile <form>` / `explosion <form>` /
   `body-parts <form>`: resolved JSON, as other `fnvtool` subcommands print.
@@ -170,7 +207,9 @@ role; their exact names come from C1.
   to the next). Fast bullets then behave almost like hitscan up close but drop and lag
   at range. Projectiles flagged as hitscan in PROJ resolve on the same tick. Shotguns
   fire the ammo's projectiles per shot, each with its own spread.
-- **Spread** is a cone. Its base angle comes from the weapon's spread values, scaled
+- **Spread** is a cone. Its base angle is the weapon's Min Spread, the cone's median
+  angle in degrees (New Vegas ignores the separate Spread field [documented: GECK wiki
+  Weapons]). It is scaled
   by stance: aiming down the sights tightens it, crouching tightens it a little, moving
   widens it, jumping widens it a lot. Each shot widens it further (bloom), and it
   recovers over time. **Recoil** kicks the view up and recovers. Bloom and recovery
@@ -193,8 +232,8 @@ role; their exact names come from C1.
 
 For each projectile that hits:
 
-1. **Base**: the weapon's base damage, split across the projectiles per shot where the
-   record's base damage is per shot (C1 settles which).
+1. **Base**: the weapon's base damage, split evenly across the projectiles of a shot
+   (the record's damage is per shot [documented: GECK wiki Ammo]).
 2. **Multipliers**: weapon condition (a worn gun does less, down to a floor), the
    attacker's weapon skill (a modest range, e.g. 0.75× to 1.25×), the ammo's damage
    effects, the body part's multiplier, and sneak attacks.
@@ -310,9 +349,10 @@ Each step is a branch and a PR, reviewed before the next starts.
 
 ## 9. Owner questions
 
-1. **Facts for C1**: the GECK wiki pages for Weapon, Projectile, Explosion, Ammo, Ammo
-   Effect, Body Part Data and the combat game settings, exported as on 2026-10-09,
-   would document field meanings beyond xEdit's names.
+1. **Facts for C1**: the owner's `Items.xml` export (§4.2) covers Weapons, Ammo and
+   Armor. Still missing are the GECK wiki pages for Projectile, Explosion, Ammo Effect,
+   Body Part Data and Impact Data Set. Optional, as a balance reference only: Weapon
+   Damage Formula, Gun Spread Formula, Critical Hit Chance Formula.
 2. **Feel**: hit markers yes? Floating damage numbers (default off)? Recoil and bloom
    strength like a modern shooter, or subtler?
 3. **VATS**: rebuild it later, replace it (e.g. a slow-motion aim assist), or leave it
