@@ -204,7 +204,10 @@ Close, standing at 1,844 references without XTEL):
   door's keyframed bodies are moved to `ref ∘ animated node ∘ body transform` every frame
   the clock changes, and are not solid while the door swings
   (`PhysWorld::set_ref_keyframed_solid`, `DoorMotion::swinging`; owner request
-  2026-10-09), so a swinging leaf cannot hit or push an actor; at rest they are solid. An Open by Default door keeps its moving parts (posed open) through
+  2026-10-09), so a swinging leaf cannot hit or push an actor; at rest they are solid.
+  **Later (not built):** stay non-solid after the sequence ends until no character
+  overlaps the moving parts at rest, so a door closing on someone in the doorway does not
+  trap them; logic and tests to write in docs/spec-notes/doors.md §4. An Open by Default door keeps its moving parts (posed open) through
   `RefCollisionOptions::posed_doors`; the shared rule `ref_collision` used by the parity
   lab is unchanged.
 - Simulation and activation (`nvf_play::doors`): `Doors` holds every door's clock,
