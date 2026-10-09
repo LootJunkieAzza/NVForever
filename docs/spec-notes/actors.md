@@ -102,9 +102,9 @@ actor meshes`]:
 - FaceGen companions: `.egm` (275), `.egt` (36), `.tri` (49) files in
   `Fallout - Meshes.bsa`, next to heads, hair, beards and many hats; no pre-generated
   per-NPC heads.
-- The human idle is `meshes\characters\_male\locomotion\mtidle.kf`. Static display is a
-  frozen bind pose by default (owner decision 2026-10-08); `nvforever --actor-pose idle`
-  plays the idle instead (§7).
+- The human idle is `meshes\characters\_male\locomotion\mtidle.kf`. `nvforever` plays
+  the idle by default (owner decision 2026-10-09; it was the frozen bind pose before);
+  `--actor-pose bind` keeps the bind pose (§7).
 
 ## 2. Resolution rules (`fnv_actor::resolve`)
 
@@ -288,8 +288,9 @@ mismatching its shape.
 
 ## 7. Animation playback (part E)
 
-Opt-in: `nvforever --actor-pose idle` plays a looping KF clip on each actor's skeleton;
-`--actor-pose bind` (the default, owner decision 2026-10-08) keeps the frozen bind pose.
+`nvforever --actor-pose idle` (the default since 2026-10-09, owner decision) plays a
+looping KF clip on each actor's skeleton; `--actor-pose bind` (the default before) keeps
+the frozen bind pose.
 `--actor-pose-time <s>` holds every actor at one clip time (screenshots). Choosing a clip
 per situation (AI, packages, movement) is Layer 6 and not done here.
 
