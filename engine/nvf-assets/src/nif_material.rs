@@ -9,11 +9,42 @@
 //!
 //! Shapes with a black emissive colour and no falloff render exactly as with
 //! StandardMaterial.
+//!
+//! Crossfades: meshes with a crossfading `VisibilityRange` (the streamed cells' fade in
+//! and out, nvforever `fade.rs`) are dithered in every pass. Bevy's depth-only prepass
+//! skips the dither, so the pixels the main pass discards would still hold depth there and
+//! hide what lies behind them; [`fade_prepass`] gives that prepass a fragment that dithers.
 
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin};
+use bevy::asset::{load_internal_asset, uuid_handle};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin, MeshPipelineKey};
 use bevy::prelude::*;
-use bevy::render::render_resource::AsBindGroup;
-use bevy::shader::ShaderRef;
+use bevy::render::render_resource::{AsBindGroup, FragmentState, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::shader::{ShaderDefVal, ShaderRef};
+
+/// fade_prepass.wgsl.
+const FADE_PREPASS_SHADER: Handle<Shader> = uuid_handle!("6f0c9b51-2a7e-4f43-9d0e-5b8c1e7a4d21");
+
+/// Make a depth-only prepass pipeline of a crossfading mesh dither as the main pass does
+/// (module docs). Call from `MaterialExtension::specialize` of materials whose meshes
+/// can fade; other pipelines are left alone.
+pub fn fade_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    if !mesh_key.contains(MeshPipelineKey::VISIBILITY_RANGE_DITHER) {
+        return;
+    }
+    let defs = &descriptor.vertex.shader_defs;
+    let has = |d: &str| defs.contains(&ShaderDefVal::from(d));
+    // Prepasses with colour targets (or unclipped depth) run Bevy's full prepass
+    // fragment, which already dithers.
+    if !has("PREPASS_PIPELINE") || has("PREPASS_FRAGMENT") {
+        return;
+    }
+    let (shader_defs, targets) = match descriptor.fragment.take() {
+        Some(f) => (f.shader_defs, f.targets),
+        None => (defs.clone(), Vec::new()),
+    };
+    descriptor.fragment = Some(FragmentState { shader: FADE_PREPASS_SHADER, shader_defs, targets, ..default() });
+}
 
 /// The extension part: the falloff parameters and the fragment shader.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
@@ -37,6 +68,16 @@ impl MaterialExtension for NifSurface {
 
     fn deferred_fragment_shader() -> ShaderRef {
         "embedded://nvf_assets/nif_material.wgsl".into()
+    }
+
+    fn specialize(
+        _: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _: &MeshVertexBufferLayoutRef,
+        key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        fade_prepass(descriptor, key.mesh_key);
+        Ok(())
     }
 }
 
@@ -85,6 +126,7 @@ pub struct NifMaterialPlugin;
 impl Plugin for NifMaterialPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "nif_material.wgsl");
+        load_internal_asset!(app, FADE_PREPASS_SHADER, "fade_prepass.wgsl", Shader::from_wgsl);
         app.add_plugins(MaterialPlugin::<NifMaterial>::default());
     }
 }
