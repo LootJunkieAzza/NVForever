@@ -1,9 +1,11 @@
 //! Reputations (fame and infamy per `REPU`), docs/spec-notes/scripts.md §7.6.
 //!
 //! The player holds infamy (axis 0) and fame (axis 1) per reputation
-//! ([`crate::game::PlayerState::reputation`]) [documented: GECK wiki GetReputation].
-//! A reputation's `DATA` value is its scale, the most fame or infamy it counts
-//! [documented: GECK wiki GetReputationPct; schema `gameplay.json` REPU].
+//! ([`crate::game::PlayerState::reputation`]) [documented: GECK wiki GetReputation;
+//! observed: the second argument is 1 for fame and 0 for infamy in all six reputation
+//! functions, layer5-captures.md §9.3 a]. A reputation's `DATA` value is its scale
+//! [documented: GECK wiki GetReputationPct; schema `gameplay.json` REPU; observed: the
+//! limits and levels below are fractions of it, §9.3 a].
 
 use super::{none, Args, Ctx};
 use crate::game::Game;
@@ -13,8 +15,10 @@ use fnv_sim::FormId;
 
 /// Points per deed size 1–5 for AddReputation / RemoveReputation: the game settings
 /// fReputationBumpVeryMinor … fReputationBumpVeryMajor when a plugin defines them,
-/// else their defaults 1, 2, 4, 7, 12 [documented: GECK wiki AddReputation]. The
-/// shipped masters define none of the five [observed: FalloutNV.esm GMST list].
+/// else their defaults 1, 2, 4, 7, 12 [documented: GECK wiki AddReputation; observed:
+/// sizes 1–5 added and removed 1, 2, 4, 7, 12 points on scales 10 and 70 alike, and the
+/// game read the five settings as those values; no master defines them,
+/// layer5-captures.md §9.3 a].
 const BUMPS: [(&str, f64); 5] = [
     ("fReputationBumpVeryMinor", 1.0),
     ("fReputationBumpMinor", 2.0),
@@ -23,10 +27,11 @@ const BUMPS: [(&str, f64); 5] = [
     ("fReputationBumpVeryMajor", 12.0),
 ];
 
-/// Fractions of the scale at which fame or infamy reaches levels 1, 2 and 3
-/// [hypothesis: not documented anywhere we can read; to be captured (docs/spec-notes/
-/// scripts.md §10)].
-pub const LEVEL_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
+/// Fractions of the scale at which fame or infamy reaches levels 1, 2 and 3; a value
+/// on a boundary already has the higher level [observed: one axis swept in steps of
+/// scale/1000 on five reputations (scales 10–70) changed level exactly at 0.15, 0.5 and
+/// 1.0 × the scale, and fame 1.5 of 10 was level 1, layer5-captures.md §9.3 a].
+pub const LEVEL_FRACTIONS: [f64; 3] = [0.15, 0.5, 1.0];
 
 fn rep_axis(a: &Args, i: usize) -> Result<usize, String> {
     match a.int(i)? {
@@ -55,40 +60,66 @@ pub fn values(g: &Game, r: FormId) -> [f64; 2] {
     g.player.reputation.get(&r).copied().unwrap_or([0.0; 2])
 }
 
-/// Change one axis; the result is not allowed below 0 [hypothesis] and is traced.
-pub fn change(g: &mut Game, r: FormId, axis: usize, delta: f64) {
-    let v = g.player.reputation.entry(r).or_default();
-    v[axis] = (v[axis] + delta).max(0.0);
-    let value = v[axis];
+/// Store one axis as given (SetReputation keeps any value, negative or above the scale
+/// [observed: −3, 2.5 and twice the scale read back unchanged, §9.3 a]) and trace it.
+pub fn store(g: &mut Game, r: FormId, axis: usize, value: f64) {
+    g.player.reputation.entry(r).or_default()[axis] = value;
     g.emit(EventKind::ReputationChanged { reputation: r, axis, value });
 }
 
-fn bump(g: &Game, size: i32) -> Result<f64, String> {
-    let (name, default) = *BUMPS.get((size - 1) as usize).ok_or_else(|| format!("deed size {size} is not 1 to 5"))?;
-    Ok(g.world.forms.setting_f32(name).map(|v| v as f64).unwrap_or(default))
+/// Add `delta` points to one axis: a gain stops at the scale, and also brings a value
+/// set above the scale down to it; a loss stops at 0 and leaves a value above the scale
+/// above it [observed: 9 + 12 → 10 and 20 + 1 → 10 on scale 10, 69 + 12 → 70 and
+/// 140 + 1 → 70 on scale 70, 1 − 12 → 0, 20 − 1 → 19 on scale 10, §9.3 a]. A
+/// reputation without a scale is not limited above [hypothesis; every REPU has one].
+/// A loss from below 0 ends at 0 [hypothesis, not captured].
+pub fn change(g: &mut Game, r: FormId, axis: usize, delta: f64) {
+    let s = scale(g, r);
+    let v = values(g, r)[axis] + delta;
+    let v = if delta >= 0.0 {
+        if s > 0.0 {
+            v.min(s)
+        } else {
+            v
+        }
+    } else {
+        v.max(0.0)
+    };
+    store(g, r, axis, v);
 }
 
-/// `AddReputation rep axis size`: fame or infamy grows by the deed size's points
-/// [documented: GECK wiki AddReputation].
+/// The points of a deed size; `None` for a size other than 1–5, which changes nothing
+/// [observed: sizes 0, 6 and −2, §9.3 a].
+fn bump(g: &Game, size: i32) -> Option<f64> {
+    let (name, default) = *BUMPS.get(usize::try_from(size.checked_sub(1)?).ok()?)?;
+    Some(g.world.forms.setting_f32(name).map(|v| v as f64).unwrap_or(default))
+}
+
+/// `AddReputation rep axis size`: fame or infamy grows by the deed size's points, up to
+/// the scale [documented: GECK wiki AddReputation; observed: [`change`]].
 pub fn add_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
     let axis = rep_axis(a, 1)?;
-    let p = bump(g, a.int(2)?)?;
-    change(g, r, axis, p);
+    if let Some(p) = bump(g, a.int(2)?) {
+        change(g, r, axis, p);
+    }
     none()
 }
 
-/// `RemoveReputation rep axis size`: the same amount taken away [documented: GECK wiki
-/// RemoveReputation].
+/// `RemoveReputation rep axis size`: the same points taken away, down to 0
+/// [documented: GECK wiki RemoveReputation; observed: [`change`]].
 pub fn remove_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
     let axis = rep_axis(a, 1)?;
-    let p = bump(g, a.int(2)?)?;
-    change(g, r, axis, -p);
+    if let Some(p) = bump(g, a.int(2)?) {
+        change(g, r, axis, -p);
+    }
     none()
 }
 
-/// `AddReputationExact rep axis amount` [documented: GECK wiki AddReputationExact].
+/// `AddReputationExact rep axis amount` [documented: GECK wiki AddReputationExact],
+/// limited as AddReputation (a gain) or RemoveReputation (a loss) [hypothesis: not
+/// captured].
 pub fn add_reputation_exact(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
     let axis = rep_axis(a, 1)?;
@@ -97,17 +128,20 @@ pub fn add_reputation_exact(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
     none()
 }
 
-/// Fame or infamy over the scale [documented: GECK wiki GetReputationPct], capped at 1
-/// [hypothesis].
+/// Fame or infamy over the scale, not capped: negative or above 1 when the value is
+/// [documented: GECK wiki GetReputationPct; observed: −0.3 and 2, §9.3 a]. 0 for a
+/// reputation without a scale [hypothesis].
 pub fn get_reputation_pct(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = reputation(g, a)?;
     let axis = rep_axis(a, 1)?;
     let s = scale(g, r);
     let v = values(g, r)[axis];
-    Ok(Value::Num(if s > 0.0 { (v / s).min(1.0) } else { 0.0 }))
+    Ok(Value::Num(if s > 0.0 { v / s } else { 0.0 }))
 }
 
 /// The level (0–3) of fame or infamy: how many of [`LEVEL_FRACTIONS`] it reaches.
+/// The comparison allows for rounding in `value / scale` (a value set to exactly
+/// 0.15 × scale is on the boundary).
 pub fn level(value: f64, scale: f64) -> usize {
     if scale <= 0.0 {
         return 0;
@@ -115,32 +149,25 @@ pub fn level(value: f64, scale: f64) -> usize {
     LEVEL_FRACTIONS.iter().filter(|&&f| value / scale + 1e-9 >= f).count()
 }
 
-/// The tier on each axis (mixed, good, bad) for fame level `f` and infamy level `i`.
+/// The tier on each axis (mixed, good, bad) for fame level `f` and infamy level `i`
+/// [observed: the 4 × 4 grid of layer5-captures.md §9.3 a, the same on five
+/// reputations with scales 10–70; the names per value are documented on the GECK wiki's
+/// GetReputationThreshold page]:
 ///
-/// Documented [GECK wiki GetReputationThreshold]: values 0–6; with no fame and no
-/// infamy every axis reads 1 (Neutral); the player is on one axis at a time and the
-/// others read 0; the good axis lists Idolized 6, Liked 5, Accepted 4, Good Natured
-/// Rascal 3, Smiling Troublemaker 2; the bad axis Vilified 6, Hated 5, Shunned 4,
-/// Merciful Thug 3, Sneering Punk 2; the mixed axis Wild Child 5, Unpredictable 4,
-/// Mixed 3, Dark Hero or Soft Hearted Devil 2.
-///
-/// The grid that places each name at a fame and infamy level is a [hypothesis]: fame
-/// only (levels 1–3) gives Accepted, Liked, Idolized; infamy only Shunned, Hated,
-/// Vilified; equal levels Mixed, Unpredictable, Wild Child; fame 2 or 3 over infamy 1
-/// gives Smiling Troublemaker, Good Natured Rascal; infamy 2 or 3 over fame 1 Sneering
-/// Punk, Merciful Thug; fame 3 with infamy 2 and fame 2 with infamy 3 the two names of
-/// mixed 2. It fills the wiki's three axes exactly, which is why it is the working rule.
+/// | fame \ infamy | 0 | 1 | 2 | 3 |
+/// |---|---|---|---|---|
+/// | 0 | 1,1,1 Neutral | 0,0,4 Shunned | 0,0,5 Hated | 0,0,6 Vilified |
+/// | 1 | 0,4,0 Accepted | 3,0,0 Mixed | 0,0,2 Sneering Punk | 0,0,3 Merciful Thug |
+/// | 2 | 0,5,0 Liked | 0,2,0 Smiling Troublemaker | 4,0,0 Unpredictable | 2,0,0 Dark Hero / Soft-Hearted Devil |
+/// | 3 | 0,6,0 Idolized | 0,3,0 Good-Natured Rascal | 2,0,0 Dark Hero / Soft-Hearted Devil | 5,0,0 Wild Child |
 pub fn tiers(f: usize, i: usize) -> [i32; 3] {
-    match (f, i) {
-        (0, 0) => [1, 1, 1],
-        (f, 0) => [0, 3 + f as i32, 0],
-        (0, i) => [0, 0, 3 + i as i32],
-        (f, i) if f == i => [2 + f as i32, 0, 0],
-        (3, 2) | (2, 3) => [2, 0, 0],
-        (f, 1) => [0, f as i32, 0],
-        (1, i) => [0, 0, i as i32],
-        _ => [0, 0, 0],
-    }
+    const GRID: [[[i32; 3]; 4]; 4] = [
+        [[1, 1, 1], [0, 0, 4], [0, 0, 5], [0, 0, 6]],
+        [[0, 4, 0], [3, 0, 0], [0, 0, 2], [0, 0, 3]],
+        [[0, 5, 0], [0, 2, 0], [4, 0, 0], [2, 0, 0]],
+        [[0, 6, 0], [0, 3, 0], [2, 0, 0], [5, 0, 0]],
+    ];
+    GRID[f.min(3)][i.min(3)]
 }
 
 /// `GetReputationThreshold rep axis` (0 mixed, 1 good, 2 bad): see [`tiers`].
