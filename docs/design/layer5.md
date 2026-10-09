@@ -6,10 +6,24 @@ game progression. Milestone M5: the Goodsprings intro quest chain is playable. P
 row for Layer 5: script event traces and variable states per quest stage, compared with the
 `sequence` and `exact` comparators. Written in the section 9 format.
 
-Status 2026-10-09: **planned**. The owner asked for Layer 5 to start while they are away,
-with one coordinating session ("Active sessions merge and layer5 spec") that splits the
-work into the workstreams of §7. Decisions that need the owner's view are collected in
-§6 and in `docs/owner-review.md`.
+Status 2026-10-09 (evening): **5A, 5B, 5C and 5D merged**, with follow-ups.
+- **Reader** (#51): every unit of the ten masters decodes with no raw argument.
+  `L5.script.decode` is at 0.997 against the independent oracle, with all 44 differences
+  explained (docs/spec-notes/scripts.md §3.4).
+- **Runtime** (#59, #63): the VM plus `fnv-game` (quests, conditions, instances,
+  events, 130 functions plus 62 Layer 6 stubs, 86% of calls and condition uses).
+  `fnvtool script run` passes 18 of 22 `L5.*` scenarios. Both rounds of in-game captures
+  are included (#55, #61). The three `delay_*` misses come from inputs that lack a quest
+  stage (an owner decision), and the fourth is `L5.script.decode`.
+- **Headless intro chain:** VCG00 and VCG01 complete, VCG02 reaches stage 50 and VCG03
+  its objectives 10–40, all with scripted stand-ins for dialogue, packages and combat.
+- **In the game** (#62): quest and object scripts run in `nvforever --play`
+  (docs/design/layer5-play.md).
+
+What's left for M5 is mostly Layer 6: a dialogue screen, AI packages, combat, the
+character-creation menus, a new-game start in Doc's bed, and a capture of VCG01 from a
+new-game save. Decisions taken while the owner was away are listed in
+`docs/owner-review.md`.
 
 ## 1. Summary and assumptions
 
