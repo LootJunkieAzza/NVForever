@@ -12,6 +12,7 @@
 //! - [`anims`]: where `.kf` files sit relative to skeletons, and what their tracks bind to
 //! - [`locomotion`]: idle, walk, run and turn clips, their root motion, and choosing
 //!   and blending between them
+//! - [`weapon`]: the weapon an actor draws, its stance clips and the draw cycle
 //!
 //! Facts and rules with confidence tags: docs/spec-notes/actors.md and (animation data)
 //! docs/spec-notes/animation.md.
@@ -23,6 +24,7 @@ pub mod locomotion;
 pub mod mesh;
 pub mod records;
 pub mod resolve;
+pub mod weapon;
 
 pub use records::ActorForms;
 pub use resolve::{Appearance, Part, ResolveError, Resolver};
