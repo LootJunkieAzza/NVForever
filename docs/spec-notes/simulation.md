@@ -56,8 +56,14 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   player's own activation disarms one in time is not seen: the Activate control
   (`TapControl 5`) in `cl_d_mines_live` met a coffee table in front of the mine
   (`GetCrosshairRef` 0x0013952F); see `cl_d2_mines_disarm` (docs/spec-notes/
-  layer4-captures.md §2). Proximity, timer and damage are Layer 6 (combat); the
-  simulation keeps the mine's state only.
+  layer4-captures.md §2). In the follow-up `cl_d2_mines_disarm` the crosshair was on
+  mine 0x0013A655 (`GetCrosshairRef`) from 70 units away and the Activate control was
+  tapped twice: nothing happened in 4 s — no Frag Mine, the mine enabled, Health
+  unchanged [observed]. So this mine did not go off at 70 units (the trigger radius is
+  near 70, or depends on more than distance), and the tapped control did not disarm it;
+  whether `TapControl 5` reaches the game's activation at all is untested, so disarming
+  by the player stays [hypothesis]. Proximity, timer and damage are Layer 6 (combat);
+  the simulation keeps the mine's state only.
 - **Enable parents** (XESP: parent reference, flag bit 0 "Set Enable State to Opposite of
   Parent" [documented: xEdit]): 5,171 references have one, 759 with the opposite flag;
   162 chains are two deep, none deeper; no chain loops or names a missing reference
@@ -272,6 +278,27 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   player wearing them and `World::remove_all_items` / `transfer_all` (the same script
   function with a target) keep non-playable items [observed for the player and these two
   items; hypothesis for other holders and items]. Both weigh 0 (ARMO DATA) [observed].
+- **Armour models: which one lies on the ground.** ARMO holds up to four model paths:
+  MODL "Male biped model", MOD2 "Male world model", MOD3 "Female biped model", MOD4
+  "Female world model" [documented: xEdit `wbDefinitionsFNV.pas` ARMO]. In the ten
+  masters [observed, 489 winning ARMO]: MODL 478, MOD2 430, MOD3 308, MOD4 126; 414 of
+  the 430 MOD2 paths end in `GO.NIF` ("ground object", e.g. leather armour MODL
+  `Armor\LeatherArmor\M\OutfitM.NIF`, MOD2 `...\M\GO.NIF`), the rest are other
+  ground models (`GOM.NIF`) or the Pip-Boy's; only 1 MODL does; 30 armours have a MOD4
+  that differs from MOD2 (e.g. `GamblerMHat01`: MOD2 a fedora `_GO`, MOD4 a pillbox hat
+  `_GO`); 49 have no MOD2 (36 of them non-playable). In game [observed 2026-10-09,
+  `cl_c_armor_models`, pictures in `C:\fnv-private\capture\shots\cl_c_armor_models.*`,
+  save `nvftest`, male player, armours made with `PlaceAtMe` on open ground in
+  Goodsprings at noon]: the outfits lie as **folded ground objects**, not as the
+  body-shaped biped suits of MODL, and `GamblerMHat01` lies as a **fedora** (its MOD2;
+  MOD4 would be a pillbox). After the console's `sexchange` (GetIsSex Female 1) the same
+  fedora reference still showed a fedora; a second row placed while female showed the
+  folded outfits again, but its hats were hidden by the yard fence, so whether a female
+  player sees MOD4 is **not settled**, nor what an armour without MOD2 shows (Raul's hat
+  was not identifiable). Two armours dropped from the inventory fell out of the picture.
+  Rule for the engine: draw MOD2 for placed and dropped armour [observed for a male
+  player]; MOD4 for a female player [hypothesis, open]; MODL when there is no MOD2
+  [hypothesis].
 - **Quest items**: an item marked as a quest item cannot be dropped from the player's
   inventory and cannot be sold, and a dead body holding one is not cleaned up until it is
   taken out [documented: GECK wiki Category:Items and SetQuestObject, owner exports
@@ -335,7 +362,7 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   2026-10-07, `L4.sim.trace.goodsprings_weight_and_time`: GetAV CarryWeight 200 at
   Strength 5 and 160 at Strength 1; GetAV InventoryWeight 18.5 for a 9mm pistol (1.5),
   leather armour (15), brahmin-skin outfit (2) and 100 9mm rounds (0.029 each), unchanged
-  by equipping]. Weights add exactly (199 teddy bears at 1.0 → 199, plus spoons at 0.5 → 200.5, 201) [observed, `bl_encumbrance`]. Over-encumbered when weight exceeds capacity [hypothesis]: neither `IsPlayerOverencumbered` nor `GetIsPlayerOverencumbered` exists in the runtime's script compiler ("unknown variable", with and without `player.`) [observed], so the threshold is not captured yet. Hardcore
+  by equipping]. Weights add exactly (199 teddy bears at 1.0 → 199, plus spoons at 0.5 → 200.5, 201) [observed, `bl_encumbrance`]. Neither `IsPlayerOverencumbered` nor `GetIsPlayerOverencumbered` exists in the runtime's script compiler ("unknown variable", with and without `player.`) [observed], so the threshold was captured through running speed instead [observed 2026-10-09, `cl_b_encumbrance_speed`, `cl_b2_encumbrance_speed`, save `nvftest` in Goodsprings, no god mode, capacity 200, Forward held 90 loops]: the player **ran** (342–343 units/s, `IsRunning` 1) carrying 199.5, 200.0 and **200.5**, and **walked** (84–86 units/s, the walking speed of physics.md §6.3; `IsRunning` 0) carrying **201.0**, 201.5, 202, 203, 205 and 210.5. So the player is over-encumbered when the weight's whole part exceeds the capacity (equivalently, for whole capacities, weight ≥ capacity + 1), not as soon as the weight exceeds it; `World::encumbrance` applies this (which of the two readings holds for a fractional capacity is [hypothesis]). Over-encumbered running is refused; walking speed stays normal [observed]. Hardcore
   ammunition: 100 9mm rounds weigh 0 normally and **2.9 with Hardcore on** (0.029 each, the AMMO DAT2 weight), 0 again when switched off [observed, `bl_encumbrance`, `player.SetHardcore`]; `IsHardcore` read 0 throughout, even while the ammunition weighed 2.9 [observed; unexplained]. Strength comes from NPC_ DATA attributes
   (S.P.E.C.I.A.L. as seven u8 in that order [documented: xEdit]); the player base form
   authors 5 for every attribute [observed]. NPCs that take stats from a template are not

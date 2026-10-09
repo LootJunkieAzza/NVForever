@@ -232,8 +232,9 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    spread over five masters, not only Old World Blues (simulation.md §1); placed frag
    mines in Nipton detonate when the player comes within 70 units (not at 237), within
    1.5 s, damage 80–95, and end disabled. A scripted `Activate` does nothing (scenario
-   `L4.sim.trace.nipton_placed_mines`); whether the player's own activation disarms one
-   in time is the follow-up `cl_d2_mines_disarm` (layer4-captures.md §2).
+   `L4.sim.trace.nipton_placed_mines`); the Activate control tapped with a mine in the
+   crosshair did nothing (`cl_d2_mines_disarm`), so disarming by the player is still
+   hypothesis (whether `TapControl 5` activates at all is untested).
 6. ~~Cell respawn delay `iHoursToRespawnCell`~~ → **72** in the running game (three
    saves; no master defines it); `fnv-sim` uses it (`DEFAULT_RESPAWN_HOURS`). The
    scenario `L4.sim.trace.goodsprings_cell_respawn` puts the boundary between 71.0 and
@@ -246,7 +247,13 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    `goodsprings_doc_mitchell` 5/6 (z waits for the controller); `x13_enable_parents`
    still needs a save inside X-13. Update 2026-10-08: `x13_enable_parents` 13/13;
    merchant restocks follow fixed days (GameDaysPassed 0 or 3 modulo 7, spec note §3),
-   checked by `goodsprings_merchant_midnight_restock` 11/11. `goodsprings_doc_mitchell`
+   checked by `goodsprings_merchant_midnight_restock` 11/11.
+   Close-out 2026-10-09 (unattended, layer4-captures.md §2 `cl_*`): the Pip-Boy Glove and
+   Pip-Boy 3000 are worn in played saves and survive `RemoveAllItems` (the simulation's
+   player now starts wearing them); over-encumbered = whole part of the weight above the
+   capacity (ran at 200.5, walked at 201 with capacity 200); armour on the ground is the
+   world model MOD2 (a fedora, folded outfits; female MOD4 open); Chet's merchant box does
+   not follow Ringo's restock days (open). `goodsprings_doc_mitchell`
    6/6 (2026-10-08): `sim run` settles teleported actors on the destination's contact
    shell (physics.md §6.2), not through the walking controller.
 8. Answered by the owner 2026-10-08 (physics.md §4, §6): disabled references are not

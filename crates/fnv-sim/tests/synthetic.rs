@@ -812,7 +812,15 @@ fn encumbrance_uses_strength_and_settings() {
     let e = w.encumbrance(p).unwrap();
     // 150 + 10 x 5; suit 15; ammo weightless outside Hardcore; caps weigh 0.
     assert_eq!((e.capacity, e.weight, e.over), (200.0, 15.0, false));
-    w.add_item(p, id(RIFLE), 24).unwrap();
+    // 15 + 23 x 8 + 1 = 200: at capacity, not over; one more unit is over.
+    w.add_item(p, id(RIFLE), 23).unwrap();
+    w.add_item(p, id(HAT), 1).unwrap();
+    assert_eq!(w.encumbrance(p).unwrap().weight, 200.0);
+    assert!(!w.encumbrance(p).unwrap().over);
+    w.add_item(p, id(HAT), 1).unwrap();
+    assert!(w.encumbrance(p).unwrap().over);
+    w.remove_item(p, id(HAT), 2).unwrap();
+    w.add_item(p, id(RIFLE), 1).unwrap();
     assert!(w.encumbrance(p).unwrap().over);
     w.set_actor_value(p, "strength", 10.0).unwrap();
     assert!(!w.encumbrance(p).unwrap().over);
