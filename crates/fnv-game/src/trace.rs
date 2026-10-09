@@ -55,6 +55,15 @@ pub enum EventKind {
     /// An actor's AI packages were evaluated and it chose another package (none: no
     /// package's conditions pass).
     PackageChosen { actor: FormId, #[serde(skip_serializing_if = "Option::is_none")] package: Option<FormId> },
+    /// A reference was created at run time (PlaceAtMe, DropMe, Drop).
+    Placed { reference: FormId, base: FormId, #[serde(skip_serializing_if = "Option::is_none")] cell: Option<FormId>, pos: [f32; 3] },
+    /// A magic effect started on an actor (an ingestible consumed, a spell cast or
+    /// added); `id` names its script instance (`effect:<id>`).
+    EffectStarted { id: u32, target: FormId, source: FormId, effect: FormId },
+    /// A magic effect ended (its duration passed, or it was dispelled).
+    EffectFinished { id: u32, target: FormId, source: FormId },
+    /// A reputation changed: infamy (axis 0) or fame (axis 1), the new value.
+    ReputationChanged { reputation: FormId, axis: usize, value: f64 },
 }
 
 /// A value in the trace: a number, or a reference as its FormID.
