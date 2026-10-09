@@ -270,7 +270,7 @@ them stubs), adds [documented: GECK wiki, page named]:
   (Layer 6 AI, not this document). **BhkRagdollConstraint** and
   **BhkLimitedHingeConstraint** are for the ragdoll step.
 
-The **Ammo Effect** page (owner, pasted 2026-10-09; not in an export) says the effects
+The **Ammo Effect** page (owner's paste, 2026-10-09; also in `Misc.xml`) says the effects
 are new in New Vegas and are listed on the ammo. Each changes one value (damage, DR, DT,
 fatigue, spread or weapon condition) by adding,
 multiplying or subtracting. The page notes that New Vegas uses DT, not DR, and that
