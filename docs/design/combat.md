@@ -1,0 +1,324 @@
+# Combat design: weapons, projectiles, damage, melee
+
+Status 2026-10-09: **design for review, nothing built.** Owner requests 2026-10-09:
+
+1. On top of the player body (docs/design/player-body.md: controls, equipping, drawing and
+   holstering), "the actual damage/projectile systems in place for shooting and melee
+   combat".
+2. Work through it one step at a time, starting with organising the weapon and
+   projectile data from the records and the references we have.
+3. "There's no way to get a 1 to 1 comparison to the base game so we can take some
+   liberties … improvements using more modern design might even be beneficial."
+4. "The actual combat never plays a part in any of the other gameplay pieces so we
+   really can do what we want as long as the main quest script hooks function the same."
+
+Where it sits: combat is Layer 6 (README; layer5.md §1 lists it with dialogue and AI
+packages). This document covers the combat systems and the player's side of a fight.
+NPCs that fight back need AI packages, detection and combat styles, which are separate
+Layer 6 work (§8). Requests 3 and 4 make combat the first system in the project that is
+**not a parity target**: only the quest script hooks have to behave as in the original. §1 sets out what that changes and what it doesn't.
+
+## 1. Principles
+
+- **The content comes from the game; the mechanics are ours.** The game's records are
+  the content: which weapon fires which ammunition and projectile, base damage, fire
+  rate, magazine size, spread, reach, projectile speed and gravity, explosions, critical
+  data, body parts, armour DT and DR. We read them with documented layouts (§4) and use
+  their values as the balance inputs, so every weapon and armour in the masters and DLC
+  works with no hand tuning. How a shot travels, hits and feels is NVForever's own
+  design, tagged **[design]** in this document. A [design] tag makes no claim about the
+  original.
+- **No parity rows for the mechanics.** We don't capture the original's damage formula,
+  spread or timings to copy them. Tests check our own rules (§7). Captures are still
+  worth doing when a record field's meaning is unclear: a field we read is a fact and
+  needs a source (CLAUDE.md charter).
+- **Scripts must keep working.** This is the one hard constraint (request 4). Quest and object scripts
+  call combat functions and react to combat events, so these behave as documented:
+  `GetAV`/`DamageAV`/`RestoreAV Health` (already in `fnv-game`, actor.rs),
+  `KillActor`, `GetDead`, `GetHitLocation`, `IsWeaponOut`, `GetEquipped`,
+  `GetWeaponHealthPerc`, `FireWeapon`, `StartCombat`, `GetCombatTarget` (all in the
+  function catalogue, `schemas/script/functions.json`), and the OnHit, OnDeath,
+  OnStartCombat and OnCombatEnd blocks (layer5.md, events table). Damage reaches
+  actors through the same actor-value model the scripts see.
+- **One rule set for every attacker.** The player, NPCs, creatures, turrets and traps go
+  through the same attack, hit and damage code. NPC combat AI (§8) only chooses when
+  and where to attack.
+- **Tunable in one place.** Every number that doesn't come from a record (spread
+  growth, recoil, the DT floor, reaction times…) lives in one `CombatTuning` table with
+  defaults. Changing one is a tuning change, not a code change. If the owner wants a
+  closer "classic" rule set later, it becomes a second table.
+- **The clean room is unchanged.** Field meanings come from xEdit's public definitions,
+  the GECK wiki (the owner's exports) or observation. No decompiled or leaked code; nv-rs
+  is used for facts only.
+
+## 2. What exists (main, 7e435da)
+
+| Piece | Where | Combat use |
+|---|---|---|
+| Player body, controls, draw/holster, aim down the sights, block pose | `engine/nvf-play/src/control.rs`, `engine/nvforever/src/player_body.rs`, `fnv_actor::player_clips` (`WeaponHands`) | the attack input and clip layer plug in here; Use (left mouse) and Ready Item tap (reload) are bound but not built (player-body.md §1.2) |
+| NPC weapons, holstered and drawn | `fnv_actor::weapon` (`AnimType`, stance prefixes) | NPC attack clips use the same prefixes |
+| WEAP reader (models, animation type, base damage) | `fnv_actor::records::Weapon` | visuals only; §4 adds the combat stats |
+| Record layouts: WEAP `DATA`, `CRDT`, `VATS`, sounds; AMMO `DATA`, `DAT2`, `RCIL`; IPCT, IPDS; MGEF, IMOD; ARMO DT and DR | `schemas/fnv/objects.json`, `placed.json`, `gameplay.json` | §4 |
+| Actor values, with a permanent part and a damage part | `crates/fnv-game/src/functions/actor.rs` | health and damage, as the scripts see them; derived values (max health from Endurance and level) not computed yet |
+| Inventory, ammo items | `crates/fnv-sim` (`ItemKind::Ammo`) | ammo use |
+| Physics rays | `fnv_phys::World::ray`, `ray_all` (world.rs), `Filter` with Havok layers (`fnv_phys::layers`: BIPED 8, DEAD_BIP 29, PROJECTILE 6, …) | shots, line of sight, melee sweeps |
+| Crosshair ray from the eye | `Player::eye` (player-body.md §1.4) | where the shot starts |
+| Script overlay (lines, message boxes) | `engine/nvf-play/src/script_hud.rs` | hit and ammo feedback until a real HUD exists |
+| Gunfight observations (start order, targets, deaths, end) | docs/spec-notes/ai-observer.md §7 | reference for the later AI work, not for the mechanics |
+| Clip catalogue: `AttackRight` and other sequences; text keys `hit` 931, `fire` 62, `eject` 88, `release` 40, `attach`, `detach` | docs/spec-notes/animation.md §3.2 [observed] | the timing of attacks and reloads; what each key means is still [hypothesis] |
+
+## 3. What's missing
+
+1. **Weapon and projectile data**: WEAP `DNAM` (the weapon's main data block) is read
+   as raw bytes. PROJ, EXPL and BPTD have no record layout (layer1.md §2 lists EXPL
+   and BPTD among the types still undecoded).
+2. **Hit volumes**: NPCs and creatures have no physics bodies. The crosshair picks them
+   by their rendered bounding box (`activate.rs`), so a ray would pass through them.
+3. **Health and death of actors**: base health from the NPC_ and CREA records, derived
+   maximum health, and a dead state in the simulation (`GetDead`).
+4. **The attack cycle**: firing, the delay between shots, ammo use, reloading, attack
+   and reload clips.
+5. **Damage rules**, including armour, criticals, body parts and condition.
+6. **Death and hit presentation**: hit reactions, death clips, ragdolls.
+7. **Feedback**: hit markers, an ammo count, the target's health.
+
+Out of this document's scope but exposed by it: NPC combat AI (§8), audio (no sound
+system exists yet; dependencies.md item 7), impact effects (IPCT/IPDS decals and
+particles), VATS.
+
+## 4. Step C1: weapon and projectile data
+
+The first step organises the data. It adds no behaviour.
+
+### 4.1 Records and sources
+
+| Record | What combat reads | Layout today | Source for C1 |
+|---|---|---|---|
+| WEAP | `DATA` (value, health, weight, base damage, clip size), `DNAM` (weapon data), `CRDT` (critical damage, chance multiplier, effect), `VATS`, `NAM0` ammo, `INAM` impact data set, `WMI1–3` mods, sound FormIDs | all but `DNAM` | xEdit `wbDefinitionsFNV.pas` WEAP `DNAM`, with its size variants by form version if there are any |
+| AMMO | `DATA` (speed, flags, clip rounds), `DAT2` (projectiles per shot, projectile, consumed ammo), `RCIL` ammo effects | done | — |
+| AMEF (ammo effect) | what an `RCIL` entry changes (damage, DT, spread, condition…) | none | xEdit AMEF |
+| PROJ | speed, gravity, range, flags (hitscan, explosion, …), explosion, muzzle flash, tracer chance, impact force, models | none | xEdit PROJ |
+| EXPL | damage, radius, force, impact data set, placed object, enchantment | none | xEdit EXPL |
+| BPTD | body parts: bone, damage multiplier, severable/explosive flags, limb health share, hit-reaction data | none (has repeated part blocks; may need the schema's count- or sequence-grouped arrays) | xEdit BPTD |
+| IPCT / IPDS | impact effect per material | done | — |
+| ENCH, MGEF, SPEL | weapon and critical effects (poison, cripple, knockdown) | MGEF done; ENCH and SPEL none | xEdit |
+| IMOD | weapon mod item (what a mod changes is in the WEAP's `DNAM`/mod fields) | done | — |
+| NPC_, CREA, RACE | base health, attributes and level for derived health, body-part data (CREA/RACE), unarmed damage | partial (ACBS read for templates) | xEdit; derived-value rules from the GECK wiki |
+| ARMO | DT, DR | done (actors.md §1.1) | — |
+| GMST | combat game settings, names from the masters | values readable; meaning per setting from the GECK wiki | owner GECK export (§9) |
+
+For the records with no layout yet (`DNAM`, AMEF, PROJ, EXPL, BPTD, ENCH, SPEL), the
+"What combat reads" column is what we expect to find [hypothesis until C1 reads the
+sources]. The contents of these records are settled only by the layouts C1 writes.
+
+Rules for C1 are those of `schemas/README.md`. A layout needs a cited source, unknown
+fields are `unknown_N`, and every layout is checked with `fnvtool esm coverage` against
+the ten masters, aiming for zero trailing bytes. Field meanings that the xEdit name
+doesn't settle (units, whether a value is per shot or per projectile, seconds or
+frames) go into a spec note, `docs/spec-notes/combat-data.md`, each tagged. Where it
+matters, they are checked against the records themselves: for example, how fire rate
+values spread across automatic and semi-automatic weapons [observed].
+
+### 4.2 The headless model
+
+New crate `crates/fnv-combat` (depends on `fnv-esm`, `fnv-sim`; no engine). Its first
+module, `data`, holds:
+
+- `CombatForms`: an index over the loaded masters, built once like
+  `fnv_actor::records::ActorForms`.
+- `WeaponStats`: `DATA` + `DNAM` + `CRDT` + ammo, with the projectile resolved through
+  the weapon's ammo (AMMO `DAT2`) or the weapon's own projectile field, whichever the
+  sources say wins.
+- `AmmoStats`, `ProjectileStats`, `ExplosionStats`, `BodyParts`, `ImpactSet`; armour
+  DT and DR; the actor's base health inputs.
+
+Fields keep the record's units. Conversions happen once, in `data`, with the source
+in a doc comment. Weapon mods come later: C1 records which mod fields exist and
+resolves nothing.
+
+`fnv_actor::records::Weapon` stays the visual reader. The two readers share no code
+until a change gives a reason to.
+
+### 4.3 Tool and checks
+
+- `fnvtool combat weapon <form>` / `projectile <form>` / `explosion <form>` /
+  `body-parts <form>`: resolved JSON, as other `fnvtool` subcommands print.
+- `fnvtool combat survey <Data>`: every WEAP in the ten masters resolved, and counts of
+  what's missing (a weapon with no ammo, ammo with no projectile, a projectile with an
+  explosion that doesn't exist, …). The survey numbers go into the spec note
+  [observed].
+- Unit tests on synthetic records (as in `fnv-sim/tests/synthetic.rs`).
+
+C1 is done when the survey resolves every playable weapon and the spec note documents
+each field we use.
+
+## 5. Mechanics [design]
+
+All of §5 is our own design under request 3. It names the record fields it uses by
+role; their exact names come from C1.
+
+### 5.1 Shots
+
+- **Aim comes from the camera.** A shot leaves along the view ray from the eye, so the
+  crosshair is always true. The original moves the gun around the crosshair and fires
+  along the gun's axis [documented: GECK wiki Category:Combat, owner export
+  2026-10-09]; we deliberately don't do that. In third person, a second ray from the
+  muzzle to the aim point stops shots that would pass through a wall right in front of
+  the character. The muzzle only matters for visuals (tracer, flash).
+- **Bullets are projectiles.** Every shot is a projectile with the PROJ speed and
+  gravity, stepped on the physics tick by swept rays (`ray` from the previous position
+  to the next). Fast bullets then behave almost like hitscan up close but drop and lag
+  at range. Projectiles flagged as hitscan in PROJ resolve on the same tick. Shotguns
+  fire the ammo's projectiles per shot, each with its own spread.
+- **Spread** is a cone. Its base angle comes from the weapon's spread values, scaled
+  by stance: aiming down the sights tightens it, crouching tightens it a little, moving
+  widens it, jumping widens it a lot. Each shot widens it further (bloom), and it
+  recovers over time. **Recoil** kicks the view up and recovers. Bloom and recovery
+  rates are tuning values, scaled per weapon type; heavier weapons kick more.
+- **Skills** affect spread mildly and damage modestly (§5.3), so a low-skill character
+  can still hit what they aim at.
+- **Determinism**: each shot draws from an RNG seeded by (attacker, shot counter), so a
+  headless replay gives the same hits.
+
+### 5.2 Hit volumes
+
+- First version (C3): one capsule per actor, sized from the actor's bounds, on the
+  BIPED layer, kinematic, moved to the actor each frame. Dead actors move to DEAD_BIP.
+  Shots hit them, the character controller ignores them.
+- Second version: one capsule per body part (head, torso, arms, legs, as BPTD names the
+  parts and their bones), posed from the animated skeleton each frame. The hit part
+  gives the damage multiplier (headshots) and the hit location (`GetHitLocation`).
+
+### 5.3 Damage
+
+For each projectile that hits:
+
+1. **Base**: the weapon's base damage, split across the projectiles per shot where the
+   record's base damage is per shot (C1 settles which).
+2. **Multipliers**: weapon condition (a worn gun does less, down to a floor), the
+   attacker's weapon skill (a modest range, e.g. 0.75× to 1.25×), the ammo's damage
+   effects, the body part's multiplier, and sneak attacks.
+3. **Criticals**: the weapon's critical chance from `CRDT` and the attacker's Luck,
+   plus a guaranteed critical on headshots against an unaware target. The critical
+   adds the weapon's critical damage and applies its critical effect.
+4. **Armour**: the target's DT is subtracted, with a floor so weak weapons still do a
+   fraction of their damage (default 20 %). The ammo's DT effect changes the DT. DR, if
+   the target has any, reduces what's left.
+5. **Apply** through the actor-value damage part of Health (as `DamageAV`), fire OnHit
+   on the target's scripts, and at zero health mark it dead and fire OnDeath. Limb
+   health and crippling come later.
+
+The weapon's condition goes down per shot (WEAP `DATA` health is its maximum).
+`GetWeaponHealthPerc` reads it.
+
+### 5.4 Melee and unarmed
+
+- The attack clip's `hit` text key opens a short damage window [hypothesis about the
+  key's meaning, to be checked against the clips]. During the window, a capsule
+  sweeps along the swing within the weapon's reach. Each target is hit once per swing.
+- Power attack: holding Use charges a stronger, slower swing. Block (right mouse, already
+  bound) reduces incoming melee damage and staggers an attacker who hits it.
+- Unarmed uses the same path, with fists and the actor's unarmed damage.
+- Damage follows §5.3, with Strength in place of the gun skill's spread role.
+
+### 5.5 The attack cycle
+
+A headless state machine in `fnv-combat`, driven by the input and the clip timing in the
+engine:
+
+`Holstered → Drawing → Ready ⇄ Firing → (Cooldown by fire rate) → Ready`,
+`Ready → Reloading → Ready`, `Ready (empty) → dry fire or auto-reload`.
+
+- Semi-automatic weapons fire once per press. Automatic weapons fire at their rate while
+  Use is held. Which is which comes from the WEAP flags.
+- Ammo comes from the inventory (`fnv-sim`); a magazine holds the clip size. Reloading
+  takes the reload clip's length; a reload cancelled partway keeps the old magazine.
+- Ammo swap (hotkey 2) and jamming come later.
+- `fnv_actor::player_clips` gains attack, reload and hit-reaction clips. The text keys
+  (`fire`, `eject`, `hit`) time the shot, the shell and the melee window.
+
+### 5.6 Feedback
+
+- A hit marker on the crosshair (a different one for kills), a short screen kick when
+  the player is hit, and the aimed target's name and health bar.
+- An ammo counter (magazine / carried) and the player's health, drawn as a small HUD
+  like `script_hud.rs` until the game's HUD is built.
+- Hit reactions: a flinch clip layered over the current animation and an impulse to
+  the hit body part once ragdolls exist.
+
+### 5.7 Death
+
+- C5: the actor is marked dead in the simulation (`GetDead` 1). It plays a death clip if
+  its skeleton folder has one; otherwise it is laid down (pose frozen, aligned to the
+  ground). The body stays and can be activated like a container for its inventory (the
+  activation part already opens containers).
+- Later: ragdolls built from the skeleton's collision data as rapier joints, with the
+  impulse from the killing hit.
+
+### 5.8 Explosions
+
+EXPL damage over its radius, falling off with distance, blocked by line of sight, with
+an impulse to dynamic bodies. Used by grenades, mines, launchers and explosive
+projectiles. Thrown weapons arc under gravity like slow projectiles.
+
+## 6. Where the code goes
+
+| Item | Where |
+|---|---|
+| Record layouts | `schemas/fnv/objects.json` (WEAP `DNAM`, PROJ, EXPL, AMEF), `gameplay.json` (BPTD, ENCH, SPEL) |
+| Data model, rules, attack cycle, projectile stepping (headless) | new crate `crates/fnv-combat`, modules `data`, `damage`, `attack`, `projectile`, `melee`. Projectile and melee queries go through a small trait that `fnv-phys` implements, so the rules are tested without a physics world |
+| Hit volumes | `fnv-phys`: actor capsules (C3), then body-part capsules |
+| Health, death, script events | `fnv-game` (actor values, `KillActor`/`GetDead`, OnHit/OnDeath dispatch), `fnv-sim` (dead state) |
+| Attack, reload, hit and death clips | `fnv_actor::player_clips`, `fnv_actor::weapon` |
+| Input, projectiles in play, HUD | `engine/nvf-play/src/combat.rs` (new plugin) |
+| Posing hit volumes from bones; tracers, muzzle flash | `engine/nvforever` |
+| Tools | `crates/fnvtool/src/combat_cmd.rs` (`fnvtool combat …`) |
+| Facts | `docs/spec-notes/combat-data.md` |
+
+## 7. Testing
+
+The mechanics have no original to match, so tests check what we specify:
+
+- Unit tests for each rule in `fnv-combat`: damage with and without DT, the floor,
+  criticals, spread growth and recovery, the cycle's states, projectile drop over
+  distance, melee windows. Each runs on synthetic records.
+- Headless scenarios, run by a `fnvtool combat sim`: an attacker, a target, a weapon
+  and a script of inputs, with a fixed seed, printing hits and health. Their expected
+  output is our own specification, so they live with the crate's tests, not as
+  parity-lab goldens (lab goldens come from the original).
+- Script compatibility: `fnv-game` tests for `GetDead`, `KillActor`, `GetHitLocation`
+  and OnHit/OnDeath order.
+- In the engine: test aids in `test_aid.rs` (`NVF_PLAY_TEST_COMBAT=fire:<n>`,
+  `reload`, `target:<ref>`) and an unattended run at Goodsprings: shoot a placed target,
+  check its health and death in the log. Plus the CLAUDE.md smoke tests.
+
+## 8. Steps
+
+Each step is a branch and a PR, reviewed before the next starts.
+
+| Step | Content | Needs |
+|---|---|---|
+| **C1** | Data: layouts, `fnv-combat::data`, `fnvtool combat`, spec note (§4) | — |
+| C2 | Rules, headless: damage, criticals, spread and recoil, attack cycle, projectile stepping; `CombatTuning` | C1 |
+| C3 | Hit volumes: actor capsules in `fnv-phys`, synced in the engine | — (can run alongside C2) |
+| C4 | The player shoots: input, attack and reload clips, ammo, projectiles in play, tracers | C2, C3 |
+| C5 | Damage applied: health, death, script events, death clip, looting the body, HUD | C4 |
+| C6 | Melee and unarmed, block, power attacks | C5 |
+| C7 | Explosions, thrown weapons, mines | C5 |
+| later | body-part hit volumes and limb damage; weapon mods; ammo swap and jamming; impact effects; ragdolls; audio; VATS or a replacement | |
+| Layer 6 AI | NPCs fight back: combat AI using the same attack cycle, detection, factions and hostility, combat styles (CSTY) | C5; actor-behaviour.md |
+
+## 9. Owner questions
+
+1. **Facts for C1**: the GECK wiki pages for Weapon, Projectile, Explosion, Ammo, Ammo
+   Effect, Body Part Data and the combat game settings, exported as on 2026-10-09,
+   would document field meanings beyond xEdit's names.
+2. **Feel**: hit markers yes? Floating damage numbers (default off)? Recoil and bloom
+   strength like a modern shooter, or subtler?
+3. **VATS**: rebuild it later, replace it (e.g. a slow-motion aim assist), or leave it
+   out?
+4. **Death**: death clip now and ragdolls later (as in §5.7)?
+5. **Audio**: a separate workstream after C4 (combat stays silent until then)?
+6. **Consequences** before AI exists: shooting a Goodsprings resident kills them, and
+   nobody reacts (no hostility, no crime) until the Layer 6 AI work. Is that acceptable
+   for testing?
