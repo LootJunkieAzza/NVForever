@@ -62,8 +62,9 @@ def nvfnew_given(stopped=()):
     the jobs, depending on how soon the box opened, so the inputs set it); VCG01 running
     with nothing done; VCG01Test and CGTutorial running untouched; the player's SPECIAL
     all 5. Which pack plugin's box is open at the start varies between sessions (Tribal
-    Pack in five, Classic Pack in four of the round 4 sessions), so the packs' item flags
-    are not given and the number of boxes closed is not observed."""
+    Pack in six, Classic Pack in four of the round 4 sessions where it was identified),
+    so the packs' item flags are not given and the number of boxes closed is not
+    observed."""
     g = [{"kind": "menu", "menu": MESSAGE, "open": True},
          {"kind": "quest", "quest": "VCG00", "running": True, "completed": False, "stage": 90, "done": [0, 90],
           "not_done": [5, 85, 95, 100], "vars": {"bRunTimer": 1}},
