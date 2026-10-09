@@ -1,5 +1,6 @@
 //! The records that decide what an actor looks like, read through the Layer 1 schema:
-//! NPC_, RACE, HAIR, EYES, HDPT, ARMO (worn models and protection) and LVLN.
+//! NPC_, RACE, HAIR, EYES, HDPT, ARMO (worn models and protection) and LVLN; for
+//! creatures CREA and LVLC.
 //!
 //! Field meanings: docs/spec-notes/actors.md §1 (layouts from xEdit's public
 //! definitions, `schemas/fnv/gameplay.json` and `objects.json`).
@@ -16,6 +17,7 @@ use serde_json::Value;
 /// NPC_ template flags (ACBS) [documented: xEdit wbTemplateFlags, FO3/FNV branch].
 pub mod template {
     pub const TRAITS: u16 = 1 << 0;
+    pub const STATS: u16 = 1 << 1;
     pub const INVENTORY: u16 = 1 << 8;
     pub const MODEL_ANIMATION: u16 = 1 << 6;
 }
@@ -142,6 +144,28 @@ pub struct LeveledNpc {
     pub entries: Vec<(u16, FormId)>,
 }
 
+/// A creature base (CREA) [documented: xEdit wbDefinitionsFNV.pas CREA; layouts in
+/// `schemas/fnv/gameplay.json`]. `MODL`, `NIFZ` and `KFFZ` belong to the template group
+/// Model/Animation, `BNAM` to Stats (xEdit hides them when that group's flag is set).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Creature {
+    pub id: FormId,
+    pub edid: Option<String>,
+    pub template: Option<FormId>,
+    pub template_flags: u16,
+    /// MODL: the skeleton, relative to `meshes\` [observed:
+    /// `creatures\NVBigHorner\skeleton.nif`].
+    pub skeleton: Option<String>,
+    /// NIFZ "Model List": body part file names, as stored.
+    pub models: Vec<String>,
+    /// KFFZ "Animations": extra `.kf` file names, as stored.
+    pub anims: Vec<String>,
+    /// BNAM "Base Scale".
+    pub base_scale: Option<f64>,
+    /// DATA type (Animal, Mutated Insect, Robot, …), as the schema names it.
+    pub kind: Option<String>,
+}
+
 #[derive(Default)]
 pub struct ActorForms {
     pub npcs: BTreeMap<FormId, Npc>,
@@ -152,6 +176,9 @@ pub struct ActorForms {
     pub armors: HashMap<FormId, Armor>,
     pub weapons: HashMap<FormId, Weapon>,
     pub leveled: HashMap<FormId, LeveledNpc>,
+    pub creatures: BTreeMap<FormId, Creature>,
+    /// Leveled creature lists (LVLC; the LVLN layout).
+    pub leveled_creatures: HashMap<FormId, LeveledNpc>,
     /// Signature of the winning record of every actor-related form, for reports.
     pub sigs: HashMap<FormId, [u8; 4]>,
     pub edids: HashMap<String, FormId>,
@@ -169,6 +196,8 @@ enum Loaded {
     Armor(Armor),
     Weapon(Weapon),
     Leveled(LeveledNpc),
+    Creature(Box<Creature>),
+    LeveledCreature(LeveledNpc),
     Other,
 }
 
@@ -233,6 +262,12 @@ impl ActorForms {
                 Loaded::Leveled(l) => {
                     out.leveled.insert(id, l);
                 }
+                Loaded::Creature(c) => {
+                    out.creatures.insert(id, *c);
+                }
+                Loaded::LeveledCreature(l) => {
+                    out.leveled_creatures.insert(id, l);
+                }
                 Loaded::Other => {}
             }
         }
@@ -272,6 +307,8 @@ fn load_one(lo: &LoadOrder, pi: usize, id: FormId, sig: &[u8; 4], d: &[Decoded],
         b"ARMO" => Loaded::Armor(armor(d)),
         b"WEAP" => Loaded::Weapon(weapon(d)),
         b"LVLN" => Loaded::Leveled(leveled_npc(lo, pi, id, d, issues)),
+        b"CREA" => Loaded::Creature(Box::new(creature(lo, pi, id, d, issues))),
+        b"LVLC" => Loaded::LeveledCreature(leveled_npc(lo, pi, id, d, issues)),
         _ => Loaded::Other,
     }
 }
@@ -297,6 +334,27 @@ fn npc(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Issues
         head_parts: all(d, b"PNAM").filter_map(|v| fid(lo, pi, id, "PNAM", Some(v), issues)).collect(),
         facegen: FaceGen::from_decoded(d),
         height: first(d, b"NAM6").and_then(Value::as_f64),
+    }
+}
+
+/// The entries of a `zstring_array` value, trimmed, empty ones left out.
+fn strings(v: Option<&Value>) -> Vec<String> {
+    let Some(a) = v.and_then(Value::as_array) else { return Vec::new() };
+    a.iter().filter_map(text).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
+fn creature(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Issues) -> Creature {
+    let acbs = first(d, b"ACBS");
+    Creature {
+        id,
+        edid: first(d, b"EDID").and_then(text),
+        template: fid(lo, pi, id, "TPLT", first(d, b"TPLT"), issues),
+        template_flags: acbs.and_then(|a| a.get("template_flags")).and_then(|f| num(f, "value")).unwrap_or(0.0) as u16,
+        skeleton: path(first(d, b"MODL")),
+        models: strings(first(d, b"NIFZ")),
+        anims: strings(first(d, b"KFFZ")),
+        base_scale: first(d, b"BNAM").and_then(Value::as_f64),
+        kind: first(d, b"DATA").and_then(|v| v.get("type")).and_then(text),
     }
 }
 

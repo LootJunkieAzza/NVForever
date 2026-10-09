@@ -731,6 +731,7 @@ fn run_scripts(
     mut travel: MessageWriter<Travel>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
+    paused: Res<crate::pause::Paused>,
 ) {
     // Items the player used up in the inventory menu (the menu already removed them).
     let used: Vec<FormId> = used.read().map(|u| FormId(u.item)).collect();
@@ -760,7 +761,12 @@ fn run_scripts(
             }
         }
     }
-    // Scripts wait until the player stands in the world (its cell is known).
+    // Scripts wait until the player stands in the world (its cell is known), and do not
+    // run under the pause menu (`crate::pause`): no MenuMode code of the original's pause
+    // menu is known, so script time simply stops there [decision].
+    if paused.0 {
+        return;
+    }
     let Some(character) = phys.player.as_ref() else { return };
     let player_capsule = Some(Capsule { feet: character.feet, radius: character.params.radius, height: character.params.height });
     let now = time.elapsed_secs();
@@ -930,8 +936,15 @@ fn walk_player(mut script: ResMut<ScriptState>, mut phys: ResMut<PhysState>, mut
 /// moving, looking or activating, and the game clock stops (sim.rs) [observed: the pack
 /// boxes held the world clock, layer5-captures.md §10.1]. The engine's own menus manage
 /// the state themselves (menu.rs).
-fn hold_player(script: Res<ScriptState>, active: Res<ActiveMenu>, state: Res<State<PlayState>>, mut next: ResMut<NextState<PlayState>>) {
-    if active.0.is_some() {
+fn hold_player(
+    script: Res<ScriptState>,
+    active: Res<ActiveMenu>,
+    paused: Res<crate::pause::Paused>,
+    state: Res<State<PlayState>>,
+    mut next: ResMut<NextState<PlayState>>,
+) {
+    // The pause menu is also a `PlayState::Menu` without an engine menu: it is its own.
+    if active.0.is_some() || paused.0 {
         return;
     }
     let held = script.rt.as_ref().and_then(|rt| rt.game.menu).is_some_and(is_script_menu);
