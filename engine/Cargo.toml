@@ -20,6 +20,7 @@ fnv-vfs = { path = "../crates/fnv-vfs" }
 fnv-esm = { path = "../crates/fnv-esm" }
 fnv-world = { path = "../crates/fnv-world" }
 fnv-sim = { path = "../crates/fnv-sim" }
+fnv-actor = { path = "../crates/fnv-actor" }
 fnv-phys = { path = "../crates/fnv-phys" }
 fnv-collide = { path = "../crates/fnv-collide" }
 fnv-install = { path = "../crates/fnv-install" }

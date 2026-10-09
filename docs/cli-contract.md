@@ -334,3 +334,16 @@ together with the simulation notes.
 `script decompile` (`fnv.script.decompile/1`, parity lab `L5.script.decode`) and
 `script coverage` (`fnv.script.coverage/1`) are defined in docs/spec-notes/scripts.md §3.5
 together with the bytecode notes.
+
+# Actor appearance (workstream 5)
+
+`fnvtool actor forms` (`fnv.actor.forms/1`), `fnvtool actor appearance`
+(`fnv.actor.appearance/1`) and `fnvtool actor meshes` (`fnv.actor.meshes/1`) are defined in
+docs/spec-notes/actors.md §5 together with the actor appearance notes.
+
+# Animation data (workstream 5, part F)
+
+`fnvtool actor anims` (`fnv.actor.anims/1`: every `.kf` grouped by skeleton folder with its
+sequences and skeleton bindings, IDLE records per animation group with the `.kf` they
+name, creature KFFZ/NIFZ lookups) is defined in docs/spec-notes/animation.md §6 together
+with the animation data notes.

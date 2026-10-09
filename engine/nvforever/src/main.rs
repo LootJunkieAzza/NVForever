@@ -7,7 +7,9 @@
 //! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md),
 //! and Esc in a menu closes the menu.
 
+mod actors;
 mod emittance;
+mod facegen;
 mod fly;
 mod lights;
 mod lod;
@@ -131,7 +133,9 @@ struct Args {
     /// Window size "WxH" (also the screenshot size).
     #[arg(long, default_value = "1280x800")]
     size: String,
-    /// Horizontal field of view in degrees [hypothesis: the game's default is 75].
+    /// The game's field-of-view setting in degrees (fDefaultFOV, default 75): the horizontal
+    /// angle at 4:3; other aspects keep its vertical angle, so 16:9 is wider (75 → 91.3°
+    /// horizontal) [hypothesis; docs/spec-notes/camera.md].
     #[arg(long, default_value_t = 75.0)]
     fov: f32,
     /// Added to the z of --pos (e.g. the eye height above a captured player position).
@@ -163,6 +167,12 @@ struct Args {
     /// (Layer 4, nvf-play) instead of the free-fly camera.
     #[arg(long)]
     play: bool,
+    /// Do not draw NPCs (workstream 5, docs/design/static-actors.md).
+    #[arg(long)]
+    no_actors: bool,
+    /// Draw NPCs with the race's base face (no FaceGen morphs or face textures).
+    #[arg(long)]
+    no_facegen: bool,
     /// Test aid with --play: walk forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0, requires = "play")]
     auto_walk: f32,
@@ -316,6 +326,13 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     };
+    let actor_world = (!args.no_actors).then(|| {
+        let t0 = std::time::Instant::now();
+        let mut a = actors::ActorWorld::build(world.lo, world.schema);
+        a.facegen_enabled = !args.no_facegen;
+        info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
+        a
+    });
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -355,12 +372,12 @@ fn main() -> AppExit {
         stats: Default::default(),
     })
     .insert_resource(world)
+    .init_resource::<nvf_assets::actor::ActorParts>()
     .insert_resource(StartPose {
         position: start,
         heading: args.heading,
         pitch: args.pitch,
         fov: args.fov,
-        aspect: w as f32 / h as f32,
         overlay: !args.no_overlay && args.frame_json.is_none(),
         play: play.is_some(),
     })
@@ -377,19 +394,26 @@ fn main() -> AppExit {
             .add_systems(Update, (worldspace::switch, world::travel).chain().before(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
     }
+    if let Some(a) = actor_world {
+        app.insert_resource(a);
+    }
     if args.screenshot.is_some() {
         app.add_systems(Update, screenshot_and_exit);
     }
     if let Some(secs) = args.run_seconds {
-        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, lod: Res<lod::LodState>, mut commands: Commands, mut t: Local<(f32, u32)>| {
+        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, lod: Res<lod::LodState>, actors: Option<Res<actors::ActorWorld>>, mut commands: Commands, mut t: Local<(f32, u32)>| {
             t.0 += time.delta_secs();
             t.1 += 1;
             if t.0 >= secs {
                 let (baked, cached) = lod.gen.as_ref().map_or((0, 0), |g| (g.baked, g.cached));
                 info!(
-                    "run finished after {:.1}s: {} cells loaded in total, {} loaded now, {} frames ({:.1} per second), generated LOD chunks {} baked, {} from the cache",
-                    t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached
+                    "run finished after {:.1}s: {} cells loaded in total, {} loaded now, {} frames ({:.1} per second), generated LOD chunks {} baked, {} from the cache, actors {:?}",
+                    t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached, streamer.stats.actors
                 );
+                if let Some(a) = actors {
+                    let fg = a.facegen.lock().expect("facegen cache");
+                    info!("FaceGen: {} shapes morphed, {} faces textured, {} EGMs not matching their shape", fg.morphed_shapes, fg.faces_textured, fg.mismatched);
+                }
                 commands.write_message(AppExit::Success);
             }
         });
@@ -402,17 +426,19 @@ struct StartPose {
     position: Vec3,
     heading: f32,
     pitch: f32,
-    /// Horizontal field of view in degrees.
+    /// The game's field-of-view setting in degrees (see `vertical_fov`).
     fov: f32,
-    aspect: f32,
     overlay: bool,
     /// The camera is the player (`--play`).
     play: bool,
 }
 
-/// Vertical field of view (radians) for a horizontal one (degrees) at an aspect ratio.
-fn vertical_fov(h_deg: f32, aspect: f32) -> f32 {
-    2.0 * ((h_deg.to_radians() / 2.0).tan() / aspect).atan()
+/// Vertical field of view (radians) for the game's FOV setting (degrees): the setting is the
+/// horizontal angle at a 4:3 aspect and the vertical angle stays fixed at every other aspect
+/// ("Hor+"), so Bevy's vertical `fov` needs no update on resize [hypothesis; matched at 16:9
+/// on four reference frames, docs/spec-notes/camera.md].
+fn vertical_fov(setting_deg: f32) -> f32 {
+    2.0 * ((setting_deg.to_radians() / 2.0).tan() * 3.0 / 4.0).atan()
 }
 
 fn setup(mut commands: Commands, start: Res<StartPose>) {
@@ -421,7 +447,7 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
     let cam = commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection {
-            fov: vertical_fov(start.fov, start.aspect),
+            fov: vertical_fov(start.fov),
             far: 400_000.0,
             near: 5.0,
             ..default()
@@ -597,5 +623,20 @@ fn screenshot_and_exit(
         *ready_at = Some(*elapsed);
     } else if *frames >= 10_000 && *elapsed >= r + 3.0 {
         commands.write_message(AppExit::Success);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::vertical_fov;
+
+    #[test]
+    fn fov_setting_is_horizontal_at_4_3() {
+        let v = vertical_fov(75.0);
+        let horizontal = |aspect: f32| 2.0 * ((v / 2.0).tan() * aspect).atan().to_degrees();
+        assert!((horizontal(4.0 / 3.0) - 75.0).abs() < 1e-3);
+        assert!((v.to_degrees() - 59.84).abs() < 0.01);
+        // The 16:9 angle the reference frames matched (docs/spec-notes/camera.md).
+        assert!((horizontal(16.0 / 9.0) - 91.31).abs() < 0.01);
     }
 }
