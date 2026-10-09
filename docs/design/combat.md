@@ -96,20 +96,22 @@ The first step organises the data. It adds no behaviour.
 |---|---|---|---|
 | WEAP | `DATA` (value, health, weight, base damage, clip size), `DNAM` (weapon data), `CRDT` (critical damage, chance multiplier, effect), `VATS`, `NAM0` ammo, `INAM` impact data set, `WMI1–3` mods, sound FormIDs | all but `DNAM` | xEdit `wbDefinitionsFNV.pas` WEAP `DNAM`, with its size variants by form version if there are any |
 | AMMO | `DATA` (speed, flags, clip rounds), `DAT2` (projectiles per shot, projectile, consumed ammo), `RCIL` ammo effects | done | — |
-| AMEF (ammo effect) | what an `RCIL` entry changes (damage, DT, spread, condition…) | none | xEdit AMEF |
-| PROJ | speed, gravity, range, flags (hitscan, explosion, …), explosion, muzzle flash, tracer chance, impact force, models | none | xEdit PROJ |
-| EXPL | damage, radius, force, impact data set, placed object, enchantment | none | xEdit EXPL |
+| AMEF (ammo effect) | which value it changes (damage, DR, DT, fatigue, spread, weapon condition) and how (add, multiply, subtract) | none | xEdit AMEF; GECK wiki Ammo Effect page (owner, §4.2) |
+| PROJ | type (missile, lobber, beam, flame), speed, gravity, range, impact force, tracer chance, fade duration, muzzle flash, explosion with its trigger (impact, timer, proximity, remote detonation), flags (hitscan, can be disabled or picked up, pins limbs, passes through small transparent objects), default weapon, sounds | none | xEdit PROJ; meanings from the GECK wiki Projectile page (§4.2) |
+| EXPL | force, damage, radius, flags (world orientation, ignore line of sight, push the source only), radiation (level, radius, dissipation), enchantment, impact data set, knockdown (always, by formula, never), placed impact object, image-space radius and modifier, art, sounds | none | xEdit EXPL; meanings from the GECK wiki Explosion page |
 | BPTD | body parts: bone, damage multiplier, severable/explosive flags, limb health share, hit-reaction data | none (has repeated part blocks; may need the schema's count- or sequence-grouped arrays) | xEdit BPTD |
-| IPCT / IPDS | impact effect per material | done | — |
+| IPCT / IPDS | impact effect per collision material: decal (texture set, size, placement), effect model and duration, sounds | done | — |
+| DEST (on objects), DEBR | destruction data: health and up to 8 stages (health percentage, self-damage per second, cap damage, disable, destroy, model damage stage, explosion, debris, replacement model); debris models | DEST done (`common.json`); DEBR none | xEdit; GECK wiki Destructible Object Stage, Debris |
 | ENCH, MGEF, SPEL | weapon and critical effects (poison, cripple, knockdown) | MGEF done; ENCH and SPEL none | xEdit |
 | IMOD | weapon mod item (what a mod changes is in the WEAP's `DNAM`/mod fields) | done | — |
 | NPC_, CREA, RACE | base health, attributes and level for derived health, body-part data (CREA/RACE), unarmed damage | partial (ACBS read for templates) | xEdit; derived-value rules from the GECK wiki |
 | ARMO | DT, DR | done (actors.md §1.1) | — |
 | GMST | combat game settings, names from the masters | values readable; meaning per setting from the GECK wiki | owner GECK export (§9) |
 
-For the records with no layout yet (`DNAM`, AMEF, PROJ, EXPL, BPTD, ENCH, SPEL), the
-"What combat reads" column is what we expect to find [hypothesis until C1 reads the
-sources]. The contents of these records are settled only by the layouts C1 writes.
+For the records with no layout yet, the "What combat reads" column is the editor's view
+of them [documented: GECK wiki, §4.2] for WEAP `DNAM`, AMEF, PROJ, EXPL, BPTD and DEBR.
+For ENCH and SPEL it is what we expect to find [hypothesis]. Which bytes hold which
+field is settled only by the layouts C1 writes from xEdit.
 
 Rules for C1 are those of `schemas/README.md`. A layout needs a cited source, unknown
 fields are `unknown_N`, and every layout is checked with `fnvtool esm coverage` against
@@ -177,6 +179,56 @@ A second export, Category:Actor Data (`C:\fnv-private\geckwiki\Actor-Data.xml`,
   Entry Point page itself is not in the export.
 - Ragdoll is a stub page with nothing usable.
 
+A third export, Category:Special Effect (`C:\fnv-private\geckwiki\Special-Effect.xml`,
+2026-10-09, 13 pages), covers projectiles, explosions and impacts [documented: GECK
+wiki, page named]:
+
+- **Projectile.** There are five types. A missile flies straight (bullets, rockets). A
+  lobber is thrown and bounces (grenades, mines). A beam hits at once whatever its
+  speed. A flame behaves like a missile that actors don't stop. Continuous beam
+  appears unused. Fields: speed, gravity, range, impact force, tracer chance (how
+  often the projectile is drawn), fade duration (beams), muzzle flash (light, effect,
+  duration), sound and its detection level, and "supersonic" (the sound comes from the
+  path's closest point). With **Hitscan** set, the hit is found by an instant ray, but
+  the damage still arrives after distance ÷ speed. A projectile with gravity and no
+  hitscan is simulated in flight. An optional explosion fires on impact or on an
+  alternative trigger: a timer (for mines, lengthened by the placer's Explosives
+  skill), a proximity radius, or remote detonation (C-4). Other flags: can be disabled
+  (mines, which give XP), can be picked up, pins severed limbs, passes through the
+  small-transparent layer (chain-link fences). Placed mines are projectiles. A
+  projectile with an explosion uses only the explosion's impact effects.
+- **Explosion.** The chain is weapon → ammo (optionally a form list of ammo) →
+  projectile (the ammo's, else the weapon's) → explosion. Fields: force (pushes rigid
+  bodies in the radius), damage (anything within the radius may take it), radius, an
+  image-space radius and modifier, flags (aligned to the world, ignore line of sight,
+  push only the source), radiation (rads per second, radius, how long it lasts), an
+  enchantment, impact data set, knockdown of living actors (always, by a formula, or
+  never), and a placed impact object. Unless it is aligned to the world, an
+  explosion's orientation follows the surface or the incoming angle.
+- **ImpactDataSet / ImpactData.** The set picks an ImpactData by the hit object's
+  collision material. ImpactData gives a decal (texture set, sizes, placement radius,
+  angle threshold, depth, parallax), an effect model with duration and orientation,
+  and impact sounds.
+- **Destructible Object Data / Stage, Debris.** An object with destruction data has
+  health and up to 8 stages. Each stage triggers at a health percentage and can set
+  self-damage per second (to burn down), cap damage (no stage skipped in one hit),
+  disable or destroy the object, switch the model's damage stage (`BSDamageStage`
+  nodes), set off an explosion (at `BSBlastNode`s) and spawn debris (at a
+  `BSDebrisNode`), or replace the model. At zero health an object counts as destroyed.
+  Containers and furniture become unusable then. Debris is a weighted list of models.
+- The ImageSpace, EffectShader, CameraShot, AddOnNode and Acoustic Space pages are for
+  later work (screen effects, kill cams, audio).
+
+The **Ammo Effect** page (owner, pasted 2026-10-09; not in an export) says the effects
+are new in New Vegas and are listed on the ammo. Each changes one value (damage, damage
+reduction, damage threshold, fatigue, gun spread or weapon condition) by adding,
+multiplying or subtracting. The page notes that New Vegas uses DT, not DR, and that
+the DR effect is unverified. This fits the armours storing DR 0 (actors.md §1.1
+[observed]). The owner's reading is that the effects are what make ammo types such as
+armour piercing or hollow point differ. Our damage step (§5.3) applies them in that
+role: damage and DT effects on the hit, spread on the shot, condition on the weapon.
+DR stays supported for any content that sets it.
+
 ### 4.3 The headless model
 
 New crate `crates/fnv-combat` (depends on `fnv-esm`, `fnv-sim`; no engine). Its first
@@ -224,11 +276,17 @@ role; their exact names come from C1.
   2026-10-09]; we deliberately don't do that. In third person, a second ray from the
   muzzle to the aim point stops shots that would pass through a wall right in front of
   the character. The muzzle only matters for visuals (tracer, flash).
-- **Bullets are projectiles.** Every shot is a projectile with the PROJ speed and
-  gravity, stepped on the physics tick by swept rays (`ray` from the previous position
-  to the next). Fast bullets then behave almost like hitscan up close but drop and lag
-  at range. Projectiles flagged as hitscan in PROJ resolve on the same tick. Shotguns
-  fire the ammo's projectiles per shot, each with its own spread.
+- **Projectiles by their PROJ type.** The PROJ type picks one of three paths.
+  - Missiles are stepped on the physics tick by swept rays (`ray` from the previous
+    position to the next), with the PROJ speed and gravity, up to the PROJ range.
+  - Hitscan missiles and beams are traced at once. The hit is applied after
+    distance ÷ speed, as the record intends, which costs nothing.
+  - Flames keep going through actors, hitting each once.
+
+  Lobbers (grenades, mines) are rapier dynamic bodies that bounce until their trigger
+  fires (§5.8). Shotguns fire the ammo's projectiles per shot, each with its own
+  spread. Small-transparent objects stop a projectile unless its PROJ flag lets it
+  pass.
 - **Spread** is a cone. Its base angle is the weapon's Min Spread, the cone's median
   angle in degrees (New Vegas ignores the separate Spread field [documented: GECK wiki
   Weapons]). It is scaled
@@ -326,9 +384,19 @@ engine:
 
 ### 5.8 Explosions
 
-EXPL damage over its radius, falling off with distance, blocked by line of sight, with
-an impulse to dynamic bodies. Used by grenades, mines, launchers and explosive
-projectiles. Thrown weapons arc under gravity like slow projectiles.
+- EXPL damage over its radius, falling off with distance [design: the record gives one
+  damage value; a linear falloff to 25 % at the edge is our tuning]. A line-of-sight
+  ray blocks it unless the EXPL ignores line of sight. Force goes to dynamic bodies in
+  the radius, and living actors are knocked down per the EXPL's knockdown setting
+  (always / never; "by formula" becomes our own chance from damage taken).
+- Radiation lingers at the point for the dissipation time. The enchantment applies to
+  actors caught in the blast, and a placed impact object is spawned.
+- Triggers come from the PROJ: impact, timer (mines arm after it), proximity, or
+  detonation by the owner (C-4).
+- **Destructible objects** (cars, barrels, …) take damage from hits and explosions and
+  run their DEST stages (§4.2): model swaps, burning down, the final explosion. This
+  is how the Mojave's cars blow up, and it uses the same damage path.
+- Thrown weapons arc under gravity as lobbers.
 
 ## 6. Where the code goes
 
@@ -373,17 +441,18 @@ Each step is a branch and a PR, reviewed before the next starts.
 | C4 | The player shoots: input, attack and reload clips, ammo, projectiles in play, tracers | C2, C3 |
 | C5 | Damage applied: health, death, script events, death clip, looting the body, HUD | C4 |
 | C6 | Melee and unarmed, block, power attacks | C5 |
-| C7 | Explosions, thrown weapons, mines | C5 |
-| later | body-part hit volumes and limb damage; perk entry points; weapon mods; ammo swap and jamming; impact effects; ragdolls; audio; VATS or a replacement | |
+| C7 | Explosions, thrown weapons, mines, destructible objects (DEST stages) | C5 |
+| later | body-part hit volumes and limb damage; perk entry points; weapon mods; ammo swap and jamming; impact effects (IPDS → IPCT by collision material: decals, effect models); severed and exploded limbs; ragdolls; audio; VATS or a replacement | |
 | Layer 6 AI | NPCs fight back: combat AI using the same attack cycle, detection, factions and hostility, combat styles (CSTY) | C5; actor-behaviour.md |
 
 ## 9. Owner questions
 
-1. **Facts for C1**: the owner's `Items.xml` and `Actor-Data.xml` exports (§4.2) cover
-   Weapons, Ammo, Armor, Body Part Data and actor values. Still missing are the GECK
-   wiki pages for Projectile, Explosion, Ammo Effect, Impact Data Set and Entry Point
-   (perks). Optional, as a balance reference only: Weapon Damage Formula, Gun Spread
-   Formula, Critical Hit Chance Formula.
+1. **Facts for C1**: the owner's Items, Actor Data and Special Effect exports and the
+   Ammo Effect page (§4.2) cover weapons, ammo and its effects, armour, body parts,
+   actor values, projectiles, explosions, impacts and destruction. Still missing: Entry
+   Point (perks), needed only for the later perk step. Optional, as a balance
+   reference only: Weapon Damage Formula, Gun Spread Formula, Critical Hit Chance
+   Formula, Explosion Knockdown Formula.
 2. **Feel**: hit markers yes? Floating damage numbers (default off)? Recoil and bloom
    strength like a modern shooter, or subtler?
 3. **VATS**: rebuild it later, replace it (e.g. a slow-motion aim assist), or leave it
