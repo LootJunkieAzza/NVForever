@@ -351,6 +351,204 @@
     }
    ]
   },
+  "WaterVisualOldData": {
+   "struct": [
+    {
+     "name": "unknown_0",
+     "type": "f32"
+    },
+    {
+     "name": "unknown_1",
+     "type": "f32"
+    },
+    {
+     "name": "unknown_2",
+     "type": "f32"
+    },
+    {
+     "name": "unknown_3",
+     "type": "f32"
+    },
+    {
+     "name": "sun_power",
+     "type": "f32"
+    },
+    {
+     "name": "reflectivity_amount",
+     "type": "f32"
+    },
+    {
+     "name": "fresnel_amount",
+     "type": "f32"
+    },
+    {
+     "name": "unused_0",
+     "type": {
+      "array": "u8",
+      "count": 4
+     }
+    },
+    {
+     "name": "above_fog_near",
+     "type": "f32"
+    },
+    {
+     "name": "above_fog_far",
+     "type": "f32"
+    },
+    {
+     "name": "shallow_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "deep_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "reflection_color",
+     "type": "ByteColor"
+    },
+    {
+     "name": "unused_1",
+     "type": {
+      "array": "u8",
+      "count": 4
+     }
+    },
+    {
+     "name": "rain_force",
+     "type": "f32"
+    },
+    {
+     "name": "rain_velocity",
+     "type": "f32"
+    },
+    {
+     "name": "rain_falloff",
+     "type": "f32"
+    },
+    {
+     "name": "rain_dampner",
+     "type": "f32"
+    },
+    {
+     "name": "displacement_starting_size",
+     "type": "f32"
+    },
+    {
+     "name": "displacement_force",
+     "type": "f32"
+    },
+    {
+     "name": "displacement_velocity",
+     "type": "f32"
+    },
+    {
+     "name": "displacement_falloff",
+     "type": "f32"
+    },
+    {
+     "name": "displacement_dampner",
+     "type": "f32"
+    },
+    {
+     "name": "rain_starting_size",
+     "type": "f32"
+    },
+    {
+     "name": "noise_normals_scale",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer1_wind_direction",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer2_wind_direction",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer3_wind_direction",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer1_wind_speed",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer2_wind_speed",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer3_wind_speed",
+     "type": "f32"
+    },
+    {
+     "name": "noise_depth_falloff_start",
+     "type": "f32"
+    },
+    {
+     "name": "noise_depth_falloff_end",
+     "type": "f32"
+    },
+    {
+     "name": "above_fog_amount",
+     "type": "f32"
+    },
+    {
+     "name": "noise_normals_uv_scale",
+     "type": "f32"
+    },
+    {
+     "name": "under_fog_amount",
+     "type": "f32"
+    },
+    {
+     "name": "under_fog_near",
+     "type": "f32"
+    },
+    {
+     "name": "under_fog_far",
+     "type": "f32"
+    },
+    {
+     "name": "distortion_amount",
+     "type": "f32"
+    },
+    {
+     "name": "shininess",
+     "type": "f32"
+    },
+    {
+     "name": "reflection_hdr_multiplier",
+     "type": "f32"
+    },
+    {
+     "name": "light_radius",
+     "type": "f32"
+    },
+    {
+     "name": "light_brightness",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer1_uv_scale",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer2_uv_scale",
+     "type": "f32"
+    },
+    {
+     "name": "noise_layer3_uv_scale",
+     "type": "f32"
+    },
+    {
+     "name": "damage",
+     "type": "u16"
+    }
+   ]
+  },
   "LightingData": {
    "struct": [
     {
@@ -755,10 +953,21 @@
      "note": "xEdit wbDefinitionsFNV.pas WATR record"
     },
     "DATA": {
-     "name": "Damage",
-     "type": "u16",
+     "name": "Damage / Visual Data (old format)",
+     "type": {
+      "union": [
+       {
+        "size": 2,
+        "type": "u16"
+       },
+       {
+        "size": 186,
+        "type": "WaterVisualOldData"
+       }
+      ]
+     },
      "confidence": "documented",
-     "note": "xEdit wbDefinitionsFNV.pas WATR record; 8 older records instead hold the visual data plus damage here (186 bytes, xEdit union), not expressed in schema v1"
+     "note": "xEdit wbDefinitionsFNV.pas WATR: wbInteger(DATA, 'Damage', itU16).SetSizeMatch, or (wbRUnion 'Visual Data') wbStruct(DATA) = the DNAM fields up to the noise-layer UV scales, then 'Damage (Old Format)' u16 (186 bytes); 70 FalloutNV.esm records have the 2-byte form, 8 (none with DNAM) the 186-byte form [observed]"
     },
     "GNAM": {
      "name": "Related Waters",
