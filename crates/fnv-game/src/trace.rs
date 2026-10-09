@@ -62,6 +62,9 @@ pub enum EventKind {
     EffectStarted { id: u32, target: FormId, source: FormId, effect: FormId },
     /// A magic effect ended (its duration passed, or it was dispelled).
     EffectFinished { id: u32, target: FormId, source: FormId },
+    /// The same magic item was applied again while its effect was active: the active
+    /// effect's duration grew to `duration` seconds (no new effect, no second start).
+    EffectExtended { id: u32, target: FormId, source: FormId, duration: f64 },
     /// A reputation changed: infamy (axis 0) or fame (axis 1), the new value.
     ReputationChanged { reputation: FormId, axis: usize, value: f64 },
 }
