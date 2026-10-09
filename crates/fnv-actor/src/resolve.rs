@@ -9,6 +9,8 @@
 //!    "best protection by DT and DR" part is the owner's statement, 2026-10-08).
 //! 3. Race parts are hidden where worn armour covers their slot; headgear covering
 //!    Hat selects the hair model's `Hat` shape (§2.4).
+//! 4. The weapon an actor holds: among the same carried items, the drawable weapon with
+//!    the highest base damage (§9; `crate::weapon::choose_weapon`).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -86,6 +88,9 @@ pub struct Appearance {
     /// Body index 3, "Upper Body Texture": an `.egt` for the body skin (part C).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body_egt: Option<String>,
+    /// The weapon the actor draws (part H, §9). Not part of `fnv.actor.appearance/1`.
+    #[serde(skip)]
+    pub weapon: Option<FormId>,
     /// Whether a leveled choice that could have gone another way decided the actor base
     /// or its worn armour (§2.1): such actors depend on the random stream, the others are
     /// fully determined by the data.
@@ -173,7 +178,9 @@ impl<'a> Resolver<'a> {
         let named = |n: &Npc| n.skeleton.as_deref().filter(|s| !is_editor_marker(s)).map(mesh_path);
         let skeleton = named(model).or_else(|| named(traits)).unwrap_or_else(|| HUMAN_SKELETON.to_string());
 
-        let worn = self.choose_armor(inventory.id, &mut ch);
+        let carried = self.carried(inventory.id, &mut ch);
+        let worn = self.choose_armor(&carried);
+        let weapon = crate::weapon::choose_weapon(&carried, &self.actors.weapons);
         let covered = worn.iter().filter_map(|w| self.actors.armors.get(w)).fold(0, |acc, a| acc | a.slots);
 
         let mut parts = Vec::new();
@@ -240,6 +247,7 @@ impl<'a> Resolver<'a> {
             facegen: model.facegen.clone(),
             race_facegen: race.facegen[sex].clone(),
             body_egt,
+            weapon,
             random: ch.random,
         })
     }
@@ -296,8 +304,8 @@ impl<'a> Resolver<'a> {
         Err(ResolveError::TooDeep(npc.id))
     }
 
-    /// Worn armour from the carried items of `npc` (§2.3).
-    fn choose_armor(&self, npc: FormId, ch: &mut Choices) -> Vec<FormId> {
+    /// The carried items of `npc`, leveled lists resolved, in carried order.
+    fn carried(&self, npc: FormId, ch: &mut Choices) -> Vec<FormId> {
         let Some(entries) = self.forms.entries(npc) else { return Vec::new() };
         let mut carried = Vec::new();
         for e in entries {
@@ -306,11 +314,16 @@ impl<'a> Resolver<'a> {
             // reports cycles when it loads.
             let _ = leveled::resolve(self.forms, e.item, e.count, DISPLAY_LEVEL, &mut ch.rng, &mut carried);
         }
+        carried.iter().map(|e| e.item).collect()
+    }
+
+    /// Worn armour from the carried items (§2.3).
+    fn choose_armor(&self, carried: &[FormId]) -> Vec<FormId> {
         let mut candidates: Vec<(usize, FormId)> = Vec::new();
-        for (order, e) in carried.iter().enumerate() {
-            let is_armor = matches!(self.forms.get(e.item).map(|b| &b.data), Some(BaseData::Item(i)) if i.kind == ItemKind::Armor);
-            if is_armor && self.actors.armors.contains_key(&e.item) && !candidates.iter().any(|c| c.1 == e.item) {
-                candidates.push((order, e.item));
+        for (order, &item) in carried.iter().enumerate() {
+            let is_armor = matches!(self.forms.get(item).map(|b| &b.data), Some(BaseData::Item(i)) if i.kind == ItemKind::Armor);
+            if is_armor && self.actors.armors.contains_key(&item) && !candidates.iter().any(|c| c.1 == item) {
+                candidates.push((order, item));
             }
         }
         let armors: BTreeMap<FormId, (f32, i32, u32)> = candidates
