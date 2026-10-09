@@ -431,6 +431,35 @@ impl PhysWorld {
         self.dirty = true;
     }
 
+    /// Move the keyframed body of collision object `object` (its index in the list given
+    /// to [`PhysWorld::add_ref`]) of the reference placed by `pose`, as if its node's
+    /// transform in the model root's frame were `node`: to `pose ∘ node ∘ body_transform`
+    /// (`add_ref` uses the stored node transform). For collision that follows an animation
+    /// (an opening door, `fnv_collide::anim`). The body is moved at once, so queries and
+    /// the character controller see it before the next step, and its next kinematic
+    /// position is set too, so a step does not move it back. Returns false when the
+    /// reference has no keyframed body for that object.
+    pub fn pose_ref_object(&mut self, pose: &RefPose, object: u16, node: &Iso, body_transform: &Iso) -> bool {
+        let Some(bodies) = self.refs.get(&pose.form_id) else { return false };
+        let found = bodies.iter().copied().find(|&b| {
+            let body = &self.w.bodies[b];
+            body.is_kinematic() && matches!(Owner::decode(body.user_data), Some(Owner::Ref { object: o, .. }) if o == object)
+        });
+        let Some(b) = found else { return false };
+        let (Ok(rot), Ok(local)) = (convert::rotation(&pose.rotation), convert::pose(&node.compose(body_transform), pose.scale * self.k)) else {
+            return false;
+        };
+        let p = Pose::from_parts(vec3(pose.position) * self.k, rot) * local;
+        let body = &mut self.w.bodies[b];
+        if *body.position() == p {
+            return true;
+        }
+        body.set_position(p, true);
+        body.set_next_kinematic_position(p);
+        self.dirty = true;
+        true
+    }
+
     /// Current state of each body of a reference, in object order.
     pub fn ref_bodies(&self, form_id: u32) -> Vec<BodyState> {
         self.refs.get(&form_id).into_iter().flatten().map(|&b| body_state(&self.w.bodies[b], self.k)).collect()

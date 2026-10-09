@@ -57,6 +57,7 @@ fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
         enable_parent: None,
         linked: None,
         merchant_container: None,
+        open_by_default: false,
     }
 }
 
