@@ -36,6 +36,8 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | ~~`L4.phys.drops.swim_h2o`~~ | captured 2026-10-08 (`sw_h2o`) | fails (interior water reverted) | held out; interior water is a placed water object at −328, not XCLW (physics.md §6.6). Follow-up: placed water modelled (Water-layer phantom boxes): deep_a and shallow_a pass (2/5); deep_b, mid_a, mid_b were placed while the capture's player still swam from deep_a (SetPos keeps the state) and the lab's fresh probes cannot carry it (a scratch walk script with `place` segments reproduces them within 2.7); redesign? (question to the owner); retired 2026-10-09 (owner), golden kept unused |
 | `L4.phys.drops.swim_h2o_fresh` | captured 2026-10-09 (`sw_h2o_fresh`, a fresh `coc` before each drop) | 8/9 | held out; replaces `swim_h2o`; every water row as predicted (swimming depth between 79 and 122); shallow_a 8.2 off on the stair edge (physics.md §6.4.1, §6.6) |
 | `L4.phys.drops.swim_guardian` | captured 2026-10-08 (`sw_guardian`, this workstream) | 5/6, 6/6 with the cone-bottomed body (physics.md §6.4.1) | held out; placed water as predicted (z within 4.7, edge of the box confirmed, XCLW not water); with the capsule `out_far` slid 10 units on landing (physics.md §6.6) |
+| `L4.sim.trace.goodsprings_cell_respawn` | captured 2026-10-09 unattended (`cl_cell_respawn`, `nvftest`, coc between the General Store and the gas station, `--time hour`) | pass 16/16 (as predicted, no code change) | replaces the retired respawn scenario: a non-merchant Respawns fridge loses a planted teddy bear after 73 h away, not after 71, 48, 1 or 40 + 40 h; compares `count` only, diagnostic fields (stacks, clock, Chet's box) kept in the golden |
+| `L4.sim.trace.nipton_placed_mines` | captured 2026-10-09 unattended (`cl_nipton_placed_mines`, `nvftest`, coc to Nipton house 8) | 5/7 → 7/7 | scripted Activate on a placed frag mine does nothing (the candidate used to disarm it) |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
 
 **Golden replacement log.**
@@ -175,6 +177,10 @@ directory's `jobs\`). Results are in the notes named.
 | `sw_redesign` | held-out `L4.phys.walk.swim_cove_stroke`, `.swim_lake_exit` (replacing the retired cove and shore scenarios) | as predicted; physics.md §6.6 |
 | `sw_h2o_fresh` | held-out `L4.phys.drops.swim_h2o_fresh` (replacing the retired `swim_h2o`) | water rows as predicted; physics.md §6.6 |
 | `aa_vendor_period` | merchant restock period and contents | second restock 2.50–3.01 days later; sold items replaced; simulation.md §3 |
+| `cl_a_pipboy_nvftest`, `_nvfnew`, `_nvfdoc` (`make_closeout_jobs.py`) | Pip-Boy Glove / Pip-Boy equipped; `RemoveAllItems`; `iHoursToRespawnCell` | both worn in nvftest and nvfdoc, absent in nvfnew; RemoveAllItems keeps both; 72 everywhere; simulation.md §2, §3 |
+| `cl_b_encumbrance_speed`, `cl_b2_encumbrance_speed` | B7 threshold as running speed (capacity 200, no god mode) | runs at 199.5–200.5, walks at 201.0 and above; simulation.md §3 |
+| `cl_c_armor_models` (first run: every `screenshot` failed with "BitBlt failed"; rerun fine) | which ARMO model lies on the ground: pictures of placed and dropped armour, male then female player | world model MOD2 (fedora, folded outfits) for a male player; female rows inconclusive (hats hidden by a fence); simulation.md §3 |
+| `cl_d_mines_live`, `cl_d2_mines_disarm` | B10: player near / on placed frag mines, the Activate control | live: one went off at 68 units, one under the player within 1.5 s (Health −80…−95, mine disabled); another stayed quiet 4 s at 70 units with the Activate control tapped twice; simulation.md §1 |
 
 ## 3. Backlog (captures still to make)
 
@@ -191,22 +197,22 @@ written.
   cell `NVVendorChestsCell`), merchant 0x00173F9B in `SLProspectorsDenInt`. Same pattern as
   `goodsprings_merchant_restock` (empty, wait ≥ 72 h, read; repeat). The other six are
   listed by `fnvtool sim forms` under references.merchant_containers.without_respawns_flag.
-- **B3 cell respawn on an ordinary container** — **done 2026-10-08** (`bl_container_respawn`: Respawns fridge refilled after 74 h away, not after 70 h; toolbox never). Open: the exact boundary between 70 and 74 h. Was: design. The 72 h cell-respawn rule
+- **B3 cell respawn on an ordinary container** — **done 2026-10-08** (`bl_container_respawn`: Respawns fridge refilled after 74 h away, not after 70 h; toolbox never). Narrowed 2026-10-09 to 71.0–73.1 h, counted from leaving the cell, by the scenario `L4.sim.trace.goodsprings_cell_respawn` (§1). Remaining open: the lock state after a reset. Was: design. The 72 h cell-respawn rule
   (`iHoursToRespawnCell` = 72) is not yet observed on a non-merchant container. Candidate:
   the Goodsprings General Store fridge 0x00105824 (`VLootFridgeClosedTier1WastelandRS`,
   leveled contents, cell `GSGeneralStore`). Leveled contents are random, so observe the
   number of stacks (`GetNumItems`; needs a trace op or a distribution-style check) or use
   a respawning container with fixed contents. Leave the cell between empty and read.
-- **B4 merchant restock: on access or on a schedule** — **done 2026-10-08**: neither as stated; restocks happen at midnights, at least 3 days after the last one, skipped while the box is untouched (`bl_restock_timing`, `bl_restock_schedule`; simulation.md §3). **Superseded later on 2026-10-08**: restocks come on fixed days, GameDaysPassed 0 or 3 modulo 7, whatever the last restock (`make_restock_jobs.py`; simulation.md §3); the "changed since" condition is dropped. Open: other merchants (is the schedule global?), and whether an untouched box with leveled stock is re-rolled. Was: design. All captures fit both.
+- **B4 merchant restock: on access or on a schedule** — **done 2026-10-08**: neither as stated; restocks happen at midnights, at least 3 days after the last one, skipped while the box is untouched (`bl_restock_timing`, `bl_restock_schedule`; simulation.md §3). **Superseded later on 2026-10-08**: restocks come on fixed days, GameDaysPassed 0 or 3 modulo 7, whatever the last restock (`make_restock_jobs.py`; simulation.md §3); the "changed since" condition is dropped. Open: other merchants (is the schedule global?), and whether an untouched box with leveled stock is re-rolled. **2026-10-09**: Chet's box (leveled stock) restocked over 16–17 and 26–28 but not over 19–21 or 23–25 (diagnostic fields of `cl_cell_respawn`): the schedule is not global; Chet's rule is open (a daily read of his box would tell). Was: design. All captures fit both.
   Idea: after an observed restock, empty the box and read it only rarely vs every hour
   around the 72 h mark; under "on access" the restock time follows the reads.
 - **B5 calendar** — **done 2026-10-08** (`bl_calendar`: 0-based Gregorian months, no leap day). Was: is GameMonth 9 October? Set day 30 of month 10 (November if 0-based,
   30 days) at 20:00 (TimeScale 30!), wait 6 h, read GameDay/GameMonth. Day 1 of month 11
   means 0-based months with Gregorian lengths; day 31 means otherwise.
-- **B6 fractional game time** (design). GameHour/GameDaysPassed after waits drift with
+- **B6 fractional game time** — **not pursued** (2026-10-09): no scenario needs fractional clock values (respawns, restocks and the calendar work on hours and midnights, already captured), and the running clock in menus makes them costly to capture. Was: (design). GameHour/GameDaysPassed after waits drift with
   menu time (×30); low TimeScale crashes when the clock moves. Possible: read the clock
   immediately before and after each Wait and compare differences, not absolutes.
-- **B7 encumbrance edges** — **partly done 2026-10-08** (`bl_encumbrance`): Hardcore ammunition weight captured; the threshold is still open because neither over-encumbered function compiles in the runtime (an observable alternative is needed, e.g. whether fast travel or running is refused, which needs someone at the game). Was: over-encumbered threshold (weight = capacity vs > capacity),
+- **B7 encumbrance edges** — **done 2026-10-09** (`cl_b_encumbrance_speed`, `cl_b2_encumbrance_speed`: running speed shows the threshold, over-encumbered from weight 201 at capacity 200; simulation.md §3). Before: **partly done 2026-10-08** (`bl_encumbrance`): Hardcore ammunition weight captured; the threshold is still open because neither over-encumbered function compiles in the runtime (an observable alternative is needed, e.g. whether fast travel or running is refused, which needs someone at the game). Was: over-encumbered threshold (weight = capacity vs > capacity),
   readable with `IsPlayerOverencumbered` / `GetIsPlayerOverencumbered` (both on the GECK
   wiki; check which compiles); ammo weight in Hardcore mode (`SetHardcore` / `IsHardcore`
   exist on the wiki; a throwaway save, since Hardcore cannot be undone in a save).
@@ -216,11 +222,11 @@ written.
   between or equal to entry levels, a count without "each item", nesting 3–5 deep. The
   candidate's `World` now reads LVLG globals at their run-time values. Open: fractional
   or out-of-range global values; leveled lists resolved in containers and on actors
-  rather than by `AddItem` (still [hypothesis] that they resolve the same way). Was:
+  rather than by `AddItem` (still [hypothesis] that they resolve the same way). Not pursued in the 2026-10-09 close-out: a container check needs hundreds of `PlaceAtMe` containers per case; the fridge's rerolls after a reset (4–5 stacks in `bl_container_respawn` and `cl_cell_respawn`) are too few to compare. Was:
   lists with an LVLG global, deep nesting, all-levels lists with entries between levels.
 - **B9 Doc Mitchell z** — **done 2026-10-08** (`dt_teleport_rest`, `dt_rest_detail`, `dt_door_arrivals`: the player rests on a contact shell, 0.7 above statics and 3.5 above the terrain, within −0.18…+0.35; physics.md §6.2). Open: what picks the height inside that band; why `SetPos` drops sometimes hang 7–11 units above the terrain. Was: no capture needed; re-run the lab once workstream 2's character
   controller places the actor (the +7.44 offset is in the golden).
-- **B10 placed explosives (PGRE)** — **partly done 2026-10-08** (`bl_placed_mines`): inert while the player stands in the cell; scripted `Activate` does nothing. Open: the player's own activation (attended). The 297 PGRE are spread over five masters, not only Old World Blues (simulation.md §1). Was: are the 297 OWB placed grenades live in game? Needs an
+- **B10 placed explosives (PGRE)** — **done as far as unattended captures go, 2026-10-09** (`cl_d_mines_live`, `cl_d2_mines_disarm`, scenario `L4.sim.trace.nipton_placed_mines`): live proximity mines; the player's own disarming is still not seen (a tapped Activate control did nothing; needs someone at the game or a check that TapControl activates). Before: **partly done 2026-10-08** (`bl_placed_mines`): inert while the player stands in the cell; scripted `Activate` does nothing. Open: the player's own activation (attended). The 297 PGRE are spread over five masters, not only Old World Blues (simulation.md §1). Was: are the 297 OWB placed grenades live in game? Needs an
   OWB save near one (`fnvtool sim forms` lists them).
 - **B11 collision layer matrix** — **designed 2026-10-08, jobs ready, not run** (the game
   was needed elsewhere): `mv_b11_drops` (player row, 20 drops, scenario
