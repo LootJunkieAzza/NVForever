@@ -1,7 +1,7 @@
 //! Diagnostic: for each KF named, the sequence's timing and accumulation root, its text
 //! keys, and its transform tracks grouped by priority (the bones each layer drives). Used
 //! to work out how movement, weapon and sneak clips combine (docs/spec-notes/animation.md
-//! §8).
+//! §9).
 //!
 //! cargo run --release -p fnv-nif --example kf_layer_survey -- <Data dir> <schema dir> <kf>...
 //!

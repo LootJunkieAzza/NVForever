@@ -1,7 +1,7 @@
 # Spec notes: animation data (workstream 5, part F) — IDLE records and `.kf` files
 
 Clean-room description in plain language: headless groundwork for animation *selection*
-(what an actor plays when, Layer 6). §1–§7 record what the data holds; §8 adds the
+(what an actor plays when, Layer 6). §1–§8 record what the data holds; §9 adds the
 movement, sneak and weapon clips and the choices the player body makes with them
 (docs/design/player-body.md). Tags: **[documented]** cites a public source, **[observed]** was measured
 on the owner's install (FNV 1.4.0.525, the ten masters in the load order of
@@ -151,8 +151,10 @@ by the tree. None of this is verified; see §5 and §7.
   1/2 Hand, Pistol Ballistic/Energy, Rifle Ballistic/Automatic/Energy, Handle, Launcher,
   Grenade Throw, Land Mine, Mine Drop, Thrown) [documented: xEdit wbWeaponAnimTypeEnum];
   the mapping (`h2h`, `1hm`, `2hm`, `1hp`, `2hr`, `2ha`, `2hh`, `2hl`, `1gt`, `1lm`,
-  `1md`; no separate energy prefixes) and the `mt`/`sneak`/`swim`/`pa`/`vats` stance
-  prefixes are [hypothesis].
+  `1md`; no separate energy prefixes) is [observed] for every type an NPC carries, from
+  the weapon parts the clips animate and the WEAP attack animations
+  (docs/spec-notes/actors.md §9.3); `1lm`/`1md` and the `mt`/`sneak`/`swim`/`pa`/`vats`
+  stance prefixes are [hypothesis].
 - Sequence names (270 kinds, `SpecialIdle_…` collapsed): `SpecialIdle_*` 1,525, Equip 138,
   Unequip 135, Aim 132, Forward 115, FastForward 96, Holster 92, Idle 86, AttackRight 81,
   Backward 77, TurnRight 75, TurnLeft 74, … — the animation group names Layer 6 will
@@ -202,8 +204,8 @@ of 18,881; creatures: 94,471 of 97,292.
 6. **Condition functions without an opcode** in `schemas/script/functions.json` (451
    IsLastIdlePlayed, 258, 123): should the generated catalogue take xEdit's index for
    them, as it does for other unused vanilla functions?
-7. **File prefixes** (§3.2): is the mapping to WEAP animation types right, and where do
-   energy pistols and rifles take their animations?
+7. ~~File prefixes~~ → answered from the data (2026-10-09, actors.md §9.3): energy
+   pistols use `1hp`, energy rifles `2hr`, thrown weapons `1gt`.
 8. **Fallout 3 DLC folders without skeletons** (224 files): leftovers to ignore?
 
 ## 6. CLI contract
@@ -261,13 +263,31 @@ kffz_candidates, actor_anim_lists}`.
   idle played (`IsLastIdlePlayed` / the console's `GetCurrentAIProcedure`) over time, to
   check the tree walk of §2.2.
 - `PlayIdle` on a childless `Loose…` root and on an inner node, to see which leaf plays.
-- For §8: the player sneaking backwards and sideways, and running sideways (the speeds of
-  §8.2 against `fMoveSneakMult`); in third person, screenshots of the pistol and the
-  rifle holstered and drawn, standing and crouched, against the player body's (§8.3); a
+- For §9: the player sneaking backwards and sideways, and running sideways (the speeds of
+  §9.2 against `fMoveSneakMult`); in third person, screenshots of the pistol and the
+  rifle holstered and drawn, standing and crouched, against the player body's (§9.3); a
   video of a walk-to-run change and of drawing a weapon while walking, for blend times
-  and layering (§8.4).
+  and layering (§9.4).
 
-## 8. Movement, sneaking and weapon clips (the player body)
+## 8. "Random Anim Start" (placed models)
+
+- **Fact** [documented: xEdit wbDefinitionsFNV.pas, record flag lists]: record header
+  flag bit 16 (`0x00010000`) is "Random Anim Start" on ACTI, CONT, DOOR, FURN, LIGH,
+  MSTT, TACT and TERM; on other types bit 16 means something else (REFR: "High Priority
+  LOD") or nothing. The GECK wiki's "World Objects" page (owner's export
+  `objects.xml`) describes it: the object starts its idle animation at a random time, so
+  several copies in one scene do not animate in step.
+- **Data** [observed, ten masters]: 124 base records set it — ACTI 38 of 1,837, CONT 10 of
+  3,417, DOOR 1 of 474, FURN 1 of 256, LIGH 9 of 728, MSTT 65 of 300, TACT 0, TERM 0.
+- **Engine**: a placed model that plays its embedded idle (`nvf_assets::model::Rig`,
+  docs/spec-notes/nif.md §6) starts at a phase spread by the reference FormID when its
+  base has the flag (`Rig::spawn_at_phase`, `fnv_actor::anims::random_anim_start`), the
+  same spread as actors' idles (actors.md §7.3) — repeatable, not the game's random
+  roll. Bases without the flag start at the clip's start, so their copies stay in step
+  [hypothesis: the game starts unflagged objects at time 0]. `StreamStats::
+  refs_random_start` counts them.
+
+## 9. Movement, sneaking and weapon clips (the player body)
 
 What the human clips hold for moving, crouching and handling a weapon, measured for the
 player body (docs/design/player-body.md). [observed] values come from the diagnostic
@@ -276,7 +296,7 @@ tracks grouped by priority; `KF_ROOT=1` adds the accumulation root's translation
 start and stop times) on `Fallout - Meshes.bsa` and `Update.bsa`, and from the
 `fnv.bsa.listing/1` file list of `meshes\characters\_male`.
 
-### 8.1 Files [observed]
+### 9.1 Files [observed]
 
 In `meshes\characters\_male` (1,063 `.kf` outside `idleanims\`; `Update.bsa` adds 14):
 
@@ -299,7 +319,7 @@ In `meshes\characters\_male` (1,063 `.kf` outside `idleanims\`; `Update.bsa` add
   `<prefix>holster.kf`, `<prefix>aim{,up,down}.kf`; `1hp`, `2ha`, `2hr` also
   `aimis{,up,down}.kf` (iron sights); `1hm` and `h2h` also `<prefix>idle.kf`.
 
-### 8.2 Ground speed of the movement clips [observed]
+### 9.2 Ground speed of the movement clips [observed]
 
 Every movement clip drives its accumulation root `Bip01` with a translation that grows
 over the cycle (no rotation); the distance over the cycle divided by its length:
@@ -327,7 +347,7 @@ standing speeds come from the clips' root motion (within 3%), and sneaking scale
 standing speed by `fMoveSneakMult` instead; the player body plays every movement clip at
 the speed the character actually moves (clip rate = ground speed / root speed).
 
-### 8.3 Priorities and text keys [observed]
+### 9.3 Priorities and text keys [observed]
 
 Controlled-block priorities (nif.xml ControlledBlock "Priority") of the transform tracks:
 
@@ -385,7 +405,7 @@ Readings used by the player body [hypothesis]:
 - The weapon-out stance is the type's Aim group (looped), with `aimup`/`aimdown` blended
   in by the view's pitch, and the `AimIS` clips while aiming down the sights.
 
-### 8.4 Blending [hypothesis]
+### 9.4 Blending [hypothesis]
 
 nif.xml names the fields of `NiBlendInterpolator` "Array Size", "Weight Threshold",
 "Interp Count", "Single Index", "High Priority", "Next High Priority", "Single Time",
@@ -397,7 +417,7 @@ weight still free; the bind pose fills the rest. Clips fade in over their `Blend
 (0.2 s without one) and out over 0.2 s. Nothing here was compared with the game frame
 by frame; §7 lists the captures that could.
 
-### 8.5 The first-person rig [observed unless tagged]
+### 9.5 The first-person rig [observed unless tagged]
 
 - `meshes\characters\_1stperson\skeleton.nif` is the only non-`.kf` file of its folder
   (426 `.kf` in `Fallout - Meshes.bsa`, 9 more in `Update.bsa`). Its tree: `Scene Root` →

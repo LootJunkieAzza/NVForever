@@ -489,8 +489,8 @@ are fixed, but how many run per frame depends on frame times).
   without a character moving and jumping among a dozen tumbling boxes (`state_digest`
   over every body's position and velocity bits, every step) [observed: tests, same
   process]. Cross-platform identity is what `enhanced-determinism` is for
-  [hypothesis: not yet compared across machines; CI runs the tests on Linux, Windows and
-  macOS but compares nothing between them].
+  [hypothesis: not yet compared across machines; CI runs the tests on Linux only and
+  compares nothing between machines].
 - Bodies are created in call order, and rapier's results depend on it [hypothesis, as for
   any solver]; the tools add terrain by grid and references by FormID. Queries that
   return several colliders sort them.
@@ -768,7 +768,7 @@ Used: `CharacterParams::jump_height` = 61.6; `nvf-play` walks at 86.8 and runs a
 are 11.7% and 12.7% above `fMoveBaseSpeed × fMoveRunMult` and `fMoveBaseSpeed`; the
 formula (animation, equipment, encumbrance) is unknown. The male movement clips' root motion is
 close to the measured speeds: 85.3 walking, 353.9 running, 282.5 running backwards (a
-backward share of 0.798 against the measured 0.793) [observed: animation.md §8.2];
+backward share of 0.798 against the measured 0.793) [observed: animation.md §9.2];
 whether the game derives its speeds from the clips is [hypothesis].
 
 Movement scenarios designed from this (`L4.phys.walk.*`, inputs

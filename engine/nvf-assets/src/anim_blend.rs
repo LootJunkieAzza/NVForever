@@ -1,5 +1,5 @@
 //! Several KF clips at once on one actor skeleton, combined bone by bone by track
-//! priority (docs/spec-notes/animation.md §8.4). Used for an actor under direct control
+//! priority (docs/spec-notes/animation.md §9.4). Used for an actor under direct control
 //! (the player): an idle under everything, movement clips over it, a weapon stance over
 //! the arms, draw and holster clips over all of them.
 //!

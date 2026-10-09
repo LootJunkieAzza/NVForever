@@ -14,6 +14,8 @@ mod facegen;
 mod fly;
 mod lights;
 mod lod;
+mod locomotion;
+mod weapons;
 mod lodgen;
 mod player_body;
 mod reflection;
@@ -165,6 +167,10 @@ struct Args {
     /// Test aid with --time-scale: also save a screenshot in this folder at every whole hour.
     #[arg(long, requires = "time_scale")]
     timelapse: Option<PathBuf>,
+    /// Test aid with --timelapse: game minutes between saved frames (60: one per hour; a
+    /// few minutes give frames for a video).
+    #[arg(long, default_value_t = 60.0, requires = "timelapse")]
+    timelapse_step: f32,
     /// Test aid: exit with success after this many seconds (smoke tests).
     #[arg(long)]
     run_seconds: Option<f32>,
@@ -185,9 +191,27 @@ struct Args {
     /// frozen bind pose (docs/spec-notes/actors.md §7).
     #[arg(long, value_enum, default_value_t = actors::ActorPose::Idle)]
     actor_pose: actors::ActorPose,
-    /// Test aid with --actor-pose idle: hold every NPC at this clip time (seconds).
+    /// Test aid with --actor-pose idle: hold every NPC at this clip time (seconds); with
+    /// --actor-walk-test, at this time of the walk script (run from its start, repeatable).
     #[arg(long)]
     actor_pose_time: Option<f32>,
+    /// Test aid: NPCs walk a fixed script along their forward axis at this speed (units
+    /// per second): out, stop, turn, back, and a backward leg (docs/spec-notes/actors.md
+    /// §8.4). Needs --actor-pose idle.
+    #[arg(long)]
+    actor_walk_test: Option<f32>,
+    /// How NPCs' weapons are shown: holstered (the default), drawn, or not at all
+    /// (docs/spec-notes/actors.md §9). Needs --actor-pose idle.
+    #[arg(long, value_enum, default_value_t = weapons::WeaponMode::Holstered)]
+    actor_weapons: weapons::WeaponMode,
+    /// Test aid: armed NPCs draw and holster their weapon, each state held this many
+    /// seconds (docs/spec-notes/actors.md §9.4).
+    #[arg(long)]
+    actor_weapon_test: Option<f32>,
+    /// With --actor-walk-test: only NPCs within this distance of the start position
+    /// (game units; 0 = all).
+    #[arg(long, default_value_t = 0.0, requires = "actor_walk_test")]
+    actor_walk_test_radius: f32,
     /// Test aid with --play: walk forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0, requires = "play")]
     auto_walk: f32,
@@ -347,6 +371,12 @@ fn main() -> AppExit {
         a.facegen_enabled = !args.no_facegen;
         a.pose = args.actor_pose;
         a.pose_time = args.actor_pose_time;
+        a.walk_test = args.actor_walk_test.map(|speed| actors::WalkTestArgs { speed, radius: args.actor_walk_test_radius, center: start });
+        a.weapon_mode = args.actor_weapons;
+        a.weapon_test = args.actor_weapon_test;
+        if a.walk_test.is_some() && a.pose == actors::ActorPose::Bind {
+            warn!("--actor-walk-test needs --actor-pose idle; actors stay in the bind pose");
+        }
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
@@ -406,6 +436,8 @@ fn main() -> AppExit {
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, overlay, keys).chain())
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
+    .init_resource::<locomotion::ActorAnimCost>()
+    .add_systems(Update, (locomotion::walk_test, locomotion::drive, weapons::reparent).chain())
     .add_systems(Update, timelapse.after(sky::update_sky));
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
@@ -426,7 +458,15 @@ fn main() -> AppExit {
         app.add_systems(Update, screenshot_and_exit);
     }
     if let Some(secs) = args.run_seconds {
-        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, lod: Res<lod::LodState>, actors: Option<Res<actors::ActorWorld>>, anim: Res<AnimCost>, mut commands: Commands, mut t: Local<(f32, u32)>| {
+        #[allow(clippy::too_many_arguments)]
+        let summary = move |time: Res<Time>,
+                            streamer: Res<Streamer>,
+                            lod: Res<lod::LodState>,
+                            actors: Option<Res<actors::ActorWorld>>,
+                            anim: Res<AnimCost>,
+                            actor_anim: Res<locomotion::ActorAnimCost>,
+                            mut commands: Commands,
+                            mut t: Local<(f32, u32)>| {
             t.0 += time.delta_secs();
             t.1 += 1;
             if t.0 >= secs {
@@ -441,13 +481,28 @@ fn main() -> AppExit {
                     anim.total.as_secs_f64() * 1e3 / f64::from(anim.frames.max(1)),
                     anim.total.as_secs_f64() * 1e6 / anim.clip_frames.max(1) as f64
                 );
+                let c = &*actor_anim;
+                if c.actor_frames == 0 {
+                    info!("actor animation: no actors posed");
+                } else {
+                    info!(
+                    "actor animation: up to {} actors posed at once, {:.3} ms per frame on average, {:.2} us per actor and frame, {:.2} clips per actor and frame ({:.1}% of actor frames with more than one clip), {:.1} tracks per actor and frame",
+                    c.peak,
+                    c.total.as_secs_f64() * 1e3 / f64::from(c.frames.max(1)),
+                    c.total.as_secs_f64() * 1e6 / c.actor_frames.max(1) as f64,
+                    c.layer_frames as f64 / c.actor_frames.max(1) as f64,
+                    100.0 * c.blend_frames as f64 / c.actor_frames.max(1) as f64,
+                    c.tracks as f64 / c.actor_frames as f64
+                    );
+                }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
                     info!("FaceGen: {} shapes morphed, {} faces textured, {} EGMs not matching their shape", fg.morphed_shapes, fg.faces_textured, fg.mismatched);
                 }
                 commands.write_message(AppExit::Success);
             }
-        });
+        };
+        app.add_systems(Update, summary);
     }
     app.run()
 }
@@ -568,10 +623,14 @@ fn write_frame_json(out: &std::path::Path, image: &std::path::Path, args: &Args,
 }
 
 /// With --time-scale: the clock starts once the cells around the start are loaded; then
-/// one log line per whole game hour, and a screenshot with --timelapse.
+/// one log line per whole game hour, and with --timelapse a screenshot every
+/// --timelapse-step game minutes.
+#[allow(clippy::too_many_arguments)]
 fn timelapse(
     mut last: Local<Option<i32>>,
     mut seen: Local<u32>,
+    mut last_slot: Local<Option<i64>>,
+    mut frames: Local<u32>,
     mut sky: ResMut<sky::SkyState>,
     streamer: Res<Streamer>,
     args: Res<Args>,
@@ -588,6 +647,21 @@ fn timelapse(
         }
         return;
     }
+    if let Some(dir) = &args.timelapse {
+        // Slots of --timelapse-step minutes from midnight; the hour wraps at 24, so a change
+        // of slot (not an increase) marks a new frame. Waits for the first slot boundary.
+        let step = args.timelapse_step.max(0.5) as f64;
+        let slot = (sky.hour as f64 * 60.0 / step).floor() as i64;
+        if *last_slot != Some(slot) {
+            if last_slot.is_some() {
+                *frames += 1;
+                let minutes = (slot as f64 * step).round() as i64;
+                let name = format!("{:04}_{:02}{:02}.png", *frames, minutes / 60 % 24, minutes % 60);
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(dir.join(name)));
+            }
+            *last_slot = Some(slot);
+        }
+    }
     let hour = sky.hour.floor() as i32;
     if *last == Some(hour) {
         return;
@@ -599,13 +673,10 @@ fn timelapse(
     }
     *seen += 1;
     info!("time-lapse {}  ({} hours passed)", sky.sample(), *seen);
-    if let Some(dir) = &args.timelapse {
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(dir.join(format!("{:02}_{hour:02}h.png", *seen))));
-    }
 }
 
-/// Time spent advancing clips (animated models and, with `--actor-pose idle`, actors),
-/// for the `--run-seconds` summary.
+/// Time spent advancing single clips (animated models; actors are timed by
+/// `locomotion::ActorAnimCost`), for the `--run-seconds` summary.
 #[derive(Resource, Default)]
 struct AnimCost {
     total: std::time::Duration,

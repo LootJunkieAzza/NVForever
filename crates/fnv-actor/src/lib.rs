@@ -3,16 +3,20 @@
 //! FaceGen coefficients that shape its face. Headless and deterministic: the engine
 //! assembles the parts into one entity; this crate only decides what they are.
 //!
-//! - [`records`]: NPC_, RACE, HAIR, EYES, HDPT, ARMO, LVLN and WEAP read through the Layer 1
+//! - [`records`]: NPC_, RACE, HAIR, EYES, HDPT, ARMO and LVLN read through the Layer 1
 //!   schema
-//! - [`resolve`]: placed actor → [`resolve::Appearance`] (parts list, worn armour)
+//! - [`resolve`]: placed actor → [`resolve::Appearance`] (parts list, worn armour), placed
+//!   creature → [`resolve::CreatureAppearance`] (skeleton, NIFZ models, base scale)
 //! - [`facegen`]: `.egm`/`.egt` FaceGen morphs and applying coefficients to them
 //! - [`mesh`]: how a part mesh joins the skeleton (skinned by bone name, rigid by `Prn`)
 //! - [`idle`]: IDLE records (idle animations) as data: model, links, group, raw conditions
 //! - [`anims`]: where `.kf` files sit relative to skeletons, and what their tracks bind to
+//! - [`locomotion`]: idle, walk, run and turn clips, their root motion, and choosing
+//!   and blending between them
+//! - [`weapon`]: the weapon an actor draws, its stance clips and the draw cycle
+//! - [`player_clips`]: which clips the player's body plays under direct control (moving,
+//!   sneaking, drawing, aiming and holstering a weapon), and the draw/holster sequence
 //! - [`first_person`]: what the player's first-person rig draws (arms and hands)
-//! - [`locomotion`]: which clips a humanoid under direct control plays (moving, sneaking,
-//!   drawing and holstering a weapon), and the draw/holster sequence
 //!
 //! Facts and rules with confidence tags: docs/spec-notes/actors.md and (animation data)
 //! docs/spec-notes/animation.md.
@@ -23,8 +27,10 @@ pub mod first_person;
 pub mod idle;
 pub mod locomotion;
 pub mod mesh;
+pub mod player_clips;
 pub mod records;
 pub mod resolve;
+pub mod weapon;
 
 pub use records::ActorForms;
-pub use resolve::{Appearance, Part, ResolveError, Resolver};
+pub use resolve::{Appearance, CreatureAppearance, Part, ResolveError, Resolver};

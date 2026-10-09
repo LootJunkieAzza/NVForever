@@ -187,7 +187,7 @@ def state_job(defs, name, start):
 
 # --------------------------------------------------------------------------- values
 
-BOOL_FIELDS = ("running", "completed", "disabled", "opened", "dead", "current")
+BOOL_FIELDS = ("running", "completed", "disabled", "opened", "dead", "current", "destroyed", "found")
 
 
 def typed(field, v):
@@ -197,7 +197,7 @@ def typed(field, v):
     if v is None or isinstance(v, str):
         return v
     head = field.split(".")[0]
-    if field in BOOL_FIELDS or head == "done" or (head == "objective" and field.count(".") == 2):
+    if field in BOOL_FIELDS or head in ("done", "menu", "tag") or (head == "objective" and field.count(".") == 2):
         return bool(v)
     if field in ("stage", "count", "frames", "locked") or head in ("threshold", "count"):
         return int(round(v))
@@ -320,7 +320,7 @@ LOCAL_TYPES = ("short", "int", "long", "float")
 # Round 2 additions (docs/spec-notes/layer5-captures.md section 8.2).
 SETTLE_KILL = 60
 SETTLE_PACKAGE = 60
-REF_FIELDS = ("disabled", "dead")
+REF_FIELDS = ("disabled", "dead", "destroyed")
 
 
 def ref_field_expr(r, field):
@@ -331,6 +331,9 @@ def ref_field_expr(r, field):
         return f"{r}.GetDisabled"
     if field == "dead":
         return f"{r}.GetDead"
+    if field == "destroyed":
+        # Round 4: SetDestroyed by VCG01 stages 0 and 65 (GetDestroyed [documented: GECK wiki]).
+        return f"{r}.GetDestroyed"
     parts = field.split(".")
     if parts[0] == "var" and len(parts) == 2:
         return f'{r}.GetVariable "{cs.plain_name(parts[1], "an object-script variable")}"'
@@ -666,6 +669,94 @@ def round3_steps(i, a, ctx):
 
 GO_TO_CELL_FRAMES = 600
 
+# Round 4 additions (docs/spec-notes/layer5-captures.md section 10: the intro chain from
+# the new-game save nvfnew).
+WAIT_PREFIX = "wait"
+BOX_PREFIX = "box"
+# The message-box menu: open while a ShowMessage box is shown [observed: trial
+# q5d_trial_open, the pack plugins' boxes and the GECK wiki's MenuMode list
+# [documented]].
+MESSAGE_MENU = 1001
+# The round 4 stopwatch: the skull in Doc Mitchell's house (FalloutNV 0x00104C10,
+# VCG01BrahminSkullSCRIPT counts `timer` down by GetSecondsPassed in GameMode while
+# `runTimer` is 1; with `grabbed` 0 nothing happens when it runs out). An object script,
+# because VCG00 (round 3's stopwatch) is itself observed here; it needs the player in
+# Doc's house, where every round 4 input stays.
+WATCH_REF = "0x00104C10"
+SETTLE_CLOSE = 3
+
+
+def watch_expr(slot):
+    return f'{STOPWATCH_START} - {{{slot}}}.GetVariable "timer"'
+
+
+def wait_field_expr(slot, field):
+    """The expression of a wait_quest field ({slot} = the quest), as a quest field."""
+    return field_expr(f"{{{slot}}}", field)
+
+
+def round4_steps(i, a, ctx):
+    """Steps for the round 4 operations, or None for any other op."""
+    op = a.get("op")
+    if op == "start_stopwatch":
+        return [{"script": ref_script([WATCH_REF], ctx, [f'{{0}}.SetVariable "timer" {STOPWATCH_START}',
+                                                         '{0}.SetVariable "runTimer" 1', "SetFunctionValue 1"], ())},
+                {"frames": 2}]
+    if op == "close_menus":
+        # The console's CloseAllMenus: closes the open menu (message box, name, race,
+        # tag-skill, trait and SPECIAL menus) like the player's OK / Done
+        # [observed: trials q5d_trial_open, q5d_trial_drive1/2].
+        return [{"console": "CloseAllMenus"}, {"frames": SETTLE_CLOSE}]
+    if op == "dismiss_message_boxes":
+        # Up to `max` times: wait (once per frame, at most wait_frames) for a message box,
+        # note whether one is open, close menus. `closed` counts the boxes closed.
+        label = _label(a, i) if a.get("label") is not None else None
+        n, wait = int(a.get("max", 0)), int(a.get("wait_frames", 0))
+        if n <= 0 or wait <= 0:
+            raise InputError(f"action {i}: dismiss_message_boxes needs positive 'max' and 'wait_frames'")
+        probe = cs.function(["float fV"], ["let fV := 0", f"if MenuMode {MESSAGE_MENU}", "  let fV := 1", "endif",
+                                           "SetFunctionValue fV"])
+        out = []
+        for k in range(n):
+            out += [{"until": probe, "max_frames": wait}]
+            if label:
+                out.append(cs.query(probe, f"{BOX_PREFIX}:{label}", str(k)))
+            out += [{"console": "CloseAllMenus"}, {"frames": SETTLE_CLOSE}]
+        return out
+    if op in ("wait_quest", "wait_menu"):
+        # Polled once per frame (at most max_frames) until the condition holds; in the
+        # next frame the condition and, with `stopwatch`, the stopwatch are read.
+        label, n = _label(a, i), int(a.get("max_frames", 0))
+        if n <= 0:
+            raise InputError(f"action {i}: {op} needs positive max_frames")
+        if op == "wait_quest":
+            q, field = _quest(a, i), a.get("field")
+            field_expr("q", field)
+            want = literal(1 if a.get("value", True) is True else 0 if a.get("value") is False else a["value"])
+            names, test = [q], f"{wait_field_expr(0, field)} == {want}"
+        else:
+            names, test = [], f"MenuMode {int(a['menu'])}"
+        lines = ["let fV := 0", f"if {test}", "  let fV := 1", "endif"]
+        until = ref_script(names, ctx, lines + ["SetFunctionValue fV"])
+        exprs = ["fV"] + ([watch_expr(len(names))] if a.get("stopwatch") else [])
+        read = ref_script(names + ([WATCH_REF] if a.get("stopwatch") else []), ctx,
+                          lines + [f"SetFunctionValue ({joined(exprs)})"])
+        return [{"until": until, "max_frames": n},
+                cs.query(read, f"{WAIT_PREFIX}:{label}", "found|seconds" if a.get("stopwatch") else "found")]
+    if op == "get_menus":
+        label, codes = _label(a, i), a.get("menus")
+        if not isinstance(codes, list) or not codes:
+            raise InputError(f"action {i}: get_menus needs a non-empty 'menus' list of codes")
+        return [cs.query(cs.function(["float fV"], ["let fV := 0", f"if MenuMode {int(c)}", "  let fV := 1", "endif",
+                                                    "SetFunctionValue fV"]), label, f"menu.{int(c)}") for c in codes]
+    if op == "get_tag_skills":
+        label, skills = _label(a, i), a.get("skills")
+        if not isinstance(skills, list) or not skills:
+            raise InputError(f"action {i}: get_tag_skills needs a non-empty 'skills' list")
+        return [cs.query(cs.function(["float fV"], [f"let fV := IsPlayerTagSkill {cs.plain_name(s, 'a skill')}",
+                                                    "SetFunctionValue fV"]), label, f"tag.{s}") for s in skills]
+    return None
+
 
 def jump_read(i, r, names):
     """(names, expression) for one read of sample_jumps: {"global": name},
@@ -725,6 +816,12 @@ def action_steps(i, a, ctx):
         return _script(_quest(a, i), ctx, [f"{fn} {{q}}"])
     if op == "set_quest_var":
         var = cs.plain_name(a.get("var"), f"action {i}: the variable")
+        if a.get("stopwatch"):
+            # Round 4: the stopwatch (re)started in the same script (the same frame).
+            return [{"script": ref_script([_quest(a, i), WATCH_REF], ctx,
+                                          [f'SetVariable "{var}" {literal(a["value"])} {{0}}',
+                                           f'{{1}}.SetVariable "timer" {STOPWATCH_START}', '{1}.SetVariable "runTimer" 1',
+                                           "SetFunctionValue 1"], ())}, {"frames": cs.SETTLE_FRAMES}]
         return _script(_quest(a, i), ctx, [f'SetVariable "{var}" {literal(a["value"])} {{q}}'])
     if op == "set_objective":
         q, idx = _quest(a, i), int(a["index"])
@@ -765,6 +862,8 @@ def action_steps(i, a, ctx):
     steps = round2_steps(i, a, ctx)
     if steps is None:
         steps = round3_steps(i, a, ctx)
+    if steps is None:
+        steps = round4_steps(i, a, ctx)
     if steps is not None:
         return steps
     raise InputError(f"action {i}: unknown op {op!r}")
@@ -799,6 +898,11 @@ def given_steps(i, g, ctx):
     if kind == "actor_value":
         av = cs.plain_name(g.get("av"), f"given {i}: the actor value")
         return [cs.query(cs.number_query(f"{{0}}.GetAV {av}", ctx, [g.get("of", "player")]), label, "value")]
+    if kind == "menu":
+        # Round 4: a menu open at the start (nvfnew loads with a pack plugin's message
+        # box open, which holds GameMode until it is closed).
+        return [cs.query(cs.function(["float fV"], ["let fV := 0", f"if MenuMode {int(g['menu'])}", "  let fV := 1",
+                                                    "endif", "SetFunctionValue fV"]), label, "open")]
     raise InputError(f"given {i}: unknown kind {kind!r}")
 
 
@@ -836,6 +940,8 @@ def given_expected(g):
         return {f: g[f] for f in REP_AXES if f in g}
     if kind == "actor_value":
         return {"value": g["value"]}
+    if kind == "menu":
+        return {"open": bool(g["open"])}
     raise InputError(f"unknown given kind {kind!r}")
 
 
@@ -951,14 +1057,42 @@ def av_sample_observation(rows):
     return {"changes": changes, "per_second": (series[-1][0] - series[0][0]) / span}
 
 
+def wait_observation(a, r, zero=0.0):
+    """What a wait_quest / wait_menu action observed: `found` (the condition, read in the
+    frame after the wait ended) and with `stopwatch` `seconds` (the stopwatch then)."""
+    if r is None or "error" in r:
+        return {"error": f"not recorded: {r and r.get('error')}"}
+    if a.get("stopwatch"):
+        found, seconds = split_values(r["value"], 2)
+        obs = {"found": bool(found)}
+        if found:
+            obs["seconds"] = seconds - zero
+        return obs
+    # The read is text ($ of the condition, `joined`), "0" or "1".
+    return {"found": float(r["value"]) != 0}
+
+
+def boxes_observation(rows):
+    """What a dismiss_message_boxes action observed: `closed`, the boxes that were open
+    when closed."""
+    bad = [r for r in rows if "error" in r]
+    if bad or not rows:
+        return {"error": f"{len(bad)} of {len(rows)} reads failed" + (f": {bad[0]['error']}" if bad else "")}
+    return {"closed": sum(1 for r in rows if r["value"])}
+
+
 def golden_document(doc, mods, results, source=None):
     """fnv.script.trace/1 golden: one observation per labelled action (fields typed as
     in the trace contract), the given preconditions checked against the save."""
     acts = doc.get("actions", [])
-    by_label, samples, given, menus, clocks = {}, {}, {}, {}, {}
+    by_label, samples, given, menus, clocks, waits, boxes = {}, {}, {}, {}, {}, {}, {}
     for r in results:
         label = r["label"]
-        if label.startswith(CLOCK_PREFIX + ":"):
+        if label.startswith(WAIT_PREFIX + ":"):
+            waits[label.split(":", 1)[1]] = r
+        elif label.startswith(BOX_PREFIX + ":"):
+            boxes.setdefault(label.split(":", 1)[1], []).append(r)
+        elif label.startswith(CLOCK_PREFIX + ":"):
             clocks[label.split(":", 1)[1]] = r
         elif label.startswith(MENU_PREFIX + ":"):
             menus[label.split(":", 1)[1]] = r
@@ -980,9 +1114,16 @@ def golden_document(doc, mods, results, source=None):
                 problems.append(f"given {i} {f}: expected {want!r}, the save has {got!r}")
     observations, diagnostics = [], []
     started = None  # stopwatch seconds at the last use_item with `stopwatch`
+    watch_zero = 0.0  # round 4: start_stopwatch sets the skull's timer to its start value
     for i, a in enumerate(acts):
         label = a.get("label")
         if not label:
+            continue
+        if a.get("op") in ("wait_quest", "wait_menu"):
+            observations.append({"label": label, "step": i, **wait_observation(a, waits.get(label), watch_zero)})
+            continue
+        if a.get("op") == "dismiss_message_boxes":
+            observations.append({"label": label, "step": i, **boxes_observation(boxes.get(label, []))})
             continue
         if a.get("op") == "wait_av":
             c = clocks.get(label)
