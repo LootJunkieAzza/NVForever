@@ -7,23 +7,31 @@ item once you've ruled on it.
 
 ## Merges into `main` (2026-10-09)
 
-1. **#45 (in-game screenshots, plugin v7) and #44 (static NPCs with FaceGen) merged
-   together.** On the combined tree: workspace tests, both clippy runs, the engine tests
-   and both Python suites pass, and the parity lab is at 337/352. That is the same 336
-   passes as `main` (336/351), plus the new `L3.actors.appearance`, which passes. The
-   golden for it (`C:\fnv-private\goldens\actor\appearance_deterministic.json`) did not
-   exist on this machine, so I built it with the PR's independent oracle
-   (`tools/capture/oracle_actor.py`). That's a new golden, not an edit to an existing one.
-   The moving-camera smoke test and the day/night time-lapse were run before merging;
-   results are in the merge commit message.
-2. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
+1. **#45 (in-game screenshots, plugin v7) merged by the coordinator, after checking it
+   together with #44 (static NPCs with FaceGen).** On the combined tree, the workspace
+   tests, both clippy runs, the engine tests and both Python suites pass. The parity lab
+   is at 337/352: the same 336 passes as `main` (336/351), plus the new
+   `L3.actors.appearance`, which passes. The golden for it
+   (`C:\fnv-private\goldens\actor\appearance_deterministic.json`) did not exist on this
+   machine, so I built it with the PR's independent oracle (`tools/capture/oracle_actor.py`).
+   That's a new golden, not an edit to an existing one. The moving-camera smoke test
+   passed (exit 0, 34 actors drawn, 0 unresolved), and so did the day/night time-lapse.
+   The results are posted as comments on both PRs.
+2. **Other sessions merged at the same time, under your GitHub account:** #44 at 01:06Z,
+   then #47 (Goodsprings windmill animation, quadratic key tangents) and #48 (animation
+   data groundwork, "workstream 5 part F"). These came from sessions this coordinator
+   cannot see in the session list. #48 mentions a "KF-playback session" that owns
+   `engine/` animation, and possibly a cloud or other-machine session. Keep that in mind
+   when two sessions both think they coordinate merges. The coordinator re-checked the
+   resulting `main` as a whole (see the next item).
+3. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
    (same commits, its PR #38 was closed). `layer4-phys-wt` is an early copy of the physics
    workstream from 2026-10-07, superseded by `claude/layer4-phys`. Neither was merged or
    deleted. Deleting the merged and superseded branches on GitHub is your call.
-3. **The two renderer sessions that were still running** (dusk lighting, Hor+ field of
+4. **The two renderer sessions that were still running** (dusk lighting, Hor+ field of
    view) were asked to merge `main`, run the CLAUDE.md checks and open a PR each, which
    the coordinator merges. Their results are added below when they land.
-4. **The suggested "sky and cloud look" task** (from the screenshot session) was never
+5. **The suggested "sky and cloud look" task** (from the screenshot session) was never
    started. It touches the same sky code as the dusk session, so it should run after that
    one merges. Start it when you're back, or tell a session to.
 
