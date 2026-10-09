@@ -52,6 +52,9 @@ pub enum EventKind {
     /// A variable index the target script does not declare (docs/spec-notes/scripts.md
     /// §2.5): read as 0, written as given.
     UndeclaredVariable { owner: String, index: u16, unit: String },
+    /// An actor's AI packages were evaluated and it chose another package (none: no
+    /// package's conditions pass).
+    PackageChosen { actor: FormId, #[serde(skip_serializing_if = "Option::is_none")] package: Option<FormId> },
 }
 
 /// A value in the trace: a number, or a reference as its FormID.

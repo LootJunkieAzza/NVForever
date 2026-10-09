@@ -1,7 +1,7 @@
 //! Layer 5 behaviour on a synthetic plugin built in memory (no game data): a start-game
 //! quest with a timer script and stage results (one with conditions), an activator
-//! whose OnActivate block sets a stage and shows a message, the runner contract, and
-//! snapshots. Bytecode is written by hand in the format of docs/spec-notes/scripts.md §2.
+//! whose OnActivate block sets a stage and shows a message, an actor with two AI
+//! packages, the runner contract, menus and loading screens, and snapshots. Bytecode is written by hand in the format of docs/spec-notes/scripts.md §2.
 
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
@@ -145,8 +145,13 @@ const QUEST: u32 = 0x900;
 const QUEST_SCRIPT: u32 = 0x901;
 const ACT_SCRIPT: u32 = 0x902;
 const ACTIVATOR: u32 = 0x903;
+const PACK_GATED: u32 = 0x910;
+const PACK_IDLE: u32 = 0x911;
+const PACK_SCRIPTED: u32 = 0x912;
+const NPC: u32 = 0x920;
 const CELL: u32 = 0x200;
 const ACT_REF: u32 = 0x300;
+const NPC_REF: u32 = 0x320;
 
 const SET_STAGE: u16 = 0x1039;
 const GET_SECONDS_PASSED: u16 = 0x100C;
@@ -235,14 +240,36 @@ fn plugin_bytes() -> Vec<u8> {
         ACT_REF,
         &[sub(b"EDID", z("TestActivatorREF")), sub(b"NAME", ACTIVATOR.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])],
     );
+    // Two AI packages: the first only once stage 20 is done; an actor runs both, in
+    // that order. A third one for AddScriptPackage.
+    let pack = [
+        record(b"PACK", 0, PACK_GATED, &[sub(b"EDID", z("GatedPackage")), ctda(0, 1.0, GET_STAGE_DONE_INDEX, QUEST, 20)]),
+        record(b"PACK", 0, PACK_IDLE, &[sub(b"EDID", z("IdlePackage"))]),
+        record(b"PACK", 0, PACK_SCRIPTED, &[sub(b"EDID", z("ScriptedPackage"))]),
+    ]
+    .concat();
+    let npc = record(
+        b"NPC_",
+        0,
+        NPC,
+        &[sub(b"EDID", z("TestNpc")), sub(b"PKID", PACK_GATED.to_le_bytes().to_vec()), sub(b"PKID", PACK_IDLE.to_le_bytes().to_vec())],
+    );
+    let achr = record(
+        b"ACHR",
+        0,
+        NPC_REF,
+        &[sub(b"EDID", z("TestNpcREF")), sub(b"NAME", NPC.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])],
+    );
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
-    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refr));
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, achr].concat()));
     [
         tes4(),
         top(b"GLOB", &glob),
         top(b"MESG", &mesg),
         top(b"SCPT", &scpt),
         top(b"ACTI", &acti),
+        top(b"NPC_", &npc),
+        top(b"PACK", &pack),
         top(b"QUST", &qust),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
     ]
@@ -442,4 +469,98 @@ fn registered_functions_match_the_catalogue() {
     ops.sort();
     ops.dedup();
     assert_eq!(ops.len(), n, "an opcode is registered twice");
+}
+
+#[test]
+fn menus_and_loading_screens_stop_game_time_for_scripts() {
+    // The quest timer of the_quest_timer_runs_at_the_quest_delay_and_sets_the_complete_stage,
+    // with a long menu and a loading screen in the middle: neither counts.
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 10);
+    g.frames(30);
+    let t0 = g.time;
+    g.menu = Some(1008);
+    g.frames(600);
+    g.menu = None;
+    g.loading = true;
+    g.frames(600);
+    g.loading = false;
+    assert_eq!(g.time, t0);
+    assert!(!g.paused());
+    g.frames(60);
+    assert!(!g.quest_state(q()).stages_done.contains(&20));
+    g.frames(60);
+    assert!(g.quest_state(q()).stages_done.contains(&20));
+}
+
+#[test]
+fn only_the_script_that_showed_a_message_box_gets_its_button() {
+    use fnv_game::functions::Ctx;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    g.message_box.as_mut().unwrap().pressed = Some(1);
+    let ctx = |inst| Ctx { unit: "test".into(), opcode: 0x101F, on: None, self_ref: None, action_ref: None, quest: None, inst, in_condition: false };
+    // Another script (the quest's) does not see the box, which stays.
+    assert_eq!(g.call_function(&ctx(Some(InstKey::Quest { quest: q() })), &[]), Value::Num(-1.0));
+    assert!(g.message_box.is_some());
+    // The activator's script gets the button once.
+    let owner = ctx(Some(InstKey::Ref { reference: FormId(ACT_REF) }));
+    assert_eq!(g.call_function(&owner, &[]), Value::Num(1.0));
+    assert_eq!(g.call_function(&owner, &[]), Value::Num(-1.0));
+}
+
+#[test]
+fn actors_choose_the_first_package_whose_conditions_pass() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    assert_eq!(g.package_list(npc), vec![FormId(PACK_GATED), FormId(PACK_IDLE)]);
+    assert_eq!(g.current_package(npc), Some(FormId(PACK_IDLE)));
+    // The current package changes only when the actor evaluates its packages.
+    g.set_stage(q(), 20);
+    assert_eq!(g.current_package(npc), Some(FormId(PACK_IDLE)));
+    assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_GATED)));
+    // A script package overrides the list.
+    g.extra.entry(npc).or_default().packages.push(FormId(PACK_SCRIPTED));
+    assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_SCRIPTED)));
+}
+
+#[test]
+fn the_runner_reads_and_writes_reference_variables_and_activates_with_the_flag() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "given": [{"kind": "ref", "ref": "TestActivatorREF", "vars": {"nUsed": 5}, "disabled": false}],
+        "actions": [
+            {"op": "get_ref", "ref": "TestActivatorREF", "fields": ["var.nUsed", "var.nope", "disabled", "dead"], "label": "given"},
+            {"op": "set_ref_var", "ref": "TestActivatorREF", "var": "nUsed", "value": 1},
+            {"op": "activate_read", "target": "TestActivatorREF", "read": {"ref": "TestActivatorREF", "field": "var.nUsed"}, "label": "plain"},
+            {"op": "activate_read", "target": "TestActivatorREF", "run_on_activate": true,
+             "read": {"ref": "TestActivatorREF", "field": "var.nUsed"}, "label": "flagged"},
+            {"op": "sample_ref_var", "ref": "TestActivatorREF", "var": "nUsed", "frames": 3, "values": true, "label": "sampled"},
+            {"op": "evaluate_package", "of": "TestNpcREF"},
+            {"op": "is_current_package", "of": "TestNpcREF", "package": "IdlePackage", "label": "package"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    assert_eq!(out["given_errors"], json!([]));
+    assert_eq!(out["steps"].as_array().unwrap().iter().filter(|s| s.get("error").is_some()).count(), 0, "{}", out["steps"]);
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap().clone();
+    assert_eq!(by("given")["var.nUsed"], 5.0);
+    assert_eq!(by("given")["var.nope"], 0.0);
+    assert_eq!(by("given")["disabled"], false);
+    assert_eq!(by("given")["dead"], false);
+    // A scripted Activate without the flag does not run OnActivate; with it, the block
+    // has run when Activate returns.
+    assert_eq!(by("plain")["var.nUsed"], 1.0);
+    assert_eq!(by("flagged")["var.nUsed"], 2.0);
+    assert_eq!(by("sampled")["values"], json!([2.0]));
+    assert_eq!(by("package")["current"], true);
 }
