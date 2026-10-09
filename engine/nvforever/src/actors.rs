@@ -67,10 +67,11 @@ pub struct ActorWorld {
     /// Locomotion clip sets by (skeleton, body); `None` when no idle was found.
     sets: Mutex<ClipSets>,
     /// Weapon stances by (skeleton, prefix); `None` when they could not be loaded.
-    stances: Mutex<HashMap<(String, String), Option<Arc<Stance>>>>,
+    stances: Mutex<Stances>,
 }
 
 type ClipSets = HashMap<(String, Body), Option<Arc<ClipSet>>>;
+type Stances = HashMap<(String, String), Option<Arc<Stance>>>;
 
 impl ActorWorld {
     pub fn build(lo: &LoadOrder, schema: &Schema) -> ActorWorld {
