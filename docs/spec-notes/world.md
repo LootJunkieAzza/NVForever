@@ -412,14 +412,14 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   → `Set VNight to 1`, else 0 [observed: script source (SCTX) in FalloutNV.esm]. Until
   scripts run (Layer 5) the renderer evaluates that condition itself and fades between
   the weathers over half a game hour [placeholder; WTHR DATA "trans delta" not
-  understood]. NVWastelandClearNight has no clouds (`skylpha.dds` on layers 1-3) and a
+  understood]. NVWastelandClearNight has no clouds (`sky\alpha.dds` on layers 1-3) and a
   darker night ambient (121, 128, 213) than NVWastelandClear (172, 170, 215).
 - **Star texture alpha** [observed]: `SkyStars.dds` (512², DXT5) has colour in 6,225
   texels but non-zero alpha in only ~430, and its shader property sets the
   alpha-texture flag. The owner's in-game night shots show sparse, faint stars, so the
   renderer weights star colour by texture alpha (additive) [hypothesis].
 - **Image space** [documented: xEdit wbDefinitionsFNV.pas IMGS, IMAD, WTHR, WRLD]: WRLD
-  `INAM` names the worldspace's image space (IMGS); WTHR ` IAD`..`IAD` name one
+  `INAM` names the worldspace's image space (IMGS); WTHR `\x00IAD`..`\x05IAD` name one
   image space adapter (IMAD) per time of day (sunrise, day, sunset, night, high noon,
   midnight). IMGS `DNAM` holds HDR, bloom, get-hit, night-eye and cinematic values
   (saturation, contrast average luminance, contrast, brightness, tint colour and value);
@@ -431,7 +431,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   100, e.g. ShackInteriorWaste01 gets saturation 0.07, the Prospector Saloon turned
   grey) [observed]. The renderers take byte 100 for a 152-byte DNAM and 96 otherwise
   [hypothesis: the skin dimmer arrives with the 152-byte layout].
-  IMAD keeps multiply/add key lists (time, value) per parameter (`IAD`..`IAD`
+  IMAD keeps multiply/add key lists (time, value) per parameter (`\x11IAD`..`\x14IAD`
   multiply and `QIAD`..`TIAD` add for the cinematic ones) and a tint colour key list
   (TNAM: time, RGBA). WastelandNV → NVDefaultExterior: saturation 1.1, contrast 1.1 around
   luminance 0.2, brightness 1.0, tint (0.98, 0.57, 0.00) at 0.33 [observed]. NVWastelandClear
@@ -449,7 +449,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   [hypothesis]. The IMGS flags byte (saturation, contrast, tint, brightness) is 0 in
   NVDefaultExterior; its role is unknown. HDR eye adaptation is not applied.
 - **IMAD cinematic track order** [documented: xEdit wbDefinitionsFNV.pas IMAD names
-  `IAD`..`IAD` saturation, contrast, contrast avg lum, brightness; IMGS DNAM
+  `\x11IAD`..`\x14IAD` saturation, contrast, contrast avg lum, brightness; IMGS DNAM
   stores saturation, contrast avg lum, contrast, brightness]. The data fits the IMGS order
   better, 0x12 = contrast avg lum and 0x13 = contrast [hypothesis], and the renderers
   read it so. Evidence [observed, `crates/fnv-world/examples/weather_dump.rs --imad` over
