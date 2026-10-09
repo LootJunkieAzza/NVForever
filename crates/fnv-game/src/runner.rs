@@ -6,7 +6,7 @@
 //! systems in headless walk-throughs (dialogue lines, package events, menus, message
 //! box buttons) and are listed in docs/spec-notes/scripts.md §8.
 
-use crate::functions::Ctx;
+use crate::functions::{actor_value, av_code, set_actor_value_current, Ctx};
 use crate::game::{event, ActMode, Game, GameConfig, InstKey};
 use crate::trace::EventKind;
 use crate::GameData;
@@ -96,6 +96,42 @@ pub enum Given {
         #[serde(default)]
         disabled: Option<bool>,
     },
+    /// The player's fame and infamy with a reputation (round 3, layer5-captures.md §9.2).
+    Reputation {
+        rep: String,
+        #[serde(default)]
+        fame: Option<f64>,
+        #[serde(default)]
+        infamy: Option<f64>,
+    },
+    /// An actor value's current value, undamaged (round 3).
+    ActorValue { of: String, av: String, value: f64 },
+}
+
+/// One read of `use_item` (round 3): an actor value of the user (`av.<name>`) or the
+/// count of an item it carries (`count.<form>`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UseRead {
+    #[serde(default)]
+    pub av: Option<String>,
+    #[serde(default)]
+    pub item: Option<String>,
+}
+
+/// One series of `sample_jumps` (round 3): a global, an object-script variable of a
+/// reference, or a quest variable.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JumpRead {
+    #[serde(default)]
+    pub global: Option<String>,
+    #[serde(default, rename = "ref")]
+    pub reference: Option<String>,
+    #[serde(default)]
+    pub quest: Option<String>,
+    #[serde(default)]
+    pub var: Option<String>,
 }
 
 /// What `activate_read` reads: a reference's field (`get_ref`) or a quest's
@@ -162,6 +198,50 @@ pub enum Action {
     MenuGap { via: String, frames: u64, quest: String, var: String, after: u64, label: String },
     EvaluatePackage { of: String },
     IsCurrentPackage { of: String, package: String, label: String },
+    // ---- round 3 of the contract (layer5-captures.md §9.2) ----
+    /// `SetReputation rep axis value` (`axis`: "fame" or "infamy").
+    SetReputation { rep: String, axis: String, value: f64 },
+    /// `AddReputation rep axis size`.
+    AddReputation { rep: String, axis: String, size: i32 },
+    /// `RemoveReputation rep axis size`.
+    RemoveReputation { rep: String, axis: String, size: i32 },
+    /// Reputation fields, one frame each.
+    GetReputation { rep: String, fields: Vec<String>, #[serde(default)] label: Option<String> },
+    /// SetReputation fame, then infamy, and the fields in the same script.
+    SetReputationRead { rep: String, fame: f64, infamy: f64, fields: Vec<String>, #[serde(default)] label: Option<String> },
+    /// The actor uses an aid item (`EquipItem item 0 1`) and the reads follow in the
+    /// same script; with `stopwatch`, the stopwatch's zero is set there.
+    UseItem {
+        #[serde(default)]
+        actor: Option<String>,
+        item: String,
+        #[serde(default)]
+        read: Vec<UseRead>,
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        stopwatch: bool,
+    },
+    /// Waits until an actor value equals `value` (checked once per frame, at most
+    /// `max_frames` frames); observation `found` and the stopwatch `seconds`.
+    WaitAv { #[serde(default)] of: Option<String>, av: String, value: f64, max_frames: u64, #[serde(default)] label: Option<String> },
+    /// The player's activation of the container `via` opens its menu for `frames` frames.
+    HoldMenu { via: String, frames: u64 },
+    DamageAv { #[serde(default)] of: Option<String>, av: String, value: f64 },
+    RestoreAv { #[serde(default)] of: Option<String>, av: String, value: f64 },
+    GetAv { #[serde(default)] of: Option<String>, name: String, #[serde(default)] label: Option<String> },
+    SetAv { #[serde(default)] of: Option<String>, name: String, value: f64 },
+    AddSpell { #[serde(default)] of: Option<String>, spell: String },
+    RemoveSpell { #[serde(default)] of: Option<String>, spell: String },
+    /// An actor value and the stopwatch once per frame: `changes`, `per_second`.
+    SampleAv { #[serde(default)] of: Option<String>, av: String, frames: u64, #[serde(default)] label: Option<String> },
+    /// Once per frame: the value is read, then damaged by `damage`; `values`.
+    SampleAvDamage { #[serde(default)] of: Option<String>, av: String, damage: f64, frames: u64, #[serde(default)] label: Option<String> },
+    /// The console's `coc <cell>`: the player moves to the cell's COC marker.
+    GoToCell { cell: String },
+    /// Several series once per frame; `lags` of each series' first jump behind the
+    /// first series'.
+    SampleJumps { reads: Vec<JumpRead>, frames: u64, min_step: f64, #[serde(default)] label: Option<String> },
     // ---- headless stand-ins (scripts.md §8) ----
     /// Seconds of game loop at the fixed frame step.
     AdvanceSeconds { seconds: f64 },
@@ -236,6 +316,17 @@ fn frames_after(a: &Action) -> u64 {
         Action::GetQuest { .. } | Action::SampleVar { .. } | Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } => 0,
         Action::SampleRefVar { .. } | Action::SampleItems { .. } | Action::MenuGap { .. } => 0,
         Action::Note { .. } => 0,
+        // Round 3 (layer5-captures.md §9.2).
+        Action::SetReputation { .. } | Action::AddReputation { .. } | Action::RemoveReputation { .. } => 11,
+        Action::GetReputation { .. } => 0,
+        Action::SetReputationRead { .. } => 1,
+        Action::UseItem { .. } | Action::DamageAv { .. } | Action::RestoreAv { .. } | Action::GetAv { .. } => 11,
+        Action::AddSpell { .. } | Action::RemoveSpell { .. } => 11,
+        Action::SetAv { .. } => 31,
+        Action::WaitAv { .. } | Action::SampleAv { .. } | Action::SampleAvDamage { .. } | Action::SampleJumps { .. } => 0,
+        // 1 + frames + 5: the menu's frames pass inside the step.
+        Action::HoldMenu { .. } => 6,
+        Action::GoToCell { .. } => 600,
         // Stand-ins: one frame.
         _ => 1,
     }
@@ -535,15 +626,144 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
                 g.world.set_enabled(r, !d).map_err(|e| e.to_string())?;
             }
         }
+        Given::Reputation { rep: name, fame, infamy } => {
+            let r = rep(g, name)?;
+            for (axis, v) in [(1, fame), (0, infamy)] {
+                if let Some(v) = v {
+                    crate::functions::reputation_store(g, r, axis, *v);
+                }
+            }
+        }
+        Given::ActorValue { of, av, value } => {
+            let who = resolve(g, of)?;
+            let code = av_code(g, av)?;
+            set_actor_value_current(g, who, code, *value)?;
+        }
     }
     Ok(())
+}
+
+// ---- round 3 helpers (layer5-captures.md §9.2) ----
+
+/// A reputation (REPU) by name.
+fn rep(g: &Game, s: &str) -> Result<FormId, String> {
+    let r = resolve(g, s)?;
+    if g.data.reputations.contains_key(&r) || g.data.sig(r).as_ref() == Some(b"REPU") {
+        Ok(r)
+    } else {
+        Err(format!("{s:?} is not a reputation"))
+    }
+}
+
+/// The reputation axis argument: 1 fame, 0 infamy [observed: layer5-captures.md §9.3 a].
+fn rep_axis(s: &str) -> Result<f64, String> {
+    match s {
+        "fame" => Ok(1.0),
+        "infamy" => Ok(0.0),
+        o => Err(format!("reputation axis {o:?} is not \"fame\" or \"infamy\"")),
+    }
+}
+
+/// A reputation field (§9.2): `fame`, `infamy` (GetReputation), `pct.fame`,
+/// `pct.infamy` (GetReputationPct), `threshold.mixed|good|bad` (GetReputationThreshold
+/// 0, 1, 2), read through the script functions.
+fn rep_field(g: &mut Game, r: FormId, f: &str) -> Result<Json, String> {
+    let (opcode, axis) = match f {
+        "fame" => (0x123D, 1.0),
+        "infamy" => (0x123D, 0.0),
+        "pct.fame" => (0x123E, 1.0),
+        "pct.infamy" => (0x123E, 0.0),
+        "threshold.mixed" => (0x123F, 0.0),
+        "threshold.good" => (0x123F, 1.0),
+        "threshold.bad" => (0x123F, 2.0),
+        _ => return Err(format!("unknown reputation field {f:?}")),
+    };
+    let v = call(g, opcode, None, vec![form_arg(r), num_arg(axis)]).num();
+    Ok(if opcode == 0x123F { json!(v as i64) } else { json!(v) })
+}
+
+fn rep_fields(g: &mut Game, r: FormId, fields: &[String], obs: &mut Map<String, Json>, tick_each: bool) {
+    let mut errors = Map::new();
+    for f in fields {
+        match rep_field(g, r, f) {
+            Ok(v) => {
+                obs.insert(f.clone(), v);
+            }
+            Err(e) => {
+                errors.insert(f.clone(), json!(e));
+            }
+        }
+        if tick_each {
+            g.tick();
+        }
+    }
+    if !errors.is_empty() {
+        obs.insert("errors".into(), Json::Object(errors));
+    }
+}
+
+fn actor_or_player(g: &Game, of: &Option<String>) -> Result<FormId, String> {
+    match of {
+        Some(a) => resolve(g, a),
+        None => Ok(FormId::PLAYER_REF),
+    }
+}
+
+/// Where `coc <cell>` puts the player: the cell's COCMarkerHeading reference (FalloutNV
+/// STAT 0x00000032 [observed: `esm inventory`]) when it has one; otherwise, outdoors, the
+/// middle of the cell at height 0, and indoors the first placed reference of the cell
+/// [hypothesis, all of it: the position matters here only for which cells load].
+fn coc_destination(g: &Game, cell: FormId) -> Result<[f32; 3], String> {
+    const COC_MARKER: FormId = FormId(0x0000_0032);
+    let placed = g.world.placed;
+    let in_cell: Vec<FormId> = placed.by_cell.get(&cell).cloned().unwrap_or_default();
+    if let Some(p) = in_cell.iter().filter_map(|r| placed.get(*r)).find(|p| p.base == COC_MARKER) {
+        return Ok(p.pos);
+    }
+    if let Some(grid) = placed.world_of(cell).and_then(|w| placed.world_grid.get(&w)) {
+        if let Some((&(x, y), _)) = grid.iter().find(|(_, &c)| c == cell) {
+            const CELL: f32 = 4096.0;
+            return Ok([(x as f32 + 0.5) * CELL, (y as f32 + 0.5) * CELL, 0.0]);
+        }
+    }
+    in_cell.iter().filter_map(|r| placed.get(*r)).map(|p| p.pos).next().ok_or_else(|| format!("{} has no place to go to", g.data.name(cell)))
+}
+
+/// One `sample_jumps` series as a reader of the current value.
+fn jump_value(g: &mut Game, r: &JumpRead) -> Result<f64, String> {
+    match (&r.global, &r.reference, &r.quest, &r.var) {
+        (Some(name), None, None, None) => {
+            let id = resolve(g, name)?;
+            Ok(g.world.global(id).map_err(|e| e.to_string())? as f64)
+        }
+        (None, Some(rf), None, Some(v)) => {
+            let rf = resolve(g, rf)?;
+            let (key, _, i) = ref_var(g, rf, v)?;
+            let i = i.ok_or_else(|| format!("the script of {rf} declares no variable {v:?}"))?;
+            Ok(g.var(key, i).num())
+        }
+        (None, None, Some(q), Some(v)) => {
+            let q = quest(g, q)?;
+            let (key, i) = quest_var(g, q, v)?;
+            Ok(g.var(key, i).num())
+        }
+        _ => Err("a sample_jumps read is {\"global\"}, {\"ref\", \"var\"} or {\"quest\", \"var\"}".into()),
+    }
+}
+
+/// The runner's own state across actions.
+#[derive(Default)]
+struct RunState {
+    /// Game time ([`Game::time`], the script time GetSecondsPassed counts) at the last
+    /// `use_item` with `stopwatch` (layer5-captures.md §9.2, "The stopwatch").
+    stopwatch: Option<f64>,
 }
 
 /// Run one action; returns its observation fields (for labelled actions).
 /// A labelled observation: label and fields.
 type Observed = Option<(String, Map<String, Json>)>;
 
-fn step(g: &mut Game, a: &Action) -> Result<Observed, String> {
+fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String> {
     let mut obs = Map::new();
     let mut lab: Option<String> = None;
     match a {
@@ -880,6 +1100,183 @@ fn step(g: &mut Game, a: &Action) -> Result<Observed, String> {
             };
             call(g, 0x108B, Some(a), args);
         }
+        // ---- round 3 (layer5-captures.md §9.2) ----
+        Action::SetReputation { rep: name, axis, value } => {
+            let r = rep(g, name)?;
+            call(g, 0x1238, None, vec![form_arg(r), num_arg(rep_axis(axis)?), num_arg(*value)]);
+        }
+        Action::AddReputation { rep: name, axis, size } | Action::RemoveReputation { rep: name, axis, size } => {
+            let r = rep(g, name)?;
+            let opcode = if matches!(a, Action::AddReputation { .. }) { 0x1239 } else { 0x123A };
+            call(g, opcode, None, vec![form_arg(r), num_arg(rep_axis(axis)?), num_arg(*size as f64)]);
+        }
+        Action::GetReputation { rep: name, fields, label: l } => {
+            // One frame per field, as get_quest.
+            let r = rep(g, name)?;
+            rep_fields(g, r, fields, &mut obs, true);
+            lab = l.clone();
+        }
+        Action::SetReputationRead { rep: name, fame, infamy, fields, label: l } => {
+            let r = rep(g, name)?;
+            call(g, 0x1238, None, vec![form_arg(r), num_arg(1.0), num_arg(*fame)]);
+            call(g, 0x1238, None, vec![form_arg(r), num_arg(0.0), num_arg(*infamy)]);
+            rep_fields(g, r, fields, &mut obs, false);
+            lab = l.clone();
+        }
+        Action::UseItem { actor, item, read, label: l, stopwatch } => {
+            let who = actor_or_player(g, actor)?;
+            let it = resolve(g, item)?;
+            if g.world.item_count(who, it).map_err(|e| e.to_string())? < 1 {
+                return Err(format!("{} carries no {}", g.data.name(who), g.data.name(it)));
+            }
+            // `EquipItem item 0 1`: an ingestible is consumed and its effects start
+            // inside the call (Game::apply_magic_item).
+            call(g, 0x10EE, Some(who), vec![form_arg(it), num_arg(0.0), num_arg(1.0)]);
+            for r in read {
+                match (&r.av, &r.item) {
+                    (Some(av), None) => {
+                        let code = av_code(g, av)?;
+                        obs.insert(format!("av.{av}"), json!(actor_value(g, who, code)?));
+                    }
+                    (None, Some(i)) => {
+                        let id = resolve(g, i)?;
+                        obs.insert(format!("count.{i}"), json!(g.world.item_count(who, id).map_err(|e| e.to_string())?));
+                    }
+                    _ => return Err("a use_item read is {\"av\"} or {\"item\"}".into()),
+                }
+            }
+            if *stopwatch {
+                st.stopwatch = Some(g.time);
+            }
+            lab = l.clone();
+        }
+        Action::WaitAv { of, av, value, max_frames, label: l } => {
+            lab = l.clone();
+            let who = actor_or_player(g, of)?;
+            let code = av_code(g, av)?;
+            let mut found = false;
+            for k in 0..=*max_frames {
+                if (actor_value(g, who, code)? - value).abs() < 1e-6 {
+                    found = true;
+                    break;
+                }
+                if k < *max_frames {
+                    g.tick();
+                }
+            }
+            obs.insert("found".into(), json!(found));
+            if found {
+                let t0 = st.stopwatch.ok_or("wait_av before any use_item with a stopwatch")?;
+                obs.insert("seconds".into(), json!(g.time - t0));
+            }
+        }
+        Action::HoldMenu { via, frames } => {
+            let via = resolve(g, via)?;
+            let since = g.events.len();
+            g.activate(FormId::PLAYER_REF, via, ActMode::Default)?;
+            if !opened_since(g, since) {
+                return Err(format!("activating {} opened no container menu", g.data.name(via)));
+            }
+            g.menu = Some(CONTAINER_MENU);
+            g.frames(*frames);
+            g.menu = None;
+        }
+        Action::DamageAv { of, av, value } | Action::RestoreAv { of, av, value } => {
+            let who = actor_or_player(g, of)?;
+            let code = av_code(g, av)?;
+            let opcode = if matches!(a, Action::DamageAv { .. }) { 0x1181 } else { 0x1182 };
+            call(g, opcode, Some(who), vec![num_arg(code as f64), num_arg(*value)]);
+        }
+        Action::GetAv { of, name, label: l } => {
+            let who = actor_or_player(g, of)?;
+            let code = av_code(g, name)?;
+            obs.insert("value".into(), json!(actor_value(g, who, code)?));
+            lab = l.clone();
+        }
+        Action::SetAv { of, name, value } => {
+            let who = actor_or_player(g, of)?;
+            let code = av_code(g, name)?;
+            call(g, 0x100F, Some(who), vec![num_arg(code as f64), num_arg(*value)]);
+        }
+        Action::AddSpell { of, spell } | Action::RemoveSpell { of, spell } => {
+            let who = actor_or_player(g, of)?;
+            let s = resolve(g, spell)?;
+            if !g.data.effect_items.contains_key(&s) {
+                return Err(format!("{spell} is not a spell"));
+            }
+            let opcode = if matches!(a, Action::AddSpell { .. }) { 0x101C } else { 0x101D };
+            call(g, opcode, Some(who), vec![form_arg(s)]);
+        }
+        Action::SampleAv { of, av, frames, label: l } => {
+            // One sample per frame, read before the frame runs (as sample_items).
+            lab = l.clone();
+            let who = actor_or_player(g, of)?;
+            let code = av_code(g, av)?;
+            let mut vals = Vec::new();
+            let mut times = Vec::new();
+            for _ in 0..*frames {
+                vals.push(actor_value(g, who, code)?);
+                times.push(g.time);
+                g.tick();
+            }
+            let changes = vals.windows(2).filter(|w| w[0] != w[1]).count();
+            obs.insert("changes".into(), json!(changes));
+            if let (Some(&v0), Some(&v1), Some(&t0), Some(&t1)) = (vals.first(), vals.last(), times.first(), times.last()) {
+                if t1 > t0 {
+                    obs.insert("per_second".into(), json!((v1 - v0) / (t1 - t0)));
+                }
+            }
+        }
+        Action::SampleAvDamage { of, av, damage, frames, label: l } => {
+            lab = l.clone();
+            let who = actor_or_player(g, of)?;
+            let code = av_code(g, av)?;
+            let mut vals = Vec::new();
+            for _ in 0..*frames {
+                vals.push(actor_value(g, who, code)?);
+                call(g, 0x1181, Some(who), vec![num_arg(code as f64), num_arg(*damage)]);
+                g.tick();
+            }
+            obs.insert("values".into(), json!(vals));
+        }
+        Action::GoToCell { cell } => {
+            let c = resolve(g, cell)?;
+            if !g.world.placed.by_cell.contains_key(&c) && g.world.placed.world_of(c).is_none() {
+                return Err(format!("{cell:?} is not a cell"));
+            }
+            let pos = coc_destination(g, c)?;
+            {
+                let p = g.world.get(FormId::PLAYER_REF).map_err(|e| e.to_string())?;
+                p.cell = Some(c);
+                p.pos = pos;
+            }
+            g.emit(EventKind::Moved { reference: FormId::PLAYER_REF, cell: Some(c), pos });
+            g.player_entered(Some(c));
+        }
+        Action::SampleJumps { reads, frames, min_step, label: l } => {
+            // Every read once per frame, after the frame's scripts ran.
+            lab = l.clone();
+            if reads.len() < 2 {
+                return Err("sample_jumps needs at least two reads".into());
+            }
+            let mut series: Vec<Vec<f64>> = vec![Vec::new(); reads.len()];
+            for _ in 0..*frames {
+                g.tick();
+                for (k, r) in reads.iter().enumerate() {
+                    series[k].push(jump_value(g, r)?);
+                }
+            }
+            let jump = |s: &[f64]| (1..s.len()).find(|&i| (s[i] - s[i - 1]).abs() >= *min_step);
+            let first = jump(&series[0]);
+            let lags: Vec<Json> = series[1..]
+                .iter()
+                .map(|s| match (first, jump(s)) {
+                    (Some(a), Some(b)) => json!(b as i64 - a as i64),
+                    _ => Json::Null,
+                })
+                .collect();
+            obs.insert("lags".into(), json!(lags));
+        }
         Action::Consume { item, actor, label: l } => {
             let who = match actor {
                 Some(a) => resolve(g, a)?,
@@ -945,6 +1342,7 @@ pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -
     }
     let mut observations = Vec::new();
     let mut steps = Vec::new();
+    let mut st = RunState::default();
     for (i, a) in input.actions.iter().enumerate() {
         let start_frame = g.frame;
         let res = match a {
@@ -1002,7 +1400,7 @@ pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -
                     Err(e) => Err(e),
                 }
             }
-            _ => match step(&mut g, a) {
+            _ => match step(&mut g, &mut st, a) {
                 Ok(Some((l, fields))) => {
                     let mut o = json!({"label": l, "step": i});
                     for (k, v) in fields {
@@ -1079,7 +1477,15 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::GetVar { label, .. }
         | Action::GetRef { label, .. }
         | Action::SampleRefVar { label, .. }
-        | Action::SayFirst { label, .. } => label.clone(),
+        | Action::SayFirst { label, .. }
+        | Action::GetReputation { label, .. }
+        | Action::SetReputationRead { label, .. }
+        | Action::UseItem { label, .. }
+        | Action::WaitAv { label, .. }
+        | Action::GetAv { label, .. }
+        | Action::SampleAv { label, .. }
+        | Action::SampleAvDamage { label, .. }
+        | Action::SampleJumps { label, .. } => label.clone(),
         Action::ActivateRead { label, .. }
         | Action::AddItemRead { label, .. }
         | Action::SampleItems { label, .. }
