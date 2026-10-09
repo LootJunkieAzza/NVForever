@@ -13,7 +13,7 @@
 //! our wording of the GECK wiki) unless tagged otherwise. docs/spec-notes/scripts.md §7
 //! lists every function with its evidence.
 
-mod actor;
+pub(crate) mod actor;
 mod items;
 mod magic;
 mod misc;
@@ -427,7 +427,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x121A, "SetTagSkills", Impl(misc::set_tag_skills)),
         (0x1268, "ShowTraitMenu", Impl(misc::show_trait_menu)),
         (0x10A0, "GetFurnitureMarkerID", Stub("AI (furniture)")),
-        (0x1187, "GetHitLocation", Stub("combat")),
+        (0x1187, "GetHitLocation", Impl(actor::get_hit_location)),
         (0x106E, "GetCurrentAIPackage", Stub("AI packages")),
         (0x108F, "GetCurrentAIProcedure", Stub("AI packages")),
         (0x10A1, "GetIsCurrentPackage", Impl(actor::get_is_current_package)),
@@ -488,7 +488,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1259, "GetForceHitReaction", Stub("combat")),
         (0x1051, "GetArmorRating", Stub("combat (armor rating)")),
         (0x11AC, "GetPlantedExplosive", Stub("combat (explosives)")),
-        (0x124D, "DetonatePlacedExplosives", Stub("combat (explosives)")),
+        (0x124D, "DetonatePlacedExplosives", Impl(actor::detonate_placed_explosives)),
         (0x11EB, "SetVatsTarget", Stub("combat (VATS)")),
         (0x10EB, "GetVATSTargetHeight", Stub("combat (VATS)")),
         (0x10E0, "GetVATSMode", Stub("combat (VATS)")),
@@ -596,6 +596,21 @@ pub(crate) fn none() -> Result<Value, String> {
 }
 
 /// The base form of a reference.
+/// The destruction stage of a reference (−1 without data or damage).
+pub(crate) fn objects_destruction_stage(g: &Game, r: FormId) -> i32 {
+    objects::destruction_stage(g, r)
+}
+
+/// Disable a reference as `Disable` does.
+pub(crate) fn objects_disable(g: &mut Game, r: FormId) {
+    objects::disable_ref(g, r)
+}
+
+/// An actor's current health (Health's permanent part minus its damage).
+pub fn actor_health(g: &mut Game, actor: FormId) -> Result<f64, String> {
+    actor::actor_value(g, actor, crate::combat::HEALTH)
+}
+
 pub(crate) fn base_of(g: &Game, r: FormId) -> Option<FormId> {
     match g.world.peek(r) {
         Some(s) => Some(s.base),

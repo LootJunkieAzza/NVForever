@@ -160,6 +160,7 @@ fn find_target(
     play: Res<PlayWorld>,
     visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
     mut target: ResMut<Target>,
+    script: Option<Res<crate::script::ScriptState>>,
 ) {
     let Some(player) = player else { return };
     let (eye, dir) = (player.eye(), player.look_dir());
@@ -187,7 +188,18 @@ fn find_target(
         Some((r.0, pick::ray_box(o, d, &t, c, h)?))
     });
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
-    let mut describe_once = |id: u32| described.entry(id).or_insert_with(|| describe(&sim, play.index, id)).clone();
+    // A dead actor is searched rather than talked to (combat C5).
+    let mut describe_once = |id: u32| {
+        described
+            .entry(id)
+            .or_insert_with(|| {
+                describe(&sim, play.index, id).map(|(n, a)| match a {
+                    Action::Talk if crate::combat::is_dead(script.as_deref(), id) => (n, Action::Search),
+                    a => (n, a),
+                })
+            })
+            .clone()
+    };
     let picked = pick::choose(hit, bounds, REACH, |id| describe_once(id).is_some());
     let new = picked.and_then(|Pick { form_id, distance, source }| {
         let (name, action) = describe_once(form_id)?;
