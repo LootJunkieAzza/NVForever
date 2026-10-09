@@ -27,6 +27,55 @@ pub struct SetClip {
 #[derive(Default)]
 pub struct ClipSet {
     pub clips: BTreeMap<Move, SetClip>,
+    /// Combat (step C5): death poses held once played (`idleanims\deathpose1.kf`,
+    /// `deathpose2.kf`), and the hit reactions by where the hit landed (step C8, [`FLINCHES`]),
+    /// when the skeleton's folder has them [observed: the `_male` folder does].
+    pub death: Vec<Arc<BoundClip>>,
+    pub flinch: [Option<Arc<BoundClip>>; 6],
+}
+
+impl ClipSet {
+    /// The hit reaction for a hit location (`GetHitLocation` numbering), the torso's when
+    /// the part has none.
+    pub fn flinch_for(&self, location: i32) -> Option<Arc<BoundClip>> {
+        let k = match location {
+            1 | 2 | 13 => 1,
+            3 | 4 => 2,
+            5 | 6 => 3,
+            7..=9 => 4,
+            10..=12 => 5,
+            _ => 0,
+        };
+        self.flinch[k].clone().or_else(|| self.flinch[0].clone())
+    }
+}
+
+/// Death poses and hit reaction looked for in a skeleton's folder (combat C5).
+const DEATH_POSES: [&str; 2] = ["idleanims\\deathpose1.kf", "idleanims\\deathpose2.kf"];
+/// Hit reactions: torso, head, left and right arm, left and right leg [observed: the
+/// `_male\idleanims` names; design: which location plays which].
+const FLINCHES: [&str; 6] = [
+    "idleanims\\mt_hittorso.kf",
+    "idleanims\\mt_hithead.kf",
+    "idleanims\\mt_hitarmleft.kf",
+    "idleanims\\mt_hitarmright.kf",
+    "idleanims\\mt_hitlegleft.kf",
+    "idleanims\\mt_hitlegright.kf",
+];
+
+/// A dead actor (combat C5): the death pose plays once and holds its last frame; without
+/// one, the pose freezes and the body is laid down [design].
+#[derive(Component)]
+pub struct Dying {
+    pub clip: Option<Arc<BoundClip>>,
+    pub t: f32,
+}
+
+/// A hit reaction playing once over the actor's other clips (combat C5).
+#[derive(Component)]
+pub struct Flinch {
+    pub clip: Arc<BoundClip>,
+    pub t: f32,
 }
 
 impl ClipSet {
@@ -61,6 +110,16 @@ impl ClipSet {
                 if unbound.is_empty() { String::new() } else { format!(", unbound {unbound:?}") }
             ));
             set.clips.insert(m, SetClip { bound: Arc::new(bind_clip(skel, clip)), info });
+        }
+        for p in DEATH_POSES {
+            let path = format!("{folder}\\{p}");
+            if let Some(clip) = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten() {
+                set.death.push(Arc::new(bind_clip(skel, clip)));
+            }
+        }
+        for (k, f) in FLINCHES.iter().enumerate() {
+            let path = format!("{folder}\\{f}");
+            set.flinch[k] = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
         }
         let missing: Vec<&str> = Move::ALL.iter().filter(|m| !set.clips.contains_key(m)).map(|m| m.group()).collect();
         let line = format!("{folder} {body:?} {STANCE}: {} clips, missing {missing:?}: {}", set.clips.len(), report.join("; "));
@@ -116,11 +175,14 @@ pub struct ActorAnimCost {
     pub peak: usize,
 }
 
+/// What [`drive`] reads and writes of an actor.
+type ActorAnimParts = (&'static mut Locomotion, &'static mut BlendPlayer, Option<&'static mut crate::weapons::WeaponHold>, Option<&'static mut Dying>, Option<&'static mut Flinch>);
+
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
 /// (`weapons.rs`) layered on top.
 pub fn drive(
     time: Res<Time>,
-    mut actors: Query<(&mut Locomotion, &mut BlendPlayer, Option<&mut crate::weapons::WeaponHold>)>,
+    mut actors: Query<ActorAnimParts>,
     mut transforms: Query<&mut Transform>,
     mut cost: ResMut<ActorAnimCost>,
     mut scratch: Local<Vec<(usize, Transform)>>,
@@ -128,7 +190,18 @@ pub fn drive(
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
     let mut n = 0;
-    for (mut lo, mut player, weapon) in &mut actors {
+    for (mut lo, mut player, weapon, dying, flinch) in &mut actors {
+        if let Some(mut d) = dying {
+            // Dead: the death pose to its end and held; without one the pose stays.
+            let Some(clip) = d.clip.clone() else { continue };
+            let len = clip.clip.length().max(1e-3);
+            d.t = (d.t + dt).min(len);
+            player.layers = Default::default();
+            player.layers[0] = Some(Layer { clip, phase: (d.t / len).min(0.999), weight: 1.0 });
+            cost.tracks += player.pose(&mut scratch, &mut transforms) as u64;
+            n += 1;
+            continue;
+        }
         if !lo.hold {
             lo.step(dt);
         }
@@ -138,6 +211,13 @@ pub fn drive(
                 w.step(dt);
             }
             w.layers(&mut player);
+        }
+        if let Some(mut f) = flinch {
+            let len = f.clip.clip.length().max(1e-3);
+            f.t += dt;
+            if f.t < len {
+                player.layers[3] = Some(Layer { clip: f.clip.clone(), phase: f.t / len, weight: 1.0 });
+            }
         }
         let layers = player.layers.iter().flatten().count() as u64;
         cost.layer_frames += layers;

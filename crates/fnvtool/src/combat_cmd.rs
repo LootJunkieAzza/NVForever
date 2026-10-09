@@ -49,6 +49,33 @@ pub enum CombatCmd {
         #[arg(long)]
         schema: PathBuf,
     },
+    /// The damage of one hit with a weapon under the C2 rules, without and with a
+    /// critical (fnv.combat.damage/1).
+    Damage {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Weapon Editor ID or FormID.
+        #[arg(long)]
+        form: String,
+        #[command(flatten)]
+        fight: crate::combat_sim::Fight,
+    },
+    /// Fire a weapon at a target on an empty range under the C2 rules: hits, criticals,
+    /// reloads, time to kill (fnv.combat.sim/1). Seeded, so runs repeat.
+    Sim {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        #[arg(long)]
+        form: String,
+        #[command(flatten)]
+        fight: crate::combat_sim::Fight,
+        #[command(flatten)]
+        range: crate::combat_sim::Shooting,
+    },
 }
 
 fn load(lo: &LoadOrderArgs, schema: &PathBuf) -> Result<CombatForms> {
@@ -120,6 +147,18 @@ pub fn run(cmd: CombatCmd) -> Result<Value> {
             Ok(json!({"schema": "fnv.combat.form/1", "form": form_json(&c, id)}))
         }
         CombatCmd::Survey { lo, schema } => Ok(survey(&load(&lo, &schema)?)),
+        CombatCmd::Damage { lo, schema, form, fight } => {
+            let c = load(&lo, &schema)?;
+            let id = resolve(&c, &form)?;
+            let ammo = fight.ammo.as_deref().map(|a| resolve(&c, a)).transpose()?;
+            crate::combat_sim::damage_report(&c, id, ammo, &fight)
+        }
+        CombatCmd::Sim { lo, schema, form, fight, range } => {
+            let c = load(&lo, &schema)?;
+            let id = resolve(&c, &form)?;
+            let ammo = fight.ammo.as_deref().map(|a| resolve(&c, a)).transpose()?;
+            crate::combat_sim::sim(&c, id, ammo, &fight, &range)
+        }
     }
 }
 

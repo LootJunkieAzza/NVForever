@@ -1,7 +1,10 @@
 # Combat design: weapons, projectiles, damage, melee
 
-Status 2026-10-09: **design for review; step C1 (data) built** on `claude/combat-data`
-(facts and survey: docs/spec-notes/combat-data.md). Owner requests 2026-10-09:
+Status 2026-10-09: **design for review; steps C1–C8 built**: data, rules, hit volumes, the
+player shooting, damage applied, melee, explosives and destructibles, limb hits (branches
+`claude/combat-data`, `-rules`, `-hitvol`, `-shoot`, `-damage`, `-melee`, `-explosives`,
+`-limbs`; docs/spec-notes/combat-data.md, docs/spec-notes/combat-rules.md §7–12). Owner
+requests 2026-10-09:
 
 1. On top of the player body (docs/design/player-body.md: controls, equipping, drawing and
    holstering), "the actual damage/projectile systems in place for shooting and melee
@@ -532,6 +535,48 @@ engine:
   is how the Mojave's cars blow up, and it uses the same damage path.
 - Thrown weapons arc under gravity as lobbers.
 
+### 5.9 Limb hits (step C8)
+
+Hits land on body parts, damage limbs and cripple them. This is planned as its own
+step after C7, for three reasons. First, it needs bones posed every frame, which the
+single hit capsule avoids. Second, limb damage touches movement, aiming and the HUD
+beyond combat. Third, C5 already passes a hit location everywhere (`GetHitLocation`,
+`HitInfo::location`), so nothing built so far has to change shape.
+
+- **Which parts** [documented: xEdit; observed: record names]:
+  - A creature names its BPTD (CREA `PNAM`). NPCs have no such field; the masters
+    have `DefaultBodyPartData` (FormID 0x1D) and `PlayerBodyPartData` (0x1C)
+    [hypothesis: humans and the player use these].
+  - Each part names its bone, damage multiplier, health percentage, limb-condition
+    actor value and part type (`fnv_combat::data::BodyPart`, read since C1).
+- **Hit volumes:** one capsule per bone segment of each part, posed from the animated
+  skeleton each frame, replacing the single C3 capsule for actors that have parts
+  [design].
+  - Lengths come from the part's bone chain, radii from a share of the actor's size by
+    kind of part [design] (combat-rules.md §12). The skeleton's own collision was not
+    used.
+  - `Owner::Actor` gains the part index.
+- **Damage:**
+  - The part's damage multiplier in §5.3 (head ×2 for most humans [observed: C1
+    survey]).
+  - The location index for `GetHitLocation`.
+  - Damage to the limb's condition actor value (codes 25–31, already in `fnv-game`,
+    starting at 100) scaled by the WEAP Limb Dmg Mult and the "Adjust Limb Damage"
+    perk hook.
+  - The limb is crippled when its condition reaches 0 [hypothesis: condition counts
+    down from 100 by limb damage as a share of the part's health percentage of total
+    health; GECK wiki Body Part: crippled at that share of total health].
+- **Crippled limbs:**
+  - arms: the documented spread penalties (§4.2, already in `spread::actor_spread`)
+    and the melee arm-condition term (already in `damage::hit`);
+  - legs: slower movement [design];
+  - head: a screen effect (the Enum `HitShader` blur) [design; not built in C8].
+  - The HUD shows the limb states.
+- **Later (gore):** severing and exploding limbs by the part's flags, chance and
+  explosion, with debris and limb replacement models.
+- **Tests:** a hit volume per part on a test skeleton, damage multipliers, crippling
+  thresholds, and spread with crippled arms.
+
 ## 6. Where the code goes
 
 | Item | Where |
@@ -576,7 +621,8 @@ Each step is a branch and a PR, reviewed before the next starts.
 | C5 | Damage applied: health, death, script events, death clip, looting the body, kill XP (documented settings, §4.2), HUD. NPC maximum health: C1 lists the masters' health-related game settings [observed]. A small capture job then reads `GetBaseAV Health` for a few dozen NPCs of known level, Endurance and Base Health, and the rule is fitted and checked against it (the AI observer already records Health, ai-observer.md §1) | C4 |
 | C6 | Melee and unarmed, block, power attacks, knockback (documented formula, §4.2) | C5 |
 | C7 | Explosions, thrown weapons, mines, destructible objects (DEST stages) | C5 |
-| later | body-part hit volumes and limb damage; perk entry points (the combat ones listed in §4.2); fatigue and knockdown (fatigue ammo effects included, which do nothing in the original); weapon mods; ammo swap and jamming; impact effects (IPDS → IPCT by collision material: decals, effect models); severed and exploded limbs; ragdolls; audio; VATS or a replacement | |
+| C8 | Limb hits (§5.9): a hit volume per body part, part multipliers, limb condition and crippling, their effects on spread, movement and the HUD | C5; skeleton bones posed per frame |
+| later | perk entry points (the combat ones listed in §4.2); fatigue and knockdown (fatigue ammo effects included, which do nothing in the original); weapon mods; ammo swap and jamming; impact effects (IPDS → IPCT by collision material: decals, effect models); severed and exploded limbs; ragdolls; audio; VATS or a replacement | |
 | Layer 6 AI | NPCs fight back: combat AI using the same attack cycle, detection, factions and hostility, combat styles (CSTY) | C5; actor-behaviour.md |
 
 ## 9. Owner questions

@@ -346,7 +346,8 @@ and reports the intro chain's coverage (scripts.md §7).
 
 `fnvtool combat weapon` (`fnv.combat.weapon/1`), `fnvtool combat form`
 (`fnv.combat.form/1`) and `fnvtool combat survey` (`fnv.combat.survey/1`) are defined in
-docs/spec-notes/combat-data.md §4.
+docs/spec-notes/combat-data.md §4; `fnvtool combat damage` (`fnv.combat.damage/1`) and
+`fnvtool combat sim` (`fnv.combat.sim/1`) in docs/spec-notes/combat-rules.md §6.
 
 # Actor appearance (workstream 5)
 
@@ -379,3 +380,11 @@ docs/spec-notes/actors.md §10.4 together with the creature notes.
 `fnvtool actor weapons` (`fnv.actor.weapons/1`: per stance prefix the holster, equip, aim
 and unequip clips with their `prn:` keys and track priorities, and the weapon each placed
 NPC draws) is defined in docs/spec-notes/actors.md §9.5 together with the weapon notes.
+
+# Navigation (navmeshes)
+
+`fnvtool nav survey` (`fnv.nav.survey/1`), `nav graph` (`fnv.nav.graph/1`), `nav near`
+(`fnv.nav.near/1`), `nav path` (`fnv.nav.path/1`), `nav walk` (`fnv.nav.walk/1`, an
+NPC-sized physics character walking a path) and `nav observed` (`fnv.nav.observed/1`, NPC
+movement recorded in the game against the navmesh) are defined in docs/spec-notes/navmesh.md §6
+together with the navmesh notes.
