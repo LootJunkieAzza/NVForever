@@ -219,9 +219,11 @@ impl PhysWorld {
     /// `pose ∘ node_transform ∘ body_transform`, with the reference's uniform scale baked
     /// into the shapes. Static objects become fixed bodies, keyframed ones
     /// kinematic, dynamic ones dynamic with the object's mass, friction and restitution
-    /// (physics.md §4). Replaces an earlier add of the same reference.
+    /// (physics.md §4). Replaces an earlier add of the same reference's bodies; its placed
+    /// water ([`PhysWorld::add_placed_water`]) is kept, so the two can be added in either
+    /// order.
     pub fn add_ref(&mut self, pose: &RefPose, objects: &[CollisionObject]) -> AddReport {
-        self.remove_ref(pose.form_id);
+        self.remove_bodies(pose.form_id);
         let mut report = AddReport::default();
         let ref_rot = match convert::rotation(&pose.rotation) {
             Ok(r) => r,
@@ -305,9 +307,15 @@ impl PhysWorld {
         self.w.bodies[body].recompute_mass_properties_from_colliders(&self.w.colliders);
     }
 
+    /// Remove a reference from the world: its bodies and its placed water.
     pub fn remove_ref(&mut self, form_id: u32) -> bool {
         let water = self.water.remove_ref(form_id);
-        let Some(bodies) = self.refs.remove(&form_id) else { return water };
+        self.remove_bodies(form_id) || water
+    }
+
+    /// Remove a reference's bodies only.
+    fn remove_bodies(&mut self, form_id: u32) -> bool {
+        let Some(bodies) = self.refs.remove(&form_id) else { return false };
         for b in bodies {
             self.remove_body(b);
         }
