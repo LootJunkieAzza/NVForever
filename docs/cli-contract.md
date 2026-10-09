@@ -328,6 +328,13 @@ collision notes.
 `fnvtool sim doors` (`fnv.sim.doors/1`) are defined in docs/spec-notes/simulation.md §7
 together with the simulation notes.
 
+# Layer 5 (compiled scripts)
+
+`fnvtool script units` (`fnv.script.units/1`), `script decode` (`fnv.script.decode/1`),
+`script decompile` (`fnv.script.decompile/1`, parity lab `L5.script.decode`) and
+`script coverage` (`fnv.script.coverage/1`) are defined in docs/spec-notes/scripts.md §3.5
+together with the bytecode notes.
+
 # Actor appearance (workstream 5)
 
 `fnvtool actor forms` (`fnv.actor.forms/1`), `fnvtool actor appearance`

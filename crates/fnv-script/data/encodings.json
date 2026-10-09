@@ -1,0 +1,78 @@
+{
+  "format": "fnv.script.encodings/1",
+  "note": "Bytecode parameter encodings that are not the default tagged value, and the spellings of enumerated codes. Observed in the ten shipped masters by lining up compiled calls with their source (docs/spec-notes/scripts.md section 2.4); names are the ones shipped source uses. Functions not listed here: every parameter is a tagged value (observed for every other function shipped scripts call). xedit_types: the rule used for functions shipped scripts never call [hypothesis: same encoding as the observed functions with that xEdit parameter type].",
+  "functions": {
+    "0x1004": {"name": "Rotate", "params": ["axis", "value"]},
+    "0x1006": {"name": "GetPos", "params": ["axis"]},
+    "0x1007": {"name": "SetPos", "params": ["axis", "value"]},
+    "0x1008": {"name": "GetAngle", "params": ["axis"]},
+    "0x1009": {"name": "SetAngle", "params": ["axis", "value"]},
+    "0x100E": {"name": "GetActorValue", "params": ["enum:actor_value"]},
+    "0x100F": {"name": "SetActorValue", "params": ["enum:actor_value", "value"]},
+    "0x1010": {"name": "ModActorValue", "params": ["enum:actor_value", "value"]},
+    "0x1013": {"name": "PlayGroup", "params": ["enum:anim_group", "value"]},
+    "0x1046": {"name": "GetIsSex", "params": ["enum:sex"]},
+    "0x1059": {"name": "ShowMessage", "params": ["value"], "trailer": ["format_vars", "int32"]},
+    "0x1083": {"name": "GetPCIsSex", "params": ["enum:sex"]},
+    "0x1100": {"name": "GetGameSetting", "params": ["string"]},
+    "0x110E": {"name": "ForceActorValue", "params": ["enum:actor_value", "value"]},
+    "0x1114": {"name": "PlayBink", "params": ["string", "value", "value", "value", "value"]},
+    "0x1115": {"name": "GetBaseActorValue", "params": ["enum:actor_value"]},
+    "0x1128": {"name": "IsAnimPlaying", "params": ["enum:anim_group"]},
+    "0x1137": {"name": "ModPCMiscStat", "params": ["enum:misc_stat", "value"]},
+    "0x1138": {"name": "GetPCMiscStat", "params": ["enum:misc_stat"]},
+    "0x1181": {"name": "DamageActorValue", "params": ["enum:actor_value", "value"]},
+    "0x1182": {"name": "RestoreActorValue", "params": ["enum:actor_value", "value"]},
+    "0x1190": {"name": "PlayIdle", "params": ["string"]},
+    "0x11A7": {"name": "PipBoyRadio", "params": ["string", "value"]},
+    "0x11B9": {"name": "ShowWarning", "params": ["string"], "trailer": ["format_vars"]},
+    "0x11BF": {"name": "DisableNavmesh", "params": ["string"]},
+    "0x11C0": {"name": "EnableNavMesh", "params": ["string"]},
+    "0x11CD": {"name": "SetPlayerTagSkill", "params": ["enum:actor_value", "value"]},
+    "0x11CE": {"name": "IsPlayerTagSkill", "params": ["enum:actor_value"]},
+    "0x11E7": {"name": "SexChange", "params": ["enum:sex", "value"]},
+    "0x11EF": {"name": "GetPermanentActorValue", "params": ["enum:actor_value"]},
+    "0x1212": {"name": "SetCriticalStage", "params": ["enum:critical_stage"]},
+    "0x1213": {"name": "IsInCriticalStage", "params": ["enum:critical_stage"]},
+    "0x1248": {"name": "SetSecuritronExpression", "params": ["value", "string", "string"]},
+    "0x1269": {"name": "SwapTexture", "params": ["value", "string", "string"]},
+    "0x126F": {"name": "IsDLCInstalled", "params": ["string"]}
+  },
+  "xedit_types": {
+    "ptActorValue": "enum:actor_value",
+    "ptAxis": "axis",
+    "ptSex": "enum:sex",
+    "ptMiscStat": "enum:misc_stat",
+    "ptCriticalStage": "enum:critical_stage"
+  },
+  "enums": {
+    "actor_value": {
+      "0": "Aggression", "1": "Confidence", "5": "Strength", "6": "Perception", "7": "Endurance",
+      "8": "Charisma", "9": "Intelligence", "10": "Agility", "11": "Luck", "12": "ActionPoints",
+      "16": "Health", "17": "MeleeDamage", "18": "DamageResist", "20": "RadResist", "21": "SpeedMult",
+      "22": "Fatigue", "23": "Karma", "24": "XP", "25": "PerceptionCondition",
+      "26": "EnduranceCondition", "27": "LeftAttackCondition", "28": "RightAttackCondition",
+      "29": "LeftMobilityCondition", "30": "RightMobilityCondition", "31": "BrainCondition",
+      "32": "Barter", "33": "BigGuns", "34": "EnergyWeapons", "35": "Explosives", "36": "Lockpick",
+      "37": "Medicine", "38": "MeleeWeapons", "39": "Repair", "40": "Science", "41": "Guns",
+      "42": "Sneak", "43": "Speech", "44": "Survival", "45": "Unarmed", "50": "NightEye",
+      "54": "RadiationRads", "55": "BloodyMess", "56": "UnarmedDamage", "57": "Assistance",
+      "62": "Variable01", "63": "Variable02", "64": "Variable03", "65": "Variable04",
+      "66": "Variable05", "68": "Variable07", "71": "Variable10", "74": "Hunger",
+      "75": "SleepDeprevation"
+    },
+    "anim_group": {
+      "0": "Idle", "2": "SpecialIdle", "3": "Forward", "4": "Backward", "5": "Left", "6": "Right",
+      "7": "FastForward", "8": "FastBackward", "9": "FastLeft", "10": "FastRight", "15": "TurnLeft",
+      "17": "Aim", "24": "Equip", "25": "Unequip"
+    },
+    "sex": {"0": "Male", "1": "Female"},
+    "misc_stat": {
+      "1": "Locations Discovered", "10": "Times Addicted", "20": "Sandman Kills",
+      "22": "Robots Disabled", "24": "Corpses Eaten"
+    },
+    "critical_stage": {
+      "0": "None", "1": "GooStart", "2": "GooEnd", "3": "DisintegrateStart", "4": "DisintegrateEnd"
+    }
+  }
+}
