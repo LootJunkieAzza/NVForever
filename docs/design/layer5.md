@@ -15,14 +15,22 @@ Status 2026-10-09 (evening): **5A, 5B, 5C and 5D merged**, with follow-ups.
   `fnvtool script run` passes 24 of 28 `L5.*` scenarios. Three rounds of in-game
   captures are included (#55, #61, #73), and #66 brings uses handled to 99.98%. The three `delay_*` misses come from inputs that lack a quest
   stage (an owner decision), and the fourth is `L5.script.decode`.
-- **Headless intro chain:** VCG00 and VCG01 complete, VCG02 reaches stage 50 and VCG03
-  its objectives 10–40, all with scripted stand-ins for dialogue, packages and combat.
+- **Round 4 runtime** (intro quest): menus, modal message boxes and dialogue lines
+  (SayTo/Say with Say Once, begin/end result scripts, a fitted line length), the
+  GetSecondsPassed rule the intro captures showed, and the round 4 runner operations.
+  `fnvtool script run` passes 28 of 32 `L5.*` scenarios: the four `L5.intro.*` (holdout
+  included) pass; the four known fails remain (docs/spec-notes/scripts.md §7.7, §8).
+- **Headless intro chain:** from the facts of the new-game save `nvfnew`, the game's own
+  timers, Doc Mitchell's lines and the menus drive VCG00 90 to VCG01 200; stand-ins are
+  left for the player's own actions (menus' OK, two triggers, the couch, the psych test
+  and farewell dialogue). VCG02 reaches stage 50 and VCG03 completes with stand-ins for
+  dialogue, packages and combat (scripts.md §9, with the timeline against the capture).
 - **In the game** (#62): quest and object scripts run in `nvforever --play`
   (docs/design/layer5-play.md).
 
 What's left for M5 is mostly Layer 6: a dialogue screen, AI packages, combat, the
-character-creation menus, a new-game start in Doc's bed, and a capture of VCG01 from a
-new-game save. Decisions taken while the owner was away are listed in
+character-creation menus' contents and a new-game start in Doc's bed. VCG01 was
+captured from the new-game save `nvfnew` (layer5-captures.md §10). Decisions taken while the owner was away are listed in
 `docs/owner-review.md`.
 
 ## 1. Summary and assumptions
@@ -256,6 +264,9 @@ export, 2026-10-09), cross-checked against the captures: `docs/spec-notes/quests
 The base-game script language from the wiki's scripting pages, with its differences from
 the captures and the runtime: `docs/spec-notes/script-language.md`; AI packages,
 detection, factions and idles for Layer 6: `docs/spec-notes/actor-behaviour.md`.
+Trigger volumes (who fires them, OnTrigger every frame), three-actor conversations and
+encounter zones from Bethesda's GECK tutorials: `docs/spec-notes/level-design.md` §4, §6,
+§9, with the differences from `nvf-play` in its §11.2 (rows T1-T6).
 
 ## 7. Workstreams
 
