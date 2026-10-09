@@ -169,7 +169,8 @@ fn find_target(
         filter.exclude_layers.insert(layers::TRIGGER);
         let h = p.world.queries().ray(eye, dir, REACH, &filter)?;
         let form_id = match h.owner {
-            Owner::Ref { form_id, .. } => Some(form_id),
+            // An actor's hit volume (combat C3) targets the actor.
+            Owner::Ref { form_id, .. } | Owner::Actor { form_id, .. } => Some(form_id),
             _ => None,
         };
         Some(RayHit { form_id, distance: h.distance })
