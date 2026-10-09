@@ -295,15 +295,7 @@ pub enum TriggerKind {
 
 impl TriggerShape {
     pub fn contains(&self, p: [f32; 3]) -> bool {
-        let d = [p[0] - self.pos[0], p[1] - self.pos[1], p[2] - self.pos[2]];
-        let s = if self.scale > 0.0 { self.scale } else { 1.0 };
-        // local = Rᵀ d / scale
-        let r = &self.rot;
-        let l = [
-            (r[0] * d[0] + r[3] * d[1] + r[6] * d[2]) / s,
-            (r[1] * d[0] + r[4] * d[1] + r[7] * d[2]) / s,
-            (r[2] * d[0] + r[5] * d[1] + r[8] * d[2]) / s,
-        ];
+        let l = self.local(p);
         match self.kind {
             TriggerKind::Box { half_extents: h } => (0..3).all(|i| l[i].abs() <= h[i]),
             TriggerKind::Sphere { radius } => l.iter().map(|v| v * v).sum::<f32>() <= radius * radius,
@@ -311,23 +303,107 @@ impl TriggerShape {
     }
 }
 
-/// The points of the player tested against trigger volumes: just above the feet, the
-/// middle and the eye [hypothesis: the game tests the actor's collision capsule; points
-/// along its axis are a stand-in].
-pub fn player_points(feet: [f32; 3], eye_height: f32) -> [[f32; 3]; 3] {
-    let at = |h: f32| [feet[0], feet[1], feet[2] + h];
-    [at(5.0), at(eye_height * 0.5), at(eye_height)]
+/// An actor's collision capsule for trigger tests: upright, from the feet up to `height`,
+/// of `radius` (the hemispheres included) [hypothesis: the game tests the actor's
+/// collision object against the volume, docs/spec-notes/level-design.md §11.2 T2; the
+/// sizes are `fnv_phys::CharacterParams`'s placeholders].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Capsule {
+    pub feet: [f32; 3],
+    pub radius: f32,
+    pub height: f32,
 }
 
-/// Trigger transitions between two frames: entered, still inside, left.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct TriggerChanges {
-    pub entered: Vec<FormId>,
-    pub inside: Vec<FormId>,
-    pub left: Vec<FormId>,
+impl Capsule {
+    /// The capsule's axis: the centres of its two hemispheres (one point when it is no
+    /// taller than it is wide).
+    pub fn axis(&self) -> ([f32; 3], [f32; 3]) {
+        let r = self.radius.max(0.0);
+        let (lo, hi) = if self.height > 2.0 * r { (r, self.height - r) } else { (self.height * 0.5, self.height * 0.5) };
+        let at = |h: f32| [self.feet[0], self.feet[1], self.feet[2] + h];
+        (at(lo), at(hi))
+    }
 }
 
-pub fn trigger_changes(before: &BTreeSet<FormId>, now: &BTreeSet<FormId>) -> TriggerChanges {
+impl TriggerShape {
+    /// A point in the volume's own frame (unscaled).
+    fn local(&self, p: [f32; 3]) -> [f32; 3] {
+        let d = [p[0] - self.pos[0], p[1] - self.pos[1], p[2] - self.pos[2]];
+        let s = self.scale_or_one();
+        let r = &self.rot;
+        [
+            (r[0] * d[0] + r[3] * d[1] + r[6] * d[2]) / s,
+            (r[1] * d[0] + r[4] * d[1] + r[7] * d[2]) / s,
+            (r[2] * d[0] + r[5] * d[1] + r[8] * d[2]) / s,
+        ]
+    }
+
+    fn scale_or_one(&self) -> f32 {
+        if self.scale > 0.0 {
+            self.scale
+        } else {
+            1.0
+        }
+    }
+
+    /// Whether an actor's capsule overlaps the volume (touching counts).
+    pub fn touches(&self, c: &Capsule) -> bool {
+        let (a, b) = c.axis();
+        let (a, b) = (self.local(a), self.local(b));
+        let r = c.radius.max(0.0) / self.scale_or_one();
+        let at = |t: f32| [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+        match self.kind {
+            TriggerKind::Sphere { radius } => {
+                // Closest point of the axis to the centre (the local origin).
+                let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                let len2: f32 = ab.iter().map(|v| v * v).sum();
+                let t = if len2 > 0.0 { (-(a[0] * ab[0] + a[1] * ab[1] + a[2] * ab[2]) / len2).clamp(0.0, 1.0) } else { 0.0 };
+                let p = at(t);
+                let d2: f32 = p.iter().map(|v| v * v).sum();
+                let reach = radius + r;
+                d2 <= reach * reach
+            }
+            TriggerKind::Box { half_extents: h } => {
+                // The distance from a point of the axis to the box is convex along the
+                // axis: a golden-section search finds its minimum.
+                let dist2 = |t: f32| -> f32 {
+                    let p = at(t);
+                    (0..3).map(|i| (p[i].abs() - h[i]).max(0.0)).map(|v| v * v).sum()
+                };
+                let (mut lo, mut hi) = (0.0f32, 1.0f32);
+                const G: f32 = 0.618_034;
+                let (mut x1, mut x2) = (hi - G * (hi - lo), lo + G * (hi - lo));
+                let (mut f1, mut f2) = (dist2(x1), dist2(x2));
+                for _ in 0..40 {
+                    if f1 <= f2 {
+                        hi = x2;
+                        (x2, f2) = (x1, f1);
+                        x1 = hi - G * (hi - lo);
+                        f1 = dist2(x1);
+                    } else {
+                        lo = x1;
+                        (x1, f1) = (x2, f2);
+                        x2 = lo + G * (hi - lo);
+                        f2 = dist2(x2);
+                    }
+                }
+                let best = [dist2(0.0), dist2(1.0), f1, f2].into_iter().fold(f32::INFINITY, f32::min);
+                best <= r * r + 1e-4
+            }
+        }
+    }
+}
+
+/// Trigger transitions between two frames, per (trigger, actor) pair: entered, still
+/// inside (the entering frame included), left.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TriggerChanges<T> {
+    pub entered: Vec<T>,
+    pub inside: Vec<T>,
+    pub left: Vec<T>,
+}
+
+pub fn trigger_changes<T: Ord + Copy>(before: &BTreeSet<T>, now: &BTreeSet<T>) -> TriggerChanges<T> {
     TriggerChanges {
         entered: now.difference(before).copied().collect(),
         inside: now.iter().copied().collect(),
@@ -338,7 +414,8 @@ pub fn trigger_changes(before: &BTreeSet<FormId>, now: &BTreeSet<FormId>) -> Tri
 // ---- the script test aid -------------------------------------------------------------------
 
 /// One step of `NVF_PLAY_TEST_SCRIPT` (stand-ins for what Layer 6 and the player will
-/// drive: dialogue lines, quest starts, message-box buttons).
+/// drive: dialogue lines, quest starts, message-box buttons, menus, walking into a
+/// trigger).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScriptAid {
     /// `start:<quest>`: StartQuest.
@@ -349,36 +426,79 @@ pub enum ScriptAid {
     Stage(String, i32),
     /// `objective:<quest>:<index>`: SetObjectiveDisplayed 1.
     Objective(String, i32),
-    /// `info:<INFO>`: a dialogue line is said (its result scripts run; conditions are
-    /// not required), as `fnvtool script run`'s `say_info` with `force`.
-    Info(String),
+    /// `objective_done:<quest>:<index>`: SetObjectiveCompleted 1.
+    ObjectiveDone(String, i32),
+    /// `info:<INFO>[:<speaker>]`: a dialogue line is said (its result scripts run;
+    /// conditions are not required), as `fnvtool script run`'s `say_info` with `force`.
+    Info(String, Option<String>),
     /// `button:<n>`: the player picks button n (0 = first) of the open message box.
     Button(i32),
+    /// `close`: the player closes the open menu or message box (OK / Done).
+    Close,
     /// `var:<quest or reference>:<variable>:<value>`: sets a script variable.
     Var(String, String, f64),
+    /// `walk:<reference>`: the player's feet are put on the floor under the reference (a
+    /// trigger volume's centre), a stand-in for walking there.
+    Walk(String),
+    /// `activate:<reference>`: the player activates the reference by hand (E), wherever
+    /// the crosshair is.
+    Activate(String),
 }
 
-/// Parse `<seconds>:<op>[:<args>]` items separated by commas. Names are Editor IDs, hex
-/// FormIDs or `player`, resolved when the step runs.
-pub fn parse_aids(v: &str) -> Result<Vec<(f32, ScriptAid)>, String> {
-    crate::test_aid::timed(v)?
-        .into_iter()
-        .map(|(t, rest)| {
+/// When a test-aid step runs: `at` seconds after the start, or, with `after`, `at`
+/// seconds after the frame in which that quest stage was first seen done.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimedAid {
+    pub at: f32,
+    pub after: Option<(String, i32)>,
+    pub aid: ScriptAid,
+}
+
+/// Parse `<when>:<op>[:<args>]` items separated by commas; `<when>` is `<seconds>` or
+/// `<seconds>@<quest>=<stage>`. Names are Editor IDs, hex FormIDs, `player` or the
+/// runner's `scripted:<SCPT>` / `placed:<base>`, resolved when the step runs.
+pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
+    v.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|item| {
+            let (when, rest) = item.split_once(':').ok_or_else(|| format!("{item:?}: expected <seconds>:..."))?;
+            let (t, after) = match when.split_once('@') {
+                Some((t, gate)) => {
+                    let (q, s) = gate.split_once('=').ok_or_else(|| format!("{item:?}: expected <seconds>@<quest>=<stage>"))?;
+                    let s = s.trim().parse::<i32>().map_err(|_| format!("{item:?}: bad stage {s:?}"))?;
+                    (t, Some((q.trim().to_string(), s)))
+                }
+                None => (when, None),
+            };
+            let at: f32 = t.trim().parse().map_err(|_| format!("{item:?}: bad seconds {t:?}"))?;
+            let rest = rest.trim();
             let parts: Vec<&str> = rest.split(':').map(str::trim).collect();
             let int = |s: &str| s.parse::<i32>().map_err(|_| format!("{rest:?}: bad number {s:?}"));
+            // A reference name may hold colons itself (`scripted:<SCPT>`, `placed:<base>`).
+            let whole = rest.split_once(':').map(|(_, r)| r.trim().to_string());
             let aid = match parts.as_slice() {
+                ["walk", _, ..] => ScriptAid::Walk(whole.unwrap_or_default()),
+                ["activate", _, ..] => ScriptAid::Activate(whole.unwrap_or_default()),
                 ["start", q] => ScriptAid::Start(q.to_string()),
                 ["stop", q] => ScriptAid::Stop(q.to_string()),
                 ["stage", q, s] => ScriptAid::Stage(q.to_string(), int(s)?),
                 ["objective", q, i] => ScriptAid::Objective(q.to_string(), int(i)?),
-                ["info", i] => ScriptAid::Info(i.to_string()),
+                ["objective_done", q, i] => ScriptAid::ObjectiveDone(q.to_string(), int(i)?),
+                ["info", i] => ScriptAid::Info(i.to_string(), None),
+                ["info", i, sp] => ScriptAid::Info(i.to_string(), Some(sp.to_string())),
                 ["button", b] => ScriptAid::Button(int(b)?),
+                ["close"] => ScriptAid::Close,
                 ["var", of, var, value] => {
                     ScriptAid::Var(of.to_string(), var.to_string(), value.parse().map_err(|_| format!("{rest:?}: bad value {value:?}"))?)
                 }
-                _ => return Err(format!("{rest:?}: expected start:, stop:, stage:, objective:, info:, button: or var:")),
+                _ => {
+                    return Err(format!(
+                        "{rest:?}: expected start:, stop:, stage:, objective:, objective_done:, info:, button:, close, var:, walk: or activate:"
+                    ))
+                }
             };
-            Ok((t, aid))
+            Ok(TimedAid { at, after, aid })
         })
         .collect()
 }
@@ -491,7 +611,7 @@ mod tests {
         // A locked door says so.
         let locked = Activation { outcome: Outcome::Locked { level: 255 }, unlocked_with: None, script: None };
         let e = run(vec![EventKind::Activated { reference: DOOR, by: FormId::PLAYER_REF, outcome: Some(serde_json::to_value(&locked).unwrap()) }]);
-        assert_eq!(e, vec![ScriptEffect::Notify("Gate is locked (requires a key)".into())]);
+        assert_eq!(e, vec![ScriptEffect::Notify("Gate is locked (Requires Key)".into())]);
     }
 
     #[test]
@@ -572,8 +692,7 @@ mod tests {
             scale: 1.0,
             kind: TriggerKind::Box { half_extents: [216.0, 92.8, 100.0] },
         };
-        let inside = player_points([1888.0, 1834.0, 7360.0], 112.0);
-        assert!(inside.iter().all(|&p| t.contains(p)));
+        assert!(t.contains([1888.0, 1834.0, 7400.0]));
         assert!(!t.contains([1888.0, 1950.0, 7400.0]));
         assert!(!t.contains([2110.0, 1834.0, 7400.0]));
         // Turned a quarter: the long side now runs along y.
@@ -595,23 +714,82 @@ mod tests {
     }
 
     #[test]
+    fn capsules_against_volumes() {
+        let t = TriggerShape {
+            pos: [1888.46, 1834.89, 7460.0],
+            rot: ref_rotation([0.0; 3]),
+            scale: 1.0,
+            kind: TriggerKind::Box { half_extents: [216.0, 92.8, 100.0] },
+        };
+        let cap = |x: f32, y: f32, z: f32| Capsule { feet: [x, y, z], radius: 22.0, height: 128.0 };
+        // Standing on the floor in the middle.
+        assert!(t.touches(&cap(1888.0, 1834.0, 7360.0)));
+        // The axis is 10 units outside the long side, the capsule's side 12 inside: the
+        // three points on the axis missed this one.
+        let y = 1834.89 + 92.8 + 10.0;
+        assert!(t.touches(&cap(1888.0, y, 7360.0)));
+        assert!(!t.contains([1888.0, y, 7365.0]) && !t.contains([1888.0, y, 7416.0]));
+        // 23 units outside: no contact.
+        assert!(!t.touches(&cap(1888.0, 1834.89 + 92.8 + 23.0, 7360.0)));
+        // Under the box: the head reaches it only from 128 units below its floor.
+        assert!(t.touches(&cap(1888.0, 1834.0, 7360.0 - 127.0)));
+        assert!(!t.touches(&cap(1888.0, 1834.0, 7360.0 - 129.0)));
+        // Past a corner: the hemispheres are round.
+        let (cx, cy) = (1888.46 + 216.0, 1834.89 + 92.8);
+        assert!(t.touches(&cap(cx + 15.0, cy + 15.0, 7360.0)));
+        assert!(!t.touches(&cap(cx + 16.0, cy + 16.0, 7360.0)));
+        // A turned box.
+        let q = TriggerShape { rot: ref_rotation([0.0, 0.0, std::f32::consts::FRAC_PI_2]), ..t };
+        assert!(q.touches(&cap(1888.0, 1834.0 + 230.0, 7360.0)));
+        assert!(!q.touches(&cap(1888.0 + 230.0, 1834.0, 7360.0)));
+        // A sphere of radius 50 at the box's centre.
+        let ball = TriggerShape { kind: TriggerKind::Sphere { radius: 50.0 }, ..t };
+        assert!(ball.touches(&cap(1888.46 + 71.0, 1834.89, 7400.0)));
+        assert!(!ball.touches(&cap(1888.46 + 73.0, 1834.89, 7400.0)));
+        // From above: the capsule's lowest point is its feet.
+        assert!(ball.touches(&cap(1888.46, 1834.89, 7460.0 + 49.0)));
+        assert!(!ball.touches(&cap(1888.46, 1834.89, 7460.0 + 51.0)));
+        // Scale grows both the volume and how far the capsule reaches into it.
+        let s = TriggerShape { scale: 2.0, ..ball };
+        assert!(s.touches(&cap(1888.46 + 121.0, 1834.89, 7400.0)));
+        assert!(!s.touches(&cap(1888.46 + 123.0, 1834.89, 7400.0)));
+        // Pairs of (trigger, actor).
+        let before = BTreeSet::from([(FormId(1), FormId(7)), (FormId(1), FormId(8))]);
+        let now = BTreeSet::from([(FormId(1), FormId(8)), (FormId(2), FormId(7))]);
+        let ch = trigger_changes(&before, &now);
+        assert_eq!(ch.entered, vec![(FormId(2), FormId(7))]);
+        assert_eq!(ch.inside, vec![(FormId(1), FormId(8)), (FormId(2), FormId(7))]);
+        assert_eq!(ch.left, vec![(FormId(1), FormId(7))]);
+    }
+
+    #[test]
     fn script_aids_parse() {
-        let a = parse_aids("3:start:VCG00, 4.5:stage:VCG01:60,5:objective:0x104C1C:30,6:info:0x00105599,7:button:1,8:var:0x0010E195:playerpassport:1,9:stop:VCG00")
-            .unwrap();
+        let a = parse_aids(
+            "3:start:VCG00, 4.5:stage:VCG01:60,5:objective:0x104C1C:30,6:info:0x00105599,7:button:1,8:var:0x0010E195:playerpassport:1,9:stop:VCG00,             2@VCG01=55:walk:scripted:0x00104C02, 0.5@VCG01=60:activate:VCG01VigorTesterREF, 1:close, 1:objective_done:VCG01:40, 2:info:0x001057E8:DocMitchellREF",
+        )
+        .unwrap();
+        let at = |t: f32, aid: ScriptAid| TimedAid { at: t, after: None, aid };
         assert_eq!(
             a,
             vec![
-                (3.0, ScriptAid::Start("VCG00".into())),
-                (4.5, ScriptAid::Stage("VCG01".into(), 60)),
-                (5.0, ScriptAid::Objective("0x104C1C".into(), 30)),
-                (6.0, ScriptAid::Info("0x00105599".into())),
-                (7.0, ScriptAid::Button(1)),
-                (8.0, ScriptAid::Var("0x0010E195".into(), "playerpassport".into(), 1.0)),
-                (9.0, ScriptAid::Stop("VCG00".into())),
+                at(3.0, ScriptAid::Start("VCG00".into())),
+                at(4.5, ScriptAid::Stage("VCG01".into(), 60)),
+                at(5.0, ScriptAid::Objective("0x104C1C".into(), 30)),
+                at(6.0, ScriptAid::Info("0x00105599".into(), None)),
+                at(7.0, ScriptAid::Button(1)),
+                at(8.0, ScriptAid::Var("0x0010E195".into(), "playerpassport".into(), 1.0)),
+                at(9.0, ScriptAid::Stop("VCG00".into())),
+                TimedAid { at: 2.0, after: Some(("VCG01".into(), 55)), aid: ScriptAid::Walk("scripted:0x00104C02".into()) },
+                TimedAid { at: 0.5, after: Some(("VCG01".into(), 60)), aid: ScriptAid::Activate("VCG01VigorTesterREF".into()) },
+                at(1.0, ScriptAid::Close),
+                at(1.0, ScriptAid::ObjectiveDone("VCG01".into(), 40)),
+                at(2.0, ScriptAid::Info("0x001057E8".into(), Some("DocMitchellREF".into()))),
             ]
         );
         assert!(parse_aids("3:stage:VCG01").is_err());
         assert!(parse_aids("3:jump").is_err());
         assert!(parse_aids("x:start:VCG00").is_err());
+        assert!(parse_aids("3@VCG01:close").is_err());
+        assert!(parse_aids("3@VCG01=x:close").is_err());
     }
 }

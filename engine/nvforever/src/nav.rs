@@ -1,7 +1,8 @@
 //! NPCs travelling on the navmesh (docs/design/navmesh.md §5): `--npc-travel
 //! ACTOR=TARGET` plans a path over the load order's nav graph (`fnv-nav`) and walks the
-//! actor along it, through doors into other spaces, playing the walk cycle while it
-//! moves and its idle when it stands. `--follow-npc` puts the free camera behind the
+//! actor along it, through doors into other spaces; its locomotion (`locomotion.rs`)
+//! picks and blends the walk, turn and idle clips from the velocity and turn rate set
+//! here. `--follow-npc` puts the free camera behind the
 //! first traveller (streaming and door travel follow it); `--show-navmesh` draws the
 //! navmesh near the camera and the travellers' paths.
 //!
@@ -10,17 +11,16 @@
 //! headlessly by `fnvtool nav walk`. Behaviour (what an actor does on arrival, speeds) is
 //! an engine choice until AI packages exist (Layer 6).
 
-use crate::actors::{idle_clip, ActorWorld, Spawned};
+use crate::actors::ActorWorld;
+use crate::locomotion::Locomotion;
 use crate::world::{Streamer, WorldData, WorldRoot};
 use bevy::prelude::*;
 use fnv_nav::graph::{EdgeKind, NONE};
 use fnv_nav::{NavGraph, NavRecords, PathParams, Place, Space, Steer, WalkEvent, Walker};
 use fnv_sim::RefTable;
-use nvf_assets::actor::{play_on_actor, ActorCtx, ActorParts};
-use nvf_assets::anim_play::Clip;
+use nvf_assets::actor::{ActorCtx, ActorParts};
 use nvf_assets::model::ModelCtx;
-use std::collections::HashMap;
-use std::sync::Arc;
+use nvf_play::RefVisual;
 
 /// Walking speed of travellers, game units per second: the player's observed walking
 /// speed [observed: physics.md §6.3]; NPC speeds are not captured [hypothesis].
@@ -33,18 +33,15 @@ pub struct Traveller {
     pub label: String,
     pub target_label: String,
     pub walker: Walker,
-    /// Drawn: the actor's entities and skeleton, while its space is the one drawn.
-    visual: Option<Spawned>,
-    /// The clip playing: walking or standing.
-    walking: Option<bool>,
+    /// Drawn while its space is the one drawn: spawned (`true` once asked), and the
+    /// actor's root entity once found.
+    spawned: bool,
+    root: Option<Entity>,
     pub started: Option<f32>,
     pub arrived: Option<f32>,
     pub failed: Option<String>,
     next_report: f32,
 }
-
-/// Prepared walk clips and their stride speeds, by path (`None`: not found).
-type WalkClips = HashMap<String, Option<(Arc<Clip>, Option<f32>)>>;
 
 #[derive(Resource)]
 pub struct NavState {
@@ -52,9 +49,6 @@ pub struct NavState {
     pub travellers: Vec<Traveller>,
     pub show: bool,
     pub follow: bool,
-    /// Walk clips with their accumulated motion taken out, and the speed (units per
-    /// second) the clip's stride covers at its own frequency, by path.
-    clips: WalkClips,
     /// Smoothed chase-camera position, game space.
     cam: Option<Vec3>,
     /// The camera follows the first traveller into another space: travel asked for.
@@ -164,8 +158,8 @@ impl NavState {
                     label,
                     target_label,
                     walker,
-                    visual: None,
-                    walking: None,
+                    spawned: false,
+                    root: None,
                     started: None,
                     arrived: None,
                     failed,
@@ -173,69 +167,14 @@ impl NavState {
                 });
             }
         }
-        Ok(NavState { graph, travellers, show, follow, clips: HashMap::new(), cam: None, travel_asked: false, startup })
+        Ok(NavState { graph, travellers, show, follow, cam: None, travel_asked: false, startup })
     }
 }
 
-/// The walk clip beside `skeleton` for the actor's sex, prepared to play in place
-/// ([`in_place`]), cached by path in `clips`.
-fn walk_clip(clips: &mut WalkClips, ctx: &mut ActorCtx, skeleton: &str, female: bool) -> Option<(Arc<Clip>, Option<f32>)> {
-    let path = walk_clip_path(skeleton, female);
-    if let Some(c) = clips.get(&path) {
-        return c.clone();
-    }
-    let c = ctx.clip(&path).map(|c| {
-        let (clip, speed) = in_place(&c);
-        match speed {
-            Some(v) => info!("nav: walk clip {path}: stride covers {v:.1} units/s at its own rate"),
-            None => info!("nav: walk clip {path}: no accumulated motion; played at its own rate"),
-        }
-        (Arc::new(clip), speed)
-    });
-    if c.is_none() {
-        warn!("nav: walk clip {path} not found");
-    }
-    clips.insert(path, c.clone());
-    c
-}
-
-/// `locomotion\male\mtforward.kf` (or `female\`) in the skeleton's folder [observed:
-/// `characters\_male\locomotion\male\mtforward.kf` and `...\female\mtforward.kf` in
-/// `Fallout - Meshes.bsa`; that the game picks them by the actor's sex is [hypothesis]].
-pub fn walk_clip_path(skeleton: &str, female: bool) -> String {
-    let idle = idle_clip(skeleton);
-    let dir = idle.strip_suffix("mtidle.kf").unwrap_or(&idle);
-    format!("{dir}{}\\mtforward.kf", if female { "female" } else { "male" })
-}
-
-/// A copy of `clip` whose accumulation root does not travel: the drift of its
-/// translation from the clip's start to its end is taken out, keeping the bob and sway.
-/// Returns the speed the drift covers at the clip's own frequency (`None` when the root
-/// has no translation keys) [engine choice: the walker moves the actor; the clip only
-/// animates it in place].
-pub fn in_place(clip: &Clip) -> (Clip, Option<f32>) {
-    let mut out = clip.clone();
-    let span = clip.stop - clip.start;
-    let Some(root) = clip.accum_root.as_deref() else { return (out, None) };
-    let Some((_, track)) = out.tracks.iter_mut().find(|(n, _)| n == root) else { return (out, None) };
-    let fnv_nif::anim::Channel::Keys(keys) = &track.translation else { return (out, None) };
-    let (Some(a), Some(b)) = (track.translation.sample(clip.start), track.translation.sample(clip.stop)) else { return (out, None) };
-    if span <= 0.0 || keys.keys.len() < 2 {
-        return (out, None);
-    }
-    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-    let mut keys = keys.clone();
-    for k in &mut keys.keys {
-        let s = (k.time - clip.start) / span;
-        for (v, d) in k.value.iter_mut().zip(d) {
-            *v -= d * s;
-        }
-    }
-    let mut t = (**track).clone();
-    t.translation = fnv_nif::anim::Channel::Keys(keys);
-    *track = Arc::new(t);
-    let speed = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() / span * clip.frequency;
-    (out, (speed > 1.0).then_some(speed))
+/// The compass heading a root transform faces (its rotation about z, clockwise).
+fn tr_heading(t: &Transform) -> f32 {
+    let f = t.rotation * Vec3::Y;
+    f.x.atan2(f.y)
 }
 
 /// Game space to the Bevy space the camera lives in (the world root's rotation).
@@ -275,7 +214,8 @@ pub fn drive(
     mut parts: ResMut<ActorParts>,
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
-    mut transforms: Query<&mut Transform>,
+    roots: Query<(Entity, &RefVisual, &ChildOf)>,
+    mut actors: Query<(&mut Transform, Option<&mut Locomotion>)>,
     mut travel: MessageWriter<nvf_play::Travel>,
 ) {
     let Ok(root) = root.single() else { return };
@@ -351,54 +291,48 @@ pub fn drive(
             }
             _ => {}
         }
-        let moving = tr.walker.follower.is_some() && ev == WalkEvent::Moved;
         // The visual: drawn while the traveller is in the space drawn.
         let visible = tr.walker.space == drawn;
         if !visible {
-            if let Some(v) = tr.visual.take() {
-                commands.entity(v.actor.root).despawn();
+            if let Some(e) = tr.root.take() {
+                commands.entity(e).despawn();
             }
+            tr.spawned = false;
             continue;
         }
         let Some(aw) = actor_world.as_deref() else { continue };
-        let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-        if tr.visual.is_none() {
-            let rt = bevy::math::Affine3A::from_rotation_translation(Quat::from_rotation_z(-tr.walker.heading), Vec3::from_array(tr.walker.feet));
+        if !tr.spawned {
+            let at = Vec3::from_array(tr.walker.feet);
+            let rt = bevy::math::Affine3A::from_rotation_translation(Quat::from_rotation_z(-tr.walker.heading), at);
+            let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
             let mut stats = Default::default();
-            tr.visual = crate::actors::spawn(&mut commands, root, rt, tr.reference, tr.base, aw, &mut ctx, &mut stats);
-            tr.walking = None;
-            if tr.visual.is_none() {
+            if !crate::actors::spawn(&mut commands, root, rt, at, tr.reference, tr.base, aw, &mut ctx, &mut stats, false) {
                 warn!("nav: {} could not be drawn", tr.label);
                 tr.failed = Some("not drawn".into());
                 continue;
             }
+            tr.spawned = true;
         }
-        let v = tr.visual.as_ref().expect("spawned");
-        if let Ok(mut t) = transforms.get_mut(v.actor.root) {
-            t.translation = Vec3::from_array(tr.walker.feet);
-            t.rotation = Quat::from_rotation_z(-tr.walker.heading);
+        // The actor's root: the entity of its reference placed directly under the world
+        // root (spawned last frame; its parts sit below it).
+        if tr.root.is_none() {
+            tr.root = roots.iter().find(|(_, v, p)| v.0 == tr.reference && p.parent() == root).map(|(e, _, _)| e);
         }
-        if tr.walking != Some(moving) {
-            tr.walking = Some(moving);
-            let (skeleton, female) = (v.appearance.skeleton.clone(), v.appearance.female);
-            let clip = if moving {
-                let speed = tr.walker.speed;
-                walk_clip(&mut nav.clips, &mut ctx, &skeleton, female).map(|(c, natural)| {
-                    let mut c = (*c).clone();
-                    if let Some(n) = natural {
-                        c.frequency *= speed / n;
-                    }
-                    (Arc::new(c), walk_clip_path(&skeleton, female))
-                })
-            } else {
-                let p = idle_clip(&skeleton);
-                ctx.clip(&p).map(|c| (c, p))
-            };
-            let tr = &nav.travellers[i];
-            let v = tr.visual.as_ref().expect("spawned");
-            if let Some((clip, path)) = clip {
-                play_on_actor(&mut commands, &v.actor, &v.skeleton, &clip, &path, 0.0, false);
-            }
+        let Some(e) = tr.root else { continue };
+        let Ok((mut t, lo)) = actors.get_mut(e) else { continue };
+        let before = (t.translation, tr_heading(&t));
+        t.translation = Vec3::from_array(tr.walker.feet);
+        t.rotation = Quat::from_rotation_z(-tr.walker.heading);
+        // Locomotion takes the velocity in the actor's axes and own scale (y forward)
+        // and the turn rate (positive = left, counter-clockwise; the compass heading
+        // turns the other way).
+        if let Some(mut lo) = lo {
+            let scale = t.scale.x.max(1e-3);
+            let moved = before.0.truncate().distance(t.translation.truncate());
+            let speed = if dt > 0.0 && ev == WalkEvent::Moved { moved / dt } else { 0.0 };
+            lo.velocity = [0.0, speed / scale];
+            let d = (tr.walker.heading - before.1 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            lo.turn = if dt > 0.0 { -d / dt } else { 0.0 };
         }
     }
 }
@@ -513,40 +447,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn in_place_takes_out_the_stride_and_keeps_the_bob() {
-        use fnv_nif::anim::{Channel, Key, KeyKind, Keys, TransformTrack};
-        // The root moves 120 units along y over a 1.2 s cycle and bobs 2 units mid-way.
-        let key = |time: f32, y: f32, z: f32| Key { time, value: [0.0, y, z], forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] };
-        let track = TransformTrack {
-            translation: Channel::Keys(Keys { kind: KeyKind::Linear, keys: vec![key(0.0, 0.0, 50.0), key(0.6, 60.0, 52.0), key(1.2, 120.0, 50.0)] }),
-            rotation: Channel::Static(None),
-            euler: None,
-            scale: Channel::Static(None),
-        };
-        let clip = Clip {
-            name: "Forward".into(),
-            start: 0.0,
-            stop: 1.2,
-            frequency: 1.0,
-            cycle_type: 0,
-            tracks: vec![("Bip01".into(), Arc::new(track))],
-            skipped: 0,
-            accum_root: Some("Bip01".into()),
-        };
-        let (c, speed) = in_place(&clip);
-        assert!((speed.unwrap() - 100.0).abs() < 1e-3);
-        let t = &c.tracks[0].1.translation;
-        assert_eq!(t.sample(0.0), Some([0.0, 0.0, 50.0]));
-        assert_eq!(t.sample(1.2), Some([0.0, 0.0, 50.0]));
-        assert_eq!(t.sample(0.6), Some([0.0, 0.0, 52.0]));
-        // Without an accumulation root there is nothing to take out.
-        let (_, none) = in_place(&Clip { accum_root: None, ..clip });
-        assert_eq!(none, None);
-    }
-
-    #[test]
-    fn walk_clip_sits_in_the_sex_folder_beside_the_idle() {
-        assert_eq!(walk_clip_path(r"Characters\_Male\Skeleton.NIF", false), r"characters\_male\locomotion\male\mtforward.kf");
-        assert_eq!(walk_clip_path(r"Characters\_Male\Skeleton.NIF", true), r"characters\_male\locomotion\female\mtforward.kf");
+    fn heading_of_a_root_rotation() {
+        for h in [0.0f32, 0.5, 1.6, -2.0, 3.0] {
+            let t = Transform::from_rotation(Quat::from_rotation_z(-h));
+            assert!((tr_heading(&t) - h).abs() < 1e-5, "{h}");
+        }
     }
 }

@@ -34,6 +34,17 @@ impl SimState {
         b.name.as_deref().or(b.edid.as_deref())
     }
 
+    /// A placed reference's pose in the simulation (position, Euler angles in radians)
+    /// when it differs from its placement: moved by physics (pushed or knocked clutter,
+    /// `crate::phys::PhysState::settle_placed`) or by a script. `None` for references the
+    /// plugins do not place (the player, dropped items) and for those still where the
+    /// plugins put them.
+    pub fn moved_pose(&self, form_id: u32) -> Option<([f32; 3], [f32; 3])> {
+        let id = FormId(form_id);
+        let (s, p) = (self.world.peek(id)?, self.refs.get(id)?);
+        (s.pos != p.pos || s.rot != p.rot).then_some((s.pos, s.rot))
+    }
+
     /// Whether a placed reference is in the world now (not taken or deleted, enabled).
     pub fn present(&self, form_id: u32) -> bool {
         let id = FormId(form_id);

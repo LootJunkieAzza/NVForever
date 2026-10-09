@@ -1,0 +1,783 @@
+//! The player's own body in `--play` (docs/design/player-body.md), as two rigs:
+//!
+//! - **Third person**: the player's NPC_ (FormID 7) assembled like a placed NPC
+//!   (`actors.rs`) on `characters\_male\skeleton.nif`, wearing what the simulation has
+//!   equipped, standing at the character's feet and facing the view's heading. Seen in
+//!   third person and while the camera circles the player.
+//! - **First person**: the game's separate arms rig, `characters\_1stperson\skeleton.nif`,
+//!   with the arms and hands only (`fnv_actor::first_person`: hands' `…1st.nif`
+//!   variants, the `Arms` shapes of the upper body and of upper-body armour) and the
+//!   weapon's first-person model (WEAP WNAM). Its `Bip01 Looking` node turns with the
+//!   view's pitch, so arms and weapon follow the view, and the camera sits at its
+//!   `Camera1st` node (118 units up, 78 crouched) [hypothesis: the node names; observed:
+//!   the nodes, and the first-person sneak clips lower `Bip01 NonAccum` by 40;
+//!   animation.md §9.5].
+//!
+//! Both play layered KF clips (`nvf_assets::anim_blend`) from their own folder, chosen by
+//! `fnv_actor::player_clips`: an idle, movement in four directions walking or running,
+//! sneaking, swimming, jumping and landing, turning on the spot, and the weapon drawn,
+//! held (aimed down the sights, or blocking) and holstered, with the weapon moving
+//! between the hand and the holster bone at the clips' `Attach`/`Detach` keys.
+//!
+//! Runs in `nvf_play::player::BodySet`: after the character moved, before the camera is
+//! placed. The eye (`Player::body_eye`) is the first-person rig's camera node. Without
+//! actors (`--no-actors`) there is no body and the eye stays at the fixed eye height;
+//! without a first-person skeleton the third-person body's head gives the eye and its
+//! head is hidden in first person.
+
+use crate::actors::{part_uses, ActorWorld};
+use crate::world::WorldRoot;
+use bevy::math::Affine3A;
+use bevy::mesh::VertexAttributeValues;
+use bevy::prelude::*;
+use fnv_actor::first_person::{self, is_arms_shape, Show};
+use fnv_actor::player_clips::{
+    aim_clips, aim_weights, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips, move_clips, turn_clips,
+    Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
+};
+use fnv_actor::weapon::AnimType;
+use fnv_actor::Appearance;
+use fnv_sim::FormId;
+use nvf_assets::actor::{rigid_local, spawn_actor, ActorCtx, ActorParts, PartUse, PreparedSkeleton};
+use nvf_assets::anim_blend::{Animator, Mode, DEFAULT_FADE};
+use nvf_assets::anim_play::Clip;
+use nvf_assets::model::ModelCtx;
+use nvf_play::control::{BodyView, PlayerControl};
+use nvf_play::phys::PhysState;
+use nvf_play::player::{MoveIntent, Player};
+use nvf_play::sim::SimState;
+use nvf_play::PlayWorld;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+/// Layer roles ([`Animator`] tags).
+const TAG_IDLE: u32 = 0;
+const TAG_MOVE: u32 = 10; // + 0 along, + 1 sideways
+const TAG_TURN: u32 = 20;
+const TAG_JUMP: u32 = 30;
+const TAG_LAND: u32 = 31;
+const TAG_AIM: u32 = 40; // + 0 level, + 1 up, + 2 down
+const TAG_HOLSTER: u32 = 50;
+const TAG_EQUIP: u32 = 60;
+
+/// Biped slots of headgear hidden in first person when the third-person body has to stand
+/// in for the first-person rig: Head, Hair, Headband, Hat, Eye Glasses, Nose Ring,
+/// Earrings, Mask, Mouth Object [documented: xEdit biped flag names, bits 0, 1, 9–14,
+/// 16; engineering choice: which ones block the view].
+const HEAD_SLOTS: u32 = 1 | 1 << 1 | 0x7E << 8 | 1 << 16;
+
+/// Time in the air before the jump loop plays, and the shortest fall that plays a
+/// landing, seconds [engineering choice: steps and slopes leave the ground briefly].
+const AIRBORNE_LOOP: f32 = 0.15;
+const AIRBORNE_LAND: f32 = 0.35;
+/// Turning on the spot faster than this (radians per second) plays a turn clip
+/// [engineering choice].
+const TURN_RATE: f32 = 1.0;
+/// Without a first-person rig: share of the view's pitch the neck takes when nothing else
+/// bends the body, so the eye clears the chest looking down [engineering choice].
+const NECK_PITCH: f32 = 0.6;
+
+/// A clip choice, for the clip caches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ClipKey {
+    Idle(Stance),
+    Move(Stance, bool, bool, Dir, Option<&'static str>),
+    Aim(Stance, &'static str, Aim, bool),
+    Block(Stance, &'static str),
+    Holster(Stance, &'static str),
+    Equip(Stance, &'static str, bool),
+    Jump(Stance, Option<&'static str>, Option<Dir>, bool),
+    Turn(Stance, Option<&'static str>, bool),
+}
+
+impl ClipKey {
+    fn candidates(self) -> Vec<String> {
+        match self {
+            ClipKey::Idle(s) => idle_clips(s),
+            ClipKey::Move(s, female, fast, d, w) => move_clips(s, female, fast, d, w),
+            ClipKey::Aim(s, p, a, sights) => aim_clips(s, p, a, sights),
+            ClipKey::Block(s, p) => block_clips(s, p),
+            ClipKey::Holster(s, p) => holster_clips(s, p),
+            ClipKey::Equip(s, p, e) => equip_clips(s, p, e),
+            ClipKey::Jump(s, w, d, land) => jump_clips(s, w, d, land),
+            ClipKey::Turn(s, w, left) => turn_clips(s, w, left),
+        }
+    }
+}
+
+/// A loaded clip with what the body reads from it.
+struct ClipInfo {
+    path: String,
+    clip: Arc<Clip>,
+    keys: ClipKeys,
+    /// Ground speed of its accumulation root (movement clips).
+    speed: Option<f32>,
+}
+
+impl ClipInfo {
+    fn fade(&self) -> f32 {
+        self.keys.blend_seconds(DEFAULT_FADE)
+    }
+}
+
+/// Which view a rig is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum View {
+    Third,
+    First,
+}
+
+/// One skeleton with its parts, clips and weapon.
+struct Rig {
+    view: View,
+    root: Entity,
+    /// The skeleton's folder (`meshes\characters\_male\`).
+    folder: String,
+    animator: Animator,
+    clips: HashMap<ClipKey, Option<Arc<ClipInfo>>>,
+    /// Third person: the head bone and the eye in its space.
+    head: Option<usize>,
+    eye_local: Vec3,
+    /// First person: the node that turns with the pitch, and the camera node.
+    looking: Option<usize>,
+    camera: Option<usize>,
+    weapon_node: Option<usize>,
+    /// The skeleton node the weapon node should hang from, and the one it was last
+    /// attached to.
+    weapon_parent: Option<usize>,
+    attached: Option<usize>,
+    weapon_model: Option<Entity>,
+    /// Third person: drawn entities to hide when it stands in for the first-person rig.
+    head_entities: Vec<Entity>,
+    /// Whether the rig is shown, and whether its head is (last applied).
+    shown: Option<bool>,
+    head_shown: Option<bool>,
+}
+
+impl Rig {
+    /// The first existing file of a clip choice in this rig's folder (cached, failures
+    /// too).
+    fn clip(&mut self, ctx: &mut ActorCtx, key: ClipKey) -> Option<Arc<ClipInfo>> {
+        if let Some(c) = self.clips.get(&key) {
+            return c.clone();
+        }
+        let found = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)).and_then(|path| {
+            let clip = ctx.clip(&path)?;
+            let keys = ClipKeys::parse(&clip.text_keys);
+            Some(Arc::new(ClipInfo { speed: clip.root_speed(), path, clip, keys }))
+        });
+        match &found {
+            Some(c) => debug!("player {:?} rig: {key:?} plays {}", self.view, c.path),
+            None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
+        }
+        self.clips.insert(key, found.clone());
+        found
+    }
+
+    /// The draw and holster timings of weapon `prefix` for this rig.
+    fn transitions(&mut self, ctx: &mut ActorCtx, stance: Stance, prefix: &'static str) -> (Transition, Transition) {
+        let draw = self.clip(ctx, ClipKey::Equip(stance, prefix, true));
+        let away = self.clip(ctx, ClipKey::Equip(stance, prefix, false));
+        (
+            draw.map_or(Transition::new(0.0, None), |c| Transition::new(c.clip.length(), c.keys.attach)),
+            away.map_or(Transition::new(0.0, None), |c| Transition::new(c.clip.length(), c.keys.detach)),
+        )
+    }
+}
+
+struct Body {
+    worn: Vec<FormId>,
+    female: bool,
+    scale: f32,
+    third: Rig,
+    first: Option<Rig>,
+}
+
+/// State kept across body rebuilds (an outfit change rebuilds the body).
+struct Motion {
+    weapon: Option<FormId>,
+    prefix: &'static str,
+    hands: WeaponHands,
+    events: Vec<HandEvent>,
+    speed: f32,
+    last_feet: Option<[f32; 3]>,
+    airborne: f32,
+    last_heading: Option<f32>,
+    turn_rate: f32,
+    /// Once-a-second status (debug log).
+    log_elapsed: f32,
+}
+
+impl Default for Motion {
+    fn default() -> Self {
+        Motion {
+            weapon: None,
+            prefix: UNARMED,
+            hands: WeaponHands::default(),
+            events: Vec::new(),
+            speed: 0.0,
+            last_feet: None,
+            airborne: 0.0,
+            last_heading: None,
+            turn_rate: 0.0,
+            log_elapsed: 0.0,
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+pub struct PlayerBody {
+    body: Option<Body>,
+    motion: Motion,
+    /// Why the body could not be built (reported once).
+    failed: Option<String>,
+}
+
+pub struct PlayerBodyPlugin;
+
+impl Plugin for PlayerBodyPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<PlayerBody>().add_systems(Update, (ensure_body, drive_body).chain().in_set(nvf_play::player::BodySet));
+    }
+}
+
+/// The player's equipped armour and weapon in the simulation.
+fn equipped(sim: &SimState, world: &ActorWorld) -> (Vec<FormId>, Option<FormId>) {
+    let Some(inv) = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()) else { return (Vec::new(), None) };
+    let eq = inv.equipped();
+    let worn = eq.iter().copied().filter(|id| world.actors.armors.contains_key(id)).collect();
+    let weapon = eq.iter().copied().find(|id| world.actors.weapons.contains_key(id));
+    (worn, weapon)
+}
+
+/// The centre of the eye parts in the head bone's space, from their meshes [observed:
+/// the race's eye parts hang from `Bip01 Head` by `Prn`, actors.md §1.2].
+fn eye_centre(skel: &PreparedSkeleton, head: usize, parts: &[&nvf_assets::actor::PreparedPart]) -> Option<Vec3> {
+    let mut sum = Vec3::ZERO;
+    let mut n = 0.0;
+    for part in parts {
+        let Some(&b) = skel.by_name.get(part.attach_bone()) else { continue };
+        for s in &part.shapes {
+            let Some(VertexAttributeValues::Float32x3(pos)) = s.cpu.attribute(Mesh::ATTRIBUTE_POSITION) else { continue };
+            if pos.is_empty() {
+                continue;
+            }
+            let c = pos.iter().fold(Vec3::ZERO, |a, p| a + Vec3::from_array(*p)) / pos.len() as f32;
+            // Into the attachment bone's space, then the head's (normally the same bone).
+            let local = rigid_local(skel, b, &part.root, &s.transform).transform_point3(c);
+            let world = skel.bind_world[b].transform_point3(local);
+            sum += skel.bind_world[head].inverse().transform_point3(world);
+            n += 1.0;
+        }
+    }
+    (n > 0.0).then(|| sum / n)
+}
+
+/// A point in front of the head when the eyes cannot be measured: 9 units forward and 7
+/// up from the head bone at the bind pose [engineering choice].
+fn default_eye(skel: &PreparedSkeleton, head: usize) -> Vec3 {
+    let bind = skel.bind_world[head];
+    let world = bind.translation + Vec3A::new(0.0, 9.0, 7.0);
+    bind.inverse().transform_point3(world.into())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn ensure_body(
+    mut commands: Commands,
+    world: Option<Res<ActorWorld>>,
+    sim: Res<SimState>,
+    mut state: ResMut<PlayerBody>,
+    mut parts: ResMut<ActorParts>,
+    mut models: ModelCtx,
+    root: Query<Entity, With<WorldRoot>>,
+) {
+    let (Some(world), Ok(world_root)) = (world, root.single()) else { return };
+    if state.failed.is_some() {
+        return;
+    }
+    let (worn, weapon) = equipped(&sim, &world);
+    let state = &mut *state;
+    let mut rebuilt = false;
+    if state.body.as_ref().is_none_or(|b| b.worn != worn) {
+        if let Some(old) = state.body.take() {
+            commands.entity(old.third.root).despawn();
+            if let Some(f) = old.first {
+                commands.entity(f.root).despawn();
+            }
+        }
+        let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+        match build(&mut commands, world_root, &world, &mut ctx, &worn) {
+            Ok(b) => {
+                info!(
+                    "player body: third-person rig {} nodes (eye {:.1?} in the head's space), first-person rig {}, wearing {:?}",
+                    b.third.animator.nodes.len(),
+                    b.third.eye_local,
+                    b.first.as_ref().map_or("missing".to_string(), |f| format!("{} nodes from {}", f.animator.nodes.len(), f.folder)),
+                    worn.iter().map(|w| w.to_string()).collect::<Vec<_>>()
+                );
+                state.body = Some(b);
+                rebuilt = true;
+            }
+            Err(e) => {
+                warn!("player body: {e}; playing without one");
+                state.failed = Some(e);
+                return;
+            }
+        }
+    }
+    let Some(body) = state.body.as_mut() else { return };
+    let m = &mut state.motion;
+    if !rebuilt && m.weapon == weapon {
+        return;
+    }
+    m.weapon = weapon;
+    let w = weapon.and_then(|id| world.actors.weapons.get(&id));
+    m.prefix = w.and_then(|w| w.anim_type.as_deref()).and_then(AnimType::from_name).map_or(UNARMED, AnimType::prefix);
+    info!("player weapon: {}, animations {}", weapon.map_or("none (fists)".to_string(), |w| w.to_string()), m.prefix);
+    for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
+        if let Some(e) = rig.weapon_model.take() {
+            commands.entity(e).despawn();
+        }
+        let model = match rig.view {
+            View::Third => w.and_then(|w| w.model.as_deref()),
+            View::First => w.and_then(|w| w.first_person_model.as_deref().or(w.model.as_deref())),
+        };
+        let (Some(path), Some(node)) = (model.map(fnv_actor::resolve::mesh_path), rig.weapon_node) else { continue };
+        match models.model(&path) {
+            Some(pm) => {
+                let holder = commands.spawn((Name::new(format!("Player weapon {path}")), Transform::IDENTITY, Visibility::Inherited)).id();
+                commands.entity(rig.animator.nodes[node]).add_child(holder);
+                for s in &pm.shapes {
+                    let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)))).id();
+                    commands.entity(holder).add_child(e);
+                }
+                rig.weapon_model = Some(holder);
+                info!("player weapon model ({:?} person): {path}", rig.view);
+            }
+            None => warn!("player weapon {path}: model not loaded"),
+        }
+    }
+}
+
+fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, worn: &[FormId]) -> Result<Body, String> {
+    let a = world.resolve_wearing(FormId::PLAYER_BASE.0, FormId::PLAYER_REF.0, Some(worn))?;
+    let scale = a.race_height as f32;
+    let third = build_rig(commands, parent, world, ctx, &a, View::Third, None)?;
+    let vfs = ctx.models.data.vfs.clone();
+    let (fa, shows) = first_person::appearance(&world.actors, &a, |p| vfs.exists(p));
+    let first = match build_rig(commands, parent, world, ctx, &fa, View::First, Some(&shows)) {
+        Ok(r) => Some(r),
+        Err(e) => {
+            warn!("player body: no first-person rig ({e}); the third-person body's head gives the view");
+            None
+        }
+    };
+    Ok(Body { worn: worn.to_vec(), female: a.female, scale, third, first })
+}
+
+/// Spawn one rig of appearance `a` under `parent` (its transform set each frame).
+/// `shows` (first person): per part of `a`, how it shows.
+fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, a: &Appearance, view: View, shows: Option<&[Show]>) -> Result<Rig, String> {
+    let skel = ctx.skeleton(&a.skeleton).ok_or_else(|| format!("skeleton {} not loaded", a.skeleton))?;
+    let mut stats = crate::actors::ActorStats::default();
+    let mut uses = part_uses(a, world, ctx, &mut stats);
+    if stats.parts_missing > 0 {
+        warn!("player {view:?} rig: {} parts not loaded", stats.parts_missing);
+    }
+    if let Some(shows) = shows {
+        // Upper-body models show their `Arms` shapes only.
+        for (i, u) in &mut uses {
+            if shows[*i] == Show::Arms {
+                let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_arms_shape(n)));
+                u.hidden_shapes.extend(hide);
+            }
+        }
+    }
+    for (i, u) in &uses {
+        let p = &a.parts[*i];
+        let drawn: Vec<&str> = u.part.shapes.iter().filter_map(|s| s.name.as_deref()).filter(|n| !u.hidden_shapes.iter().any(|h| h == n)).collect();
+        debug!("player {view:?} rig part {} {} {}: shapes {drawn:?}", p.role, p.form, p.model);
+    }
+    let head = skel.by_name.get("Bip01 Head").copied();
+    let eye_local = match view {
+        View::Third => {
+            let eyes: Vec<_> = uses.iter().filter(|(i, _)| a.parts[*i].role.ends_with("_eye")).map(|(_, u)| &*u.part).collect();
+            head.and_then(|h| eye_centre(&skel, h, &eyes).or_else(|| Some(default_eye(&skel, h)))).unwrap_or(Vec3::new(0.0, 0.0, 120.0))
+        }
+        View::First => Vec3::ZERO,
+    };
+    let head_part = |i: usize| {
+        let p = &a.parts[i];
+        p.role.starts_with("head") || p.role == "hair" || world.actors.armors.get(&p.form).is_some_and(|ar| ar.slots & HEAD_SLOTS != 0)
+    };
+    let hide: Vec<bool> = uses.iter().map(|(i, _)| head_part(*i)).collect();
+    let uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
+    let spawned = spawn_actor(commands, parent, Transform::from_scale(Vec3::splat(a.race_height as f32)), &skel, &uses);
+    commands.entity(spawned.root).insert(Name::new(format!("Player body ({view:?} person)")));
+    let head_entities = spawned.drawn.iter().zip(&spawned.part_of).filter(|(_, &p)| hide[p]).map(|(e, _)| *e).collect();
+    let folder = a.skeleton.rfind('\\').map_or(String::new(), |i| a.skeleton[..=i].to_string());
+    let node = |n: &str| skel.by_name.get(n).copied();
+    let weapon_node = node("Weapon");
+    let weapon_parent = weapon_node.and_then(|w| skel.parents[w]);
+    let (looking, camera) = match view {
+        View::First => (node("Bip01 Looking"), node("Camera1st")),
+        View::Third => (None, None),
+    };
+    if view == View::First && camera.is_none() {
+        return Err(format!("{} has no Camera1st node", a.skeleton));
+    }
+    let animator = Animator::new(skel.clone(), spawned.nodes, Some("Bip01"));
+    Ok(Rig {
+        view,
+        root: spawned.root,
+        folder,
+        animator,
+        clips: HashMap::new(),
+        head,
+        eye_local,
+        looking,
+        camera,
+        weapon_node,
+        weapon_parent,
+        attached: weapon_parent,
+        weapon_model: None,
+        head_entities,
+        shown: None,
+        head_shown: None,
+    })
+}
+
+/// What both rigs play this frame.
+struct Frame {
+    dt: f32,
+    stance: Stance,
+    dirs: Option<[(Dir, f32); 2]>,
+    fast: bool,
+    female: bool,
+    /// The weapon prefix, and whether the weapon is out.
+    prefix: &'static str,
+    drawn: Option<&'static str>,
+    hands: WeaponHands,
+    airborne: f32,
+    landing: bool,
+    turn_rate: f32,
+    pitch: f32,
+    /// Block held.
+    aiming: bool,
+    speed: f32,
+}
+
+/// Pose `rig` for the frame, apply the weapon events, place it at `root`; returns the
+/// eye (game space): the camera node in first person, between the eyes in third.
+fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<Vec3> {
+    let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
+    let put_away = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, false));
+    let holster = rig.clip(ctx, ClipKey::Holster(f.stance, f.prefix));
+    let skel = rig.animator.skel.clone();
+    let bone = |name: &str| skel.by_name.get(name).copied();
+    for ev in events {
+        match ev {
+            HandEvent::StartDraw => {
+                if let Some(c) = &draw {
+                    rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                }
+            }
+            HandEvent::StartHolster => {
+                if let Some(c) = &put_away {
+                    rig.animator.restart(&c.clip, TAG_EQUIP, 1.0, Mode::Once, c.fade());
+                }
+            }
+            HandEvent::ToHand => {
+                rig.animator.cut(TAG_HOLSTER);
+                rig.weapon_parent = draw.as_ref().and_then(|c| c.keys.prn.as_ref()).and_then(|(_, b)| bone(b)).or_else(|| bone("Bip01 R Hand"));
+            }
+            HandEvent::ToHolster | HandEvent::Drawn | HandEvent::Holstered => {}
+        }
+    }
+    if !f.hands.in_hand {
+        // The holster clip's `prn:` names the holster bone [observed: `Bip01 Pelvis` for
+        // pistols, `Bip01 Spine2` for rifles, `Bip01 Translate` in first person]; the
+        // unequip clip's says the same.
+        let from_keys = holster.as_ref().and_then(|c| c.keys.prn.as_ref()).or_else(|| put_away.as_ref().and_then(|c| c.keys.prn.as_ref()));
+        if let Some(b) = from_keys.and_then(|(_, b)| bone(b)) {
+            rig.weapon_parent = Some(b);
+        }
+    }
+
+    // The frame's clips.
+    let mut want: Vec<(Arc<ClipInfo>, u32, f32, Mode)> = Vec::with_capacity(8);
+    if let Some(c) = rig.clip(ctx, ClipKey::Idle(f.stance)) {
+        want.push((c, TAG_IDLE, 1.0, Mode::Loop));
+    }
+    let mut expected_speed = 0.0;
+    let main_dir = f.dirs.map(|w| if w[0].1 >= w[1].1 { w[0].0 } else { w[1].0 });
+    if f.airborne >= AIRBORNE_LOOP {
+        if let Some(c) = rig.clip(ctx, ClipKey::Jump(f.stance, f.drawn, main_dir, false)) {
+            want.push((c, TAG_JUMP, 1.0, Mode::Loop));
+        }
+    } else if let Some(w) = f.dirs {
+        for (i, (dir, weight)) in w.into_iter().enumerate() {
+            if weight <= 0.0 {
+                continue;
+            }
+            if let Some(c) = rig.clip(ctx, ClipKey::Move(f.stance, f.female, f.fast, dir, f.drawn)) {
+                expected_speed += weight * c.speed.unwrap_or(0.0);
+                want.push((c, TAG_MOVE + i as u32, weight, Mode::Synced));
+            }
+        }
+    } else if f.turn_rate.abs() > TURN_RATE {
+        // Heading grows clockwise: a negative rate turns left.
+        if let Some(c) = rig.clip(ctx, ClipKey::Turn(f.stance, f.drawn, f.turn_rate < 0.0)) {
+            want.push((c, TAG_TURN, 1.0, Mode::Loop));
+        }
+    }
+    if f.landing {
+        if let Some(c) = rig.clip(ctx, ClipKey::Jump(f.stance, f.drawn, main_dir, true)) {
+            rig.animator.restart(&c.clip, TAG_LAND, 1.0, Mode::Once, c.fade());
+        }
+    }
+    if f.hands.in_hand && f.hands.phase != WeaponPhase::Drawing {
+        if f.aiming && blocks(f.prefix) {
+            if let Some(c) = rig.clip(ctx, ClipKey::Block(f.stance, f.prefix)) {
+                want.push((c, TAG_AIM, 1.0, Mode::Loop));
+            }
+        } else {
+            // First person pitches the whole arms rig instead of bending the body.
+            let weights = match rig.view {
+                View::First => [(Aim::Level, 1.0), (Aim::Up, 0.0), (Aim::Down, 0.0)],
+                View::Third => aim_weights(f.pitch),
+            };
+            for (i, (aim, w)) in weights.into_iter().enumerate() {
+                if w <= 0.0 {
+                    continue;
+                }
+                if let Some(c) = rig.clip(ctx, ClipKey::Aim(f.stance, f.prefix, aim, f.aiming)) {
+                    want.push((c, TAG_AIM + i as u32, w, Mode::Loop));
+                }
+            }
+        }
+    }
+    if !f.hands.in_hand {
+        if let Some(c) = &holster {
+            want.push((c.clone(), TAG_HOLSTER, 1.0, Mode::Once));
+        }
+    }
+    if matches!(f.hands.phase, WeaponPhase::Drawing | WeaponPhase::Holstering) {
+        let c = if f.hands.phase == WeaponPhase::Drawing { &draw } else { &put_away };
+        if let Some(c) = c {
+            want.push((c.clone(), TAG_EQUIP, 1.0, Mode::Once));
+        }
+    }
+    let a = &mut rig.animator;
+    a.begin();
+    for (c, tag, w, mode) in &want {
+        let fade = if *tag == TAG_HOLSTER { 0.0 } else { c.fade() };
+        a.want(&c.clip, *tag, *w, *mode, fade);
+    }
+    if let Some(c) = a.layers.iter().find(|l| l.tag == TAG_LAND && !l.finished()).map(|l| l.clip.clone()) {
+        a.want(&c, TAG_LAND, 1.0, Mode::Once, 0.0);
+    }
+    a.end();
+    // Movement clips play at the speed the character actually moves [hypothesis: the
+    // game matches the clip's root motion to the ground speed].
+    let rate = if expected_speed > 1.0 { (f.speed / expected_speed).clamp(0.25, 2.5) } else { 1.0 };
+    a.advance(f.dt, rate);
+    a.pose();
+    if let Some(l) = rig.looking {
+        // The arms rig turns about `Bip01 Looking` with the view's pitch (about the
+        // actor's right axis, x) [hypothesis: the node's role, from its name and place].
+        let bind = a.skel.locals[l];
+        a.locals[l].rotation = Quat::from_rotation_x(f.pitch) * bind.rotation;
+    }
+    a.apply(transforms);
+    if let Ok(mut t) = transforms.get_mut(rig.root) {
+        *t = root;
+    }
+    let root_m = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation);
+    match rig.view {
+        View::First => rig.camera.map(|c| (root_m * a.model_space(c)).translation.into()),
+        View::Third => rig.head.map(|h| (root_m * a.model_space(h)).transform_point3(rig.eye_local)),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn drive_body(
+    mut commands: Commands,
+    time: Res<Time>,
+    d: Res<PlayWorld>,
+    intent: Res<MoveIntent>,
+    control: Res<PlayerControl>,
+    phys: Res<PhysState>,
+    mut player: ResMut<Player>,
+    mut view: ResMut<BodyView>,
+    mut state: ResMut<PlayerBody>,
+    mut parts: ResMut<ActorParts>,
+    mut models: ModelCtx,
+    mut transforms: Query<&mut Transform>,
+    mut visibility: Query<&mut Visibility>,
+) {
+    let state = &mut *state;
+    let Some(body) = state.body.as_mut() else {
+        player.body_eye = None;
+        view.pivot = None;
+        return;
+    };
+    let dt = time.delta_secs();
+    let m = &mut state.motion;
+    let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
+
+    // What the character is doing.
+    let (grounded, swimming) = phys.player.as_ref().map_or((true, false), |c| (c.grounded, c.swimming));
+    let stance = if swimming {
+        Stance::Swim
+    } else if control.sneak {
+        Stance::Sneak
+    } else {
+        Stance::Stand
+    };
+    let (forward, right, fast) = if d.auto_walk > 0.0 { (1.0, 0.0, true) } else { (intent.forward, intent.right, !intent.walk) };
+    let feet = player.feet;
+    if dt > 0.0 {
+        let moved = m.last_feet.map_or(0.0, |l| (feet[0] - l[0]).hypot(feet[1] - l[1]) / dt);
+        m.speed += (moved - m.speed) * (dt / 0.15).min(1.0);
+        if let Some(h) = m.last_heading {
+            let dh = (player.heading - h + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            m.turn_rate += (dh / dt - m.turn_rate) * (dt / 0.1).min(1.0);
+        }
+    }
+    m.last_feet = Some(feet);
+    m.last_heading = Some(player.heading);
+    let airborne_before = m.airborne;
+    m.airborne = if grounded || swimming { 0.0 } else { m.airborne + dt };
+    let landing = airborne_before >= AIRBORNE_LAND && m.airborne == 0.0;
+
+    // The weapon: draw and holster, timed by the clips of the rig in view.
+    let third_view = control.third_person_view();
+    let prefix = m.prefix;
+    let timing_rig = match body.first.as_mut() {
+        Some(f) if !third_view => f,
+        _ => &mut body.third,
+    };
+    let (draw_t, away_t) = timing_rig.transitions(&mut ctx, stance, prefix);
+    let want_out = control.weapon_out && stance != Stance::Swim;
+    let mut events = std::mem::take(&mut m.events);
+    m.hands.update(want_out, dt, draw_t, away_t, &mut events);
+
+    let frame = Frame {
+        dt,
+        stance,
+        dirs: direction_weights(forward, right),
+        fast,
+        female: body.female,
+        prefix,
+        drawn: (m.hands.phase == WeaponPhase::Drawn).then_some(prefix),
+        hands: m.hands,
+        airborne: m.airborne,
+        landing,
+        turn_rate: m.turn_rate,
+        pitch: player.pitch,
+        aiming: control.aiming,
+        speed: m.speed,
+    };
+    let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
+    let third_eye = pose_rig(&mut body.third, &frame, &events, root, &mut ctx, &mut transforms);
+    let first_eye = match body.first.as_mut() {
+        Some(f) => pose_rig(f, &frame, &events, root, &mut ctx, &mut transforms),
+        None => None,
+    };
+    m.events = events;
+
+    // The eye: the first-person camera node; without that rig, the head's eye, swung
+    // forward about the neck by the pitch while no weapon bends the body.
+    let eye = first_eye.or_else(|| {
+        let mut e = third_eye?;
+        if let (false, Some(h)) = (m.hands.in_hand, body.third.head) {
+            let head = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation) * body.third.animator.model_space(h);
+            let right = Vec3::new(player.heading.cos(), -player.heading.sin(), 0.0);
+            let neck = Vec3::from(head.translation);
+            e = neck + Quat::from_axis_angle(right, NECK_PITCH * player.pitch) * (e - neck);
+        }
+        Some(e)
+    });
+    player.body_eye = eye.map(|e| e.to_array());
+    view.pivot = third_eye.or(eye).map(|e| [feet[0], feet[1], e.z + 5.0]);
+
+    // The weapon nodes' parents.
+    for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
+        if rig.attached != rig.weapon_parent {
+            if let (Some(w), Some(p)) = (rig.weapon_node, rig.weapon_parent) {
+                commands.entity(rig.animator.nodes[w]).insert(ChildOf(rig.animator.nodes[p]));
+                debug!("player {:?} rig weapon: now on {:?}", rig.view, rig.animator.skel.names[p]);
+                rig.attached = Some(p);
+            }
+        }
+    }
+    // Which rig is seen.
+    let has_first = body.first.is_some();
+    let mut show = |rig: &mut Rig, on: bool| {
+        if rig.shown != Some(on) {
+            if let Ok(mut v) = visibility.get_mut(rig.root) {
+                *v = if on { Visibility::Inherited } else { Visibility::Hidden };
+            }
+            rig.shown = Some(on);
+        }
+    };
+    show(&mut body.third, third_view || !has_first);
+    if let Some(f) = body.first.as_mut() {
+        show(f, !third_view);
+    }
+    // Without a first-person rig the third-person head is hidden from inside.
+    let head_on = third_view || has_first;
+    if body.third.head_shown != Some(head_on) {
+        for e in &body.third.head_entities {
+            if let Ok(mut v) = visibility.get_mut(*e) {
+                *v = if head_on { Visibility::Inherited } else { Visibility::Hidden };
+            }
+        }
+        body.third.head_shown = Some(head_on);
+    }
+
+    m.log_elapsed += dt;
+    if m.log_elapsed >= 1.0 {
+        m.log_elapsed = 0.0;
+        let layers = |r: &Rig| {
+            r.animator.layers.iter().filter(|l| l.weight > 0.01).map(|l| format!("{}:{}×{:.2}", l.tag, l.clip.name, l.weight)).collect::<Vec<_>>().join(" ")
+        };
+        debug!(
+            "player body: {stance:?} speed {:.0} weapon {:?} {} in hand {} airborne {:.2}s view {} eye z {:.1} (feet {:.1}); third [{}]; first [{}]",
+            m.speed,
+            m.hands.phase,
+            m.prefix,
+            m.hands.in_hand,
+            m.airborne,
+            if third_view { "third" } else { "first" },
+            player.body_eye.map_or(f32::NAN, |e| e[2]),
+            feet[2],
+            layers(&body.third),
+            body.first.as_ref().map_or(String::new(), layers),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn head_slots() {
+        // Head, Hair, Headband, Hat, Eye Glasses, Nose Ring, Earrings, Mask, Mouth Object.
+        for b in [0, 1, 9, 10, 11, 12, 13, 14, 16] {
+            assert!(HEAD_SLOTS & 1 << b != 0, "bit {b}");
+        }
+        // Upper body, hands, weapon, Pip-Boy, backpack, necklace, choker.
+        for b in [2, 3, 4, 5, 6, 7, 8, 15] {
+            assert!(HEAD_SLOTS & 1 << b == 0, "bit {b}");
+        }
+    }
+
+    #[test]
+    fn default_eye_is_in_front_of_and_above_the_head() {
+        let skel = PreparedSkeleton { bind_world: vec![Affine3A::from_translation(Vec3::new(0.0, 0.0, 110.0))], ..Default::default() };
+        assert_eq!(default_eye(&skel, 0), Vec3::new(0.0, 9.0, 7.0));
+    }
+}

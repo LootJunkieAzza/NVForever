@@ -1,0 +1,480 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "pc_drop_fall",
+ "title": "Do dropped items fall: scripted drops, a nudge, a drop in the Pip-Boy, PlaceAtMe, a tin can (about 2 min, no input)",
+ "start": "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "outside",
+   "field": "angle_z"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rF2 := BuildRef fM1 139524\nplayer.AddItem rF1 5 1\nplayer.AddItem rF2 2 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "A drop t005",
+   "field": "pose"
+  },
+  {
+   "frames": 55
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "A drop t060",
+   "field": "pose"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "A drop t180",
+   "field": "pose"
+  },
+  {
+   "frames": 420
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "A drop t600",
+   "field": "pose"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fZ := rH.GetPos Z\n  let fZ := fZ + 1\n  rH.SetPos Z fZ\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "B nudge1 t005",
+   "field": "pose"
+  },
+  {
+   "frames": 55
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "B nudge1 t060",
+   "field": "pose"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "B nudge1 t180",
+   "field": "pose"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fZ := rH.GetPos Z\n  let fZ := fZ + 40\n  rH.SetPos Z fZ\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "B nudge40 t005",
+   "field": "pose"
+  },
+  {
+   "frames": 55
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "B nudge40 t060",
+   "field": "pose"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "B nudge40 t180",
+   "field": "pose"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  rH.Disable\n  rH.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "Begin Function { }\nTapControl 14\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 90
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "C pipboy open",
+   "field": "menumode"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "C in menu t030",
+   "field": "pose"
+  },
+  {
+   "frames": 90
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "C in menu t120",
+   "field": "pose"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "C closed",
+   "field": "menumode"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "C after close t005",
+   "field": "pose"
+  },
+  {
+   "frames": 55
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "C after close t060",
+   "field": "pose"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "C after close t180",
+   "field": "pose"
+  },
+  {
+   "frames": 420
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "C after close t600",
+   "field": "pose"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  rH.Disable\n  rH.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nplayer.PlaceAtMe rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "D placeatme t005",
+   "field": "pose"
+  },
+  {
+   "frames": 55
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "D placeatme t060",
+   "field": "pose"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "D placeatme t180",
+   "field": "pose"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  rH.Disable\n  rH.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "E drop can t005",
+   "field": "pose"
+  },
+  {
+   "frames": 55
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "E drop can t060",
+   "field": "pose"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "E drop can t180",
+   "field": "pose"
+  },
+  {
+   "frames": 420
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "E drop can t600",
+   "field": "pose"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fZ\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fZ := rH.GetPos Z\n  let fZ := fZ + 1\n  rH.SetPos Z fZ\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "E nudge1 t005",
+   "field": "pose"
+  },
+  {
+   "frames": 55
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "E nudge1 t060",
+   "field": "pose"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "E nudge1 t180",
+   "field": "pose"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  rH.Disable\n  rH.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nplayer.Drop rF1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "F drop t120",
+   "field": "pose"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "F before walk",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "F before walk",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "F before walk",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "F before walk",
+   "field": "angle_z"
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nHoldKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 40
+  },
+  {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "F walked t005",
+   "field": "pose"
+  },
+  {
+   "frames": 115
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "F walked t120",
+   "field": "pose"
+  },
+  {
+   "frames": 180
+  },
+  {
+   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fA\nfloat fB\nfloat fC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  let fX := rH.GetPos X\n  let fY := rH.GetPos Y\n  let fZ := rH.GetPos Z\n  let fA := rH.GetAngle X\n  let fB := rH.GetAngle Y\n  let fC := rH.GetAngle Z\nendif\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fA) + \" \" + ($ fB) + \" \" + ($ fC))\nEnd\n",
+   "label": "F walked t300",
+   "field": "pose"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "F after walk",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "F after walk",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "F after walk",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "F after walk",
+   "field": "angle_z"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nif rH\n  rH.Disable\n  rH.MarkForDelete\nendif\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  }
+ ]
+}

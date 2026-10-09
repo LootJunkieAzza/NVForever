@@ -65,6 +65,17 @@ pub enum EventKind {
     /// The same magic item was applied again while its effect was active: the active
     /// effect's duration grew to `duration` seconds (no new effect, no second start).
     EffectExtended { id: u32, target: FormId, source: FormId, duration: f64 },
+    /// A menu opened (`menu` code; a message box is 1001) or was closed.
+    MenuOpened { menu: u16 },
+    MenuClosed { menu: u16 },
+    /// A dialogue line started (SayTo, Say): who says it to whom, the topic and the line
+    /// (INFO), and how long it lasts in seconds of game time.
+    LineStarted { speaker: FormId, #[serde(skip_serializing_if = "Option::is_none")] target: Option<FormId>, topic: FormId, info: FormId, seconds: f64 },
+    /// A dialogue line ended (its end result script runs next) or was cut off (`cut`:
+    /// the speaker started another line, or was disabled or died).
+    LineEnded { speaker: FormId, info: FormId, #[serde(skip_serializing_if = "std::ops::Not::not")] cut: bool },
+    /// SayTo or Say found no line of the topic the speaker could say.
+    NoLine { speaker: FormId, topic: FormId },
     /// A reputation changed: infamy (axis 0) or fame (axis 1), the new value.
     ReputationChanged { reputation: FormId, axis: usize, value: f64 },
 }

@@ -4,7 +4,7 @@
 //! moving items through `fnv_sim::World`), unit-tested without Bevy. This file draws it
 //! with `bevy_ui` and turns keys and clicks into [`model::Command`]s.
 //!
-//! - `OpenContainer { container }` (Part A, or the F9 test aid) opens the container menu:
+//! - `OpenContainer { container }` (Part A, or the F10 test aid) opens the container menu:
 //!   container | player, in `PlayState::Menu`.
 //! - Tab while playing opens the player's inventory alone: equip/unequip (aid items are
 //!   used), drop, the encumbrance line.
@@ -28,7 +28,7 @@
 //!   no `RefChanged`.
 //!
 //! Test aids (only with `--play`, since this plugin exists only then):
-//! - F9 while playing opens the container menu on the container reference nearest to
+//! - F10 while playing opens the container menu on the container reference nearest to
 //!   the camera (in the current interior, or the worldspace), logging which one.
 //! - `NVF_PLAY_TEST_MENU=<container FormID hex | nearest>` runs a scripted check (see
 //!   [`test_aid`]).
@@ -59,7 +59,7 @@ pub struct MenuInput(pub Command);
 #[derive(Message, Clone, Copy, Debug, Default)]
 pub struct OpenInventory;
 
-/// Test aid: open the nearest container (F9, or `NVF_PLAY_TEST_MENU=nearest`).
+/// Test aid: open the nearest container (F10, or `NVF_PLAY_TEST_MENU=nearest`).
 #[derive(Message, Clone, Copy, Debug, Default)]
 pub struct OpenNearestContainer;
 
@@ -100,13 +100,13 @@ impl Plugin for MenuPlugin {
     }
 }
 
-fn tab_opens_inventory(keys: Res<ButtonInput<KeyCode>>, mut out: MessageWriter<OpenInventory>) {
-    if keys.just_pressed(KeyCode::Tab) {
+fn tab_opens_inventory(input: crate::bindings::ControlInput, mut out: MessageWriter<OpenInventory>) {
+    if input.just_pressed(crate::bindings::Control::MenuMode) {
         out.write(OpenInventory);
     }
 }
 
-/// Test aid: F9 opens the nearest container.
+/// Test aid: F10 opens the nearest container (F9 is the game's Quick Load).
 fn f9_opens_nearest_container(
     keys: Res<ButtonInput<KeyCode>>,
     here: Res<Location>,
@@ -115,7 +115,7 @@ fn f9_opens_nearest_container(
     mut requests: MessageReader<OpenNearestContainer>,
     mut out: MessageWriter<OpenContainer>,
 ) {
-    if !keys.just_pressed(KeyCode::F9) && requests.read().count() == 0 {
+    if !keys.just_pressed(KeyCode::F10) && requests.read().count() == 0 {
         return;
     }
     let Ok(cam) = cam.single() else { return };
@@ -123,10 +123,10 @@ fn f9_opens_nearest_container(
     match model::nearest_container(&sim.world, sim.refs, here.interior.map(FormId), FormId(here.world), pos) {
         Some((id, dist)) => {
             let name = sim.base_of(id.0).and_then(|b| sim.name(b)).unwrap_or("?");
-            info!("F9: nearest container {id} ({name}) at {dist:.0} units");
+            info!("F10: nearest container {id} ({name}) at {dist:.0} units");
             out.write(OpenContainer { container: id.0 });
         }
-        None => info!("F9: no container here"),
+        None => info!("F10: no container here"),
     }
 }
 
@@ -138,6 +138,7 @@ fn open_menus(
     mut next: ResMut<NextState<PlayState>>,
     mut active: ResMut<ActiveMenu>,
     mut sim: ResMut<SimState>,
+    script: Option<ResMut<crate::script::ScriptState>>,
 ) {
     let container = containers.read().last().copied();
     let inv = inventory.read().count() > 0;
@@ -155,6 +156,8 @@ fn open_menus(
     match opened {
         Ok(m) => {
             info!("menu: open {:?} \"{}\"", m.mode, m.title);
+            // Scripts run MenuMode 1008 / 1002 from now on (layer5-play.md).
+            crate::script::engine_menu_opened(script.map(|s| s.into_inner()), m.mode);
             active.0 = Some(m);
             next.set(PlayState::Menu);
         }
@@ -169,8 +172,15 @@ fn release_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>) {
     }
 }
 
-fn close_menu(mut commands: Commands, mut active: ResMut<ActiveMenu>, roots: Query<Entity, With<MenuRoot>>) {
-    active.0 = None;
+fn close_menu(
+    mut commands: Commands,
+    mut active: ResMut<ActiveMenu>,
+    roots: Query<Entity, With<MenuRoot>>,
+    script: Option<ResMut<crate::script::ScriptState>>,
+) {
+    if let Some(m) = active.0.take() {
+        crate::script::engine_menu_closed(script.map(|s| s.into_inner()), m.mode);
+    }
     for e in &roots {
         commands.entity(e).despawn();
     }
@@ -259,7 +269,14 @@ fn apply_input(
         if let Some(item) = a.used {
             used.write(ItemUsed { item: item.0 });
         }
+        // A dropped item starts turned as its holder faces (GetAngle Z of the new reference
+        // equals the player's, X and Y 0 [observed: capture pc_drop_fall, physics.md
+        // §4.3]); `World::drop_item` leaves the rotation 0.
+        let heading = sim.world.peek(FormId::PLAYER_REF).map_or(0.0, |p| p.rot[2]);
         for id in &a.created {
+            if let Ok(s) = sim.world.get(*id) {
+                s.rot = [0.0, 0.0, heading];
+            }
             let (at, count) = sim.world.peek(*id).map(|s| (s.pos, s.count)).unwrap_or_default();
             info!("menu: dropped reference {id} (count {count}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
             changed.write(RefChanged { form_id: id.0 });
@@ -416,7 +433,7 @@ fn column(parent: &mut ChildSpawnerCommands, m: &MenuModel, side: Side) {
                 (true, false) => SELECTED_UNFOCUSED,
                 _ => Color::NONE,
             };
-            let name = format!("{} {}", if r.equipped { "*" } else { " " }, r.name);
+            let name = format!("{}{} {}", if r.equipped { "*" } else { " " }, if r.quest { "Q" } else { " " }, r.name);
             let node = Node { flex_direction: FlexDirection::Row, height: Val::Px(ROW_HEIGHT), align_items: AlignItems::Center, ..default() };
             c.spawn((Button, RowButton(side, i), node, BackgroundColor(bg))).with_children(|row| {
                 row.spawn(cell(name, NAME_WIDTH, TEXT));

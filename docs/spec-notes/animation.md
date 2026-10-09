@@ -1,8 +1,9 @@
 # Spec notes: animation data (workstream 5, part F) — IDLE records and `.kf` files
 
 Clean-room description in plain language: headless groundwork for animation *selection*
-(what an actor plays when, Layer 6). Nothing here decides what to play; it records what
-the data holds. Tags: **[documented]** cites a public source, **[observed]** was measured
+(what an actor plays when, Layer 6). §1–§8 record what the data holds; §9 adds the
+movement, sneak and weapon clips and the choices the player body makes with them
+(docs/design/player-body.md). Tags: **[documented]** cites a public source, **[observed]** was measured
 on the owner's install (FNV 1.4.0.525, the ten masters in the load order of
 docs/spec-notes/simulation.md, the archives `fnv_vfs::Vfs::open_default` loads from
 `Data`) with `fnvtool actor anims` (§6) unless another command is named,
@@ -150,8 +151,10 @@ by the tree. None of this is verified; see §5 and §7.
   1/2 Hand, Pistol Ballistic/Energy, Rifle Ballistic/Automatic/Energy, Handle, Launcher,
   Grenade Throw, Land Mine, Mine Drop, Thrown) [documented: xEdit wbWeaponAnimTypeEnum];
   the mapping (`h2h`, `1hm`, `2hm`, `1hp`, `2hr`, `2ha`, `2hh`, `2hl`, `1gt`, `1lm`,
-  `1md`; no separate energy prefixes) and the `mt`/`sneak`/`swim`/`pa`/`vats` stance
-  prefixes are [hypothesis].
+  `1md`; no separate energy prefixes) is [observed] for every type an NPC carries, from
+  the weapon parts the clips animate and the WEAP attack animations
+  (docs/spec-notes/actors.md §9.3); `1lm`/`1md` and the `mt`/`sneak`/`swim`/`pa`/`vats`
+  stance prefixes are [hypothesis].
 - Sequence names (270 kinds, `SpecialIdle_…` collapsed): `SpecialIdle_*` 1,525, Equip 138,
   Unequip 135, Aim 132, Forward 115, FastForward 96, Holster 92, Idle 86, AttackRight 81,
   Backward 77, TurnRight 75, TurnLeft 74, … — the animation group names Layer 6 will
@@ -201,8 +204,8 @@ of 18,881; creatures: 94,471 of 97,292.
 6. **Condition functions without an opcode** in `schemas/script/functions.json` (451
    IsLastIdlePlayed, 258, 123): should the generated catalogue take xEdit's index for
    them, as it does for other unused vanilla functions?
-7. **File prefixes** (§3.2): is the mapping to WEAP animation types right, and where do
-   energy pistols and rifles take their animations?
+7. ~~File prefixes~~ → answered from the data (2026-10-09, actors.md §9.3): energy
+   pistols use `1hp`, energy rifles `2hr`, thrown weapons `1gt`.
 8. **Fallout 3 DLC folders without skeletons** (224 files): leftovers to ignore?
 
 ## 6. CLI contract
@@ -260,3 +263,199 @@ kffz_candidates, actor_anim_lists}`.
   idle played (`IsLastIdlePlayed` / the console's `GetCurrentAIProcedure`) over time, to
   check the tree walk of §2.2.
 - `PlayIdle` on a childless `Loose…` root and on an inner node, to see which leaf plays.
+- For §9: the player sneaking backwards and sideways, and running sideways (the speeds of
+  §9.2 against `fMoveSneakMult`); in third person, screenshots of the pistol and the
+  rifle holstered and drawn, standing and crouched, against the player body's (§9.3); a
+  video of a walk-to-run change and of drawing a weapon while walking, for blend times
+  and layering (§9.4).
+
+## 8. "Random Anim Start" (placed models)
+
+- **Fact** [documented: xEdit wbDefinitionsFNV.pas, record flag lists]: record header
+  flag bit 16 (`0x00010000`) is "Random Anim Start" on ACTI, CONT, DOOR, FURN, LIGH,
+  MSTT, TACT and TERM; on other types bit 16 means something else (REFR: "High Priority
+  LOD") or nothing. The GECK wiki's "World Objects" page (owner's export
+  `objects.xml`) describes it: the object starts its idle animation at a random time, so
+  several copies in one scene do not animate in step.
+- **Data** [observed, ten masters]: 124 base records set it — ACTI 38 of 1,837, CONT 10 of
+  3,417, DOOR 1 of 474, FURN 1 of 256, LIGH 9 of 728, MSTT 65 of 300, TACT 0, TERM 0.
+- **Engine**: a placed model that plays its embedded idle (`nvf_assets::model::Rig`,
+  docs/spec-notes/nif.md §6) starts at a phase spread by the reference FormID when its
+  base has the flag (`Rig::spawn_at_phase`, `fnv_actor::anims::random_anim_start`), the
+  same spread as actors' idles (actors.md §7.3) — repeatable, not the game's random
+  roll. Bases without the flag start at the clip's start, so their copies stay in step
+  [hypothesis: the game starts unflagged objects at time 0]. `StreamStats::
+  refs_random_start` counts them.
+
+## 9. Movement, sneaking and weapon clips (the player body)
+
+What the human clips hold for moving, crouching and handling a weapon, measured for the
+player body (docs/design/player-body.md). [observed] values come from the diagnostic
+`crates/fnv-nif/examples/kf_layer_survey.rs` (per clip: timing, text keys, transform
+tracks grouped by priority; `KF_ROOT=1` adds the accumulation root's translation at the
+start and stop times) on `Fallout - Meshes.bsa` and `Update.bsa`, and from the
+`fnv.bsa.listing/1` file list of `meshes\characters\_male`.
+
+### 9.1 Files [observed]
+
+In `meshes\characters\_male` (1,063 `.kf` outside `idleanims\`; `Update.bsa` adds 14):
+
+- Standing still: `locomotion\mtidle.kf` (§7.1 of actors.md); `locomotion\mtturnleft.kf`
+  and `mtturnright.kf` (1 s loops, no root rotation track).
+- Unarmed movement: `locomotion\male\mt{,fast}{forward,backward,left,right}.kf` and the
+  same eight under `locomotion\female\` (plus `pamtforward.kf`, power armour), `child\`
+  and `hurt\` (`*_hurt.kf`). `fast` is running.
+- Weapon movement: `locomotion\<prefix>{,fast}<dir>.kf` exist only for some types and
+  directions: `1hp` and `1hm`, `h2h`, `2hh`, `2hl` have all eight; `2ha` and `2hr` have the
+  four `fast` clips and `forward`; `2hm` and `1gt` the four `fast` ones.
+- Sneaking: `sneakmtidle.kf`, `sneakmt{,fast}<dir>.kf`, `sneakmtturn{left,right}.kf`,
+  `sneakmtjump{loop,land}<dir>.kf` (no plain `sneakmtjumploop.kf`), and per weapon
+  `sneak<prefix>{aim,aimup,aimdown,aimis…,equip,unequip,attack…,reload…}.kf`; only `2hh`
+  has its own sneak movement (`sneak2hh<dir>.kf`).
+- Swimming: `swimmtidle.kf`, `swimmt{,fast}<dir>.kf`, `swimmtturn{left,right}.kf`.
+- Jumping: `mtjump{loop,land}{,forward,backward,left,right}.kf`, and per weapon
+  `<prefix>jump{loop,land}<dir>.kf` for `1hp`, `1hm`, `2ha`, `2hh`, `2hm`, `2hr`.
+- Weapon handling: per prefix `<prefix>equip.kf`, `<prefix>unequip.kf`,
+  `<prefix>holster.kf`, `<prefix>aim{,up,down}.kf`; `1hp`, `2ha`, `2hr` also
+  `aimis{,up,down}.kf` (iron sights); `1hm` and `h2h` also `<prefix>idle.kf`.
+
+### 9.2 Ground speed of the movement clips [observed]
+
+Every movement clip drives its accumulation root `Bip01` with a translation that grows
+over the cycle (no rotation); the distance over the cycle divided by its length:
+
+| Clip | Cycle (s) | Distance | Speed (units/s) |
+|---|---|---|---|
+| `locomotion\male\mtforward.kf` | 1.200 | 102.3 | 85.3 |
+| `…\male\mtbackward.kf` | 1.133 | 76.4 | 67.5 |
+| `…\male\mtleft.kf` / `mtright.kf` | 1.200 | 103.8 / 102.8 | 86.5 / 85.7 |
+| `…\male\mtfastforward.kf` | 0.800 | 283.1 | 353.9 |
+| `…\male\mtfastbackward.kf` | 0.800 | 226.0 | 282.5 |
+| `…\male\mtfastleft.kf` / `mtfastright.kf` | 0.800 | 283.0 | 353.8 |
+| `…\female\mtforward.kf` / `mtfastforward.kf` | 1.200 / 0.800 | 102.1 / 283.1 | 85.1 / 353.9 |
+| `locomotion\1hpfastforward.kf` | 0.800 | 283.0 | 353.8 |
+| `sneakmtforward.kf` / `sneakmtfastforward.kf` | 1.533 / 0.867 | 92.0 / 132.6 | 60.0 / 153.0 |
+| `sneakmtleft.kf` | 1.267 | 99.7 | 78.7 |
+| `sneakmtbackward.kf` / `sneakmtfastbackward.kf` | 1.733 / 0.933 | 83.5 / 100.6 | 48.2 / 107.8 |
+| `swimmtforward.kf` | 1.600 | 180.0 | 112.5 |
+
+Compared with the player measured in game (physics.md §6.3): walking 86.8 against 85.3,
+running 344.0 against 353.9, running backwards 272.8 against 282.5 — the backward share
+is 0.793 measured and 0.798 in the clips. Sneaking forward was measured at 197.7 (344 ×
+`fMoveSneakMult` 0.57), not the sneak clips' 153.0. Reading [hypothesis]: the game's
+standing speeds come from the clips' root motion (within 3%), and sneaking scales the
+standing speed by `fMoveSneakMult` instead; the player body plays every movement clip at
+the speed the character actually moves (clip rate = ground speed / root speed).
+
+### 9.3 Priorities and text keys [observed]
+
+Controlled-block priorities (nif.xml ControlledBlock "Priority") of the transform tracks:
+
+| Clip | Legs and pelvis | Spine, neck, head | Arms and hands | Other |
+|---|---|---|---|---|
+| `mtidle.kf` | 10 | 10 | 10 | `##VisCtrl` 20 |
+| `sneakmtidle.kf` | 20 | 20 | 20 | |
+| `mt*`, `sneakmt*` movement | 30 | 30 | 30 | |
+| `locomotion\1hpforward.kf` | 30 | `Bip01 Spine` 30, the rest 31 | 31, right arm 35 | |
+| `locomotion\1hpfastforward.kf` | 30 (pelvis 31) | 36 | 36 | `Weapon` 35 |
+| `1hpaim.kf` | 25 | 30 | 30, right arm 35 | weapon parts (`##…`) 0–55 |
+| `2hraim.kf` | 25 | 30 | 35, fingers 45 | |
+| `h2haim.kf` | 15 | 30 | 45 | |
+| `1hpaimis.kf` / `2hraimis.kf` | 26 | 50 | 50 | |
+| `1hpequip.kf` / `1hpunequip.kf` | 27 (L toe 26) | 55 | left arm 29, right arm 55 | |
+| `2hrequip.kf` | 26 | 55 | 55 | |
+| `h2hequip.kf` | 25 | 30 | 25, hands 55 | |
+| `1hpholster.kf` | pelvis 5 | | | `Weapon` 55 |
+| `2hrholster.kf` | | `Bip01 Spine2` 5 | | `Weapon` 55 |
+
+So clips appear to be made to be laid over each other: idle below everything, the
+posture's movement above it, a weapon's aim pose taking the arms and spine but leaving
+the legs to the movement (25 < 30), drawing and holstering above all.
+
+Text keys (each key's text may hold several lines; spelling and spaces vary):
+
+- `Blend:N`: `Blend:6` on `mtforward.kf` and `mtleft.kf`, `Blend:9` / `Blend: 9` on
+  `mtfastforward.kf` and `mtbackward.kf`, `Blend:3` on `1hpfastforward.kf`,
+  `mtjumploop.kf`, `mtjumpland.kf` and `mtturnleft.kf`, `Blend: 12` on `sneakmtidle.kf`,
+  `Blend:1` / `Blend: 1` on the holster clips. Key times sit on a 1/30 s grid (0.033,
+  0.067, 0.133 …).
+- `prn: <bone>`: `prn: Bip01 R Hand` on `1hpequip.kf` (0.133 s), `1hpaim.kf` and
+  `2hrequip.kf` (0.633 s); `prn: Bip01 Pelvis` on `1hpunequip.kf` (0.200 s) and
+  `1hpholster.kf`; `prn: Bip01 Spine2` on `2hrholster.kf`; `prn: Bip01 R ForeTwist` on
+  the `h2h` clips.
+- `Attach` on equip clips (`1hpequip.kf` 0.167 s, `2hrequip.kf` 0.300 s, `h2hequip.kf`
+  0.133 s), `Detach` on unequip clips (`1hpunequip.kf` 0.233 s, `h2hunequip.kf` 0.167 s).
+- `Enum: Equip` / `Enum: Unequip`, `Enum: Left` / `Right`, `Enum: ArmorWalk`,
+  `FoleyWalk`, `ArmorRun`, `FoleyRun`, `ArmorSneak`, `FoleySneak`, `m:L` / `m:R`
+  (footsteps and sounds; not used here).
+
+The skeleton (`characters\_male\skeleton.nif`) has a `Weapon` node under `Bip01 R Hand`
+(translation 6.17, 1.99, 0.76) and a `Camera3rd` node under the root at (0, −3.74,
+118.36) [observed: node tree].
+
+Readings used by the player body [hypothesis]:
+
+- `Blend:N` is the clip's blend-in time in frames at 30 per second.
+- The weapon hangs from the `Weapon` node; while holstered that node hangs from the bone
+  the holster clip's `prn:` names, posed by the holster clip's `Weapon` track: on the
+  right hip for pistols, across the back for rifles. Drawing moves it to `Bip01 R Hand`
+  at the equip clip's `Attach` key; holstering moves it back at `Detach`. Rendered, the
+  9mm pistol sits at the right hip and the varmint rifle across the back [observed:
+  screenshots, kept privately].
+- The weapon-out stance is the type's Aim group (looped), with `aimup`/`aimdown` blended
+  in by the view's pitch, and the `AimIS` clips while aiming down the sights.
+
+### 9.4 Blending [hypothesis]
+
+nif.xml names the fields of `NiBlendInterpolator` "Array Size", "Weight Threshold",
+"Interp Count", "Single Index", "High Priority", "Next High Priority", "Single Time",
+"High Weights Sum", "Next High Weights Sum" and "High Ease Spinner" [documented: nif.xml],
+which reads as blending by priority first, then by weight within a priority. The player
+body uses that rule per bone (`nvf_assets::anim_blend`): tracks from the highest priority
+down; equal priorities share by their clips' weights; a priority group takes at most the
+weight still free; the bind pose fills the rest. Clips fade in over their `Blend` time
+(0.2 s without one) and out over 0.2 s. Nothing here was compared with the game frame
+by frame; §7 lists the captures that could.
+
+### 9.5 The first-person rig [observed unless tagged]
+
+- `meshes\characters\_1stperson\skeleton.nif` is the only non-`.kf` file of its folder
+  (426 `.kf` in `Fallout - Meshes.bsa`, 9 more in `Update.bsa`). Its tree: `Scene Root` →
+  `Bip01` → `Bip01 NonAccum` → `Bip01 Looking` (translation 0, 0, 118) → `Bip01 Translate`
+  (0, 0, −118) → `Bip01 Rotate` → `Bip` (0, 0.66, 67.77, the third-person `Bip01`'s offset)
+  → pelvis, spine, arms (with extra `Bip01 L/R Hand01`–`04` finger roots), legs; and
+  `Camera1st` under `Bip01 Looking` at (0, −3.74, 0) — 118 units above the feet, against
+  the third-person skeleton's `Camera3rd` at (0, −3.74, 118.36). `Weapon` hangs from
+  `Bip01 R Hand` at the same offset as in the third-person skeleton.
+- Layout: `mtidle.kf`, `sneakmt*.kf`, `swimmt*.kf`, `mtjump*.kf` and `mtturn*.kf` sit in
+  the folder itself; unarmed movement in `locomotion\mt{,fast}<dir>.kf` (no `male\`/
+  `female\`); weapon movement only for `1hp` and `1hm`; per weapon `aim`, `aimis` (no
+  `aimup`/`aimdown`), `equip`, `unequip`, `holster`, attacks, reloads, jams.
+- Tracks: `mtidle.kf` drives `Camera1st`, `Bip` and the arms (priority 20) and the
+  fingers (5); `locomotion\mtforward.kf` only `Bip01` (102.3 units over 1.2 s, as the
+  third-person clip) and `Bip01 NonAccum`; `sneakmtidle.kf` and `sneakmtforward.kf` put
+  `Bip01 NonAccum` at (0, 0, −40) (priority 28 and 30); `1hpaim.kf` drives `Bip`, the
+  spine, the arms and `Weapon` (45), `Camera1st` and `Bip01 NonAccum` (25);
+  `1hpequip.kf` arms and `Camera1st` (55), `Attach` at 0.167 s as in third person;
+  `1hpholster.kf` has `Prn: Bip01 Translate`; `2hraimis.kf` the arms at 54. No clip
+  drives `Bip01 Looking`.
+- Readings [hypothesis]: the game turns `Bip01 Looking` with the view's pitch (it is the
+  only node at camera height between the root and the arms, and `Bip01 Translate` undoes
+  its offset), so arms and weapon stay in front of the camera at `Camera1st`; crouching
+  lowers the whole rig and the camera by 40 (to 78); a holstered weapon hangs from
+  `Bip01 Translate`, out of view.
+- Parts: the hands have first-person meshes beside the third-person ones
+  (`characters\_male\lefthand1st.nif`, `righthand1st.nif`, `lefthandpipboyglove1st.nif`,
+  `femalelefthand1st.nif`, `femalerighthand1st.nif`, `femalelefthandpipboyglove1st.nif`).
+  Upper-body models name their sleeves `Arms…`: `upperbody.nif` `Arms:0`, `Arms:1`;
+  `vaultsuitarmor\m\outfitm.nif` `UpperBody`, `Arms`, `PipBoyOn`/`PipBoyOff`, `Arms\t`,
+  `Upperbody`, caps; `leatherarmor\m\outfitm.nif` `Arms`, `Arms02`, `Upperbody`, caps;
+  `raiderarmor01\m\outfit.nif` `Arms`, `UpperBody`, `Arms2`, caps;
+  `powerarmor\powerarmorcomplete.nif` `Arms`, `UpperBody\t`, `buttcover`, caps;
+  `leatherarmor\m\mark2leather.nif` `Arms01:0`, `body:0`, `upperbody:0`, `Armor:0`, caps.
+  The owner states that the first-person view draws only shapes called `Arms`
+  (2026-10-09); `fnv_actor::first_person` follows that for the upper body and draws hand
+  models whole.
+- Weapons: WEAP `WNAM` "1st Person Model" names a STAT [documented: xEdit]; the 9mm
+  pistol's is `1stPerson9mm` (0x000E7653), whose model is the same `9mm.NIF` with
+  texture swaps (`MODS`).
