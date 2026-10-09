@@ -223,6 +223,11 @@ pub fn decode_record(r: &Record, schema: &Schema) -> Value {
     });
     if let Some(rd) = schema.records.get(&r.header.sig) {
         out["type_name"] = json!(rd.name);
+        // Header flag bits the schema names for this record type (`header_flags`).
+        let named = rd.header_flag_names(r.header.flags);
+        if !named.is_empty() {
+            out["flag_names"] = json!(named);
+        }
     }
     match r.subrecords() {
         Err(e) => {
