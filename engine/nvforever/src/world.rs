@@ -383,7 +383,7 @@ fn load_cell(
                 base.form_id,
                 (to_cell * ref_affine(&p)).translation.into(),
                 light_scale,
-                p.emittance,
+                &p,
                 emittance,
             )
         {
