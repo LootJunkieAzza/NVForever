@@ -1,0 +1,418 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "AND/OR condition lists: which AI package the Goodsprings settlers and Sunny Smiles choose",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VMS16",
+      "running": false,
+      "completed": false,
+      "stage": 0,
+      "vars": {
+        "bGunFightStart": 0,
+        "bTrudyHelp": 0
+      }
+    },
+    {
+      "kind": "quest",
+      "quest": "VMS16b",
+      "running": false,
+      "completed": false,
+      "stage": 0,
+      "vars": {
+        "bPowderGangAttacking": 0
+      }
+    },
+    {
+      "kind": "quest",
+      "quest": "VFreeformGoodsprings",
+      "running": true,
+      "vars": {
+        "bMetSunny": 0
+      }
+    },
+    {
+      "kind": "quest",
+      "quest": "VCG02",
+      "running": false,
+      "completed": false,
+      "stage": 5,
+      "done": [
+        5
+      ],
+      "not_done": [
+        20,
+        40,
+        45
+      ],
+      "objectives": [
+        {
+          "index": 10,
+          "displayed": false,
+          "completed": false
+        },
+        {
+          "index": 20,
+          "displayed": false
+        },
+        {
+          "index": 70,
+          "displayed": false
+        }
+      ]
+    },
+    {
+      "kind": "ref",
+      "ref": "0x00104F08",
+      "disabled": false,
+      "dead": false
+    },
+    {
+      "kind": "ref",
+      "ref": "0x00104F0A",
+      "disabled": false,
+      "dead": false
+    },
+    {
+      "kind": "ref",
+      "ref": "0x00104F03",
+      "disabled": false,
+      "dead": false
+    },
+    {
+      "kind": "ref",
+      "ref": "0x00104E85",
+      "disabled": false,
+      "dead": false
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16",
+      "var": "bGunFightStart",
+      "value": 1
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16",
+      "var": "bTrudyHelp",
+      "value": 0
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16b",
+      "var": "bPowderGangAttacking",
+      "value": 0
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F08"
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F0A"
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F03"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F08",
+      "package": "0x00107480",
+      "label": "gunfight, Trudy not helping: settler 0x00104F08 flees"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F0A",
+      "package": "0x00107480",
+      "label": "gunfight, Trudy not helping: settler 0x00104F0A flees"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F03",
+      "package": "0x00107480",
+      "label": "gunfight, Trudy not helping: settler 0x00104F03 flees"
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16",
+      "var": "bGunFightStart",
+      "value": 1
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16",
+      "var": "bTrudyHelp",
+      "value": 1
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16b",
+      "var": "bPowderGangAttacking",
+      "value": 0
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F08"
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F0A"
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F03"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F08",
+      "package": "0x00107480",
+      "label": "gunfight, Trudy helping: settler 0x00104F08 flees"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F0A",
+      "package": "0x00107480",
+      "label": "gunfight, Trudy helping: settler 0x00104F0A flees"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F03",
+      "package": "0x00107480",
+      "label": "gunfight, Trudy helping: settler 0x00104F03 flees"
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16",
+      "var": "bGunFightStart",
+      "value": 0
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16",
+      "var": "bTrudyHelp",
+      "value": 0
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16b",
+      "var": "bPowderGangAttacking",
+      "value": 1
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F08"
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F0A"
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F03"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F08",
+      "package": "0x00107480",
+      "label": "gang attacking, Trudy not helping: settler 0x00104F08 flees"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F0A",
+      "package": "0x00107480",
+      "label": "gang attacking, Trudy not helping: settler 0x00104F0A flees"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F03",
+      "package": "0x00107480",
+      "label": "gang attacking, Trudy not helping: settler 0x00104F03 flees"
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16",
+      "var": "bGunFightStart",
+      "value": 0
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16",
+      "var": "bTrudyHelp",
+      "value": 1
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16b",
+      "var": "bPowderGangAttacking",
+      "value": 1
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F08"
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F0A"
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F03"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F08",
+      "package": "0x00107480",
+      "label": "gang attacking, Trudy helping: settler 0x00104F08 flees"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F0A",
+      "package": "0x00107480",
+      "label": "gang attacking, Trudy helping: settler 0x00104F0A flees"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F03",
+      "package": "0x00107480",
+      "label": "gang attacking, Trudy helping: settler 0x00104F03 flees"
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16",
+      "var": "bGunFightStart",
+      "value": 0
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16",
+      "var": "bTrudyHelp",
+      "value": 0
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS16b",
+      "var": "bPowderGangAttacking",
+      "value": 0
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F08"
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F0A"
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104F03"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F08",
+      "package": "0x00107480",
+      "label": "nothing: settler 0x00104F08 flees"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F0A",
+      "package": "0x00107480",
+      "label": "nothing: settler 0x00104F0A flees"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104F03",
+      "package": "0x00107480",
+      "label": "nothing: settler 0x00104F03 flees"
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VFreeformGoodsprings",
+      "var": "bMetSunny",
+      "value": 1
+    },
+    {
+      "op": "set_stage",
+      "quest": "VCG02",
+      "stage": 20
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104E85"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104E85",
+      "package": "0x0010A21C",
+      "label": "Sunny stays: VCG02 stage 20"
+    },
+    {
+      "op": "set_objective",
+      "quest": "VCG02",
+      "index": 70,
+      "displayed": true
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104E85"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104E85",
+      "package": "0x0010A21C",
+      "label": "Sunny stays: VCG02 stage 20, objective 70 shown"
+    },
+    {
+      "op": "set_objective",
+      "quest": "VCG02",
+      "index": 70,
+      "displayed": false
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104E85"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104E85",
+      "package": "0x0010A21C",
+      "label": "Sunny stays: VCG02 stage 20, objective 70 hidden"
+    },
+    {
+      "op": "set_stage",
+      "quest": "VCG02",
+      "stage": 45
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104E85"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104E85",
+      "package": "0x0010A21C",
+      "label": "Sunny stays: VCG02 stage 45"
+    },
+    {
+      "op": "set_objective",
+      "quest": "VCG02",
+      "index": 70,
+      "displayed": true
+    },
+    {
+      "op": "evaluate_package",
+      "of": "0x00104E85"
+    },
+    {
+      "op": "is_current_package",
+      "of": "0x00104E85",
+      "package": "0x0010A21C",
+      "label": "Sunny stays: VCG02 stage 45, objective 70 shown"
+    }
+  ]
+}
