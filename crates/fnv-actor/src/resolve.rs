@@ -157,6 +157,13 @@ pub struct Resolver<'a> {
 impl<'a> Resolver<'a> {
     /// Resolve an actor base placed by `reference` (the seed of its leveled choices).
     pub fn resolve(&self, base: FormId, reference: FormId) -> Result<Appearance, ResolveError> {
+        self.resolve_wearing(base, reference, None)
+    }
+
+    /// [`Self::resolve`], with the armour worn given (`Some`: e.g. what the simulation
+    /// has equipped on the player) instead of chosen from the carried items; entries that
+    /// are not ARMO records are ignored.
+    pub fn resolve_wearing(&self, base: FormId, reference: FormId, wearing: Option<&[FormId]>) -> Result<Appearance, ResolveError> {
         let mut ch = Choices { rng: rng_for(reference), picks: HashMap::new(), random: false };
         let npc = self.actor_base(base, &mut ch, 0)?;
         let traits = self.template_source(npc, template::TRAITS, &mut ch)?;
@@ -173,7 +180,10 @@ impl<'a> Resolver<'a> {
         let named = |n: &Npc| n.skeleton.as_deref().filter(|s| !is_editor_marker(s)).map(mesh_path);
         let skeleton = named(model).or_else(|| named(traits)).unwrap_or_else(|| HUMAN_SKELETON.to_string());
 
-        let worn = self.choose_armor(inventory.id, &mut ch);
+        let worn = match wearing {
+            Some(w) => w.iter().copied().filter(|id| self.actors.armors.contains_key(id)).collect(),
+            None => self.choose_armor(inventory.id, &mut ch),
+        };
         let covered = worn.iter().filter_map(|w| self.actors.armors.get(w)).fold(0, |acc, a| acc | a.slots);
 
         let mut parts = Vec::new();

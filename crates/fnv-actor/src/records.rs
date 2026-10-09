@@ -1,5 +1,6 @@
 //! The records that decide what an actor looks like, read through the Layer 1 schema:
-//! NPC_, RACE, HAIR, EYES, HDPT, ARMO (worn models and protection) and LVLN.
+//! NPC_, RACE, HAIR, EYES, HDPT, ARMO (worn models and protection), LVLN, and WEAP (the
+//! model held and the animation set it selects).
 //!
 //! Field meanings: docs/spec-notes/actors.md §1 (layouts from xEdit's public
 //! definitions, `schemas/fnv/gameplay.json` and `objects.json`).
@@ -118,6 +119,17 @@ pub struct Armor {
     pub power_armor: bool,
 }
 
+/// What a weapon looks like in an actor's hands.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Weapon {
+    pub edid: Option<String>,
+    /// MODL: the third-person model, relative to `meshes\`.
+    pub model: Option<String>,
+    /// DNAM "Animation Type" (0–13) [documented: xEdit wbWeaponAnimTypeEnum]; the clip
+    /// prefix is `locomotion::weapon_prefix`.
+    pub animation_type: Option<u32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LeveledNpc {
     pub chance_none: u8,
@@ -135,13 +147,14 @@ pub struct ActorForms {
     pub head_parts: HashMap<FormId, HeadPart>,
     pub armors: HashMap<FormId, Armor>,
     pub leveled: HashMap<FormId, LeveledNpc>,
+    pub weapons: HashMap<FormId, Weapon>,
     /// Signature of the winning record of every actor-related form, for reports.
     pub sigs: HashMap<FormId, [u8; 4]>,
     pub edids: HashMap<String, FormId>,
     pub issues: Issues,
 }
 
-const SIGS: &[&[u8; 4]] = &[b"NPC_", b"RACE", b"HAIR", b"EYES", b"HDPT", b"ARMO", b"LVLN", b"CREA", b"LVLC"];
+const SIGS: &[&[u8; 4]] = &[b"NPC_", b"RACE", b"HAIR", b"EYES", b"HDPT", b"ARMO", b"LVLN", b"CREA", b"LVLC", b"WEAP"];
 
 enum Loaded {
     Npc(Box<Npc>),
@@ -151,6 +164,7 @@ enum Loaded {
     HeadPart(HeadPart),
     Armor(Armor),
     Leveled(LeveledNpc),
+    Weapon(Weapon),
     Other,
 }
 
@@ -212,6 +226,9 @@ impl ActorForms {
                 Loaded::Leveled(l) => {
                     out.leveled.insert(id, l);
                 }
+                Loaded::Weapon(w) => {
+                    out.weapons.insert(id, w);
+                }
                 Loaded::Other => {}
             }
         }
@@ -250,6 +267,11 @@ fn load_one(lo: &LoadOrder, pi: usize, id: FormId, sig: &[u8; 4], d: &[Decoded],
         }),
         b"ARMO" => Loaded::Armor(armor(d)),
         b"LVLN" => Loaded::Leveled(leveled_npc(lo, pi, id, d, issues)),
+        b"WEAP" => Loaded::Weapon(Weapon {
+            edid: first(d, b"EDID").and_then(text),
+            model: path(first(d, b"MODL")),
+            animation_type: first(d, b"DNAM").and_then(|v| weapon_animation_type(v.get("animation_type")?)),
+        }),
         _ => Loaded::Other,
     }
 }
@@ -375,6 +397,33 @@ fn armor(d: &[Decoded]) -> Armor {
         dt: dnam.and_then(|v| num(v, "dt")).unwrap_or(0.0) as f32,
         dr_raw: dnam.and_then(|v| int(v, "dr")).unwrap_or(0) as i32,
         power_armor,
+    }
+}
+
+/// WEAP DNAM "Animation Type" names in value order [documented: xEdit
+/// wbWeaponAnimTypeEnum, as in `schemas/fnv/objects.json`].
+const WEAPON_ANIMATION_TYPES: [&str; 14] = [
+    "Hand to Hand",
+    "Melee (1 Hand)",
+    "Melee (2 Hand)",
+    "Pistol - Ballistic (1 Hand)",
+    "Pistol - Energy (1 Hand)",
+    "Rifle - Ballistic (2 Hand)",
+    "Rifle - Automatic (2 Hand)",
+    "Rifle - Energy (2 Hand)",
+    "Handle (2 Hand)",
+    "Launcher (2 Hand)",
+    "Grenade Throw (1 Hand)",
+    "Land Mine (1 Hand)",
+    "Mine Drop (1 Hand)",
+    "Thrown (1 Hand)",
+];
+
+/// The decoded animation type: its name (a value the schema names) or the raw number.
+fn weapon_animation_type(v: &Value) -> Option<u32> {
+    match v {
+        Value::String(n) => WEAPON_ANIMATION_TYPES.iter().position(|t| t == n).map(|i| i as u32),
+        _ => v.as_u64().map(|n| n as u32),
     }
 }
 

@@ -10,6 +10,7 @@
 //! runtime (quest and object scripts, events, messages) next to the simulation.
 
 pub mod activate;
+pub mod control;
 pub mod dropped;
 pub mod menu;
 pub mod phys;

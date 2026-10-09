@@ -387,6 +387,8 @@ pub struct SpawnedActor {
     pub nodes: Vec<Entity>,
     /// Entities carrying meshes.
     pub drawn: Vec<Entity>,
+    /// For each of `drawn`, the index of the part (in the `parts` given) it belongs to.
+    pub part_of: Vec<usize>,
     /// Skinned shapes whose bones the skeleton lacks: drawn rigidly at the root instead.
     pub unbound: usize,
 }
@@ -405,9 +407,9 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
     for (i, p) in skel.parents.iter().enumerate().skip(1) {
         commands.entity(nodes[p.unwrap_or(0)]).add_child(nodes[i]);
     }
-    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), unbound: 0 };
+    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), part_of: Vec::new(), unbound: 0 };
     let nodes = &out.nodes;
-    for u in parts {
+    for (pi, u) in parts.iter().enumerate() {
         let bone = skel.by_name.get(u.part.attach_bone()).copied();
         for (i, s) in u.part.shapes.iter().enumerate() {
             if s.cap || s.name.as_ref().is_some_and(|n| u.hidden_shapes.iter().any(|h| h.eq_ignore_ascii_case(n))) {
@@ -449,6 +451,7 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
                 }
             };
             out.drawn.push(e);
+            out.part_of.push(pi);
         }
     }
     out
