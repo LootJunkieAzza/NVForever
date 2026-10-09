@@ -1,0 +1,638 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "cl_d_mines_live",
+ "title": "B10 placed frag mines: the player's activation and stepping on one (no god mode)",
+ "start": "nvftest (goes to Nipton house 8 with coc; Health raised to 5000; may kill the player)",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "coc NiptonHouse8Paranoid"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283062\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "0x0013A656 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "0x0013A656 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "0x0013A656 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "0x0013A656 z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "0x00139551 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "0x00139551 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "0x00139551 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "0x00139551 z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "player x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "player y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N0 on arrival",
+   "field": "player z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAV Health 5000\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "0x0013A656 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "0x0013A656 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "0x0013A656 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "0x0013A656 z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "0x00139551 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "0x00139551 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "0x00139551 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "0x00139551 z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "player x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "player y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N1 health raised",
+   "field": "player z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X 657.51\nplayer.SetPos Y -149.85\nplayer.SetPos Z 4490\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAngle Z 180\nplayer.SetAngle X 60\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "ref rX\nBegin Function { }\nlet rX := GetCrosshairRef\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "crosshair",
+   "field": "ref"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "0x0013A656 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "0x0013A656 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "0x0013A656 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "0x0013A656 z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "0x00139551 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "0x00139551 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "0x00139551 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "0x00139551 z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "player x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "player y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N2 after the Activate control on B",
+   "field": "player z"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "0x0013A656 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "0x0013A656 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "0x0013A656 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "0x0013A656 z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "0x00139551 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "0x00139551 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "0x00139551 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "0x00139551 z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "player x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "player y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N3 two seconds later",
+   "field": "player z"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X 668.19\nplayer.SetPos Y -432.49\nplayer.SetPos Z 4490\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "0x0013A656 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "0x0013A656 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "0x0013A656 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "0x0013A656 z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "0x00139551 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "0x00139551 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "0x00139551 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "0x00139551 z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "player x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "player y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N4 on A, 0.5 s",
+   "field": "player z"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "0x0013A656 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "0x0013A656 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "0x0013A656 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "0x0013A656 z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "0x00139551 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "0x00139551 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "0x00139551 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "0x00139551 z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "player x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "player y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N5 on A, 1.5 s",
+   "field": "player z"
+  },
+  {
+   "frames": 120
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "0x0013A656 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "0x0013A656 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "0x0013A656 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "0x0013A656 z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "0x00139551 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "0x00139551 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "0x00139551 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "0x00139551 z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "player x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "player y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N6 on A, 3.5 s",
+   "field": "player z"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "0x0013A656 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "0x0013A656 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "0x0013A656 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287766\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "0x0013A656 z"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "0x00139551 disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "0x00139551 x"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "0x00139551 y"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283409\nlet fV := rF1.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "0x00139551 z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "player x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "player y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "N7 on A, 8.5 s",
+   "field": "player z"
+  }
+ ]
+}
