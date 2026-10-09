@@ -57,7 +57,7 @@ item once you've ruled on it.
    - the western sky still lit at 20:00.
 
    Its new in-game captures came out black (probably the display was off). The camera
-   list `C:nv-private\sky\cap\cameras.json` is ready for a rerun with you there.
+   list `C:\fnv-private\sky\cap\cameras.json` is ready for a rerun with you there.
 3. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
    (same commits, its PR #38 was closed). `layer4-phys-wt` is an early copy of the physics
    workstream from 2026-10-07, superseded by `claude/layer4-phys`. Neither was merged or
