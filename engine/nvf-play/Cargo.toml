@@ -1,6 +1,6 @@
 [package]
 name = "nvf-play"
-description = "NVForever: Layer 4 in the game — player controller, activation, container and inventory menus"
+description = "NVForever: Layers 4 and 5 in the game — player controller, activation, container and inventory menus, scripts"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -15,3 +15,7 @@ fnv-world.workspace = true
 fnv-sim.workspace = true
 fnv-phys.workspace = true
 fnv-collide.workspace = true
+fnv-script.workspace = true
+fnv-game.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
