@@ -659,9 +659,14 @@ state and one call per frame:
   stays [hypothesis, from the GECK wiki's ShowMessage and GetButtonPressed pages; with a
   global button the `--play` integration saw Doc Mitchell's chemistry set take every
   box's button].
-These replace engine-side workarounds for "no script time in menus" and "OnLoad the
-frame after Enable"; the frames right after a door's cell load are the engine's to mark
-with `loading` (the captures saw about 22 frames without script runs after a `coc`).
+These replace the engine-side handling `nvf-play` (PR #62) has for "no script time in
+menus, message boxes and the frames after a door load" and "OnLoad the frame after
+Enable". Until it switches: an OnLoad the engine runs itself (`ref_event(r, ON_LOAD)`)
+clears the one Enable queued, so OnLoad never runs twice; and setting `frame_seconds`
+to 0 in menus still stops game time, but also stops MenuMode's quest delay counter, so
+quest MenuMode blocks with a delay never run (keeping `dt` and setting `menu` avoids
+that). The frames right after a door's cell load are the engine's to mark with
+`loading` (the captures saw about 22 frames without script runs after a `coc`).
 
 Disabled and deleted references do not run their scripts [hypothesis].
 

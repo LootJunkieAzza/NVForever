@@ -596,6 +596,11 @@ impl<'a> Game<'a> {
 
     /// Run a non-frame event on a reference's script, with a trace line.
     pub fn ref_event(&mut self, r: FormId, event: u16, subject: Option<Value>, action_ref: Option<FormId>) -> bool {
+        if event == event::ON_LOAD {
+            // An OnLoad run by the caller (a cell load, or an engine that runs it
+            // itself) settles one queued by Enable: OnLoad runs once per load.
+            self.pending_onload.retain(|&x| x != r);
+        }
         let Some(script) = self.ref_script(r) else { return false };
         let has = self.data.script(script).is_some_and(|u| u.has_block(event));
         if !has {
