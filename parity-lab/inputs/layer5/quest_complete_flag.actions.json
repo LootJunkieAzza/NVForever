@@ -1,0 +1,55 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "VMS22: the Complete Quest stage 90 (empty script), then the Fail Quest stage 100 (empty script)",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VMS22",
+      "running": true,
+      "completed": false,
+      "not_done": [
+        90,
+        100
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_stage",
+      "quest": "VMS22",
+      "stage": 90
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS22",
+      "label": "VMS22 after the complete stage 90",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.90",
+        "done.100"
+      ]
+    },
+    {
+      "op": "set_stage",
+      "quest": "VMS22",
+      "stage": 100
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS22",
+      "label": "VMS22 after the fail stage 100",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.90",
+        "done.100"
+      ]
+    }
+  ]
+}

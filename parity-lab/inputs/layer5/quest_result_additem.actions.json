@@ -1,0 +1,70 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "VMS16b stage 30: a result script with if/else that gives an actor an item and shows objectives",
+  "save": "nvfdoc",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VMS16b",
+      "running": false,
+      "stage": 0,
+      "not_done": [
+        30
+      ]
+    },
+    {
+      "kind": "item_count",
+      "of": "0x00104C0F",
+      "item": "0x0015EF9C",
+      "count": 0
+    },
+    {
+      "kind": "item_count",
+      "of": "0x00103E37",
+      "item": "0x0015EF9C",
+      "count": 0
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_stage",
+      "quest": "VMS16b",
+      "stage": 30
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x00104C0F",
+      "item": "0x0015EF9C",
+      "label": "actor's item after stage 30"
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x00103E37",
+      "item": "0x0015EF9C",
+      "label": "container's item after stage 30"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16b",
+      "label": "VMS16b after stage 30",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.30",
+        "objective.20.completed",
+        "objective.30.displayed",
+        "objective.40.displayed",
+        "objective.60.displayed"
+      ]
+    },
+    {
+      "op": "remove_item",
+      "from": "0x00104C0F",
+      "item": "0x0015EF9C",
+      "count": 1
+    }
+  ]
+}
