@@ -1,0 +1,305 @@
+//! Reference functions: enable state, position, identity, locks, activation, lists.
+
+use super::{base_of, none, yes, Args, Ctx};
+use crate::game::{ActMode, Game};
+use crate::trace::EventKind;
+use fnv_script::vm::Value;
+use fnv_sim::FormId;
+
+/// Enable / disable; the fade flag is presentation only.
+pub fn enable(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let was = g.world.get(r).map_err(|e| e.to_string())?.enabled;
+    g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
+    if !was {
+        g.emit(EventKind::RefEnabled { reference: r });
+    }
+    none()
+}
+
+pub fn disable(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let was = g.world.get(r).map_err(|e| e.to_string())?.enabled;
+    g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
+    if was {
+        g.emit(EventKind::RefDisabled { reference: r });
+    }
+    none()
+}
+
+pub fn get_disabled(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(!g.world.is_enabled(r).map_err(|e| e.to_string())?)
+}
+
+/// The current cell, position and rotation of a reference.
+type Place = (Option<FormId>, [f32; 3], [f32; 3]);
+
+fn place(g: &mut Game, r: FormId) -> Result<Place, String> {
+    let s = g.world.get(r).map_err(|e| e.to_string())?;
+    Ok((s.cell, s.pos, s.rot))
+}
+
+/// `MoveTo marker [x y z]`: the calling reference goes to the marker's cell and position
+/// plus the offsets. Moving the player loads the destination's cells.
+/// `MoveToMarkerWithFade` is the same with a fade (presentation).
+pub fn move_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let marker = a.form(0)?;
+    let (cell, mut pos, rot) = place(g, marker)?;
+    for (i, p) in pos.iter_mut().enumerate() {
+        *p += a.num_or(1 + i, 0.0) as f32;
+    }
+    let cell = cell.map(|c| g.world.placed.exterior_cell_at(c, pos).unwrap_or(c));
+    {
+        let s = g.world.get(r).map_err(|e| e.to_string())?;
+        s.cell = cell;
+        s.pos = pos;
+        if r != FormId::PLAYER_REF {
+            s.rot = rot;
+        }
+    }
+    if g.ref_script(r).is_some() {
+        g.moved.insert(r);
+    }
+    g.emit(EventKind::Moved { reference: r, cell, pos });
+    if r == FormId::PLAYER_REF {
+        g.player_entered(cell);
+    }
+    none()
+}
+
+pub fn get_self(_g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    Ok(ctx.self_ref.map(|r| Value::Ref(r.0)).unwrap_or(Value::NONE))
+}
+
+/// 1 when the caller's base form is the given form (or the caller is that form).
+pub fn get_is_id(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let id = a.form(0)?;
+    yes(r == id || base_of(g, r) == Some(id))
+}
+
+pub fn get_is_reference(_g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    yes(ctx.subject()? == a.form(0)?)
+}
+
+/// 1 when the caller's cell's Editor ID begins with the given cell's [documented:
+/// catalogue summary].
+pub fn get_in_cell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let want = a.form(0)?;
+    let Some(cell) = g.cell_of(r) else { return yes(false) };
+    if cell == want {
+        return yes(true);
+    }
+    let (Some(have), Some(w)) = (g.data.edid_of.get(&cell), g.data.edid_of.get(&want)) else { return yes(false) };
+    yes(have.to_ascii_lowercase().starts_with(&w.to_ascii_lowercase()))
+}
+
+pub fn get_in_worldspace(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let ws = a.form(0)?;
+    let cell = g.cell_of(r);
+    yes(cell.and_then(|c| g.world.placed.world_of(c)) == Some(ws))
+}
+
+pub fn get_in_same_cell(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let t = a.form(0)?;
+    let (c1, c2) = (g.cell_of(r), g.cell_of(t));
+    yes(c1.is_some() && c1 == c2)
+}
+
+pub fn is_in_interior(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let cell = g.cell_of(r);
+    yes(cell.is_some_and(|c| g.world.placed.world_of(c).is_none()))
+}
+
+/// Distance in game units between the two references when they are in the same
+/// interior cell or the same worldspace; otherwise a large number [hypothesis].
+pub fn get_distance(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let t = a.form(0)?;
+    let (c1, p1, _) = place(g, r)?;
+    let (c2, p2, _) = place(g, t)?;
+    let space = |c: Option<FormId>| c.map(|c| g.world.placed.world_of(c).unwrap_or(c));
+    if c1.is_none() || space(c1) != space(c2) {
+        return Ok(Value::Num(f32::MAX as f64));
+    }
+    let d: f32 = (0..3).map(|i| (p1[i] - p2[i]).powi(2)).sum::<f32>().sqrt();
+    Ok(Value::Num(d as f64))
+}
+
+pub fn get_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let i = a.axis(0)?;
+    Ok(Value::Num(place(g, r)?.1[i] as f64))
+}
+
+pub fn set_pos(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let i = a.axis(0)?;
+    let v = a.num(1)? as f32;
+    g.world.get(r).map_err(|e| e.to_string())?.pos[i] = v;
+    none()
+}
+
+/// Angles in degrees in scripts, radians in the world state [documented: catalogue,
+/// GetAngle/SetAngle take degrees].
+pub fn get_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let i = a.axis(0)?;
+    Ok(Value::Num((place(g, r)?.2[i] as f64).to_degrees()))
+}
+
+pub fn set_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let i = a.axis(0)?;
+    let v = a.num(1)?.to_radians() as f32;
+    g.world.get(r).map_err(|e| e.to_string())?.rot[i] = v;
+    none()
+}
+
+pub fn get_linked_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(g.world.placed.get(r).and_then(|p| p.linked).map(|l| Value::Ref(l.0)).unwrap_or(Value::NONE))
+}
+
+pub fn get_parent_ref(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(g.world.placed.get(r).and_then(|p| p.enable_parent).map(|e| Value::Ref(e.reference.0)).unwrap_or(Value::NONE))
+}
+
+/// The reference is removed (the engine removes it a few frames later; here at once
+/// [hypothesis]).
+pub fn mark_for_delete(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.extra.entry(r).or_default().marked_for_delete = true;
+    g.world.get(r).map_err(|e| e.to_string())?.deleted = true;
+    none()
+}
+
+pub fn set_destroyed(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.extra.entry(r).or_default().destroyed = a.num_or(0, 1.0) != 0.0;
+    none()
+}
+
+pub fn get_destroyed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.extra.get(&r).is_some_and(|e| e.destroyed))
+}
+
+pub fn lock(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let level = a.num(0).ok().map(|l| l.clamp(0.0, 255.0) as u8);
+    g.world.lock(r, level).map_err(|e| e.to_string())?;
+    none()
+}
+
+pub fn unlock(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.world.unlock(r).map_err(|e| e.to_string())?;
+    none()
+}
+
+pub fn get_locked(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::Num(g.world.lock_status(r).map_err(|e| e.to_string())? as f64))
+}
+
+/// `Ref.Activate [actor] [flag]`: with no actor the calling reference's action reference
+/// (inside OnActivate: whoever activated it) is used, and without one nothing happens;
+/// flag 0 runs the default action, bypassing OnActivate; flag 1 runs the OnActivate block
+/// instead [documented: GECK wiki Activate].
+pub fn activate(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let target = ctx.subject()?;
+    let actor = a.opt_form(0).or(ctx.action_ref).ok_or("no action reference")?;
+    let mode = if a.num_or(1, 0.0) != 0.0 { ActMode::Block } else { ActMode::Default };
+    g.activate(actor, target, mode)?;
+    none()
+}
+
+pub fn get_action_ref(_g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    Ok(ctx.action_ref.map(|r| Value::Ref(r.0)).unwrap_or(Value::NONE))
+}
+
+pub fn is_action_ref(_g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    yes(ctx.action_ref.is_some() && ctx.action_ref == a.opt_form(0))
+}
+
+fn base_sig(g: &Game, r: FormId) -> Option<[u8; 4]> {
+    base_of(g, r).and_then(|b| g.data.sig(b))
+}
+
+pub fn is_actor(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(matches!(base_sig(g, r).as_ref(), Some(b"NPC_") | Some(b"CREA")))
+}
+
+pub fn get_is_creature(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(base_sig(g, r).as_ref() == Some(b"CREA"))
+}
+
+/// The members of a form list: authored, plus those added at run time.
+pub fn list_members(g: &Game, list: FormId) -> Vec<FormId> {
+    let mut v = g.form_lists.get(&list).cloned().unwrap_or_default();
+    v.extend(g.data.form_lists.get(&list).into_iter().flatten().copied());
+    v
+}
+
+/// 1 when the caller's base form is in the list.
+pub fn is_in_list(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let list = a.form(0)?;
+    let b = base_of(g, r);
+    let m = list_members(g, list);
+    yes(m.contains(&r) || b.is_some_and(|b| m.contains(&b)))
+}
+
+/// Inserts at index 0 [documented: catalogue summary].
+pub fn add_form_to_form_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let list = a.form(0)?;
+    let f = a.form(1)?;
+    if g.data.sig(list).as_ref() != Some(b"FLST") {
+        return Err(format!("{} is not a form list", g.data.name(list)));
+    }
+    if !list_members(g, list).contains(&f) {
+        g.form_lists.entry(list).or_default().insert(0, f);
+    }
+    none()
+}
+
+/// Opens (1) or closes (0) a door [documented: GECK wiki SetOpenState].
+pub fn set_open_state(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.world.get(r).map_err(|e| e.to_string())?.open = a.num(0)? != 0.0;
+    none()
+}
+
+/// 1 open, 3 closed for a door at rest, 0 for other objects [documented: GECK wiki
+/// GetOpenState codes; hypothesis: no opening/closing animation states without Layer 6].
+pub fn get_open_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let door = base_of(g, r).and_then(|b| g.data.sig(b)).as_ref() == Some(b"DOOR");
+    let open = g.world.get(r).map_err(|e| e.to_string())?.open;
+    Ok(Value::Num(if !door {
+        0.0
+    } else if open {
+        1.0
+    } else {
+        3.0
+    }))
+}
+
+/// A trigger-enter event on the calling trigger, by the given reference [documented:
+/// catalogue summary].
+pub fn enter_trigger(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let t = ctx.subject()?;
+    let by = a.form(0)?;
+    g.ref_event(t, crate::game::event::ON_TRIGGER_ENTER, Some(Value::Ref(by.0)), Some(by));
+    none()
+}

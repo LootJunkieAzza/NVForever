@@ -11,6 +11,7 @@
 //! - [`decompile`]: IR → canonical text
 //! - [`check`]: consistency checks between a unit and its decoded program
 //! - [`resolve`]: which script a form runs and its variables (for `ref.var`)
+//! - [`vm`]: the interpreter over the IR, against a `Host` (docs/spec-notes/scripts.md §4)
 
 pub mod check;
 pub mod decode;
@@ -19,6 +20,7 @@ pub mod ir;
 pub mod resolve;
 pub mod table;
 pub mod unit;
+pub mod vm;
 
 pub use decode::{decode, Decoded, Issue, Report};
 pub use ir::{Arg, Arm, Block, Call, Expr, Marker, Op, Program, RefIndex, Stmt, Token, VarLetter, VarRef, VarSlot};
