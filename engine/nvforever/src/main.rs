@@ -462,15 +462,19 @@ fn main() -> AppExit {
                     anim.total.as_secs_f64() * 1e6 / anim.clip_frames.max(1) as f64
                 );
                 let c = &*actor_anim;
-                info!(
+                if c.actor_frames == 0 {
+                    info!("actor animation: no actors posed");
+                } else {
+                    info!(
                     "actor animation: up to {} actors posed at once, {:.3} ms per frame on average, {:.2} us per actor and frame, {:.2} clips per actor and frame ({:.1}% of actor frames blending two), {:.1} tracks per actor and frame",
                     c.peak,
                     c.total.as_secs_f64() * 1e3 / f64::from(c.frames.max(1)),
                     c.total.as_secs_f64() * 1e6 / c.actor_frames.max(1) as f64,
                     c.layer_frames as f64 / c.actor_frames.max(1) as f64,
                     100.0 * c.blend_frames as f64 / c.actor_frames.max(1) as f64,
-                    c.tracks as f64 / c.actor_frames.max(1) as f64
-                );
+                    c.tracks as f64 / c.actor_frames as f64
+                    );
+                }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
                     info!("FaceGen: {} shapes morphed, {} faces textured, {} EGMs not matching their shape", fg.morphed_shapes, fg.faces_textured, fg.mismatched);
