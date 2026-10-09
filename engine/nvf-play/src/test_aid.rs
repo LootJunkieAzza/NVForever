@@ -19,13 +19,22 @@
 //!   is under that point (game space, in the current cell or worldspace) at those times.
 //! - `NVF_PLAY_TEST_GIVE=<item FormID hex>[:<count>][,...]` adds items to the player's
 //!   inventory at the start (`World::add_item`), e.g. something to drop.
+//! - `NVF_PLAY_TEST_EQUIP=<item FormID hex>[,...]` gives the player one of each item
+//!   unless carried, and equips it (`World::equip`; a weapon for the player body to draw).
+//! - `NVF_PLAY_TEST_MOVE=<seconds>:<forward>:<right>[:walk][,...]` holds the movement keys
+//!   from each time on: `forward` and `right` in −1..1 (W/S, D/A), `walk` as Shift held;
+//!   `<seconds>:0:0` stops.
+//! - `NVF_PLAY_TEST_CONTROL=<seconds>:<what>[,...]` presses a control at each time:
+//!   `sneak` (Left Ctrl), `weapon` (R), `aim` (the right mouse button, pressed or
+//!   released), `view` (F), `jump` (Space), or `zoom=<units>` (the third-person distance).
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
 //! view (as with `--auto-walk`).
 
+use crate::control::{Pov, PlayerControl};
 use crate::phys::PhysState;
-use crate::player::Player;
+use crate::player::{MoveIntent, Player};
 use crate::sim::SimState;
 use crate::PlaySet;
 use bevy::prelude::*;
@@ -75,6 +84,42 @@ fn gifts(v: &str) -> Result<Vec<(FormId, i32)>, String> {
             Ok((id, n))
         })
         .collect()
+}
+
+/// `NVF_PLAY_TEST_MOVE` items: `<forward>:<right>[:walk]`.
+fn move_keys(rest: &str) -> Result<MoveIntent, String> {
+    let parts: Vec<&str> = rest.split(':').map(str::trim).collect();
+    let num = |s: &str| s.parse::<f32>().map(|v| v.clamp(-1.0, 1.0)).map_err(|_| format!("{rest:?}: bad axis {s:?}"));
+    match parts.as_slice() {
+        [f, r] => Ok(MoveIntent { forward: num(f)?, right: num(r)?, ..Default::default() }),
+        [f, r, "walk"] => Ok(MoveIntent { forward: num(f)?, right: num(r)?, walk: true, ..Default::default() }),
+        _ => Err(format!("{rest:?}: expected <forward>:<right>[:walk]")),
+    }
+}
+
+/// A control pressed by `NVF_PLAY_TEST_CONTROL`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Press {
+    Sneak,
+    Weapon,
+    Aim,
+    View,
+    Jump,
+    Zoom(f32),
+}
+
+fn press(rest: &str) -> Result<Press, String> {
+    Ok(match rest {
+        "sneak" => Press::Sneak,
+        "weapon" => Press::Weapon,
+        "aim" => Press::Aim,
+        "view" => Press::View,
+        "jump" => Press::Jump,
+        _ => match rest.strip_prefix("zoom=").map(|d| d.trim().parse::<f32>()) {
+            Some(Ok(d)) => Press::Zoom(d),
+            _ => return Err(format!("{rest:?}: expected sneak, weapon, aim, view, jump or zoom=<units>")),
+        },
+    })
 }
 
 /// `NVF_PLAY_TEST_SHOTS` items: `<seconds>` (saved as `play-<seconds>s.png` in `dir`) or
@@ -127,6 +172,10 @@ struct Aids {
     face: Vec<(f32, FormId)>,
     looks: Vec<(f32, (f32, f32))>,
     gotos: Vec<(f32, [f32; 3])>,
+    moves: Vec<(f32, MoveIntent)>,
+    /// The movement keys held since the last `moves` entry fired.
+    held: Option<MoveIntent>,
+    presses: Vec<(f32, Press)>,
 }
 
 pub(crate) fn setup(app: &mut App) {
@@ -144,6 +193,24 @@ pub(crate) fn setup(app: &mut App) {
                 });
             }
             Err(e) => warn!("NVF_PLAY_TEST_GIVE: {e}"),
+        }
+    }
+    if let Ok(v) = std::env::var("NVF_PLAY_TEST_EQUIP") {
+        match gifts(&v) {
+            Ok(g) => {
+                app.add_systems(Startup, move |mut sim: ResMut<SimState>| {
+                    for &(item, _) in &g {
+                        let w = &mut sim.world;
+                        let carried = w.item_count(FormId::PLAYER_REF, item).unwrap_or(0) > 0;
+                        let r = if carried { Ok(Vec::new()) } else { w.add_item(FormId::PLAYER_REF, item, 1) };
+                        match r.and_then(|_| w.equip(FormId::PLAYER_REF, item)) {
+                            Ok(e) => info!("test aid: the player equips {item} (unequipped {:?})", e.unequipped),
+                            Err(e) => warn!("NVF_PLAY_TEST_EQUIP {item}: {e}"),
+                        }
+                    }
+                });
+            }
+            Err(e) => warn!("NVF_PLAY_TEST_EQUIP: {e}"),
         }
     }
     let var = |name: &str| std::env::var(name).ok();
@@ -167,10 +234,51 @@ pub(crate) fn setup(app: &mut App) {
             Err(e) => warn!("NVF_PLAY_TEST_GOTO: {e}"),
         }
     }
-    if aids.shots.is_empty() && aids.face.is_empty() && aids.looks.is_empty() && aids.gotos.is_empty() {
+    if let Some(v) = var("NVF_PLAY_TEST_MOVE") {
+        match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| move_keys(r).map(|m| (s, m))).collect()) {
+            Ok(m) => aids.moves = m,
+            Err(e) => warn!("NVF_PLAY_TEST_MOVE: {e}"),
+        }
+    }
+    if let Some(v) = var("NVF_PLAY_TEST_CONTROL") {
+        match timed(&v).and_then(|items| items.into_iter().map(|(s, r)| press(r).map(|p| (s, p))).collect()) {
+            Ok(p) => aids.presses = p,
+            Err(e) => warn!("NVF_PLAY_TEST_CONTROL: {e}"),
+        }
+    }
+    if aids.shots.is_empty() && aids.face.is_empty() && aids.looks.is_empty() && aids.gotos.is_empty() && aids.moves.is_empty() && aids.presses.is_empty() {
         return;
     }
-    app.insert_resource(aids).add_systems(Update, (take_shots, face_reference, goto_and_look).chain().in_set(PlaySet::Input));
+    app.insert_resource(aids).add_systems(
+        Update,
+        (take_shots, face_reference, goto_and_look, keys_and_controls).chain().in_set(PlaySet::Input).after(crate::control::read_controls),
+    );
+}
+
+/// `NVF_PLAY_TEST_MOVE` and `NVF_PLAY_TEST_CONTROL`, after the real keys were read.
+fn keys_and_controls(time: Res<Time>, mut aids: ResMut<Aids>, mut intent: ResMut<MoveIntent>, mut control: ResMut<PlayerControl>) {
+    let now = time.elapsed_secs();
+    for m in take_due(&mut aids.moves, now) {
+        info!("test aid: movement keys forward {} right {}{}", m.forward, m.right, if m.walk { " walking" } else { "" });
+        aids.held = Some(m);
+    }
+    if let Some(m) = aids.held {
+        (intent.forward, intent.right, intent.walk) = (m.forward, m.right, m.walk);
+    }
+    for p in take_due(&mut aids.presses, now) {
+        match p {
+            Press::Sneak => control.sneak = !control.sneak,
+            Press::Weapon => control.weapon_out = !control.weapon_out,
+            Press::Aim => control.aiming = !control.aiming,
+            Press::View => control.pov = if control.pov == Pov::First { Pov::Third } else { Pov::First },
+            Press::Jump => intent.jump = true,
+            Press::Zoom(d) => control.distance = d.clamp(crate::control::MIN_DISTANCE, crate::control::MAX_DISTANCE),
+        }
+        info!(
+            "test aid: control {p:?}: sneak {} weapon out {} aiming {} view {:?} distance {:.0}",
+            control.sneak, control.weapon_out, control.aiming, control.pov, control.distance
+        );
+    }
 }
 
 fn take_shots(time: Res<Time>, mut aids: ResMut<Aids>, mut commands: Commands) {
@@ -271,5 +379,11 @@ mod tests {
         assert_eq!(gifts("00015169:2, 0x0000000F").unwrap(), vec![(FormId(0x15169), 2), (FormId(0xF), 1)]);
         assert!(gifts("00015169:x").is_err());
         assert!(point("1:2").is_err());
+        assert_eq!(move_keys("1:-0.5").unwrap(), MoveIntent { forward: 1.0, right: -0.5, ..Default::default() });
+        assert!(move_keys("-1:0:walk").unwrap().walk);
+        assert!(move_keys("1").is_err() && move_keys("1:0:run").is_err());
+        assert_eq!(press("zoom=250").unwrap(), Press::Zoom(250.0));
+        assert_eq!(press("weapon").unwrap(), Press::Weapon);
+        assert!(press("fire").is_err());
     }
 }

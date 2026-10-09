@@ -3,8 +3,10 @@
 //!
 //! Each frame: keys and mouse become a [`MoveIntent`] and the look angles (Input set);
 //! the character is placed on the ground once its cell is loaded, then moved in fixed
-//! steps through the `Stepper` (Physics set); the camera sits at the eye, interpolated
-//! between the last two steps; the simulation's player reference follows the feet.
+//! steps through the `Stepper` (Physics set); the simulation's player reference follows
+//! the feet; a player body, when one is drawn, poses itself in [`BodySet`] and gives the
+//! eye; the camera (`control::place_camera`) sits at the eye, interpolated between the
+//! last two steps, or behind the player in third person.
 //! Nothing moves in `PlayState::Menu` (physics time stops). Movement values are
 //! [hypothesis] (docs/spec-notes/physics.md §6).
 //!
@@ -16,10 +18,11 @@
 
 pub mod safe;
 
+use crate::control::{ControlSettings, PlayerControl};
 use crate::phys::cells::Space;
 use crate::phys::PhysState;
 use crate::sim::SimState;
-use crate::{space, PlaySet, PlayState, PlayWorld, PlayerCamera, Travel};
+use crate::{space, PlaySet, PlayState, PlayWorld, Travel};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -53,12 +56,17 @@ pub struct Player {
     /// Feet position, game space (interpolated between fixed steps: where the camera
     /// shows the player; `PhysState::player` holds the stepped position).
     pub feet: [f32; 3],
+    /// The eye of the player's body this frame (game space), when a body is drawn
+    /// (nvforever's player body writes it in [`BodySet`]): its head, crouching and
+    /// swaying with the animation.
+    pub body_eye: Option<[f32; 3]>,
 }
 
 impl Player {
-    /// Eye position, game space.
+    /// Eye position, game space: the body's when one is drawn, else `eye_height` above
+    /// the feet.
     pub fn eye(&self) -> [f32; 3] {
-        [self.feet[0], self.feet[1], self.feet[2] + self.eye_height]
+        self.body_eye.unwrap_or([self.feet[0], self.feet[1], self.feet[2] + self.eye_height])
     }
 
     /// Unit view direction, game space.
@@ -201,6 +209,11 @@ impl Status {
     }
 }
 
+/// Within `PlaySet::Physics`, after the character has moved and before the camera is
+/// placed: where a player body poses itself and writes [`Player::body_eye`].
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BodySet;
+
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
@@ -208,16 +221,20 @@ impl Plugin for PlayerPlugin {
         app.init_resource::<MoveIntent>()
             .init_resource::<Status>()
             .init_resource::<Net>()
+            .init_resource::<PlayerControl>()
+            .init_resource::<crate::control::BodyView>()
             .insert_resource(NearAid::from_env())
-            .add_systems(Startup, init_player)
-            .add_systems(Update, (grab_cursor, read_input, mouse_look).chain().in_set(PlaySet::Input))
+            .add_systems(Startup, (init_player, crate::control::init_settings))
+            .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
+            .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
                 Update,
-                (place_initial, interior_net, step, crate::phys::settle_created, sync_sim, log_status, place_camera)
+                (place_initial, interior_net, step, crate::phys::settle_created, sync_sim, log_status)
                     .chain()
                     .in_set(PlaySet::Physics)
                     .after(crate::phys::PhysSystems),
-            );
+            )
+            .add_systems(Update, crate::control::place_camera.in_set(PlaySet::Physics).after(log_status));
     }
 }
 
@@ -241,7 +258,7 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
             }
         }
     }
-    commands.insert_resource(Player { heading: d.heading_deg.to_radians(), pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet });
+    commands.insert_resource(Player { heading: d.heading_deg.to_radians(), pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet, body_eye: None });
     let settings = MoveSpeeds::from_settings(sim.forms.setting_f32("fMoveBaseSpeed"), sim.forms.setting_f32("fMoveRunMult"));
     let speeds = MoveSpeeds::OBSERVED;
     info!(
@@ -530,6 +547,8 @@ fn step(
     state: Res<State<PlayState>>,
     d: Res<PlayWorld>,
     speeds: Res<MoveSpeeds>,
+    control: Res<PlayerControl>,
+    settings: Option<Res<ControlSettings>>,
     mut intent: ResMut<MoveIntent>,
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
@@ -577,7 +596,9 @@ fn step(
         } else {
             *stroke_time = 0.0;
             let [x, y] = velocity(&intent, player.heading, *speeds);
-            [x, y, 0.0]
+            // Sneaking scales the speed by `fMoveSneakMult` (control.rs).
+            let k = if control.sneak { settings.as_ref().map_or(crate::control::DEFAULT_SNEAK_MULT, |s| s.sneak_mult) } else { 1.0 };
+            [x * k, y * k, 0.0]
         };
         p.prev_feet = c.feet;
         let view = Some([player.heading.sin(), player.heading.cos()]);
@@ -663,13 +684,6 @@ fn log_status(time: Res<Time>, phys: Res<PhysState>, player: Res<Player>, mut st
         phys.world.steps(),
         if s.waiting_frames > 0 { format!(", waited {} frames for its cell", s.waiting_frames) } else { String::new() },
     );
-}
-
-/// The camera at the player's eye, looking along the view.
-fn place_camera(player: Option<Res<Player>>, mut cams: Query<&mut Transform, With<PlayerCamera>>) {
-    let (Some(p), Ok(mut t)) = (player, cams.single_mut()) else { return };
-    t.translation = space::to_bevy(p.eye());
-    t.rotation = space::look_rotation(p.heading, p.pitch);
 }
 
 #[cfg(test)]

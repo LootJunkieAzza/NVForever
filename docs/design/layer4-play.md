@@ -66,6 +66,14 @@ cell entity), and `RefChanged` is sent by the inventory menu for each dropped re
 | `OpenContainer { container }` | message | A | U |
 | `RefChanged { form_id }` | message: the sim changed a reference's presence (taken, dropped, enabled, disabled), placed or created | A, U (one per dropped reference) | A (visual sync), P (collision; created references load with their physics cell) |
 
+Coordinator change 2026-10-09 (player body, branch `claude/player-body`,
+docs/design/player-body.md): `Player` gained `body_eye` (the eye of the drawn body, which
+`Player::eye` returns when set); new resources `PlayerControl` (sneak, weapon out, aiming,
+first/third person), `ControlSettings`, `BodyView`, and the set `player::BodySet` in
+`PlaySet::Physics` between the character's move and the camera; the camera system moved
+to `control.rs` (`place_camera`: first person at the eye, third person behind the
+shoulder). Sneaking scales walking and running by `fMoveSneakMult`.
+
 Coordinator change 2026-10-08 (worldspace travel, branch `claude/layer4-play-worldspace`):
 `Travel` gained `world`; `Location` was added; `PlayData::world` is only the start.
 `PhysState::worldspace` / `PhysState::set_world` hold physics' worldspace, and the sim's

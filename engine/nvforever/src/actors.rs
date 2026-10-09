@@ -72,7 +72,13 @@ impl ActorWorld {
     }
 
     pub fn resolve(&self, base: u32, reference: u32) -> Result<Appearance, String> {
-        Resolver { actors: &self.actors, forms: &self.forms }.resolve(FormId(base), FormId(reference)).map_err(|e| e.to_string())
+        self.resolve_wearing(base, reference, None)
+    }
+
+    /// [`Self::resolve`] wearing the given armour instead of the chosen one
+    /// (`Resolver::resolve_wearing`).
+    pub fn resolve_wearing(&self, base: u32, reference: u32, wearing: Option<&[FormId]>) -> Result<Appearance, String> {
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_wearing(FormId(base), FormId(reference), wearing).map_err(|e| e.to_string())
     }
 }
 
@@ -88,35 +94,14 @@ pub struct ActorStats {
     pub clip_missing: usize,
 }
 
-/// Spawn the actor placed by `reference` under `parent` with the reference transform
-/// `rt` (parent space). Returns whether anything was drawn.
-#[allow(clippy::too_many_arguments)]
-pub fn spawn(
-    commands: &mut Commands,
-    parent: Entity,
-    rt: Affine3A,
-    reference: u32,
-    base: u32,
-    world: &ActorWorld,
-    ctx: &mut ActorCtx,
-    stats: &mut ActorStats,
-) -> bool {
-    let a = match world.resolve(base, reference) {
-        Ok(a) => a,
-        Err(e) => {
-            stats.unresolved += 1;
-            debug!("actor {reference:08X}: {e}");
-            return false;
-        }
-    };
-    let Some(skel) = ctx.skeleton(&a.skeleton) else {
-        stats.unresolved += 1;
-        return false;
-    };
+/// The parts of a resolved actor ready to assemble, each with its index in `a.parts`:
+/// models loaded, textures, FaceGen and hair colour applied, the hair's hat variant
+/// chosen. Parts whose model cannot be loaded are left out and counted in `missing`.
+pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, missing: &mut usize) -> Vec<(usize, PartUse)> {
     let mut uses = Vec::with_capacity(a.parts.len());
-    for p in &a.parts {
+    for (pi, p) in a.parts.iter().enumerate() {
         let Some(part) = ctx.part(&p.model) else {
-            stats.parts_missing += 1;
+            *missing += 1;
             continue;
         };
         let mut materials: Vec<_> = part.shapes.iter().map(|s| s.material.clone()).collect();
@@ -167,10 +152,40 @@ pub fn spawn(
         }
         // The hair model holds a `NoHat` and a `Hat` shape (actors.md §2.4).
         let hidden_shapes = if p.role == "hair" { vec![if a.hat { "NoHat" } else { "Hat" }.to_string()] } else { Vec::new() };
-        uses.push(PartUse { meshes, part, materials, hidden_shapes });
+        uses.push((pi, PartUse { meshes, part, materials, hidden_shapes }));
     }
+    uses
+}
+
+/// Spawn the actor placed by `reference` under `parent` with the reference transform
+/// `rt` (parent space). Returns whether anything was drawn.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn(
+    commands: &mut Commands,
+    parent: Entity,
+    rt: Affine3A,
+    reference: u32,
+    base: u32,
+    world: &ActorWorld,
+    ctx: &mut ActorCtx,
+    stats: &mut ActorStats,
+) -> bool {
+    let a = match world.resolve(base, reference) {
+        Ok(a) => a,
+        Err(e) => {
+            stats.unresolved += 1;
+            debug!("actor {reference:08X}: {e}");
+            return false;
+        }
+    };
+    let Some(skel) = ctx.skeleton(&a.skeleton) else {
+        stats.unresolved += 1;
+        return false;
+    };
+    let uses = part_uses(&a, world, ctx, &mut stats.parts_missing);
     // The race's height scales the actor [hypothesis, actors.md §3].
     let rt = rt * Affine3A::from_scale(Vec3::splat(a.race_height as f32));
+    let uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
     let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
     commands.entity(spawned.root).insert((Name::new(format!("Actor {reference:08X} {}", a.edid.as_deref().unwrap_or(""))), RefVisual(reference)));
     for e in &spawned.drawn {
