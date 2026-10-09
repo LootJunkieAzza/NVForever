@@ -209,6 +209,32 @@ item once you've ruled on it.
     disabled" rule in `world.rs` / `actors.rs`, would fix it for NPCs and lights.
     `RefVisual` is already on actor entities.
 
+20. **Function coverage (#66) and effect scripts in the game (#67).** Script uses
+    handled: 95.0% → 99.98% (implemented 88.1% → 92.6%). New features:
+    - reputation (fame/infamy with thresholds);
+    - effect scripts on consumables, which now run in `--play` when an aid item is used;
+    - PlaceAtMe, ownership, regions, destruction stages, factions, fast travel,
+      challenges and casino state.
+
+    Decisions for you (scripts.md §10):
+    - (a) GetReputationThreshold's 25/50/75% levels and 4×4 grid are a guess with
+      1,786 uses; a capture is proposed;
+    - (b) effect-script timing is a guess;
+    - (c) RemoveAllTypedItems codes other than 40 follow the script-extender
+      community's numbering;
+    - (d) Layer 6 state checks (GetSitting, IsMoving, GetDetected…) stay stubs for now;
+    - (e) the xEdit source was read on GitHub for the catalogue, and
+      `script_functions.py` gained `--xedit-from-catalogue`.
+21. **Coordinator mistake, fixed forward.** PR #64 committed `nvforever-wire.exe`
+    (97 MB, an engine build the coordinator had copied into the worktree root; our own
+    binary, no game data) because of a `git add -A`. #67 removed it and now ignores
+    `*.exe`. The blob is still in `main`'s history. Purging it needs a history rewrite
+    and a force-push of `main`, which is your call. While cleaning up, a second copy of
+    the binary turned out corrupt in the shared object store (the push failed on it). It
+    was unreferenced after amending, so the coordinator ran
+    `git reflog expire --expire-unreachable=now --all` (no stash existed) and deleted
+    that one loose object. `git fsck --connectivity-only` is clean.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
