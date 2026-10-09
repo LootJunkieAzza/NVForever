@@ -270,6 +270,52 @@ them stubs), adds [documented: GECK wiki, page named]:
   (Layer 6 AI, not this document). **BhkRagdollConstraint** and
   **BhkLimitedHingeConstraint** are for the ragdoll step.
 
+A fifth export, Game Mechanics and Formulas (`GameMechanics.xml`, 2026-10-09, 21
+pages), fills the formula gaps [documented: GECK wiki, page named]:
+
+- **Critical Hit Chance Formula.** The CritChance actor value is `fAVDCritLuckBase` +
+  `fAVDCritLuckMult` × Luck (defaults 0 and 1), and abilities such as Finesse add to
+  it. The chance is CritChance × the weapon's Crit % Mult (divided by Fire Rate for
+  automatic weapons), passed through "Calculate My Critical Hit Chance" perks, plus
+  `fVATSCriticalChanceBonus` (15) in VATS. Weapon condition doesn't affect it in New
+  Vegas.
+- **Gun Spread Formula (New Vegas).** The page says none of the Fallout 3 spread
+  settings or formula apply. A shot's spread is the actor's spread plus the weapon's
+  spread, times the ammo's spread modifier (and a split-beam mod's factor).
+  - The **actor's spread** sums penalties for not aiming (`fUnaimedSpreadPenalty`
+    0.2), walking or running (`fWalkingSpreadPenalty` 0.1 / `fRunningSpreadPenalty`
+    0.2, divided by "Modify Aiming Move Speed" perks), standing rather than crouching
+    (`fStandingSpreadPenalty` 0.1), crippled arms (four settings by one or two arms
+    and one- or two-handed weapon) and unmet Strength or skill requirements. That sum
+    is multiplied by 1 − `fWobbleToSkillConversion` (0.5) × skill / 100, kept at least
+    `fMinGunSpreadValue` (0.01), then passed through "Calculate Gun Spread" perks. In
+    the original this value drives the hand sway; scope sway is the same motion.
+  - The **weapon's spread** is Min Spread minus Decrease Spread mods. Weapon spread
+    makes no sway.
+  - For NPCs the total is scaled up by `fNPCMaxGunWobbleAngle` (15).
+  - The page's authors measured the angles in the game: one unit of actor spread is
+    about 5.955°, and weapon spread maps through 0.0125·W² + 0.125·W before the same
+    factor. These numbers are their measurements, not the editor's.
+  - Requirement penalty: 0.025 per missing point of Strength. The skill requirement
+    is bugged in the original (its own setting is ignored).
+- **Explosion Knockdown Formula.** The chance is (damage × `fKnockdownDamageMult` 0.3
+  + base) ÷ (Agility × 10 × `fKnockdownAgilMult` + base), capped at
+  `fKnockdownChance` (0.25). There is no knockdown below 50 % of current health
+  (`fKnockdownCurrentHealthThreshold`), and always one above 75 % of maximum health
+  (`fKnockdownBaseHealthThreshold`).
+- **Melee Knockback Formula.** The force is (Agility × 10 × `fKnockbackAgilMult`
+  (−0.008) + `fKnockbackAgilBase` (1)) × (damage × `fKnockbackDamageMult` (10) +
+  `fKnockbackDamageBase` (50)), capped at `fKnockbackForceMax` (512 units), applied
+  for `fKnockbackTime` (1 s).
+- **Derived Skill Settings.** A skill is its base setting + the linked SPECIAL × 2 +
+  ⌈Luck × 0.5⌉, and tagging adds 15. NPC skills for the damage and spread formulas come
+  from this when not set.
+- **Experience Settings.** Kill XP by the target's difficulty, NPC and creature
+  separately. The player gets none unless they dealt a share of the target's health
+  (`iXPDeathRewardHealthThreshold`, 40 % by default, when others also hit it).
+- The derived-statistic settings (health from Endurance and level) are still not in
+  any export.
+
 The **Ammo Effect** page (owner's paste, 2026-10-09; also in `Misc.xml`) says the effects
 are new in New Vegas and are listed on the ammo. Each changes one value (damage, DR, DT,
 fatigue, spread or weapon condition) by adding,
@@ -338,15 +384,22 @@ role; their exact names come from C1.
   fires (§5.8). Shotguns fire the ammo's projectiles per shot, each with its own
   spread. Small-transparent objects stop a projectile unless its PROJ flag lets it
   pass.
-- **Spread** is a cone. Its base angle is the weapon's Min Spread, the cone's median
-  angle in degrees (New Vegas ignores the separate Spread field [documented: GECK wiki
-  Weapons]). It is scaled
-  by stance: aiming down the sights tightens it, crouching tightens it a little, moving
-  widens it, jumping widens it a lot. Each shot widens it further (bloom), and it
-  recovers over time. **Recoil** kicks the view up and recovers. Bloom and recovery
-  rates are tuning values, scaled per weapon type; heavier weapons kick more.
-- **Skills** affect spread mildly; damage follows the documented skill bonus (§5.3). A
-  low-skill character can still hit what they aim at.
+- **Spread** is a cone around the crosshair. Its size comes from the documented New
+  Vegas spread (§4.2): the actor's spread (aiming, moving, crouching, crippled arms,
+  requirements, skill, perks) plus the weapon's (Min Spread, mods), times the ammo's
+  modifier, turned into degrees with the measured conversion. Using it keeps every
+  weapon, ammo, mod and perk meaningful. What changes [design]:
+  - The actor's spread widens the cone instead of swaying the weapon, so the
+    crosshair stays true. A light idle sway remains in the scope, for feel.
+  - The crosshair shows the current cone.
+  - **Bloom**: each shot widens the cone and it recovers over time, scaled by the
+    weapon's spread.
+  - **Recoil**: the view kicks up and recovers, stronger for heavier weapons.
+  - Jumping adds a penalty of its own.
+
+  Bloom, recoil and the jump penalty are tuning values.
+- **Skills** act through the documented spread and damage formulas: with low skill a
+  gun is wider, never useless.
 - **No auto-aim** with the mouse (the original's auto-aim settings, §4.2, are not used)
   [design]. It can come back as an aim assist for controllers.
 - **Determinism**: each shot draws from an RNG seeded by (attacker, shot counter), so a
@@ -382,10 +435,11 @@ are marked [design].
    Damage" perk entry points. Sneak attacks multiply by the documented sneak settings.
    The body part's multiplier comes last [design: the original applies it its own way,
    which is not documented here]. A hit worth 0 before perks is a miss, as documented.
-3. **Criticals**: the chance comes from the weapon's `CRDT` multiplier, the attacker's
-   critical chance (Luck) and perks (the Critical Hit Chance Formula page is not
-   exported; our rule is a tuning value), plus a guaranteed critical on headshots
-   against an unaware target [design]. The critical adds the weapon's Crit Dmg through
+3. **Criticals**: the chance is the documented formula (§4.2): the CritChance actor
+   value from Luck × the weapon's Crit % Mult (÷ fire rate for automatic weapons),
+   through the critical-chance perks and the target's "Modify Enemy Critical Hit
+   Chance" perks. On top of that, a headshot on an unaware target is always a
+   critical [design]. The critical adds the weapon's Crit Dmg through
    the critical-damage perks before armour, and applies its critical effect. For
    automatic weapons the chance multiplier is divided by the fire rate (§4.2).
 4. **Armour**: the target's DT is subtracted, with a floor so weak weapons still do a
@@ -462,8 +516,9 @@ engine:
 - EXPL damage over its radius, falling off with distance [design: the record gives one
   damage value; a linear falloff to 25 % at the edge is our tuning]. A line-of-sight
   ray blocks it unless the EXPL ignores line of sight. Force goes to dynamic bodies in
-  the radius, and living actors are knocked down per the EXPL's knockdown setting
-  (always / never; "by formula" becomes our own chance from damage taken).
+  the radius, and living actors are knocked down per the EXPL's knockdown setting:
+  always, never, or by the documented knockdown formula (§4.2) with its health
+  thresholds, plus "Knockdown Chance" perks.
 - Radiation lingers at the point for the dissipation time. The enchantment applies to
   actors caught in the blast, and a placed impact object is spawned.
 - Triggers come from the PROJ: impact, timer (mines arm after it), proximity, or
@@ -514,8 +569,8 @@ Each step is a branch and a PR, reviewed before the next starts.
 | C2 | Rules, headless: damage, criticals, spread and recoil, attack cycle, projectile stepping; `CombatTuning` | C1 |
 | C3 | Hit volumes: actor capsules in `fnv-phys`, synced in the engine | — (can run alongside C2) |
 | C4 | The player shoots: input, attack and reload clips, ammo, projectiles in play, tracers | C2, C3 |
-| C5 | Damage applied: health, death, script events, death clip, looting the body, HUD | C4 |
-| C6 | Melee and unarmed, block, power attacks | C5 |
+| C5 | Damage applied: health, death, script events, death clip, looting the body, kill XP (documented settings, §4.2), HUD | C4 |
+| C6 | Melee and unarmed, block, power attacks, knockback (documented formula, §4.2) | C5 |
 | C7 | Explosions, thrown weapons, mines, destructible objects (DEST stages) | C5 |
 | later | body-part hit volumes and limb damage; perk entry points (the combat ones listed in §4.2); fatigue and knockdown (fatigue ammo effects included, which do nothing in the original); weapon mods; ammo swap and jamming; impact effects (IPDS → IPCT by collision material: decals, effect models); severed and exploded limbs; ragdolls; audio; VATS or a replacement | |
 | Layer 6 AI | NPCs fight back: combat AI using the same attack cycle, detection, factions and hostility, combat styles (CSTY) | C5; actor-behaviour.md |
@@ -525,10 +580,11 @@ Each step is a branch and a PR, reviewed before the next starts.
 1. **Facts for C1**: the owner's Items, Actor Data and Special Effect exports and the
    Ammo Effect page (§4.2) cover weapons, ammo and its effects, armour, body parts,
    actor values, projectiles, explosions, impacts and destruction; the Misc export adds
-   the damage formula, perk entry points, clip text keys and actor stats. Still useful
-   if they exist: Critical Hit Chance Formula, Gun Spread Formula (New Vegas),
-   Explosion Knockdown Formula, and the derived-statistics settings (health from
-   Endurance and level). Without them those rules are our own tuning.
+   the damage formula, perk entry points, clip text keys and actor stats; the Game
+   Mechanics export adds critical chance, New Vegas spread, knockdown, knockback,
+   derived skills and kill XP. Still missing: the derived-statistic settings (an NPC's
+   health from Endurance and level), needed in C5. Without that page, C5 reads NPC
+   health from what the records give and documents its rule as a hypothesis.
 2. **Feel**: hit markers yes? Floating damage numbers (default off)? Recoil and bloom
    strength like a modern shooter, or subtler?
 3. **VATS**: rebuild it later, replace it (e.g. a slow-motion aim assist), or leave it
