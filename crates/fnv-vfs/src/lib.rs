@@ -2,10 +2,13 @@
 //! plus loose files, with case-insensitive, slash-agnostic paths (docs/design/layer2.md
 //! §2.5). Read-only: nothing here writes to the game install.
 //!
-//! Precedence, lowest first [hypothesis, see the design doc]: the INI `SArchiveList`
-//! archives in list order, then `Update.bsa`, then each active plugin's archives
-//! (`<plugin stem> - *.bsa`, `<plugin stem>.bsa`) in load order, then loose files.
-//! A later source replaces an earlier one's file with the same path.
+//! Precedence, lowest first (docs/spec-notes/bsa.md, "Precedence"): the INI
+//! `SArchiveList` archives in list order, then `Update.bsa`, then each active plugin's
+//! archives (`<plugin stem> - *.bsa`, `<plugin stem>.bsa`) in load order, then loose files.
+//! A later source replaces an earlier one's file with the same path. Checked against
+//! in-game screenshots [observed]: `Update.bsa` overrides `Fallout - Meshes.bsa`, and a DLC
+//! archive overrides the base archives. Still [hypothesis]: `Update.bsa` below the DLC
+//! archives, DLC against DLC by load order, and loose files above every archive.
 
 use fnv_bsa::Archive;
 use std::collections::HashMap;
@@ -43,6 +46,16 @@ pub enum VfsError {
     Io(PathBuf, std::io::Error),
     #[error("{0}: {1}")]
     Bsa(String, fnv_bsa::BsaError),
+}
+
+/// Environment variable that replaces the archive order of [`Vfs::open_default`]
+/// (diagnostics only; see there).
+pub const ARCHIVE_ORDER_ENV: &str = "NVF_ARCHIVE_ORDER";
+
+/// Archive names of a comma-separated list (`SArchiveList` style), trimmed, empty items
+/// dropped.
+pub fn parse_archive_list(list: &str) -> Vec<String> {
+    list.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect()
 }
 
 /// Normalised form of a game path: lower case, backslashes, no leading separator.
@@ -152,8 +165,16 @@ impl Vfs {
     }
 
     /// Default setup: the INI archive list, `Update.bsa`, and the base + DLC plugins.
+    ///
+    /// Diagnostic override: when the environment variable [`ARCHIVE_ORDER_ENV`] is set, its
+    /// comma-separated archive names (lowest precedence first, like `SArchiveList`) replace
+    /// that order. It exists to render the same scene under competing precedence rules and
+    /// compare them with the original game (docs/spec-notes/bsa.md, "Precedence").
     pub fn open_default(data_dir: &Path) -> Result<Vfs, VfsError> {
-        let order = Vfs::archive_order(data_dir, &DEFAULT_ARCHIVE_LIST, &DEFAULT_PLUGINS);
+        let order = match std::env::var(ARCHIVE_ORDER_ENV) {
+            Ok(list) if !list.trim().is_empty() => parse_archive_list(&list),
+            _ => Vfs::archive_order(data_dir, &DEFAULT_ARCHIVE_LIST, &DEFAULT_PLUGINS),
+        };
         Vfs::open(data_dir, &order)
     }
 
