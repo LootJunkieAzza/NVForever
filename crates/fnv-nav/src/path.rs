@@ -75,6 +75,18 @@ pub struct Leg {
     pub corridor: Vec<u32>,
     /// The door that ends the leg (the next leg starts at its arrival), if any.
     pub door: Option<DoorEdge>,
+    /// Doors that open in place on the way, in order: where the actor stops to open each
+    /// ([`NavGraph::door_stops`]).
+    pub door_stops: Vec<DoorStop>,
+}
+
+/// A stop in front of a door that opens in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct DoorStop {
+    /// The door reference.
+    pub door: u32,
+    /// The point of the leg where the actor stops (an index into [`Leg::points`]).
+    pub point: usize,
 }
 
 /// A path: one leg per space visited.
@@ -196,6 +208,11 @@ impl NavGraph {
             return None;
         }
         if p.max_slope_deg.is_some_and(|m| self.up[n as usize] < m.to_radians().cos() - 1e-4) {
+            return None;
+        }
+        // A locked door that opens in place closes its triangles to actors without its
+        // key, as a locked teleport door closes its link.
+        if !self.door_tri_open(n, p) {
             return None;
         }
         Some(n)
@@ -468,18 +485,180 @@ impl NavGraph {
                     let end = self.door_approach(t, leg_start, p.radius);
                     let space = self.space_of_tri(t).unwrap_or(from_space);
                     let points = self.shortcut(space, corridor[0], funnel(leg_start, end, &portals), p);
-                    legs.push(Leg { space, points, corridor: std::mem::take(&mut corridor), door: Some(d) });
+                    let (points, door_stops) = self.door_stops(space, &corridor, points, p);
+                    legs.push(Leg { space, points, corridor: std::mem::take(&mut corridor), door: Some(d), door_stops });
                     portals.clear();
                     leg_start = d.arrival;
                 }
                 Some(Via::Start) => unreachable!("only the first triangle has no predecessor"),
                 None => {
                     let points = self.shortcut(to_space, corridor[0], funnel(leg_start, g_at, &portals), p);
-                    legs.push(Leg { space: to_space, points, corridor: std::mem::take(&mut corridor), door: None });
+                    let (points, door_stops) = self.door_stops(to_space, &corridor, points, p);
+                    legs.push(Leg { space: to_space, points, corridor: std::mem::take(&mut corridor), door: None, door_stops });
                 }
             }
         }
         legs
+    }
+
+    /// Stops in front of the doors that open in place a leg's polyline enters, in order.
+    /// For each door standing on a triangle of `corridor` whose bounds the polyline
+    /// crosses, the polyline is made to cross it square through the middle of the opening
+    /// (the navmesh's walkable stretch along the door's line, within its bounds): from a
+    /// stop in front of the door, the opening's width plus the clearance away along its
+    /// normal (less where the navmesh is shallower), to a point a clearance beyond it
+    /// ([`NavGraph::square_approach`]). A hinged leaf swung open lies along that line at
+    /// the hinge end, half the opening's width to the side, so the way through stays clear
+    /// whichever way it opens. Where that cannot be walked, the stop is put on the
+    /// polyline the stand-off before the crossing instead. Doors whose bounds the polyline
+    /// passes beside get no stop. Engine choices (docs/design/navmesh.md §6.1).
+    pub fn door_stops(&self, space: Space, corridor: &[u32], mut points: Vec<[f32; 3]>, p: &PathParams) -> (Vec<[f32; 3]>, Vec<DoorStop>) {
+        let mut doors: Vec<u32> = corridor.iter().filter_map(|t| self.door_tris.get(t)).flatten().copied().collect();
+        if doors.is_empty() {
+            return (points, Vec::new());
+        }
+        doors.sort_unstable();
+        doors.dedup();
+        let hd = |a: [f32; 3], b: [f32; 3]| (a[0] - b[0]).hypot(a[1] - b[1]);
+        let mut stops: Vec<DoorStop> = Vec::new();
+        let mut from = 0usize;
+        loop {
+            // The next door the polyline enters after the last stop: (distance along the
+            // polyline, segment, door).
+            let mut next: Option<(f32, usize, u32)> = None;
+            for &d in &doors {
+                let door = &self.in_place[&d];
+                let mut s = 0.0;
+                for i in 0..points.len().saturating_sub(1) {
+                    let len = hd(points[i], points[i + 1]);
+                    if i >= from {
+                        if let Some(t) = door.entry(points[i], points[i + 1]) {
+                            let at = s + t * len;
+                            if next.is_none_or(|n| at < n.0 || (at == n.0 && d < n.2)) {
+                                next = Some((at, i, d));
+                            }
+                            break;
+                        }
+                    }
+                    s += len;
+                }
+            }
+            let Some((enter, seg, door)) = next else { break };
+            doors.retain(|&d| d != door);
+            if let Some((pts, stop)) = self.square_approach(space, &points, seg, door, p) {
+                points = pts;
+                stops.push(DoorStop { door, point: stop });
+                from = stop;
+                continue;
+            }
+            // On the polyline, the stand-off before the crossing: an existing corner within
+            // a unit of it, else a new one.
+            let at = (enter - self.in_place[&door].stand_off(p.radius)).max(0.0);
+            let mut s = 0.0;
+            let mut index = points.len() - 1;
+            for i in 0..points.len() - 1 {
+                if (at - s).abs() <= 1.0 {
+                    index = i;
+                    break;
+                }
+                let len = hd(points[i], points[i + 1]);
+                if at < s + len {
+                    let u = (at - s) / len.max(1e-6);
+                    points.insert(i + 1, lerp(points[i], points[i + 1], u));
+                    index = i + 1;
+                    break;
+                }
+                s += len;
+            }
+            let index = index.max(from);
+            stops.push(DoorStop { door, point: index });
+            from = index;
+        }
+        (points, stops)
+    }
+
+    /// Make `points` cross door `door` square through the middle of its opening, the
+    /// polyline entering it on segment `seg`: (new points, index of the stop), or `None`
+    /// when no such way can be walked (see [`NavGraph::door_stops`]).
+    pub fn square_approach(&self, space: Space, points: &[[f32; 3]], seg: usize, door: u32, p: &PathParams) -> Option<(Vec<[f32; 3]>, usize)> {
+        let d = &self.in_place[&door];
+        let (c0, n0, half) = (d.centre(), d.normal(), d.half_thickness());
+        let (w, reach) = d.width_axis();
+        let (a, b0) = (points[seg], points[seg + 1]);
+        let dir = [b0[0] - a[0], b0[1] - a[1]];
+        let along = dir[0] * n0[0] + dir[1] * n0[1];
+        if along.abs() < 1e-3 {
+            return None;
+        }
+        let n = if along > 0.0 { n0 } else { [-n0[0], -n0[1]] };
+        let clear = 0.75 * p.radius;
+        // Where the polyline crosses the door's line, along its width; then the walkable
+        // stretch of navmesh along that line around it, within the bounds: the opening.
+        let t = ((c0[0] - a[0]) * n[0] + (c0[1] - a[1]) * n[1]) / (dir[0] * n[0] + dir[1] * n[1]);
+        let x = lerp(a, b0, t.clamp(0.0, 1.0));
+        let u0 = ((x[0] - c0[0]) * w[0] + (x[1] - c0[1]) * w[1]).clamp(-reach, reach);
+        let open_at = |u: f32| {
+            let q = [c0[0] + w[0] * u, c0[1] + w[1] * u, c0[2]];
+            self.locate(space, q, 64.0).is_some_and(|t| self.door_tri_open(t, p))
+        };
+        if !open_at(u0) {
+            return None;
+        }
+        let step = 4.0;
+        let (mut lo, mut hi) = (u0, u0);
+        while lo - step >= -reach && open_at(lo - step) {
+            lo -= step;
+        }
+        while hi + step <= reach && open_at(hi + step) {
+            hi += step;
+        }
+        let mid = 0.5 * (lo + hi);
+        let c = [c0[0] + w[0] * mid, c0[1] + w[1] * mid, c0[2]];
+        let opening = hi - lo;
+        let ahead = |q: [f32; 3]| (q[0] - c[0]) * n[0] + (q[1] - c[1]) * n[1];
+        let on_mesh = |x: f32, y: f32| self.nearest(space, [x, y, c[2]], 48.0).map(|(t, q)| (t, q));
+        let walkable = |a: [f32; 3], b: [f32; 3]| {
+            let t = self.locate(space, a, 128.0)?;
+            self.walkable_line(space, t, a, b, clear, p)
+        };
+        let beyond = half + p.radius + crate::doors::STOP_MARGIN;
+        let (_, b) = on_mesh(c[0] + n[0] * beyond, c[1] + n[1] * beyond)?;
+        let full = half + p.radius + crate::doors::STOP_MARGIN.max(opening);
+        for depth in [full, 0.75 * full, 0.5 * full, beyond] {
+            let Some((_, s)) = on_mesh(c[0] - n[0] * depth, c[1] - n[1] * depth) else { continue };
+            if walkable(s, b).is_none() {
+                continue;
+            }
+            // Join the polyline: the nearest corner before the door that lies behind the
+            // stop (else any before it, backing off to the stop), and the first corner
+            // past the far point.
+            let before: Vec<usize> = (0..=seg).rev().take(16).collect();
+            let h = before
+                .iter()
+                .copied()
+                .find(|&h| ahead(points[h]) <= -depth + 1.0 && walkable(points[h], s).is_some())
+                .or_else(|| before.iter().copied().find(|&h| walkable(points[h], s).is_some()));
+            let Some(h) = h else { continue };
+            let after: Vec<usize> = ((seg + 1)..points.len()).take(16).collect();
+            let k = after
+                .iter()
+                .copied()
+                .find(|&k| ahead(points[k]) >= beyond - 1.0 && walkable(b, points[k]).is_some())
+                .or_else(|| after.iter().copied().find(|&k| walkable(b, points[k]).is_some()));
+            let Some(k) = k else { continue };
+            let mut out: Vec<[f32; 3]> = points[..=h].to_vec();
+            let hd = |a: [f32; 3], q: [f32; 3]| (a[0] - q[0]).hypot(a[1] - q[1]);
+            if hd(points[h], s) > 1.0 {
+                out.push(s);
+            }
+            let stop = out.len() - 1;
+            out.push(b);
+            if hd(b, points[k]) > 1.0 || k + 1 < points.len() {
+                out.extend_from_slice(&points[k..]);
+            }
+            return Some((out, stop));
+        }
+        None
     }
 
     /// The portal of edge `e` of `t`, with each end that is an outline vertex moved in
