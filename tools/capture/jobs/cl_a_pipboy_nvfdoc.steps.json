@@ -1,0 +1,103 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "cl_a_pipboy_nvfdoc",
+ "title": "Pip-Boy Glove and Pip-Boy equipped? (read-only)",
+ "start": "nvfdoc",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 154499\nlet fV := player.GetEquipped rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 as loaded",
+   "field": "glove_equipped"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 154499\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 as loaded",
+   "field": "glove_count"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86072\nlet fV := player.GetEquipped rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 as loaded",
+   "field": "pipboy_equipped"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86072\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 as loaded",
+   "field": "pipboy_count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetNumItems\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 as loaded",
+   "field": "items"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV InventoryWeight\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 as loaded",
+   "field": "weight"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetIsSex Female\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 as loaded",
+   "field": "female"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetLevel\nSetFunctionValue fV\nEnd\n",
+   "label": "P0 as loaded",
+   "field": "level"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetGameSetting \"iHoursToRespawnCell\"\nSetFunctionValue fV\nEnd\n",
+   "label": "gmst",
+   "field": "iHoursToRespawnCell"
+  }
+ ]
+}
