@@ -143,6 +143,7 @@ fn owner_json(o: &Owner) -> Value {
             "layer_name": layers::name(layer as u32),
         }),
         Owner::Character { id } => json!({"kind": "character", "id": id}),
+        Owner::Actor { form_id, layer, part } => json!({"kind": "actor", "formid": fid(form_id), "layer": layer, "layer_name": layers::name(layer as u32), "part": part}),
     }
 }
 

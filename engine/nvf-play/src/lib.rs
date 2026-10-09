@@ -11,8 +11,10 @@
 
 pub mod activate;
 pub mod bindings;
+pub mod combat;
 pub mod control;
 pub mod dropped;
+pub mod hitvol;
 pub mod menu;
 pub mod moved;
 pub mod pause;
@@ -187,7 +189,7 @@ impl Plugin for PlayPlugin {
             .add_message::<ItemUsed>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin))
-            .add_plugins(script::ScriptPlugin);
+            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin));
         test_aid::setup(app);
     }
 }
