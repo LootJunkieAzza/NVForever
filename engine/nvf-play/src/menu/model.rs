@@ -64,6 +64,19 @@ pub fn display_name(forms: &FormStore, id: FormId) -> String {
 }
 
 /// The rows of `holder`'s inventory, sorted by name.
+/// A failed command in words for the player: items by name, not FormID. Starts with
+/// "Cannot" (the menu draws such lines as warnings).
+pub fn plain_error(forms: &FormStore, e: &SimError) -> String {
+    let name = |id: &FormId| forms.get(*id).and_then(|b| b.name.clone().or_else(|| b.edid.clone())).unwrap_or_else(|| "this item".into());
+    match e {
+        SimError::NotEquippable(item) => format!("Cannot equip or use {}", name(item)),
+        SimError::NotCarried { item, .. } => format!("Cannot find {} in the inventory", name(item)),
+        SimError::NotAnItem(item) => format!("Cannot carry {}", name(item)),
+        SimError::Deleted(item) => format!("Cannot reach {}: it is gone", name(item)),
+        other => format!("Cannot: {other}"),
+    }
+}
+
 pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimError> {
     let forms = world.forms;
     let hardcore = world.config().hardcore;
@@ -325,7 +338,7 @@ impl MenuModel {
                 let r = self.act(world, cmd, &mut out);
                 self.status = Some(match r {
                     Ok(msg) => msg,
-                    Err(e) => format!("Cannot: {e}"),
+                    Err(e) => plain_error(world.forms, &e),
                 });
                 if out.changed {
                     if let Err(e) = self.refresh(world) {
