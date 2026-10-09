@@ -103,10 +103,6 @@ pub struct Runtime {
     skip: BTreeSet<usize>,
     /// A message-box button was picked: this frame still runs MenuMode 1001.
     pressed: bool,
-    /// Scripted references a script enabled: their 3D loads, OnLoad runs on the next
-    /// frame [observed: layer5-captures.md §8.3 d, "OnLoad after Enable runs by the next
-    /// frame, not inside Enable"].
-    enabled_3d: BTreeSet<FormId>,
     /// Where the player was last frame, and frames left whose time does not count (a
     /// door's loading screen).
     location: Option<Location>,
@@ -218,7 +214,6 @@ impl Runtime {
             marked: BTreeSet::new(),
             skip: BTreeSet::new(),
             pressed: false,
-            enabled_3d: BTreeSet::new(),
             location: None,
             frozen_frames: 0,
             triggers: Default::default(),
@@ -277,17 +272,6 @@ impl Runtime {
             self.player_cell = cell;
             self.game.player_entered(cell);
             debug!("script: player in cell {:?}; {} cells loaded for scripts", cell, self.game.loaded_cells.len());
-        }
-    }
-
-    /// OnLoad for references a script enabled since the last frame, still present in a
-    /// loaded cell (the engine's "3D loaded" for them).
-    fn loaded_3d(&mut self) {
-        let g = &mut self.game;
-        for r in std::mem::take(&mut self.enabled_3d) {
-            if g.present(r) && g.cell_of(r).is_some_and(|c| g.loaded_cells.contains(&c)) {
-                g.ref_event(r, event::ON_LOAD, None, None);
-            }
         }
     }
 
@@ -550,11 +534,11 @@ fn run_scripts(
         Some(Mode::Inventory) => Some(MENU_INVENTORY),
         None => None,
     };
-    // Menu and loading-screen time does not count: GetSecondsPassed's first value after
-    // a 54 s container menu was one ordinary frame, and the game clock stopped in the
-    // menu [observed: layer5-captures.md §8.3 e]. Frozen here: frames in a menu or under
-    // a waiting message box [hypothesis for the message box], and the two frames after
-    // the player's place changed (the destination loads on the spot in one of them).
+    // Menu and loading-screen time does not count [observed: layer5-captures.md §8.3 e].
+    // The runtime stops game time itself for an open menu (`game.menu`, which includes a
+    // waiting message box [hypothesis for the message box]) and runs no script under a
+    // loading screen (`game.loading`): here, the two frames after the player's place
+    // changed (the destination loads on the spot in one of them). docs/spec-notes/scripts.md §7.2.
     if rt.location.is_some_and(|l| l != *location) {
         rt.frozen_frames = 2;
     }
@@ -569,7 +553,6 @@ fn run_scripts(
     with_world(rt, &mut sim, |rt| {
         rt.observe_inventory();
         rt.follow_player();
-        rt.loaded_3d();
         for a in &due {
             match a {
                 ScriptAid::Button(b) => presses.push(*b),
@@ -583,8 +566,8 @@ fn run_scripts(
         let waiting = rt.game.message_box.as_ref().is_some_and(|m| m.pressed.is_none());
         rt.game.menu = if waiting || rt.pressed { Some(MENU_MESSAGE) } else { menu_code };
         rt.pressed = false;
-        let frozen = loading || rt.game.menu.is_some();
-        rt.game.cfg.frame_seconds = if frozen { 0.0 } else { dt };
+        rt.game.loading = loading;
+        rt.game.cfg.frame_seconds = dt;
         rt.game.tick();
         rt.snapshot_inventory();
         marked = rt.newly_marked();
@@ -623,14 +606,6 @@ fn run_scripts(
         }
         if !events.is_empty() {
             let _ = log.out.flush();
-        }
-    }
-    for e in &events {
-        if let EventKind::RefEnabled { reference } = e.kind {
-            let onload = rt.game.ref_script(reference).and_then(|s| rt.game.data.script(s)).is_some_and(|u| u.has_block(event::ON_LOAD));
-            if onload {
-                rt.enabled_3d.insert(reference);
-            }
         }
     }
     let mut sent = BTreeSet::new();
