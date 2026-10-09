@@ -5,10 +5,11 @@
 //! of preference, relative to the skeleton's folder; it plays the first that exists. The
 //! weapon draw/holster sequence is the small state machine [`WeaponHands`].
 //!
-//! File names follow the human skeleton folder's layout [observed: the file list of
-//! `meshes\characters\_male` in `Fallout - Meshes.bsa`, §8.1]; how the game chooses among
-//! them is [hypothesis] throughout (Layer 6 will replace this with the game's own rules
-//! once captured).
+//! File names follow the human skeleton folders' layouts [observed: the file lists of
+//! `meshes\characters\_male` and `meshes\characters\_1stperson` in `Fallout -
+//! Meshes.bsa`, §8.1 and §8.5]: candidates cover both, and the engine takes the first
+//! that exists under the rig's folder. How the game chooses among them is [hypothesis]
+//! throughout (Layer 6 will replace this with the game's own rules once captured).
 
 /// What a weapon's `WEAP` DNAM "Animation Type" selects (0–13) [documented: xEdit
 /// wbWeaponAnimTypeEnum], as the file-name prefix of its clips [hypothesis: the prefixes
@@ -92,12 +93,15 @@ impl Stance {
 }
 
 /// The posture's idle, the base every other clip is laid over: `locomotion\mtidle.kf`
-/// standing (actors.md §7), `sneakmtidle.kf` and `swimmtidle.kf` otherwise.
+/// standing (actors.md §7; `mtidle.kf` in the first-person folder), `sneakmtidle.kf`
+/// and `swimmtidle.kf` otherwise.
 pub fn idle_clips(stance: Stance) -> Vec<String> {
-    match stance {
-        Stance::Stand => vec![r"locomotion\mtidle.kf".into()],
-        s => vec![format!("{}mtidle.kf", s.prefix()), r"locomotion\mtidle.kf".into()],
-    }
+    let mut out = match stance {
+        Stance::Stand => Vec::new(),
+        s => vec![format!("{}mtidle.kf", s.prefix())],
+    };
+    out.extend([r"locomotion\mtidle.kf".to_string(), "mtidle.kf".to_string()]);
+    out
 }
 
 /// Moving in `dir`, running when `fast`, with the weapon of prefix `drawn` in hand.
@@ -119,6 +123,8 @@ pub fn move_clips(stance: Stance, female: bool, fast: bool, dir: Dir, drawn: Opt
                 out.push(format!(r"locomotion\female\mt{f}{d}.kf"));
             }
             out.push(format!(r"locomotion\male\mt{f}{d}.kf"));
+            // The first-person folder keeps them directly in `locomotion\`.
+            out.push(format!(r"locomotion\mt{f}{d}.kf"));
         }
         s => {
             let s = s.prefix();
@@ -170,6 +176,25 @@ pub fn aim_weights(pitch: f32) -> [(Aim, f32); 3] {
     let t = (pitch.abs() / std::f32::consts::FRAC_PI_2).clamp(0.0, 1.0);
     let (up, down) = if pitch >= 0.0 { (t, 0.0) } else { (0.0, t) };
     [(Aim::Level, 1.0 - t), (Aim::Up, up), (Aim::Down, down)]
+}
+
+/// Whether the Block control blocks with weapon `prefix` (fists and melee) rather than
+/// aiming down the sights (guns) [hypothesis: the control's name, and the block clips
+/// exist only for `1hm`, `2hm` and the unarmed `mt`, §8.1].
+pub fn blocks(prefix: &str) -> bool {
+    matches!(prefix, "h2h" | "1hm" | "2hm")
+}
+
+/// Holding a block with weapon `prefix` (`1hmblockidle.kf`; fists use
+/// `mtblockidle.kf`), crouched first when sneaking.
+pub fn block_clips(stance: Stance, prefix: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if stance == Stance::Sneak {
+        out.push(format!("sneak{prefix}blockidle.kf"));
+    }
+    out.push(format!("{prefix}blockidle.kf"));
+    out.push("mtblockidle.kf".to_string());
+    out
 }
 
 /// The weapon in its holster: a short clamped clip whose `Weapon` track places the weapon
@@ -227,6 +252,7 @@ pub fn turn_clips(stance: Stance, drawn: Option<&str>, left: bool) -> Vec<String
                 out.push(format!(r"locomotion\{p}{t}.kf"));
             }
             out.push(format!(r"locomotion\mt{t}.kf"));
+            out.push(format!("mt{t}.kf"));
         }
         s => {
             out.push(format!("{}mt{t}.kf", s.prefix()));
@@ -405,14 +431,15 @@ mod tests {
 
     #[test]
     fn movement_files() {
-        assert_eq!(move_clips(Stance::Stand, false, true, Dir::Forward, None), [r"locomotion\male\mtfastforward.kf"]);
+        assert_eq!(move_clips(Stance::Stand, false, true, Dir::Forward, None), [r"locomotion\male\mtfastforward.kf", r"locomotion\mtfastforward.kf"]);
         assert_eq!(
             move_clips(Stance::Stand, true, false, Dir::Left, Some("1hp")),
-            [r"locomotion\1hpleft.kf", r"locomotion\female\mtleft.kf", r"locomotion\male\mtleft.kf"]
+            [r"locomotion\1hpleft.kf", r"locomotion\female\mtleft.kf", r"locomotion\male\mtleft.kf", r"locomotion\mtleft.kf"]
         );
         assert_eq!(move_clips(Stance::Sneak, false, false, Dir::Backward, Some("2hh")), ["sneak2hhbackward.kf", "sneakmtbackward.kf"]);
         assert_eq!(move_clips(Stance::Swim, false, true, Dir::Right, None), ["swimmtfastright.kf", "swimmtright.kf"]);
-        assert_eq!(idle_clips(Stance::Sneak), ["sneakmtidle.kf", r"locomotion\mtidle.kf"]);
+        assert_eq!(idle_clips(Stance::Sneak), ["sneakmtidle.kf", r"locomotion\mtidle.kf", "mtidle.kf"]);
+        assert_eq!(idle_clips(Stance::Stand), [r"locomotion\mtidle.kf", "mtidle.kf"]);
     }
 
     #[test]
@@ -426,7 +453,12 @@ mod tests {
             ["1hpjumploopforward.kf", "1hpjumploop.kf", "mtjumploopforward.kf", "mtjumploop.kf"]
         );
         assert_eq!(jump_clips(Stance::Sneak, None, None, true), ["sneakmtjumpland.kf", "mtjumpland.kf"]);
-        assert_eq!(turn_clips(Stance::Stand, Some("2hh"), true), ["2hhturnleft.kf", r"locomotion\2hhturnleft.kf", r"locomotion\mtturnleft.kf"]);
+        assert_eq!(
+            turn_clips(Stance::Stand, Some("2hh"), true),
+            ["2hhturnleft.kf", r"locomotion\2hhturnleft.kf", r"locomotion\mtturnleft.kf", "mtturnleft.kf"]
+        );
+        assert!(blocks("1hm") && !blocks("2hr"));
+        assert_eq!(block_clips(Stance::Stand, "h2h"), ["h2hblockidle.kf", "mtblockidle.kf"]);
     }
 
     #[test]

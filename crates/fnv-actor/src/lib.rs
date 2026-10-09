@@ -10,6 +10,7 @@
 //! - [`mesh`]: how a part mesh joins the skeleton (skinned by bone name, rigid by `Prn`)
 //! - [`idle`]: IDLE records (idle animations) as data: model, links, group, raw conditions
 //! - [`anims`]: where `.kf` files sit relative to skeletons, and what their tracks bind to
+//! - [`first_person`]: what the player's first-person rig draws (arms and hands)
 //! - [`locomotion`]: which clips a humanoid under direct control plays (moving, sneaking,
 //!   drawing and holstering a weapon), and the draw/holster sequence
 //!
@@ -18,6 +19,7 @@
 
 pub mod anims;
 pub mod facegen;
+pub mod first_person;
 pub mod idle;
 pub mod locomotion;
 pub mod mesh;
