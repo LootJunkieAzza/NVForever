@@ -71,6 +71,21 @@ fn read_prim(p: Prim, c: &mut Cursor, ctx: &mut DecodeCtx) -> Result<Value, Stri
             }
             Value::from(cp1252::decode_z(rest))
         }
+        Prim::ZStringArray => {
+            let rest = c.bytes(c.remaining()).unwrap();
+            if rest.is_empty() {
+                return Ok(Value::Array(Vec::new()));
+            }
+            let Some(body) = rest.strip_suffix(&[0]) else {
+                return Err(format!("zstring array not NUL-terminated: {:?}", cp1252::decode(rest)));
+            };
+            // Drop the extra NUL that closes the list, when present.
+            let body = body.strip_suffix(&[0]).unwrap_or(body);
+            if body.is_empty() {
+                return Ok(Value::Array(Vec::new()));
+            }
+            Value::Array(body.split(|&b| b == 0).map(|s| Value::from(cp1252::decode(s))).collect())
+        }
         Prim::String => Value::from(cp1252::decode(c.bytes(c.remaining()).unwrap())),
         Prim::Bytes => Value::from(to_hex(c.bytes(c.remaining()).unwrap())),
     })

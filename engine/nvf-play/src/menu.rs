@@ -21,23 +21,26 @@
 //! - The game clock stops while a menu is open (the simulation's clock runs only in
 //!   `PlayState::Playing`, sim.rs). [hypothesis: not captured for the container and
 //!   inventory menus]
-//! - Dropping creates references in the simulation that nothing renders yet (no
-//!   `RefChanged` for them: visuals and collision of created references are not built);
-//!   each drop is logged.
-//! - Transfers between inventories do not change any placed reference's presence, so the
-//!   menus send no `RefChanged`.
+//! - Dropping creates references in the simulation (`World::drop_item`); the menu sends
+//!   `RefChanged` for each, and `crate::dropped` and `crate::phys` give them a model and
+//!   collision. Each drop is logged.
+//! - Transfers between inventories do not change any reference's presence, so they send
+//!   no `RefChanged`.
 //!
 //! Test aids (only with `--play`, since this plugin exists only then):
 //! - F9 while playing opens the container menu on the container reference nearest to
 //!   the camera (in the current interior, or the worldspace), logging which one.
 //! - `NVF_PLAY_TEST_MENU=<container FormID hex | nearest>` runs a scripted check (see
 //!   [`test_aid`]).
+//! - `NVF_PLAY_TEST_DROP=<seconds>:<item FormID hex>[:stack][,...]` drops one unit (or
+//!   the stack) of a carried item through the inventory menu at those times (see
+//!   [`test_aid`]).
 
 pub mod model;
 mod test_aid;
 
 use crate::sim::SimState;
-use crate::{space, Location, OpenContainer, PlaySet, PlayState, PlayerCamera};
+use crate::{space, Location, OpenContainer, PlaySet, PlayState, PlayerCamera, RefChanged};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -84,6 +87,7 @@ impl Plugin for MenuPlugin {
                 (
                     (tab_opens_inventory, f9_opens_nearest_container).run_if(in_state(PlayState::Playing)),
                     test_aid::run,
+                    test_aid::run_drops,
                     open_menus,
                     (menu_keys, menu_mouse, apply_input, draw).chain().run_if(in_state(PlayState::Menu)),
                 )
@@ -240,6 +244,7 @@ fn apply_input(
     mut active: ResMut<ActiveMenu>,
     mut sim: ResMut<SimState>,
     mut next: ResMut<NextState<PlayState>>,
+    mut changed: MessageWriter<RefChanged>,
 ) {
     for &MenuInput(cmd) in input.read() {
         let Some(m) = active.0.as_mut() else { return };
@@ -251,8 +256,9 @@ fn apply_input(
             }
         }
         for id in &a.created {
-            let at = sim.world.peek(*id).map(|s| s.pos).unwrap_or_default();
-            info!("menu: dropped reference {id} at {at:?} (in the simulation; not rendered yet)");
+            let (at, count) = sim.world.peek(*id).map(|s| (s.pos, s.count)).unwrap_or_default();
+            info!("menu: dropped reference {id} (count {count}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
+            changed.write(RefChanged { form_id: id.0 });
         }
         if a.close {
             info!("menu: close");

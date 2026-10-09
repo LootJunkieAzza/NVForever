@@ -121,6 +121,19 @@ inventory items; third argument: include taken references), `GetBaseObject`,
   that use it.
   Version 5 adds the drive's result (`value`) to its `drive` line. Version 6 adds `hooks`
   (an action after a condition has held for N samples).
+- **Screenshots** (plugin version 7): `{"screenshot": label}` saves a picture of the game
+  window as `shots\<job>.<step>.<label>.<unix-seconds>.png` in the capture directory and
+  records `{"kind": "screenshot", "step", "label", "file", "width", "height", "mean",
+  "foreground"}` (`file` relative to the capture directory; `mean` the mean of all channels,
+  0 black to 1 white; `foreground` whether the game window was in front). The pixels are
+  copied with Windows' GDI from the screen area of the process's largest visible window
+  (its client area), so they are what the desktop shows: this needs a windowed or
+  borderless game (the owner's install: windowed, 1280 × 720 [observed: FalloutPrefs.ini
+  `bFull Screen=0`]) and the window in front; a fullscreen-exclusive game may give black
+  pictures [hypothesis]. No game memory and no Direct3D object is touched. The HUD is
+  hidden by the job (console `tm` a few loops before, `tm` again after); whether `tm`
+  works from `RunScriptLine` is checked by the first trial. Older plugins skip jobs with
+  this step. `capture_frames.py` writes reference-frame jobs with it (README section 7).
 - Every job starts with one query per master, label `__modindex__`, field = plugin
   name, value = `GetModIndex` (255 = not loaded), so load-order FormIDs in the output can
   be mapped back to plugin + local FormID (`capture_steps.py`).

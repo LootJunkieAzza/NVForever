@@ -26,7 +26,7 @@ pub struct Job {
 }
 
 /// One step; the variant is chosen by its key (`query`, `script`, `console`, `manual`,
-/// `frames`, `until`, `remember`, `observe`).
+/// `frames`, `until`, `remember`, `observe`, `screenshot`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum Step {
@@ -38,6 +38,7 @@ pub enum Step {
     Until(UntilStep),
     Remember(RememberStep),
     Observe(ObserveStep),
+    Screenshot(ScreenshotStep),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -89,6 +90,31 @@ pub struct RememberStep {
     pub remember: String,
     #[serde(rename = "as")]
     pub name: String,
+}
+
+/// Save a picture of the game window as `shots\<job>.<step>.<label>.<unix seconds>.png`
+/// in the capture directory (plugin version 7). The label is `[A-Za-z0-9_.-]`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScreenshotStep {
+    pub screenshot: String,
+}
+
+/// A saved screenshot, as the host reports it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shot {
+    /// Path relative to the capture directory, with `/` separators.
+    pub file: String,
+    pub width: u32,
+    pub height: u32,
+    /// Mean of all channels, 0 (black) to 1 (white).
+    pub mean: f64,
+    /// Whether the game window was in front (otherwise another window may be in the picture).
+    pub foreground: bool,
+}
+
+pub fn valid_name(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
 }
 
 /// Sample the game repeatedly (plugin version 4; docs/spec-notes/ai-observer.md §3).
@@ -181,7 +207,7 @@ impl Job {
         if job.format != JOB_FORMAT {
             return Err(format!("unsupported job format {:?} (expected {JOB_FORMAT})", job.format));
         }
-        if job.name.is_empty() || !job.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.') {
+        if !valid_name(&job.name) {
             return Err(format!("job name {:?} must be non-empty [A-Za-z0-9_.-]", job.name));
         }
         Ok(job)
@@ -215,6 +241,8 @@ pub trait Host {
     fn key_down(&mut self, scancode: u32) -> bool;
     /// Show a short message on screen.
     fn show(&mut self, text: &str);
+    /// Save a picture of the game window; `stem` is the file name without extension.
+    fn screenshot(&mut self, stem: &str) -> Result<Shot, String>;
 }
 
 /// Something that happened to a job during a tick; the caller handles files.
@@ -416,6 +444,21 @@ impl Runner {
                         self.hook_counts = vec![0; o.hooks.len()];
                         next = State::Observing { step, sample: 0, wait: 0, drive_on: o.drive.is_some(), drive_loops: 0 };
                     }
+                    Step::Screenshot(s) => {
+                        if !valid_name(&s.screenshot) {
+                            ev.push(err(format!("screenshot label {:?} must be non-empty [A-Za-z0-9_.-]", s.screenshot)));
+                        } else {
+                            match host.screenshot(&format!("{}.{step:03}.{}", job.name, s.screenshot)) {
+                                Ok(shot) => ev.push(Event::Output {
+                                    job: job.name.clone(),
+                                    line: json!({"kind": "screenshot", "step": step, "label": s.screenshot, "file": shot.file,
+                                                 "width": shot.width, "height": shot.height,
+                                                 "mean": (shot.mean * 1e4).round() / 1e4, "foreground": shot.foreground}),
+                                }),
+                                Err(e) => ev.push(err(format!("screenshot {}: {e}", s.screenshot))),
+                            }
+                        }
+                    }
                     Step::Remember(r) => match expand(&r.remember, vars).and_then(|t| host.script(&t)) {
                         Ok(Value::Number(n)) if n.is_finite() => {
                             self.vars.insert(r.name.clone(), n);
@@ -587,6 +630,7 @@ mod tests {
         scripts: Vec<String>,
         console: Vec<String>,
         shown: Vec<String>,
+        shots: Vec<String>,
     }
 
     impl Host for Mock {
@@ -625,6 +669,10 @@ mod tests {
         }
         fn show(&mut self, text: &str) {
             self.shown.push(text.into());
+        }
+        fn screenshot(&mut self, stem: &str) -> Result<Shot, String> {
+            self.shots.push(stem.into());
+            Ok(Shot { file: format!("shots/{stem}.1.png"), width: 4, height: 2, mean: 0.123456, foreground: true })
         }
     }
 
@@ -894,5 +942,26 @@ mod tests {
         assert_eq!(r.game_loaded(Vec::new(), &mut m), vec![Event::AllDone]);
         let mut manual = Runner::new(1, 0, 0);
         assert!(manual.game_loaded(Vec::new(), &mut m).is_empty());
+    }
+    #[test]
+    fn screenshot_steps_record_the_file_or_an_error() {
+        let job = r#"{"format": "fnv.capture.steps/1", "name": "fr", "steps": [
+            {"screenshot": "goodsprings_noon"}, {"screenshot": "../bad"}]}"#;
+        let mut m = Mock::default();
+        let mut r = Runner::new(7, 0, 0);
+        r.set_auto_start(Some(0));
+        r.game_loaded(vec![Job::parse(job).unwrap()], &mut m);
+        let mut all = Vec::new();
+        for _ in 0..5 {
+            all.extend(r.tick(&mut m));
+        }
+        assert_eq!(m.shots, ["fr.000.goodsprings_noon"]);
+        let out = lines(&all);
+        assert_eq!(out[1], json!({"kind": "screenshot", "step": 0, "label": "goodsprings_noon",
+                                  "file": "shots/fr.000.goodsprings_noon.1.png", "width": 4, "height": 2,
+                                  "mean": 0.1235, "foreground": true}));
+        assert_eq!(out[2]["kind"], "error");
+        assert_eq!(out[2]["step"], 1);
+        assert_eq!(out[3]["kind"], "end");
     }
 }

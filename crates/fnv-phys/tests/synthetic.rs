@@ -684,7 +684,7 @@ fn lake() -> PhysWorld {
 fn swim(w: &mut PhysWorld, c: &mut Character, velocity: [f32; 2], vertical: f32, jump: bool, steps: usize) -> CharacterStep {
     let mut last = None;
     for i in 0..steps {
-        last = Some(w.move_character(c, CharacterInput { velocity, jump: jump && i == 0, vertical }));
+        last = Some(w.move_character(c, CharacterInput { velocity, jump: jump && i == 0, vertical, view: None }));
         w.step();
     }
     last.unwrap()
@@ -802,4 +802,189 @@ fn swim_vertical_rules() {
     let v = fnv_phys::character::swim_vertical(&p, float + 0.1, 500.0, 0.0, dt);
     assert!((v * dt + 0.1).abs() < 1e-4, "{v}");
     assert_eq!(fnv_phys::character::swim_vertical(&p, float - 50.0, 500.0, 0.0, dt), 0.0);
+}
+
+#[test]
+fn swimming_survives_above_the_surface() {
+    // Placed 60 above the surface while swimming, the character keeps swimming and sinks
+    // at the sinking speed (the game's player did 101 above placed water, physics.md §6.6).
+    let mut w = lake();
+    let p = CharacterParams::default();
+    let mut c = w.add_character(1, p, [0.0, 0.0, 405.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 60);
+    assert!(c.swimming);
+    w.place_character(&mut c, [0.0, 0.0, 560.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 60);
+    assert!(c.swimming && !c.grounded);
+    assert!((c.feet[2] - (560.0 - p.swim_sink_speed)).abs() < 0.05, "{:?}", c.feet);
+}
+
+/// A placeable water model's volume: a box under the surface (half extents of the
+/// 1×2 model, its top at the model's origin), as the Water-layer phantoms hold it.
+fn water_box() -> CollisionObject {
+    let mut o = on_layer(boxed([256.0, 512.0, 512.0]), layers::WATER);
+    o.body_transform.translation = [0.0, 0.0, -512.0];
+    o
+}
+
+#[test]
+fn placed_water_is_the_box_of_its_reference() {
+    let mut w = ground();
+    // Scale 2, turned a quarter: 1024 wide along x, 2048 along y before the turn.
+    let pose = RefPose { form_id: 7, position: [1000.0, 0.0, 300.0], rotation: rz(std::f32::consts::FRAC_PI_2), scale: 2.0 };
+    assert_eq!(w.add_placed_water(&pose, &[water_box()]), 1);
+    let v = *w.placed_water().next().unwrap();
+    assert!((v.surface - 300.0).abs() < 1e-3, "{v:?}");
+    // After the turn the long side runs along x.
+    assert_eq!(w.water_surface_at(1000.0 + 1000.0, 0.0), Some(300.0));
+    assert_eq!(w.water_surface_at(1000.0, 1000.0), None);
+    assert_eq!(w.water_surface_at(1000.0, 500.0), Some(300.0));
+    // Down to the bottom of the box only, for the character's lookup.
+    assert_eq!(w.water_surface_for([1000.0, 0.0, 300.0 - 2047.0]), Some(300.0));
+    assert_eq!(w.water_surface_for([1000.0, 0.0, 300.0 - 2049.0]), None);
+    // A fall into it stops past the swimming depth; outside the box it lands.
+    let p = CharacterParams::default();
+    let mut c = w.add_character(1, p, [1000.0, 0.0, 305.0]);
+    swim(&mut w, &mut c, [0.0, 0.0], 0.0, false, 240);
+    assert!(c.swimming && (c.feet[2] - (300.0 - p.float_depth)).abs() < 8.0, "{:?}", c.feet);
+    let mut d = w.add_character(2, p, [1000.0, 1000.0, 305.0]);
+    swim(&mut w, &mut d, [0.0, 0.0], 0.0, false, 240);
+    assert!(!d.swimming && d.grounded, "{:?}", d.feet);
+    // Removed with its reference.
+    assert!(w.remove_ref(7));
+    assert_eq!(w.water_surface_at(1000.0, 0.0), None);
+}
+
+// --- air control, landings, edges (physics.md §6.4.1) ---
+
+/// Per-step horizontal displacements of a character told `velocity` with Jump pressed in
+/// the first step, from standing on the ground.
+fn jump_steps(w: &mut PhysWorld, c: &mut Character, velocity: [f32; 2], steps: usize) -> Vec<(f32, CharacterStep)> {
+    let mut prev = c.feet;
+    (0..steps)
+        .map(|i| {
+            let s = w.move_character(c, CharacterInput { velocity, jump: i == 0, ..Default::default() });
+            w.step();
+            let d = (s.feet[0] - prev[0]).hypot(s.feet[1] - prev[1]);
+            prev = s.feet;
+            (d, s)
+        })
+        .collect()
+}
+
+#[test]
+fn a_jump_with_the_run_starts_slow_in_the_air() {
+    let mut w = ground();
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 10.0]);
+    settle(&mut w, &mut c, 60);
+    let dt = w.params.dt;
+    let steps = jump_steps(&mut w, &mut c, [0.0, 339.5], 90);
+    // In the air the speed closes 0.3 of the gap to the keys' speed per 1/60 s.
+    let mut v = 0.0;
+    for (i, (d, s)) in steps.iter().take(30).enumerate() {
+        assert!(!s.grounded, "step {i} still in the air");
+        v += fnv_phys::air::AIR_GAIN * (339.5 - v);
+        assert!((d / dt - v).abs() < 0.5, "step {i}: {} against {v}", d / dt);
+    }
+    // After the landing the landing profile, then the keys' speed again.
+    let land = steps.iter().position(|(_, s)| s.landed_speed.is_some()).expect("lands");
+    for (j, &want) in fnv_phys::air::LANDING_SPEEDS.iter().enumerate() {
+        let (d, _) = steps[land + 1 + j];
+        assert!((d / dt - want).abs() < 0.5, "landing step {j}: {} against {want}", d / dt);
+    }
+    let (d, _) = steps[land + 1 + fnv_phys::air::LANDING_SPEEDS.len()];
+    assert!((d / dt - 339.5).abs() < 0.5);
+}
+
+#[test]
+fn a_key_pressed_only_in_the_air_gives_air_control() {
+    let mut w = ground();
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 10.0]);
+    settle(&mut w, &mut c, 60);
+    let dt = w.params.dt;
+    jump_steps(&mut w, &mut c, [0.0, 0.0], 5);
+    let steps = jump_steps(&mut w, &mut c, [0.0, 344.0], 40);
+    let (d, s) = &steps[39];
+    assert!(!s.grounded && (d / dt - fnv_phys::air::AIR_CONTROL_SPEED).abs() < 0.2, "{}", d / dt);
+}
+
+#[test]
+fn a_key_pressed_just_after_take_off_counts_as_held() {
+    let mut w = ground();
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 10.0]);
+    settle(&mut w, &mut c, 60);
+    let dt = w.params.dt;
+    jump_steps(&mut w, &mut c, [0.0, 0.0], 2);
+    let steps = jump_steps(&mut w, &mut c, [0.0, 344.0], 30);
+    let (d, s) = &steps[29];
+    assert!(!s.grounded && (d / dt - 344.0).abs() < 0.5, "{}", d / dt);
+}
+
+#[test]
+fn a_falling_character_rests_on_an_edge_without_sliding() {
+    // A thin wall (3.5 wide, top at 70) and drops beside its centre line.
+    let mut w = ground();
+    w.add_ref(&at(1, [0.0, 0.0, 35.0]), &[object(boxed([1.75, 200.0, 35.0]), Motion::Static)]);
+    let p = CharacterParams::default();
+    for d in [8.0f32, 12.0, 16.0] {
+        let mut c = w.add_character(2, p, [d, 0.0, 270.0]);
+        let s = settle(&mut w, &mut c, 180);
+        w.remove_character(c);
+        // Past its flat tip the cone bottom touches the edge `bottom_slope` units lower per
+        // unit off it, keeping the skin along its surface's normal.
+        let e = d - 1.75;
+        let want = 70.0 - p.bottom_slope * (e - p.bottom_flat) + p.skin * (1.0 + p.bottom_slope * p.bottom_slope).sqrt();
+        assert!((s.feet[0] - d).abs() < 0.01 && s.feet[1].abs() < 0.01, "{d}: slid to {:?}", s.feet);
+        assert!((s.feet[2] - want).abs() < 0.3, "{d}: {:?} against {want}", s.feet);
+        assert!(s.grounded);
+    }
+}
+
+#[test]
+fn walls_keep_a_static_shell_gap_while_on_terrain() {
+    let mut w = ground();
+    // A wall whose south face is at y = 50.
+    w.add_ref(&at(1, [0.0, 60.0, 100.0]), &[object(boxed([500.0, 10.0, 100.0]), Motion::Static)]);
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+    settle(&mut w, &mut c, 30);
+    let s = walk(&mut w, &mut c, [0.0, 200.0], 90).pop().unwrap();
+    assert!(s.gap == TERRAIN_SHELL && (s.feet[2] - TERRAIN_SHELL).abs() < 0.02, "{:?}", s.feet);
+    let stop = 50.0 - c.params.radius - 0.7;
+    assert!((s.feet[1] - stop).abs() < 0.1, "{:?} against {stop}", s.feet);
+}
+
+#[test]
+fn placed_water_survives_adding_the_same_refs_bodies() {
+    // A reference whose model has both water volumes and solid collision: the callers add
+    // the water, then the bodies (no model of the game has both, physics.md §6.6, but the
+    // order must not matter).
+    let mut w = ground();
+    let pose = RefPose { form_id: 9, position: [1000.0, 0.0, 300.0], rotation: ID, scale: 1.0 };
+    assert_eq!(w.add_placed_water(&pose, &[water_box()]), 1);
+    let rep = w.add_ref(&pose, &[object(boxed([20.0, 20.0, 20.0]), Motion::Static)]);
+    assert_eq!(rep.bodies, 1);
+    assert_eq!(w.water_surface_at(1000.0, 0.0), Some(300.0));
+    // Adding the bodies again replaces them and still keeps the water.
+    w.add_ref(&pose, &[object(boxed([20.0, 20.0, 20.0]), Motion::Static)]);
+    assert_eq!(w.ref_bodies(9).len(), 1);
+    assert_eq!(w.water_surface_at(1000.0, 0.0), Some(300.0));
+    // The loader's path (prepared off the main thread, then inserted) keeps it too.
+    let prepared = PreparedRef::new(&w.params, &pose, &[object(boxed([20.0, 20.0, 20.0]), Motion::Static)]);
+    w.insert_ref(prepared);
+    assert_eq!(w.ref_bodies(9).len(), 1);
+    assert_eq!(w.water_surface_at(1000.0, 0.0), Some(300.0));
+    // The other order works too.
+    let other = RefPose { form_id: 10, position: [-1000.0, 0.0, 300.0], ..pose };
+    w.add_ref(&other, &[object(boxed([20.0, 20.0, 20.0]), Motion::Static)]);
+    w.add_placed_water(&other, &[water_box()]);
+    assert_eq!(w.water_surface_at(-1000.0, 0.0), Some(300.0));
+    // Removing the reference removes both.
+    assert!(w.remove_ref(9));
+    assert_eq!(w.water_surface_at(1000.0, 0.0), None);
+    assert!(w.ref_bodies(9).is_empty());
+    // A reference with only water is removed too.
+    let water_only = RefPose { form_id: 11, position: [0.0, 1000.0, 300.0], ..pose };
+    w.add_placed_water(&water_only, &[water_box()]);
+    assert!(w.remove_ref(11));
+    assert!(!w.remove_ref(11));
 }

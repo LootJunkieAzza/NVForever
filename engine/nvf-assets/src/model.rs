@@ -6,9 +6,9 @@
 //! geometry (see `Props::is_helper`) are dropped. Skinned shapes are drawn in their bind
 //! pose: their vertices are stored in the shape's own space (docs/spec-notes/nif.md §6).
 //!
-//! Models with an embedded `Idle` sequence also get a [`Rig`]: their node hierarchy,
-//! spawned per reference so the sequence can move nodes and skinned shapes (waving
-//! flags).
+//! Models with an embedded `Idle` (or, failing that, `SpecialIdle`) sequence also get a
+//! [`Rig`]: their node hierarchy, spawned per reference so the sequence can move nodes
+//! and skinned shapes (waving flags, windmills).
 
 use crate::anim_play::{Clip, Playing};
 use crate::data::GameData;
@@ -89,7 +89,8 @@ pub struct Rig {
     pub nodes: Vec<RigNode>,
     pub shapes: Vec<RigShape>,
     /// The sequence played in a loop [hypothesis: placed objects play their embedded
-    /// `Idle` sequence from load; doors' `Open`/`Close` and the like wait for events].
+    /// `Idle` sequence from load, else `SpecialIdle` (windmills); doors' `Open`/`Close`
+    /// and the like wait for events; docs/spec-notes/nif.md §6].
     pub idle: Clip,
 }
 
@@ -216,12 +217,15 @@ impl ModelCtx<'_> {
             out.root = affine(&r.transform);
         }
 
-        // An embedded Idle sequence that moves at least one node of this file.
-        let idle = sequences(&file, &dec)
-            .iter()
-            .filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case("idle")))
-            .map(Clip::from_sequence)
-            .find(|c| c.tracks.iter().any(|(n, _)| objects.iter().any(|o| o.name.as_deref() == Some(n.as_str()))));
+        // The embedded sequence played from load: Idle, else SpecialIdle, that moves at
+        // least one node of this file.
+        let seqs = sequences(&file, &dec);
+        let idle = ["idle", "specialidle"].iter().find_map(|want| {
+            seqs.iter()
+                .filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want)))
+                .map(Clip::from_sequence)
+                .find(|c| c.tracks.iter().any(|(n, _)| objects.iter().any(|o| o.name.as_deref() == Some(n.as_str()))))
+        });
         // Rig nodes: the root first, then every object reachable from it.
         let mut rig = idle.and_then(|idle| {
             let root = root?;

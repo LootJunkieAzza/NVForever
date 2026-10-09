@@ -8,6 +8,7 @@
 pub mod auto;
 pub mod ffi;
 pub mod runner;
+pub mod shot;
 
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -21,9 +22,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use auto::{Auto, AutoAction, AutoState, AUTO_FILE, AUTO_USED_FILE};
 use ffi::*;
-use runner::{Event, Host, Job, Runner, Value};
+use runner::{Event, Host, Job, Runner, Shot, Value};
 
-pub const PLUGIN_VERSION: u32 = 6;
+pub const PLUGIN_VERSION: u32 = 7;
 const PLUGIN_NAME: &CStr = c"NVForeverCapture";
 pub const DEFAULT_DIR: &str = r"C:\fnv-private\capture";
 
@@ -117,6 +118,8 @@ struct GameHost {
     console: &'static ConsoleInterface,
     script: &'static ScriptInterface,
     compiled: HashMap<String, *mut c_void>,
+    /// The capture directory (screenshots go into its `shots` folder).
+    dir: PathBuf,
 }
 
 impl GameHost {
@@ -172,6 +175,13 @@ impl Host for GameHost {
         let clean: String = text.chars().map(|c| if c == '"' || c == '%' || c.is_control() { '\'' } else { c }).collect();
         let script = format!("Begin Function {{ }}\nMessageEx \"{clean}\"\nEnd\n");
         let _ = self.script(&script);
+    }
+
+    fn screenshot(&mut self, stem: &str) -> Result<Shot, String> {
+        let pic = shot::grab_game_window()?;
+        let file = format!("shots/{stem}.{}.png", now());
+        shot::write_png(&pic, &self.dir.join(&file))?;
+        Ok(Shot { file, width: pic.width, height: pic.height, mean: pic.mean(), foreground: pic.foreground })
     }
 }
 
@@ -393,7 +403,7 @@ pub unsafe extern "C" fn NVSEPlugin_Load(nvse: *const NvseInterface) -> bool {
             return false;
         }
         let handle = (n.get_plugin_handle)();
-        let host = GameHost { console: &*console, script: &*script, compiled: HashMap::new() };
+        let host = GameHost { console: &*console, script: &*script, compiled: HashMap::new(), dir: dir.clone() };
         let mut runner = Runner::new(PLUGIN_VERSION, n.nvse_version, n.runtime_version);
         let auto = take_auto(&dir, now(), &mut |s| log_to(&dir, &s));
         runner.set_auto_start(auto.as_ref().map(|a| a.start_frames));
