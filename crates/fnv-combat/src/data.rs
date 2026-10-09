@@ -83,7 +83,7 @@ pub struct WeaponMod {
 }
 
 /// WEAP: `DATA`, `DNAM`, `CRDT` and the forms the weapon names.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct WeaponStats {
     pub edid: Option<String>,
     pub name: Option<String>,
@@ -159,7 +159,7 @@ pub struct WeaponStats {
 }
 
 /// AMMO.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct AmmoStats {
     pub edid: Option<String>,
     pub name: Option<String>,
@@ -180,7 +180,7 @@ pub struct AmmoStats {
 }
 
 /// AMEF.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct AmmoEffect {
     pub edid: Option<String>,
     pub name: Option<String>,
@@ -192,7 +192,7 @@ pub struct AmmoEffect {
 }
 
 /// PROJ.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ProjectileStats {
     pub edid: Option<String>,
     pub name: Option<String>,
@@ -230,7 +230,7 @@ impl ProjectileStats {
 }
 
 /// EXPL.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ExplosionStats {
     pub edid: Option<String>,
     pub name: Option<String>,
@@ -280,6 +280,45 @@ pub struct BodyPart {
     pub gore_target_bone: Option<String>,
 }
 
+impl BodyPart {
+    /// The part's location as `GetHitLocation` numbers it (the BodyLocation enum: −1 none,
+    /// 0 torso, 1–2 head, 3–4 left arm, 5–6 right arm, 7–9 left leg, 10–12 right leg, 13
+    /// brain, 14 weapon) [documented: xEdit wbBodyLocationEnum; GECK wiki GetHitLocation].
+    pub fn location(&self) -> i32 {
+        const NAMES: [&str; 15] = [
+            "Torso", "Head 1", "Head 2", "Left Arm 1", "Left Arm 2", "Right Arm 1", "Right Arm 2", "Left Leg 1", "Left Leg 2", "Left Leg 3", "Right Leg 1",
+            "Right Leg 2", "Right Leg 3", "Brain", "Weapon",
+        ];
+        self.part_type.as_deref().and_then(|t| NAMES.iter().position(|n| *n == t)).map_or(-1, |i| i as i32)
+    }
+
+    /// What kind of limb the part is, from its location.
+    pub fn limb(&self) -> Limb {
+        match self.location() {
+            0 => Limb::Torso,
+            1 | 2 | 13 => Limb::Head,
+            3..=6 => Limb::Arm,
+            7..=12 => Limb::Leg,
+            _ => Limb::Other,
+        }
+    }
+
+    /// The damage input for a hit on this part.
+    pub fn hit_part(&self) -> crate::damage::HitPart {
+        crate::damage::HitPart { damage_mult: if self.damage_mult > 0.0 { self.damage_mult } else { 1.0 }, head: self.limb() == Limb::Head }
+    }
+}
+
+/// A body part's kind (from its BodyLocation), for hit volume sizes and flinches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+pub enum Limb {
+    Head,
+    Torso,
+    Arm,
+    Leg,
+    Other,
+}
+
 /// BPTD.
 #[derive(Debug, Clone, Serialize)]
 pub struct BodyPartData {
@@ -287,6 +326,18 @@ pub struct BodyPartData {
     pub model: Option<String>,
     pub parts: Vec<BodyPart>,
     pub ragdoll: Option<FormId>,
+}
+
+/// ARMO: what protects (combat step C5).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ArmorStats {
+    pub edid: Option<String>,
+    /// DNAM DT.
+    pub dt: f32,
+    /// DNAM DR as stored (xEdit shows it ÷ 100; New Vegas armour stores 0, actors.md §1.1).
+    pub dr_raw: i32,
+    /// BMDT biped slots (bits).
+    pub slots: u32,
 }
 
 /// One effect of an ENCH or SPEL (EFID + EFIT, then its conditions).
@@ -345,6 +396,9 @@ pub struct CombatForms {
     pub effects: HashMap<FormId, EffectForm>,
     /// Every FLST (weapons name their ammo through them).
     pub form_lists: HashMap<FormId, Vec<FormId>>,
+    pub armor: HashMap<FormId, ArmorStats>,
+    /// CREA `PNAM`: a creature's body part data (step C8) [documented: xEdit CREA].
+    pub creature_body_parts: HashMap<FormId, FormId>,
     /// Game settings by lower-case Editor ID.
     pub settings: BTreeMap<String, Setting>,
     /// Signature of the winning record of every loaded form.
@@ -354,7 +408,7 @@ pub struct CombatForms {
 }
 
 /// IPDS is only registered (its signature), so references to it can be checked.
-const SIGS: &[&[u8; 4]] = &[b"WEAP", b"AMMO", b"AMEF", b"PROJ", b"EXPL", b"BPTD", b"ENCH", b"SPEL", b"FLST", b"GMST", b"IPDS"];
+const SIGS: &[&[u8; 4]] = &[b"WEAP", b"AMMO", b"AMEF", b"PROJ", b"EXPL", b"BPTD", b"ENCH", b"SPEL", b"FLST", b"GMST", b"IPDS", b"ARMO", b"CREA"];
 
 enum Loaded {
     Weapon(Box<WeaponStats>),
@@ -366,6 +420,8 @@ enum Loaded {
     Effect(EffectForm),
     FormList(Vec<FormId>),
     Setting(Setting),
+    Armor(ArmorStats),
+    CreatureParts(Option<FormId>),
     Other,
 }
 
@@ -428,6 +484,14 @@ impl CombatForms {
                 Loaded::FormList(l) => {
                     out.form_lists.insert(id, l);
                 }
+                Loaded::Armor(a) => {
+                    out.armor.insert(id, a);
+                }
+                Loaded::CreatureParts(p) => {
+                    if let Some(p) = p {
+                        out.creature_body_parts.insert(id, p);
+                    }
+                }
                 Loaded::Setting(s) => {
                     if let Some(e) = edid {
                         out.settings.insert(e.to_ascii_lowercase(), s);
@@ -448,6 +512,58 @@ impl CombatForms {
         self.settings.get(&edid.to_ascii_lowercase()).and_then(Setting::as_f32)
     }
 
+    /// The body part data of an actor (step C8): a creature's own (`PNAM`) when `base` is
+    /// a CREA that names one, else the BPTD whose model is the actor's skeleton
+    /// (`DefaultBodyPartData` is `Characters\_Male\skeleton.NIF`) [observed: the BPTD
+    /// models; hypothesis: NPCs use the BPTD of their skeleton], skipping the player's
+    /// own (`PlayerBodyPartData`, FormID 0x1C) for others.
+    pub fn body_parts_for(&self, base: FormId, skeleton: &str) -> Option<FormId> {
+        if let Some(p) = self.creature_body_parts.get(&base) {
+            return Some(*p);
+        }
+        let want = skeleton.replace('/', "\\").to_ascii_lowercase();
+        let want = want.trim_start_matches("meshes\\");
+        let mut found: Vec<FormId> = self
+            .body_parts
+            .iter()
+            .filter(|(id, b)| id.0 != 0x1C && b.model.as_deref().is_some_and(|m| m.replace('/', "\\").to_ascii_lowercase().trim_start_matches("meshes\\") == want))
+            .map(|(id, _)| *id)
+            .collect();
+        found.sort();
+        found.first().copied()
+    }
+
+    /// The armour an actor wears out of the items it carries: the carried ARMO, each once,
+    /// by DT (then stored DR) descending, then first appearance; each is worn unless it
+    /// has no slot or a worn item shares one [observed rule: the owner's statement of
+    /// 2026-10-08 as `fnv_actor::resolve` implements it, actors.md §2.3].
+    pub fn worn_armor(&self, items: impl IntoIterator<Item = FormId>) -> Vec<FormId> {
+        let mut cands: Vec<(usize, FormId, &ArmorStats)> = Vec::new();
+        for (i, id) in items.into_iter().enumerate() {
+            if let Some(a) = self.armor.get(&id) {
+                if !cands.iter().any(|c| c.1 == id) {
+                    cands.push((i, id, a));
+                }
+            }
+        }
+        cands.sort_by(|a, b| b.2.dt.total_cmp(&a.2.dt).then(b.2.dr_raw.cmp(&a.2.dr_raw)).then(a.0.cmp(&b.0)));
+        let mut used = 0u32;
+        let mut worn = Vec::new();
+        for (_, id, a) in cands {
+            if a.slots != 0 && a.slots & used == 0 {
+                used |= a.slots;
+                worn.push(id);
+            }
+        }
+        worn
+    }
+
+    /// DT and DR (percent) of worn armour: the sums over the items (DR stored ÷ 100)
+    /// [hypothesis: pieces add up].
+    pub fn armor_values(&self, worn: &[FormId]) -> (f32, f32) {
+        worn.iter().filter_map(|id| self.armor.get(id)).fold((0.0, 0.0), |(dt, dr), a| (dt + a.dt, dr + a.dr_raw as f32 / 100.0))
+    }
+
     /// The AMMO forms a weapon accepts: NAM0 when it is an AMMO, the AMMO entries of
     /// NAM0 when it is a form list [documented: GECK wiki Weapons and Ammo, owner export
     /// 2026-10-09], in list order.
@@ -464,14 +580,14 @@ impl CombatForms {
     /// 10mm Hollow Point, 10mm JHP) [observed]; owner's account of the game 2026-10-09:
     /// a weapon defaults to the plain round unless only another type is carried, going
     /// down the list [hypothesis until captured].
-    pub fn ammo_for(&self, weapon: FormId, has: impl Fn(FormId) -> bool) -> Option<FormId> {
+    pub fn ammo_for(&self, weapon: FormId, mut has: impl FnMut(FormId) -> bool) -> Option<FormId> {
         let choices = self.ammo_choices(self.weapons.get(&weapon)?);
         choices.iter().copied().find(|&a| has(a)).or_else(|| choices.first().copied())
     }
 
     /// The next ammo for Ammo Swap: the next choice down the list (wrapping) that the
     /// carrier has, or `current` when no other is carried [design].
-    pub fn next_ammo(&self, weapon: FormId, current: FormId, has: impl Fn(FormId) -> bool) -> Option<FormId> {
+    pub fn next_ammo(&self, weapon: FormId, current: FormId, mut has: impl FnMut(FormId) -> bool) -> Option<FormId> {
         let choices = self.ammo_choices(self.weapons.get(&weapon)?);
         let at = choices.iter().position(|&a| a == current).unwrap_or(0);
         (1..=choices.len()).map(|k| choices[(at + k) % choices.len()]).find(|&a| a != current && has(a)).or(Some(current))
@@ -533,6 +649,17 @@ fn load_one(cx: &mut Ctx, sig: &[u8; 4], d: &[Decoded]) -> Loaded {
         b"FLST" => {
             let items = all(d, b"LNAM").cloned().collect::<Vec<_>>();
             Loaded::FormList(items.iter().filter_map(|v| cx.fid("LNAM", Some(v))).collect())
+        }
+        b"CREA" => Loaded::CreatureParts(cx.fid("PNAM", first(d, b"PNAM"))),
+        b"ARMO" => {
+            let dnam = first(d, b"DNAM");
+            let slots = first(d, b"BMDT").and_then(|b| b.get("biped_flags")).and_then(|f| num(f, "value")).unwrap_or(0.0) as u32;
+            Loaded::Armor(ArmorStats {
+                edid: first(d, b"EDID").and_then(text),
+                dt: f(dnam, "dt"),
+                dr_raw: dnam.and_then(|v| int(v, "dr")).unwrap_or(0) as i32,
+                slots,
+            })
         }
         b"GMST" => {
             let edid = first(d, b"EDID").and_then(text).unwrap_or_default();

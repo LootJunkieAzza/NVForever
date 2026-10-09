@@ -240,7 +240,9 @@ All three take `<Data> <plugins…> --schema <dir>` and print one JSON document.
 ## 5. Open questions (captures)
 
 1. Do the 14 projectiles that name an explosion without the flag explode in the game?
-   Firing the plasma caster at a wall would show it (§1.3).
+   Firing the plasma caster at a wall would show it (§1.3). Owner 2026-10-09: the
+   energy-weapon projectiles' explosion flags are to be revisited, and projectiles in
+   general get a capture round later for tuning (speed, gravity, drop, timing).
 2. Confirm the ammo choice (§2) in the game: carry only 10mm Hollow Point and equip a
    10mm pistol, then carry both.
 3. NPC and player maximum health against the health settings (§3; C5's capture).
