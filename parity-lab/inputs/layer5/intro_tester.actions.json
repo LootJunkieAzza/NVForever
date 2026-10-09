@@ -1,0 +1,390 @@
+{
+ "format": "fnv.script.actions/1",
+ "seed": 0,
+ "frame_seconds": 0.016666666666666666,
+ "title": "VCG01 60 to 80 without stage 55: the vigor tester's OnActivate (SPECIAL menu, stage 65), Doc's reaction to the SPECIAL stats (stage 65's timer), 70 to 80 through Doc's lines",
+ "save": "nvfnew",
+ "given": [
+  {
+   "kind": "menu",
+   "menu": 1001,
+   "open": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG00",
+   "running": true,
+   "completed": false,
+   "stage": 90,
+   "done": [
+    0,
+    90
+   ],
+   "not_done": [
+    5,
+    85,
+    95,
+    100
+   ],
+   "vars": {
+    "bRunTimer": 1
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG01",
+   "running": true,
+   "completed": false,
+   "stage": 0,
+   "not_done": [
+    0,
+    1,
+    3,
+    5,
+    7,
+    8,
+    9,
+    10,
+    15,
+    17,
+    20,
+    25,
+    30,
+    35,
+    36,
+    37,
+    40,
+    45,
+    50,
+    55,
+    60,
+    65,
+    70,
+    75,
+    76,
+    78,
+    79,
+    80,
+    85,
+    90,
+    95,
+    98,
+    100,
+    102,
+    105,
+    110,
+    115,
+    200
+   ],
+   "objectives": [
+    {
+     "index": 10,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 30,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 40,
+     "displayed": false,
+     "completed": false
+    },
+    {
+     "index": 50,
+     "displayed": false,
+     "completed": false
+    }
+   ],
+   "vars": {
+    "bChooseSex": 0,
+    "nButton": 0,
+    "bRunTimer": 0,
+    "bGiveTest": 0,
+    "fTimer": 0,
+    "bBeganTest": 0,
+    "nDocReaction": 0,
+    "nMostExtremeStat": 0,
+    "bLow": 0,
+    "fMaxDeviation": 0,
+    "fCurrentValue": 0,
+    "fAbsCurrentValue": 0
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "VCG01Test",
+   "running": true,
+   "completed": false,
+   "vars": {
+    "nBarter": 0,
+    "nBigGuns": 0,
+    "nEnergyWeapons": 0,
+    "nExplosives": 0,
+    "nLockpick": 0,
+    "nMedicine": 0,
+    "nMelee": 0,
+    "nRepair": 0,
+    "nScience": 0,
+    "nSmallGuns": 0,
+    "nSneak": 0,
+    "nSpeech": 0,
+    "nSurvival": 0,
+    "nUnarmed": 0,
+    "bDoFinalCalculation": 0
+   }
+  },
+  {
+   "kind": "quest",
+   "quest": "CGTutorial",
+   "running": true,
+   "stage": 0,
+   "not_done": [
+    2
+   ]
+  },
+  {
+   "kind": "quest",
+   "quest": "VDLCPackQuest",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderTribal",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderCaravan",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderClassic",
+   "running": true
+  },
+  {
+   "kind": "quest",
+   "quest": "VPreorderMercenary",
+   "running": true
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Strength",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Perception",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Endurance",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Charisma",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Intelligence",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Agility",
+   "value": 5
+  },
+  {
+   "kind": "actor_value",
+   "of": "player",
+   "av": "Luck",
+   "value": 5
+  }
+ ],
+ "actions": [
+  {
+   "op": "set_stage",
+   "quest": "VCG01",
+   "stage": 0
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG00",
+   "fields": [
+    "running",
+    "stage",
+    "done.95",
+    "done.100"
+   ],
+   "label": "VCG00 after VCG01 0"
+  },
+  {
+   "op": "set_stage",
+   "quest": "VCG01",
+   "stage": 60
+  },
+  {
+   "op": "set_objective",
+   "quest": "VCG01",
+   "index": 30,
+   "displayed": true
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "stage",
+    "done.0",
+    "done.1",
+    "done.60",
+    "objective.10.displayed",
+    "objective.10.completed",
+    "objective.30.displayed",
+    "var.bRunTimer",
+    "var.fTimer"
+   ],
+   "label": "VCG01 at 60 with the box open"
+  },
+  {
+   "op": "dismiss_message_boxes",
+   "max": 6,
+   "wait_frames": 600
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.5",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 5 (Doc's first line ended)"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "stage",
+    "done.1",
+    "done.3",
+    "done.7",
+    "done.55"
+   ],
+   "label": "VCG01 after Doc's first line"
+  },
+  {
+   "op": "activate_read",
+   "target": "0x00104C13",
+   "actor": "player",
+   "run_on_activate": true,
+   "read": {
+    "quest": "VCG01",
+    "field": "stage"
+   },
+   "label": "vigor tester activated: in the same script"
+  },
+  {
+   "op": "get_menus",
+   "menus": [
+    1074
+   ],
+   "label": "SPECIAL menu after the tester"
+  },
+  {
+   "op": "get_ref",
+   "ref": "0x00104C13",
+   "fields": [
+    "destroyed"
+   ],
+   "label": "tester after its activation"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "objective.30.completed",
+    "var.nDocReaction"
+   ],
+   "label": "VCG01 in the SPECIAL menu"
+  },
+  {
+   "op": "close_menus"
+  },
+  {
+   "op": "start_stopwatch"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.70",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 70",
+   "stopwatch": true
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "var.nDocReaction",
+    "var.nMostExtremeStat",
+    "var.bLow",
+    "var.fMaxDeviation",
+    "var.fCurrentValue",
+    "var.fAbsCurrentValue"
+   ],
+   "label": "Doc's reaction"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.75",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 75 (Doc's reaction line ended)"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "stage",
+    "done.75",
+    "done.76",
+    "done.78",
+    "done.79"
+   ],
+   "label": "VCG01 after 75"
+  },
+  {
+   "op": "wait_quest",
+   "quest": "VCG01",
+   "field": "done.80",
+   "value": true,
+   "max_frames": 2400,
+   "label": "VCG01 80 (psych intro lines ended)"
+  },
+  {
+   "op": "get_quest",
+   "quest": "VCG01",
+   "fields": [
+    "running",
+    "stage",
+    "done.80",
+    "objective.30.completed",
+    "objective.40.displayed",
+    "objective.40.completed"
+   ],
+   "label": "VCG01 at 80"
+  }
+ ]
+}

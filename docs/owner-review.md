@@ -5,6 +5,27 @@ started 2026-10-09). Each item has the decision taken, why, and what changes if 
 decide differently. Newest items go at the end of each section. Strike out or delete an
 item once you've ruled on it.
 
+## Read first: your autosave was overwritten (2026-10-09 09:45)
+
+During capture round 4 (VCG01 from `nvfnew`, PR #79), one trial drove VCG01 to stage 55,
+whose result script calls `Autosave`. Turning off scripted autosaves in the INI did not
+stop it. The game wrote a new `autosave.fos` in `Documents\My Games\FalloutNV\Saves`
+at 09:45:56:
+- your 05:43 autosave became `autosave.fos.bak` and is still there;
+- the older `autosave.fos.bak` it replaced is gone (the 05:43 file may itself have come
+  from an earlier capture);
+- your named saves (Save 1–11, `nvftest`, `nvfdoc`, `nvfnew`) are untouched.
+
+To get the 05:43 autosave back, rename `autosave.fos.bak` to `autosave.fos` yourself
+(the tools never write to the Saves folder). Prevention:
+- `capture_run.py` now backs up the rolling saves before every run, then fails (exit 3)
+  and lists any change if the game writes to the Saves folder (tools/capture/README.md);
+- no scenario reaches stage 55;
+- capturing stage 55 needs your consent to let the game autosave there.
+
+The same run also triggered Steam achievement 31 (`AddAchievement 31`) in four game
+sessions. You already had it from an earlier playthrough.
+
 ## Merges into `main` (2026-10-09)
 
 1. **#45 (in-game screenshots, plugin v7) merged by the coordinator, after checking it
@@ -279,6 +300,58 @@ item once you've ruled on it.
     - GetBaseActorValue includes ModActorValue changes [hypothesis];
     - AddReputationExact clamping wasn't captured;
     - the engine now advances the game clock before each frame's scripts (#76) [hypothesis].
+
+24. **Your GECK wiki export (2026-10-09) is used.** It is in `C:\fnv-private\geckwiki`;
+    the four `GECK-2026100909*.xml` files are identical, so three can go.
+    `docs/spec-notes/quests-dialogue.md` is our own summary of its 19 pages, checked for
+    copied wording (no 8-word run in common).
+    - **Agrees with the captures:** AND/OR precedence, all passing stage items run,
+      repeated stages, completed ≠ stopped, and SetStage starting a quest.
+    - **New documented rules:** SetObjectiveDisplayed starts a quest; quest variables
+      live on while it is stopped; condition Run On meanings; "Run on Target" is invalid
+      on stages and targets; Next quest becomes the active quest.
+    - **Dialogue groundwork for Layer 6:** begin/end result scripts, Say Once, Goodbye,
+      Random stacks, speech challenges.
+    - **One disagreement:** the wiki says the "Default" delay flag means 5 s, but the
+      captures show the record's delay is used whenever it is non-zero. The runtime
+      follows the captures.
+
+    The runtime session was given these rules to check against.
+
+25. **Two more notes from your wiki exports (scripting and actor pages).** The three
+    `GECK-2026100909*.xml` files in `C:\fnv-private\geckwiki` now hold different pages
+    (19 quest, 53 scripting, 7 actor pages), so keep all three (item 24 said they were
+    identical). `docs/spec-notes/script-language.md` covers the base-game script
+    language and `docs/spec-notes/actor-behaviour.md` AI packages, detection, factions,
+    combat and idles. Both are our own wording (no 8-word run in common with the
+    exports). Extender (xNVSE) features get one short section, marked out of scope.
+    - **The captures win twice:** integer variables truncate toward zero (the wiki says
+      floor), and float variables are doubles (the wiki says single precision). The
+      runtime already follows the captures.
+    - **Runtime differs from the wiki, no capture yet:** calls on an empty `ref` stop the
+      script in the wiki but are skipped in the runtime; disabled references run their
+      scripts in the wiki but not in the runtime; scripted items in other actors' or
+      containers' inventories don't run; Return ends one block, not the frame (matters
+      in 5 shipped scripts); result-script variables don't overwrite the quest script's;
+      script packages stack instead of replacing each other; EvaluatePackage keeps a
+      script package.
+    - Each note ends with capture candidates. Nothing was changed in the runtime.
+
+26. **Your `objects.xml` export (9 pages, mostly category indexes).** Three facts were
+    new; each is handled as below.
+    - **Quest items can't be dropped or sold, and bodies holding one don't despawn until
+      it's taken.** Nothing read a quest-item record flag, so `--play` let you drop
+      anything. A session on `claude/quest-items` is adding the flag (from xEdit's
+      definitions, confirmed in the data) and the rule.
+    - **"Random Anim Start":** world objects with it start their idle animation at a
+      random time, so copies don't animate in step. Nothing reads it yet. **For the
+      NPC/animation coordinator:** this belongs with the placed-model animation of #47
+      (`engine/nvf-assets` model.rs).
+    - **Leveled lists pick by the player's level relative to the encounter zone.**
+      `fnv-sim` uses the player's level only (no ECZN). This matters for leveled actors
+      (Layer 6); noted, not changed.
+
+    The export is kept as `C:\fnv-private\geckwiki\objects.xml`.
 
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
