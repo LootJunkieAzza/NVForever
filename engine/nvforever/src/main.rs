@@ -133,7 +133,9 @@ struct Args {
     /// Window size "WxH" (also the screenshot size).
     #[arg(long, default_value = "1280x800")]
     size: String,
-    /// Horizontal field of view in degrees [hypothesis: the game's default is 75].
+    /// The game's field-of-view setting in degrees (fDefaultFOV, default 75): the horizontal
+    /// angle at 4:3; other aspects keep its vertical angle, so 16:9 is wider (75 → 91.3°
+    /// horizontal) [hypothesis; docs/spec-notes/camera.md].
     #[arg(long, default_value_t = 75.0)]
     fov: f32,
     /// Added to the z of --pos (e.g. the eye height above a captured player position).
@@ -376,7 +378,6 @@ fn main() -> AppExit {
         heading: args.heading,
         pitch: args.pitch,
         fov: args.fov,
-        aspect: w as f32 / h as f32,
         overlay: !args.no_overlay && args.frame_json.is_none(),
         play: play.is_some(),
     })
@@ -425,17 +426,19 @@ struct StartPose {
     position: Vec3,
     heading: f32,
     pitch: f32,
-    /// Horizontal field of view in degrees.
+    /// The game's field-of-view setting in degrees (see `vertical_fov`).
     fov: f32,
-    aspect: f32,
     overlay: bool,
     /// The camera is the player (`--play`).
     play: bool,
 }
 
-/// Vertical field of view (radians) for a horizontal one (degrees) at an aspect ratio.
-fn vertical_fov(h_deg: f32, aspect: f32) -> f32 {
-    2.0 * ((h_deg.to_radians() / 2.0).tan() / aspect).atan()
+/// Vertical field of view (radians) for the game's FOV setting (degrees): the setting is the
+/// horizontal angle at a 4:3 aspect and the vertical angle stays fixed at every other aspect
+/// ("Hor+"), so Bevy's vertical `fov` needs no update on resize [hypothesis; matched at 16:9
+/// on four reference frames, docs/spec-notes/camera.md].
+fn vertical_fov(setting_deg: f32) -> f32 {
+    2.0 * ((setting_deg.to_radians() / 2.0).tan() * 3.0 / 4.0).atan()
 }
 
 fn setup(mut commands: Commands, start: Res<StartPose>) {
@@ -444,7 +447,7 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
     let cam = commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection {
-            fov: vertical_fov(start.fov, start.aspect),
+            fov: vertical_fov(start.fov),
             far: 400_000.0,
             near: 5.0,
             ..default()
@@ -620,5 +623,20 @@ fn screenshot_and_exit(
         *ready_at = Some(*elapsed);
     } else if *frames >= 10_000 && *elapsed >= r + 3.0 {
         commands.write_message(AppExit::Success);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::vertical_fov;
+
+    #[test]
+    fn fov_setting_is_horizontal_at_4_3() {
+        let v = vertical_fov(75.0);
+        let horizontal = |aspect: f32| 2.0 * ((v / 2.0).tan() * aspect).atan().to_degrees();
+        assert!((horizontal(4.0 / 3.0) - 75.0).abs() < 1e-3);
+        assert!((v.to_degrees() - 59.84).abs() < 0.01);
+        // The 16:9 angle the reference frames matched (docs/spec-notes/camera.md).
+        assert!((horizontal(16.0 / 9.0) - 91.31).abs() < 0.01);
     }
 }
