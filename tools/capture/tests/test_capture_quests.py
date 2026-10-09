@@ -280,6 +280,114 @@ class Golden(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(d, "g.json")))
 
 
+ROUND2 = {
+    "format": cq.ACTIONS_FORMAT, "title": "round 2",
+    "given": [{"kind": "ref", "ref": "0x00104C0F", "dead": False, "vars": {"PlayerLeft": 1}}],
+    "actions": [
+        {"op": "set_ref_var", "ref": "0x00104C0F", "var": "PlayerLeft", "value": 0},
+        {"op": "get_ref", "ref": "0x00104C0F", "fields": ["var.PlayerLeft", "dead", "disabled"], "label": "doc"},
+        {"op": "activate_read", "target": "0x00103E61", "run_on_activate": True,
+         "read": {"ref": "0x00104C0F", "field": "var.PlayerLeft"}, "label": "door"},
+        {"op": "activate_read", "target": "0x00103E61", "read": {"quest": "TestQuest", "field": "stage"},
+         "label": "door plain"},
+        {"op": "activate", "target": "0x0012319B", "actor": "player", "run_on_activate": True, "label": "hostage"},
+        {"op": "activate", "target": "0x0012319B", "actor": "player", "label": "hostage plain"},
+        {"op": "kill", "target": "0x0012319B"},
+        {"op": "evaluate_package", "of": "0x00104E85"},
+        {"op": "is_current_package", "of": "0x00104E85", "package": "0x0010A21C", "label": "stays"},
+        {"op": "add_item_read", "to": "player", "item": "0x0016665D", "count": 1, "read": ["0x0016665D", "0x00140AB2"],
+         "label": "added"},
+        {"op": "sample_items", "of": "player", "items": ["0x0016665D", "0x00140AB2"], "frames": 3, "label": "items"},
+        {"op": "menu_gap", "via": "0x00103E37", "frames": 5, "quest": "TestQuest", "var": "fTimer", "after": 3,
+         "label": "gap"},
+        {"op": "sample_ref_var", "ref": "0x00104C10", "var": "timer", "frames": 2, "label": "skull"},
+        {"op": "sample_var", "quest": "TestQuest", "var": "nCount", "frames": 4, "values": True, "label": "steps"},
+    ]}
+
+
+class Round2(unittest.TestCase):
+    def steps(self):
+        return cq.actions_job(ROUND2, "q5b_t", "nvfdoc", EDIDS)["steps"][len(cs.MASTERS):]
+
+    def test_steps(self):
+        steps = self.steps()
+        given = [s for s in steps if s.get("label", "").startswith(cq.GIVEN_PREFIX)]
+        self.assertEqual([s["field"] for s in given], ["var.PlayerLeft", "dead"])
+        self.assertIn('rF1.GetVariable "PlayerLeft"', given[0]["query"])
+        scripts = [s["script"] for s in steps if "script" in s]
+        self.assertIn('rF1.SetVariable "PlayerLeft" 0', scripts[0])
+        by = {}
+        for s in steps:
+            if "query" in s:
+                by.setdefault(s["label"], []).append(s)
+        self.assertEqual([s["field"] for s in by["doc"]], ["var.PlayerLeft", "dead", "disabled"])
+        self.assertIn("rF1.GetDead", by["doc"][1]["query"])
+        door = by["door"][0]["query"]
+        self.assertLess(door.index("rF1.Activate player 1"), door.index('let fV := rF2.GetVariable "PlayerLeft"'))
+        self.assertIn("rF1.Activate player\n", by["door plain"][0]["query"])
+        self.assertIn("GetStage rF2", by["door plain"][0]["query"])
+        self.assertTrue(any("rF1.Activate player 1" in s and "0x" not in s for s in scripts))
+        self.assertEqual(by["hostage"][0]["field"], "opened")
+        self.assertTrue(any("rF1.Activate player\n" in s for s in scripts))  # the fnv.sim.actions/1 path
+        self.assertTrue(any("rF1.Kill" in s for s in scripts))
+        self.assertTrue(any("rF1.EvaluatePackage" in s for s in scripts))
+        self.assertIn("if rP == rF2", by["stays"][0]["query"])
+        added = by["added"][0]["query"]
+        self.assertLess(added.index("player.AddItem rF1 1 1"), added.index('($ player.GetItemCount rF2) + "|" + ($ player.GetItemCount rF3)'))
+        self.assertEqual([s["field"] for s in by["sample:items"]], ["0", "1", "2"])
+        gap = steps.index(by["menu:gap"][0])
+        self.assertIn("rF1.Activate player", steps[gap - 2]["script"])
+        self.assertEqual(steps[gap - 1], {"frames": 4})
+        self.assertEqual(steps[gap + 1], {"console": "CloseAllMenus"})
+        self.assertEqual([s["field"] for s in by["sample:gap"]], ["0", "1", "2"])
+        self.assertIn('rF1.GetVariable "timer"', by["sample:skull"][0]["query"])
+
+    def test_bad(self):
+        for a in ({"op": "activate_read", "target": "0x1", "read": {"field": "stage"}, "label": "x"},
+                  {"op": "activate_read", "target": "0x1", "read": {"ref": "0x2", "field": "nope"}, "label": "x"},
+                  {"op": "get_ref", "ref": "0x1", "fields": ["stage"], "label": "x"},
+                  {"op": "menu_gap", "via": "0x1", "frames": 0, "quest": "Q", "var": "v", "after": 1, "label": "x"},
+                  {"op": "sample_items", "of": "player", "items": [], "frames": 2, "label": "x"},
+                  {"op": "kill"}):
+            with self.assertRaises(cq.InputError):
+                cq.actions_job({"format": cq.ACTIONS_FORMAT, "actions": [a]}, "x", "y", EDIDS)
+
+    def test_golden(self):
+        rs = [{"label": "__given__:0", "field": "var.PlayerLeft", "value": 1.0},
+              {"label": "__given__:0", "field": "dead", "value": 0.0},
+              {"label": "doc", "field": "var.PlayerLeft", "value": 0.0},
+              {"label": "doc", "field": "dead", "value": 0.0},
+              {"label": "doc", "field": "disabled", "value": 1.0},
+              {"label": "door", "field": "var.PlayerLeft", "value": 1.0},
+              {"label": "hostage", "field": "opened", "value": 1.0},
+              {"label": "stays", "field": "current", "value": 0.0},
+              {"label": "added", "field": "counts", "value": "1|0"}]
+        rs += [{"label": "sample:items", "field": str(k), "value": v} for k, v in enumerate(["1|0", "0|200", "0|200"])]
+        rs += [{"label": "menu:gap", "field": "before", "value": 99.5}]
+        rs += [{"label": "sample:gap", "field": str(k), "value": v} for k, v in enumerate([99.5, 99.453125, 99.4])]
+        rs += [{"label": "sample:steps", "field": str(k), "value": v} for k, v in enumerate([0.0, 0.0, 1.0, 2.0])]
+        mods, results = cs.read_output(output_lines(rs))
+        doc, problems = cq.golden_document(ROUND2, mods, results)
+        self.assertEqual(problems, [])
+        obs = {o["label"]: o for o in doc["observations"]}
+        self.assertEqual(obs["doc"], {"label": "doc", "step": 1, "var.PlayerLeft": 0.0, "dead": False, "disabled": True})
+        self.assertEqual(obs["door"]["var.PlayerLeft"], 1.0)
+        self.assertIs(obs["hostage"]["opened"], True)
+        self.assertIs(obs["stays"]["current"], False)
+        self.assertEqual({k: v for k, v in obs["added"].items() if k.startswith("count.")},
+                         {"count.0x0016665D": 1, "count.0x00140AB2": 0})
+        self.assertEqual(obs["items"], {"label": "items", "step": 10, "first.0x0016665D": 1, "final.0x0016665D": 0,
+                                        "settled.0x0016665D": 1, "first.0x00140AB2": 0, "final.0x00140AB2": 200,
+                                        "settled.0x00140AB2": 1})
+        self.assertEqual(obs["gap"]["drop"], 0.046875)
+        self.assertEqual(obs["steps"]["values"], [0.0, 1.0, 2.0])
+        self.assertEqual(obs["steps"]["changes"], 2)
+
+    def test_menu_gap_without_change(self):
+        obs = cq.menu_gap_observation({}, {"value": 5.0}, [{"field": "0", "value": 5.0}])
+        self.assertIn("error", obs)
+
+
 class Inputs(unittest.TestCase):
     """The committed scenario inputs convert to jobs (no game data needed: quests are
     named by Editor ID, forms by FormID)."""
