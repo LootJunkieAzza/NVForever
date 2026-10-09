@@ -103,7 +103,8 @@ actor meshes`]:
   `Fallout - Meshes.bsa`, next to heads, hair, beards and many hats; no pre-generated
   per-NPC heads.
 - The human idle is `meshes\characters\_male\locomotion\mtidle.kf`. Static display is a
-  frozen bind pose (owner decision 2026-10-08), so no animation is played.
+  frozen bind pose by default (owner decision 2026-10-08); `nvforever --actor-pose idle`
+  plays the idle instead (§7).
 
 ## 2. Resolution rules (`fnv_actor::resolve`)
 
@@ -200,7 +201,8 @@ bind their skins to the skeleton's bones by name (the part's own bone copies are
 spawned); rigid parts are parented to their attachment bone by the rule of §1.2 (`Prn`,
 else `Bip01 Head`). Hair shows `NoHat` or `Hat` (§2.4); dismemberment caps — shapes none
 of whose partitions sets part flag bit 0 ("editor visible", nif.xml BSPartFlag) — are
-hidden [hypothesis: an intact actor shows none]. Pose: the skeleton's bind pose, frozen.
+hidden [hypothesis: an intact actor shows none]. Pose: the skeleton's bind pose, frozen
+(default), or the idle clip on the skeleton's bones (§7).
 The race's height scales the actor [hypothesis]. Texture overrides: the race part ICONs,
 the EYES texture and the HAIR texture replace the model's diffuse. Hair colour: texture ×
 2 × HCLR in gamma space [hypothesis: a plain multiply leaves Sunny Smiles' hair dark
@@ -281,3 +283,99 @@ mismatching its shape.
 - `GetEquipped` on NPCs that carry two items for one slot (§2.3).
 - An NPC whose record names `marker_creature.nif` (e.g. `PrimmNCRDeputyRanger`), to
   confirm it is drawn with the human skeleton (§2.2).
+- The idle in game for comparison with §7: a screenshot of Doc Mitchell standing in his
+  house, and whether actors placed side by side breathe in step (§7.3 spreads them).
+
+## 7. Animation playback (part E)
+
+Opt-in: `nvforever --actor-pose idle` plays a looping KF clip on each actor's skeleton;
+`--actor-pose bind` (the default, owner decision 2026-10-08) keeps the frozen bind pose.
+`--actor-pose-time <s>` holds every actor at one clip time (screenshots). Choosing a clip
+per situation (AI, packages, movement) is Layer 6 and not done here.
+
+### 7.1 The human idle
+
+`meshes\characters\_male\locomotion\mtidle.kf` against
+`meshes\characters\_male\skeleton.nif` [observed: `kf_bind_check` example and the
+`actor pose` log line of `nvforever`]:
+
+- One controller sequence `Idle`, 0–4 s, cycle type 0 (loop), frequency 1, with 64
+  controlled blocks.
+- 60 are transform tracks, and **all 60 name a node of `skeleton.nif`** (66 nodes); none
+  is left unbound. By rotation channel: 51 B-spline (compressed), 2 keyed (`Bip01
+  Spine`, `Bip01 L ForeTwist`), 7 static (`Bip01 L Toe0`, `Bip01 Neck`, both clavicles,
+  both pauldrons, `Bip01 NonAccum`).
+- The other 4 are not transforms and are not played: an `NiFloatExtraDataController` on
+  `Bip01 Head` and an `NiGeomMorpherController` on `HeadAnims:0` (both with an
+  `NiFloatInterpolator`), and `NiVisController`s on `HeadAnims` and `##VisCtrl` (with an
+  `NiBoolInterpolator`) [hypothesis: facial animation and visibility switches; what they
+  drive is open].
+- 6 skeleton nodes have no track, among them the root `Scene Root` and `Bip01`.
+- At its start the clip is up to 47° away from the bind pose (`Bip01 R UpperArm` 46.8°,
+  `Bip01 L UpperArm` 41.6°): the arms hang down instead of the T-pose.
+
+### 7.2 Accumulation root
+
+- The sequence names `Bip01` as its accumulation root (NiControllerSequence "Accum Root
+  Name", nif.xml) [observed].
+- `skeleton.nif` puts the body's offset on `Bip01`: translation (0, 0.657, 67.771) and
+  90° about z, with `Bip01 NonAccum` below it at the identity [observed].
+- `mtidle.kf` has no `Bip01` track; its static `Bip01 NonAccum` pose is (0, −0.296,
+  66.330) and 90° about z, nearly the skeleton's `Bip01` offset [observed]. Played over
+  the bind `Bip01`, the offset applies twice: the pelvis would sit about 134 units up,
+  turned 180° [observed: arithmetic on these values].
+- Rule [hypothesis: the accumulated motion of a clip without a root track is none]: while
+  such a clip plays, its accumulation root is held at the identity
+  (`Clip::undriven_accum_root`). Rendered, Doc Mitchell then stands with his feet on the
+  floor at the height of the bind pose [observed, screenshot].
+
+### 7.3 Engine
+
+- Clip choice: `locomotion\mtidle.kf` in the skeleton's folder [observed for
+  `characters\_male\skeleton.nif`; hypothesis: the same rule for other skeletons]. Every
+  human actor, female ones included (they use the same skeleton, §1.1), plays it
+  [hypothesis: the game may pick other idles per sex, package or furniture].
+- Tracks drive the skeleton's bone entities by node name, except the actor's root, whose
+  transform is the placement. Skinned shapes are bound to those bones and rigid parts are
+  their children (§3), so one player moves every part.
+- Each actor starts at a phase spread by its reference FormID, so neighbours do not move
+  in step [engine choice, not a game rule].
+- Sampling allocates nothing per frame: B-spline channels are evaluated into fixed-size
+  arrays (`BSplineChannel::eval_array`); clips are loaded once per path and their tracks
+  shared between actors.
+
+### 7.4 What follows the animation
+
+Doc Mitchell in GSDocMitchellHouse, held at clip times 0 s and 2 s (screenshots kept
+privately) [observed]:
+
+- Skinned parts (upper body with outfit, hands, head) follow: the arms hang at the sides
+  and change between the two times; the neck joins the body without a gap.
+- Rigid parts under `Bip01 Head` (hair, eyes, moustache) stay in place on the head as it
+  turns and tilts (about 2 units of head movement between 0 s and 2 s).
+- The FaceGen-morphed head and its face texture are kept (the morph replaces the mesh, not
+  the skin binding).
+
+### 7.5 Performance
+
+The CLAUDE.md moving-camera smoke test (`--cell Goodsprings --auto-fly 4000
+--run-seconds 40`), 2026-10-08, owner's machine [observed]:
+
+| | `--actor-pose bind` | `--actor-pose idle` |
+|---|---|---|
+| exit, "run finished" | 0, yes (8 runs) | 0, yes (8 runs) |
+| actors drawn / playing a clip | 33–34 / 0 | 33–34 / 33–34, no clip missing |
+| clips playing at once (peak) | 5 (animated models) | 19 (5 models + actors in loaded cells) |
+| sampling cost per clip and frame | 10.5 µs | 41.6 µs |
+| sampling cost per frame, run average | 0.004–0.006 ms | 0.12–0.22 ms |
+| frame rate, mean of 8 runs (range) | 13.7 fps (9.4–19.5) | 13.7 fps (9.3–23.1) |
+
+- The frame rate cannot separate the two modes on this machine at the time: another
+  session's `nvforever` and builds ran alongside (CPU at 66–79 %), and runs of the same
+  mode differ by up to 2×. The sampling cost, timed inside the engine
+  (`advance_animations`, printed in the run summary), is the reliable figure: about
+  0.8 ms per frame with 19 clips. It covers sampling and writing the bones' local
+  transforms, not Bevy's transform propagation or skin upload.
+- Sampling the 60 tracks of `mtidle.kf` alone takes 20.2 µs per pose (`kf_bind_check`
+  with `KF_BENCH=1`, 20,000 poses).
+- No per-frame allocation in sampling (§7.3).
