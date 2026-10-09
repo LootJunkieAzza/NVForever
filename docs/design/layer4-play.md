@@ -365,9 +365,9 @@ Open:
   dialogue, Layer 6; a test aid stands in), and its OnActivate takes the player through.
 - Renderer, seen in the worldspace tests and the same with a direct start (not the
   switch): NVUrbanClear (Freeside) is overexposed and Big MT's sky is white at noon.
-- Starting the game in an interior leaves generated distant terrain off for the start
-  worldspace after going out (main.rs builds the job only for an exterior start); a
-  worldspace switch builds it for the new worldspace.
+- ~~Starting the game in an interior leaves generated distant terrain off for the start
+  worldspace after going out~~ Fixed (2026-10-09): main.rs builds the generated-terrain
+  job for interior starts too; LOD stays off inside and starts with it at the door out.
 - Armour placed in the world or dropped is drawn with its base form's MODL; which of
   ARMO's models (MODL, MOD2–MOD4) is the one lying on the ground is not in the spec notes.
   (The first drop test dropped the Pip-Boy Glove, which the game never lets the player
