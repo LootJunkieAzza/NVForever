@@ -25,15 +25,56 @@ Private files (never committed): jobs and output in `C:\fnv-private\capture\`
 | `L4.sim.trace.goodsprings_locked_safe_key` | captured 2026-10-08 unattended (`nvftest`, `--go-to-cell GSHouseInterior02`, tgm, tdetect) | pass 13/13 | key opens the lock for good (GetLocked 0) |
 | `L4.sim.trace.goodsprings_locked_safe_no_key` | captured 2026-10-08 unattended (`nvftest`, player in the gas station, tgm, tdetect) | pass 13/13 after the GetLocked fix (12/13 before: level 255 reads 1, not 2) | a first run made after the key job, with the player in another cell, is not used (activation of a container outside the player's cell opens nothing) |
 | `L4.sim.trace.goodsprings_drop_and_retake` | captured 2026-10-08 unattended (`nvfdoc`, `--confirm-after 2 --settle auto`, tgm, tdetect) | 4/6 after the fixes (2/6 before: scripted pick-up of a stack, drop position); the remaining 2 fail only on z, +7.44 from the player's own settled height after the door (B9, workstream 2); do not tune | dropped refs found with `created:<item>` (GetFirstRef scan) |
-| `L4.phys.drops.b11_goodsprings` | captured 2026-10-08 (`mv_b11_drops`, coordinator, re-made `nvfdoc`) | 12/20 at capture, 15/20 after the fixes (physics.md §4.2) | B11 player row; trees, rocks, maize push open |
+| `L4.phys.drops.b11_goodsprings` | captured 2026-10-08 (`mv_b11_drops`, coordinator, re-made `nvfdoc`); golden rebuilt the same day as the median of five repeats (`mv_b11_drops_rep_a` 3 rounds + `_rep_b` 2 rounds, this workstream; owner decision), new file `phys/b11_goodsprings.median.drops.json` (the first golden kept) | 12/20 at capture, 15/20 after the fixes, 14/20 since Portal Box markers are solid again, 16/20 against the median golden (physics.md §4.2) | B11 player row; open: trees (jump-trees workstream), rock a (lands on a step edge, B13), collision_marker_b (falls through the Portal Box five times of five); props_barrel never falls in game |
 | `L4.phys.walk.fence_slide`, `.fence_stop` | captured 2026-10-08 (`mv_traces`) | 6/6, 6/6 | held out, passed as predicted |
 | `L4.phys.walk.porch_steps` | captured 2026-10-08 (`mv_traces`) | 5/6 → 6/6 | speed kept along uphill slopes (physics.md §6.3) |
 | `L4.phys.walk.running_jump` | captured 2026-10-08 (`mv_traces`) | 0/6 | air control and landing open (physics.md §6.3) |
-| `L4.phys.walk.hill_run`, `.portal_wall` | captured 2026-10-08 (`mv_followup_traces`, this workstream) | 2/6 and 4/6 as installed; 6/6 and 5/6 against goldens rebuilt with the corrected onset (scratch, physics.md §6.4) | the installed goldens use an onset two loops early |
+| `L4.phys.walk.hill_run`, `.portal_wall` | captured 2026-10-08 (`mv_followup_traces`, this workstream); goldens **replaced** 2026-10-08 by a rebuild from the same raw capture with the corrected onset (owner decision; log below) | 6/6 and 5/6 (before the replacement, same candidate: 3/6 and 4/6) | no longer independent held-out evidence: their results against the corrected onset were seen before the rebuild; portal_wall's open row is the airborne z at t0.25 (physics.md §6.4) |
 | `L4.phys.walk.swim_cove_dive`, `.swim_lake_shore` | captured 2026-10-08 (`sw_scenarios`, this workstream) | 3/6 and 3/8 | held out; constant swim speed refuted (stroke cycle), steep-bank exit open; inputs left as designed (physics.md §6.6) |
 | `L4.phys.walk.swim_dam_forward`, `.swim_bay_back` | captured 2026-10-08 (`sw_heldout2`) | 10/10, 8/8 | held out after the stroke cycle; passed as predicted |
 | `L4.phys.drops.swim_h2o` | captured 2026-10-08 (`sw_h2o`) | fails (interior water reverted) | held out; interior water is a placed water object at −328, not XCLW (physics.md §6.6) |
 | ~~`L4.sim.trace.goodsprings_respawn`~~ | `sim/goodsprings_respawn.trace.json` (kept, unused) | retired | depended on the save's hidden merchant timer (docs/design/layer4.md §7) |
+
+**Golden replacement log.**
+
+- 2026-10-08, `phys/move_hill_run.walk.json` and `phys/move_portal_wall.walk.json`
+  (owner decision in chat, 2026-10-08; this is the only sanctioned edit of goldens so far).
+  What was wrong [observed]: `capture_moves.py golden` took the movement onset at the first
+  change of any coordinate. In both runs of `mv_followup_traces` the player settled 0.08–0.1
+  in z one sample before the first horizontal step, so the onset, and with it every
+  observation time, was one sample (0.031 s of game clock) early. The builder was fixed
+  the same day (commit 774f699: the first change of horizontal position), but these two
+  goldens were built before the fix (15:41, fix 15:50) and were left as built.
+  What was done: the installed files were backed up privately
+  (`C:\fnv-private\goldens-backup\2026-10-08-onset-fix\phys\`) and replaced by goldens
+  rebuilt with the current builder from the original raw capture
+  (`out\mv_followup_traces.1791470143.jsonl`, unchanged). Onset sample 5 → 6; the rows
+  move by 8–10 units in x and 4–6 in z (hill_run), and by 7–8 in x/y and 4–9 in z on
+  portal_wall's first two rows, its later rows stand still and barely change.
+  Check against the game's own motion [observed]: in hill_run the horizontal speed over
+  the first 0.25 s window is 273 units/s with the old onset and 311 with the new one,
+  against 273–319 (four of five 294–319) over the five later windows. With the early onset the
+  first window included 31 ms of standing still.
+  A fresh re-capture with the same job (regenerated by `make_movement_jobs.py`; identical
+  to the job that ran, apart from line endings) was **not** made: the capture
+  directory's `jobs\` held another session's pending `aa_auto_trial`, and moving it
+  aside for the run was not permitted in this session. So the comparison of a fresh
+  build with the rebuild, meant to confirm the onset fix within the game's spread, is
+  still open. Re-run `mv_followup_traces` (save `nvfdoc`) and compare when the capture
+  directory is free.
+  Pass counts (lab, same candidate, origin/main 9a57111): hill_run 3/6 → 6/6,
+  portal_wall 4/6 → 5/6; no other scenario changed.
+  Consequence: both scenarios were designed as held-out checks, but their results
+  against the corrected onset (6/6, 5/6) were known before the rebuild was installed. They
+  stay as regression scenarios and no longer count as independent held-out evidence.
+- Other goldens built by the old onset rule (before commit 774f699, 2026-10-08 15:50):
+  `phys/move_fence_slide`, `move_fence_stop`, `move_running_jump` and
+  `move_porch_steps.walk.json` (`mv_traces`, built 15:18). On their raw capture
+  (`out\mv_traces.1791469079.jsonl`) the first change of any coordinate and the first
+  horizontal change fall on the same sample (onset sample 6 in all four), so they would
+  not change [observed]; not rebuilt, listed for the owner. The swim walk goldens
+  (16:48 and 17:07) were built with the corrected builder; drop goldens
+  (`b11_goodsprings`, `swim_h2o_drops`) have no onset.
 
 Substitute checks (xnvse-capture.md §7): the same scenarios regenerated with
 `--time hour|timescale` or `--settle auto` (job names `cmp_<scenario>_<mode>`, kept with
@@ -111,6 +152,9 @@ directory's `jobs\`). Results are in the notes named.
 | `mv_values` | eye height, reach, other speeds, long fall | eye about 123 (pick-sphere model), reach 120–123 feet-to-face at 30°, back 272.8, sneak 197.7, g 686.0, no terminal speed to 1,841; physics.md §6 |
 | `mv_air` | air control calibration | in-air momentum kept, decays 0.84/loop when released, 15 units/s from a mid-air press; physics.md §6.3 |
 | `mv_diag_trees_rocks` | ±30 drop grids on the B11 tree and rock | rock agrees within 4 at 7 of 9; tree 43–303 higher everywhere; physics.md §6.4 |
+| `mv_diag_maize` (`make_b11_followup_jobs.py`, drops `diag_maize.drops.json`) | what moved the B11 maize drop: repeats, other heights, ±30, bare slope, agave pickable, maize disabled; every loop traced, actors within 600 counted | a landing slide straight downhill on 5° LAND in 3 of 14 drops, one loop long, 30 units from the maize too; no actor near; physics.md §4.2 |
+| `mv_diag_rocks` (`make_b11_followup_jobs.py`, drops `diag_rocks.drops.json`) | spread of the B11 rock rows: 4 repeats each on rock a, rock b, open ground (interleaved), ±30 grid on rock a | open ground 0 spread; rock b 7.8 over six drops, candidate inside; rock a 9.1 over five, candidate 3.5 below all (lands on a step edge and slides down it); grid 7 of 8 within 3; physics.md §4.2 |
+| `mv_b11_drops_rep_a`, `mv_b11_drops_rep_b` (`make_movement_jobs.py`, `capture_moves.py job --repeats`) | the B11 golden from repeated drops: 3 + 2 rounds of all 20 drops in two game sessions | median golden, 16/20; rows on statics and terrain repeat exactly, rocks and trees spread 4–7 units; physics.md §4.2 |
 | `mv_trial` (`make_movement_jobs.py`) | what works unattended for movement: GetSecondsPassed, `$` of floats, bound keys, settings, held keys, a tapped jump, a fall | all of it; gravity 684–686, jump apex 61.6, run 344, walk 86.8, settings; physics.md §6.3 |
 | `sw_diag`, `sw_diag2` (`make_swim_jobs.py`) | which sample scripts compile; the clock after `coc` to Boulder Beach | `fW` does not compile; a menu opens on arrival (MenuMode 1, clock stopped) until `CloseAllMenus`; xnvse-capture.md §5 |
 | `sw_trial` (`make_swim_jobs.py`; a first run from `nvftest` recorded nothing) | swimming at Boulder Beach: walking in, falling in, floating, speeds, diving, jump | walking in never swims; fall stops 100 below the surface, floats 102.5 below; stroke cycle; physics.md §6.6 |
@@ -192,6 +236,23 @@ written.
   (rest z with a tolerance of a few units). Risk: an object that moves when hit (dynamic
   clutter) falls with the probe; use statics for the player row.
 
+- **B11 follow-up (rocks, maize)** — **done 2026-10-08** (`mv_diag_rocks`, `mv_diag_maize`,
+  physics.md §4.2): rock b and the maize push are the game's own spread; rock a is open
+  (step edge, B13). Not settled: what triggers the landing slide (seen only on touchdown
+  loops of 31 ms or more, which are not enough); a drop with the maize disabled hung in
+  mid-air, so the console `Disable` + drop was only seen once.
+- **B13 the player's shape near the feet** (design; overlaps the jump-trees workstream's
+  tree rows). Rock a showed the game's player passing, while falling, a step edge 12.7
+  units from its axis and 18 above its feet, where a radius-18 capsule would rest
+  (physics.md §4.2); fence stops say 21.9 at the waist (§6.3). Drops beside one straight
+  vertical edge of a flat-topped static with clear ground below, the axis at horizontal
+  distances −4, 0, 4, 8, 12, 16, 20 and 24 outside the edge, three repeats each: where the
+  rest height changes from the top (plus the shell) to the ground below, and the heights
+  in between, give the shape's half-width against height. Prediction for a capsule of
+  radius 18: feet above the top by sqrt(18² − d²) − 18 (−0.45 at 4, −1.9 at 8, −4.6 at 12,
+  −9.8 at 16) and on the ground from 18. Target not chosen yet: the CollisionMarker
+  0x00176AD0 of B11 is a thin wall between other collision; `fnvtool phys cell --ray`
+  line scans find the edge.
 - **B12 step and slope limits** (design). The highest ledge walked onto and the steepest
   LAND square run up: held keys work unattended (physics.md §6.3), so a run at ledges of
   graded heights (e.g. stacked crates, porch and road edges measured with `fnvtool phys
