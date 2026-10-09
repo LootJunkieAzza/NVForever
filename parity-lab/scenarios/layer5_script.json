@@ -1,0 +1,42 @@
+{
+  "scenarios": [
+    {
+      "id": "L5.script.decode",
+      "layer": 5,
+      "description": "Canonical text of every script unit over base game + DLC + packs (fnv.script.decompile/1, docs/spec-notes/scripts.md section 3), decoded from the compiled bytes (SCDA), against the independent oracle tools/capture/oracle_script.py, which builds the same text from the shipped source (SCTX). Keyed by unit; text is compared for the 14,511 units that carry both. The known residue (source and bytes that legitimately differ) is listed in scripts.md section 3.6.",
+      "oracle": {
+        "golden": "script/decode.json"
+      },
+      "candidate": {
+        "argv": [
+          "{candidate}",
+          "script",
+          "decompile",
+          "{data_dir}",
+          "FalloutNV.esm",
+          "DeadMoney.esm",
+          "HonestHearts.esm",
+          "OldWorldBlues.esm",
+          "LonesomeRoad.esm",
+          "GunRunnersArsenal.esm",
+          "ClassicPack.esm",
+          "MercenaryPack.esm",
+          "TribalPack.esm",
+          "CaravanPack.esm",
+          "--schema",
+          "{schema_dir}"
+        ]
+      },
+      "comparator": {
+        "kind": "keyed",
+        "select": "/units",
+        "key": "unit"
+      },
+      "tags": [
+        "script",
+        "decode",
+        "M5"
+      ]
+    }
+  ]
+}
