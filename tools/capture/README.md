@@ -298,6 +298,9 @@ python tools/capture/script_functions.py --wiki C:/fnv-private/geckwiki/function
   --data "<FNV>/Data" --xedit <path>/wbDefinitionsFNV.pas --notes schemas/script/notes.json
 ```
 
+`--xedit-from-catalogue schemas/script/functions.json` (a copy of it) replaces `--xedit`
+when the xEdit source is not at hand.
+
 ## 9. `oracle_collide.py` — independent collision reader (Layer 4)
 
 Written only from `docs/spec-notes/collision.md` (section 5 is the contract), `nif.md`,
