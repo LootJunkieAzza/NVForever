@@ -17,7 +17,10 @@
 //! `fnv_actor::player_clips`: an idle, movement in four directions walking or running,
 //! sneaking, swimming, jumping and landing, turning on the spot, and the weapon drawn,
 //! held (aimed down the sights, or blocking) and holstered, with the weapon moving
-//! between the hand and the holster bone at the clips' `Attach`/`Detach` keys.
+//! between the hand and the holster bone at the clips' `Attach`/`Detach` keys. Attacks
+//! and reloads (combat step C4, `nvf_play::combat`): the body tells combat when the weapon
+//! is out and how long the attack and reload clips run (`WeaponAnim`), and plays the clip
+//! once each time combat counts an attack or a reload up.
 //!
 //! Runs in `nvf_play::player::BodySet`: after the character moved, before the camera is
 //! placed. The eye (`Player::body_eye`) is the first-person rig's camera node. Without
@@ -32,8 +35,8 @@ use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use fnv_actor::first_person::{self, is_arms_shape, Show};
 use fnv_actor::player_clips::{
-    aim_clips, aim_weights, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips, move_clips, turn_clips,
-    Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
+    aim_clips, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
+    move_clips, reload_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
 };
 use fnv_actor::weapon::AnimType;
 use fnv_actor::Appearance;
@@ -42,6 +45,7 @@ use nvf_assets::actor::{rigid_local, spawn_actor, ActorCtx, ActorParts, PartUse,
 use nvf_assets::anim_blend::{Animator, Mode, DEFAULT_FADE};
 use nvf_assets::anim_play::Clip;
 use nvf_assets::model::ModelCtx;
+use nvf_play::combat::WeaponAnim;
 use nvf_play::control::{BodyView, PlayerControl};
 use nvf_play::phys::PhysState;
 use nvf_play::player::{MoveIntent, Player};
@@ -59,6 +63,8 @@ const TAG_LAND: u32 = 31;
 const TAG_AIM: u32 = 40; // + 0 level, + 1 up, + 2 down
 const TAG_HOLSTER: u32 = 50;
 const TAG_EQUIP: u32 = 60;
+const TAG_ATTACK: u32 = 70;
+const TAG_RELOAD: u32 = 71;
 
 /// Biped slots of headgear hidden in first person when the third-person body has to stand
 /// in for the first-person rig: Head, Hair, Headband, Hat, Eye Glasses, Nose Ring,
@@ -76,6 +82,8 @@ const TURN_RATE: f32 = 1.0;
 /// Without a first-person rig: share of the view's pitch the neck takes when nothing else
 /// bends the body, so the eye clears the chest looking down [engineering choice].
 const NECK_PITCH: f32 = 0.6;
+/// Blend-in of an attack clip, seconds [engineering choice: a shot should show at once].
+const ATTACK_FADE: f32 = 0.03;
 
 /// A clip choice, for the clip caches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -88,6 +96,10 @@ enum ClipKey {
     Equip(Stance, &'static str, bool),
     Jump(Stance, Option<&'static str>, Option<Dir>, bool),
     Turn(Stance, Option<&'static str>, bool),
+    /// Weapon prefix, attack clip stem (`attackright`), down the sights.
+    Attack(Stance, &'static str, &'static str, bool),
+    /// Weapon prefix, WEAP reload animation (`ReloadL`).
+    Reload(Stance, &'static str, &'static str),
 }
 
 impl ClipKey {
@@ -101,6 +113,8 @@ impl ClipKey {
             ClipKey::Equip(s, p, e) => equip_clips(s, p, e),
             ClipKey::Jump(s, w, d, land) => jump_clips(s, w, d, land),
             ClipKey::Turn(s, w, left) => turn_clips(s, w, left),
+            ClipKey::Attack(s, p, a, sights) => attack_clips(s, p, a, sights),
+            ClipKey::Reload(s, p, r) => reload_clips(s, p, r),
         }
     }
 }
@@ -206,6 +220,22 @@ struct Motion {
     turn_rate: f32,
     /// Once-a-second status (debug log).
     log_elapsed: f32,
+    /// The attack and reload counts last acted on (`WeaponAnim`).
+    attacks_seen: u32,
+    reloads_seen: u32,
+    /// Interned clip names (attack stems, reload names) for the clip keys.
+    names: HashMap<String, &'static str>,
+}
+
+impl Motion {
+    fn intern(&mut self, s: String) -> &'static str {
+        if let Some(v) = self.names.get(&s) {
+            return v;
+        }
+        let v: &'static str = Box::leak(s.clone().into_boxed_str());
+        self.names.insert(s, v);
+        v
+    }
 }
 
 impl Default for Motion {
@@ -221,6 +251,9 @@ impl Default for Motion {
             last_heading: None,
             turn_rate: 0.0,
             log_elapsed: 0.0,
+            attacks_seen: 0,
+            reloads_seen: 0,
+            names: HashMap::new(),
         }
     }
 }
@@ -465,6 +498,11 @@ struct Frame {
     /// Block held.
     aiming: bool,
     speed: f32,
+    /// The attack and reload clips of the weapon, and whether each starts this frame.
+    attack: Option<&'static str>,
+    reload: Option<&'static str>,
+    attack_now: bool,
+    reload_now: bool,
 }
 
 /// Pose `rig` for the frame, apply the weapon events, place it at `root`; returns the
@@ -562,6 +600,16 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
             want.push((c.clone(), TAG_HOLSTER, 1.0, Mode::Once));
         }
     }
+    if f.hands.in_hand && f.attack_now {
+        if let Some(c) = f.attack.and_then(|a| rig.clip(ctx, ClipKey::Attack(f.stance, f.prefix, a, f.aiming))) {
+            rig.animator.restart(&c.clip, TAG_ATTACK, 1.0, Mode::Once, ATTACK_FADE);
+        }
+    }
+    if f.hands.in_hand && f.reload_now {
+        if let Some(c) = f.reload.and_then(|r| rig.clip(ctx, ClipKey::Reload(f.stance, f.prefix, r))) {
+            rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, c.fade());
+        }
+    }
     if matches!(f.hands.phase, WeaponPhase::Drawing | WeaponPhase::Holstering) {
         let c = if f.hands.phase == WeaponPhase::Drawing { &draw } else { &put_away };
         if let Some(c) = c {
@@ -574,8 +622,11 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
         let fade = if *tag == TAG_HOLSTER { 0.0 } else { c.fade() };
         a.want(&c.clip, *tag, *w, *mode, fade);
     }
-    if let Some(c) = a.layers.iter().find(|l| l.tag == TAG_LAND && !l.finished()).map(|l| l.clip.clone()) {
-        a.want(&c, TAG_LAND, 1.0, Mode::Once, 0.0);
+    // Clips that play once to their end once started: landing, attack, reload.
+    for tag in [TAG_LAND, TAG_ATTACK, TAG_RELOAD] {
+        if let Some(c) = a.layers.iter().find(|l| l.tag == tag && !l.finished()).map(|l| l.clip.clone()) {
+            a.want(&c, tag, 1.0, Mode::Once, 0.0);
+        }
     }
     a.end();
     // Movement clips play at the speed the character actually moves [hypothesis: the
@@ -615,11 +666,14 @@ fn drive_body(
     mut models: ModelCtx,
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
+    mut anim: ResMut<WeaponAnim>,
 ) {
     let state = &mut *state;
     let Some(body) = state.body.as_mut() else {
         player.body_eye = None;
         view.pivot = None;
+        // No body to time the weapon: it is ready as soon as it is wanted out.
+        anim.ready = control.weapon_out;
         return;
     };
     let dt = time.delta_secs();
@@ -663,6 +717,22 @@ fn drive_body(
     let mut events = std::mem::take(&mut m.events);
     m.hands.update(want_out, dt, draw_t, away_t, &mut events);
 
+    // Attacks and reloads (combat): the clips of the weapon, their timing in the rig in
+    // view, and whether combat started one since the last frame.
+    let attack = m.intern(attack_stem(anim.attack.as_deref()));
+    let reload = anim.reload.clone().map(|r| m.intern(r));
+    let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
+    let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
+    anim.timing = nvf_play::combat::clip_timing(
+        attack_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit)),
+        reload_clip.as_ref().map(|c| c.clip.length()),
+    );
+    anim.ready = m.hands.phase == WeaponPhase::Drawn && m.hands.in_hand;
+    let attack_now = anim.attacks != m.attacks_seen;
+    let reload_now = anim.reloads != m.reloads_seen;
+    m.attacks_seen = anim.attacks;
+    m.reloads_seen = anim.reloads;
+
     let frame = Frame {
         dt,
         stance,
@@ -678,6 +748,10 @@ fn drive_body(
         pitch: player.pitch,
         aiming: control.aiming,
         speed: m.speed,
+        attack: Some(attack),
+        reload,
+        attack_now,
+        reload_now,
     };
     let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
     let third_eye = pose_rig(&mut body.third, &frame, &events, root, &mut ctx, &mut transforms);
