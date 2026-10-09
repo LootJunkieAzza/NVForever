@@ -92,14 +92,14 @@ fn ancestors(file: &NifFile, dec: &Decoded, i: usize) -> Vec<String> {
     out
 }
 
-/// The skeleton bone an unskinned shape of a creature part hangs from (actors.md §9.2):
+/// The skeleton bone an unskinned shape of a creature part hangs from (actors.md §10.2):
 /// its nearest ancestor in the part file whose name is a skeleton node; else the part's
 /// `Prn` when the skeleton has it; else `None` (the skeleton's root).
 pub fn creature_rigid_bone<'a>(ancestors: &'a [String], prn: Option<&'a str>, has: impl Fn(&str) -> bool) -> Option<&'a str> {
     ancestors.iter().map(String::as_str).find(|n| has(n)).or(prn.filter(|p| has(p)))
 }
 
-/// What is wrong with attaching a creature's `part` to its `skeleton` (actors.md §9.2):
+/// What is wrong with attaching a creature's `part` to its `skeleton` (actors.md §10.2):
 /// skin bones the skeleton lacks. Unskinned shapes that find no bone hang from the root
 /// by rule; they are counted by [`creature_rigid_at_root`].
 pub fn creature_attach_problems(part: &PartMesh, skeleton: &PartMesh) -> Vec<String> {
