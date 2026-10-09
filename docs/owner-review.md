@@ -353,6 +353,27 @@ sessions. You already had it from an earlier playthrough.
 
     The export is kept as `C:\fnv-private\geckwiki\objects.xml`.
 
+27. **Your "Getting started" export (Bethesda's tutorial series, 20 pages used).**
+    `docs/spec-notes/level-design.md` is our own summary (no 8-word run in common with the
+    export), with data checks run on `FalloutNV.esm` this session. The tutorials were
+    written for Fallout 3, so each rule still needs a New Vegas check where it matters.
+    - **Settled from the data:** placed primitive bounds (`XPRM`) are half extents. Of
+      1,341 portal/room pairs, 1,298 put the portal on a room face that way, none the
+      other way. Physics already reads them so.
+    - **Triggers (for the `--play` session):** any actor can fire a trigger (and, without
+      the "ActorZone" flag, any object); OnTrigger runs every frame. Ours tests the player
+      only, as three points on the player's axis.
+    - **Lights (for the renderer):** a placed light's radius can differ from its base.
+      6,484 of 7,742 interior lights carry `XRDS`, which looks like an offset added to the
+      base radius; the renderer ignores it. Emittance from a light should also carry its
+      brightness, and objects should fade in by size. None of this is changed yet.
+    - **Culling:** rooms, portals and occlusion planes are described in detail. The
+      renderer has none of them; that costs speed, not looks, except in rare cases.
+    - **Encounter zones:** a zone's level is fixed the first time you enter it. This
+      adds to item 26.
+
+    The full list of differences, by file, is the note's §11.2; capture ideas are its §13.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
