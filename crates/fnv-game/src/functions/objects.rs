@@ -1,0 +1,343 @@
+//! Objects in the world: references created at run time, ownership, destruction,
+//! regions, scale, headings and other per-reference state. docs/spec-notes/scripts.md
+//! §7.6.
+
+use super::{base_of, none, yes, Args, Ctx};
+use crate::game::{event, Game, InstKey};
+use crate::trace::EventKind;
+use fnv_script::vm::Value;
+use fnv_sim::FormId;
+
+fn is_item(g: &Game, base: FormId) -> bool {
+    g.world.forms.item(base).is_some()
+}
+
+/// Record a reference created at run time: traced, and its script (if any) runs from
+/// the next frame like a placed one; in a loaded cell its OnLoad runs at the start of
+/// the next frame, as after Enable [hypothesis].
+pub fn note_created(g: &mut Game, r: FormId) {
+    let (base, cell, pos) = match g.world.peek(r) {
+        Some(s) => (s.base, s.cell, s.pos),
+        None => return,
+    };
+    g.emit(EventKind::Placed { reference: r, base, cell, pos });
+    if g.ref_script(r).is_some() {
+        g.moved.insert(r);
+        g.note_enabled(r);
+    }
+}
+
+/// `ref.PlaceAtMe object count [distance direction]`: new references of `object` at
+/// the calling reference's cell and position, with its angles [documented: catalogue
+/// notes, the copy of the caller's angles]. The distance and direction do nothing and
+/// the object lands near the caller [documented bug]; here exactly at the caller's
+/// position [hypothesis]. An inventory item makes one reference holding the count;
+/// any other form makes `count` references [hypothesis]. A leveled actor list is placed
+/// as the list itself (resolving it into an actor is Layer 6 actor spawning). Returns
+/// the last reference made.
+pub fn place_at_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let at = ctx.subject_or_player();
+    let base = a.form(0)?;
+    let count = a.num_or(1, 1.0).max(1.0) as i32;
+    let s = g.world.get(at).map_err(|e| e.to_string())?;
+    let (cell, pos, rot) = (s.cell, s.pos, s.rot);
+    let (refs, each) = if is_item(g, base) { (1, count) } else { (count, 1) };
+    let mut last = None;
+    for _ in 0..refs {
+        let r = g.world.place(base, cell, pos, rot, each).map_err(|e| e.to_string())?;
+        note_created(g, r);
+        last = Some(r);
+    }
+    Ok(last.map(|r| Value::Ref(r.0)).unwrap_or(Value::NONE))
+}
+
+/// `DropMe`: the calling inventory item leaves its container and lies in the world
+/// beside it; it acts as a return; OnDrop does not run [documented: catalogue notes of
+/// DropMe]. Placement as a dropped item (fnv-sim `drop_item`).
+pub fn drop_me(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let Some(key @ InstKey::Item { holder, item }) = ctx.inst else {
+        return Err("DropMe outside the script of an inventory item".into());
+    };
+    let made = g.world.drop_item(holder, item, 1).map_err(|e| e.to_string())?;
+    if !made.is_empty() {
+        g.emit(EventKind::ItemRemoved { from: holder, item, count: 1 });
+    }
+    for r in made {
+        note_created(g, r);
+    }
+    if g.world.item_count(holder, item).unwrap_or(0) == 0 {
+        g.instances.remove(&key);
+    }
+    g.request_return();
+    none()
+}
+
+/// `actor.Drop item count`: the items fall at the actor's feet (fnv-sim's drop rule).
+/// OnDrop is not run [documented: catalogue notes, for the player; hypothesis for other
+/// actors].
+pub fn drop(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let actor = ctx.subject()?;
+    let item = a.form(0)?;
+    let count = a.num_or(1, 1.0).max(1.0) as i32;
+    let n = g.world.item_count(actor, item).map_err(|e| e.to_string())?.min(count);
+    if n <= 0 {
+        return none();
+    }
+    let made = g.world.drop_item(actor, item, n).map_err(|e| e.to_string())?;
+    g.emit(EventKind::ItemRemoved { from: actor, item, count: n });
+    for r in made {
+        note_created(g, r);
+    }
+    none()
+}
+
+// ---- ownership -------------------------------------------------------------------
+
+/// `ref.SetOwnership [owner]`: the reference's owner (an NPC or faction base), the
+/// player when none is given [documented: catalogue summary]. Kept in the Layer 4
+/// reference state (`extra.owner`).
+pub fn set_ownership(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let owner = a.opt_form(0).unwrap_or(FormId::PLAYER_BASE);
+    g.world.get(r).map_err(|e| e.to_string())?.extra.owner = Some(owner);
+    none()
+}
+
+pub fn clear_ownership(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.world.get(r).map_err(|e| e.to_string())?.extra.owner = None;
+    none()
+}
+
+/// `ref.IsOwner [owner]`: the reference's own owner only (not the cell's); 0 with no
+/// owner; the player by default [documented: catalogue notes].
+pub fn is_owner(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let want = match a.opt_form(0) {
+        Some(FormId::PLAYER_REF) | None => FormId::PLAYER_BASE,
+        Some(f) => f,
+    };
+    let owner = g.world.get(r).map_err(|e| e.to_string())?.extra.owner;
+    yes(owner == Some(want))
+}
+
+/// `SetCellOwnership cell [owner]`, the player by default [documented: catalogue].
+pub fn set_cell_ownership(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let cell = a.form(0)?;
+    let owner = a.opt_form(1).unwrap_or(FormId::PLAYER_BASE);
+    g.forms.cell_owners.insert(cell, owner);
+    none()
+}
+
+pub fn set_cell_public_flag(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let cell = a.form(0)?;
+    g.forms.public_cells.insert(cell, a.num_or(1, 1.0) != 0.0);
+    none()
+}
+
+// ---- destruction ------------------------------------------------------------------
+
+/// The destruction stage reached after `damage` points: the highest stage index whose
+/// health percent the remaining health has fallen to, or 0 when damaged above every
+/// stage; −1 without destruction data or damage [documented: GECK wiki
+/// GetDestructionStage for −1; hypothesis for the rest].
+pub fn destruction_stage(g: &Game, r: FormId) -> i32 {
+    let Some(def) = base_of(g, r).and_then(|b| g.data.destructibles.get(&b)) else { return -1 };
+    let Some(d) = g.extra.get(&r).and_then(|e| e.damage) else { return -1 };
+    if def.health <= 0 {
+        return def.stages.iter().map(|s| s.1 as i32).max().unwrap_or(0);
+    }
+    let pct = 100.0 * (def.health as f64 - d).max(0.0) / def.health as f64;
+    def.stages.iter().filter(|s| pct <= s.0 as f64).map(|s| s.1 as i32).max().unwrap_or(0)
+}
+
+/// `ref.DamageObject amount`: object damage on a destructible, not destroyed
+/// reference [documented: GECK wiki DamageObject]. Reaching a stage with the Destroy
+/// flag marks it destroyed and one with the Disable flag disables it; a stage change
+/// runs OnDestructionStageChange [hypothesis: as the stage flags' names say].
+pub fn damage_object(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let amount = a.num(0)?;
+    let Some(def) = base_of(g, r).and_then(|b| g.data.destructibles.get(&b)).cloned() else {
+        return Err(format!("{} has no destruction data", g.data.name(r)));
+    };
+    if g.extra.get(&r).is_some_and(|e| e.destroyed) {
+        return none();
+    }
+    let before = destruction_stage(g, r);
+    let e = g.extra.entry(r).or_default();
+    let cap = def.health.max(0) as f64;
+    e.damage = Some((e.damage.unwrap_or(0.0) + amount).min(if cap > 0.0 { cap } else { f64::MAX }));
+    let after = destruction_stage(g, r);
+    if after != before {
+        for &(_, _, flags) in def.stages.iter().filter(|s| s.1 as i32 > before && s.1 as i32 <= after) {
+            if flags & 4 != 0 {
+                g.extra.entry(r).or_default().destroyed = true;
+            }
+            if flags & 2 != 0 {
+                super::refs::disable(g, &Ctx { on: Some(r), ..ctx.clone() }, &Args(&[]))?;
+            }
+        }
+        g.ref_event(r, event::ON_DESTRUCTION_STAGE_CHANGE, None, None);
+    }
+    none()
+}
+
+pub fn get_destruction_stage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::Num(destruction_stage(g, r) as f64))
+}
+
+/// Health, stages and the destroyed state back to their defaults [documented: catalogue
+/// summary of ClearDestruction].
+pub fn clear_destruction(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    if let Some(e) = g.extra.get_mut(&r) {
+        e.damage = None;
+        e.destroyed = false;
+    }
+    none()
+}
+
+// ---- regions -------------------------------------------------------------------------
+
+/// Whether the player stands in a region: in an exterior cell of the region's
+/// worldspace, inside one of its areas; never in an interior [documented: GECK wiki
+/// IsPlayerInRegion]. A child region's area lies within its parent's, so both test
+/// true [documented: same page; hypothesis that the data draws them that way].
+pub fn player_in_region(g: &Game, region: FormId) -> Result<bool, String> {
+    let def = g.data.regions.get(&region).ok_or_else(|| format!("{} is not a region", g.data.name(region)))?;
+    let p = FormId::PLAYER_REF;
+    let Some(cell) = g.cell_of(p) else { return Ok(false) };
+    let Some(world) = g.world.placed.world_of(cell) else { return Ok(false) };
+    if def.world.is_some_and(|w| w != world) {
+        return Ok(false);
+    }
+    let pos = g.world.peek(p).map(|s| s.pos).unwrap_or_default();
+    Ok(def.contains(pos[0], pos[1]))
+}
+
+pub fn is_player_in_region(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    yes(player_in_region(g, a.form(0)?)?)
+}
+
+// ---- other reference state ------------------------------------------------------------
+
+/// `ref.GetHeadingAngle target`: degrees from the caller's facing to the target,
+/// clockwise positive, in (−180, 180]; 0 for a caller that is not an actor
+/// [documented: catalogue summary and notes]. A z angle turns clockwise from +Y
+/// (world.md §4).
+pub fn get_heading_angle(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let t = a.form(0)?;
+    if r != FormId::PLAYER_REF && !matches!(base_of(g, r).and_then(|b| g.data.sig(b)).as_ref(), Some(b"NPC_") | Some(b"CREA")) {
+        return none();
+    }
+    let me = g.world.get(r).map_err(|e| e.to_string())?.clone();
+    let to = g.world.get(t).map_err(|e| e.to_string())?.pos;
+    let (dx, dy) = ((to[0] - me.pos[0]) as f64, (to[1] - me.pos[1]) as f64);
+    let mut d = dx.atan2(dy).to_degrees() - (me.rot[2] as f64).to_degrees();
+    while d > 180.0 {
+        d -= 360.0;
+    }
+    while d <= -180.0 {
+        d += 360.0;
+    }
+    Ok(Value::Num(d))
+}
+
+/// 3D is loaded while the reference is in the world, enabled and in a loaded cell
+/// [hypothesis].
+pub fn has_loaded_3d(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.present(r) && g.cell_of(r).is_some_and(|c| g.loaded_cells.contains(&c)))
+}
+
+/// The reference's scale: SetScale's, else its placement's (XSCL), else 1
+/// [documented: catalogue summary of GetScale].
+pub fn get_scale(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let s = g.extra.get(&r).and_then(|e| e.scale).or_else(|| g.world.placed.get(r).and_then(|p| p.scale).map(|s| s as f64));
+    Ok(Value::Num(s.unwrap_or(1.0)))
+}
+
+/// SetScale keeps the value for GetScale (drawing it is the engine's).
+pub fn set_scale(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.extra.entry(r).or_default().scale = Some(a.num(0)?);
+    none()
+}
+
+/// The lock level of a door or container (0, 25, 50, 75, 100, 255) [documented:
+/// catalogue notes]; 0 without a lock [hypothesis]. Terminals are not read yet.
+pub fn get_lock_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let l = g.world.get(r).map_err(|e| e.to_string())?.lock.map(|l| l.level).unwrap_or(0);
+    Ok(Value::Num(l as f64))
+}
+
+/// `GetInCellParam cell actor`: GetInCell for the given actor [documented: catalogue].
+pub fn get_in_cell_param(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let actor = a.form(1)?;
+    let c = Ctx { on: Some(actor), ..ctx.clone() };
+    super::refs::get_in_cell(g, &c, &Args(&a.0[..1]))
+}
+
+/// The container holding the calling inventory item [documented: catalogue summary].
+pub fn get_container(_g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    Ok(match ctx.inst {
+        Some(InstKey::Item { holder, .. }) => Value::Ref(holder.0),
+        _ => Value::NONE,
+    })
+}
+
+/// `SetMinimalUse flag` on a door, kept for the engine.
+pub fn set_minimal_use(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.extra.entry(r).or_default().minimal_use = Some(a.num_or(0, 1.0) != 0.0);
+    none()
+}
+
+/// `SetCriticalStage stage` (0 none, 1 goo start, 2 goo end, 3 disintegrate start,
+/// 4 disintegrate end; scripts.md §2.4): kept for IsInCriticalStage; the visual
+/// effects are the engine's.
+pub fn set_critical_stage(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.extra.entry(r).or_default().critical_stage = a.code(0)?;
+    none()
+}
+
+pub fn is_in_critical_stage(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.extra.get(&r).map(|e| e.critical_stage).unwrap_or(0) == a.code(0)?)
+}
+
+/// `SetBroadcastState state` on a radio station (talking activator) [documented:
+/// catalogue summary]; the station's sound is the engine's.
+pub fn set_broadcast_state(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.extra.entry(r).or_default().broadcast = Some(a.num(0)? != 0.0);
+    none()
+}
+
+/// 1 while broadcasting nonstop; a station never set reads 0 [hypothesis].
+pub fn get_broadcast_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.extra.get(&r).and_then(|e| e.broadcast).unwrap_or(false))
+}
+
+/// `SetTalkingActivatorActor [actor]`: kept for Layer 6 dialogue (none: back to the
+/// activator's own) [documented: catalogue summary].
+pub fn set_talking_activator_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.extra.entry(r).or_default().talking_actor = a.opt_form(0);
+    none()
+}
+
+/// `ref.PlaceLeveledActorAtMe list [level zone]`: one reference of the leveled actor
+/// list at the caller, as PlaceAtMe; the level modifier and encounter zone belong to
+/// Layer 6 actor spawning [documented: catalogue summary; hypothesis: the list is
+/// resolved into an actor there].
+pub fn place_leveled_actor_at_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    place_at_me(g, ctx, &Args(&a.0[..1.min(a.len())]))
+}

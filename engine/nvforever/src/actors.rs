@@ -19,10 +19,11 @@ use crate::facegen::FaceGenCache;
 /// How placed actors are posed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 pub enum ActorPose {
-    /// The skeleton's bind pose, frozen (owner decision 2026-10-08).
-    #[default]
+    /// The skeleton's bind pose, frozen (`--actor-pose bind`).
     Bind,
-    /// The skeleton's idle clip in a loop ([`idle_clip`]).
+    /// The skeleton's idle clip in a loop ([`idle_clip`]); the default since 2026-10-09
+    /// (owner decision, docs/design/static-actors.md).
+    #[default]
     Idle,
 }
 
