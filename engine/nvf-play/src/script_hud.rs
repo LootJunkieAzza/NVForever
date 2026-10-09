@@ -8,7 +8,9 @@
 //! - Message boxes (`MESG` flagged "Message Box", or with buttons): one at a time in the
 //!   middle of the view, with numbered buttons. Number keys 1–9 pick a button
 //!   (`GetButtonPressed` returns it, 0-based); a box without buttons closes with 1, Enter
-//!   or Space. While a box with buttons waits, scripts run in MenuMode 1001
+//!   or Space. The buttons can also be clicked: the cursor is released while a box is on
+//!   screen (`crate::player`), as the original's buttons are clickable [observed by the
+//!   coordinator playing the original, 2026-10-09]. While a box with buttons waits, scripts run in MenuMode 1001
 //!   (`script::MENU_MESSAGE`); the player is not stopped [decision: the original pauses
 //!   the game under a message box; nvf-play has no pause state outside its menus yet].
 
@@ -96,6 +98,14 @@ struct BoxPanel;
 #[derive(Component)]
 struct BoxText;
 
+/// The row of the front box's buttons.
+#[derive(Component)]
+struct BoxButtons;
+
+/// A clickable button of the front box (0-based).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct BoxButton(pub usize);
+
 fn spawn(mut commands: Commands) {
     let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
     commands.spawn((
@@ -116,26 +126,36 @@ fn spawn(mut commands: Commands) {
         children![(
             Node { max_width: Val::Px(560.0), padding: UiRect::all(Val::Px(16.0)), margin: UiRect::all(Val::Px(16.0)), ..default() },
             BackgroundColor(Color::srgba(0.05, 0.05, 0.03, 0.88)),
-            children![(Text::new(""), font(16.0), TextColor(Color::srgb(1.0, 0.85, 0.4)), BoxText)],
+            children![(
+                Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(12.0), ..default() },
+                children![
+                    (Text::new(""), font(16.0), TextColor(Color::srgb(1.0, 0.85, 0.4)), BoxText),
+                    (Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), ..default() }, BoxButtons),
+                ],
+            )],
         )],
     ));
 }
 
-/// The box as text: its message, then its numbered buttons.
-pub fn box_lines(b: &BoxMessage) -> String {
-    let mut s = b.text.trim_end().to_string();
-    s.push_str("\n\n");
+/// The box's numbered buttons ("1) OK" for a box without buttons).
+pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
     if b.buttons.is_empty() {
-        s.push_str("1) OK");
+        vec!["1) OK".into()]
     } else {
-        let buttons: Vec<String> = b.buttons.iter().enumerate().map(|(i, t)| format!("{}) {t}", i + 1)).collect();
-        s.push_str(&buttons.join("\n"));
+        b.buttons.iter().enumerate().map(|(i, t)| format!("{}) {t}", i + 1)).collect()
     }
-    s
 }
 
+/// The box as text: its message, then its numbered buttons.
+pub fn box_lines(b: &BoxMessage) -> String {
+    format!("{}\n\n{}", b.text.trim_end(), box_buttons(b).join("\n"))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw(
+    mut commands: Commands,
     time: Res<Time>,
+    rows: Query<Entity, With<BoxButtons>>,
     mut hud: ResMut<ScriptHud>,
     mut notes: Query<&mut Text, (With<NotesText>, Without<BoxText>)>,
     mut panel: Query<&mut Visibility, With<BoxPanel>>,
@@ -159,24 +179,44 @@ fn draw(
         t.0 = text.join("
 ");
     }
-    let front = hud.front().map(box_lines);
+    let front = hud.front().map(|b| (b.text.trim_end().to_string(), box_buttons(b)));
     for mut v in &mut panel {
         v.set_if_neq(if front.is_some() { Visibility::Inherited } else { Visibility::Hidden });
     }
-    if let Some(f) = front {
+    for row in &rows {
+        commands.entity(row).despawn_related::<Children>();
+    }
+    if let Some((text, buttons)) = front {
         for mut t in &mut boxed {
-            t.0.clone_from(&f);
+            t.0.clone_from(&text);
+        }
+        for row in &rows {
+            for (i, label) in buttons.iter().enumerate() {
+                commands.entity(row).with_child((
+                    Button,
+                    BoxButton(i),
+                    Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() },
+                    BackgroundColor(Color::srgba(0.20, 0.18, 0.08, 0.9)),
+                    children![(Text::new(label.clone()), TextFont { font_size: FontSize::Px(16.0), ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.4)))],
+                ));
+            }
         }
     }
 }
 
-/// Number keys pick a button of the front box (before the frame's scripts run).
-pub fn box_keys(keys: Res<ButtonInput<KeyCode>>, mut hud: ResMut<ScriptHud>, mut script: ResMut<ScriptState>) {
+/// Number keys or a click pick a button of the front box (before the frame's scripts run).
+pub fn box_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    clicks: Query<(&Interaction, &BoxButton), Changed<Interaction>>,
+    mut hud: ResMut<ScriptHud>,
+    mut script: ResMut<ScriptState>,
+) {
     use KeyCode::*;
     let Some(front) = hud.front() else { return };
     let digits = [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9];
     let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9];
-    let picked = (0..9).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i]));
+    let clicked = clicks.iter().find(|(i, _)| **i == Interaction::Pressed).map(|(_, b)| b.0);
+    let picked = (0..9).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i])).or(clicked);
     if !front.waits() {
         if picked == Some(0) || keys.any_just_pressed([Enter, NumpadEnter, Space]) {
             hud.dismiss_front();

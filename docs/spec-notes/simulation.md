@@ -536,7 +536,11 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
   leaves the reference at count 1; the player's own activation (`World::activate`, the
   engine) still takes the whole stack [hypothesis; not captured]. The simulation places drops at that offset (holder heading from its z
   rotation, §5 crosshair notes) [hypothesis for other actors and items].
-- **After the drop: does a dropped item fall?** Two observations pull different ways:
+- **After the drop: does a dropped item fall?** **Yes** [observed 2026-10-09, capture
+  `pc_drop_fall`: a scripted `Drop`, and a `Drop` with the Pip-Boy open once it closed,
+  fell from the drop point and came to rest lying down within 1 s; the new reference
+  starts with GetAngle Z = the holder's heading; readings in physics.md §4.3]. The
+  earlier readings, kept for the record:
   - The scripted drop above (`ld_drop_refs`, tgm and tdetect on) read `GetPos Z` 8723.86
     right after `player.Drop` and again 600 frames (10 s) later: the drop point, 30 units
     above the feet [observed, `C:\fnv-private\capture\out\ld_drop_refs.*.jsonl`].
