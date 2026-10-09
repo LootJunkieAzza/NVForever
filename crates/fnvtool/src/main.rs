@@ -4,6 +4,7 @@
 
 mod actor_anims;
 mod actor_locomotion;
+mod actor_weapons;
 mod actor_cmd;
 mod bsa_cmd;
 mod collide_cmd;
@@ -143,6 +144,21 @@ pub enum ActorCmd {
         /// Leave out the per-file and per-IDLE lists (summary and groups only).
         #[arg(long)]
         summary_only: bool,
+    },
+    /// Weapon stance clips of a skeleton folder (equip, unequip, holster, aim: `prn:` keys,
+    /// track priorities, holster and hand bones) and the weapon each placed NPC draws
+    /// (fnv.actor.weapons/1).
+    Weapons {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Skeleton folder (VFS path).
+        #[arg(long, default_value = r"meshes\characters\_male")]
+        folder: String,
     },
     /// Locomotion clips of a skeleton folder (idle, walk, run, turn per body and stance)
     /// and the root motion of each: accumulation-root translation and turn per cycle,
