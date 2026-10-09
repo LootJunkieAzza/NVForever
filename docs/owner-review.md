@@ -318,6 +318,25 @@ sessions. You already had it from an earlier playthrough.
 
     The runtime session was given these rules to check against.
 
+25. **Two more notes from your wiki exports (scripting and actor pages).** The three
+    `GECK-2026100909*.xml` files in `C:\fnv-private\geckwiki` now hold different pages
+    (19 quest, 53 scripting, 7 actor pages), so keep all three (item 24 said they were
+    identical). `docs/spec-notes/script-language.md` covers the base-game script
+    language and `docs/spec-notes/actor-behaviour.md` AI packages, detection, factions,
+    combat and idles. Both are our own wording (no 8-word run in common with the
+    exports). Extender (xNVSE) features get one short section, marked out of scope.
+    - **The captures win twice:** integer variables truncate toward zero (the wiki says
+      floor), and float variables are doubles (the wiki says single precision). The
+      runtime already follows the captures.
+    - **Runtime differs from the wiki, no capture yet:** calls on an empty `ref` stop the
+      script in the wiki but are skipped in the runtime; disabled references run their
+      scripts in the wiki but not in the runtime; scripted items in other actors' or
+      containers' inventories don't run; Return ends one block, not the frame (matters
+      in 5 shipped scripts); result-script variables don't overwrite the quest script's;
+      script packages stack instead of replacing each other; EvaluatePackage keeps a
+      script package.
+    - Each note ends with capture candidates. Nothing was changed in the runtime.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
