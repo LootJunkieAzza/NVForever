@@ -1,0 +1,815 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "q5b_trial_test",
+ "title": "Layer 5 round 2 trial: condition grouping, stray ElseIf, multi-entry stage (about 20 s)",
+ "start": "nvftest (changes VMS16/VMS16b variables, kills two actors in Techatticup Mine, sets ControlRumble stage 0; never saved).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetQuestRunning rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "running"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetQuestCompleted rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "completed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetStage rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "stage"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetStageDone rF1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "done.0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetStageDone rF1 1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "done.1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"initDefaults\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "var.initDefaults"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"RumbleNow\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "var.RumbleNow"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"Stage1Fired\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "var.Stage1Fired"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"Stage1FireOnTimerValue\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "var.Stage1FireOnTimerValue"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"stage1RumbleLeft\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "var.stage1RumbleLeft"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"Stage1Duration\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "var.Stage1Duration"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"timerMaxValue\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "var.timerMaxValue"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"timerCurrentValue\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble at start",
+   "field": "var.timerCurrentValue"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nlet fV := GetQuestRunning rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VMS16 at start",
+   "field": "running"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nlet fV := GetQuestCompleted rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VMS16 at start",
+   "field": "completed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nlet fV := GetStage rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VMS16 at start",
+   "field": "stage"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nlet fV := GetVariable \"bGunFightStart\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VMS16 at start",
+   "field": "var.bGunFightStart"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nlet fV := GetVariable \"bTrudyHelp\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VMS16 at start",
+   "field": "var.bTrudyHelp"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1436763\nlet fV := GetQuestRunning rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VMS16b at start",
+   "field": "running"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1436763\nlet fV := GetQuestCompleted rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VMS16b at start",
+   "field": "completed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1436763\nlet fV := GetStage rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VMS16b at start",
+   "field": "stage"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1436763\nlet fV := GetVariable \"bPowderGangAttacking\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VMS16b at start",
+   "field": "var.bPowderGangAttacking"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetQuestRunning rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup at start",
+   "field": "running"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetQuestCompleted rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup at start",
+   "field": "completed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetStage rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup at start",
+   "field": "stage"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetStageDone rF1 110\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup at start",
+   "field": "done.110"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetVariable \"NumHostages\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup at start",
+   "field": "var.NumHostages"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetVariable \"HostagesDead\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup at start",
+   "field": "var.HostagesDead"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetVariable \"DoOnce\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup at start",
+   "field": "var.DoOnce"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "settler 0x00104F08 at start",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "settler 0x00104F08 at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "settler 0x00104F08 at start",
+   "field": "dead"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "settler 0x00104F08 at start",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068810\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "settler 0x00104F0A at start",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068810\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "settler 0x00104F0A at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068810\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "settler 0x00104F0A at start",
+   "field": "dead"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068810\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "settler 0x00104F0A at start",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068806\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "settler 0x00104F06 at start",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068806\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "settler 0x00104F06 at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068806\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "settler 0x00104F06 at start",
+   "field": "dead"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068806\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "settler 0x00104F06 at start",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068803\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "settler 0x00104F03 at start",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068803\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "settler 0x00104F03 at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068803\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "settler 0x00104F03 at start",
+   "field": "dead"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068803\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "settler 0x00104F03 at start",
+   "field": "cell"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "0x0012319B at start",
+   "field": "dead"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "0x0012319B at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177172\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "0x0011F654 at start",
+   "field": "dead"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177172\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "0x0011F654 at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetVariable \"Freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "0x0012319B at start",
+   "field": "ref.Freed"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nSetVariable \"bGunFightStart\" 1 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nSetVariable \"bTrudyHelp\" 0 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1436763\nSetVariable \"bPowderGangAttacking\" 0 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rF2 := BuildRef fM1 1068810\nlet rF3 := BuildRef fM1 1068806\nlet rF4 := BuildRef fM1 1068803\nrF1.EvaluatePackage\nrF2.EvaluatePackage\nrF3.EvaluatePackage\nrF4.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=1 B=0 C=1 (trudy 0): settler 0x00104F08",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068810\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=1 B=0 C=1 (trudy 0): settler 0x00104F0A",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068806\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=1 B=0 C=1 (trudy 0): settler 0x00104F06",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068803\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=1 B=0 C=1 (trudy 0): settler 0x00104F03",
+   "field": "package"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nSetVariable \"bGunFightStart\" 1 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nSetVariable \"bTrudyHelp\" 1 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1436763\nSetVariable \"bPowderGangAttacking\" 0 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rF2 := BuildRef fM1 1068810\nlet rF3 := BuildRef fM1 1068806\nlet rF4 := BuildRef fM1 1068803\nrF1.EvaluatePackage\nrF2.EvaluatePackage\nrF3.EvaluatePackage\nrF4.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=1 B=0 C=0 (trudy 1): settler 0x00104F08",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068810\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=1 B=0 C=0 (trudy 1): settler 0x00104F0A",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068806\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=1 B=0 C=0 (trudy 1): settler 0x00104F06",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068803\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=1 B=0 C=0 (trudy 1): settler 0x00104F03",
+   "field": "package"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nSetVariable \"bGunFightStart\" 0 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nSetVariable \"bTrudyHelp\" 0 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1436763\nSetVariable \"bPowderGangAttacking\" 1 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rF2 := BuildRef fM1 1068810\nlet rF3 := BuildRef fM1 1068806\nlet rF4 := BuildRef fM1 1068803\nrF1.EvaluatePackage\nrF2.EvaluatePackage\nrF3.EvaluatePackage\nrF4.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=1 C=1: settler 0x00104F08",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068810\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=1 C=1: settler 0x00104F0A",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068806\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=1 C=1: settler 0x00104F06",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068803\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=1 C=1: settler 0x00104F03",
+   "field": "package"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nSetVariable \"bGunFightStart\" 0 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nSetVariable \"bTrudyHelp\" 1 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1436763\nSetVariable \"bPowderGangAttacking\" 1 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rF2 := BuildRef fM1 1068810\nlet rF3 := BuildRef fM1 1068806\nlet rF4 := BuildRef fM1 1068803\nrF1.EvaluatePackage\nrF2.EvaluatePackage\nrF3.EvaluatePackage\nrF4.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=1 C=0: settler 0x00104F08",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068810\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=1 C=0: settler 0x00104F0A",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068806\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=1 C=0: settler 0x00104F06",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068803\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=1 C=0: settler 0x00104F03",
+   "field": "package"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nSetVariable \"bGunFightStart\" 0 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068718\nSetVariable \"bTrudyHelp\" 0 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1436763\nSetVariable \"bPowderGangAttacking\" 0 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rF2 := BuildRef fM1 1068810\nlet rF3 := BuildRef fM1 1068806\nlet rF4 := BuildRef fM1 1068803\nrF1.EvaluatePackage\nrF2.EvaluatePackage\nrF3.EvaluatePackage\nrF4.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068808\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=0 C=1: settler 0x00104F08",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068810\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=0 C=1: settler 0x00104F0A",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068806\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=0 C=1: settler 0x00104F06",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068803\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "A=0 B=0 C=1: settler 0x00104F03",
+   "field": "package"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177172\nrF1.Kill\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177172\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "legionary killed",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177172\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "legionary activated",
+   "field": "menu.1008"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "legionary activated",
+   "field": "menu.1001"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "legionary activated",
+   "field": "menu.any"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "legionary after CloseAllMenus",
+   "field": "menu.any"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nrF1.Kill\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage killed",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192347\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage activated",
+   "field": "menu.1008"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage activated",
+   "field": "menu.1001"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage activated",
+   "field": "menu.any"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage after CloseAllMenus",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetQuestRunning rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup after the deaths",
+   "field": "running"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetQuestCompleted rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup after the deaths",
+   "field": "completed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetStage rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup after the deaths",
+   "field": "stage"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetStageDone rF1 110\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup after the deaths",
+   "field": "done.110"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetVariable \"NumHostages\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup after the deaths",
+   "field": "var.NumHostages"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetVariable \"HostagesDead\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup after the deaths",
+   "field": "var.HostagesDead"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1177909\nlet fV := GetVariable \"DoOnce\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VTechatticup after the deaths",
+   "field": "var.DoOnce"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nSetVariable \"Stage1Fired\" 7 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nSetVariable \"Stage1FireOnTimerValue\" 7 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nSetVariable \"stage1RumbleLeft\" 7 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nSetVariable \"Stage1Duration\" 7 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nSetVariable \"timerMaxValue\" 7 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetQuestRunning rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "running"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetQuestCompleted rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "completed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetStage rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "stage"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetStageDone rF1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "done.0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetStageDone rF1 1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "done.1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"initDefaults\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "var.initDefaults"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"RumbleNow\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "var.RumbleNow"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"Stage1Fired\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "var.Stage1Fired"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"Stage1FireOnTimerValue\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "var.Stage1FireOnTimerValue"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"stage1RumbleLeft\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "var.stage1RumbleLeft"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"Stage1Duration\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "var.Stage1Duration"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"timerMaxValue\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "var.timerMaxValue"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"timerCurrentValue\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble before stage 0",
+   "field": "var.timerCurrentValue"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nSetStage rF1 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetQuestRunning rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "running"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetQuestCompleted rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "completed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetStage rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "stage"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetStageDone rF1 0\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "done.0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetStageDone rF1 1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "done.1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"initDefaults\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "var.initDefaults"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"RumbleNow\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "var.RumbleNow"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"Stage1Fired\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "var.Stage1Fired"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"Stage1FireOnTimerValue\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "var.Stage1FireOnTimerValue"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"stage1RumbleLeft\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "var.stage1RumbleLeft"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"Stage1Duration\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "var.Stage1Duration"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"timerMaxValue\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "var.timerMaxValue"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 462537\nlet fV := GetVariable \"timerCurrentValue\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ControlRumble after stage 0",
+   "field": "var.timerCurrentValue"
+  }
+ ]
+}
