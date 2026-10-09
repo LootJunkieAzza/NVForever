@@ -313,8 +313,9 @@ pages), fills the formula gaps [documented: GECK wiki, page named]:
 - **Experience Settings.** Kill XP by the target's difficulty, NPC and creature
   separately. The player gets none unless they dealt a share of the target's health
   (`iXPDeathRewardHealthThreshold`, 40 % by default, when others also hit it).
-- The derived-statistic settings (health from Endurance and level) are still not in
-  any export.
+- The derived-statistic settings (health from Endurance and level) are documented
+  nowhere we have. The owner confirmed on 2026-10-09 that the wiki's derived-settings
+  page covers only skills. §8 C5 has the plan.
 
 The **Ammo Effect** page (owner's paste, 2026-10-09; also in `Misc.xml`) says the effects
 are new in New Vegas and are listed on the ammo. Each changes one value (damage, DR, DT,
@@ -569,7 +570,7 @@ Each step is a branch and a PR, reviewed before the next starts.
 | C2 | Rules, headless: damage, criticals, spread and recoil, attack cycle, projectile stepping; `CombatTuning` | C1 |
 | C3 | Hit volumes: actor capsules in `fnv-phys`, synced in the engine | — (can run alongside C2) |
 | C4 | The player shoots: input, attack and reload clips, ammo, projectiles in play, tracers | C2, C3 |
-| C5 | Damage applied: health, death, script events, death clip, looting the body, kill XP (documented settings, §4.2), HUD | C4 |
+| C5 | Damage applied: health, death, script events, death clip, looting the body, kill XP (documented settings, §4.2), HUD. NPC maximum health: C1 lists the masters' health-related game settings [observed]. A small capture job then reads `GetBaseAV Health` for a few dozen NPCs of known level, Endurance and Base Health, and the rule is fitted and checked against it (the AI observer already records Health, ai-observer.md §1) | C4 |
 | C6 | Melee and unarmed, block, power attacks, knockback (documented formula, §4.2) | C5 |
 | C7 | Explosions, thrown weapons, mines, destructible objects (DEST stages) | C5 |
 | later | body-part hit volumes and limb damage; perk entry points (the combat ones listed in §4.2); fatigue and knockdown (fatigue ammo effects included, which do nothing in the original); weapon mods; ammo swap and jamming; impact effects (IPDS → IPCT by collision material: decals, effect models); severed and exploded limbs; ragdolls; audio; VATS or a replacement | |
@@ -582,9 +583,8 @@ Each step is a branch and a PR, reviewed before the next starts.
    actor values, projectiles, explosions, impacts and destruction; the Misc export adds
    the damage formula, perk entry points, clip text keys and actor stats; the Game
    Mechanics export adds critical chance, New Vegas spread, knockdown, knockback,
-   derived skills and kill XP. Still missing: the derived-statistic settings (an NPC's
-   health from Endurance and level), needed in C5. Without that page, C5 reads NPC
-   health from what the records give and documents its rule as a hypothesis.
+   derived skills and kill XP. The one rule no page documents, an NPC's health from
+   Endurance and level, is settled by observation in C5 (§8).
 2. **Feel**: hit markers yes? Floating damage numbers (default off)? Recoil and bloom
    strength like a modern shooter, or subtler?
 3. **VATS**: rebuild it later, replace it (e.g. a slow-motion aim assist), or leave it
