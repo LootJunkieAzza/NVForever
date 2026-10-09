@@ -491,7 +491,7 @@ mod tests {
         // A locked door says so.
         let locked = Activation { outcome: Outcome::Locked { level: 255 }, unlocked_with: None, script: None };
         let e = run(vec![EventKind::Activated { reference: DOOR, by: FormId::PLAYER_REF, outcome: Some(serde_json::to_value(&locked).unwrap()) }]);
-        assert_eq!(e, vec![ScriptEffect::Notify("Gate is locked (requires a key)".into())]);
+        assert_eq!(e, vec![ScriptEffect::Notify("Gate is locked (Requires Key)".into())]);
     }
 
     #[test]
