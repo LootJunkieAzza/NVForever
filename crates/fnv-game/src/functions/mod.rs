@@ -193,6 +193,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1040, "GetIsCreature", Impl(refs::get_is_creature)),
         (0x1174, "IsInList", Impl(refs::is_in_list)),
         (0x1233, "AddFormToFormList", Impl(refs::add_form_to_form_list)),
+        (0x10A5, "RemoveMe", Impl(items::remove_me)),
         // Items.
         (0x1002, "AddItem", Impl(items::add_item)),
         (0x1052, "RemoveItem", Impl(items::remove_item)),
@@ -281,7 +282,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x120B, "IsPS3", Impl(misc::zero)),
         (0x108D, "IsTalking", Impl(misc::zero)),
         // Layer 6 systems: recorded, no effect.
-        (0x105E, "EvaluatePackage", Stub("AI packages")),
+        (0x105E, "EvaluatePackage", Impl(actor::evaluate_package)),
         (0x1097, "AddScriptPackage", Impl(actor::add_script_package)),
         (0x1098, "RemoveScriptPackage", Impl(actor::remove_script_package)),
         (0x11FA, "ResetAI", Stub("AI packages")),
@@ -325,7 +326,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1187, "GetHitLocation", Stub("combat")),
         (0x106E, "GetCurrentAIPackage", Stub("AI packages")),
         (0x108F, "GetCurrentAIProcedure", Stub("AI packages")),
-        (0x10A1, "GetIsCurrentPackage", Stub("AI packages")),
+        (0x10A1, "GetIsCurrentPackage", Impl(actor::get_is_current_package)),
         (0x10A2, "IsCurrentFurnitureRef", Stub("AI (furniture)")),
         (0x1065, "IsWeaponOut", Stub("combat (weapon drawn)")),
         (0x106C, "GetWeaponAnimType", Stub("combat (weapon)")),

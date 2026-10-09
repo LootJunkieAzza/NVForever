@@ -8,23 +8,32 @@ use fnv_sim::clock;
 use rand_core::RngCore;
 
 /// `ShowMessage msg [vars…] [duration]`: traced with the message text; a message with
-/// buttons waits for one (runner input `press_button`, read by GetButtonPressed).
-pub fn show_message(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+/// buttons waits for one (runner input `press_button`, read by GetButtonPressed of the
+/// script that showed it).
+pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let m = a.form(0)?;
     let def = g.data.messages.get(&m).ok_or_else(|| format!("{} is not a message", g.data.name(m)))?;
     let (text, buttons) = (def.text.clone(), def.buttons.clone());
     if !buttons.is_empty() {
-        g.message_box = Some(MessageBox { message: m, buttons: buttons.len(), pressed: None });
+        let owner = Some(MessageBox::owner_of(ctx.inst, &ctx.unit));
+        g.message_box = Some(MessageBox { message: m, buttons: buttons.len(), pressed: None, owner });
     }
     g.emit(EventKind::MessageShown { message: m, text, buttons });
     none()
 }
 
-/// The chosen button once, then −1 [documented: GECK wiki GetButtonPressed].
-pub fn get_button_pressed(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
-    if let Some(b) = g.message_box.as_ref().and_then(|m| m.pressed) {
-        g.message_box = None;
-        return Ok(Value::Num(b as f64));
+/// The chosen button once, then −1 [documented: GECK wiki GetButtonPressed]. Only the
+/// script that showed the box receives it; for any other script the box is not there
+/// (−1) and stays open [hypothesis, from the GECK wiki's ShowMessage and
+/// GetButtonPressed pages; the `--play` integration saw an unrelated script (Doc
+/// Mitchell's chemistry set) take every box's button while the button was global].
+pub fn get_button_pressed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let me = MessageBox::owner_of(ctx.inst, &ctx.unit);
+    if let Some(m) = g.message_box.as_ref() {
+        if let (Some(b), true) = (m.pressed, m.owner.as_ref().is_none_or(|o| *o == me)) {
+            g.message_box = None;
+            return Ok(Value::Num(b as f64));
+        }
     }
     Ok(Value::Num(-1.0))
 }
