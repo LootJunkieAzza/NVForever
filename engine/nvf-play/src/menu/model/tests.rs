@@ -43,6 +43,11 @@ fn misc(fid: u32, edid: &str, full: &str, value: i32, weight: f32) -> Vec<u8> {
     record(b"MISC", 0, fid, &[e, f, sub(b"DATA", cat(&[&value.to_le_bytes(), &weight.to_le_bytes()]))])
 }
 
+fn quest_misc(fid: u32, edid: &str, full: &str) -> Vec<u8> {
+    let [e, f] = named(edid, full);
+    record(b"MISC", 0x400, fid, &[e, f, sub(b"DATA", cat(&[&0i32.to_le_bytes(), &0f32.to_le_bytes()]))])
+}
+
 fn weap(fid: u32, edid: &str, full: &str, value: i32, weight: f32) -> Vec<u8> {
     let [e, f] = named(edid, full);
     let data = cat(&[&value.to_le_bytes(), &100i32.to_le_bytes(), &weight.to_le_bytes(), &10i16.to_le_bytes(), &[12u8]]);
@@ -65,6 +70,7 @@ const PISTOL: u32 = 0x170; // WEAP "Pistol", value 100, weight 3
 const RIFLE: u32 = 0x171; // WEAP "Varmint Rifle", value 300, weight 8
 const AID: u32 = 0x175; // ALCH "Aid", weight 0.5
 const BULLETS: u32 = 0x176; // AMMO "Ammo", weight 0.1 (Hardcore only)
+const CHIP: u32 = 0x177; // MISC "Platinum Chip" with the "Quest Item" header flag (bit 10)
 const BOX: u32 = 0x120; // CONT "Cash Box": CAPS 200, CAN 2, RIFLE 1, ANVIL 1
 const CELL: u32 = 0x200;
 const BOX_REF: u32 = 0x300;
@@ -76,6 +82,7 @@ fn plugin_bytes() -> Vec<u8> {
         &misc(CAN, "TestCan", "tin can", 2, 1.0),
         &misc(CAPS, "TestCaps", "Bottle Cap", 1, 0.0),
         &misc(ANVIL, "TestAnvil", "anvil", 1, 250.0),
+        &quest_misc(CHIP, "TestChip", "Platinum Chip"),
     ]);
     let weaps = cat(&[&weap(PISTOL, "TestPistol", "Pistol", 100, 3.0), &weap(RIFLE, "TestRifle", "Varmint Rifle", 300, 8.0)]);
     let enit = cat(&[&20i32.to_le_bytes(), &[0u8, 0, 0, 0], &0u32.to_le_bytes(), &0f32.to_le_bytes(), &0u32.to_le_bytes()]);
@@ -354,4 +361,42 @@ fn non_playable_items_are_not_listed_and_stay_in_containers() {
     assert!(inv.list(Side::Player).rows.iter().all(|r| r.item != FormId(ANVIL)));
     inv.apply(&mut w, Command::DropStack);
     assert_eq!(count(&mut w, 0x14, ANVIL), 1);
+}
+
+#[test]
+fn quest_items_cannot_be_dropped_but_can_be_stored() {
+    let f = fixture();
+    assert!(f.forms.issues.is_empty(), "{:?}", f.forms.issues.to_json());
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    w.add_item(PLAYER, FormId(CHIP), 1).unwrap();
+    let mut m = MenuModel::open_inventory(&mut w).unwrap();
+    select(&mut m, Side::Player, "Platinum Chip");
+    assert!(m.selected_row(Side::Player).unwrap().quest);
+    // Both drop commands are refused with our status line; nothing moves.
+    for cmd in [Command::Drop, Command::DropStack] {
+        let a = m.apply(&mut w, cmd);
+        assert_eq!(m.status.as_deref(), Some("Platinum Chip is a quest item and can't be dropped"));
+        assert!(a.created.is_empty() && !a.changed);
+        assert_eq!(count(&mut w, 0x14, CHIP), 1);
+    }
+    assert!(m.dropped.is_empty());
+    // A script's SetQuestObject counts the same way, both ways.
+    w.set_quest_object(FormId(CAPS), true);
+    w.set_quest_object(FormId(CHIP), false);
+    m.refresh(&mut w).unwrap();
+    select(&mut m, Side::Player, "Bottle Cap");
+    assert!(m.selected_row(Side::Player).unwrap().quest);
+    m.apply(&mut w, Command::Drop);
+    assert_eq!(m.status.as_deref(), Some("Bottle Cap is a quest item and can't be dropped"));
+    select(&mut m, Side::Player, "Platinum Chip");
+    assert!(!m.selected_row(Side::Player).unwrap().quest);
+    m.apply(&mut w, Command::Drop);
+    assert_eq!(m.status.as_deref(), Some("Dropped Platinum Chip x1"));
+    assert_eq!(count(&mut w, 0x14, CHIP), 0);
+    // Storing a quest item in a container is allowed [hypothesis].
+    let mut c = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    select(&mut c, Side::Player, "Bottle Cap");
+    c.apply(&mut w, Command::One);
+    assert_eq!(c.status.as_deref(), Some("Stored Bottle Cap x1"));
+    assert_eq!(count(&mut w, 0x14, CAPS), 4);
 }

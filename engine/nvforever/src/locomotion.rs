@@ -111,15 +111,16 @@ pub struct ActorAnimCost {
     pub actor_frames: u64,
     pub layer_frames: u64,
     pub tracks: u64,
-    /// Frames in which an actor blended two clips, summed over actors.
+    /// Frames in which an actor sampled more than one clip, summed over actors.
     pub blend_frames: u64,
     pub peak: usize,
 }
 
-/// Choose, blend and pose every actor with a [`Locomotion`].
+/// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
+/// (`weapons.rs`) layered on top.
 pub fn drive(
     time: Res<Time>,
-    mut actors: Query<(&mut Locomotion, &mut BlendPlayer)>,
+    mut actors: Query<(&mut Locomotion, &mut BlendPlayer, Option<&mut crate::weapons::WeaponHold>)>,
     mut transforms: Query<&mut Transform>,
     mut cost: ResMut<ActorAnimCost>,
     mut scratch: Local<Vec<(usize, Transform)>>,
@@ -127,11 +128,17 @@ pub fn drive(
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
     let mut n = 0;
-    for (mut lo, mut player) in &mut actors {
+    for (mut lo, mut player, weapon) in &mut actors {
         if !lo.hold {
             lo.step(dt);
         }
         lo.layers(&mut player);
+        if let Some(mut w) = weapon {
+            if !w.hold {
+                w.step(dt);
+            }
+            w.layers(&mut player);
+        }
         let layers = player.layers.iter().flatten().count() as u64;
         cost.layer_frames += layers;
         cost.blend_frames += u64::from(layers > 1);
@@ -288,7 +295,7 @@ mod tests {
     fn set() -> Arc<ClipSet> {
         // Infos only (no bound tracks are needed to choose and blend).
         let bound = Arc::new(BoundClip { clip: Arc::new(nvf_assets::anim_play::Clip {
-            name: String::new(), start: 0.0, stop: 1.0, frequency: 1.0, cycle_type: 0, tracks: Vec::new(), skipped: 0, accum_root: None, text_keys: Vec::new(),
+            name: String::new(), start: 0.0, stop: 1.0, frequency: 1.0, cycle_type: 0, tracks: Vec::new(), priorities: Vec::new(), skipped: 0, accum_root: None, text_keys: Vec::new(),
         }), tracks: Vec::new(), root: None, root_track: None });
         let mut s = ClipSet::default();
         for (m, duration, speed) in [(Move::Idle, 4.0, 0.0), (Move::Forward, 1.2, 85.26), (Move::Backward, 1.133, 67.44), (Move::TurnLeft, 1.0, 0.0), (Move::TurnRight, 1.0, 0.0)] {
