@@ -134,8 +134,10 @@ pub enum Action {
     Package { actor: String, package: String, event: String },
     /// A `SayTo` line finished (SayToDone blocks of the speaker).
     SayToDone { actor: String, #[serde(default)] topic: Option<String> },
-    /// An actor enters a trigger (OnTriggerEnter of the trigger reference).
-    TriggerEnter { trigger: String, #[serde(default)] actor: Option<String> },
+    /// An actor enters a trigger (OnTriggerEnter of the trigger reference), or with
+    /// `event` "inside" / "leave" is in it this frame (OnTrigger) / leaves it
+    /// (OnTriggerLeave).
+    TriggerEnter { trigger: String, #[serde(default)] actor: Option<String>, #[serde(default)] event: Option<String> },
     /// The player picks a button of the open message box.
     PressButton { button: i32 },
     /// A menu opens (MenuMode with its code) or closes (`null`).
@@ -179,15 +181,26 @@ pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
     if let Some(script) = s.strip_prefix("scripted:") {
         // The placed reference whose base form runs this script (the first in FormID
         // order when several do).
+        // `scripted:<script>#<n>`: the n-th (1-based) of them.
+        let (script, n) = match script.split_once('#') {
+            Some((s, n)) => (s, n.parse::<usize>().map_err(|_| format!("bad index in {s:?}"))?),
+            None => (script, 1),
+        };
         let sc = resolve(g, script)?;
         return g
             .world
             .placed
             .refs
             .values()
-            .find(|p| g.data.script_of_base(p.base) == Some(sc))
+            .filter(|p| g.data.script_of_base(p.base) == Some(sc))
+            .nth(n.saturating_sub(1))
             .map(|p| p.id)
-            .ok_or_else(|| format!("no placed reference runs {script}"));
+            .ok_or_else(|| format!("no placed reference number {n} runs {script}"));
+    }
+    if let Some(base) = s.strip_prefix("placed:") {
+        // The first placed reference (FormID order) of a base form.
+        let b = resolve(g, base)?;
+        return g.world.placed.refs.values().find(|p| p.base == b).map(|p| p.id).ok_or_else(|| format!("no placed reference of {base}"));
     }
     if let Some(r) = g.world.placed.by_edid(s) {
         return Ok(r);
@@ -488,19 +501,22 @@ fn step(g: &mut Game, a: &Action) -> Result<Option<(String, Map<String, Json>)>,
                 None => None,
             };
             let mut said = Json::Null;
+            let mut why = Vec::new();
             for name in infos {
                 let i = resolve(g, name)?;
-                let def = g.data.infos.get(&i).ok_or_else(|| format!("{name} is not a dialogue line"))?;
+                let data = g.data;
+                let def = data.infos.get(&i).ok_or_else(|| format!("{name} is not a dialogue line"))?;
                 let sp = s.or(def.speaker);
-                let pass = g.conditions_pass(&def.conditions.clone(), sp, Some(FormId::PLAYER_REF), &format!("INFO {i}"));
+                let pass = g.conditions_pass(&def.conditions, sp, Some(FormId::PLAYER_REF), &format!("INFO {i}"));
                 if pass {
                     g.run_info(i, s, true)?;
                     said = json!(i.to_string());
                     break;
                 }
+                why.push(format!("{i}: {}", g.explain_conditions(&def.conditions, sp, Some(FormId::PLAYER_REF)).join("; ")));
             }
             if said.is_null() {
-                return Err("no line's conditions pass".into());
+                return Err(format!("no line's conditions pass ({})", why.join(" | ")));
             }
             obs.insert("said".into(), said);
             lab = l.clone();
@@ -523,13 +539,21 @@ fn step(g: &mut Game, a: &Action) -> Result<Option<(String, Map<String, Json>)>,
             };
             g.ref_event(a, event::SAY_TO_DONE, t, None);
         }
-        Action::TriggerEnter { trigger, actor } => {
+        Action::TriggerEnter { trigger, actor, event: ev } => {
             let t = resolve(g, trigger)?;
             let a = match actor {
                 Some(a) => resolve(g, a)?,
                 None => FormId::PLAYER_REF,
             };
-            g.ref_event(t, event::ON_TRIGGER_ENTER, Some(Value::Ref(a.0)), Some(a));
+            let code = match ev.as_deref() {
+                None | Some("enter") => event::ON_TRIGGER_ENTER,
+                Some("inside") => event::ON_TRIGGER,
+                Some("leave") => event::ON_TRIGGER_LEAVE,
+                Some(o) => return Err(format!("trigger event {o:?} is not enter, inside or leave")),
+            };
+            if !g.ref_event(t, code, Some(Value::Ref(a.0)), Some(a)) {
+                return Err(format!("no block of {} accepted the trigger event", g.data.name(t)));
+            }
         }
         Action::PressButton { button } => match &mut g.message_box {
             Some(m) => m.pressed = Some(*button),
