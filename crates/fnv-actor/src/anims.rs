@@ -159,6 +159,20 @@ pub fn bind<'a>(targets: impl IntoIterator<Item = Option<&'a str>>, skeleton_nod
     b
 }
 
+/// Record header flag "Random Anim Start" (bit 16) and the record types that define it
+/// [documented: xEdit wbDefinitionsFNV.pas record flag lists of ACTI, CONT, DOOR, FURN,
+/// LIGH, MSTT, TACT and TERM; the GECK wiki "World Objects" page: such an object starts
+/// its idle animation at a random time so copies do not animate in step].
+pub const RANDOM_ANIM_START: u32 = 1 << 16;
+pub const RANDOM_ANIM_START_TYPES: [&[u8; 4]; 8] = [b"ACTI", b"CONT", b"DOOR", b"FURN", b"LIGH", b"MSTT", b"TACT", b"TERM"];
+
+/// Whether a base record of type `sig` with header flags `flags` has "Random Anim
+/// Start" (on other types bit 16 means something else, e.g. "High Priority LOD" on
+/// REFR).
+pub fn random_anim_start(sig: &[u8; 4], flags: u32) -> bool {
+    flags & RANDOM_ANIM_START != 0 && RANDOM_ANIM_START_TYPES.contains(&sig)
+}
+
 /// Where a creature's KFFZ entry (a bare file name) is looked for, in order:
 /// `<skeleton folder>\specialanims\<name>`, then `<skeleton folder>\<name>`
 /// [observed: Mr Handy, Protectron and Blowfly names are in `specialanims\`].
@@ -219,6 +233,15 @@ pub fn actor_anim_lists(lo: &LoadOrder, schema: &Schema, issues: &mut Issues) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn random_anim_start_only_on_its_record_types() {
+        assert!(random_anim_start(b"ACTI", 0x0001_0000));
+        assert!(random_anim_start(b"MSTT", 0x0001_0020));
+        assert!(!random_anim_start(b"ACTI", 0x0000_0400));
+        assert!(!random_anim_start(b"STAT", 0x0001_0000));
+        assert!(!random_anim_start(b"REFR", 0x0001_0000));
+    }
 
     fn index() -> SkeletonIndex {
         SkeletonIndex::from_paths([

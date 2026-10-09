@@ -202,7 +202,7 @@ pub fn remove_all_typed_items(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
         if it.non_playable || except.contains(&item) {
             continue;
         }
-        if from == FormId::PLAYER_REF && g.forms.quest_items.get(&item).copied().unwrap_or(false) {
+        if from == FormId::PLAYER_REF && g.world.is_quest_item(item) {
             continue;
         }
         if code != -1 && forms.sig(item).as_ref().and_then(form_type_code) != Some(code) {
@@ -317,9 +317,13 @@ pub fn set_item_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String
 }
 
 /// `SetQuestObject form flag`: the form's quest-item flag [documented: catalogue
-/// summary]; quest items stay with the player in RemoveAllTypedItems.
+/// summary]. It replaces the record's "Quest Item" header flag in the simulation
+/// (`fnv_sim::World::set_quest_object`, the one source of truth, saved with the world):
+/// quest items stay with the player in RemoveAllTypedItems and the player cannot drop
+/// them by hand (a scripted `Drop` still can, as in the game). `FormChanges::quest_items`
+/// is no longer written.
 pub fn set_quest_object(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let f = a.form(0)?;
-    g.forms.quest_items.insert(f, a.num_or(1, 1.0) != 0.0);
+    g.world.set_quest_object(f, a.num_or(1, 1.0) != 0.0);
     none()
 }
