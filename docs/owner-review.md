@@ -23,7 +23,9 @@ item once you've ruled on it.
    cannot see in the session list. #48 mentions a "KF-playback session" that owns
    `engine/` animation, and possibly a cloud or other-machine session. Keep that in mind
    when two sessions both think they coordinate merges. The coordinator re-checked the
-   resulting `main` as a whole (see the next item).
+   resulting `main` (e5db7eb) as a whole. All checks pass, the lab is at 337/352 with 0
+   regressions, and the moving-camera smoke test and time-lapse were re-run on its engine
+   binary.
 3. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
    (same commits, its PR #38 was closed). `layer4-phys-wt` is an early copy of the physics
    workstream from 2026-10-07, superseded by `claude/layer4-phys`. Neither was merged or
