@@ -37,7 +37,8 @@ item once you've ruled on it.
    (`--shadow-distance 0`; cascades stay opt-in). Frame SSIM: dusk 0.415 → 0.500, noon
    0.421 → 0.448, hill 0.491 → 0.522, lake 0.390 → 0.440. Two questions for you, from
    its PR:
-   - keep or remove the shadow cascades;
+   - keep or remove the shadow cascades — **answered 2026-10-09: keep them, on by default**
+     (`--shadow-distance` back to 16,000; `0` matches the game);
    - a capture plan for ambient light (shaded faces are about 2× too dark and too blue
      by day).
 2d. **"Sky and cloud look" started** (branch `claude/sky-look`, a background agent of the
