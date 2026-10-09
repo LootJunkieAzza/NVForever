@@ -95,6 +95,16 @@ side quests are untouched. VCG00's stages 5–85 are not done although its timer
 VCG00 and VCG01 stopped with `bRunTimer` 1 and `fTimer` a little below 0: the countdown
 ran out and the stage switch then stopped the quest.
 
+**Save `nvfnew` (owner, 2026-10-09 09:21; `q5_state_nvfnew`, same 18-quest defs,
+`state.nvfnew.json` private) is before the intro chain** [observed]: VCG00 is running at
+stage 90 (stages 0 and 90 done, `bRunTimer` 1, `fTimer` 3.0, a countdown still to run);
+VCG01 is running with **no stage done** (GetStage 0, all of 0–200 not done, objectives
+10/30/40/50 neither shown nor completed, every variable 0); VCG01Test and CGTutorial are
+running with nothing done; VCG02, VCG03, VCG04 and VMQ01 are stopped and untouched. So it
+starts before VCG01's stage 0 (the stage whose result script stops VCG00), earlier than
+Doc Mitchell's first line (stage 3) and the name menu (stage 10): every VCG01 stage can be
+captured from it.
+
 **Neither save is at the start of VCG01.** A save at the very beginning of a new game
 (before Doc Mitchell speaks) is needed to capture the chain itself (owner, §7).
 
