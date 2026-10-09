@@ -15,10 +15,17 @@
 //! - **Shots** leave the eye along the view, inside the spread cone (the documented New
 //!   Vegas spread plus bloom); recoil kicks the view up and recovers [design].
 //! - **Projectiles** fly through the physics world (`fnv_phys` rays; actor hit volumes,
-//!   combat C3). Hits are logged with the damage the rules give; applying damage to
-//!   health is step C5. Melee and unarmed attacks are step C6.
+//!   combat C3). Melee and unarmed attacks are step C6.
+//! - **Hits** (step C5): the damage of `fnv_combat::damage` against the target's worn
+//!   armour (`CombatForms::worn_armor` over its inventory) goes to the script runtime's
+//!   `Game::hit` (Health's damage part, OnHit/OnHitWith, death and OnDeath, kill XP), so
+//!   scripts see what combat did. Explosions hit with location −1. Each hit sends an
+//!   [`ActorHit`] (nvforever plays a flinch or the death pose). Without the script runtime
+//!   (`NVF_PLAY_SCRIPTS=0`) hits are only logged.
 //! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
-//!   tracers at the projectile's tracer chance, and an ammo counter.
+//!   tracers at the projectile's tracer chance, an ammo counter, a hit marker at the
+//!   crosshair (red on a kill), the last target's health for a few seconds, the player's
+//!   health, and a line for kills with their XP.
 
 use bevy::prelude::*;
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
@@ -32,7 +39,10 @@ use fnv_combat::{shot, CombatForms, CombatTuning, Rules};
 use fnv_phys::{layers, Filter, Key, Owner, Queries};
 use fnv_sim::FormId;
 
+use crate::activate::HudMessage;
 use crate::control::PlayerControl;
+use crate::script::{with_world, ScriptState};
+use fnv_game::combat::{HitInfo, HitResult};
 use crate::phys::PhysState;
 use crate::player::{Player, MAX_PITCH};
 use crate::sim::SimState;
@@ -58,6 +68,33 @@ pub struct WeaponAnim {
     pub reloads: u32,
 }
 
+/// An actor was hit (and maybe died) by combat.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ActorHit {
+    pub form_id: u32,
+    pub died: bool,
+    pub knocked_out: bool,
+}
+
+/// Whether the script runtime has the actor dead.
+pub fn is_dead(script: Option<&ScriptState>, form_id: u32) -> bool {
+    script.and_then(|s| s.rt.as_ref()).is_some_and(|rt| rt.game.is_dead(FormId(form_id)))
+}
+
+/// What the HUD shows about hits [design].
+#[derive(Resource, Default, Debug, Clone)]
+pub struct HitFeedback {
+    /// Seconds since the last hit marker, and whether it was a kill.
+    pub marker_age: Option<f32>,
+    pub kill: bool,
+    /// The last actor hit: name, health, maximum, seconds since.
+    pub target: Option<(String, f32, f32, f32)>,
+}
+
+/// Seconds the hit marker and the target's health stay up [design].
+const MARKER_SECONDS: f32 = 0.18;
+const TARGET_SECONDS: f32 = 4.0;
+
 /// Counts for the exit report.
 #[derive(Resource, Default, Debug, Clone)]
 pub struct CombatStats {
@@ -69,6 +106,8 @@ pub struct CombatStats {
     pub damage: f32,
     pub reloads: u32,
     pub dry_fires: u32,
+    pub kills: u32,
+    pub xp: f64,
 }
 
 /// A projectile in flight with where it left from and whether it draws a tracer.
@@ -121,12 +160,14 @@ impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WeaponAnim>()
             .init_resource::<CombatStats>()
-            .add_systems(Startup, (init_combat, spawn_hud))
+            .init_resource::<HitFeedback>()
+            .add_message::<ActorHit>()
+            .add_systems(Startup, (init_combat, spawn_hud, spawn_hit_hud))
             .add_systems(
                 Update,
                 (equip_sync, fire, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
-            .add_systems(Update, (draw_marks, update_hud).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (draw_marks, update_hud, update_hit_hud).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -358,14 +399,69 @@ fn fire(
     }
 }
 
+/// The target's DT and DR from the armour it wears (its carried ARMO by the wearing rule).
+/// The simulation creates an actor's inventory on first touch (`World::inventory_mut`).
+fn target_armor(c: &Combat, sim: &mut SimState, target: FormId) -> (f32, f32) {
+    let items: Vec<FormId> = sim.world.inventory_mut(target).map(|i| i.iter().filter(|(_, n)| *n > 0).map(|(id, _)| id).collect()).unwrap_or_default();
+    let worn = c.forms.worn_armor(items);
+    c.forms.armor_values(&worn)
+}
+
+/// Apply `dealt` health damage through the script runtime; report and remember it.
+#[allow(clippy::too_many_arguments)]
+fn apply_hit(
+    script: Option<&mut ScriptState>,
+    sim: &mut SimState,
+    target: FormId,
+    dealt: f32,
+    info: HitInfo,
+    stats: &mut CombatStats,
+    feedback: &mut HitFeedback,
+    hud: Option<&mut HudMessage>,
+    messages: &mut MessageWriter<ActorHit>,
+) -> Option<HitResult> {
+    let r = script.and_then(|s| s.rt.as_mut()).map(|rt| with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info)))?;
+    let name = sim.base_of(target.0).and_then(|b| sim.name(b).map(str::to_string)).unwrap_or_else(|| target.to_string());
+    stats.damage += r.dealt as f32;
+    if r.died {
+        stats.kills += 1;
+        stats.xp += r.xp;
+        if let Some(h) = hud {
+            h.show(if r.xp > 0.0 { format!("{name} killed (+{} XP)", r.xp) } else { format!("{name} killed") });
+        }
+        info!("combat: {name} {target} killed{}", if r.xp > 0.0 { format!(", +{} XP", r.xp) } else { String::new() });
+    } else if r.knocked_out {
+        info!("combat: {name} {target} knocked out (essential)");
+    }
+    if !r.immune {
+        feedback.marker_age = Some(0.0);
+        feedback.kill = r.died;
+        feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
+        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out });
+    }
+    Some(r)
+}
+
 /// Fly the projectiles, deliver hits when due, set off explosions.
-fn fly(time: Res<Time>, mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut phys: ResMut<PhysState>, play: Res<PlayWorld>, mut stats: ResMut<CombatStats>) {
+#[allow(clippy::too_many_arguments)]
+fn fly(
+    time: Res<Time>,
+    mut c: ResMut<Combat>,
+    mut sim: ResMut<SimState>,
+    mut phys: ResMut<PhysState>,
+    mut stats: ResMut<CombatStats>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut feedback: ResMut<HitFeedback>,
+    mut hud: Option<ResMut<HudMessage>>,
+    mut messages: MessageWriter<ActorHit>,
+) {
     let dt = time.delta_secs();
     let c = &mut *c;
     if c.flying.is_empty() && c.pending.is_empty() {
         return;
     }
     let mut explode: Vec<(FormId, V3)> = Vec::new();
+    let mut blasted: Vec<(FormId, f32)> = Vec::new();
     {
         let world = view(&mut phys);
         for f in &mut c.flying {
@@ -392,8 +488,8 @@ fn fly(time: Res<Time>, mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut ph
             stats.explosions += 1;
             let Some(x) = c.forms.explosions.get(&id) else { continue };
             for b in blast(&world, &c.tuning, x, at) {
-                stats.damage += b.damage;
                 info!("combat: blast {} hits {:08X} at {:.0} for {:.1} (before armour)", x.edid.as_deref().unwrap_or("?"), b.actor, b.distance, b.damage);
+                blasted.push((FormId(b.actor as u32), b.damage));
             }
             c.marks.push(Mark { from: at, to: at, age: 0.0, life: 0.6, impact: true });
             info!("combat: explosion {} at ({:.0}, {:.0}, {:.0})", x.edid.as_deref().unwrap_or("?"), at[0], at[1], at[2]);
@@ -405,7 +501,17 @@ fn fly(time: Res<Time>, mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut ph
         c.pending = keep;
         d
     };
-    let Some(id) = c.weapon else { return };
+    let weapon = c.weapon;
+    // Blasts: the damage against the target's armour (the DT floor and DR, §5.3).
+    for (target, raw) in blasted {
+        let (dt_v, dr) = target_armor(c, &mut sim, target);
+        let dealt = (raw - dt_v).max(raw * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
+        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: -1, critical: false };
+        if let Some(r) = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
+            info!("combat: blast on {target}: {:.1} health damage, health {:.0}/{:.0}", r.dealt, r.health, r.max_health);
+        }
+    }
+    let Some(id) = weapon else { return };
     let w = c.forms.weapons[&id].clone();
     let chain = c.forms.chain(id, c.ammo);
     let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
@@ -420,10 +526,26 @@ fn fly(time: Res<Time>, mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut ph
         let a = attacker(&mut sim, w.skill.as_deref(), false);
         let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: 1.0, ammo_effects: &effects, part: HitPart::default() };
         let roll = c.rng.next_f32();
-        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
-        stats.damage += d.dealt;
-        let name = play.index.refs.get(&(actor as u32)).map(|e| e.sig).map_or("?".to_string(), |s| String::from_utf8_lossy(&s).into_owned());
-        info!("combat: hit {name} {:08X} for {:.1}{} (health damage is step C5)", actor, d.dealt, if d.critical { ", critical" } else { "" });
+        let target = FormId(actor as u32);
+        let (dt_v, dr) = target_armor(c, &mut sim, target);
+        let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
+        // One capsule per actor: every hit is on the torso (location 0) until body parts.
+        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location: 0, critical: d.critical };
+        match apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
+            Some(r) => info!(
+                "combat: hit {target} for {:.1} (DT {:.0}{}), health {:.0}/{:.0}{}",
+                r.dealt,
+                d.dt,
+                if d.critical { ", critical" } else { "" },
+                r.health,
+                r.max_health,
+                if r.immune { ", takes no damage" } else { "" }
+            ),
+            None => {
+                stats.damage += d.dealt;
+                info!("combat: hit {target} for {:.1} (no script runtime: not applied)", d.dealt);
+            }
+        }
     }
 }
 
@@ -481,9 +603,104 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
     if exit.read().last().is_some() {
         let s = &*stats;
         info!(
-            "combat: {} shots, {} projectiles, {} actor hits, {} world hits, {} explosions, {:.0} damage (not applied yet), {} reloads, {} dry fires",
-            s.shots, s.projectiles, s.actor_hits, s.world_hits, s.explosions, s.damage, s.reloads, s.dry_fires
+            "combat: {} shots, {} projectiles, {} actor hits, {} world hits, {} explosions, {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
+            s.shots, s.projectiles, s.actor_hits, s.world_hits, s.explosions, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
         );
+    }
+}
+
+#[derive(Component)]
+struct HitMarker;
+
+#[derive(Component)]
+struct TargetText;
+
+#[derive(Component)]
+struct PlayerHealthText;
+
+fn spawn_hit_hud(mut commands: Commands) {
+    // The hit marker: a small square ring around the crosshair.
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            top: Val::Percent(50.0),
+            width: Val::Px(14.0),
+            height: Val::Px(14.0),
+            margin: UiRect { left: Val::Px(-7.0), top: Val::Px(-7.0), ..default() },
+            border: UiRect::all(Val::Px(2.0)),
+            ..default()
+        },
+        BorderColor::all(Color::NONE),
+        HitMarker,
+    ));
+    commands.spawn((
+        Node { position_type: PositionType::Absolute, top: Val::Percent(50.0), margin: UiRect::top(Val::Px(-48.0)), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() },
+        Visibility::Inherited,
+    ))
+    .with_child((Text::new(""), TextFont { font_size: FontSize::Px(15.0), ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.4)), TargetText));
+    commands.spawn((
+        Node { position_type: PositionType::Absolute, left: Val::Px(24.0), bottom: Val::Px(20.0), ..default() },
+        Text::new(""),
+        TextFont { font_size: FontSize::Px(20.0), ..default() },
+        TextColor(Color::srgb(1.0, 0.85, 0.4)),
+        PlayerHealthText,
+    ));
+}
+
+/// The hit marker, the last target's health and the player's health [design].
+#[allow(clippy::too_many_arguments)]
+fn update_hit_hud(
+    time: Res<Time>,
+    state: Res<State<PlayState>>,
+    mut fb: ResMut<HitFeedback>,
+    mut script: Option<ResMut<ScriptState>>,
+    mut sim: ResMut<SimState>,
+    mut marker: Query<&mut BorderColor, With<HitMarker>>,
+    mut target: Query<&mut Text, (With<TargetText>, Without<PlayerHealthText>)>,
+    mut health: Query<&mut Text, (With<PlayerHealthText>, Without<TargetText>)>,
+) {
+    let dt = time.delta_secs();
+    let playing = *state.get() == PlayState::Playing;
+    let mut col = Color::NONE;
+    if let Some(a) = fb.marker_age.as_mut() {
+        *a += dt;
+        if *a < MARKER_SECONDS && playing {
+            col = if fb.kill { Color::srgb(1.0, 0.25, 0.2) } else { Color::srgba(1.0, 1.0, 1.0, 0.9) };
+        }
+    }
+    if let Ok(mut b) = marker.single_mut() {
+        *b = BorderColor::all(col);
+    }
+    let line = match fb.target.as_mut() {
+        Some((name, hp, max, age)) if playing => {
+            *age += dt;
+            if *age < TARGET_SECONDS {
+                let filled = if *max > 0.0 { ((*hp / *max).clamp(0.0, 1.0) * 20.0).round() as usize } else { 0 };
+                format!("{name}  [{}{}]  {:.0}/{:.0}", "|".repeat(filled), ".".repeat(20 - filled), hp.max(0.0), max)
+            } else {
+                String::new()
+            }
+        }
+        _ => String::new(),
+    };
+    if let Ok(mut t) = target.single_mut() {
+        if t.0 != line {
+            t.0 = line;
+        }
+    }
+    let hp = match script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        Some(rt) if playing => with_world(rt, &mut sim, |rt| {
+            let max = rt.game.max_health(FormId::PLAYER_REF);
+            let now = fnv_game::functions::actor_health(&mut rt.game, FormId::PLAYER_REF).unwrap_or(max);
+            format!("HP {:.0}/{:.0}", now, max)
+        }),
+        _ => String::new(),
+    };
+    if let Ok(mut t) = health.single_mut() {
+        if t.0 != hp {
+            t.0 = hp;
+        }
     }
 }
 

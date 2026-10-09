@@ -2,10 +2,11 @@
 //!
 //! Actor value codes are the indices of `ActorValue` in `schemas/fnv/common.json`
 //! [documented: xEdit; scripts.md §2.4]. S.P.E.C.I.A.L. (codes 5–11) live in the Layer 4
-//! world (base from `NPC_ DATA`); the body part conditions (codes 25–31) start at 100
-//! (undamaged) and the other values at 0 here [hypothesis: their base values (skills,
-//! health, derived stats) are not read yet; a new character has no crippled limbs] and
-//! change through the setters.
+//! world (base from `NPC_ DATA`); Health (code 16) starts at the actor's maximum health
+//! (`crate::combat`); the body part conditions (codes 25–31) start at 100 (undamaged)
+//! and the other values at 0 here [hypothesis: their base values (skills, derived stats)
+//! are not read yet; a new character has no crippled limbs] and change through the
+//! setters.
 //!
 //! Each value is a permanent part (base plus permanent modifiers: SetActorValue,
 //! ModActorValue, ForceActorValue) minus a damage part (DamageActorValue, healed by
@@ -16,7 +17,7 @@
 //! kept together [hypothesis: nothing captured tells them apart yet].
 
 use super::{base_of, none, yes, Args, Ctx};
-use crate::game::{event, Game};
+use crate::game::Game;
 use fnv_script::vm::Value;
 use fnv_sim::forms::SPECIAL;
 use fnv_sim::FormId;
@@ -62,12 +63,28 @@ pub fn av_code(g: &Game, name: &str) -> Result<u16, String> {
     AV_NAMES.iter().position(|n| squash(n) == want).map(|i| i as u16).ok_or_else(|| format!("no actor value named {name:?}"))
 }
 
-/// The permanent part of an actor value (base and permanent modifiers).
+/// The permanent part of an actor value (base and permanent modifiers). Health's base is
+/// the actor's maximum health (`crate::combat`) until a script sets it.
 fn permanent(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
     match special(code) {
         Some(name) => g.world.actor_value(actor, name).map(|v| v as f64).map_err(|e| e.to_string()),
-        None => Ok(g.extra.get(&actor).and_then(|e| e.actor_values.get(&code)).copied().unwrap_or(default_value(code))),
+        None => match g.extra.get(&actor).and_then(|e| e.actor_values.get(&code)).copied() {
+            Some(v) => Ok(v),
+            None if code == crate::combat::HEALTH => Ok(g.max_health(actor)),
+            None => Ok(default_value(code)),
+        },
     }
+}
+
+/// The permanent part of an actor value, 0 when it cannot be read.
+pub(crate) fn actor_value_base(g: &mut Game, actor: FormId, code: u16) -> f64 {
+    permanent(g, actor, code).unwrap_or(0.0)
+}
+
+/// Add `d` to an actor value's damage part (as DamageActorValue).
+pub(crate) fn add_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
+    let total = damage(g, actor, code) + d.max(0.0);
+    set_damage(g, actor, code, total);
 }
 
 /// The damage an actor value has taken (0 or more).
@@ -173,21 +190,18 @@ pub fn get_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 }
 
 /// The actor dies; its OnDeath blocks run [hypothesis: at once], and the kill counts
-/// for GetDeadCount of its base.
+/// for GetDeadCount of its base (`Game::kill`, shared with combat deaths).
 pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    if g.extra.get(&r).is_some_and(|e| e.dead) {
-        return none();
-    }
-    let killer = a.opt_form(0);
-    let e = g.extra.entry(r).or_default();
-    e.dead = true;
-    e.killer = killer;
-    if let Some(b) = base_of(g, r) {
-        *g.player.dead_count.entry(b).or_default() += 1;
-    }
-    g.ref_event(r, event::ON_DEATH, killer.map(|k| Value::Ref(k.0)), killer);
+    g.kill(r, a.opt_form(0));
     none()
+}
+
+/// The body location of the actor's last hit, −1 for none [documented: catalogue notes;
+/// explosions give −1].
+pub fn get_hit_location(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::Num(g.extra.get(&r).and_then(|e| e.last_hit).map_or(-1, |h| h.location) as f64))
 }
 
 pub fn resurrect_actor(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
@@ -588,9 +602,13 @@ fn default_value(code: u16) -> f64 {
     }
 }
 
-/// Current health over base health [documented: catalogue notes]. Without a damage
-/// model a living actor is at full health and a dead one at 0 [hypothesis].
+/// Current health over base health [documented: catalogue notes]; a dead actor is at 0.
 pub fn get_health_percentage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    Ok(Value::Num(if g.extra.get(&r).is_some_and(|e| e.dead) { 0.0 } else { 1.0 }))
+    if g.extra.get(&r).is_some_and(|e| e.dead) {
+        return Ok(Value::Num(0.0));
+    }
+    let base = permanent(g, r, crate::combat::HEALTH)?;
+    let now = base - damage(g, r, crate::combat::HEALTH);
+    Ok(Value::Num(if base > 0.0 { (now / base).clamp(0.0, 1.0) } else { 0.0 }))
 }

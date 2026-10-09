@@ -289,6 +289,18 @@ pub struct BodyPartData {
     pub ragdoll: Option<FormId>,
 }
 
+/// ARMO: what protects (combat step C5).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ArmorStats {
+    pub edid: Option<String>,
+    /// DNAM DT.
+    pub dt: f32,
+    /// DNAM DR as stored (xEdit shows it ÷ 100; New Vegas armour stores 0, actors.md §1.1).
+    pub dr_raw: i32,
+    /// BMDT biped slots (bits).
+    pub slots: u32,
+}
+
 /// One effect of an ENCH or SPEL (EFID + EFIT, then its conditions).
 #[derive(Debug, Clone, Serialize)]
 pub struct EffectItem {
@@ -345,6 +357,7 @@ pub struct CombatForms {
     pub effects: HashMap<FormId, EffectForm>,
     /// Every FLST (weapons name their ammo through them).
     pub form_lists: HashMap<FormId, Vec<FormId>>,
+    pub armor: HashMap<FormId, ArmorStats>,
     /// Game settings by lower-case Editor ID.
     pub settings: BTreeMap<String, Setting>,
     /// Signature of the winning record of every loaded form.
@@ -354,7 +367,7 @@ pub struct CombatForms {
 }
 
 /// IPDS is only registered (its signature), so references to it can be checked.
-const SIGS: &[&[u8; 4]] = &[b"WEAP", b"AMMO", b"AMEF", b"PROJ", b"EXPL", b"BPTD", b"ENCH", b"SPEL", b"FLST", b"GMST", b"IPDS"];
+const SIGS: &[&[u8; 4]] = &[b"WEAP", b"AMMO", b"AMEF", b"PROJ", b"EXPL", b"BPTD", b"ENCH", b"SPEL", b"FLST", b"GMST", b"IPDS", b"ARMO"];
 
 enum Loaded {
     Weapon(Box<WeaponStats>),
@@ -366,6 +379,7 @@ enum Loaded {
     Effect(EffectForm),
     FormList(Vec<FormId>),
     Setting(Setting),
+    Armor(ArmorStats),
     Other,
 }
 
@@ -428,6 +442,9 @@ impl CombatForms {
                 Loaded::FormList(l) => {
                     out.form_lists.insert(id, l);
                 }
+                Loaded::Armor(a) => {
+                    out.armor.insert(id, a);
+                }
                 Loaded::Setting(s) => {
                     if let Some(e) = edid {
                         out.settings.insert(e.to_ascii_lowercase(), s);
@@ -446,6 +463,37 @@ impl CombatForms {
     /// A numeric game setting by Editor ID (any case).
     pub fn setting(&self, edid: &str) -> Option<f32> {
         self.settings.get(&edid.to_ascii_lowercase()).and_then(Setting::as_f32)
+    }
+
+    /// The armour an actor wears out of the items it carries: the carried ARMO, each once,
+    /// by DT (then stored DR) descending, then first appearance; each is worn unless it
+    /// has no slot or a worn item shares one [observed rule: the owner's statement of
+    /// 2026-10-08 as `fnv_actor::resolve` implements it, actors.md §2.3].
+    pub fn worn_armor(&self, items: impl IntoIterator<Item = FormId>) -> Vec<FormId> {
+        let mut cands: Vec<(usize, FormId, &ArmorStats)> = Vec::new();
+        for (i, id) in items.into_iter().enumerate() {
+            if let Some(a) = self.armor.get(&id) {
+                if !cands.iter().any(|c| c.1 == id) {
+                    cands.push((i, id, a));
+                }
+            }
+        }
+        cands.sort_by(|a, b| b.2.dt.total_cmp(&a.2.dt).then(b.2.dr_raw.cmp(&a.2.dr_raw)).then(a.0.cmp(&b.0)));
+        let mut used = 0u32;
+        let mut worn = Vec::new();
+        for (_, id, a) in cands {
+            if a.slots != 0 && a.slots & used == 0 {
+                used |= a.slots;
+                worn.push(id);
+            }
+        }
+        worn
+    }
+
+    /// DT and DR (percent) of worn armour: the sums over the items (DR stored ÷ 100)
+    /// [hypothesis: pieces add up].
+    pub fn armor_values(&self, worn: &[FormId]) -> (f32, f32) {
+        worn.iter().filter_map(|id| self.armor.get(id)).fold((0.0, 0.0), |(dt, dr), a| (dt + a.dt, dr + a.dr_raw as f32 / 100.0))
     }
 
     /// The AMMO forms a weapon accepts: NAM0 when it is an AMMO, the AMMO entries of
@@ -533,6 +581,16 @@ fn load_one(cx: &mut Ctx, sig: &[u8; 4], d: &[Decoded]) -> Loaded {
         b"FLST" => {
             let items = all(d, b"LNAM").cloned().collect::<Vec<_>>();
             Loaded::FormList(items.iter().filter_map(|v| cx.fid("LNAM", Some(v))).collect())
+        }
+        b"ARMO" => {
+            let dnam = first(d, b"DNAM");
+            let slots = first(d, b"BMDT").and_then(|b| b.get("biped_flags")).and_then(|f| num(f, "value")).unwrap_or(0.0) as u32;
+            Loaded::Armor(ArmorStats {
+                edid: first(d, b"EDID").and_then(text),
+                dt: f(dnam, "dt"),
+                dr_raw: dnam.and_then(|v| int(v, "dr")).unwrap_or(0) as i32,
+                slots,
+            })
         }
         b"GMST" => {
             let edid = first(d, b"EDID").and_then(text).unwrap_or_default();

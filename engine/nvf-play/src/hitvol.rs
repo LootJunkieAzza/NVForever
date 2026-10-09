@@ -6,8 +6,8 @@
 //! the union of the world-space bounding boxes of the actor's drawn parts; feet at the
 //! bottom centre, height the box's height, radius the smaller horizontal half-extent
 //! (clamped to [`MIN_RADIUS`]..[`MAX_RADIUS`]). An actor that is hidden, removed by the
-//! simulation or no longer drawn loses its volume. Dead actors move to the DEAD_BIP layer
-//! once the simulation has a dead state (step C5).
+//! simulation or no longer drawn loses its volume. Dead actors (the script runtime's dead
+//! state, combat C5) are on the DEAD_BIP layer.
 
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
@@ -77,6 +77,7 @@ fn is_actor(play: &PlayWorld, form_id: u32) -> bool {
 fn sync_volumes(
     play: Res<PlayWorld>,
     sim: Res<SimState>,
+    script: Option<Res<crate::script::ScriptState>>,
     parts: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
     mut phys: ResMut<PhysState>,
     mut vols: ResMut<HitVolumes>,
@@ -99,7 +100,8 @@ fn sync_volumes(
         phys.world.remove_actor_volume(id);
     }
     for (&id, &(lo, hi)) in &bounds {
-        phys.world.set_actor_volume(id, volume_for(lo, hi, false));
+        let dead = crate::combat::is_dead(script.as_deref(), id);
+        phys.world.set_actor_volume(id, volume_for(lo, hi, dead));
     }
     if bounds.len() != vols.count {
         debug!("actor hit volumes: {}", bounds.len());
