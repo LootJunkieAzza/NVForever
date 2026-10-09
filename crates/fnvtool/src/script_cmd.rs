@@ -44,6 +44,16 @@ pub enum ScriptCmd {
         #[command(flatten)]
         a: ScriptArgs,
     },
+    /// Run scripts headless from the new-game state through a fnv.script.actions/1 file
+    /// and print the trace (fnv.script.trace/1; docs/spec-notes/layer5-captures.md §4,
+    /// scripts.md §8).
+    Run {
+        #[command(flatten)]
+        a: ScriptArgs,
+        /// Actions file (JSON, fnv.script.actions/1).
+        #[arg(long)]
+        actions: PathBuf,
+    },
 }
 
 #[derive(Args)]
@@ -99,7 +109,11 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             let names = ScriptIndex::build(lo, schema, &l.units);
             decompile_all(l, &names, &sel)
         }),
-        ScriptCmd::Coverage { a } => with_load_order(&a, |l, _, _| Ok(coverage(l))),
+        ScriptCmd::Coverage { a } => {
+            let fjson = functions_json(&a)?;
+            with_load_order(&a, |l, lo, schema| Ok(coverage(l, lo, schema, &fjson)))
+        }
+        ScriptCmd::Run { a, actions } => run_actions(&a, &actions),
     }
 }
 
@@ -459,12 +473,47 @@ fn decompile_all(l: &Loaded, names: &ScriptIndex, sel: &Select) -> anyhow::Resul
     }))
 }
 
-fn coverage(l: &Loaded) -> Value {
+fn functions_json(a: &ScriptArgs) -> anyhow::Result<Value> {
+    let tp = table_path(a);
+    let text = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
+    serde_json::from_str(&text).with_context(|| tp.display().to_string())
+}
+
+/// Shares of calls and condition uses covered by implemented functions.
+fn shares(rows: &[(u64, Value)], key: &str) -> Value {
+    let (mut sc, mut cu, mut sc_i, mut cu_i, mut sc_s, mut cu_s, mut n_i, mut n_s) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+    for (_, r) in rows {
+        let calls = r[key].as_u64().unwrap_or(0);
+        let conds = r["condition_uses"].as_u64().unwrap_or(0);
+        sc += calls;
+        cu += conds;
+        if r["implemented"] == true {
+            sc_i += calls;
+            cu_i += conds;
+            n_i += 1;
+        } else if r["stub"] == true {
+            sc_s += calls;
+            cu_s += conds;
+            n_s += 1;
+        }
+    }
+    let f = |a: u64, b: u64| if b == 0 { 0.0 } else { a as f64 / b as f64 };
+    json!({
+        "opcodes": rows.len(), "implemented_opcodes": n_i, "stub_opcodes": n_s,
+        "calls": sc, "implemented_calls": sc_i, "stub_calls": sc_s,
+        "condition_uses": cu, "implemented_condition_uses": cu_i, "stub_condition_uses": cu_s,
+        "implemented_share": f(sc_i + cu_i, sc + cu), "handled_share": f(sc_i + cu_i + sc_s + cu_s, sc + cu),
+    })
+}
+
+fn coverage(l: &Loaded, lo: &LoadOrder<'_>, schema: &Schema, fjson: &Value) -> Value {
     let done = decode_units(l);
     let mut stats = Stats::default();
     for d in &done {
         stats.program(&d.decoded);
     }
+    let implemented = |op: u16| fnv_game::functions::implemented(op);
+    let stub = |op: u16| fnv_game::functions::is_stub(op);
     let mut rows: Vec<(u64, Value)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for (op, c) in &stats.calls {
@@ -481,7 +530,8 @@ fn coverage(l: &Loaded) -> Value {
                 "raw": c[2],
                 "script_calls": f.map(|f| f.script_calls),
                 "condition_uses": f.map(|f| f.condition_uses),
-                "implemented": false,
+                "implemented": implemented(*op),
+                "stub": stub(*op),
             }),
         ));
     }
@@ -491,13 +541,39 @@ fn coverage(l: &Loaded) -> Value {
             rows.push((
                 f.condition_uses,
                 json!({"opcode": format!("0x{op:04X}"), "name": f.name, "calls": 0, "decoded": 0, "raw": 0,
-                       "script_calls": f.script_calls, "condition_uses": f.condition_uses, "implemented": false}),
+                       "script_calls": f.script_calls, "condition_uses": f.condition_uses,
+                       "implemented": implemented(*op), "stub": stub(*op)}),
             ));
         }
     }
     rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1["opcode"].as_str().cmp(&b.1["opcode"].as_str())));
     let total_calls: u64 = stats.calls.values().map(|c| c[0] + c[1]).sum();
     let raw_calls: u64 = stats.calls.values().map(|c| c[2]).sum();
+    let implemented_calls: u64 = stats.calls.iter().filter(|(op, _)| implemented(**op)).map(|(_, c)| c[0] + c[1]).sum();
+    // The intro chain (fnv_game::intro): its own calls and condition uses per opcode.
+    let refs = fnv_sim::RefTable::build(lo, schema);
+    let data = fnv_game::GameData::build(lo, schema, l.table.clone(), fjson, &refs);
+    let intro = fnv_game::intro::intro(&data, &refs);
+    let mut icalls: BTreeMap<u16, u64> = BTreeMap::new();
+    for &u in &intro.units {
+        fnv_game::intro::calls(&data.unit(u).program, &mut icalls);
+    }
+    let mut iconds: BTreeMap<u16, u64> = BTreeMap::new();
+    for c in &intro.conditions {
+        *iconds.entry(c.opcode()).or_default() += 1;
+    }
+    let mut irows: Vec<(u64, Value)> = icalls
+        .keys()
+        .chain(iconds.keys())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(|op| {
+            let (c, k) = (icalls.get(op).copied().unwrap_or(0), iconds.get(op).copied().unwrap_or(0));
+            (c + k, json!({"opcode": format!("0x{op:04X}"), "name": l.table.get(*op).map(|f| f.name.clone()),
+                           "intro_calls": c, "condition_uses": k, "implemented": implemented(*op), "stub": stub(*op)}))
+        })
+        .collect();
+    irows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1["opcode"].as_str().cmp(&b.1["opcode"].as_str())));
     json!({
         "format": "fnv.script.coverage/1",
         "load_order": l.load_order,
@@ -505,9 +581,35 @@ fn coverage(l: &Loaded) -> Value {
             "opcodes": rows.len(),
             "calls": total_calls,
             "calls_decoded": total_calls - raw_calls,
-            "implemented_opcodes": 0,
-            "implemented_calls": 0,
+            "implemented_opcodes": rows.iter().filter(|r| r.1["implemented"] == true).count(),
+            "implemented_calls": implemented_calls,
+            "by_catalogue_use": shares(&rows, "script_calls"),
+            "intro": {
+                "quests": intro.quests,
+                "units": intro.units.len(),
+                "conditions": intro.conditions.len(),
+                "coverage": shares(&irows, "intro_calls"),
+            },
         },
         "opcodes": rows.into_iter().map(|r| r.1).collect::<Vec<_>>(),
+        "intro_opcodes": irows.into_iter().map(|r| r.1).collect::<Vec<_>>(),
     })
+}
+
+/// `script run`: build the Layer 4 world and the Layer 5 data, run the actions.
+fn run_actions(a: &ScriptArgs, actions: &std::path::Path) -> anyhow::Result<Value> {
+    let text = std::fs::read_to_string(actions).with_context(|| actions.display().to_string())?;
+    let input: fnv_game::runner::Input =
+        serde_json::from_str(&text).with_context(|| format!("{}: not a fnv.script.actions/1 document", actions.display()))?;
+    let tp = table_path(a);
+    let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
+    let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
+    let table = FunctionTable::load(&tp).with_context(|| tp.display().to_string())?;
+    let plugins = open_load_order(&a.lo)?;
+    let lo = LoadOrder::new(&plugins)?;
+    let schema = Schema::load_dir(&a.schema)?;
+    let forms = fnv_sim::FormStore::build(&lo, &schema);
+    let refs = fnv_sim::RefTable::build(&lo, &schema);
+    let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
+    fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)
 }
