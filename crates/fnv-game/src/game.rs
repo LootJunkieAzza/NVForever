@@ -33,6 +33,7 @@ pub mod event {
     pub const ON_PACKAGE_DONE: u16 = 0x10;
     pub const ON_PACKAGE_CHANGE: u16 = 0x14;
     pub const ON_LOAD: u16 = 0x15;
+    pub const ON_TRIGGER: u16 = 0x18;
     pub const ON_TRIGGER_ENTER: u16 = 0x1A;
     pub const ON_TRIGGER_LEAVE: u16 = 0x1B;
 }
@@ -740,7 +741,8 @@ impl<'a> Game<'a> {
         let speaker = speaker.or(def.speaker);
         let pass = self.conditions_pass(&def.conditions, speaker, Some(FormId::PLAYER_REF), &format!("INFO {info}"));
         if !pass && !force {
-            return Err(format!("the conditions of {info} do not pass (say_info with force to run it anyway)"));
+            let why = self.explain_conditions(&def.conditions, speaker, Some(FormId::PLAYER_REF));
+            return Err(format!("the conditions of {info} do not pass: {}", why.join("; ")));
         }
         for u in [def.begin, def.end].into_iter().flatten() {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: speaker });
@@ -787,6 +789,31 @@ impl<'a> Game<'a> {
             results.push((c.cmp.test(v, rhs), c.or));
         }
         cond::combine(&results)
+    }
+
+    /// Each condition with its value, for diagnostics ("GetStage(0x…) = 10 == 20: false").
+    pub fn explain_conditions(&mut self, conds: &[Condition], subject: Option<FormId>, target: Option<FormId>) -> Vec<String> {
+        let data = self.data;
+        let mut out = Vec::new();
+        for c in conds {
+            let on = match c.run_on {
+                RunOn::Subject => subject,
+                RunOn::Target => target,
+                RunOn::Reference(r) => r.map(FormId),
+                RunOn::LinkedReference => subject.and_then(|s| self.world.placed.get(s)).and_then(|p| p.linked),
+                RunOn::CombatTarget | RunOn::Other(_) => None,
+            };
+            let v = self.condition_value(c, on, "explain");
+            let rhs = match c.rhs {
+                Operand::Value(x) => x,
+                Operand::Global(Some(g)) => self.world.global(FormId(g)).map(|v| v as f64).unwrap_or(0.0),
+                Operand::Global(None) => 0.0,
+            };
+            let name = data.table.get(c.opcode()).map(|f| f.name.clone()).unwrap_or_else(|| format!("0x{:04X}", c.opcode()));
+            let args: Vec<String> = c.params.iter().map(|a| arg_json(data, a).to_string()).collect();
+            out.push(format!("{name}({}) = {v} {:?} {rhs}: {}{}", args.join(", "), c.cmp, c.cmp.test(v, rhs), if c.or { " OR" } else { "" }));
+        }
+        out
     }
 
     fn condition_value(&mut self, c: &Condition, on: Option<FormId>, label: &str) -> f64 {

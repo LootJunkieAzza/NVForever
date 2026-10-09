@@ -159,6 +159,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x104F, "GetQuestVariable", Impl(quest::get_quest_variable)),
         (0x1035, "GetScriptVariable", Impl(quest::get_script_variable)),
         (0x11DC, "SetQuestDelay", Impl(quest::set_quest_delay)),
+        (0x1071, "CompleteQuest", Impl(quest::complete_quest)),
         // References.
         (0x1021, "Enable", Impl(refs::enable)),
         (0x1022, "Disable", Impl(refs::disable)),
@@ -304,6 +305,12 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x106E, "GetCurrentAIPackage", Stub("AI packages")),
         (0x108F, "GetCurrentAIProcedure", Stub("AI packages")),
         (0x10A1, "GetIsCurrentPackage", Stub("AI packages")),
+        (0x10A2, "IsCurrentFurnitureRef", Stub("AI (furniture)")),
+        (0x1065, "IsWeaponOut", Stub("combat (weapon drawn)")),
+        (0x106C, "GetWeaponAnimType", Stub("combat (weapon)")),
+        (0x111E, "IsSneaking", Stub("movement (sneaking)")),
+        (0x1032, "GetTalkedToPC", Stub("dialogue")),
+        (0x1245, "ShowLoveTesterMenuParams", Stub("menus (Vigor Tester)")),
     ]
 }
 
