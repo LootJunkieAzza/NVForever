@@ -646,6 +646,13 @@
   "MISC": {
    "name": "Misc. Item",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Quest Item"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(MISC) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Bit 10 (0x400) is also 'Quest item' in the GECK wiki GetFormFlag bit table [owner export 2026-10-07]."
+   },
    "subrecords": {
     "YNAM": {
      "name": "Sound - Pick Up",
@@ -676,6 +683,13 @@
   "KEYM": {
    "name": "Key",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Quest Item"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(KEYM) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Bit 10 (0x400) is also 'Quest item' in the GECK wiki GetFormFlag bit table [owner export 2026-10-07]."
+   },
    "subrecords": {
     "YNAM": {
      "name": "Sound - Pick Up",
@@ -706,6 +720,15 @@
   "LIGH": {
    "name": "Light",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Quest Item",
+     "16": "Random Anim Start",
+     "25": "Obstacle"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(LIGH) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Bit 10 (0x400) is also 'Quest item' in the GECK wiki GetFormFlag bit table [owner export 2026-10-07]."
+   },
    "subrecords": {
     "DATA": {
      "name": "Data",
@@ -792,6 +815,13 @@
   "WEAP": {
    "name": "Weapon",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Quest Item"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(WEAP) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Bit 10 (0x400) is also 'Quest item' in the GECK wiki GetFormFlag bit table [owner export 2026-10-07]."
+   },
    "subrecords": {
     "EAMT": {
      "name": "Enchantment Capacity",
@@ -1142,6 +1172,14 @@
   "ARMO": {
    "name": "Armor",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Quest Item",
+     "19": "Has Platform Specific Textures"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(ARMO) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Bit 10 (0x400) is also 'Quest item' in the GECK wiki GetFormFlag bit table [owner export 2026-10-07]."
+   },
    "subrecords": {
     "BMDT": {
      "name": "Biped Data",
@@ -1340,6 +1378,13 @@
   "AMMO": {
    "name": "Ammunition",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Quest Item"
+    },
+    "confidence": "documented",
+    "note": "GECK wiki IsQuestItem / SetQuestObject [owner export 2026-10-07]: Ammo (41) is among the form types that can be quest items, and GetFormFlag gives bit 10 (1024) as 'Quest item'. xEdit gives AMMO no record flag list, so the bit is unnamed there."
+   },
    "subrecords": {
     "YNAM": {
      "name": "Sound - Pick Up",
@@ -1445,6 +1490,13 @@
   "ALCH": {
    "name": "Ingestible",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Quest Item"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(ALCH) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Bit 10 (0x400) is also 'Quest item' in the GECK wiki GetFormFlag bit table [owner export 2026-10-07]."
+   },
    "subrecords": {
     "YNAM": {
      "name": "Sound - Pick Up",
@@ -1512,6 +1564,13 @@
   "BOOK": {
    "name": "Book",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Quest Item"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas (dev-4.1.6), wbRecord(BOOK) flag list; bit index = bit number (wbInterface.pas wbFlagsList). Bit 10 (0x400) is also 'Quest item' in the GECK wiki GetFormFlag bit table [owner export 2026-10-07]."
+   },
    "subrecords": {
     "YNAM": {
      "name": "Sound - Pick Up",
@@ -2002,6 +2061,13 @@
   "IMOD": {
    "name": "Item Mod",
    "confidence": "documented",
+   "header_flags": {
+    "bits": {
+     "10": "Quest Item"
+    },
+    "confidence": "documented",
+    "note": "GECK wiki IsQuestItem / SetQuestObject [owner export 2026-10-07]: Weapon Mod (103) is among the form types that can be quest items, and GetFormFlag gives bit 10 (1024) as 'Quest item'. xEdit gives IMOD no record flag list, so the bit is unnamed there."
+   },
    "subrecords": {
     "YNAM": {
      "name": "Sound - Pick Up",
