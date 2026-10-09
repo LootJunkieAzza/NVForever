@@ -370,7 +370,7 @@ fn main() -> AppExit {
             }),
     )
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
-    .add_plugins(imagespace::ImageSpacePlugin)
+    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
