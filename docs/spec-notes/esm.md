@@ -21,6 +21,39 @@ form version u16, version-control u16. The data that follows is `data size` byte
 - Flag 0x00040000: the data is a u32 uncompressed size followed by a zlib stream
   [documented][observed: 33,179 compressed records in FalloutNV.esm].
 - Flag 0x1 on the first record (TES4) marks a master file [documented][observed].
+- Flag 0x20 marks a deleted record [documented: xEdit wbFlagsList names bit 5 "Deleted"
+  for every record type].
+
+**Record header flags per record type.** The other bits of the flags field mean
+different things per record type. xEdit gives each record type its own list of named
+bits (`wbRecord(<sig>, …, wbFlags(wbFlagsList([bit, name, …])))`, bit numbers counted
+from 0 [documented: wbDefinitionsFNV.pas and wbInterface.pas `wbFlagsList`, dev-4.1.6]);
+the GECK wiki's GetFormFlag/SetFormFlag pages print one merged table of all of them
+[documented: GECK wiki GetFormFlag, owner export 2026-10-07]. NVForever keeps these
+names as data: a record entry in `schemas/fnv` may carry `header_flags` (format in
+`schemas/README.md`), read through `Schema::header_flag` and printed by `fnvtool esm
+decode` as `flag_names`. The container-level bits the reader itself needs (master,
+deleted, compressed) stay in code (`raw::record_flags`).
+
+- **Quest Item, bit 10 (0x400)** on item records [documented: xEdit flag lists of WEAP,
+  ARMO, ALCH, BOOK, KEYM, MISC and LIGH; the GECK wiki IsQuestItem and SetQuestObject
+  pages list Ammo and Weapon Mod among the form types that can be quest items, and
+  GetFormFlag names bit 10 "Quest item", so AMMO and IMOD carry the same name in the
+  schema, although xEdit gives those two types no flag list]. The same bit means
+  "Persistent" on placed references (REFR/ACHR/ACRE) [documented: GECK wiki GetFormFlag;
+  `fnv_sim::refs::FLAG_PERSISTENT`]. NOTE, CHIP, CCRD and CMNY have no quest flag in
+  either source; non-item records with the bit (ACTI, CONT, DOOR, NPC_, CREA, …) are not
+  named in the schema yet.
+- In the ten masters, bit 10 is set on 339 winning item records: MISC 244, KEYM 68, WEAP
+  12, ARMO 10, ALCH 4, BOOK 1; on no AMMO, IMOD, LIGH, NOTE, CHIP, CCRD or CMNY record
+  [observed: `fnvtool sim forms`, `quest_items`, 2026-10-09]. Examples: The Platinum Chip
+  (MISC 0x001164FB), Doc Hoff's Supply Key (KEYM 0x00068E8D), the snow globes, Boone's
+  Beret (ARMO 0x000B7F53), the Dead Money collar (ARMO 0x01006E8F). The Pip-Boy 3000 and
+  Pip-Boy Glove do not carry it (they are hidden by the ARMO "Non-Playable" flag
+  instead). Other bits set on item records: ALCH bit 29 (15), ARMO bit 19 (2, "Has
+  Platform Specific Textures"), LIGH bit 16 (9, "Random Anim Start"), WEAP bits 27 (9)
+  and 29 (23) [observed]; xEdit calls ALCH 29 and WEAP 27/29 "Unknown", so the schema
+  leaves them unnamed.
 
 **Group header, 24 bytes** [documented][observed]: `GRUP`, total size u32 (including
 this header), label (4 bytes), group type i32, then four u16s (stamp, unknown,
@@ -72,9 +105,10 @@ Subrecords [documented][observed]:
   those FormIDs do not exist in FalloutNV.esm. LonesomeRoad injects one AVIF the same
   way. The engine must accept new forms in a master's ID space.
 - **Out-of-range index** [observed]: GunRunnersArsenal.esm has one REFR with FormID
-  0x02000801 although it has only one master (valid indices 0 and 1). What the game does
-  with it is unknown [hypothesis: treated as the file's own index, or dropped]. The
-  loader reports it as `unmappable`.
+  0x02000801 although it has only one master (valid indices 0 and 1). The game treats the
+  index as the file's own [observed in game, 2026-10-09; see "Cross-check against
+  xEdit"]. Our loader still reports the record as `unmappable` and leaves it out of the
+  index (change proposed, see below).
 - FormIDs below 0x800 in the first master are reserved for engine built-ins
   [hypothesis, community knowledge]; references into that range need not resolve to a
   record.
@@ -89,7 +123,70 @@ Subrecords [documented][observed]:
   the single-byte explanation is a hypothesis]. Either the shipped file has this defect
   or the user's copy is damaged — **verify the SHA-256 against a second copy or after a
   Steam "Verify integrity of game files"**. The reader accepts such streams when the
-  output size matches, and reports them.
+  output size matches, and reports them. Re-hashed read-only on 2026-10-09: the owner's
+  current `Data\FalloutNV.esm` (245,650,747 bytes) still has SHA-256
+  `50991d36804b7d1e70df1afd7471b72f0e29d1b456ee2516a9717c002564e7c1`, the value the
+  anomaly was first found in [observed]; telling a shipped defect from local damage still
+  needs a Steam "verify" (owner-only) or a second copy.
+
+## Cross-check against xEdit (M1)
+
+The owner's FNVEdit export (`tools/capture/xedit/export_inventory.pas`, private goldens
+`esm/<Plugin>.xedit.inventory.json`) covers all 10 masters, 629,788 records. Type,
+EditorID and FULL agree with `fnvtool` and with the independent `oracle_esm.py` on every
+record except **four rows** (2026-10-09) [observed]. In all four, both of our readers
+report what the file holds and the export shows xEdit's own normalisation:
+
+| Plugin | Record | File holds | xEdit export | Ours = oracle |
+|---|---|---|---|---|
+| FalloutNV.esm | DIAL 0x00152CCA | PNAM, DATA only; **no EDID** | `edid: ""` | `edid: null` |
+| DeadMoney.esm | RACE 0x01005819 `Christine` | EDID, DESC, DATA, ...; **no FULL** | `full: ""` | `full: null` |
+| OldWorldBlues.esm | CLAS 0x0101533F `NVDLC03SinkVendorClass` | EDID, DESC, DATA, ATTR; **no FULL** | `full: ""` | `full: null` |
+| GunRunnersArsenal.esm | REFR stored as **0x02000801** | that FormID | `0x01000801` | `0x02000801` |
+
+- **xEdit adds missing required subrecords as empty ones** [documented: xEdit
+  `Core/wbImplementation.pas`, branch dev-4.1.6, the record-loading code right after
+  `mrDef.AfterLoad`: for a record that is neither deleted nor a partial form, every member
+  the record definition marks *required* and the file lacks is added as an empty element,
+  logged as "Adding missing record"]. In `wbDefinitionsFNV.pas` DIAL starts with
+  `wbEDIDReqKC`, RACE and CLAS with `wbEDIDReq, wbFULLReq` [documented]. The export script
+  tests presence (`ElementExists` / `ElementBySignature`), finds the placeholder and writes
+  `""`. Check over all 10 masters [observed]: these three are the *only* records that lack
+  an EDID or FULL which xEdit's definition marks as required; all 1,126,037 other absent
+  EDID/FULL values (optional in xEdit) are `null` in the export, as in ours. The file has
+  no such subrecord, so `null` (absent) is the faithful reading; the difference is xEdit
+  normalisation, not data.
+- **xEdit folds an out-of-range master index into the file's own index** [documented:
+  xEdit `wbImplementation.pas`, `TwbMainRecord.DoGetFixedFormID`: a file index greater
+  than or equal to the plugin's master count is replaced by the plugin's own index]. GRA
+  has one master, so 0x02000801 is shown as 0x01000801. Our inventory keeps the stored value
+  (it describes the file) [observed]. Details of that REFR [observed]: its
+  base (NAME) is 0x02000800, also out of range (GRA's own 0x01000800 is the WEAP
+  `WeapNVDLC00Faderator`, "The Faderator"); it sits in the temporary children of
+  `TestMentats` (0x00108BED, FalloutNV.esm's "Mentats Test Level"); DATA position
+  (2341.27, 2058.89, 6991.75), rotation 0; no other subrecords. A developer test
+  placement saved while the file had one more master is the likely origin [hypothesis].
+  **The game does the same as xEdit** [observed, in-game capture `l1_oob_formid`
+  2026-10-09, `tools/capture/jobs/l1_oob_formid.steps.json`, owner's load order with GRA
+  at index 05]: after `coc TestMentats`, the cell holds a reference `05000801`, enabled,
+  base `05000800` (GRA's own WEAP), within 0.005 units of the stored position, and it is
+  the only reference in the cell whose source mod is GRA (99 references in the cell). So
+  the out-of-range index 02 is read as "this file", not as load-order slot 02
+  (HonestHearts) and not dropped; the base FormID in NAME is mapped the same way. Before
+  the cell was loaded, `BuildRef 5 2049` gave no form (a temporary reference exists only
+  while its cell is loaded [hypothesis]). Making `LoadOrder::to_global` do the same (index
+  master-count + 1 observed; larger ones assumed the same [hypothesis]) was tried: it adds
+  this one reference to `TestMentats` (98 instead of 97) and so fails
+  `L3.world.cells.interiors` / `L3.world.refs.interiors`, whose golden comes from
+  `oracle_world.py`, which drops such records like our old rule. Since the oracle there
+  follows the old reading, not the game, the change waits for an owner decision to
+  update oracle_world.py and regenerate that golden together with the loader.
+
+Consequence: `L1.esm.inventory_xedit.{FalloutNV,DeadMoney,OldWorldBlues,GunRunnersArsenal}`
+fail by exactly these rows (scores 0.999998, 0.999975, 0.999981, 0.997433) and the other
+six pass with every row equal. Copying xEdit's behaviour into our reader would make the
+inventory say something the file does not, so the reader stays as it is; the comparator,
+scenarios and goldens are untouched (parity-lab/AGENT.md).
 
 ## Round-trip guarantees (tested)
 
@@ -101,16 +198,34 @@ Subrecords [documented][observed]:
 ## Unknowns (need analysis or the original game)
 
 1. Field-level layouts for the (record, subrecord) pairs not yet in `schemas/fnv`
-   (FalloutNV.esm: 322 of 1,155 pairs, 6.3% of subrecord instances; biggest: PACK, NAVM,
-   NAVI, IDLE) — tracked by `fnvtool esm coverage` as the work queue.
+   (FalloutNV.esm, 2026-10-09: 183 of 1,155 pairs, 5.3% of subrecord instances; biggest:
+   PACK, NAVM, NAVI, DIAL, TERM) — tracked by `fnvtool esm coverage` as the work queue.
 2. Order-dependent subrecords (same signature meaning different things depending on what
    precedes it, e.g. condition blocks, model sub-structures) — schema format v1 has no
    context rules yet.
 3. GMST `DATA` type depends on the first letter of the Editor ID (s/i/f) [documented in
-   xEdit as a union]; schema v1 cannot express this, so GMST DATA stays undecoded.
-4. Engine handling of the out-of-range FormID in GRA, of the bad-checksum LAND, and of
-   the dangling reference DeadMoney INFO 0x01011B23 → 0x010108DD (no such record in any
-   loaded file) [observed].
+   xEdit as a union]; schema v1 has only size-decided unions (`{"union": [...]}`, used for
+   WATR DATA), not EditorID-decided ones, so GMST DATA stays undecoded.
+4. Engine handling of the bad-checksum LAND and of the dangling reference DeadMoney INFO
+   0x01011B23 PNAM ("Previous INFO" [documented: xEdit INFO]) → 0x010108DD (no such
+   record in any loaded file) [observed]. In game the INFO exists (`BuildRef 1 72483` →
+   `01011B23`) and 0x010108DD does not (`BuildRef 1 67805` → no form) [observed,
+   `l1_oob_formid`]; whether the dangling "previous" link changes the topic's response
+   order is not observed. The INFO is the last line of topic `NVDLC01RadioElijahEnd`
+   (DIAL 0x01011B12, quest `NVDLC01RadioElijah` 0x0100F2BB, Elijah trapped in the vault
+   at the end of Dead Money; its result script sets `bEndBreathing`). Capture plan: a job
+   that needs a save at the end of Dead Money (none of the three capture saves is there),
+   so it needs the owner: from such a save, let the radio play and record, per game
+   loop, `NVDLC01RadioElijah.bEndBreathing` and the topic's spoken INFO order, then
+   compare with the order our loader builds when PNAM points nowhere.
+   The out-of-range GRA FormID is settled (Cross-check section above).
+7. FalloutNV.esm has 18 ANIO records whose DATA ("Animation", an IDLE [documented:
+   xEdit ANIO]) is 0x0100xxxx although the file has no masters, e.g. ANIO 0x0009266D →
+   0x0100BA20; folded to the file itself they name no record (no IDLE with those low IDs
+   in any master either) [observed: `fnvtool esm loadorder --schema`, 2026-10-09].
+   The same report finds 6 REGN and 7 WTHR FormID fields in FalloutNV.esm that name no
+   record (e.g. REGN 0x00174D19 → 0x000D705D, WTHR 0x00092BC4 → 0x000922EA) [observed];
+   which subrecords they are in is not analysed yet (layouts from the sky workstream).
 5. Version-control fields and group stamp/unknown fields — preserved, not interpreted.
 6. Two QUST `DATA` subrecords in FalloutNV.esm (e.g. 0x0001E5CA) are 2 bytes long, while
    the documented layout needs at least 4 [observed]; engine behaviour unknown.

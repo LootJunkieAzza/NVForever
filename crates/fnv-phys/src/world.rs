@@ -311,7 +311,8 @@ impl PhysWorld {
     pub fn insert_terrain(&mut self, t: PreparedTerrain) {
         let grid = t.grid;
         self.remove_terrain(grid);
-        let c = t.collider.user_data(Owner::Terrain { x: grid.0, y: grid.1 }.encode());
+        // Dynamic bodies rest on the terrain's contact shell too (see `TERRAIN_SHELL`).
+        let c = t.collider.user_data(Owner::Terrain { x: grid.0, y: grid.1 }.encode()).contact_skin(TERRAIN_SHELL * self.k);
         let h = self.w.insert_collider(c, None);
         self.terrain.insert(grid, h);
         self.dirty = true;
