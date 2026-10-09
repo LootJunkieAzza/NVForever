@@ -1,5 +1,6 @@
 //! `fnvtool actor …`: actor appearance (workstream 5, crate `fnv-actor`). Contract:
-//! docs/spec-notes/actors.md §5; `actor anims` (module `actor_anims`): docs/spec-notes/animation.md §6.
+//! docs/spec-notes/actors.md §5; `actor anims` (module `actor_anims`): docs/spec-notes/animation.md §6; `actor locomotion`
+//! (module `actor_locomotion`): docs/spec-notes/actors.md §8.5.
 
 use crate::esm_cmd::open_load_order;
 use crate::ActorCmd;
@@ -69,6 +70,11 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
             v["archives"] = json!(vfs.archives().collect::<Vec<_>>());
             v["condition_function_names"] = json!(fn_names.len());
             Ok(v)
+        }
+        ActorCmd::Locomotion { data_dir, nif_schema, folder, samples } => {
+            let nif = fnv_nif::Schema::load_dir(&nif_schema).with_context(|| nif_schema.display().to_string())?;
+            let vfs = fnv_vfs::Vfs::open_default(&data_dir).with_context(|| data_dir.display().to_string())?;
+            Ok(crate::actor_locomotion::report(&vfs, &nif, &folder, samples))
         }
     }
 }

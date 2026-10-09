@@ -1,39 +1,42 @@
 //! Placed NPCs drawn as one assembled entity each (workstream 5,
 //! docs/design/static-actors.md): `fnv-actor` decides the parts, `nvf_assets::actor`
-//! assembles them on one skeleton, frozen in the bind pose by default or playing an idle
-//! clip with `--actor-pose idle` (docs/spec-notes/actors.md §7); FaceGen shapes the faces
-//! (`facegen.rs`).
+//! assembles them on one skeleton, playing its locomotion clips with `--actor-pose idle`
+//! (the default; docs/spec-notes/actors.md §7–8, `locomotion.rs`) or frozen in the bind
+//! pose; FaceGen shapes the faces (`facegen.rs`).
 
 use bevy::math::Affine3A;
 use bevy::prelude::*;
+use fnv_actor::locomotion::{Blend, Body, Move};
 use fnv_actor::{ActorForms, Appearance, Resolver};
 use fnv_esm::{LoadOrder, Schema};
 use fnv_sim::{FormId, FormStore};
-use nvf_assets::actor::{clip_binding, play_on_actor, spawn_actor, ActorCtx, PartUse};
+use nvf_assets::actor::{blend_player, spawn_actor, ActorCtx, PartUse};
 use nvf_play::RefVisual;
-use std::collections::HashSet;
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use crate::facegen::FaceGenCache;
+use crate::locomotion::{simulate, walk_test_at, walk_test_period, ClipSet, Locomotion, WalkTest};
 
 /// How placed actors are posed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 pub enum ActorPose {
     /// The skeleton's bind pose, frozen (`--actor-pose bind`).
     Bind,
-    /// The skeleton's idle clip in a loop ([`idle_clip`]); the default since 2026-10-09
-    /// (owner decision, docs/design/static-actors.md).
+    /// The skeleton's locomotion clips (`locomotion.rs`): the idle in a loop while an
+    /// actor stands; the default since 2026-10-09 (owner decision,
+    /// docs/design/static-actors.md).
     #[default]
     Idle,
 }
 
-/// The idle clip played on a skeleton: `locomotion\mtidle.kf` in the skeleton's folder
-/// [observed: `characters\_male\locomotion\mtidle.kf` beside
-/// `characters\_male\skeleton.nif`; hypothesis: the folder rule for other skeletons].
-pub fn idle_clip(skeleton: &str) -> String {
-    let s = fnv_vfs::normalize(skeleton);
-    let dir = s.rfind('\\').map_or("", |i| &s[..=i]);
-    format!("{dir}locomotion\\mtidle.kf")
+/// `--actor-walk-test`: speed (units/s) and how far from the start position (game units;
+/// 0 = any distance) actors take part.
+#[derive(Debug, Clone, Copy)]
+pub struct WalkTestArgs {
+    pub speed: f32,
+    pub radius: f32,
+    pub center: Vec3,
 }
 
 /// Where in its clip an actor starts (0–1): spread by reference FormID so neighbours do
@@ -51,12 +54,15 @@ pub struct ActorWorld {
     pub facegen_enabled: bool,
     pub facegen: Mutex<FaceGenCache>,
     pub pose: ActorPose,
-    /// With [`ActorPose::Idle`]: hold every actor at this clip time (seconds from the
-    /// clip's start) instead of playing (screenshots).
+    /// With [`ActorPose::Idle`]: hold every actor at this time instead of playing
+    /// (screenshots): the idle's clip time, or with the walk test the script time.
     pub pose_time: Option<f32>,
-    /// (skeleton, clip) pairs whose track binding was reported.
-    reported: Mutex<HashSet<(String, String)>>,
+    pub walk_test: Option<WalkTestArgs>,
+    /// Locomotion clip sets by (skeleton, body); `None` when no idle was found.
+    sets: Mutex<ClipSets>,
 }
+
+type ClipSets = HashMap<(String, Body), Option<Arc<ClipSet>>>;
 
 impl ActorWorld {
     pub fn build(lo: &LoadOrder, schema: &Schema) -> ActorWorld {
@@ -67,7 +73,8 @@ impl ActorWorld {
             facegen: Mutex::new(FaceGenCache::default()),
             pose: ActorPose::Bind,
             pose_time: None,
-            reported: Mutex::new(HashSet::new()),
+            walk_test: None,
+            sets: Mutex::new(HashMap::new()),
         }
     }
 
@@ -83,18 +90,22 @@ pub struct ActorStats {
     pub parts_missing: usize,
     /// Skinned shapes whose bones the skeleton lacks (drawn unskinned).
     pub unbound_shapes: usize,
-    /// Actors playing a clip, and those whose clip could not be loaded.
+    /// Actors playing clips, those whose idle could not be loaded, and those under the
+    /// walk test.
     pub animated: usize,
     pub clip_missing: usize,
+    pub walking: usize,
 }
 
 /// Spawn the actor placed by `reference` under `parent` with the reference transform
-/// `rt` (parent space). Returns whether anything was drawn.
+/// `rt` (parent space); `at` is its position in game space. Returns whether anything was
+/// drawn.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn(
     commands: &mut Commands,
     parent: Entity,
     rt: Affine3A,
+    at: Vec3,
     reference: u32,
     base: u32,
     world: &ActorWorld,
@@ -177,31 +188,46 @@ pub fn spawn(
         commands.entity(*e).insert(RefVisual(reference));
     }
     if world.pose == ActorPose::Idle {
-        let path = idle_clip(&a.skeleton);
-        match ctx.clip(&path) {
-            Some(clip) => {
-                let pair = (fnv_vfs::normalize(&a.skeleton), path.clone());
-                if world.reported.lock().expect("reported").insert(pair) {
-                    let (bound, unbound) = clip_binding(&skel, &clip);
-                    info!(
-                        "actor pose: {path} ({:.2}s) on {} ({} nodes): {} transform tracks ({} others skipped), {} drive skeleton nodes, {} do not {:?}; accumulation root {:?} held at the identity: {}",
-                        clip.stop - clip.start,
-                        a.skeleton,
-                        skel.names.len(),
-                        clip.tracks.len(),
-                        clip.skipped,
-                        bound.len(),
-                        unbound.len(),
-                        unbound,
-                        clip.accum_root,
-                        clip.undriven_accum_root().is_some()
-                    );
+        let body = if a.female { Body::Female } else { Body::Male };
+        let key = (fnv_vfs::normalize(&a.skeleton), body);
+        let set = world
+            .sets
+            .lock()
+            .expect("clip sets")
+            .entry(key)
+            .or_insert_with(|| {
+                let (set, line) = ClipSet::load(ctx, &a.skeleton, &skel, body);
+                info!("actor locomotion: {line}");
+                set.clips.contains_key(&Move::Idle).then(|| Arc::new(set))
+            })
+            .clone();
+        match set {
+            Some(set) => {
+                let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
+                let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
+                let mut player = blend_player(&spawned, &skel);
+                let mut ec = commands.entity(spawned.root);
+                if let Some(w) = walk {
+                    let base = Transform::from_matrix(Mat4::from(rt));
+                    let mut wt = WalkTest { base, speed: w.speed, t: clip_phase(reference) * walk_test_period(w.speed) };
+                    let tr = match world.pose_time {
+                        Some(t) => {
+                            // A repeatable pose: the script and blend run from the start to `t`.
+                            wt.t = 0.0;
+                            lo.hold = true;
+                            simulate(&mut wt, &mut lo, t)
+                        }
+                        None => wt.transform(&walk_test_at(wt.t, w.speed)),
+                    };
+                    ec.insert((tr, wt));
+                    stats.walking += 1;
+                } else if let Some(t) = world.pose_time {
+                    let len = set.info(Move::Idle).map_or(1.0, |c| c.duration).max(f32::EPSILON);
+                    lo.blend = Blend::new(Move::Idle, t / len);
+                    lo.hold = true;
                 }
-                let (phase, hold) = match world.pose_time {
-                    Some(t) => (t / (clip.stop - clip.start).max(f32::EPSILON), true),
-                    None => (clip_phase(reference), false),
-                };
-                play_on_actor(commands, &spawned, &skel, &clip, &path, phase, hold);
+                lo.layers(&mut player);
+                ec.insert((lo, player));
                 stats.animated += 1;
             }
             None => stats.clip_missing += 1,
@@ -215,12 +241,6 @@ pub fn spawn(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn idle_clip_beside_the_skeleton() {
-        assert_eq!(idle_clip(r"Meshes\Characters\_Male\skeleton.nif"), r"meshes\characters\_male\locomotion\mtidle.kf");
-        assert_eq!(idle_clip("skeleton.nif"), r"locomotion\mtidle.kf");
-    }
 
     #[test]
     fn phases_spread_within_the_clip() {

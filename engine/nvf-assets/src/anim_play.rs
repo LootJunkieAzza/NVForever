@@ -24,6 +24,8 @@ pub struct Clip {
     pub skipped: usize,
     /// The sequence's accumulation root (nif.xml NiControllerSequence "Accum Root Name").
     pub accum_root: Option<String>,
+    /// Text keys (time, text).
+    pub text_keys: Vec<(f32, String)>,
 }
 
 impl Clip {
@@ -45,7 +47,14 @@ impl Clip {
             tracks,
             skipped,
             accum_root: seq.accum_root_name.clone().filter(|n| !n.is_empty()),
+            text_keys: seq.text_keys.clone(),
         }
+    }
+
+    /// The transform track of the accumulation root, if one drives it.
+    pub fn accum_track(&self) -> Option<&TransformTrack> {
+        let r = self.accum_root.as_deref()?;
+        self.tracks.iter().find(|(n, _)| n == r).map(|(_, t)| t.as_ref())
     }
 
     /// The accumulation root when no track drives it. Such a clip carries the root's
@@ -120,6 +129,154 @@ impl Playing {
                 tr.scale = Vec3::splat(s);
             }
         }
+    }
+}
+
+/// A clip's tracks bound to a skeleton's node indices, shared by every actor of that
+/// skeleton, with the accumulation-root rule of docs/spec-notes/actors.md §8.2.
+#[derive(Debug)]
+pub struct BoundClip {
+    pub clip: Arc<Clip>,
+    /// (node index, track).
+    pub tracks: Vec<(usize, Arc<TransformTrack>)>,
+    /// The accumulation root's node index, if the skeleton has it.
+    pub root: Option<usize>,
+    /// The index in `tracks` of the root's track, and the root's translation over one
+    /// cycle, which sampling removes so the clip plays in place.
+    pub root_track: Option<(usize, Vec3)>,
+}
+
+impl BoundClip {
+    /// Bind `clip`'s tracks to node indices by name (`node`).
+    pub fn bind(clip: Arc<Clip>, node: impl Fn(&str) -> Option<usize>) -> BoundClip {
+        let tracks: Vec<(usize, Arc<TransformTrack>)> = clip.tracks.iter().filter_map(|(n, t)| Some((node(n)?, t.clone()))).collect();
+        let root = clip.accum_root.as_deref().and_then(&node);
+        let root_track = root.and_then(|r| tracks.iter().position(|(i, _)| *i == r)).map(|k| {
+            let tt = &tracks[k].1;
+            let at = |t: f32| tt.translation.sample(t).map_or(Vec3::ZERO, Vec3::from_array);
+            (k, at(clip.stop) - at(clip.start))
+        });
+        BoundClip { clip, tracks, root, root_track }
+    }
+
+    /// Sequence time at `phase` (0–1 of the cycle).
+    pub fn time_at(&self, phase: f32) -> f32 {
+        self.clip.start + phase * (self.clip.stop - self.clip.start)
+    }
+}
+
+/// One weighted clip of a [`BlendPlayer`].
+#[derive(Debug, Clone)]
+pub struct Layer {
+    pub clip: Arc<BoundClip>,
+    /// Where in the cycle (0–1).
+    pub phase: f32,
+    pub weight: f32,
+}
+
+/// Per node: translation, rotation, scale and the weight gathered so far.
+#[derive(Debug, Clone, Copy)]
+struct Acc {
+    t: Vec3,
+    r: Quat,
+    s: f32,
+    w: f32,
+}
+
+const ACC_NONE: Acc = Acc { t: Vec3::ZERO, r: Quat::IDENTITY, s: 1.0, w: 0.0 };
+
+/// Poses a skeleton from up to two weighted clips (docs/spec-notes/actors.md §8.3): per
+/// node, translations and scales are lerped and rotations nlerped along the shorter arc
+/// by weight; where the weights of the clips that drive a node add up to less than 1, the
+/// rest goes to the node's bind transform. The accumulation root plays in place: a clip
+/// that drives it has its per-cycle travel removed, and one that does not holds it at the
+/// identity. Buffers are allocated once, so posing allocates nothing.
+#[derive(Component, Debug)]
+pub struct BlendPlayer {
+    /// The skeleton's node entities, by node index.
+    pub nodes: Vec<Entity>,
+    /// The nodes' local bind transforms.
+    pub bind: Arc<Vec<Transform>>,
+    pub layers: [Option<Layer>; 2],
+    acc: Vec<Acc>,
+    touched: Vec<usize>,
+}
+
+impl BlendPlayer {
+    pub fn new(nodes: Vec<Entity>, bind: Arc<Vec<Transform>>) -> BlendPlayer {
+        let n = nodes.len();
+        BlendPlayer { nodes, bind, layers: [None, None], acc: vec![ACC_NONE; n], touched: Vec::with_capacity(n) }
+    }
+
+    fn add(&mut self, i: usize, t: Vec3, r: Quat, s: f32, w: f32) {
+        let Some(a) = self.acc.get_mut(i) else { return };
+        if a.w == 0.0 {
+            *a = Acc { t, r, s, w };
+            self.touched.push(i);
+            return;
+        }
+        let f = w / (a.w + w);
+        let r = if a.r.dot(r) < 0.0 { -r } else { r };
+        a.t = a.t.lerp(t, f);
+        a.r = Quat::from_vec4(Vec4::from(a.r).lerp(Vec4::from(r), f));
+        a.s += (s - a.s) * f;
+        a.w += w;
+    }
+
+    /// The blended local transforms (node index, transform) of every node a layer drives;
+    /// returns the number of tracks sampled. `out` is cleared first.
+    pub fn sample(&mut self, out: &mut Vec<(usize, Transform)>) -> usize {
+        out.clear();
+        let mut sampled = 0;
+        let layers = std::mem::take(&mut self.layers);
+        for layer in layers.iter().flatten().filter(|l| l.weight > 0.0) {
+            let (bc, w) = (&layer.clip, layer.weight);
+            let time = cycle_time(bc.time_at(layer.phase), bc.clip.start, bc.clip.stop, bc.clip.cycle_type);
+            let phase = if bc.clip.stop > bc.clip.start { (time - bc.clip.start) / (bc.clip.stop - bc.clip.start) } else { 0.0 };
+            for (j, (i, track)) in bc.tracks.iter().enumerate() {
+                let b = self.bind.get(*i).copied().unwrap_or_default();
+                let mut t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
+                if let Some((rj, per_cycle)) = bc.root_track {
+                    if rj == j {
+                        t -= per_cycle * phase;
+                    }
+                }
+                let r = track.rotation_at(time).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
+                let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
+                self.add(*i, t, r, s, w);
+                sampled += 1;
+            }
+            if let (Some(root), None) = (bc.root, bc.root_track) {
+                self.add(root, Vec3::ZERO, Quat::IDENTITY, 1.0, w);
+            }
+        }
+        self.layers = layers;
+        for &i in &self.touched {
+            let a = self.acc[i];
+            let mut tr = Transform { translation: a.t, rotation: a.r.normalize(), scale: Vec3::splat(a.s) };
+            if a.w < 0.999 {
+                let b = self.bind.get(i).copied().unwrap_or_default();
+                tr.translation = b.translation.lerp(tr.translation, a.w);
+                tr.rotation = b.rotation.slerp(tr.rotation, a.w);
+                tr.scale = b.scale.lerp(tr.scale, a.w);
+            }
+            out.push((i, tr));
+            self.acc[i] = ACC_NONE;
+        }
+        self.touched.clear();
+        sampled
+    }
+
+    /// Pose the nodes: [`Self::sample`] written to their transforms. `scratch` is reused
+    /// between calls.
+    pub fn pose(&mut self, scratch: &mut Vec<(usize, Transform)>, transforms: &mut Query<&mut Transform>) -> usize {
+        let n = self.sample(scratch);
+        for (i, tr) in scratch.iter() {
+            if let Some(Ok(mut t)) = self.nodes.get(*i).map(|e| transforms.get_mut(*e)) {
+                *t = *tr;
+            }
+        }
+        n
     }
 }
 
@@ -209,8 +366,8 @@ pub fn advance_instances(time: Res<Time>, mut playing: Query<&mut Playing>, mut 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fnv_nif::anim::{Channel, Track};
-    use std::f32::consts::FRAC_PI_2;
+    use fnv_nif::anim::{Channel, Key, KeyKind, Keys, Track};
+    use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
     fn seq(tracks: &[&str]) -> Sequence {
         let track = |n: &&str| Track {
@@ -266,6 +423,109 @@ mod tests {
         state.stop();
         assert_eq!(state.pending, [(root, bind_root)]);
         assert!(state.playing.is_none() && state.current.is_none());
+    }
+
+    fn track(t: Channel<3>, r: Channel<4>) -> Arc<TransformTrack> {
+        Arc::new(TransformTrack { translation: t, rotation: r, euler: None, scale: Channel::Static(None) })
+    }
+
+    fn clip(len: f32, tracks: Vec<(&str, Arc<TransformTrack>)>) -> Arc<Clip> {
+        Arc::new(Clip {
+            name: String::new(),
+            start: 0.0,
+            stop: len,
+            frequency: 1.0,
+            cycle_type: 0,
+            tracks: tracks.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+            skipped: 0,
+            accum_root: Some("Bip01".into()),
+            text_keys: Vec::new(),
+        })
+    }
+
+    /// Nodes 1 `Bip01`, 2 `Bip01 NonAccum`, 3 `Other`; node 0 is the actor's root.
+    fn player() -> (BlendPlayer, impl Fn(&str) -> Option<usize>) {
+        let nodes = (1..=4).map(|i| Entity::from_raw_u32(i).unwrap()).collect();
+        let bind = vec![Transform::IDENTITY, Transform::from_xyz(0.0, 0.657, 67.771), Transform::IDENTITY, Transform::from_xyz(5.0, 0.0, 0.0)];
+        let ix = |n: &str| ["Bip01", "Bip01 NonAccum", "Other"].iter().position(|x| *x == n).map(|i| i + 1);
+        (BlendPlayer::new(nodes, Arc::new(bind)), ix)
+    }
+
+    fn walk_and_idle(ix: &impl Fn(&str) -> Option<usize>) -> (Arc<BoundClip>, Arc<BoundClip>) {
+        let travel = Keys {
+            kind: KeyKind::Linear,
+            keys: [(0.0, [0.0, 0.0, 0.0]), (0.5, [0.0, 52.0, 0.0]), (1.0, [0.0, 100.0, 0.0])]
+                .map(|(time, value)| Key { time, value, forward: [0.0; 3], backward: [0.0; 3], tbc: [0.0; 3] })
+                .to_vec(),
+        };
+        let walk = clip(
+            1.0,
+            vec![
+                ("Bip01", track(Channel::Keys(travel), Channel::Static(Some([1.0, 0.0, 0.0, 0.0])))),
+                ("Bip01 NonAccum", track(Channel::Static(Some([0.0, 0.0, 65.0])), Channel::Static(Some([1.0, 0.0, 0.0, 0.0])))),
+                ("Other", track(Channel::Static(Some([9.0, 0.0, 0.0])), Channel::Static(None))),
+            ],
+        );
+        let (s, c) = (FRAC_PI_4.sin(), FRAC_PI_4.cos());
+        let idle = clip(4.0, vec![("Bip01 NonAccum", track(Channel::Static(Some([0.0, 0.0, 61.0])), Channel::Static(Some([c, 0.0, 0.0, s])))), ("Missing", track(Channel::Static(None), Channel::Static(None)))]);
+        (Arc::new(BoundClip::bind(walk, ix)), Arc::new(BoundClip::bind(idle, ix)))
+    }
+
+    #[test]
+    fn bound_clip_root_motion() {
+        let (_, ix) = player();
+        let (walk, idle) = walk_and_idle(&ix);
+        assert_eq!(walk.tracks.len(), 3);
+        assert_eq!((walk.root, walk.root_track), (Some(1), Some((0, Vec3::new(0.0, 100.0, 0.0)))));
+        // A track whose node the skeleton lacks is dropped; the idle drives no root.
+        assert_eq!((idle.tracks.len(), idle.root, idle.root_track), (1, Some(1), None));
+        assert_eq!(walk.time_at(0.25), 0.25);
+    }
+
+    #[test]
+    fn one_clip_plays_in_place() {
+        let (mut p, ix) = player();
+        let (walk, idle) = walk_and_idle(&ix);
+        let mut out = Vec::new();
+        p.layers[0] = Some(Layer { clip: walk, phase: 0.5, weight: 1.0 });
+        assert_eq!(p.sample(&mut out), 3);
+        let get = |out: &Vec<(usize, Transform)>, i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1;
+        // The travel is removed: 52 at half the cycle less half of 100.
+        assert!((get(&out, 1).translation - Vec3::new(0.0, 2.0, 0.0)).length() < 1e-4);
+        assert_eq!(get(&out, 2).translation, Vec3::new(0.0, 0.0, 65.0));
+        // A channel with no value keeps the bind transform's.
+        assert_eq!(get(&out, 3).translation, Vec3::new(9.0, 0.0, 0.0));
+        assert_eq!(get(&out, 3).rotation, Quat::IDENTITY);
+        // An idle without a root track holds the root at the identity.
+        p.layers[0] = Some(Layer { clip: idle, phase: 0.0, weight: 1.0 });
+        p.sample(&mut out);
+        assert_eq!(get(&out, 1), Transform::IDENTITY);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn two_clips_blend_by_weight() {
+        let (mut p, ix) = player();
+        let (walk, idle) = walk_and_idle(&ix);
+        let mut out = Vec::new();
+        p.layers = [Some(Layer { clip: idle, phase: 0.0, weight: 0.75 }), Some(Layer { clip: walk, phase: 0.0, weight: 0.25 })];
+        p.sample(&mut out);
+        let get = |i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1;
+        assert_eq!(get(1), Transform::IDENTITY);
+        let na = get(2);
+        assert!((na.translation.z - (0.75 * 61.0 + 0.25 * 65.0)).abs() < 1e-4);
+        // 90° in the idle, 0° in the walk: three quarters of the way, 67.5° (nlerp is
+        // close to slerp here).
+        let (axis, angle) = na.rotation.to_axis_angle();
+        assert!(axis.z > 0.99 && (angle.to_degrees() - 67.5).abs() < 2.0, "{}", angle.to_degrees());
+        // Only the walk drives `Other`: a quarter of its pose, the rest the bind pose.
+        assert!((get(3).translation.x - (0.75 * 5.0 + 0.25 * 9.0)).abs() < 1e-4);
+        // Weights are not kept between frames.
+        p.layers[1] = None;
+        p.layers[0].as_mut().unwrap().weight = 1.0;
+        p.sample(&mut out);
+        assert_eq!(out.len(), 2);
+        assert!((out.iter().find(|(j, _)| *j == 2).unwrap().1.translation.z - 61.0).abs() < 1e-5);
     }
 
     #[test]

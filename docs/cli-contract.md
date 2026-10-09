@@ -354,3 +354,10 @@ docs/spec-notes/actors.md §5 together with the actor appearance notes.
 sequences and skeleton bindings, IDLE records per animation group with the `.kf` they
 name, creature KFFZ/NIFZ lookups) is defined in docs/spec-notes/animation.md §6 together
 with the animation data notes.
+
+# Locomotion clips (workstream 5, part G)
+
+`fnvtool actor locomotion` (`fnv.actor.locomotion/1`: the locomotion clips of a skeleton
+folder per body and stance prefix, and each clip's root motion: accumulation-root
+translation and turn per cycle, ground speed, text keys) is defined in
+docs/spec-notes/actors.md §8.5 together with the locomotion notes.
