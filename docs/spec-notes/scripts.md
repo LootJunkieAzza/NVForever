@@ -456,3 +456,346 @@ Three units have source but were never compiled (no `SCDA`, `compiled_size` 0 an
 `ref_count` larger than their reference list): FalloutNV INFO 0x0015AD0D end, DeadMoney
 TERM 0x0100923D item 0, OldWorldBlues TERM 0x03004902 item 2. They have no text to
 compare (§3.1).
+
+## 4. The interpreter (`fnv_script::vm`, workstream 5B)
+
+The VM runs the IR of §2.8 against a `Host` trait and knows no game rules. The host
+(`fnv-game`, §5–8) says where variables live, what a reference list entry names and what a
+function does. Tests run the VM in strict mode; the game runs it in lenient mode.
+
+### 4.1 Values and storage
+
+- A value is a number (`f64`) or a reference (a load-order FormID, 0 = none).
+- **Float variables keep doubles** [observed: `L5.quest.var_storage`; 16777217, 0.1,
+  123456789.123 and 3000000000.5 read back unchanged; layer5-captures.md §5.5].
+- **Integer variables (`short`, `long`, `int`) truncate toward zero to 32 bits; out of
+  range (or NaN) stores −2147483648** [observed: 2.7 → 2, −2.7 → −2, 40000 → 40000 (no
+  16-bit wrap), 2147483647.5 → 2147483647, ±3000000000.5 → −2147483648]. The storage type
+  is the target script's `SLSD` declaration; the bytecode letter (`s`/`f`) decides only
+  when the target does not declare the index (§4.6).
+- **Number literals**: a literal written without a decimal point is read as an integer
+  that saturates at 2147483647; one with a point is a double; the compiler writes a
+  negative literal as the positive one and `~` [observed: `3000000000` stores
+  2147483647 in float and integer variables alike; `-3000000000` gives −2147483647].
+  `vm::literal` re-reads the literal's stored text (§2.3), not its parsed value.
+- A reference read as a number is its FormID; a whole positive number used where a
+  reference is expected is taken as a FormID [hypothesis].
+
+### 4.2 Expressions and statements
+
+- Postfix evaluation with a stack, left to right (§2.3); the compiler already applied the
+  precedence (§3.3). One value must remain, else the script stops with an error.
+- Comparisons give 1 or 0; `&&` and `||` test for non-zero; arithmetic is in double
+  precision; `/` by 0 gives 0; `%` is the remainder of both operands truncated to
+  integers, 0 for a zero divisor [hypothesis, all of this line].
+- `If`/`ElseIf`/`Else`: the first true arm runs, else the `Else` body.
+- `Return` ends the whole run (block or result script), from any depth.
+- **Stray markers** (§2.6) [hypothesis: the engine follows skip counts, and running into
+  a branch marker means "the branch before me was taken, jump to the end of the
+  chain"]: an `EndIf` with nothing open does nothing; an `Else` or `ElseIf` reached in
+  normal flow skips the following statements of its list up to and including the next
+  stray `EndIf` there; with none, the list ends and the enclosing `If` is left. The same
+  rule covers the continuation markers kept inside an `Else` body (a later `ElseIf` of
+  the same chain): reaching one ends the chain. Under this reading, the 16 stray
+  `ElseIf` after a closed chain never run their bodies: e.g. FalloutNV SCPT 0x00123191's
+  `elseif GetDead == 1 / Activate` after the hostage's `OnActivate` chain is dead code.
+  Capturing one of these units in game would settle it.
+- **Off-by-one skip counts** (§2.6, six units): the structured reading runs, which per
+  §2.6 runs the same statements as a jump by the stored count [hypothesis, from 5A].
+- Calls: the explicit reference (`Ref.Func`, the `0x001C` prefix or `r` before `X`) is
+  resolved first, then every argument (references through the reference list; `SCRV`
+  entries read the local variable), then `Host::call`. A call on an empty reference
+  variable is skipped with a `call_failed` trace event [hypothesis].
+- **Unknown opcodes** (not in `functions.json`; one in the masters, 0x127C, §2.6) and
+  `Raw` pieces: strict runs fail; lenient runs skip the call (value 0) and trace
+  `skipped`.
+- **Step budget**: each statement and call counts; a run stops after
+  `RunOpts::max_steps` (100,000) with a `script_error`. Scripts have no loops, so only a
+  runaway chain through the host (a stage result setting stages) can reach it. Nested
+  runs (SetStage inside a script, Activate with the block flag) are limited to 256 levels
+  [documented: GECK wiki SetStage, at least 250 recursive SetStage calls work].
+
+### 4.3 Variables of other scripts (§2.5)
+
+`ref.var` addresses the instance of the script the form runs: a quest's script, or the
+script of a reference's base form. An index the target script does not declare (the two
+units of §2.5 compiled against older scripts) reads 0 and is written as given; each such
+access is traced as `undeclared_variable` [hypothesis: the engine uses the index as
+stored].
+
+## 5. Quests (`fnv_game::quest`, `game.rs`)
+
+Read from the winning `QUST`: `DATA` flags, priority and script delay; quest conditions;
+stages (`INDX`), each with entries (`QSDT` flags, `CTDA` conditions, `CNAM` log text,
+the result script, `NAM0`); objectives (`QOBJ`, `NNAM`, targets `QSTA` with conditions)
+[documented: xEdit; schema `gameplay.json`].
+
+Run time: running, completed, failed, stages done, objectives displayed/completed, the
+time since the script last ran, a `SetQuestDelay` override. Behaviour, all [observed]
+in the 5C captures (layer5-captures.md §5) unless tagged:
+
+- **GetStage is the highest stage done** (0 when none); a lower stage set later is still
+  marked done and runs its result script (VMS16 50 then 10 and 5; Generic 70 then 60).
+  [documented: GECK wiki GetStage]
+- **SetStage** of a stage the quest does not define does nothing (traced
+  `stage_ignored`); of a stage already done does nothing unless the quest has "Allow
+  repeated stages" (VMS16 and VCG03 did not rerun their scripts; Generic did); starts a
+  stopped quest; marks the stage done; then runs the result script of **every entry
+  whose conditions pass**, immediately, nested in the caller (the job script read the
+  result script's variable on the next line) [documented: GECK wiki SetStage]. The
+  entry's Complete / Fail flag is applied after its script [hypothesis on the order].
+- **Complete and Fail Quest flags both set completed** (GetQuestCompleted 1) and do not
+  stop the quest; only a script's StopQuest does (VMS22, VMS16 stage 110).
+- **SetObjectiveDisplayed 1 clears the objective's completed flag; SetObjectiveCompleted
+  does not display** (VMS16 objectives 5 and 10). Only objectives the quest defines
+  change; displaying one starts a stopped quest [documented: GECK wiki].
+- **Script delay: the `DATA` delay whenever it is non-zero, whatever the "Default Script
+  Processing Delay" flag says; 0 means 5 s; a delay shorter than a frame runs every
+  frame** (VMQ03aTimer 0.5 s, CGTutorial 1.0 s, VCG01 and VCG00 0.01 s, VMS40Timer 0 → 5 s)
+  [also documented: GECK wiki SetQuestDelay]. A stopped quest's script does not run.
+  The first run after StartQuest is not modelled (it was irregular in game; the
+  scenarios skip it): the counter starts at 0 on StartQuest.
+- **GetSecondsPassed** returns the time since the same instance last called it, read
+  from a clock with 1/64 s resolution [observed: every drop is a multiple of 0.015625 s;
+  hypothesis that the clock, not the frame, is quantised], 0 on the first call, and the
+  same value for every call in one frame [documented: GECK wiki GetSecondsPassed].
+  Consequence in the walk-through (§9): VCG01's timer between stages 85 and 90 expired
+  at once, because the quest script had not called GetSecondsPassed since stage 70;
+  whether the game behaves so after a long gap is to be captured.
+- **New game**: every quest flagged "Start game enabled" runs, with no stage set
+  [hypothesis from the flag's name]; VCG00 is the quest the New Game menu starts
+  [documented: GECK wiki SetStage notes]; the runner starts it as an input.
+
+## 6. Conditions (`fnv_game::cond`)
+
+- Layout from `common.json` (`Condition`): type byte, comparison value, function index,
+  two parameters, run on, reference [documented: xEdit].
+- Type byte: comparison in the top three bits (0 `==`, 1 `!=`, 2 `>`, 3 `>=`, 4 `<`,
+  5 `<=`); flag 0x01 OR, 0x02 run on target, 0x04 the comparison value is a global
+  [documented: xEdit].
+- Parameters are typed by the function's xEdit parameter types (`xedit_param_types` in
+  `functions.json`): record types are FormIDs mapped through the plugin's masters;
+  `ptInteger`, `ptQuestStage`, `ptQuestObjective`, `ptVariableName` (a variable index)
+  and `ptVATSValueParam` are integers; actor values, sex, axis, misc stats, menu modes and
+  the other enumerations are codes [documented: xEdit types; the reading is ours].
+- Run on: Subject, Target, Reference (the stored reference), Combat Target (none until
+  Layer 6), Linked Reference (the subject's `XLKR`) [documented: xEdit].
+- Chaining: a condition with the OR flag joins the next; the OR groups are joined with
+  AND, so OR binds tighter [hypothesis: the commonly described rule; matches `||` binding
+  tighter than `&&` in compiled expressions, §3.3].
+- Subjects: quest stage conditions run on the player [hypothesis]; a dialogue line's on
+  its speaker, with the player as target.
+- Evaluation calls the same implementations as scripts (index = opcode − 0x1000). Every
+  condition function the intro chain's quests and dialogue use (248 conditions) is
+  implemented. An unhandled one reads 0.
+
+## 7. Instances, events and functions
+
+### 7.1 Script instances
+
+One instance per scripted reference (its base form's `SCRI`), per running quest's script,
+and per scripted item in an inventory (holder, item). Instances are created on first use
+(an event that runs the script, or a variable access): an instance never touched has all
+variables 0, so this is the same state as creating it when the reference is materialised.
+`Game::snapshot` (`fnv.game.state/1`) carries the instances, quest states, the extra
+per-reference state (dead, destroyed, factions, actor values other than S.P.E.C.I.A.L.,
+script packages), the player state (XP, perks, notes, reputation, tag skills, controls,
+misc stats), run-time form-list additions, loaded cells, menu and message box, clock and
+the RNG position, on top of the Layer 4 snapshot; a restored game continues exactly as
+the original (test `snapshots_round_trip`).
+
+### 7.2 Dispatch
+
+| Event | When (here) | Tag |
+|---|---|---|
+| GameMode | every frame: first running quests whose delay has passed (FormID order), then enabled scripted references in loaded cells (FormID order) | order [hypothesis]; delays [observed] |
+| MenuMode | instead of GameMode while a menu is open (runner input); a block's menu code must match | [hypothesis] |
+| OnActivate | an activation by hand runs the block *instead of* the default action; the default runs only if the block calls `Activate`; `Activate` with flag 0 runs the default bypassing the block, flag 1 the block (nothing without one); a block parameter (`OnActivate player`) must match the activator | [documented: GECK wiki Activate; OnActivate as in layer5.md §3.4] |
+| OnLoad | scripted references in a cell when it becomes loaded (the player's cell, plus the 5×5 grid outdoors) | [hypothesis] |
+| OnAdd / OnEquip / OnUnequip | AddItem (each item of a form list), pick-up, EquipItem / UnequipItem, on the item's script | [documented: AddItem's OnAdd; per call, not per item, hypothesis] |
+| OnDeath | KillActor | [hypothesis: at once] |
+| OnTriggerEnter / OnTrigger / OnTriggerLeave, SayToDone, OnPackageStart/Done/Change | runner inputs until physics sensors (5D) and Layer 6 | — |
+
+Disabled and deleted references do not run their scripts [hypothesis].
+
+### 7.3 Functions
+
+`fnv_game::functions::registry()` lists every handled opcode with its catalogue name (a
+test checks the name against `functions.json`). Dispatch is by opcode only.
+
+- **Implemented (130)**: quests (SetStage, GetStage, GetStageDone, Start/StopQuest,
+  GetQuestRunning, GetQuestCompleted, CompleteQuest, Set/GetObjectiveDisplayed,
+  Set/GetObjectiveCompleted, GetQuestVariable, GetScriptVariable, SetQuestDelay);
+  references (Enable, Disable, GetDisabled, MoveTo, MoveToMarkerWithFade, GetSelf,
+  GetIsID, GetIsReference, GetInCell, GetInWorldspace, GetInSameCell, IsInInterior,
+  GetDistance, Get/SetPos, Get/SetAngle, GetLinkedRef, GetParentRef, MarkForDelete,
+  Set/GetDestroyed, Lock, Unlock, GetLocked, Activate, GetActionRef, IsActionRef, IsActor,
+  GetIsCreature, IsInList, AddFormToFormList, Set/GetOpenState, EnterTrigger); items
+  (AddItem, RemoveItem, GetItemCount, RemoveAllItems, EquipItem, UnequipItem,
+  GetEquipped, GetWeaponHealthPerc); actors (Get/Set/Mod/Force/Damage/RestoreActorValue,
+  GetBaseActorValue, GetPermanentActorValue, GetDead, KillActor, ResurrectActor,
+  GetDeadCount, GetInFaction, AddToFaction, RemoveFromFaction, Get/SetFactionRank,
+  GetIsVoiceType, GetIsSex, GetPCIsSex, SexChange, GetIsRace, GetIsClass, SetGhost,
+  Set/GetRestrained, Set/GetUnconscious, ResetHealth, GetHealthPercentage,
+  Set/GetPlayerTeammate, AddScriptPackage, RemoveScriptPackage); the player (RewardXP,
+  ResetXP, HasPerk, AddPerk, RemovePerk, GetHasNote, AddNote, RemoveNote, IsHardcore,
+  SetHardcore, IsPlayerTagSkill, SetPlayerTagSkill, AddAchievement,
+  Disable/EnablePlayerControls, GetPlayerControlsDisabled, GetLevel, Get/SetReputation,
+  RewardKarma, Get/ModPCMiscStat, ShowMap, GetMapMarkerVisible); messages and misc
+  (ShowMessage, GetButtonPressed, ShowWarning, MenuMode, GetRandomPercent,
+  GetSecondsPassed, GetGlobalValue, GetCurrentTime, GetGameSetting, Abs); and four Layer 6
+  states that read "no" without Layer 6 (IsInCombat, IsTalking) or the PC platform
+  (IsXBox, IsPS3) [decision].
+- **Layer 6 stubs (62)**, traced as `stub` with their arguments and no effect: AI
+  packages (EvaluatePackage, ResetAI, GetCurrentAIPackage, GetCurrentAIProcedure,
+  GetIsCurrentPackage, SetAlert, GetFurnitureMarkerID, IsCurrentFurnitureRef), dialogue
+  (SayTo, Say, StartConversation, GetTalkedToPC, SetDisposition), combat (StartCombat,
+  StopCombat, SetEnemy, SetAlly, GetHitLocation, SetIgnoreFriendlyHits, GetShouldAttack,
+  IsWeaponOut, GetWeaponAnimType, GetVATSValue), crime (SendTrespassAlarm, IgnoreCrime),
+  animation (PlayGroup, PlayIdle, Look, StopLook), appearance (AgeRace), sound and video
+  (PlaySound, PlaySound3D, PlayMusic, PlayBink), image space (Apply/RemoveImageSpaceModifier,
+  IsImageSpaceActive, Trigger/ClearScreenSplatter, SetScreenSplatterFade), weather
+  (ForceWeather, ReleaseWeatherOverride), SetGlobalTimeMultiplier, rendering (SetScale,
+  SwapTexture, SetActorAlpha, PlayMagicShaderVisuals), magic (CastImmediateOnSelf,
+  RemoveSpell), HUD and Pip-Boy (AutoDisplayObjectives, ForceActiveQuest,
+  ResetPipboyManager, ForceRadioStationUpdate), menus (GetPlayerName, ShowRaceMenu,
+  SetTagSkills, ShowTraitMenu, ShowLoveTesterMenuParams, ShowBarterMenu), Autosave,
+  IncrementScriptedChallenge, IsSneaking. AddScriptPackage and RemoveScriptPackage keep
+  the actor's package list and also trace a stub.
+- **Unhandled**: everything else; the first call per opcode and unit is traced, all are
+  counted in `final.unhandled`, the value is 0. The largest by use: GetReputationThreshold
+  (1,786 uses: needs the reputation tiers), AddReputation (504: needs the fame/infamy
+  amount per deed size), PlaceAtMe (468) and RemoveAllTypedItems (295) (they need
+  references created from any base form, and item form types, from `fnv-sim`), IsChild
+  (203: race flag not read), AddItemHealthPercent, SetOwnership, IsAnimPlaying, RemoveMe,
+  CompleteAllObjectives, GetSitting.
+
+Defaults where nothing is read yet [hypothesis]: actor values other than S.P.E.C.I.A.L.
+start at 0, except body-part conditions (codes 25–31) at 100; a living actor is at full
+health; with no weapon equipped GetWeaponHealthPerc is 100. Without these the
+CGTutorial script read a new character as hurt, crippled and with a broken weapon on its
+first run (its stages 200, 210 and 218), which the capture saves never show
+(layer5-captures.md §2: only stage 2 done).
+
+### 7.4 Coverage (`fnvtool script coverage`, 2026-10-09)
+
+`implemented` and `stub` are filled per opcode. Over the ten masters (401 opcodes called
+or used by conditions; shares by the catalogue's `script_calls` + `condition_uses`):
+
+| | Opcodes | Calls + condition uses | With stubs |
+|---|---|---|---|
+| all | 130 implemented, 62 stubs | 86.4% | 95.0% |
+| top 40 by use | 34 implemented, 5 stubs (EvaluatePackage, SayTo, StartCombat, PlayGroup, ResetAI), 1 unhandled (GetReputationThreshold) | 78.4% of all uses are in these 40 | |
+| intro chain (295 units, 248 conditions; `fnv_game::intro`) | 67 of 110 implemented, 41 stubs | 80.6% (all 248 conditions) | 99.8% |
+
+The intro chain's two unhandled functions are SetLevel and SetSPECIALPoints (one call
+each, character creation).
+
+## 8. The runner (`fnvtool script run`, `fnv_game::runner`)
+
+Input `fnv.script.actions/1` and output `fnv.script.trace/1` follow 5C's contract
+(layer5-captures.md §4): `seed`, `frame_seconds` (default 1/60), `given` (quest
+running/completed/stage/done/not_done/objectives/variables by name, globals, item counts,
+disabled flags; set before action 0 with no observation), the operations, the frames
+after each, and observations keyed by `label`. A `given` stage that the stages done do
+not explain is kept as the quest's current stage.
+
+Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
+`fnv-sim`'s actions stand in for the player's hands):
+
+| op | stands in for |
+|---|---|
+| `advance_seconds` | time passing at the fixed frame step |
+| `player_activate {target, actor?}` | activation by hand (OnActivate instead of the default) |
+| `say_info {info, speaker?, force?}` | a dialogue line being said: its begin and end result scripts run on the speaker; refused when its conditions fail (with the conditions and their values in the error) unless `force` |
+| `say_first {infos, speaker?, label?}` | the speaker picking the first line whose conditions pass; observation `said` |
+| `package {actor, package, event: start/done/change}` | an AI package event: the package's result script and the actor's OnPackage* blocks |
+| `say_to_done {actor, topic?}` | a SayTo line finishing (SayToDone blocks) |
+| `trigger_enter {trigger, actor?, event: enter/inside/leave}` | an actor in a trigger volume (OnTriggerEnter / OnTrigger / OnTriggerLeave) |
+| `press_button {button}` | the player picking a message box button |
+| `menu {menu}` | a menu opening (MenuMode with that code) or closing (`null`) |
+| `move_player {to}`, `load_cell {cell}` | the player moving (MoveTo) and cells loading (OnLoad) |
+| `get_var {of, var}`, `get_ref {of}` | reads of any script variable, and of a reference's state |
+| `kill {actor, killer?}` | combat ending in a death (KillActor, OnDeath) |
+| `note {text}` | a comment; no effect |
+
+Names: `player`, a hex FormID, an Editor ID of any record, `scripted:<SCPT>[#n]` (the
+n-th placed reference whose base runs that script) and `placed:<base>` (the first placed
+reference of a base form).
+
+Output: `observations`; `steps` (frame and error of each action); `given_errors`;
+`events` (§3.8 kinds: `quest_started/stopped/completed/failed`, `stage_set` with the
+entries that ran, `stage_ignored`, `objective_displayed/completed`, `var_set` for writes
+to another script's variables (own locals with `trace_locals`), `global_set`,
+`ref_enabled/disabled` on change, `item_added/removed`, `message_shown` with text and
+buttons, `moved`, `activated`, `block_run`, `result_script`, `stub` (each distinct call
+once per unit), `unhandled`, `call_failed`, `script_error`, `skipped`,
+`undeclared_variable`); `final` (frames, every touched quest with stages, objectives and
+named variables, the player state, reported references, unhandled and stubbed call
+counts).
+
+**`L5.quest.*` (2026-10-09): 9 of 12 pass** (both holdouts pass). The three that fail
+compare GetStage of a quest whose `given` names no stage: CGTutorial (save 2, new game
+0), VCG01 (save 200, new game 0), VCG00 (save 100, new game 0). The candidate starts from
+the new-game state (§4.1 of the contract), so these rows need `"stage"` (or `"done"`) in
+the input's `given`; the delays and drops of the same scenarios match.
+
+## 9. Headless intro chain (`crates/fnv-game/walkthrough/intro.actions.json`)
+
+From the new-game state, with dialogue lines, packages, trigger volumes, menus, combat
+deaths and crafting given as inputs (each marked with a `note` in the file). Run with
+`fnvtool script run <Data> <ten masters> --schema schemas/fnv --actions
+crates/fnv-game/walkthrough/intro.actions.json` (3,950 frames, about 2 s).
+
+- **VCG00** (opening): start, its MenuMode block sets stage 0, whose result script sets
+  90; the timer sets 95 and 100; stage 100 sets VCG01 stage 0 and stops VCG00. Stages
+  done 0, 90, 95, 100 — **the same set the capture saves have** (layer5-captures.md §2).
+- **VCG01** (Doc Mitchell): stages 0 → 1 → 3 by the quest timer; 13 Doc lines (by INFO
+  FormID) set 5, 10, 25, 30, 36, 45, 55, 75 (the reaction line chosen by its conditions
+  from 16), 80, 85 (the psych verdict chosen from 5), 98, 110; the timer sets 7, 8, 15,
+  35, 50, 70, 90, 95, 100, 102, 105; the race menu's MenuMode 1036 block sets 40; the
+  trigger before the Vigor Tester sets 60; activating the Vigor Tester by hand runs its
+  OnActivate (65); stage 75's script sets 76, whose script sets 79; the exit trigger sets
+  115; Doc's farewell line starts VGenericTimer, which sets **VCG01 200 (complete) and
+  VCG02 5**; stage 200 starts VMQ01 (stage 10, objectives 10/25/30) and VCG04. Stages
+  done: all defined stages but 9, 17, 20, 37, 78 — **exactly the set in the capture
+  saves**. Objective 40 (sit on the couch) stays open: VCG01CouchTrigger's OnTrigger
+  needs IsCurrentFurnitureRef (sitting is Layer 6 AI).
+- **VCG02** (Sunny Smiles): her lines set 10 and 25 and complete objectives 5, 40, 60;
+  the shooting trigger (OnTrigger with Sunny) sets 20; her two travel packages finishing
+  set 30 and 40; the two geckos' OnDeath set 45 and 50; the six well geckos complete
+  objective 50 and display 60; Sunny's line that starts VCG03 also completes VCG02
+  (CompleteQuest), and Trudy's line stops it at stage 50. Objective 10 (shoot three bottles) stays open: the bottles' OnHitWith
+  block needs IsWeaponOut and GetWeaponAnimType (combat, Layer 6).
+- **VCG03** (healing powder): Sunny's line sets stage 10, which enables the Xander root
+  and broc flower; picking both by hand (their OnActivate) completes objective 10 on the
+  quest script's next 5-second run; the crafting menu is replaced by adding the powder,
+  which completes objective 30; Trudy's line completes 40, completes the quest and stops
+  it.
+- **VCG04** runs from VCG01's stage 200; it waits for the player to leave the Goodsprings
+  area (a player-position check every frame), which this walk-through does not do.
+
+What blocks a run without inputs: every stage switch that is a dialogue line, a package
+finishing, a trigger volume, a menu or a combat result is Layer 6 or physics (5D).
+Functions missing for the chain itself: SetLevel and SetSPECIALPoints (character
+creation); the furniture and combat state checks above are stubs.
+
+Differences from the capture saves: VCG02 is running at stage 5 right after VCG01 here;
+in both saves it is not running (an open question in layer5-captures.md §7). One script
+that stops it is FalloutNV SCPT 0x0011E65E (an OnTriggerEnter for the player); this
+walk-through does not enter that trigger.
+
+## 10. Open questions (5B)
+
+- Stray `Else`/`ElseIf` and off-by-one skip counts (§4.2): the skip-count reading is a
+  hypothesis; one capture of FalloutNV SCPT 0x00123191 (a dead hostage activated) would
+  settle the stray `ElseIf`.
+- GetSecondsPassed after a long gap (§5): since the instance's last call, as documented,
+  or capped?
+- Several stage entries passing their conditions: all run (documented wording) — not
+  captured.
+- OR/AND grouping of conditions and the subject of quest stage conditions (§6).
+- Frame order between quest and object scripts, OnLoad timing, OnAdd once per call or per
+  item (§7.2).
+- The `given` of `L5.quest.delay_flagged_1s`, `.delay_flagged_short` and `.delay_frame`
+  lacks the quests' stages (§8).

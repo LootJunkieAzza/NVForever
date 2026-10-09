@@ -335,6 +335,13 @@ together with the simulation notes.
 `script coverage` (`fnv.script.coverage/1`) are defined in docs/spec-notes/scripts.md §3.5
 together with the bytecode notes.
 
+`fnvtool script run <data_dir> <plugin>... --schema <dir> --actions <file>`
+(`fnv.script.actions/1` → `fnv.script.trace/1`, parity lab `L5.quest.*`) follows the
+contract in docs/spec-notes/layer5-captures.md §4; the operations beyond it (headless
+stand-ins for Layer 6) and the trace's `events` and `final` are in
+docs/spec-notes/scripts.md §8. `script coverage` fills `implemented` and `stub` per opcode
+and reports the intro chain's coverage (scripts.md §7).
+
 # Actor appearance (workstream 5)
 
 `fnvtool actor forms` (`fnv.actor.forms/1`), `fnvtool actor appearance`
