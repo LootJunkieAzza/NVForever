@@ -14,39 +14,59 @@
 //!   cell loads cells (OnLoad); trigger volumes give OnTriggerEnter / OnTrigger /
 //!   OnTriggerLeave ([`crate::script_trigger`]); then `Game::tick` with the frame's real
 //!   time: quest scripts by their delay, then GameMode (or MenuMode while a menu or a
-//!   message box is open) of the scripted references in loaded cells.
+//!   message box is open) of the scripted references in loaded cells, then the dialogue
+//!   lines being said.
 //! - The trace events of the frame become engine effects
 //!   ([`crate::script_events::effects`]): `RefChanged` for enabled / disabled / deleted
 //!   references (and their enable children), `Travel` when a script moves the player or
-//!   activates a door for them, `OpenContainer`, and lines and message boxes on screen
-//!   ([`crate::script_hud`]).
+//!   activates a door for them, `OpenContainer`, lines on screen, the text of message
+//!   boxes and dialogue lines for the overlay ([`crate::script_hud`]).
+//! - Menus and message boxes go through the runtime's API (scripts.md §7.2, §7.7): the
+//!   container and inventory menus call [`engine_menu_opened`] / [`engine_menu_closed`]
+//!   (`Game::open_menu` / `close_menu` with 1008 / 1002); a script's message box or
+//!   character-creation menu stays open until the player closes it
+//!   ([`ScriptState::answer`], keys in [`crate::script_hud`]); the player is held in
+//!   `PlayState::Menu` meanwhile ([`hold_player`]). The engine no longer sets
+//!   `Game::menu` itself.
 //! - Activation by hand goes through [`activate_by_hand`] (called by `activate.rs`): a
 //!   reference whose script has an OnActivate block runs it *instead of* the default
 //!   action, which then runs only if the script calls `Activate` (`fnv_game`'s rule).
+//! - `--new-game` ([`NewGame`]): the opening starts as the New Game menu starts it (VCG00
+//!   at stage 0, [`Runtime::start_opening`]); the player starts at
+//!   `VCG01PlayerStartMarkerREF` ([`new_game_start`]).
 //!
 //! Switches and test aids (environment):
 //! - `NVF_PLAY_SCRIPTS=0` turns scripts off (Layer 4 play as before).
 //! - `NVF_PLAY_SCRIPT_TRACE=<path>` writes the trace events as JSON lines (one
-//!   `fnv.script.trace/1` event per line, with `t` = seconds since scripts started), and a
-//!   `final` line at exit (quests touched, unhandled and stubbed calls, tick times).
+//!   `fnv.script.trace/1` event per line, with `t` = seconds since scripts started and `gt`
+//!   = the runtime's game time, `Game::time`), the test aids (`aid`) and the player's
+//!   answers to menus (`menu_answer`), and a `final` line at exit (quests touched,
+//!   unhandled and stubbed calls, tick times).
 //! - `NVF_PLAY_SCRIPT_FUNCTIONS=<functions.json>` overrides the function catalogue
 //!   (default: the repository's `schemas/script/functions.json`).
-//! - `NVF_PLAY_TEST_SCRIPT=<seconds>:<op>[,...]`: stand-ins for Layer 6 and the player
-//!   ([`crate::script_events::ScriptAid`]): `start:<quest>`, `stop:<quest>`,
-//!   `stage:<quest>:<n>`, `objective:<quest>:<n>`, `info:<INFO>`, `button:<n>`,
-//!   `var:<form>:<variable>:<value>`.
+//! - `NVF_PLAY_TEST_SCRIPT=<when>:<op>[,...]`: stand-ins for Layer 6 and the player
+//!   ([`crate::script_events::ScriptAid`]; `<when>` is seconds after the start, or
+//!   `<seconds>@<quest>=<stage>`, seconds after the stage was first seen done):
+//!   `start:<quest>`, `stop:<quest>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`,
+//!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
+//!   `var:<form>:<variable>:<value>`, `walk:<reference>`, `activate:<reference>`.
+//! - `NVF_PLAY_TEST_SCRIPT_MENUS=<seconds>|off`: every menu or message box a script opens
+//!   is closed (OK / Done, button 0) after it has been on screen that long. Unattended
+//!   runs (any `NVF_PLAY_TEST_*` variable, or `--auto-walk`) default to
+//!   [`UNATTENDED_MENU_SECONDS`], so a check that does not answer the boxes is not held by
+//!   them [decision]; other runs to off.
 
 use crate::activate::outcome::{self, Destination, Effect};
 use crate::menu::model::Mode;
 use crate::menu::ActiveMenu;
 use crate::phys::PhysState;
 use crate::player::Player;
-use crate::script_events::{self, EffectCtx, InvView, ScriptAid, ScriptEffect};
+use crate::script_events::{self, Capsule, EffectCtx, InvView, ScriptAid, ScriptEffect, TimedAid};
 use crate::script_hud::ScriptHud;
 use crate::sim::SimState;
-use crate::{ItemUsed, Location, OpenContainer, PlayData, PlaySet, PlayWorld, RefChanged, Travel};
+use crate::{ItemUsed, Location, OpenContainer, PlayData, PlaySet, PlayState, PlayWorld, RefChanged, Travel};
 use bevy::prelude::*;
-use fnv_game::game::{event, ActMode};
+use fnv_game::game::{event, menus, ActMode};
 use fnv_game::trace::{Event, EventKind};
 use fnv_game::{Game, GameConfig, GameData, InstKey};
 use fnv_script::vm::Value;
@@ -61,16 +81,68 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::Instant;
 
-/// MenuMode code while a message box is open: shipped scripts read the chosen button in
-/// `Begin MenuMode 1001` blocks [observed: FalloutNV SCPT 0x00105236, the Goodsprings
-/// chemistry set] as well as in GameMode (SCPT 0x0011F291).
-pub const MENU_MESSAGE: u16 = 1001;
+/// MenuMode code while a message box is open (`fnv_game::game::menus::MESSAGE`): shipped
+/// scripts read the chosen button in `Begin MenuMode 1001` blocks [observed: FalloutNV
+/// SCPT 0x00105236, the Goodsprings chemistry set] as well as in GameMode (SCPT
+/// 0x0011F291).
+pub const MENU_MESSAGE: u16 = menus::MESSAGE;
 /// The container menu [documented: GECK wiki MenuMode, as used in
 /// docs/spec-notes/xnvse-capture.md and simulation.md captures].
 pub const MENU_CONTAINER: u16 = 1008;
 /// The inventory (Pip-Boy) menu [hypothesis: the GECK wiki's list as remembered; not
 /// checked against a capture].
 pub const MENU_INVENTORY: u16 = 1002;
+
+/// The MenuMode code of an engine menu.
+pub fn menu_code(mode: Mode) -> u16 {
+    match mode {
+        Mode::Container(_) => MENU_CONTAINER,
+        Mode::Inventory => MENU_INVENTORY,
+    }
+}
+
+/// A menu the scripts opened (a message box, a character-creation menu), as opposed to
+/// the engine's container and inventory menus: the script overlay shows it and the
+/// player closes it there.
+pub fn is_script_menu(code: u16) -> bool {
+    code != MENU_CONTAINER && code != MENU_INVENTORY
+}
+
+/// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
+pub const UNATTENDED_MENU_SECONDS: f32 = 0.25;
+
+/// `nvforever --play --new-game`: the game starts as a new game does (inserted before
+/// the play plugin).
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct NewGame;
+
+/// The interior a new game starts in: VCG00 stage 0 moves the player to
+/// `VCG01PlayerStartMarkerREF` [observed in the masters], which the new-game save `nvfnew`
+/// has in Doc Mitchell's house, cell 0x00103DF9 [observed: layer5-captures.md §10.2].
+pub const NEW_GAME_CELL: &str = "GSDocMitchellHouse";
+
+/// Where `--new-game` puts the player.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NewGameStart {
+    pub interior: u32,
+    pub feet: [f32; 3],
+    pub heading_deg: f32,
+}
+
+/// The new game's start: the marker the opening moves the player to
+/// (`fnv_game::runner::NEW_GAME_START`) in [`NEW_GAME_CELL`].
+pub fn new_game_start(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, index: &WorldIndex) -> Result<NewGameStart, String> {
+    let cell = index.cell_by_name(NEW_GAME_CELL).filter(|c| c.world.is_none()).ok_or_else(|| format!("no interior cell {NEW_GAME_CELL}"))?;
+    for &r in &cell.refs {
+        let Some((pi, rec)) = fnv_world::fields::winner(lo, r) else { continue };
+        let Ok(f) = fnv_world::fields::Fields::new(rec, pi, schema) else { continue };
+        if f.string(b"EDID").is_some_and(|e| e.eq_ignore_ascii_case(fnv_game::runner::NEW_GAME_START)) {
+            let p = fnv_world::placed::placement(lo, schema, r).ok_or_else(|| format!("{r:08X}: no placement"))?;
+            return Ok(NewGameStart { interior: cell.form_id, feet: p.position, heading_deg: outcome::heading_deg(p.rotation) });
+        }
+    }
+    Err(format!("no {} in {NEW_GAME_CELL}", fnv_game::runner::NEW_GAME_START))
+}
 
 /// Where the function catalogue is when `NVF_PLAY_SCRIPT_FUNCTIONS` is not set.
 const DEFAULT_FUNCTIONS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/script/functions.json");
@@ -85,7 +157,16 @@ pub struct ScriptState {
     /// Why scripts are not running (switched off, data failed), for the log.
     pub off: Option<String>,
     trace: Option<TraceLog>,
-    aids: Vec<(f32, ScriptAid)>,
+    aids: Vec<TimedAid>,
+    /// Gated aids: when each (quest, stage) was first seen done (seconds since start).
+    gates: HashMap<(String, i32), f32>,
+    /// `NVF_PLAY_TEST_SCRIPT_MENUS`: close a script's menu after this many seconds.
+    auto_close: Option<f32>,
+    /// The script menu on screen (code, front box) and since when (seconds).
+    on_screen: Option<(u16, Option<FormId>, f32)>,
+    /// `walk:` test aids due: where to put the player's feet.
+    walks: Vec<(String, [f32; 3])>,
+    new_game: bool,
 }
 
 /// The running game and what the engine side remembers between frames.
@@ -101,8 +182,12 @@ pub struct Runtime {
     marked: BTreeSet<FormId>,
     /// Indices into `game.events` whose effects the caller applied (activation by hand).
     skip: BTreeSet<usize>,
-    /// A message-box button was picked: this frame still runs MenuMode 1001.
-    pressed: bool,
+    /// The player answered the open script menu: it closes after this frame's tick (so a
+    /// `MenuMode 1001` block still runs once with the button pressed). The menu and the
+    /// box that was in front.
+    closing: Option<(u16, Option<FormId>)>,
+    /// `--new-game`: the opening starts on the first frame scripts run.
+    opening_pending: bool,
     /// Where the player was last frame, and frames left whose time does not count (a
     /// door's loading screen).
     location: Option<Location>,
@@ -123,7 +208,7 @@ pub struct TickStats {
 }
 
 impl ScriptState {
-    fn new(d: PlayData, refs: &'static RefTable) -> ScriptState {
+    fn new(d: PlayData, refs: &'static RefTable, new_game: bool, unattended: bool) -> ScriptState {
         let off = match std::env::var("NVF_PLAY_SCRIPTS").as_deref() {
             Ok("0") | Ok("off") | Ok("false") => Some("NVF_PLAY_SCRIPTS=0".to_string()),
             _ => None,
@@ -138,6 +223,20 @@ impl ScriptState {
             },
             Err(_) => Vec::new(),
         };
+        let auto_close = match std::env::var("NVF_PLAY_TEST_SCRIPT_MENUS").as_deref() {
+            Ok("off") | Ok("false") => None,
+            Ok(v) => match v.trim().parse::<f32>() {
+                Ok(s) if s >= 0.0 => Some(s),
+                _ => {
+                    warn!("NVF_PLAY_TEST_SCRIPT_MENUS={v}: expected seconds or off");
+                    None
+                }
+            },
+            Err(_) => (unattended || d.auto_walk > 0.0).then_some(UNATTENDED_MENU_SECONDS),
+        };
+        if let Some(s) = auto_close {
+            info!("test aid: menus and message boxes that scripts open close themselves after {s} s");
+        }
         let trace = std::env::var_os("NVF_PLAY_SCRIPT_TRACE").map(PathBuf::from).and_then(|p| match TraceLog::create(&p) {
             Ok(t) => Some(t),
             Err(e) => {
@@ -146,20 +245,45 @@ impl ScriptState {
             }
         });
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids }
+        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, on_screen: None, walks: Vec::new(), new_game }
     }
 
-    /// Pick a message-box button (0 = first): `GetButtonPressed` returns it once.
-    pub fn press(&mut self, button: i32) -> bool {
+    /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
+    /// the front message box, `None` is OK / Done. The menu closes after this frame's
+    /// scripts ran (`Game::close_menu`; the next queued box then opens). `how` is for the
+    /// trace. Returns whether there was a script menu to answer.
+    pub fn answer(&mut self, button: Option<i32>, how: &str) -> bool {
         let Some(rt) = self.rt.as_mut() else { return false };
-        match rt.game.message_box.as_mut() {
-            Some(m) if m.pressed.is_none() && button >= 0 && (button as usize) < m.buttons => {
-                m.pressed = Some(button);
-                rt.pressed = true;
-                info!("script: message box {} button {button} picked", m.message);
-                true
+        let menu = rt.game.menu;
+        let ok = rt.answer(button);
+        if ok {
+            if let Some(log) = self.trace.as_mut() {
+                log.write(&serde_json::json!({"kind": "menu_answer", "frame": rt.game.frame, "menu": menu, "button": button, "by": how,
+                    "t": secs(rt.started), "gt": rt.game.time}));
             }
-            _ => false,
+        }
+        ok
+    }
+}
+
+fn secs(since: Instant) -> f64 {
+    (since.elapsed().as_secs_f64() * 1000.0).round() / 1000.0
+}
+
+/// The container or inventory menu opened (menu.rs): it is the runtime's open menu
+/// (`Game::open_menu`), MenuMode 1008 / 1002 from the next frame.
+pub fn engine_menu_opened(script: Option<&mut ScriptState>, mode: Mode) {
+    if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
+        rt.game.open_menu(menu_code(mode));
+    }
+}
+
+/// The container or inventory menu closed (menu.rs): `Game::close_menu` when it is still
+/// the runtime's open menu (a message box shown meanwhile then opens).
+pub fn engine_menu_closed(script: Option<&mut ScriptState>, mode: Mode) {
+    if let Some(rt) = script.and_then(|s| s.rt.as_mut()) {
+        if rt.game.menu == Some(menu_code(mode)) {
+            rt.game.close_menu();
         }
     }
 }
@@ -197,7 +321,9 @@ pub fn with_world<R>(rt: &mut Runtime, sim: &mut SimState, f: impl FnOnce(&mut R
 }
 
 impl Runtime {
-    fn new(data: &'static GameData, sim: &mut SimState) -> Runtime {
+    fn new(data: &'static GameData, sim: &mut SimState, new_game: bool) -> Runtime {
+        // Message boxes are menus until the player closes them (the default,
+        // `GameConfig::modal_message_boxes`).
         let cfg = GameConfig { frame_seconds: 1.0 / 60.0, ..GameConfig::default() };
         let game = Game::new(data, World::new(sim.forms, sim.refs, sim.world.config()), cfg);
         let mut children: HashMap<FormId, Vec<FormId>> = HashMap::new();
@@ -213,7 +339,8 @@ impl Runtime {
             created_seen: None,
             marked: BTreeSet::new(),
             skip: BTreeSet::new(),
-            pressed: false,
+            closing: None,
+            opening_pending: new_game,
             location: None,
             frozen_frames: 0,
             triggers: Default::default(),
@@ -226,6 +353,57 @@ impl Runtime {
             rt.snapshot_inventory();
         });
         rt
+    }
+
+    /// The New Game menu starts VCG00 [documented: GECK wiki SetStage notes, scripts.md
+    /// §5]; VCG00's own MenuMode block sets its stage 0 while the stage is below 5
+    /// [observed in the masters: SCPT 0x00102035], which happens in the main menu as the
+    /// game starts [hypothesis]. Stage 0 moves the player to the start marker and goes on
+    /// to stage 90 and its 3 s countdown [observed in the masters].
+    pub fn start_opening(&mut self) {
+        let g = &mut self.game;
+        match g.data.by_edid("VCG00").filter(|q| g.data.is_quest(*q)) {
+            Some(q) => {
+                g.start_quest(q);
+                g.set_stage(q, 0);
+                info!("new game: VCG00 started at stage 0 (now at stage {})", g.quest_state(q).stage());
+            }
+            None => warn!("new game: no quest VCG00"),
+        }
+    }
+
+    /// See [`ScriptState::answer`].
+    pub fn answer(&mut self, button: Option<i32>) -> bool {
+        if self.closing.is_some() {
+            return false;
+        }
+        let Some(menu) = self.game.menu.filter(|&m| is_script_menu(m)) else { return false };
+        let front = if menu == MENU_MESSAGE { self.game.boxes.first().copied() } else { None };
+        if let Some(f) = front {
+            if let Some(m) = self.game.message_box.as_mut().filter(|m| m.message == f && m.pressed.is_none()) {
+                let b = button.unwrap_or(0);
+                if b < 0 || b as usize >= m.buttons {
+                    return false;
+                }
+                m.pressed = Some(b);
+            }
+        }
+        info!(
+            "script: menu {menu}{} answered ({})",
+            front.map_or_else(String::new, |f| format!(" (message {})", self.game.data.name(f))),
+            button.map_or("OK".to_string(), |b| format!("button {b}"))
+        );
+        self.closing = Some((menu, front));
+        true
+    }
+
+    /// After the tick: close the menu the player answered, if it is still the one open.
+    fn finish_answer(&mut self) {
+        if let Some((menu, front)) = self.closing.take() {
+            if self.game.menu == Some(menu) && (menu != MENU_MESSAGE || self.game.boxes.first().copied() == front) {
+                self.game.close_menu();
+            }
+        }
     }
 
     /// The player's inventory and the newest created reference, as scripts left them.
@@ -311,7 +489,7 @@ impl Runtime {
         r
     }
 
-    /// One test-aid step.
+    /// One test-aid step (`walk:` is the caller's: it needs physics).
     fn aid(&mut self, a: &ScriptAid) -> Result<(), String> {
         use fnv_game::runner::resolve;
         let g = &mut self.game;
@@ -332,11 +510,37 @@ impl Runtime {
                 let q = resolve(g, q)?;
                 g.set_objective(q, *i, Some(true), None);
             }
-            ScriptAid::Info(i) => {
-                let i = resolve(g, i)?;
-                g.run_info(i, None, true)?;
+            ScriptAid::ObjectiveDone(q, i) => {
+                let q = resolve(g, q)?;
+                g.set_objective(q, *i, None, Some(true));
             }
-            ScriptAid::Button(_) => unreachable!("handled by the caller"),
+            ScriptAid::Info(i, speaker) => {
+                let i = resolve(g, i)?;
+                let sp = speaker.as_deref().map(|s| resolve(g, s)).transpose()?;
+                g.run_info(i, sp, true)?;
+            }
+            ScriptAid::Button(b) => {
+                if !self.answer(Some(*b)) {
+                    return Err("no script menu or message box to answer with that button".into());
+                }
+            }
+            ScriptAid::Close => {
+                if !self.answer(None) {
+                    return Err("no script menu or message box is open".into());
+                }
+            }
+            ScriptAid::Activate(r) => {
+                let r = resolve(g, r)?;
+                let from = g.events.len();
+                let done = self.by_hand(r)?;
+                // Unlike E (activate.rs), nobody applies a default action's outcome here:
+                // its trace events become effects like a script's.
+                self.skip.retain(|&i| i < from);
+                if let ByHand::Default(a) = done {
+                    debug!("test aid: activated {r}: {:?}", a.outcome);
+                }
+            }
+            ScriptAid::Walk(_) => unreachable!("handled by the caller"),
             ScriptAid::Var(of, var, value) => {
                 let f = resolve(g, of)?;
                 let (key, script) = g.instance_of(f).ok_or_else(|| format!("{of} runs no script"))?;
@@ -430,6 +634,13 @@ impl EffectCtx for PlayCtx<'_> {
     }
 }
 
+/// The response texts (NAM1) of a dialogue line, in order.
+fn responses(play: &PlayWorld, info: FormId) -> Vec<String> {
+    let Some((pi, rec)) = fnv_world::fields::winner(play.lo, info.0) else { return Vec::new() };
+    let Ok(f) = fnv_world::fields::Fields::new(rec, pi, play.schema) else { return Vec::new() };
+    f.subs.iter().filter(|s| &s.sig == b"NAM1").filter_map(|s| f.decode(s)).filter_map(|v| v.as_str().map(str::to_string)).collect()
+}
+
 // ---- trace log -------------------------------------------------------------------------
 
 struct TraceLog {
@@ -445,7 +656,7 @@ impl TraceLog {
         }
         let mut out = std::io::BufWriter::new(std::fs::File::create(path)?);
         let head = serde_json::json!({"format": "nvforever.play.script_log/1",
-            "events": "one fnv.script.trace/1 event per line (frame, kind, ...), with t = seconds since scripts started; a final line at exit"});
+            "events": "one fnv.script.trace/1 event per line (frame, kind, ...), with t = seconds since scripts started and gt = game time (Game::time); aid and menu_answer lines; a final line at exit"});
         writeln!(out, "{head}")?;
         Ok(TraceLog { out, path: path.to_path_buf(), lines: 0 })
     }
@@ -465,11 +676,45 @@ impl Plugin for ScriptPlugin {
     fn build(&self, app: &mut App) {
         let d = app.world().resource::<PlayWorld>().0;
         let refs = app.world().resource::<SimState>().refs;
-        app.insert_resource(ScriptState::new(d, refs))
+        let new_game = app.world().contains_resource::<NewGame>();
+        let unattended = crate::test_aid::Unattended::from_env().0;
+        app.insert_resource(ScriptState::new(d, refs, new_game, unattended))
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin))
-            .add_systems(Update, (crate::script_hud::box_keys, run_scripts).chain().in_set(PlaySet::Scripts))
+            .add_systems(Update, (crate::script_hud::menu_keys, run_scripts, walk_player, hold_player).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, write_final);
     }
+}
+
+/// The test aids due now: timed ones, and gated ones `at` seconds after their stage was
+/// first seen done.
+fn due_aids(st: &mut ScriptState, now: f32) -> Vec<ScriptAid> {
+    let Some(rt) = st.rt.as_ref() else { return Vec::new() };
+    let g = &rt.game;
+    for a in &st.aids {
+        if let Some(gate) = &a.after {
+            if !st.gates.contains_key(gate) {
+                let done = fnv_game::runner::resolve(g, &gate.0).ok().is_some_and(|q| g.quests.get(&q).is_some_and(|s| s.stages_done.contains(&gate.1)));
+                if done {
+                    st.gates.insert(gate.clone(), now);
+                }
+            }
+        }
+    }
+    let gates = &st.gates;
+    let mut due = Vec::new();
+    st.aids.retain(|a| {
+        let start = match &a.after {
+            None => Some(0.0),
+            Some(gate) => gates.get(gate).copied(),
+        };
+        if start.is_some_and(|s| now >= s + a.at) {
+            due.push(a.aid.clone());
+            false
+        } else {
+            true
+        }
+    });
+    due
 }
 
 /// One frame of scripts, then their effects.
@@ -478,8 +723,6 @@ fn run_scripts(
     time: Res<Time>,
     play: Res<PlayWorld>,
     phys: Res<PhysState>,
-    player: Res<Player>,
-    menu: Res<ActiveMenu>,
     location: Res<Location>,
     mut sim: ResMut<SimState>,
     mut script: ResMut<ScriptState>,
@@ -505,7 +748,7 @@ fn run_scripts(
             }
             Some(Ok((data, secs))) => {
                 st.loader = None;
-                let rt = Runtime::new(data, &mut sim);
+                let rt = Runtime::new(data, &mut sim, st.new_game);
                 let running = rt.game.quests.values().filter(|q| q.running).count();
                 info!(
                     "scripts ready in {secs:.2} s: {} units, {} scripts, {} quests ({running} start-game-enabled quests running)",
@@ -518,30 +761,31 @@ fn run_scripts(
         }
     }
     // Scripts wait until the player stands in the world (its cell is known).
-    if phys.player.is_none() {
-        return;
+    let Some(character) = phys.player.as_ref() else { return };
+    let player_capsule = Some(Capsule { feet: character.feet, radius: character.params.radius, height: character.params.height });
+    let now = time.elapsed_secs();
+    let mut due = due_aids(st, now);
+    // A script's menu or box left open by an unattended run: answered with OK / Done.
+    let on_screen = st.rt.as_ref().and_then(|rt| {
+        let m = rt.game.menu.filter(|&m| is_script_menu(m))?;
+        Some((m, if m == MENU_MESSAGE { rt.game.boxes.first().copied() } else { None }))
+    });
+    match (on_screen, st.on_screen) {
+        (Some((m, f)), Some((m0, f0, _))) if (m, f) == (m0, f0) => {}
+        (Some((m, f)), _) => st.on_screen = Some((m, f, now)),
+        (None, _) => st.on_screen = None,
+    }
+    if let (Some(limit), Some((m, _, since))) = (st.auto_close, st.on_screen) {
+        if now - since >= limit && st.answer(None, "test aid NVF_PLAY_TEST_SCRIPT_MENUS") {
+            info!("test aid: closed menu {m} after {:.2} s", now - since);
+        }
     }
     let Some(rt) = st.rt.as_mut() else { return };
-    let now = time.elapsed_secs();
-    let mut due: Vec<ScriptAid> = Vec::new();
-    st.aids.retain(|(t, a)| {
-        if *t <= now {
-            due.push(a.clone());
-            false
-        } else {
-            true
-        }
-    });
-    let menu_code = match menu.0.as_ref().map(|m| m.mode) {
-        Some(Mode::Container(_)) => Some(MENU_CONTAINER),
-        Some(Mode::Inventory) => Some(MENU_INVENTORY),
-        None => None,
-    };
-    // Menu and loading-screen time does not count [observed: layer5-captures.md §8.3 e].
-    // The runtime stops game time itself for an open menu (`game.menu`, which includes a
-    // waiting message box [hypothesis for the message box]) and runs no script under a
-    // loading screen (`game.loading`): here, the two frames after the player's place
-    // changed (the destination loads on the spot in one of them). docs/spec-notes/scripts.md §7.2.
+    // Loading-screen time does not count [observed: layer5-captures.md §8.3 e]: the
+    // runtime runs no script under a loading screen (`game.loading`): here, the two
+    // frames after the player's place changed (the destination loads on the spot in one
+    // of them). docs/spec-notes/scripts.md §7.2. Menus are the runtime's own
+    // (`Game::menu`, opened by scripts and by the engine's menus).
     if rt.location.is_some_and(|l| l != *location) {
         rt.frozen_frames = 2;
     }
@@ -549,10 +793,10 @@ fn run_scripts(
     let loading = rt.frozen_frames > 0;
     rt.frozen_frames = rt.frozen_frames.saturating_sub(1);
     let dt = time.delta_secs_f64();
-    let eye = player.eye_height;
-    let mut presses = Vec::new();
     let t0 = Instant::now();
     let mut marked = Vec::new();
+    let mut aid_lines = Vec::new();
+    let mut walks = Vec::new();
     with_world(rt, &mut sim, |rt| {
         rt.observe_inventory();
         for &item in &used {
@@ -560,25 +804,36 @@ fn run_scripts(
             info!("script: the player used {item}: {} effect(s) started", started.len());
         }
         rt.follow_player();
-        for a in &due {
-            match a {
-                ScriptAid::Button(b) => presses.push(*b),
-                a => match rt.aid(a) {
-                    Ok(()) => info!("test aid: script {a:?}"),
-                    Err(e) => warn!("test aid: script {a:?}: {e}"),
-                },
-            }
+        if std::mem::take(&mut rt.opening_pending) {
+            rt.start_opening();
         }
-        crate::script_trigger::update(rt, &play, eye);
-        let waiting = rt.game.message_box.as_ref().is_some_and(|m| m.pressed.is_none());
-        rt.game.menu = if waiting || rt.pressed { Some(MENU_MESSAGE) } else { menu_code };
-        rt.pressed = false;
+        for a in &due {
+            let r = match a {
+                ScriptAid::Walk(target) => fnv_game::runner::resolve(&rt.game, target).and_then(|r| {
+                    let pos = rt.game.world.peek(r).map(|s| s.pos).or_else(|| rt.game.world.placed.get(r).map(|p| p.pos));
+                    let pos = pos.ok_or_else(|| format!("{target} has no position"))?;
+                    walks.push((target.clone(), pos));
+                    Ok(())
+                }),
+                a => rt.aid(a),
+            };
+            match &r {
+                Ok(()) => info!("test aid: script {a:?}"),
+                Err(e) => warn!("test aid: script {a:?}: {e}"),
+            }
+            aid_lines.push(serde_json::json!({"kind": "aid", "frame": rt.game.frame, "op": format!("{a:?}"), "error": r.err(),
+                "t": secs(rt.started), "gt": rt.game.time}));
+        }
+        due.clear();
+        crate::script_trigger::update(rt, &play, player_capsule);
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
         rt.game.tick();
+        rt.finish_answer();
         rt.snapshot_inventory();
         marked = rt.newly_marked();
     });
+    st.walks.extend(walks);
     let ms = t0.elapsed().as_secs_f64() * 1e3;
     rt.stats.frames += 1;
     rt.stats.total_ms += ms;
@@ -600,22 +855,33 @@ fn run_scripts(
         effects.push(ScriptEffect::RefChanged(r.0));
         effects.extend(ctx.enable_children(r).into_iter().map(|c| ScriptEffect::RefChanged(c.0)));
     }
-    let t = rt.started.elapsed().as_secs_f64();
+    let t = secs(rt.started);
+    let gt = rt.game.time;
     for e in &events {
         log_event(rt.game.data, e);
+        if let EventKind::LineStarted { info, .. } = &e.kind {
+            if !hud.knows_line(*info) {
+                hud.remember_line(*info, responses(&play, *info));
+            }
+        }
     }
     if let Some(log) = st.trace.as_mut() {
+        for l in &aid_lines {
+            log.write(l);
+        }
         for e in &events {
             if let Ok(mut v) = serde_json::to_value(e) {
-                v["t"] = serde_json::json!((t * 1000.0).round() / 1000.0);
+                v["t"] = serde_json::json!(t);
+                v["gt"] = serde_json::json!(gt);
                 log.write(&v);
             }
         }
-        if !events.is_empty() {
+        if !events.is_empty() || !aid_lines.is_empty() {
             let _ = log.out.flush();
         }
     }
     let mut sent = BTreeSet::new();
+    let feet = phys.player.as_ref().map(|c| c.feet);
     for e in effects {
         match e {
             ScriptEffect::RefChanged(id) => {
@@ -624,8 +890,16 @@ fn run_scripts(
                 }
             }
             ScriptEffect::Travel(t) => {
-                info!("script: travel to {:?} / {:?} at {:?}", t.interior, t.world, t.feet);
-                travel.write(t);
+                // A move to where the player already stands (VCG00 stage 0's MoveTo to the
+                // new game's start) needs no loading.
+                let here = t.destination(*location) == *location
+                    && feet.is_some_and(|f| (f[0] - t.feet[0]).hypot(f[1] - t.feet[1]) < 32.0 && (f[2] - t.feet[2]).abs() < 64.0);
+                if here {
+                    info!("script: the player is moved to where they stand ({:?}); no travel", t.feet);
+                } else {
+                    info!("script: travel to {:?} / {:?} at {:?}", t.interior, t.world, t.feet);
+                    travel.write(t);
+                }
             }
             ScriptEffect::OpenContainer(c) => {
                 open.write(OpenContainer { container: c });
@@ -634,19 +908,35 @@ fn run_scripts(
             ScriptEffect::MessageBox(b) => hud.message_box(b),
         }
     }
-    // The test aid answers the box the scripts wait for, even behind other boxes (a
-    // person dismisses those first); with none waiting it closes the front box.
-    for b in presses {
-        if hud.has_waiting() {
-            if !st.press(b) {
-                warn!("test aid: button {b}: the scripts do not wait for it");
-            }
-            hud.pop_waiting();
-        } else if hud.dismiss_front() {
-            info!("test aid: message box dismissed");
-        } else {
-            warn!("test aid: button {b}: no message box is open");
-        }
+}
+
+/// `walk:` test aids: the player's feet on the floor under the point (a stand-in for
+/// walking there), as `NVF_PLAY_TEST_GOTO` does.
+fn walk_player(mut script: ResMut<ScriptState>, mut phys: ResMut<PhysState>, mut player: ResMut<Player>) {
+    if script.walks.is_empty() || phys.player.is_none() {
+        return;
+    }
+    for (target, at) in std::mem::take(&mut script.walks) {
+        let hit = phys.place_player(at, 60.0, 1000.0);
+        let feet = phys.player.as_ref().map_or(at, |c| c.feet);
+        player.feet = feet;
+        info!("test aid: walk to {target} ({:.0}, {:.0}, {:.0}): feet ({:.1}, {:.1}, {:.1}) on {:?}", at[0], at[1], at[2], feet[0], feet[1], feet[2], hit.map(|h| h.owner));
+    }
+}
+
+/// While a script's menu or message box is open the player is in `PlayState::Menu`: no
+/// moving, looking or activating, and the game clock stops (sim.rs) [observed: the pack
+/// boxes held the world clock, layer5-captures.md §10.1]. The engine's own menus manage
+/// the state themselves (menu.rs).
+fn hold_player(script: Res<ScriptState>, active: Res<ActiveMenu>, state: Res<State<PlayState>>, mut next: ResMut<NextState<PlayState>>) {
+    if active.0.is_some() {
+        return;
+    }
+    let held = script.rt.as_ref().and_then(|rt| rt.game.menu).is_some_and(is_script_menu);
+    match (*state.get(), held) {
+        (PlayState::Playing, true) => next.set(PlayState::Menu),
+        (PlayState::Menu, false) => next.set(PlayState::Playing),
+        _ => {}
     }
 }
 
@@ -670,6 +960,10 @@ fn log_event(data: &GameData, e: &Event) {
             info!("script: {} activated by {}: {}", n(*reference), n(*by), outcome.as_ref().map_or_else(String::new, |o| o.to_string()))
         }
         EventKind::BlockRun { unit, block, on } if block != "OnTrigger" => info!("script: {block} of {unit} ran on {on:?}"),
+        EventKind::MenuOpened { menu } => info!("script: menu {menu} open"),
+        EventKind::MenuClosed { menu } => info!("script: menu {menu} closed"),
+        EventKind::LineStarted { speaker, info, seconds, .. } => info!("script: {} says {} ({seconds:.2} s)", n(*speaker), n(*info)),
+        EventKind::LineEnded { speaker, info, cut } => info!("script: {} {} line {}", n(*speaker), if *cut { "cut" } else { "ended" }, n(*info)),
         EventKind::ItemAdded { to, item, count } => debug!("script: {count} x {} added to {}", n(*item), n(*to)),
         EventKind::ItemRemoved { from, item, count } => debug!("script: {count} x {} removed from {}", n(*item), n(*from)),
         EventKind::Unhandled { name, unit, .. } => debug!("script: unhandled {name} in {unit}"),
@@ -712,19 +1006,21 @@ fn write_final(mut exit: MessageReader<AppExit>, mut script: ResMut<ScriptState>
         .collect();
     let mean = if s.frames > 0 { s.total_ms / s.frames as f64 } else { 0.0 };
     info!(
-        "scripts: {} frames, {:.3} ms per frame on average, longest {:.1} ms; {} events; {} quests running; unhandled calls {}, stubbed {}",
+        "scripts: {} frames, {:.3} ms per frame on average, longest {:.1} ms; {} events; {} quests running; menu {:?}, {} boxes waiting; unhandled calls {}, stubbed {}",
         s.frames,
         mean,
         s.worst_ms,
         s.events,
         g.quests.values().filter(|q| q.running).count(),
+        g.menu,
+        g.boxes.len(),
         g.unhandled.values().sum::<u64>(),
         g.stubbed.values().sum::<u64>()
     );
     if let Some(log) = st.trace.as_mut() {
         let v = serde_json::json!({"kind": "final", "frame": g.frame, "game_seconds": g.time, "frames": s.frames,
             "tick_ms": {"mean": mean, "worst": s.worst_ms}, "events": s.events,
-            "quests_running": g.quests.values().filter(|q| q.running).count(),
+            "quests_running": g.quests.values().filter(|q| q.running).count(), "menu": g.menu, "boxes": g.boxes,
             "quests": quests, "player": g.player, "unhandled": counts(&g.unhandled), "stubbed": counts(&g.stubbed)});
         log.write(&v);
         let _ = log.out.flush();

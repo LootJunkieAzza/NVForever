@@ -205,6 +205,11 @@ struct Args {
     /// Test aid with --play: walk forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0, requires = "play")]
     auto_walk: f32,
+    /// With --play: start a new game: in Doc Mitchell's house at the opening's start
+    /// marker, with the opening quest VCG00 started (docs/design/layer5-play.md); --cell,
+    /// --pos and --heading are ignored.
+    #[arg(long, requires = "play")]
+    new_game: bool,
 }
 
 #[derive(Component)]
@@ -265,6 +270,20 @@ fn main() -> AppExit {
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
 
+    // A new game starts at the opening's marker (nvf-play).
+    let mut args = args;
+    if args.new_game {
+        match nvf_play::script::new_game_start(world.lo, world.schema, world.index) {
+            Ok(s) => {
+                info!("new game: interior {:08X}, feet {:?}, heading {:.0}", s.interior, s.feet, s.heading_deg);
+                args.cell = format!("0x{:08X}", s.interior);
+                args.pos = Some(format!("{},{},{}", s.feet[0], s.feet[1], s.feet[2] + nvf_play::player::EYE_HEIGHT));
+                args.heading = s.heading_deg;
+                args.eye_height = 0.0;
+            }
+            Err(e) => return fail(format!("--new-game: {e}")),
+        }
+    }
     // Interior mode when --cell names an interior cell.
     let interior = world.index.cell_by_name(&args.cell).filter(|c| c.world.is_none()).map(|c| c.form_id);
     // Start position (game space).
@@ -427,6 +446,9 @@ fn main() -> AppExit {
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(Update, (locomotion::walk_test, locomotion::drive).chain())
     .add_systems(Update, timelapse.after(sky::update_sky));
+    if args.new_game {
+        app.insert_resource(nvf_play::script::NewGame);
+    }
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
