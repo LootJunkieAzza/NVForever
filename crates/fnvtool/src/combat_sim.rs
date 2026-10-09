@@ -125,19 +125,6 @@ impl CombatWorld for Range {
     }
 }
 
-/// splitmix64: a small seeded generator so runs repeat exactly.
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> f32 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^= z >> 31;
-        (z >> 40) as f32 / (1u64 << 24) as f32
-    }
-}
 
 #[derive(Args, Clone)]
 pub struct Shooting {
@@ -181,7 +168,7 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
     let eye = [0.0, 0.0, 100.0];
     let world = Range { target: [r.distance, 0.0, 100.0], radius: r.radius };
     let g = 9.81 * 70.0;
-    let mut rng = Rng(r.seed);
+    let mut rng = fnv_combat::rng::SplitMix(r.seed);
     let timing = Timing::of(w, &ClipTiming::default(), &t);
     let mut cycle = Cycle::new(w, timing, false, w.clip_size);
     let mut kick = Kick::default();
@@ -206,7 +193,7 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
                     let cone = spread::cone_deg(actor_spread, kick.bloom, w, &eff);
                     let pitch = kick.recoil_deg.to_radians();
                     let aim = [pitch.cos(), 0.0, pitch.sin()];
-                    let mut rnd = || rng.next();
+                    let mut rnd = || rng.next_f32();
                     flying.extend(shot::fire(c, &ch, eye, aim, cone, Some(SHOOTER), g, &t, &mut rnd));
                     kick.shot(&t, w.min_spread, w.base_damage as f32);
                 }
@@ -244,7 +231,7 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
             }
             hits += 1;
             let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head } };
-            let d = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, rng.next());
+            let d = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, rng.next_f32());
             if d.critical {
                 crits += 1;
             }
