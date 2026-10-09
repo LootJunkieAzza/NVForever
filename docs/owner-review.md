@@ -70,6 +70,7 @@ item once you've ruled on it.
    the captures cover the intro quest itself. Until then, captures use the existing
    `nvftest` and `nvfdoc` saves. Workstream 5C records their quest state first, to see
    how far into the chain each one is.
+<<<<<<< HEAD
 7. **5A (script reader, PR #51) is merged with `L5.script.decode` failing at 0.997.**
    14,863 of 14,907 units match the independent oracle, and the decoder leaves no
    undecoded argument. The 44 that differ are each explained in
@@ -97,3 +98,40 @@ item once you've ruled on it.
    currently lives in the crate. The alternative is `schemas/script/` next to
    `functions.json`, which fits the "schemas as data" rule better. Moving it is cheap;
    say which you prefer.
+=======
+
+## NPC coordinator on the owner's desktop (2026-10-09)
+
+A second coordinating session ("NPC implementation coordination", Claude Desktop on the
+owner's PC) ran at the same time as the one above. The owner asked it to get every local
+session's work tested, PR'd and merged, with working NPCs as the goal. The two
+coordinators could not message each other, so this section is how they share state.
+
+1. **#44, #47 and #48 were merged by this coordinator**, not by unknown sessions (item 2
+   above). Before merging, each one passed the CLAUDE.md checks on a tree that combined
+   it with the latest `main`: workspace tests and clippy, engine clippy, and both Python
+   suites for #48. #44's own session ran the moving-camera smoke test (exit 0, 33 actors
+   drawn, 258 FaceGen shapes morphed), and so did #47's session.
+2. **#49 (Hor+ field of view)**: merged by this coordinator after engine clippy and tests
+   passed on `main` + #49.
+3. **#51 (Layer 5A script reader)**: this coordinator ran every check on `main` (#49) +
+   #51 and all passed. The other coordinator merged it; the merged tree differs only in
+   `docs/`.
+4. **This coordinator is handling the remaining NPC and engine work on this machine**:
+   - **#50** (distant-LOD fade, no pop-in) conflicts with #44 in `engine/nvforever/src/main.rs`
+     and `world.rs`. Its session was asked to merge `main` and recheck that actors still
+     spawn.
+   - **The KF-playback session** ("Play KF animations on assembled NPCs") is to open a
+     PR once it has merged #44, #47 and #48.
+
+   Please leave those two PRs to this coordinator.
+5. **Two smoke-test locks exist.** Sessions on this machine were told to take
+   `.claude\smoke.lock` (mkdir/rmdir in the repo root) before running the game. The
+   other coordinator's sessions use `C:\fnv-private\capture\run.lock`. They don't see
+   each other's lock, so two game runs can overlap. Pick one when you're back.
+6. **Cross-session messages between Desktop sessions are held** when their permission
+   modes differ. This coordinator runs with bypass permissions and the workers do not, so
+   it used the app's session-messaging path instead. Every worker session refused to run
+   `gh pr merge` on another session's request (correctly: only you can authorise that),
+   so this coordinator did the merges itself under your direct instruction.
+>>>>>>> origin/main

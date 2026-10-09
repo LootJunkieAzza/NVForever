@@ -1,0 +1,196 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "q5_trial2",
+ "title": "Layer 5 trial 2: quests by ref, writes by console and SetVariable (a few seconds)",
+ "start": "nvftest (changes VMS22 and VMQ03aTimer; never saved).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068060\nlet fV := GetStageDone rQ 200\nSetFunctionValue fV\nEnd\n",
+   "label": "ref",
+   "field": "GetStageDone VCG01 200"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068060\nlet fV := GetQuestCompleted rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "ref",
+   "field": "GetQuestCompleted VCG01"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068060\nlet fV := GetObjectiveDisplayed rQ 10\nSetFunctionValue fV\nEnd\n",
+   "label": "ref",
+   "field": "GetObjectiveDisplayed VCG01 10"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068060\nlet fV := GetObjectiveCompleted rQ 10\nSetFunctionValue fV\nEnd\n",
+   "label": "ref",
+   "field": "GetObjectiveCompleted VCG01 10"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068060\nlet fV := GetVariable \"nButton\" rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "ref",
+   "field": "GetVariable nButton VCG01"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068060\nlet fV := GetVariable \"NoSuchVariable\" rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "ref",
+   "field": "GetVariable NoSuchVariable VCG01"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1123703\nlet fV := GetVariable \"VMS22DinoPic\" rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "write",
+   "field": "VMS22DinoPic at start"
+  },
+  {
+   "console": "set VMS22.VMS22DinoPic to 5"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1123703\nlet fV := GetVariable \"VMS22DinoPic\" rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "write",
+   "field": "after console set to 5"
+  },
+  {
+   "script": "float fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1123703\nSetVariable \"VMS22DinoPic\" 7 rQ\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1123703\nlet fV := GetVariable \"VMS22DinoPic\" rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "write",
+   "field": "after SetVariable 7"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1123703\nlet fV := GetStageDone rQ 10\nSetFunctionValue fV\nEnd\n",
+   "label": "stage",
+   "field": "VMS22 done 10 before"
+  },
+  {
+   "script": "float fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1123703\nSetStage rQ 10\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1123703\nlet fV := GetStageDone rQ 10\nSetFunctionValue fV\nEnd\n",
+   "label": "stage",
+   "field": "VMS22 done 10 after SetStage rQ 10"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1328815\nlet fV := GetQuestRunning rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "VMQ03aTimer running at start"
+  },
+  {
+   "script": "float fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1328815\nStartQuest rQ\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1328815\nlet fV := GetQuestRunning rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "after StartQuest rQ"
+  },
+  {
+   "script": "float fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1328815\nStopQuest rQ\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1328815\nlet fV := GetQuestRunning rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "after StopQuest rQ"
+  },
+  {
+   "console": "StartQuest VMQ03aTimer"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1328815\nlet fV := GetQuestRunning rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "after console StartQuest"
+  },
+  {
+   "console": "StopQuest VMQ03aTimer"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1328815\nlet fV := GetQuestRunning rQ\nSetFunctionValue fV\nEnd\n",
+   "label": "start",
+   "field": "after console StopQuest"
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068718\nlet fV := GetObjectiveDisplayed rQ 10\nSetFunctionValue fV\nEnd\n",
+   "label": "objective",
+   "field": "VMS16 objective 10 displayed at start"
+  },
+  {
+   "console": "SetObjectiveDisplayed VMS16 10 0"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nfloat fM\nref rQ\nBegin Function { }\nlet fM := GetModIndex \"FalloutNV.esm\"\nlet rQ := BuildRef fM 1068718\nlet fV := GetObjectiveDisplayed rQ 10\nSetFunctionValue fV\nEnd\n",
+   "label": "objective",
+   "field": "after console SetObjectiveDisplayed VMS16 10 0"
+  }
+ ]
+}
