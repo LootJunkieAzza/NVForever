@@ -10,11 +10,11 @@
 //! `NVF_PLAY_TEST_SHOT=<path.png>` it saves screenshots of the container menu (`<path>`)
 //! and of the inventory (`<path stem>-inventory.png`).
 //!
-//! `NVF_PLAY_TEST_DROP=<seconds>:<item FormID hex>[:stack][,...]` drops a carried item
-//! through the inventory menu: at that time (once no menu is open) it opens the
-//! inventory, half a second later selects the item's row and drops one unit (`Drop`, the
-//! X key) or the whole stack (`DropStack`, Shift+X) and logs the list, and half a second
-//! later closes the menu.
+//! `NVF_PLAY_TEST_DROP=<seconds>:<item FormID hex>[:stack|:use][,...]` drops (or uses) a
+//! carried item through the inventory menu: at that time (once no menu is open) it opens
+//! the inventory, half a second later selects the item's row and drops one unit (`Drop`,
+//! the X key), the whole stack (`DropStack`, Shift+X) or uses it (`One`, Enter: equips, or
+//! uses up an aid item) and logs the list, and half a second later closes the menu.
 
 use super::model::{Command, MenuModel, Mode, Side};
 use super::{ActiveMenu, MenuInput, OpenInventory, OpenNearestContainer};
@@ -58,20 +58,22 @@ pub(super) fn setup(app: &mut App) {
 pub(super) struct DropJob {
     at: f32,
     item: FormId,
-    stack: bool,
+    /// `Drop`, `DropStack` or `One` (use / equip).
+    cmd: Command,
 }
 
 pub(super) fn parse_drops(v: &str) -> Result<Vec<DropJob>, String> {
     crate::test_aid::timed(v)?
         .into_iter()
         .map(|(at, rest)| {
-            let (item, stack) = match rest.split_once(':') {
-                Some((i, "stack")) => (i, true),
-                Some((_, x)) => return Err(format!("{rest:?}: expected <item>[:stack], not {x:?}")),
-                None => (rest, false),
+            let (item, cmd) = match rest.split_once(':') {
+                Some((i, "stack")) => (i, Command::DropStack),
+                Some((i, "use")) => (i, Command::One),
+                Some((_, x)) => return Err(format!("{rest:?}: expected <item>[:stack|:use], not {x:?}")),
+                None => (rest, Command::Drop),
             };
             let item = item.parse::<FormId>().map_err(|e| format!("{rest:?}: {e}"))?;
-            Ok(DropJob { at, item, stack })
+            Ok(DropJob { at, item, cmd })
         })
         .collect()
 }
@@ -118,7 +120,7 @@ pub(super) fn run_drops(
                 return; // wait until no menu is open
             }
             let job = d.jobs.pop().expect("checked");
-            info!("test aid: drop {}{}: open the inventory", job.item, if job.stack { " (stack)" } else { "" });
+            info!("test aid: {:?} {}: open the inventory", job.cmd, job.item);
             open_inventory.write(OpenInventory);
             d.current = Some((job, 1, now + 0.5));
         }
@@ -134,7 +136,7 @@ pub(super) fn run_drops(
                             if m.selected[Side::Player as usize] != i {
                                 input.write(MenuInput(Command::Select(Side::Player, i)));
                             }
-                            input.write(MenuInput(if job.stack { Command::DropStack } else { Command::Drop }));
+                            input.write(MenuInput(job.cmd));
                         }
                         None => info!("test aid: {} is not carried", job.item),
                     }
@@ -283,9 +285,10 @@ mod tests {
     fn drop_jobs() {
         let j = parse_drops("12:00015169, 20.5:0x00015169:stack").unwrap();
         assert_eq!(j, vec![
-            DropJob { at: 12.0, item: FormId(0x15169), stack: false },
-            DropJob { at: 20.5, item: FormId(0x15169), stack: true },
+            DropJob { at: 12.0, item: FormId(0x15169), cmd: Command::Drop },
+            DropJob { at: 20.5, item: FormId(0x15169), cmd: Command::DropStack },
         ]);
+        assert_eq!(parse_drops("3:00015169:use").unwrap()[0].cmd, Command::One);
         assert!(parse_drops("12:00015169:all").is_err());
         assert!(parse_drops("12:zz").is_err());
     }

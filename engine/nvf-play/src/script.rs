@@ -44,7 +44,7 @@ use crate::player::Player;
 use crate::script_events::{self, EffectCtx, InvView, ScriptAid, ScriptEffect};
 use crate::script_hud::ScriptHud;
 use crate::sim::SimState;
-use crate::{Location, OpenContainer, PlayData, PlaySet, PlayWorld, RefChanged, Travel};
+use crate::{ItemUsed, Location, OpenContainer, PlayData, PlaySet, PlayWorld, RefChanged, Travel};
 use bevy::prelude::*;
 use fnv_game::game::{event, ActMode};
 use fnv_game::trace::{Event, EventKind};
@@ -487,7 +487,10 @@ fn run_scripts(
     mut changed: MessageWriter<RefChanged>,
     mut travel: MessageWriter<Travel>,
     mut open: MessageWriter<OpenContainer>,
+    mut used: MessageReader<ItemUsed>,
 ) {
+    // Items the player used up in the inventory menu (the menu already removed them).
+    let used: Vec<FormId> = used.read().map(|u| FormId(u.item)).collect();
     let st = &mut *script;
     if st.rt.is_none() {
         let Some(rx) = st.loader.as_ref() else { return };
@@ -552,6 +555,10 @@ fn run_scripts(
     let mut marked = Vec::new();
     with_world(rt, &mut sim, |rt| {
         rt.observe_inventory();
+        for &item in &used {
+            let started = rt.game.apply_magic_item(FormId::PLAYER_REF, item, Some(FormId::PLAYER_REF), false);
+            info!("script: the player used {item}: {} effect(s) started", started.len());
+        }
         rt.follow_player();
         for a in &due {
             match a {

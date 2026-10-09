@@ -25,3 +25,5 @@ baseline.json
 *.wav
 *.mp3
 *.fos
+# Built programs copied around for checks (never commit binaries).
+*.exe
