@@ -155,6 +155,7 @@ const CHIP: u32 = 0x179; // CHIP: no weight field
 const CMNY: u32 = 0x17A; // CMNY: no weight field
 const CARD: u32 = 0x17B; // CCRD: value only
 const GLOVE: u32 = 0x17C; // ARMO, slot Left Hand, Non-Playable, weight 0
+const QUEST_KEY: u32 = 0x17D; // KEYM with the record header's "Quest Item" flag (bit 10)
 const LOCKER: u32 = 0x121; // CONT: PISTOL x1 with COED condition 0.75
 const MINE: u32 = 0x177; // WEAP firing MINE_PROJ
 const MINE_PROJ: u32 = 0x180; // PROJ
@@ -182,7 +183,10 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"CMNY", &record(b"CMNY", 0, CMNY, &[sub(b"EDID", z("TestMoney"))])),
     ]
     .concat();
-    let keym = record(b"KEYM", 0, KEY, &[sub(b"EDID", z("TestKey")), sub(b"DATA", value_weight(0, 0.0))]);
+    let keym = cat(&[
+        &record(b"KEYM", 0, KEY, &[sub(b"EDID", z("TestKey")), sub(b"DATA", value_weight(0, 0.0))]),
+        &record(b"KEYM", 0x400, QUEST_KEY, &[sub(b"EDID", z("TestQuestKey")), sub(b"DATA", value_weight(0, 0.0))]),
+    ]);
     let furn = record(b"FURN", 0, CHAIR, &[sub(b"EDID", z("TestChair"))]);
     let lvli = cat(&[
         &record(
@@ -1235,4 +1239,63 @@ fn the_player_starts_wearing_non_playable_armour_and_keeps_it() {
     assert_eq!(w.item_count(p, id(SUIT)).unwrap(), 0);
     assert_eq!(w.item_count(p, id(CAPS)).unwrap(), 0);
     assert!(w.inventory_mut(p).unwrap().is_equipped(id(GLOVE)));
+}
+
+// ---- quest items ----------------------------------------------------------------
+
+#[test]
+fn quest_item_flag_comes_from_the_record_header() {
+    let f = fixture();
+    assert!(f.forms.issues.is_empty(), "{:?}", f.forms.issues.to_json());
+    assert!(f.forms.is_quest_item(id(QUEST_KEY)));
+    assert!(!f.forms.is_quest_item(id(KEY)));
+    assert!(!f.forms.is_quest_item(id(STIMPAK)));
+    // The schema names the bit per record type; a type it gives no name stays false.
+    let s = schema();
+    assert_eq!(s.header_flag(b"KEYM", fnv_sim::forms::QUEST_ITEM_FLAG), Some(0x400));
+    assert_eq!(s.header_flag(b"NOTE", fnv_sim::forms::QUEST_ITEM_FLAG), None);
+}
+
+#[test]
+fn the_player_cannot_drop_a_quest_item_by_hand() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(QUEST_KEY), 3).unwrap();
+    w.add_item(p, id(STIMPAK), 1).unwrap();
+    assert_eq!(w.player_drop_item(id(QUEST_KEY), 1), Err(SimError::QuestItem(id(QUEST_KEY))));
+    assert_eq!(w.item_count(p, id(QUEST_KEY)).unwrap(), 3);
+    assert_eq!(w.created().count(), 0);
+    // A bad count is still a bad count; other items drop as before.
+    assert_eq!(w.player_drop_item(id(QUEST_KEY), 0), Err(SimError::BadCount(0)));
+    assert_eq!(w.player_drop_item(id(STIMPAK), 1).unwrap().len(), 1);
+    // A script's drop ignores the flag [observed: scripted player.Drop in the game].
+    assert_eq!(w.drop_item(p, id(QUEST_KEY), 1).unwrap().len(), 1);
+    assert_eq!(w.item_count(p, id(QUEST_KEY)).unwrap(), 2);
+    // Storing it in a container is allowed [hypothesis], and the container may drop it.
+    assert_eq!(w.transfer(p, id(SAFE_REF), id(QUEST_KEY), 1).unwrap(), 1);
+    assert_eq!(w.drop_item(id(SAFE_REF), id(QUEST_KEY), 1).unwrap().len(), 1);
+    // The flag is the error's message.
+    assert_eq!(SimError::QuestItem(id(QUEST_KEY)).to_string(), "0x0000017D is a quest item: the player cannot drop it");
+}
+
+#[test]
+fn set_quest_object_overrides_the_record_flag_and_is_saved() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    w.add_item(p, id(STIMPAK), 1).unwrap();
+    w.add_item(p, id(QUEST_KEY), 1).unwrap();
+    w.set_quest_object(id(STIMPAK), true);
+    w.set_quest_object(id(QUEST_KEY), false);
+    assert!(w.is_quest_item(id(STIMPAK)) && !w.is_quest_item(id(QUEST_KEY)));
+    assert_eq!(w.player_drop_item(id(STIMPAK), 1), Err(SimError::QuestItem(id(STIMPAK))));
+    let snap = w.snapshot();
+    assert_eq!(snap.quest_objects.len(), 2);
+    let mut back = World::restore(&f.forms, &f.refs, &serde_json::from_str(&serde_json::to_string(&snap).unwrap()).unwrap()).unwrap();
+    assert!(back.is_quest_item(id(STIMPAK)));
+    assert_eq!(back.player_drop_item(id(QUEST_KEY), 1).unwrap().len(), 1);
+    // A world with no overrides writes no field (older snapshots stay byte-identical).
+    let plain = World::new(&f.forms, &f.refs, SimConfig::default()).snapshot();
+    assert!(!serde_json::to_string(&plain).unwrap().contains("quest_objects"));
 }
