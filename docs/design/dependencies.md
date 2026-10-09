@@ -47,11 +47,12 @@ still has to be re-run there (84/84 Layer 1 scenarios expected).
 All dependencies are MIT/Apache-2.0 or similar permissive licences, plus one MPL-2.0 crate
 (`option-ext`, via `directories`), compatible with GPL-3.0 and with a permissive project
 licence. `cargo deny check` enforces the allow-list in `deny.toml` and RustSec advisories;
-CI runs it on every push.
+CI runs it on every push to main.
 
 ## CI
 
-`.github/workflows/ci.yml`: tests and clippy (`-D warnings`) on Linux, Windows and macOS,
-the Python lab/capture self-tests, `cargo deny`, and a Windows `fnvtool.exe` artifact
-(`fnvtool-windows-x64`). The parity job that needs game data stays in
+`.github/workflows/ci.yml`: one Linux job, run on pushes to main (and manually), that does
+`cargo deny`, tests and clippy (`-D warnings`) for both workspaces and the Python lab/capture
+self-tests. Pull requests, other branches, Windows and macOS are not run in CI (billed
+minutes); the local checks in CLAUDE.md cover them before each push. The parity job that needs game data stays in
 `parity-lab/ci/github-actions.yml` (self-hosted runner only).

@@ -41,12 +41,9 @@ Details: [docs/design/install-layout.md](docs/design/install-layout.md).
 
 ## Getting `fnvtool` (Windows)
 
-`fnvtool` is the project's command-line program (Rust, not Python). Either:
-
-1. **Download** it: after a push, open the repository's *Actions* tab → latest `ci` run →
-   artifact `fnvtool-windows-x64`; unzip it into e.g. `C:\Games\NVForever`.
-2. **Build** it: install Rust from https://rustup.rs, then in the repository folder run
-   `cargo build --release -p fnvtool`; the program is `target\release\fnvtool.exe`.
+`fnvtool` is the project's command-line program (Rust, not Python). Build it: install Rust
+from https://rustup.rs, then in the repository folder run `cargo build --release -p fnvtool`;
+the program is `target\release\fnvtool.exe`.
 
 Example (PowerShell):
 
