@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::facegen::FaceGenCache;
+use crate::limbs::ActorRig;
 use crate::locomotion::{simulate, walk_test_at, walk_test_period, ClipSet, Locomotion, WalkTest};
 use crate::weapons::{Stance, WeaponHold, WeaponMode};
 use fnv_actor::weapon::AnimType;
@@ -301,7 +302,11 @@ pub fn spawn(
     // The race's height scales the actor [hypothesis, actors.md §3].
     let rt = rt * Affine3A::from_scale(Vec3::splat(a.race_height as f32));
     let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
-    commands.entity(spawned.root).insert((Name::new(format!("Actor {reference:08X} {}", a.edid.as_deref().unwrap_or(""))), RefVisual(reference)));
+    commands.entity(spawned.root).insert((
+        Name::new(format!("Actor {reference:08X} {}", a.edid.as_deref().unwrap_or(""))),
+        RefVisual(reference),
+        ActorRig { reference, base, skeleton: a.skeleton.clone(), skel: skel.clone(), nodes: spawned.nodes.clone() },
+    ));
     for e in &spawned.drawn {
         commands.entity(*e).insert(RefVisual(reference));
     }
@@ -393,7 +398,11 @@ pub fn spawn_creature(
     // The creature's base scale (BNAM) on top of the reference's [hypothesis, §10.1].
     let rt = rt * Affine3A::from_scale(Vec3::splat(c.base_scale as f32));
     let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
-    commands.entity(spawned.root).insert((Name::new(format!("Creature {reference:08X} {}", c.edid.as_deref().unwrap_or(""))), RefVisual(reference)));
+    commands.entity(spawned.root).insert((
+        Name::new(format!("Creature {reference:08X} {}", c.edid.as_deref().unwrap_or(""))),
+        RefVisual(reference),
+        ActorRig { reference, base, skeleton: c.skeleton.clone(), skel: skel.clone(), nodes: spawned.nodes.clone() },
+    ));
     for e in &spawned.drawn {
         commands.entity(*e).insert(RefVisual(reference));
     }

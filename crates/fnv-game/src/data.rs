@@ -101,6 +101,22 @@ pub struct ActorDef {
     /// CREA DATA creature type code (0 Animal … 7 Giant) [documented: xEdit
     /// wbCreatureTypeEnum; schema `gameplay.json`].
     pub creature_type: Option<i64>,
+    /// Combat (step C5) [documented: xEdit field names; GECK wiki Stats Tab pages]:
+    /// NPC_ DATA Base Health (added to the health derived from Endurance and level) or
+    /// CREA DATA Health (the creature's health).
+    pub base_health: i64,
+    /// DATA Endurance.
+    pub endurance: i64,
+    /// ACBS level, or the player-level multiplier ×1000 with "PC Level Mult", and the
+    /// calculated level's bounds.
+    pub level_raw: i64,
+    pub pc_level_mult: bool,
+    pub calc_min: i64,
+    pub calc_max: i64,
+    /// ACBS template flag "Stats": the template supplies the stats.
+    pub template_stats: bool,
+    /// CREA ACBS "Invulnerable".
+    pub invulnerable: bool,
 }
 
 /// A region's areas (REGN WNAM, RPLI/RPLD): each area a polygon of worldspace x, y
@@ -159,8 +175,30 @@ pub struct EffectItem {
 #[derive(Debug, Clone, Default)]
 pub struct DestructionDef {
     pub health: i32,
-    /// (health percent, stage index, flags: 1 cap damage, 2 disable, 4 destroy).
-    pub stages: Vec<(u8, u8, u8)>,
+    pub stages: Vec<DestructionStage>,
+}
+
+/// One DSTD stage, with its DMDL replacement model when one follows [documented: xEdit
+/// wbDEST; meanings: GECK wiki Destructible Object Stage, owner export 2026-10-09].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DestructionStage {
+    pub health_percent: u8,
+    pub index: u8,
+    /// Model damage stage (0–8; `BSDamageStage` nodes).
+    pub damage_stage: u8,
+    /// 1 cap damage, 2 disable, 4 destroy.
+    pub flags: u8,
+    pub self_damage_per_second: i32,
+    pub explosion: Option<FormId>,
+    pub debris: Option<FormId>,
+    pub debris_count: i32,
+    pub model: Option<String>,
+}
+
+impl DestructionStage {
+    pub const CAP_DAMAGE: u8 = 1;
+    pub const DISABLE: u8 = 2;
+    pub const DESTROY: u8 = 4;
 }
 
 /// An AI package's conditions (`PACK` CTDA before the begin/end/change sections)
@@ -556,10 +594,34 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     let decoded: Vec<(&[u8; 4], Option<Json>)> = subs.iter().map(|s| (&s.sig, val(s))).collect();
     if let Some((_, Some(h))) = decoded.iter().find(|(s, _)| *s == b"DEST") {
         let mut dd = DestructionDef { health: h.get("health").and_then(Json::as_i64).unwrap_or(0) as i32, stages: Vec::new() };
-        for (_, v) in decoded.iter().filter(|(s, _)| *s == b"DSTD") {
-            let Some(v) = v else { continue };
-            let n = |k: &str| v.get(k).and_then(Json::as_u64).unwrap_or(0) as u8;
-            dd.stages.push((n("health_percent"), n("index"), flag_bits(v.get("flags")) as u8));
+        for (sig, v) in decoded.iter() {
+            match *sig {
+                b"DSTD" => {
+                    let Some(v) = v else { continue };
+                    let n = |k: &str| v.get(k).and_then(Json::as_u64).unwrap_or(0) as u8;
+                    let i = |k: &str| v.get(k).and_then(Json::as_i64).unwrap_or(0) as i32;
+                    // FormID 0 is "none".
+                    let form = |k: &str| v.get(k).and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId);
+                    dd.stages.push(DestructionStage {
+                        health_percent: n("health_percent"),
+                        index: n("index"),
+                        damage_stage: n("damage_stage"),
+                        flags: flag_bits(v.get("flags")) as u8,
+                        self_damage_per_second: i("self_damage_per_second"),
+                        explosion: form("explosion"),
+                        debris: form("debris"),
+                        debris_count: i("debris_count"),
+                        model: None,
+                    });
+                }
+                // DMDL follows its stage's DSTD.
+                b"DMDL" => {
+                    if let (Some(st), Some(Json::String(m))) = (dd.stages.last_mut(), v) {
+                        st.model = Some(m.trim().to_string()).filter(|m| !m.is_empty());
+                    }
+                }
+                _ => {}
+            }
         }
         out.destruction = Some(dd);
     }
@@ -727,12 +789,24 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"DATA" if &sig == b"CREA" => {
                         a.creature_type =
                             v.as_ref().and_then(|v| v.get("type")).and_then(|t| field_code(schema, &sig, b"DATA", Some("type"), t));
+                        a.base_health = v.as_ref().and_then(|v| v.get("health")).and_then(Json::as_i64).unwrap_or(0);
+                        a.endurance = v.as_ref().and_then(|v| v.get("attributes")).and_then(|x| x.get("endurance")).and_then(Json::as_i64).unwrap_or(0);
+                    }
+                    b"DATA" if &sig == b"NPC_" => {
+                        a.base_health = v.as_ref().and_then(|v| v.get("base_health")).and_then(Json::as_i64).unwrap_or(0);
+                        a.endurance = v.as_ref().and_then(|v| v.get("attributes")).and_then(|x| x.get("endurance")).and_then(Json::as_i64).unwrap_or(0);
                     }
                     b"ACBS" => {
                         let f = v.as_ref().and_then(|v| v.get("flags"));
                         a.female = has_flag(f, "Female");
                         a.essential = has_flag(f, "Essential");
-                        a.template_packages = has_flag(v.as_ref().and_then(|v| v.get("template_flags")), "AI Packages");
+                        a.invulnerable = has_flag(f, "Invulnerable");
+                        a.pc_level_mult = has_flag(f, "PC Level Mult");
+                        let n = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_i64).unwrap_or(0);
+                        (a.level_raw, a.calc_min, a.calc_max) = (n("level_or_level_mult_raw"), n("calc_min"), n("calc_max"));
+                        let tf = v.as_ref().and_then(|v| v.get("template_flags"));
+                        a.template_packages = has_flag(tf, "AI Packages");
+                        a.template_stats = has_flag(tf, "Stats");
                     }
                     _ => {}
                 }

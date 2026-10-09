@@ -25,6 +25,14 @@ impl LayerSet {
         s
     }
 
+    /// Every layer in either set.
+    pub fn union(mut self, other: LayerSet) -> LayerSet {
+        for (a, b) in self.0.iter_mut().zip(other.0) {
+            *a |= b;
+        }
+        self
+    }
+
     pub fn layers(&self) -> Vec<u8> {
         (0..=255u8).filter(|&l| self.contains(l)).collect()
     }
@@ -123,6 +131,12 @@ const NAMES: [&str; 43] = [
 /// The documented name of a layer number.
 pub fn name(layer: u32) -> Option<&'static str> {
     NAMES.get(layer as usize).copied()
+}
+
+/// The layers of actor hit volumes (`crate::actors`): BIPED alive, DEAD_BIP dead. Rays
+/// that look for floors, room or the camera's place skip them.
+pub fn actor_volumes() -> LayerSet {
+    LayerSet::from_layers(&[BIPED, DEAD_BIP])
 }
 
 /// Layers the character controller passes through by default: volumes that are not

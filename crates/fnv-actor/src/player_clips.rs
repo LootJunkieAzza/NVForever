@@ -202,6 +202,47 @@ pub fn equip_clips(stance: Stance, prefix: &str, equip: bool) -> Vec<String> {
     out
 }
 
+/// The clip file stem of a WEAP attack animation (`AttackRight` → `attackright`); the
+/// weapon's default (`DEFAULT`, or none) plays `AttackRight` [hypothesis].
+pub fn attack_stem(attack: Option<&str>) -> String {
+    match attack.map(str::to_ascii_lowercase) {
+        Some(a) if a.starts_with("attack") || a.starts_with("placemine") => a,
+        _ => "attackright".to_string(),
+    }
+}
+
+/// Attacking with weapon `prefix` (`1hpattackright.kf`; `…is.kf` down the sights; melee
+/// and fists have `_a`/`_b` variants, `1hmattackright_a.kf`) [observed: the
+/// `_1stperson` and `_male` file lists]: sneaking first when crouched, then the sights
+/// form, then the plain one, then the `_a` variant, then `AttackRight` as a fallback.
+/// `attack` is [`attack_stem`]'s result.
+pub fn attack_clips(stance: Stance, prefix: &str, attack: &str, sights: bool) -> Vec<String> {
+    let mut out = Vec::new();
+    for a in [attack, "attackright"] {
+        for is in if sights { &["is", ""][..] } else { &[""][..] } {
+            if stance == Stance::Sneak {
+                out.push(format!("sneak{prefix}{a}{is}.kf"));
+            }
+            out.push(format!("{prefix}{a}{is}.kf"));
+        }
+        out.push(format!("{prefix}{a}_a.kf"));
+    }
+    out.dedup();
+    out
+}
+
+/// Reloading weapon `prefix` with WEAP reload animation `reload` (`ReloadA` →
+/// `1hpreloada.kf`) [observed: file lists; the DNAM enum names], sneaking first.
+pub fn reload_clips(stance: Stance, prefix: &str, reload: &str) -> Vec<String> {
+    let r = reload.to_ascii_lowercase();
+    let mut out = Vec::new();
+    if stance == Stance::Sneak {
+        out.push(format!("sneak{prefix}{r}.kf"));
+    }
+    out.push(format!("{prefix}{r}.kf"));
+    out
+}
+
 /// In the air (`land` false: looped) or landing (`land` true: once), moving in `dir`.
 /// The weapon's clips first (`1hpjumploopforward.kf`), then the posture's
 /// (`sneakmtjumplandleft.kf`), then the plain unarmed ones (`mtjumploop.kf`).
@@ -257,6 +298,9 @@ pub struct ClipKeys {
     pub attach: Option<f32>,
     /// `Detach`: the weapon leaves the hand for the holster.
     pub detach: Option<f32>,
+    /// `Hit` (or `Fire`, the first of either): when a ranged weapon fires or a melee one
+    /// strikes [documented: GECK wiki NiTextKeyExtraData, owner export 2026-10-09].
+    pub hit: Option<f32>,
 }
 
 impl ClipKeys {
@@ -277,6 +321,8 @@ impl ClipKeys {
                     out.attach.get_or_insert(*t);
                 } else if lower == "detach" {
                     out.detach.get_or_insert(*t);
+                } else if lower == "hit" || lower == "fire" {
+                    out.hit.get_or_insert(*t);
                 }
             }
         }
@@ -394,6 +440,21 @@ impl WeaponHands {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attack_and_reload_clips() {
+        assert_eq!(attack_stem(Some("AttackLoop")), "attackloop");
+        assert_eq!(attack_stem(Some("DEFAULT")), "attackright");
+        assert_eq!(attack_stem(None), "attackright");
+        let c = attack_clips(Stance::Stand, "1hp", "attackright", true);
+        assert_eq!(c[..3], ["1hpattackrightis.kf".to_string(), "1hpattackright.kf".to_string(), "1hpattackright_a.kf".to_string()]);
+        let c = attack_clips(Stance::Sneak, "2hr", "attack3", false);
+        assert_eq!(c[0], "sneak2hrattack3.kf");
+        assert!(c.contains(&"2hrattackright.kf".to_string()));
+        assert_eq!(reload_clips(Stance::Stand, "1hp", "ReloadL"), vec!["1hpreloadl.kf".to_string()]);
+        let k = ClipKeys::parse(&[(0.0, "Start".into()), (0.1, "Hit".into()), (0.3, "Fire".into())]);
+        assert_eq!(k.hit, Some(0.1));
+    }
 
     #[test]
     fn diagonals_blend_and_still_is_none() {
