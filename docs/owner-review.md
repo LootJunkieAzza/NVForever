@@ -37,12 +37,27 @@ item once you've ruled on it.
    (`--shadow-distance 0`; cascades stay opt-in). Frame SSIM: dusk 0.415 → 0.500, noon
    0.421 → 0.448, hill 0.491 → 0.522, lake 0.390 → 0.440. Two questions for you, from
    its PR:
-   - keep or remove the shadow cascades;
+   - keep or remove the shadow cascades — **answered 2026-10-09: keep them, on by default**
+     (`--shadow-distance` back to 16,000; `0` matches the game);
    - a capture plan for ambient light (shaded faces are about 2× too dark and too blue
      by day).
 2d. **"Sky and cloud look" started** (branch `claude/sky-look`, a background agent of the
    Layer 5 coordinator) after #57 merged, since the two would have touched the same
    code.
+2e. **#69 (sky and cloud look) merged by the Layer 5 coordinator, with one trade-off.**
+   The sky now matches the game's colours far better: colour error over 12 cameras went
+   from 33.7 to 14.7, noon sky (215,219,214) → (162,157,143) against the game's
+   (160,154,147), and noon ground is unchanged. SSIM rose on noon, hill and lake but
+   **fell on dusk, 0.500 → 0.476**: the clouds now have contrast, but not the game's
+   cloud pattern. All four frames still fail min_ssim 0.6, as before. Most of the model
+   is fitted to screenshots [hypothesis] (world.md §6). If you'd rather keep the higher
+   dusk SSIM, revert #69. Open questions from it:
+   - the game's noon sky darkening, which looks like eye adaptation;
+   - the larger sun glow at 09:00 and 18:00;
+   - the western sky still lit at 20:00.
+
+   Its new in-game captures came out black (probably the display was off). The camera
+   list `C:\fnv-private\sky\cap\cameras.json` is ready for a rerun with you there.
 3. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
    (same commits, its PR #38 was closed). `layer4-phys-wt` is an early copy of the physics
    workstream from 2026-10-07, superseded by `claude/layer4-phys`. Neither was merged or

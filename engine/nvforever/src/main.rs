@@ -123,10 +123,10 @@ struct Args {
     /// adapters), for comparisons.
     #[arg(long)]
     no_grade: bool,
-    /// Sun shadows reach this far from the camera (game units); 0, the default, turns them
-    /// off: the original game casts no sun shadows from the world (docs/spec-notes/world.md
-    /// §6, "Sun path and shadows").
-    #[arg(long, default_value_t = 0.0)]
+    /// Sun shadows reach this far from the camera (game units); 0 turns them off. On by
+    /// default (owner decision 2026-10-09), although the original game casts no sun shadows
+    /// from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
+    #[arg(long, default_value_t = 16_000.0)]
     shadow_distance: f32,
     /// World units per terrain texture repeat [hypothesis; docs/design/layer3.md].
     #[arg(long, default_value_t = 4096.0 / 6.0)]
@@ -370,7 +370,7 @@ fn main() -> AppExit {
             }),
     )
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
-    .add_plugins(imagespace::ImageSpacePlugin)
+    .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
