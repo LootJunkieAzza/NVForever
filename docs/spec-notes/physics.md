@@ -1534,7 +1534,7 @@ with an XCLW, some without.
 Model [hypothesis: the phantom box is the water, its top the surface]: a reference whose
 model holds Water-layer phantoms is water inside each phantom's box, transformed by the
 reference (`fnv_phys::PlacedWater`; `fnv_collide::nif::collision_and_phantoms` reads the
-phantoms, which never collide); the surface is the box's top. For `NVDLC03SLH2OINT`: surface
+phantoms, which never collide); the surface is the box's top. A reference's water goes with the reference (`PhysWorld::remove_ref`) but not with a re-add of its bodies (`add_ref`), so water and solid collision can be added in either order; no model of the game has both [observed 2026-10-09: the eight Water-layer phantom models have no rigid body; the other 32 phantom meshes are on layers 12 and 24]. For `NVDLC03SLH2OINT`: surface
 −328, footprint x −2632…1464, y −2704…1392, bottom −2376. Checked against `swim_h2o_drops`
 [observed]: deep_a now stops at −433.2 (game −432.36); with the swimming state carried
 from one drop to the next as the capture did (a walk script whose segments start with
