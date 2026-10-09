@@ -643,3 +643,264 @@ and `-o C:/fnv-private/goldens/quest2/quest2_<name>.trace.json`.
 - `L5.quest.condition_groups` needs AI package choice in the candidate (the conditions are
   Layer 5's, choosing a package is Layer 6's).
 - A Wait-menu gap for GetSecondsPassed.
+
+## 9. Round 3: reputation, effect scripts, script order in a frame (2026-10-09)
+
+Third capture round (workstream 5C, branch `claude/layer5-captures-3`), made without
+reading the runtime (`crates/fnv-game`, `crates/fnv-script/src/vm*`) or scripts.md §4 and
+later (only §10's open questions and capture proposals). Same install, plugin (v7) and
+saves as §1–8; unattended through `capture_run.py`, one job per game session, nothing
+saved. **There is still no save `nvfnew`** (Saves holds `nvftest`, `nvfdoc`, the owner's
+numbered saves and an autosave dated 05:43, before this round; no round 3 run changed it),
+so VCG01 could not be captured (§7).
+
+Diagnostic jobs: `tools/capture/jobs/q5c_trial_rep.steps.json` (save `nvfdoc`),
+`q5c_trial_fx.steps.json` (`nvfdoc`), `q5c_trial_order.steps.json` (`nvftest`), written by
+`tools/capture/jobs/make_quest3_jobs.py`. Scenario inputs:
+`parity-lab/inputs/layer5/quest3_*.actions.json` (`make_inputs3.py`; the two held-out
+inputs by `make_inputs3_holdout.py`), scenarios `parity-lab/scenarios/layer5_quests3.json`,
+goldens `goldens/quest3/` (private). Candidates were found by scanning the masters'
+records (`fnvtool esm inventory` / `esm decode`) and script sources, read-only.
+
+### 9.1 Summary
+
+| Question | Answer | Tag |
+|---|---|---|
+| Deed sizes of AddReputation / RemoveReputation | 1, 2, 4, 7, 12 points for sizes 1–5, the same on every reputation (the GMSTs `fReputationBump*` read 1, 2, 4, 7, 12); other sizes do nothing | [observed] |
+| Second argument (axis) | 1 = fame, 0 = infamy, for Get/Set/Add/Remove and Pct | [observed] |
+| Limits | the result of AddReputation is at most the REPU's DATA value (the scale), of RemoveReputation at least 0; SetReputation stores any value (negative, above the scale) | [observed] |
+| GetReputationPct | value / scale (negative or above 1 when the value is) | [observed] |
+| GetReputationThreshold levels | per axis: level 0 below 15 % of the scale, 1 from 15 %, 2 from 50 %, 3 from 100 % | [observed] |
+| The tier grid | a 4 × 4 grid of (fame level, infamy level), table in §9.3; the same for all five scales measured (10–70) | [observed] |
+| ScriptEffectStart | runs inside the EquipItem call that uses the aid item | [observed] |
+| A duration-0 effect | nothing of its script runs after the use | [observed] |
+| ScriptEffectUpdate | runs every frame; an ability's Update adding ScriptEffectElapsedSeconds / 10 health gives 0.1 HP per second of GetSecondsPassed time: Elapsed is the time since the previous Update | [observed] |
+| ScriptEffectFinish | 119.82–119.94 s of GetSecondsPassed time after the use for a 120 s effect | [observed] |
+| Menus | a container menu pauses the duration (and Update) | [observed] |
+| The same item again while active | durations add: one Finish, 240 s after the first dose | [observed] |
+| Quest against object scripts in one frame | the quest script (BeatrixFX) ran before the object scripts of two windows in the same frame | [observed] |
+
+### 9.2 Contract additions (`fnv.script.actions/1`, §4 and §8.2)
+
+Additions only; every existing operation, field and observation is unchanged. Frames as in
+§4.1 unless given here. Reputations are named like other forms (FormID or Editor ID of the
+REPU); `axis` is `"fame"` or `"infamy"`.
+
+| op | fields | what it does | observation |
+|---|---|---|---|
+| `set_reputation` | `rep`, `axis`, `value` | `SetReputation rep <1 fame / 0 infamy> value`; 1 + 10 | — |
+| `add_reputation`, `remove_reputation` | `rep`, `axis`, `size` (integer) | `AddReputation` / `RemoveReputation` with that deed size; 1 + 10 | — |
+| `get_reputation` | `rep`, `fields`, `label` | reads each field; 1 per field | one key per field |
+| `set_reputation_read` | `rep`, `fame`, `infamy`, `fields`, `label` | sets fame, then infamy, and reads the fields **in the same script**; 1 | one key per field |
+| `use_item` | `actor` (default `player`), `item`, `read`, `label`, optional `stopwatch: true` | the actor uses the aid item (`EquipItem item 0 1`, which consumes an ingestible [documented: GECK wiki EquipItem]); the `read` list is read in the same script: `{"av": name}` → `av.<name>`, `{"item": form}` → `count.<form>`; with `stopwatch` the stopwatch is read there too and becomes the zero of later `wait_av`s; 1 + 10 | one key per read |
+| `wait_av` | `of` (default `player`), `av`, `value`, `max_frames`, `label` | waits, checking once per frame, until the actor value equals `value`, at most `max_frames` frames, then reads the stopwatch | `found` (bool); when found, `seconds`: stopwatch seconds since the last `use_item` with `stopwatch` |
+| `hold_menu` | `via`, `frames` | the player activates the container `via`; its menu stays open `frames` frames; closed with the console's `CloseAllMenus`; 1 + frames + 5 | — |
+| `damage_av`, `restore_av` | `of`, `av`, `value` | `DamageAV` / `RestoreAV`; 1 + 10 | — |
+| `get_av`, `set_av` | as in `fnv.sim.actions/1` (`of`, `name`, `value`, `label`) | as in `sim run`; `set_av` 1 + 30 | `value` |
+| `add_spell`, `remove_spell` | `of`, `spell` | `AddSpell` / `RemoveSpell`; 1 + 10 | — |
+| `sample_av` | `of`, `av`, `frames` (≥ 2), `label` | the value and the stopwatch once per frame | `changes` (samples that differ from the one before), `per_second` (change of the value over the span / stopwatch seconds of the span) |
+| `sample_av_damage` | `of`, `av`, `damage`, `frames`, `label` | once per frame: the value is read, then damaged by `damage` | `values` (the values read) |
+| `go_to_cell` | `cell` (Editor ID) | the console's `coc`; 600 frames | — |
+| `sample_jumps` | `reads` (≥ 2 of `{"global"}`, `{"ref", "var"}`, `{"quest", "var"}`), `frames`, `min_step`, `label` | every read once per frame | `lags`: for each read after the first, the index of the sample where it first changed by at least `min_step` minus that of the first read (`null` if it never did) |
+
+Reputation fields: `fame`, `infamy` (GetReputation), `pct.fame`, `pct.infamy`
+(GetReputationPct; numbers), `threshold.mixed`, `threshold.good`, `threshold.bad`
+(GetReputationThreshold with 0, 1, 2; integers).
+
+`given` gains `{"kind": "reputation", "rep", "fame", "infamy"}` and `{"kind":
+"actor_value", "of", "av", "value"}`, checked like the others.
+
+**The stopwatch.** In the game it is VCG00 (FalloutNV 0x00102037), whose GameMode counts
+`fTimer` down by GetSecondsPassed every frame while `bRunTimer` is 1 (delay 0.01, §5.4).
+Before the first action of an input that uses `use_item` with `stopwatch`, `wait_av` or
+`sample_av`, the job sets `fTimer` to 100000 and `bRunTimer` to 1 and starts the quest; the
+stopwatch reads 100000 − `fTimer`. No observation reads VCG00 itself. For the candidate the
+stopwatch is the script time GetSecondsPassed counts (frames × `frame_seconds`, stopped
+while a menu is open, §8.3 e). In the game its resolution is one frame (`wait_av` reads it
+a frame after the condition first held) and 1/64 s (§5.4), and the game ended effects up to
+0.2 s early (§9.3 b), so the effect-duration scenarios compare `seconds` within 0.25 s.
+
+Text results joined with `|` (`set_reputation_read`, `use_item`, `wait_av`, `sample_av`,
+`sample_jumps`) carry six significant digits (`$`, §8.3); hence the reputation scenarios'
+tolerance of 0.0001 (the thresholds are integers and compare exactly within it).
+
+### 9.3 Findings [observed unless tagged]
+
+**(a) Reputation** (`q5c_trial_rep`, save `nvfdoc`; scenario `L5.quest.reputation`). All 13
+FalloutNV reputations are 0/0 in `nvfdoc` (read at the start of the trial). Every
+reputation function compiles and runs with the REPU in a ref variable (BuildRef), like
+quests (§1). GetReputation returns its value in a `let` (the GECK wiki's "only inside an
+if" was not seen). Only reputations that no quest script watches in GameMode and whose
+members are far from the saves were changed: White Glove Society (scale 10), Novac (20),
+Great Khans (30), Followers (50), Freeside (70) (scale = the REPU's DATA value, read with
+`fnvtool esm decode`).
+- The second argument is 1 for fame and 0 for infamy, for all six functions.
+- Deed sizes 1–5 add 1, 2, 4, 7, 12 points on White Glove Society and on Freeside alike
+  (not scaled), and RemoveReputation subtracts the same. xNVSE's `GetNumericGameSetting`
+  reads `fReputationBumpVeryMinor` … `VeryMajor` as 1, 2, 4, 7, 12 (no FalloutNV GMST record
+  sets them), as the GECK wiki's AddReputation page says [documented].
+- AddReputation stops at the scale (9 + 12 → 10 on White Glove Society, 69 + 12 → 70 on
+  Freeside) and even pulls a value set above the scale down to it (20 + 1 → 10, 140 + 1 →
+  70; scenario run); RemoveReputation stops at 0 (1 − 12 → 0) and does not pull a value above the
+  scale down to it (20 − 1 → 19 on a scale of 10). Sizes 0, 6 and −2 change nothing.
+  SetReputation stores −3, 2.5 and twice the scale as given.
+- GetReputationPct = value / scale, including −0.3 and 2.
+- The values read in the script that called SetReputation equal those read two frames
+  later.
+- **Levels.** One axis swept from 0 to 1.2 × scale in steps of scale/1000 (the other at 0)
+  on all five reputations: the codes change exactly at 0.15, 0.5 and 1.0 × scale, and a
+  value equal to the boundary is already at the higher level (fame 1.5 of 10 → Accepted).
+  So per axis: level 0 below 15 %, 1 from 15 %, 2 from 50 %, 3 from 100 % of the scale. A
+  fame or infamy below 15 % counts as none (fame 1 of 10: all three axes 1).
+- **Grid.** Fame and infamy each at 0, 5, … 100 % of the scale (21 × 21) on all five
+  reputations: identical tables, a 4 × 4 grid of the two levels. GetReputationThreshold
+  (mixed, good, bad) and the title from the GECK wiki's GetReputationThreshold page
+  [documented]:
+
+| fame level \ infamy level | 0 (< 15 %) | 1 (15–50 %) | 2 (50–100 %) | 3 (≥ 100 %) |
+|---|---|---|---|---|
+| 0 | 1, 1, 1 Neutral | 0, 0, 4 Shunned | 0, 0, 5 Hated | 0, 0, 6 Vilified |
+| 1 | 0, 4, 0 Accepted | 3, 0, 0 Mixed | 0, 0, 2 Sneering Punk | 0, 0, 3 Merciful Thug |
+| 2 | 0, 5, 0 Liked | 0, 2, 0 Smiling Troublemaker | 4, 0, 0 Unpredictable | 2, 0, 0 Dark Hero / Soft-Hearted Devil |
+| 3 | 0, 6, 0 Idolized | 0, 3, 0 Good-Natured Rascal | 2, 0, 0 Dark Hero / Soft-Hearted Devil | 5, 0, 0 Wild Child |
+
+  Exactly one axis is non-zero, except Neutral, where all three are 1 (as the wiki says).
+  Which of the two names of mixed 2 the game shows is not visible through these functions
+  [hypothesis: it depends on which level is higher].
+
+**(b) Effect scripts of aid items** (`q5c_trial_fx`, save `nvfdoc`; scenarios
+`L5.quest.effect_start`, `L5.quest.effect_duration`). Items whose base effect has the
+Script archetype and an observable script: Cateye (CateyeBaseEffect, 120 s: Start sets the
+player's Nighteye to 1, Finish to 0), Nuka-Cola (NukaColaAddCap, no duration: Start adds a
+cap), Contreras' medical supplies (RestoreAllLimbs, duration 0: Start, Update and Finish
+each restore the six limb conditions); for Update, the ability ImplantRegenBoost
+(ImplantRegenScript: each Update restores ScriptEffectElapsedSeconds / 10 health).
+- **Start runs inside the use.** In the script that called `player.EquipItem <item> 0 1`,
+  on the next line: one cap more (18 → 19), Nighteye 1, the damaged head condition back
+  at 100; the item count is already one lower.
+- **Duration 0.** After the supplies restored the head inside the call, the head was
+  damaged again in the same script and then once per frame: nothing restored it in the
+  next 20 frames. So whatever of Update and Finish runs for a duration-0 effect runs inside
+  the call as well [hypothesis: Start, one Update and Finish in a row].
+- **Update.** With the ability added (health damaged by 40), health rose by 0.1 HP per
+  second of the stopwatch (0.0997 over 2.4 s after a menu; Nuka-Cola's 2 HP/s healing ran
+  at the same time in the trial and was subtracted; the scenario has no other healing);
+  without the ability, 0. A cumulative ScriptEffectElapsedSeconds would make the rate grow,
+  so Elapsed is the time since the previous Update. In the scenario (no other healing)
+  health changed in 59 of 59 frame steps, at 0.101 HP/s: **Update runs every frame**.
+  While a container menu was open, health did not change (no Update in a menu).
+- **Finish.** Cateye used at stopwatch 18.516 s; Nighteye back to 0 at 138.453 s: 119.94 s,
+  i.e. the 120 s duration counted in GetSecondsPassed time (2,992 game loops, 120 s of real
+  time by the screenshots: 25 loops/s). Over all captures the reading was 119.82–119.94 s,
+  although it is up to a frame late: the game ends the effect up to 0.2 s of stopwatch
+  time before 120 s [hypothesis: the effect counts unrounded frame times while
+  GetSecondsPassed comes in 1/64 s steps, or the use frame counts]. The duration
+  scenarios therefore compare `seconds` within 0.25 s.
+- **Menus pause it.** A second Cateye, with Doc's dresser's container menu open for 31 s of
+  real time (screenshots) during the effect: Finish again 119.94 s of stopwatch time after
+  the use (159 s of real time). GameDaysPassed also stood still in the menu (§8.3 e).
+- **Taking it again while active.** A third Cateye, then a fourth 10.2 s later: Nighteye
+  went back to 0 only 239.87 s after the third (229.7 s after the fourth); set to 1 again
+  then, it stayed 1 for 3,000 more loops. So the second dose of the same item added its
+  120 s to the active effect, with one Finish, not two [hypothesis: effects of the same
+  item merge; whether two different items with the same base effect merge is held out].
+
+**(c) Quest against object scripts in one frame** (`q5c_trial_order`, save `nvftest`;
+scenario `L5.quest.script_order`). Round 2 found no quest/object pair sharing a variable
+(§8.3 d). This round searched all ten masters again (object scripts of inventory items,
+which a job can add; references near the saves; stage results that write reference
+variables; globals written by a quest script and read by an object script) and found a
+pair through **GameHour**: BeatrixFX's GameMode adds one hour to GameHour about 9 s after
+it starts (round 2's quest, §8.3 c), and Goodsprings' house windows (WastelandWindowScript)
+copy GetCurrentTime into their variable `Time` in GameMode every frame. Two windows in the
+Goodsprings exterior cell were used, after a `coc Goodsprings`.
+- Sampled once per game loop (GameHour, both windows' `Time`), the windows' `Time` equals
+  GameHour to six digits in every sample, also in the sample where GameHour first shows
+  BeatrixFX's extra hour (10.4853 → 11.4854 for all three). Had the windows' scripts run
+  before the quest script in that frame, they would have shown the old hour for one more
+  sample. **So the quest script ran before the windows' object scripts in that frame.**
+- Calibration: when the job itself adds an hour (at the plugin's point in the loop), the
+  windows still show the old hour in the same script and the new one in the next sample.
+- Equal values in every sample also mean that the game clock advances before the windows'
+  scripts run and does not change between them and the next sample.
+- One quest, one kind of object script: whether all quest scripts run before all object
+  scripts, and where effect scripts and inventory items' scripts come, is [hypothesis].
+
+### 9.4 Predictions (written before each run; plans r3-p1, r3-p2)
+
+r3-p1 (before the three trials):
+- Pr1 the reputation functions compile with the REPU in a ref variable — **held**.
+- Pr2 axis 1 = fame, 0 = infamy; sizes 1–5 = 1, 2, 4, 7, 12 points on any scale — **held**;
+  the clamp at the scale and the ignored sizes 0, 6, −2 were not predicted.
+- Pr3 RemoveReputation subtracts the same and stops at 0 — **held**.
+- Pr4 SetReputation keeps values above the scale, clamps negative ones to 0 — **half
+  refuted** (−3 is kept too).
+- Pr5 GetReputationPct = value / scale — **held**.
+- Pr6 fame-only levels at fixed fractions, guessed 25/50/75 % — **refuted** (15/50/100 %).
+- Pr7 same-script read = next-frame read — **held**.
+- Pf1 ScriptEffectStart inside EquipItem — **held**.
+- Pf2 Finish after 120 s ± 0.1 of GetSecondsPassed time — **held** (119.94 s).
+- Pf3 a container menu pauses the duration — **held**.
+- Pf4 a second Cateye while active makes a second instance with its own Finish —
+  **refuted** (one Finish, durations added).
+- Pf5 a duration-0 effect's Update/Finish run once on the next frame — **refuted** (nothing
+  after the call).
+- Pf6 the ability's Update every frame, 0.1 HP/s, nothing in a menu — **held** (rate and
+  menu in the trial; every frame in the scenario: 59 changes in 60 samples).
+- Po1 calibration (the windows see the job's hour at the next sample) — **held**.
+- Po2 the quest script runs before the object scripts in a frame — **held**.
+
+r3-p2 (before the scenario jobs): every visible scenario as the trials showed, the new
+AddReputation-from-above case guessed as "clamped to the scale" (**held**); for the
+held-out scenarios the predictions are in the session notes only (results not given
+here).
+
+### 9.5 Scenarios and goldens
+
+`parity-lab/scenarios/layer5_quests3.json`, comparator keyed on `label` over
+`/observations`; inputs `parity-lab/inputs/layer5/quest3_<name>.actions.json`; goldens
+`goldens/quest3/quest3_<name>.trace.json` (private). They use §9.2's additions, which the
+current candidate rejects as unknown, so they **error** until 5B adds them (checked
+2026-10-09 with this branch's fnvtool: `python -m fnvlab run --scenario <id>` for
+`L5.quest.reputation`, `.effect_start` and `.script_order` → error each; fnvtool's parser
+names the first unknown variant of each input; the candidate was not run on the
+holdouts).
+
+| Scenario | Save | Rows | Tolerance | Notes |
+|---|---|---|---|---|
+| `L5.quest.reputation` | nvfdoc | 95 | 0.0001 | §9.3 a |
+| `L5.quest.effect_start` | nvfdoc | 10 | 0.01 | §9.3 b (Start, duration 0, Update) |
+| `L5.quest.effect_duration` | nvfdoc | 8 | 0.25 s | §9.3 b (Finish, menu, second dose); about 9 min of game time |
+| `L5.quest.script_order` | nvftest | 2 | exact | §9.3 c; travels to Goodsprings with `coc` |
+| `L5.quest.r3_holdout_a` | nvfdoc | — | 0.0001 | **holdout** |
+| `L5.quest.r3_holdout_b` | nvfdoc | — | 0.25 s | **holdout** |
+
+Stability: every scenario job ran twice, in separate game sessions (plans r3-p2 run 1 and
+run 2). Every `given` matched the save in both runs (`golden` refuses otherwise), and the
+second run matched the first under each scenario's comparator, holdouts included
+(0 differences in all six). Numbers that differed: the effect durations (119.82 and
+119.93 s, 119.87 and 119.88 s, 239.84 and 239.86 s; held-out B within 0.02 s) and the
+ability's rate (0.1014 and 0.1006 HP/s); everything else was identical. The first run's
+traces are the goldens.
+
+Rebuilding (owner's machine; both run locks first; never save in game): as §6, with
+`make_inputs3.py` / `make_inputs3_holdout.py`, a defs file for BeatrixFX and VCG00
+(`capture_quests.py defs … --quest BeatrixFX --quest VCG00`), `--start nvftest` for
+`script_order` (nvfdoc for the others) and `-o
+C:/fnv-private/goldens/quest3/quest3_<name>.trace.json`.
+
+### 9.6 Open items
+
+- **VCG01 from a new game** still needs the owner's `nvfnew` save (§7).
+- Script order: one quest script against one kind of object script (§9.3 c). Effect
+  scripts, inventory items' scripts and actors' scripts against quest scripts in a frame
+  are not captured; MenuMode quest delays still not (scripts.md §10).
+- Which name of mixed level 2 (Dark Hero or Soft-Hearted Devil) applies, and anything that
+  is shown only in the Pip-Boy, are not visible through script functions.
+- Effects: a duration-0 effect's Update and Finish run inside the call or not at all (not
+  distinguishable with RestoreAllLimbs, whose three blocks do the same). Effects on actors
+  other than the player, abilities' Start/Finish, and `ScriptEffectElapsedSeconds` read in
+  a script were not captured.
+- Reputation: only five of the 13 FalloutNV reputations were changed (the others are
+  watched by quest scripts or near the saves); all five follow the same fractions, so the
+  rule is taken as general [hypothesis for the other eight and the DLC ones].

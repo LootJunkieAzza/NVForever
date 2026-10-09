@@ -388,6 +388,142 @@ class Round2(unittest.TestCase):
         self.assertIn("error", obs)
 
 
+ROUND3 = {
+    "format": cq.ACTIONS_FORMAT, "title": "round 3",
+    "given": [{"kind": "reputation", "rep": "0x00129A79", "fame": 0, "infamy": 0},
+              {"kind": "actor_value", "of": "player", "av": "Nighteye", "value": 0}],
+    "actions": [
+        {"op": "set_reputation", "rep": "0x00129A79", "axis": "fame", "value": 2.5},
+        {"op": "add_reputation", "rep": "0x00129A79", "axis": "infamy", "size": 3},
+        {"op": "remove_reputation", "rep": "0x00129A79", "axis": "fame", "size": 1},
+        {"op": "get_reputation", "rep": "0x00129A79", "fields": ["fame", "pct.infamy", "threshold.good"], "label": "rep"},
+        {"op": "set_reputation_read", "rep": "0x00129A79", "fame": 3, "infamy": 10,
+         "fields": ["fame", "threshold.mixed", "threshold.bad"], "label": "grid"},
+        {"op": "use_item", "item": "0x0007EA1B", "read": [{"av": "Nighteye"}, {"item": "0x0007EA1B"}],
+         "stopwatch": True, "label": "used"},
+        {"op": "hold_menu", "via": "0x00103E37", "frames": 4},
+        {"op": "wait_av", "of": "player", "av": "Nighteye", "value": 0, "max_frames": 100, "label": "finish"},
+        {"op": "wait_av", "of": "player", "av": "Nighteye", "value": 0, "max_frames": 5, "label": "again"},
+        {"op": "damage_av", "of": "player", "av": "PerceptionCondition", "value": 20},
+        {"op": "sample_av_damage", "of": "player", "av": "PerceptionCondition", "damage": 5, "frames": 3, "label": "head"},
+        {"op": "add_spell", "of": "player", "spell": "0x0014CCE2"},
+        {"op": "sample_av", "of": "player", "av": "Health", "frames": 3, "label": "health"},
+        {"op": "go_to_cell", "cell": "Goodsprings"},
+        {"op": "sample_jumps", "reads": [{"global": "GameHour"}, {"ref": "0x001771EB", "var": "Time"},
+                                         {"quest": "TestQuest", "var": "fTimer"}],
+         "frames": 4, "min_step": 0.5, "label": "jumps"},
+        {"op": "get_av", "of": "player", "name": "Nighteye", "label": "av"},
+    ]}
+
+
+class Round3(unittest.TestCase):
+    def steps(self):
+        return cq.actions_job(ROUND3, "q5c_t", "nvfdoc", EDIDS)["steps"][len(cs.MASTERS):]
+
+    def test_steps(self):
+        steps = self.steps()
+        given = [s for s in steps if s.get("label", "").startswith(cq.GIVEN_PREFIX)]
+        self.assertEqual([s["field"] for s in given], ["fame", "infamy", "value"])
+        self.assertIn("GetReputation rF1 1", given[0]["query"])
+        self.assertIn("player.GetAV Nighteye", given[2]["query"])
+        scripts = [s["script"] for s in steps if "script" in s]
+        # The stopwatch starts before the first action.
+        self.assertIn('SetVariable "fTimer" 100000 rF1', scripts[0])
+        self.assertIn("StartQuest rF1", scripts[0])
+        self.assertIn("BuildRef fM1 1056823", scripts[0])
+        self.assertIn("SetReputation rF1 1 2.5", scripts[1])
+        self.assertIn("AddReputation rF1 0 3", scripts[2])
+        self.assertIn("RemoveReputation rF1 1 1", scripts[3])
+        by = {}
+        for s in steps:
+            if "query" in s:
+                by.setdefault(s["label"], []).append(s)
+        self.assertEqual([s["field"] for s in by["rep"]], ["fame", "pct.infamy", "threshold.good"])
+        self.assertIn("GetReputationPct rF1 0", by["rep"][1]["query"])
+        self.assertIn("GetReputationThreshold rF1 1", by["rep"][2]["query"])
+        grid = by["grid"][0]
+        self.assertEqual(grid["field"], "fame|threshold.mixed|threshold.bad")
+        self.assertLess(grid["query"].index("SetReputation rF1 0 10"), grid["query"].index("GetReputationThreshold rF1 2"))
+        used = by["used"][0]
+        self.assertEqual(used["field"], "av.Nighteye|count.0x0007EA1B")
+        self.assertLess(used["query"].index("player.EquipItem rF1 0 1"), used["query"].index("player.GetAV Nighteye"))
+        self.assertIn('GetVariable "fTimer" rF3', used["query"])
+        menu = next(k for k, s in enumerate(steps) if "script" in s and "rF1.Activate player" in s["script"])
+        self.assertEqual(steps[menu + 1:menu + 4], [{"frames": 4}, {"console": "CloseAllMenus"}, {"frames": 5}])
+        until = [s for s in steps if "until" in s]
+        self.assertEqual([u["max_frames"] for u in until], [100, 5])
+        self.assertIn("if player.GetAV Nighteye == 0", until[0]["until"])
+        self.assertEqual(by["clock:finish"][0]["field"], "seconds|value")
+        self.assertEqual([s["field"] for s in by["sample:head"]], ["0", "1", "2"])
+        self.assertIn("player.DamageAV PerceptionCondition 5", by["sample:head"][0]["query"])
+        self.assertTrue(any("player.AddSpell rF1" in s for s in scripts))
+        self.assertIn({"console": "coc Goodsprings"}, steps)
+        jumps = by["sample:jumps"][0]["query"]
+        self.assertIn('($ (GameHour)) + "|" + ($ (rF1.GetVariable "Time")) + "|" + ($ (GetVariable "fTimer" rF2))', jumps)
+        self.assertEqual(by["av"][0]["field"], "value")
+
+    def test_bad(self):
+        for a in ({"op": "set_reputation", "rep": "0x1", "axis": "good", "value": 1},
+                  {"op": "add_reputation", "rep": "0x1", "axis": "fame", "size": 1.5},
+                  {"op": "get_reputation", "rep": "0x1", "fields": ["threshold.neutral"], "label": "x"},
+                  {"op": "use_item", "item": "0x1", "read": [], "label": "x"},
+                  {"op": "use_item", "item": "0x1", "read": [{"av": "Health", "item": "0x2"}], "label": "x"},
+                  {"op": "wait_av", "av": "Nighteye", "value": 0, "max_frames": 0, "label": "x"},
+                  {"op": "hold_menu", "via": "0x1", "frames": 0},
+                  {"op": "sample_av", "av": "Health", "frames": 1, "label": "x"},
+                  {"op": "sample_jumps", "reads": [{"global": "GameHour"}], "frames": 3, "min_step": 1, "label": "x"},
+                  {"op": "sample_jumps", "reads": [{"global": "GameHour"}, {"ref": "0x1"}], "frames": 3, "min_step": 1,
+                   "label": "x"},
+                  {"op": "go_to_cell", "cell": "0x0000DAEB"}):
+            with self.assertRaises(cq.InputError, msg=a):
+                cq.actions_job({"format": cq.ACTIONS_FORMAT, "actions": [a]}, "x", "y", EDIDS)
+
+    def test_golden(self):
+        rs = [{"label": "__given__:0", "field": "fame", "value": 0.0},
+              {"label": "__given__:0", "field": "infamy", "value": 0.0},
+              {"label": "__given__:1", "field": "value", "value": 0.0},
+              {"label": "rep", "field": "fame", "value": 1.5},
+              {"label": "rep", "field": "pct.infamy", "value": 0.2},
+              {"label": "rep", "field": "threshold.good", "value": 4.0},
+              {"label": "grid", "field": "fame|threshold.mixed|threshold.bad", "value": "3|0|2"},
+              {"label": "used", "field": "av.Nighteye|count.0x0007EA1B", "value": "1|2|18.5156"},
+              {"label": "clock:finish", "field": "seconds|value", "value": "138.453|0"},
+              {"label": "clock:again", "field": "seconds|value", "value": "200|1"},
+              {"label": "av", "field": "value", "value": 1.0}]
+        rs += [{"label": "sample:head", "field": str(k), "value": v} for k, v in enumerate([80.0, 75.0, 70.0])]
+        rs += [{"label": "sample:health", "field": str(k), "value": v}
+               for k, v in enumerate(["160|1", "160.1|2", "160.1|3"])]
+        rs += [{"label": "sample:jumps", "field": str(k), "value": v}
+               for k, v in enumerate(["9.4|9.4|5", "9.41|9.41|5", "10.41|10.41|5", "10.42|10.42|5"])]
+        mods, results = cs.read_output(output_lines(rs))
+        doc, problems = cq.golden_document(ROUND3, mods, results)
+        self.assertEqual(problems, [])
+        obs = {o["label"]: o for o in doc["observations"]}
+        self.assertEqual(obs["rep"], {"label": "rep", "step": 3, "fame": 1.5, "pct.infamy": 0.2, "threshold.good": 4})
+        self.assertEqual(obs["grid"], {"label": "grid", "step": 4, "fame": 3.0, "threshold.mixed": 0, "threshold.bad": 2})
+        self.assertEqual(obs["used"], {"label": "used", "step": 5, "av.Nighteye": 1.0, "count.0x0007EA1B": 2})
+        self.assertTrue(obs["finish"]["found"])
+        self.assertAlmostEqual(obs["finish"]["seconds"], 119.9374)
+        self.assertEqual(obs["again"], {"label": "again", "step": 8, "found": False})
+        self.assertEqual(obs["head"]["values"], [80.0, 75.0, 70.0])
+        self.assertEqual(obs["health"]["changes"], 1)
+        self.assertAlmostEqual(obs["health"]["per_second"], 0.05)
+        self.assertEqual(obs["jumps"]["lags"], [0, None])
+        self.assertEqual(obs["av"]["value"], 1.0)
+
+    def test_wait_without_stopwatch(self):
+        doc = {"format": cq.ACTIONS_FORMAT, "actions": [
+            {"op": "wait_av", "of": "player", "av": "Nighteye", "value": 0, "max_frames": 5, "label": "w"}]}
+        mods, results = cs.read_output(output_lines([{"label": "clock:w", "field": "seconds|value", "value": "3|0"}]))
+        obs = cq.golden_document(doc, mods, results)[0]["observations"]
+        self.assertIn("error", obs[0])
+
+    def test_jumps_without_a_first_jump(self):
+        obs = cq.jumps_observation({"reads": [{}, {}], "min_step": 1}, [{"field": "0", "value": "1|1"},
+                                                                       {"field": "1", "value": "1|5"}])
+        self.assertIn("error", obs)
+
+
 class Inputs(unittest.TestCase):
     """The committed scenario inputs convert to jobs (no game data needed: quests are
     named by Editor ID, forms by FormID)."""
