@@ -15,6 +15,7 @@
 //!
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
+pub mod combat;
 pub mod cond;
 pub mod data;
 pub mod functions;
