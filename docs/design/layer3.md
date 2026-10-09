@@ -128,8 +128,31 @@ What it does now:
   Compared with the owner's screenshots: night ground still a little bright (HDR eye
   adaptation not applied), and the game still shows sunset colours at 20:00 where the
   renderer is already at night (time-of-day keys to revisit).
-- Distant LOD (`--lod-radius`, default 8 chunks = 32 cells; `--no-lod`): the game's
-  level-4 terrain chunks and object LOD blocks (world.md §7) around the camera. Terrain
+- Distant LOD (`--no-lod` turns it off; lod.rs): the game's terrain chunks at levels
+  4, 8, 16 and 32 and its level-4 object LOD blocks (world.md §7). Which chunks are drawn
+  [hypothesis]: a quadtree over the level-32 grid; nothing beyond `--lod-distance`
+  (fBlockLoadDistance, 125,000); a coarser chunk gives way to its four quarters while the
+  camera is nearer to it (horizontally, closest point) than the larger of
+  `--lod-near-distance` (fBlockLoadDistanceLow, 50,000) and `--lod-split`
+  (fSplitDistanceMult, 1.5) × its side. All levels have 256 texels per chunk side, so
+  level 4 reaches 50,000 units, level 8 98,304 and level 16 the rest; level 32 would
+  take over from 196,608. The choice is redone when the camera enters another cell and
+  levels switch at once (the game's `fBlockMorphDistanceMult` suggests it morphs between
+  levels; not done). Neighbouring chunks share only some edge vertices (world.md §7), so
+  every chunk's open edges get skirts hanging 128 units per cell of chunk side.
+  Object blocks are drawn over every 4 × 4-cell square nearer than `--lod-distance`.
+  Distant trees (treelod.rs, `--tree-distance`, fTreeLoadDistance 40,000; 0 off): beyond
+  the loaded cells every TREE reference is drawn as its billboard, an upright card
+  turned towards the camera in the vertex shader, one mesh per cell and TREE base; the
+  game ships no tree LOD (world.md §7) [hypothesis: distant trees are these billboards].
+  They crossfade with their cells like the object blocks and cast no shadows.
+  Load distances follow the owner's `FalloutPrefs.ini` (world.md §7 table): uGridsToLoad
+  5 → `--radius 2` (5 × 5 cells, unchanged), fBlockLoadDistance, fBlockLoadDistanceLow,
+  fSplitDistanceMult and fTreeLoadDistance as above. Not applied: uExterior Cell Buffer
+  (no cell cache; cells unload one ring outside the loaded square), uGridDistantCount and
+  uGridDistantTreeRange (older distant-land settings [hypothesis]), fLODFadeOutMultObjects,
+  fLODMultObjects, fLODFadeOutPercent and fLODMultTrees (objects in loaded cells are not
+  faded by distance; level-design.md C5), fGrassStartFadeDistance (no grass yet). Terrain
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
   entirely inside are dropped and the vertices inside are sunk 2,000 units so the
   border triangles slope under the loaded terrain. LOD is cut out only for cells that
@@ -150,7 +173,7 @@ What it does now:
   generated from the LAND records at 4 × their texture resolution, cut out exactly
   around the loaded cells and cached in NVForever's home (docs/design/generated-lod.md). Interim rules, to compare with screenshots; small dark
   boxes on distant ridges (probably rock formations in the object LOD) to check.
-- SpeedTree trees (TREE): geometry generated from the `.spt` parameters by `fnv-spt`
+- SpeedTree trees (TREE; distant ones as billboards, see Distant LOD): geometry generated from the `.spt` parameters by `fnv-spt`
   (speedtree.md §5): bark tubes with the standard material, leaf cards turned towards
   the camera by a vertex shader (tree.wgsl, also in the prepass so depth and shadows
   match), scaled to the billboard size. Leaf cards cast shadows but receive none (their
@@ -228,19 +251,20 @@ game units unchanged.
    initially-disabled and marker references; reuse meshes and materials across
    references of the same base object.
 5. **Streaming** (synchronous version done): load the cells within a radius of the camera (the original uses a
-   square of `uGridsToLoad` cells, default 5 [documented: Fallout.ini default, to be
-   confirmed from the owner's INI]); load on background tasks; despawn outside a
-   hysteresis margin.
+   square of `uGridsToLoad` cells, 5 [observed: the owner's `FalloutPrefs.ini` and
+   `Fallout.ini`], so `--radius 2`); load on background tasks; despawn outside a
+   hysteresis margin. Distant load distances follow the owner's INI (Distant LOD above).
 6. **Lighting, sky, weather** (first version done; clouds, stars, interiors to do): sun direction and colours from the climate/weather records
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
 7. **Water** (second version done: WATR fog, fresnel world reflections, refraction, under-water fog, noise layers, rain and wake ripples, distant water; falling rain to do with the script engine, Layer 4): worldspace / cell water height, WATR records, placeable water (PWAT).
-8. **SpeedTree** (done: geometry, leaf dimming, wind; distant billboards to do):
+8. **SpeedTree** (done: geometry, leaf dimming, wind, distant billboards out to fTreeLoadDistance):
    TREE references (18,050 in WastelandNV, nearly all WastelandShrub01) use SpeedTree
    `.spt` parameter files from `trees\`; format study in speedtree.md, parser and
    generator in `crates/fnv-spt`, `fnvtool spt list|dump`.
-9. **LOD** (level-4 terrain and object blocks done; levels 8-32 and switching to do): distant terrain and object LOD from the game's LOD meshes and textures
-   (layout to be surveyed).
+9. **LOD** (done: terrain levels 4-32 with switching by distance, skirts, object blocks,
+   distant trees, distances from the owner's INI; level morphing not done): distant
+   terrain and object LOD from the game's LOD meshes and textures (world.md §7).
 10. **Image parity** (tooling done, waiting for reference frames): the lab's `image`
    comparator (`parity-lab/fnvlab/image.py`: PNG/BMP decoding, SSIM, colour error, masks,
    tile breakdown; self-tests), `nvforever --fov --eye-height --frame-json --no-overlay`
