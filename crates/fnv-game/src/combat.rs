@@ -21,6 +21,12 @@
 //!   (location, critical, attacker, weapon) and runs the target's OnHit (the attacker as
 //!   subject) and OnHitWith (the weapon) blocks [documented: block names, catalogue;
 //!   hypothesis: their order].
+//! - **Limb damage** (step C8): a hit on a body part lowers that part's condition actor
+//!   value (25–31, starting at 100) by the limb damage as a share of the part's pool, the
+//!   part's health percentage of the actor's maximum health: `loss = limb damage ÷
+//!   (max health × percent ÷ 100) × 100`. The limb is crippled when its condition
+//!   reaches 0 [documented: GECK wiki Body Part Data, crippled after that percentage of
+//!   total health; hypothesis: the count-down form]. Conditions stop at 0.
 //! - **No damage** for actors of a race with the Child flag [documented: GECK wiki Race]
 //!   or creatures flagged Invulnerable [documented: xEdit flag name].
 //! - **Essential** actors (base flag or `SetActorRefEssential`) are not killed: at zero
@@ -78,6 +84,21 @@ pub struct HitResult {
     pub immune: bool,
     /// XP the player gained for the kill.
     pub xp: f64,
+    /// The hit limb's condition after the hit, with its actor value code (step C8).
+    pub limb: Option<(u16, f64)>,
+    /// That hit crippled the limb (its condition reached 0 now).
+    pub crippled: bool,
+}
+
+/// A hit on a body part (step C8).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LimbHit {
+    /// The part's condition actor value code (25–31).
+    pub condition: u16,
+    /// The part's share of the actor's maximum health, percent (BPTD health percent).
+    pub health_percent: f64,
+    /// Limb damage: the hit's damage times the weapon's Limb Dmg Mult.
+    pub damage: f64,
 }
 
 /// A hit's circumstances.
@@ -88,6 +109,17 @@ pub struct HitInfo {
     /// GetHitLocation's index (−1 none, 0 torso, …).
     pub location: i32,
     pub critical: bool,
+    /// The body part's limb damage, when the hit is on a part with a condition.
+    pub limb: Option<LimbHit>,
+}
+
+/// The limb-condition actor value codes, Perception Condition (25) to Brain Condition
+/// (31) [documented: xEdit ActorValue].
+pub const LIMB_CONDITIONS: std::ops::RangeInclusive<u16> = 25..=31;
+
+/// The limb-condition actor value code of a BPTD part's actor value name.
+pub fn limb_condition(name: &str) -> Option<u16> {
+    actor::av_by_name(name).filter(|c| LIMB_CONDITIONS.contains(c))
 }
 
 /// Settings with their documented defaults (GECK wiki Experience Settings).
@@ -211,6 +243,11 @@ impl Game<'_> {
         }
         let health = actor::actor_value(self, target, HEALTH).unwrap_or(before - dealt);
         let mut out = HitResult { dealt, health, max_health, ..HitResult::default() };
+        if let Some(l) = info.limb {
+            let (condition, crippled) = self.damage_limb(target, l, max_health);
+            out.limb = Some((l.condition, condition));
+            out.crippled = crippled;
+        }
         if health <= floor {
             if essential {
                 self.extra.entry(target).or_default().unconscious = true;
@@ -224,6 +261,34 @@ impl Game<'_> {
             }
         }
         out
+    }
+
+    /// Lower a limb's condition by a hit (see the module notes): its condition after, and
+    /// whether this hit crippled it.
+    pub fn damage_limb(&mut self, target: FormId, l: LimbHit, max_health: f64) -> (f64, bool) {
+        let pool = max_health * l.health_percent / 100.0;
+        let before = actor::actor_value(self, target, l.condition).unwrap_or(100.0);
+        if pool <= 0.0 || l.damage <= 0.0 || before <= 0.0 {
+            return (before, false);
+        }
+        let loss = (l.damage / pool * 100.0).min(before);
+        actor::add_damage(self, target, l.condition, loss);
+        let after = before - loss;
+        (after, after <= 0.0)
+    }
+
+    /// An actor's limb conditions, codes 25–31 in order.
+    pub fn limb_conditions(&mut self, r: FormId) -> [f64; 7] {
+        let mut out = [100.0; 7];
+        for (i, code) in LIMB_CONDITIONS.enumerate() {
+            out[i] = actor::actor_value(self, r, code).unwrap_or(100.0);
+        }
+        out
+    }
+
+    /// Whether the actor's limb (condition actor value code) is crippled.
+    pub fn is_crippled(&mut self, r: FormId, condition: u16) -> bool {
+        actor::actor_value(self, r, condition).is_ok_and(|v| v <= 0.0)
     }
 
     /// Whether the reference's base has destruction data.

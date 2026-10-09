@@ -196,7 +196,8 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
 ## 7. Hit volumes (step C3)
 
 - **The capsule** (`fnv_phys::actors`, `HitVolume`): one vertical capsule per placed
-  actor in the physics world, kinematic, owner `Owner::Actor { form_id, layer }`.
+  actor in the physics world, kinematic, owner `Owner::Actor { form_id, layer, part }`
+  (part 255 since C8; per-part capsules are §12).
   - Its layer is BIPED while the actor lives and DEAD_BIP once dead. The layers are the
     documented Havok names; using them for actors is our choice.
   - It takes part in no contacts: it pushes no clutter, and the character controller
@@ -436,10 +437,114 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     before its fuse ran out. Throw arcs and bounce are part of the planned projectile
     captures.
 
-## 12. Open points
+## 12. Limb hits (step C8)
+
+- **Which body part data** (`CombatForms::body_parts_for`):
+  - a creature's own BPTD (CREA `PNAM`) [documented: xEdit];
+  - otherwise the BPTD whose model is the actor's skeleton, which is
+    `DefaultBodyPartData` (0x1D) for `characters\_male\skeleton.nif`. The player's
+    `PlayerBodyPartData` (0x1C) is skipped [hypothesis, combat.md §5.9].
+  - `DefaultBodyPartData` has six parts. The second number is the damage multiplier,
+    the third the share of total health [observed: `fnvtool combat form`]:
+
+    | Part | Bone | Damage | Health | Condition |
+    |---|---|---|---|---|
+    | Head | Bip01 Neck1 | ×2 | 20 % | Perception |
+    | Torso | Bip01 | ×1 | 60 % | Endurance |
+    | Left Arm | Bip01 L UpperArm | ×1 | 25 % | Left Attack |
+    | Left Leg | Bip01 L Thigh | ×1 | 25 % | Left Mobility |
+    | Right Leg | Bip01 R Thigh | ×1 | 25 % | Right Mobility |
+    | Right Arm | Bip01 R UpperArm | ×1 | 25 % | Right Attack |
+- **Part capsules** (`fnv_phys::actors`, `PhysWorld::set_actor_parts`): the actor's
+  kinematic body carries one capsule per bone segment. Each collider's owner is
+  `Owner::Actor { form_id, layer, part }`, where `part` is the index in the BPTD and 255
+  (`actors::WHOLE`) means the single C3 capsule. Shapes are rebuilt only when a size
+  changes, as in C3.
+- **Bones** (`engine/nvforever/src/limbs.rs`) [design]:
+  - A part runs from its bone to an end joint:
+    - when its own bones lead on to other parts, the end is the farthest such
+      connecting bone (the torso runs up to the neck);
+    - otherwise the end is the farthest `Bip01` bone below the part (an arm reaches the
+      fingers, the head the top of the head).
+  - Chains skip the skeleton's root bone and `Bip01 NonAccum`. `Bip01`, the torso's
+    bone, stands at the feet [observed: the posed segments, 2026-10-09]; a torso started
+    there enclosed both legs.
+  - Joints closer than 4 units to the last one kept are merged.
+  - The renderer publishes the posed segments every frame, after transforms propagate
+    (`nvf_play::hitvol::ActorParts`).
+- **Radii** (`hitvol::limb_radius`) [design]: a share of the actor's size (the largest
+  side of its render bounds):
+
+  | Part | Share | At 128 units |
+  |---|---|---|
+  | Head | 0.065 | 8.3 |
+  | Torso | 0.10 | 12.8 |
+  | Arm | 0.042 | 5.4 |
+  | Leg | 0.058 | 7.4 |
+
+  Each part's chain is pulled in by its radius at both ends, so the caps end at the end
+  joints. Without this, the torso's top cap covered the lower head and took head shots
+  [observed]. The torso's lower end is not pulled in: pulled, it left a band at the hips
+  that no capsule covered [observed].
+- **Damage** (`nvf-play` combat; projectiles and melee alike):
+  - The hit's part gives the damage multiplier (`BodyPart::hit_part`; head hits count
+    for the unaware-headshot critical).
+  - The part gives the `GetHitLocation` number (`BodyPart::location`, the BodyLocation
+    enum).
+  - The limb damage is the damage dealt × the WEAP Limb Dmg Mult. A multiplier of 0
+    deals none [hypothesis].
+  - Hits on the single capsule stay location 0 (torso); explosions are −1, with no
+    limb [design].
+- **Limb condition** (`Game::hit`, `Game::damage_limb`):
+  - The part's condition actor value (25–31, starting at 100) loses
+    `limb damage ÷ (max health × health % ÷ 100) × 100`, and stops at 0.
+  - The limb is crippled when it reaches 0 [documented: GECK wiki Body Part Data,
+    crippled after that share of total health; hypothesis: the count-down form].
+  - `HitResult` reports the condition and whether this hit crippled the limb. The log
+    and the HUD name it ("Goodsprings Settler: left leg crippled").
+- **The player's crippled limbs** (`PlayerLimbs`, read every frame):
+  - crippled arms add the documented crippled-arm spread terms (§3) and lower
+    `Attacker::arm_condition` (1, 0.5 with one arm, 0 with both) [design: the share];
+  - crippled legs slow walking and running to 0.7 with one leg, 0.5 with both
+    [design];
+  - the HUD's health line lists crippled limbs.
+
+  Nothing hurts the player yet (no NPC attacks); scripts can (`DamageActorValue`).
+- **Hit reactions:** a living actor plays the hit clip for where it was hit:
+  `mt_hithead`, `mt_hittorso`, `mt_hitarmleft`/`right` or `mt_hitlegleft`/`right`
+  (`idleanims`, the `_male` folder) [observed: the clips exist; design: which location
+  plays which].
+- **Test aids:**
+  - `aimpart=<n>` aims at the nearest NPC's part `n`;
+  - `aimnpc=<share>` aims at a share of its height;
+  - `aimactor` / `aimnpc` now aim at the torso when the actor has parts. The exit
+    probe does the same.
+- **Not built:**
+  - creature parts are not checked in play (no creature in range of the test);
+  - a creature's torso may leave gaps (a tail);
+  - crippled NPCs do not limp or drop weapons (no NPC movement or AI);
+  - the head's screen effect is not shown;
+  - perks (Adjust Limb Damage) are not read;
+  - severing and exploding limbs (gore) are later.
+- **Checked** [observed 2026-10-09, `nvforever --play`, exit 0, "run finished"]:
+  - All 13 actor volumes had body parts. The exit probe at each aim point hit its own
+    actor for 11–12 of 13 (12 of 13 with the single capsule in C3).
+  - The Goodsprings Settler (55 health, DT 2), shot with the 9mm pistol through
+    `aimpart`:
+    - Head shots: 16.4 damage (×2), and one hit crippled the head (pool 11).
+    - Leg shots: 7.2 damage; a second hit crippled the left leg (pool 13.75), and the
+      leg hit reaction played.
+    - Arms and torso were hit as aimed. The torso was crippled after five hits (pool
+      33).
+    - Some shots missed while the settler walked and flinched (a capsule about 15 units
+      across, at 150 units with pistol spread).
+
+## 13. Open points
 
 - Every [design] number is a first guess for the owner to tune in play.
 - Projectile gravity units and speeds: the owner's projectile capture round.
 - `fCombatDistance`, the melee reach base: not in the masters and not documented.
-- Not here yet: weapon mods (Decrease Spread and the like), limb damage and crippling,
-  fatigue, reading perks. All are later steps (combat.md §8).
+- Not here yet: weapon mods (Decrease Spread and the like), fatigue, reading perks,
+  gore. All are later steps (combat.md §8).
+- Limb radii, the crippled-leg speeds and the arm-condition share are [design] (§12).
+  The owner tunes them in play.

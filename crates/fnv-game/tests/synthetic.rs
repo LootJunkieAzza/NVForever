@@ -708,7 +708,7 @@ fn combat_hits_damage_health_kill_and_reward() {
     // Base Health 30 + Endurance 6 × 5 + level 4 × 5 (the settings' defaults).
     assert_eq!(g.actor_level(npc), 4.0);
     assert_eq!(g.max_health(npc), 80.0);
-    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: true };
+    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: true, limb: None };
     let r = g.hit(npc, 30.0, by_player);
     assert_eq!((r.dealt, r.health, r.died), (30.0, 50.0, false));
     assert_eq!(g.extra[&npc].last_hit.map(|h| (h.location, h.critical)), Some((1, true)));
@@ -730,4 +730,28 @@ fn combat_hits_damage_health_kill_and_reward() {
     g.hit(npc, 70.0, HitInfo { attacker: None, ..by_player });
     let r = g.hit(npc, 10.0, by_player);
     assert!(r.died && r.xp == 0.0);
+}
+
+#[test]
+fn limb_hits_lower_conditions_and_cripple() {
+    use fnv_game::combat::{HitInfo, LimbHit};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    // Maximum health 80; a leg at 25 %: a pool of 20. Left Mobility Condition is code 29.
+    let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0 };
+    let hit = |damage: f64| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { damage, ..leg }) };
+    let r = g.hit(npc, 5.0, hit(5.0));
+    assert_eq!((r.limb, r.crippled), (Some((29, 75.0)), false));
+    assert!(!g.is_crippled(npc, 29));
+    // 15 more limb damage (the weapon's limb multiplier is the caller's): crippled.
+    let r = g.hit(npc, 5.0, hit(15.0));
+    assert_eq!((r.limb, r.crippled), (Some((29, 0.0)), true));
+    assert!(g.is_crippled(npc, 29));
+    // It stays at 0 and cripples once.
+    let r = g.hit(npc, 5.0, hit(10.0));
+    assert_eq!((r.limb, r.crippled), (Some((29, 0.0)), false));
+    // Health took only the hits' damage.
+    assert_eq!(r.health, 65.0);
 }

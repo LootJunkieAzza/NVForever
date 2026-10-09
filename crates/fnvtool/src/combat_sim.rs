@@ -103,14 +103,14 @@ impl CombatWorld for Range {
                 let s = -b - disc.sqrt();
                 if (0.0..=len).contains(&s) {
                     let p = vec::add(from, vec::scale(dir, s));
-                    best = Some(WorldHit { point: p, normal: vec::normalize(vec::sub(p, self.target)), distance: s, actor: Some(TARGET), small_transparent: false, material: None, object: None });
+                    best = Some(WorldHit { point: p, normal: vec::normalize(vec::sub(p, self.target)), distance: s, actor: Some(TARGET), small_transparent: false, material: None, object: None, part: None });
                 }
             }
         }
         if dir[2] < 0.0 && from[2] >= 0.0 {
             let s = -from[2] / dir[2];
             if s <= len && best.as_ref().is_none_or(|b| s < b.distance) {
-                best = Some(WorldHit { point: vec::add(from, vec::scale(dir, s)), normal: [0.0, 0.0, 1.0], distance: s, actor: None, small_transparent: false, material: None, object: None });
+                best = Some(WorldHit { point: vec::add(from, vec::scale(dir, s)), normal: [0.0, 0.0, 1.0], distance: s, actor: None, small_transparent: false, material: None, object: None, part: None });
             }
         }
         best
