@@ -1,6 +1,7 @@
 {
  "format": "fnv.capture.cameras/1",
- "start": "Load a test save outdoors in the Mojave, in first person (e.g. nvftest after leaving the gas station).",
+ "start": "Load a test save (e.g. nvftest); the job travels to each camera.",
+ "console_first": ["tgm", "tdetect"],
  "cameras": [
   {"id": "goodsprings_noon", "world": "WastelandNV", "pos": [-70500, 1200], "heading": 45, "pitch": 0,
    "hour": 12, "weather": "NVWastelandClear", "fov": 75},
