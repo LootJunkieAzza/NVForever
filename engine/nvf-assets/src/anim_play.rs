@@ -20,19 +20,28 @@ pub struct Clip {
     pub frequency: f32,
     pub cycle_type: i64,
     pub tracks: Vec<(String, Arc<TransformTrack>)>,
+    /// Each track's controlled-block priority (nif.xml ControlledBlock "Priority"; 0 when
+    /// absent), in `tracks` order.
+    pub priorities: Vec<i32>,
     /// Tracks without a target name or with an interpolator that is not a transform.
     pub skipped: usize,
     /// The sequence's accumulation root (nif.xml NiControllerSequence "Accum Root Name").
     pub accum_root: Option<String>,
+    /// Text keys (time, text).
+    pub text_keys: Vec<(f32, String)>,
 }
 
 impl Clip {
     pub fn from_sequence(seq: &Sequence) -> Clip {
         let mut tracks = Vec::new();
+        let mut priorities = Vec::new();
         let mut skipped = 0;
         for t in &seq.tracks {
             match (&t.node_name, &t.data) {
-                (Some(n), TrackData::Transform(tt)) => tracks.push((n.clone(), Arc::new(tt.clone()))),
+                (Some(n), TrackData::Transform(tt)) => {
+                    tracks.push((n.clone(), Arc::new(tt.clone())));
+                    priorities.push(t.priority.unwrap_or(0) as i32);
+                }
                 _ => skipped += 1,
             }
         }
@@ -43,9 +52,28 @@ impl Clip {
             frequency: if seq.frequency > 0.0 { seq.frequency } else { 1.0 },
             cycle_type: seq.cycle_type,
             tracks,
+            priorities,
             skipped,
             accum_root: seq.accum_root_name.clone().filter(|n| !n.is_empty()),
+            text_keys: seq.text_keys.clone(),
         }
+    }
+
+    pub fn length(&self) -> f32 {
+        (self.stop - self.start).max(0.0)
+    }
+
+    /// The speed the clip's accumulation root moves at over one cycle (units per second
+    /// at frequency 1), from its track's translation at the start and stop times: the
+    /// ground speed the clip was made for [observed: `locomotion\male\mtforward.kf`
+    /// moves `Bip01` 102.3 units in 1.2 s, docs/spec-notes/animation.md §8.2]. `None`
+    /// when the root has no track or the clip no length.
+    pub fn root_speed(&self) -> Option<f32> {
+        let root = self.accum_root.as_deref()?;
+        let (_, t) = self.tracks.iter().find(|(n, _)| n == root)?;
+        let (a, b) = (t.translation.sample(self.start)?, t.translation.sample(self.stop)?);
+        let len = self.length();
+        (len > 0.0).then(|| Vec2::new(b[0] - a[0], b[1] - a[1]).length() / len)
     }
 
     /// The accumulation root when no track drives it. Such a clip carries the root's
