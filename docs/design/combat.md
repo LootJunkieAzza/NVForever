@@ -104,9 +104,9 @@ The first step organises the data. It adds no behaviour.
 | DEST (on objects), DEBR | destruction data: health and up to 8 stages (health percentage, self-damage per second, cap damage, disable, destroy, model damage stage, explosion, debris, replacement model); debris models | DEST done (`common.json`); DEBR none | xEdit; GECK wiki Destructible Object Stage, Debris |
 | ENCH, MGEF, SPEL | weapon and critical effects (poison, cripple, knockdown) | MGEF done; ENCH and SPEL none | xEdit |
 | IMOD | weapon mod item (what a mod changes is in the WEAP's `DNAM`/mod fields) | done | — |
-| NPC_, CREA, RACE | base health, attributes and level for derived health, body-part data (CREA/RACE), unarmed damage | partial (ACBS read for templates) | xEdit; derived-value rules from the GECK wiki |
+| NPC_, CREA, RACE | NPC: level (or player-level multiplier with min/max), SPECIAL, skills, Base Health added to the health derived from Endurance and level; creature: Health, combat skill, attack damage and reach, fatigue, base scale; body-part data (CREA/RACE) | partial (ACBS read for templates) | xEdit; GECK wiki Stats Tab pages (§4.2) |
 | ARMO | DT, DR | done (actors.md §1.1) | — |
-| GMST | combat game settings, names from the masters | values readable; meaning per setting from the GECK wiki | owner GECK export (§9) |
+| GMST | combat game settings: damage (`fDamageWeaponMult`, `fDamageSkillBase`/`Mult`, melee and unarmed actor-value settings, arm condition, sneak multipliers), gun shells, auto aim, VATS | values readable from the masters | GECK wiki Weapon Damage Formula, Gun Shell, Auto Aim and VATS Settings pages (§4.2) |
 
 For the records with no layout yet, the "What combat reads" column is the editor's view
 of them [documented: GECK wiki, §4.2] for WEAP `DNAM`, AMEF, PROJ, EXPL, BPTD and DEBR.
@@ -219,9 +219,60 @@ wiki, page named]:
 - The ImageSpace, EffectShader, CameraShot, AddOnNode and Acoustic Space pages are for
   later work (screen effects, kill cams, audio).
 
+A fourth export, miscellaneous pages (`Misc.xml`, 2026-10-09, about 280 pages, many of
+them stubs), adds [documented: GECK wiki, page named]:
+
+- **Weapon Damage Formula.** Guns: the base damage × `fDamageWeaponMult` × a condition
+  penalty × a skill bonus, passed through the attacker's "Calculate Weapon Damage"
+  perk entry points, plus the critical bonus, minus what armour absorbs. Melee adds
+  the MeleeDamage actor value (Strength × `fAVDMeleeDamageStrengthMult` plus an
+  offset) and a penalty for crippled arms inside the perk step. Unarmed adds the
+  UnarmedDamage actor value (a base plus a multiple of the Unarmed skill). The skill
+  bonus is `fDamageSkillBase` + `fDamageSkillMult` × skill / 100 (defaults 0.5 and
+  0.5: half damage at skill 0, full at 100). The critical bonus is the weapon's
+  Crit Dmg through "Calculate My Critical Hit Damage" perks, added before armour,
+  and armour still applies to it. Sneak attacks multiply the perk-modified damage by
+  `fCombatDamageBonusSneakingMult` (2) for guns and
+  `fCombatDamageBonusMeleeSneakingMult` (5) for melee and unarmed. A hit whose damage
+  is 0 before perks counts as a miss: no blood, no sound, no critical. The page's
+  condition settings are ignored by New Vegas (it says the calculation is hard-coded
+  there). Its armour term is the older armour-rating form and doesn't describe DT.
+- **Entry Point.** The full list of perk entry points. The ones combat runs through are
+  Calculate Weapon Damage, Calculate My Critical Hit Chance and Damage, Modify Enemy
+  Critical Hit Chance, Calculate Gun Spread, Modify Aiming Move Speed, Modify Attack
+  Speed (non-automatic), Reload Speed, Equip Speed, Modify Damage Threshold (defender
+  and attacker), Adjust Limb Damage, Knockdown Chance, Modify Item Damage (wear),
+  Modify Throwing Velocity, Calculate Mine Explode Chance, Calculate Weapon Attack AP
+  Cost, Modify Chance for Ammo Item (casings), See Enemy Health, Has Meltdown, and the
+  unarmed power-attack and counter-attack entries. Consumables that raise damage do
+  it by adding a perk for their duration.
+- **NiTextKeyExtraData.** The meaning of the clip text keys:
+  - `Hit`: the moment a ranged weapon fires or a thrown one leaves the hand, and when
+    a melee weapon deals damage to what it touches. It also ends looping reloads.
+  - `Fire`: works like `Hit` and also starts the internal loop of a clamped sequence;
+    `Loop` jumps back to it.
+  - `Eject`: a shell casing from the `ShellCasingNode`.
+  - `A`: which attack group plays next, and from when the clip may be interrupted for
+    it.
+  - `Hold` / `Release`: holding and releasing a thrown weapon.
+  - `Attach` / `Detach` / `Prn`: as player-body.md already uses them.
+  - `Enum`: `CameraShake` (0–1), `HitShader` (the hit blur) and sounds.
+- **Stats Tab – NPC / Creatures.** An NPC's health is derived from Endurance and level,
+  plus its Base Health. Its level can follow the player's level × a multiplier, between
+  a minimum and a maximum. A creature's Health is direct. A creature also has a combat
+  skill (used with weapons, not natural attacks), an attack damage and an attack reach
+  (scaled by its base scale) for natural attacks, and fatigue (unconscious at zero in
+  New Vegas). Health 0 makes an actor start as a corpse.
+- **Ammo Effect** (the same text as the owner's paste) adds that fatigue effects do
+  nothing in the original. **Gun Shell Settings** give the shell eject speed (160) and
+  lifetime (5 s). **Auto Aim** and **VATS Settings** list their settings by name.
+  **Combat Style** describes the melee, dodge and cover decisions of the combat AI
+  (Layer 6 AI, not this document). **BhkRagdollConstraint** and
+  **BhkLimitedHingeConstraint** are for the ragdoll step.
+
 The **Ammo Effect** page (owner, pasted 2026-10-09; not in an export) says the effects
-are new in New Vegas and are listed on the ammo. Each changes one value (damage, damage
-reduction, damage threshold, fatigue, gun spread or weapon condition) by adding,
+are new in New Vegas and are listed on the ammo. Each changes one value (damage, DR, DT,
+fatigue, spread or weapon condition) by adding,
 multiplying or subtracting. The page notes that New Vegas uses DT, not DR, and that
 the DR effect is unverified. This fits the armours storing DR 0 (actors.md §1.1
 [observed]). The owner's reading is that the effects are what make ammo types such as
@@ -294,8 +345,10 @@ role; their exact names come from C1.
   widens it, jumping widens it a lot. Each shot widens it further (bloom), and it
   recovers over time. **Recoil** kicks the view up and recovers. Bloom and recovery
   rates are tuning values, scaled per weapon type; heavier weapons kick more.
-- **Skills** affect spread mildly and damage modestly (§5.3), so a low-skill character
-  can still hit what they aim at.
+- **Skills** affect spread mildly; damage follows the documented skill bonus (§5.3). A
+  low-skill character can still hit what they aim at.
+- **No auto-aim** with the mouse (the original's auto-aim settings, §4.2, are not used)
+  [design]. It can come back as an aim assist for controllers.
 - **Determinism**: each shot draws from an RNG seeded by (attacker, shot counter), so a
   headless replay gives the same hits.
 
@@ -314,14 +367,27 @@ role; their exact names come from C1.
 
 For each projectile that hits:
 
-1. **Base**: the weapon's base damage, split evenly across the projectiles of a shot
-   (the record's damage is per shot [documented: GECK wiki Ammo]).
-2. **Multipliers**: weapon condition (a worn gun does less, down to a floor), the
-   attacker's weapon skill (a modest range, e.g. 0.75× to 1.25×), the ammo's damage
-   effects, the body part's multiplier, and sneak attacks.
-3. **Criticals**: the weapon's critical chance from `CRDT` and the attacker's Luck,
-   plus a guaranteed critical on headshots against an unaware target. The critical
-   adds the weapon's critical damage and applies its critical effect.
+The documented formula (§4.2) is the base. It brings the game's settings, actor values
+and perks with it, so the balance of the shipped content carries over. Our own changes
+are marked [design].
+
+1. **Base**: the weapon's base damage × `fDamageWeaponMult` × the skill bonus
+   (`fDamageSkillBase` + `fDamageSkillMult` × skill / 100), split evenly across the
+   projectiles of a shot (the record's damage is per shot [documented: GECK wiki
+   Ammo]). Melee and unarmed add the MeleeDamage / UnarmedDamage actor values and the
+   crippled-arm penalty, as documented.
+2. **Multipliers**: weapon condition [design: the original's condition rule is
+   hard-coded and undocumented; ours is linear from 100 % at full condition to 50 % at
+   zero, a tuning value], the ammo's damage effects, then the "Calculate Weapon
+   Damage" perk entry points. Sneak attacks multiply by the documented sneak settings.
+   The body part's multiplier comes last [design: the original applies it its own way,
+   which is not documented here]. A hit worth 0 before perks is a miss, as documented.
+3. **Criticals**: the chance comes from the weapon's `CRDT` multiplier, the attacker's
+   critical chance (Luck) and perks (the Critical Hit Chance Formula page is not
+   exported; our rule is a tuning value), plus a guaranteed critical on headshots
+   against an unaware target [design]. The critical adds the weapon's Crit Dmg through
+   the critical-damage perks before armour, and applies its critical effect. For
+   automatic weapons the chance multiplier is divided by the fire rate (§4.2).
 4. **Armour**: the target's DT is subtracted, with a floor so weak weapons still do a
    fraction of their damage (default 20 %). The ammo's DT effect changes the DT. DR, if
    the target has any, reduces what's left.
@@ -340,13 +406,17 @@ The weapon's condition goes down per shot (WEAP `DATA` health is its maximum).
 
 ### 5.4 Melee and unarmed
 
-- The attack clip's `hit` text key opens a short damage window [hypothesis about the
-  key's meaning, to be checked against the clips]. During the window, a capsule
-  sweeps along the swing within the weapon's reach. Each target is hit once per swing.
+- The attack clip's `Hit` text key is the moment a melee weapon deals damage [documented:
+  GECK wiki NiTextKeyExtraData]. From it, a short window [design: 0.1 s] sweeps a
+  capsule along the swing within the reach (`fCombatDistance` × scale × the weapon's
+  Reach; a creature's natural attack uses its attack reach). Each target is hit once
+  per swing.
 - Power attack: holding Use charges a stronger, slower swing. Block (right mouse, already
   bound) reduces incoming melee damage and staggers an attacker who hits it.
-- Unarmed uses the same path, with fists and the actor's unarmed damage.
-- Damage follows §5.3, with Strength in place of the gun skill's spread role.
+- Unarmed uses the same path, with fists and the UnarmedDamage actor value; a
+  creature's natural attack uses its attack damage. The `A` key's interrupt time is
+  when the next swing of a combo may start.
+- Damage follows §5.3 (the melee and unarmed forms).
 
 ### 5.5 The attack cycle
 
@@ -362,7 +432,12 @@ engine:
   takes the reload clip's length; a reload cancelled partway keeps the old magazine.
 - Ammo swap (hotkey 2) and jamming come later.
 - `fnv_actor::player_clips` gains attack, reload and hit-reaction clips. The text keys
-  (`fire`, `eject`, `hit`) time the shot, the shell and the melee window.
+  time them as documented (§4.2): `Hit` fires the shot, or ends a looping reload;
+  `Fire`/`Loop` run an automatic weapon's loop; `Eject` throws a shell (speed and
+  lifetime from the gun-shell settings); `Hold`/`Release` throw; `Enum CameraShake`
+  shakes the view.
+- Semi-automatic fire rate follows the attack clip and the weapon's attack multiplier,
+  as in the original; "Modify Attack Speed" and "Reload Speed" perks scale the clips.
 
 ### 5.6 Feedback
 
@@ -442,17 +517,18 @@ Each step is a branch and a PR, reviewed before the next starts.
 | C5 | Damage applied: health, death, script events, death clip, looting the body, HUD | C4 |
 | C6 | Melee and unarmed, block, power attacks | C5 |
 | C7 | Explosions, thrown weapons, mines, destructible objects (DEST stages) | C5 |
-| later | body-part hit volumes and limb damage; perk entry points; weapon mods; ammo swap and jamming; impact effects (IPDS → IPCT by collision material: decals, effect models); severed and exploded limbs; ragdolls; audio; VATS or a replacement | |
+| later | body-part hit volumes and limb damage; perk entry points (the combat ones listed in §4.2); fatigue and knockdown (fatigue ammo effects included, which do nothing in the original); weapon mods; ammo swap and jamming; impact effects (IPDS → IPCT by collision material: decals, effect models); severed and exploded limbs; ragdolls; audio; VATS or a replacement | |
 | Layer 6 AI | NPCs fight back: combat AI using the same attack cycle, detection, factions and hostility, combat styles (CSTY) | C5; actor-behaviour.md |
 
 ## 9. Owner questions
 
 1. **Facts for C1**: the owner's Items, Actor Data and Special Effect exports and the
    Ammo Effect page (§4.2) cover weapons, ammo and its effects, armour, body parts,
-   actor values, projectiles, explosions, impacts and destruction. Still missing: Entry
-   Point (perks), needed only for the later perk step. Optional, as a balance
-   reference only: Weapon Damage Formula, Gun Spread Formula, Critical Hit Chance
-   Formula, Explosion Knockdown Formula.
+   actor values, projectiles, explosions, impacts and destruction; the Misc export adds
+   the damage formula, perk entry points, clip text keys and actor stats. Still useful
+   if they exist: Critical Hit Chance Formula, Gun Spread Formula (New Vegas),
+   Explosion Knockdown Formula, and the derived-statistics settings (health from
+   Endurance and level). Without them those rules are our own tuning.
 2. **Feel**: hit markers yes? Floating damage numbers (default off)? Recoil and bloom
    strength like a modern shooter, or subtler?
 3. **VATS**: rebuild it later, replace it (e.g. a slow-motion aim assist), or leave it
