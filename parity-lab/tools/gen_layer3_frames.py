@@ -24,7 +24,8 @@ Manifest:
 }
 heading: the player's z angle in degrees (getangle z: 0 = north, clockwise);
 pitch: the player's x angle in degrees as the game reports it (positive = looking down);
-the candidate's pitch is the negation. masks: rectangles [x0, y0, x1, y1) in the
+the candidate's pitch is the negation. cell (optional): an interior cell's Editor ID; the
+candidate then renders that cell (`--cell`) with its own lighting. masks: rectangles [x0, y0, x1, y1) in the
 screenshot's pixels to ignore (HUD remnants, actors, particles).
 
 usage: gen_layer3_frames.py <goldens dir>
@@ -72,12 +73,14 @@ def main(argv):
                   f"--size={w}x{h}", "--screenshot", f"{frame}.png", "--frame-json", f"{frame}.json"]
         if fr.get("weather"):
             argv_c += ["--weather", fr["weather"]]
+        if fr.get("cell"):
+            argv_c += ["--cell", fr["cell"]]
         s = {"id": f"L3.frame.{fid}", "layer": 3,
              "description": f"Rendered frame vs the original game at camera '{fid}'.",
              "oracle": {"golden": f"frames/{fid}.frame.json"},
              "candidate": {"argv": argv_c, "output_file": f"{frame}.json", "timeout_s": 300},
              "comparator": {"kind": "image", "min_ssim": float(fr.get("min_ssim", min_ssim))},
-             "tags": ["frame", "render", "M3"]}
+             "tags": ["frame", "render", "M3"] + (["interior"] if fr.get("cell") else [])}
         if fr.get("holdout"):
             s["holdout"] = True
         out.append(s)
