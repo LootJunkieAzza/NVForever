@@ -34,6 +34,11 @@ python tools/capture/script_functions.py --wiki C:/fnv-private/geckwiki/function
   --data "<FNV>/Data" --xedit <path>/wbDefinitionsFNV.pas --notes schemas/script/notes.json
 ```
 
+Without a copy of the xEdit source, `--xedit-from-catalogue <old functions.json>` takes
+the same table from the committed catalogue's `condition_index` and `xedit_param_types`
+(a regeneration with unchanged notes reproduces the catalogue byte for byte, checked
+2026-10-09).
+
 ## 2. Scope: base game vs script extenders
 
 The wiki's `origin` field says where a function comes from [documented]:

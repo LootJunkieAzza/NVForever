@@ -5,12 +5,20 @@
 //! docs/design/layer4-play.md.
 //!
 //! `nvforever --play` adds [`PlayPlugin`]; without it the binary stays the M3 explorer.
+//!
+//! Layer 5 (workstream 5D, docs/design/layer5-play.md): [`script`] runs the `fnv-game`
+//! runtime (quest and object scripts, events, messages) next to the simulation.
 
 pub mod activate;
 pub mod dropped;
 pub mod menu;
 pub mod phys;
 pub mod player;
+pub mod script;
+pub mod script_draw;
+pub mod script_events;
+pub mod script_hud;
+pub mod script_trigger;
 pub mod sim;
 pub mod space;
 mod test_aid;
@@ -62,6 +70,8 @@ pub enum PlaySet {
     Physics,
     /// Crosshair ray, prompt, activation.
     Activation,
+    /// Layer 5 scripts: events, the frame's tick, their effects (`script`).
+    Scripts,
     /// Menus.
     Ui,
     /// Bring render entities in line with the simulation.
@@ -143,6 +153,14 @@ pub struct RefChanged {
     pub form_id: u32,
 }
 
+/// The player used up an item from the inventory (an aid item): the script runtime
+/// applies its effects, including effect scripts (`fnv_game::Game::apply_magic_item`).
+/// The menu has already removed the item from the simulation.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ItemUsed {
+    pub item: u32,
+}
+
 pub struct PlayPlugin(pub PlayData);
 
 impl Plugin for PlayPlugin {
@@ -155,8 +173,10 @@ impl Plugin for PlayPlugin {
             .add_message::<Travel>()
             .add_message::<OpenContainer>()
             .add_message::<RefChanged>()
-            .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Ui, PlaySet::Sync).chain())
-            .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin));
+            .add_message::<ItemUsed>()
+            .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
+            .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin))
+            .add_plugins(script::ScriptPlugin);
         test_aid::setup(app);
     }
 }

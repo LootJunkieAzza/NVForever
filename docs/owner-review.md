@@ -32,6 +32,17 @@ item once you've ruled on it.
    coordination notes). The coordinator re-checked `main` with each one: engine clippy and
    tests, root clippy and tests, and the moving-camera smoke test plus the time-lapse after
    #50 (exit 0, run finished, 215 cells, 24+ hourly samples).
+2c. **#57 (dusk lighting) merged by the Layer 5 coordinator.** The sun path is fitted to 14
+   sun positions measured in game, and the world casts no sun shadows by default
+   (`--shadow-distance 0`; cascades stay opt-in). Frame SSIM: dusk 0.415 → 0.500, noon
+   0.421 → 0.448, hill 0.491 → 0.522, lake 0.390 → 0.440. Two questions for you, from
+   its PR:
+   - keep or remove the shadow cascades;
+   - a capture plan for ambient light (shaded faces are about 2× too dark and too blue
+     by day).
+2d. **"Sky and cloud look" started** (branch `claude/sky-look`, a background agent of the
+   Layer 5 coordinator) after #57 merged, since the two would have touched the same
+   code.
 3. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
    (same commits, its PR #38 was closed). `layer4-phys-wt` is an early copy of the physics
    workstream from 2026-10-07, superseded by `claude/layer4-phys`. Neither was merged or
@@ -123,6 +134,107 @@ item once you've ruled on it.
     checkout's), so they can't overlap either side's runs. Layer 5 PRs (`claude/layer5-*`)
     stay with the Layer 5 coordinator.
 
+14. **Holdouts compromised (5B, PR #59).** The runtime agent read every quest golden,
+    including the two holdouts (`L5.quest.result_additem`, `L5.quest.delay_flagged_zero`),
+    before the coordinator's message naming them reached it. It reported this itself, and
+    nothing in the code is special-cased (one comment citing a holdout was removed). Both
+    now pass, but they are no longer blind. Recommendation: capture two fresh holdout
+    scenarios in a session that never sees the runtime code, and demote these two to
+    ordinary scenarios. The coordinator has not changed their holdout flags (lab rules).
+15. **Three quest scenarios fail on a missing fact in their inputs.** `L5.quest.delay_flagged_1s`,
+    `delay_flagged_short` and `delay_frame` measure their timers correctly. Their `given`
+    block doesn't state the quest's stage in the save (CGTutorial 2, VCG01 200, VCG00 100),
+    so the runner, which starts from a new game, reads GetStage 0. Fixing this means
+    editing scenario inputs, which the lab rules leave to you. The facts are in 5C's
+    capture of the saves (layer5-captures.md §2).
+16. **5B runtime decisions to confirm** (scripts.md §4–10):
+    - New-character defaults: limb conditions start at 100, a living actor has full
+      health, no weapon reads 100% condition.
+    - "New game" means the start-game-enabled quests are running; VCG00 is started by an
+      input.
+    - SetStage runs every stage entry whose conditions pass (the wiki's wording), not
+      only the first. Stage conditions run on the player.
+    - OR binds tighter than AND in condition lists.
+    - IsInCombat and IsTalking read 0 until Layer 6; IsXBox and IsPS3 read 0.
+    - Stray Else/ElseIf/EndIf markers: one capture of SCPT 0x00123191 would settle the
+      rule.
+    - GetSecondsPassed after a long gap returns the whole gap, so timers can expire at
+      once after a pause.
+17. **Where M5 stands (headless).** With scripted stand-ins for dialogue lines, packages,
+    triggers, menus and combat, VCG00 and VCG01 complete. VCG01 then starts VMQ01 and
+    VCG04 and sets VCG02 stage 5. VCG02 reaches stage 50 and VCG03 its objectives 10–40.
+    The stages done match your two saves exactly. Every real progression step waits on a
+    Layer 6 system (dialogue, AI packages, combat, menus).
+
+18. **Capture round 2 (PR #61, merged).** Five of six runtime questions are settled in
+    game (layer5-captures.md §8):
+    - all passing stage entries run, in order;
+    - OR binds tighter than AND;
+    - a stray ElseIf still tests and runs;
+    - OnActivate runs inside Activate, and a scripted `Activate` without the flag
+      does not run it;
+    - GetSecondsPassed excludes menu and loading time.
+
+    The last two overturn assumptions in 5B's runtime. A follow-up
+    (`claude/layer5-runtime-2`) is fixing them, without access to any holdout. Two new
+    holdouts exist (`L5.quest.r2_holdout_a`/`_b`), made by a session that never saw the
+    runtime code. Decisions for you:
+    - (a) demote the two exposed round-1 holdouts;
+    - (b) `L5.quest.condition_groups` observes the AND/OR rule through which AI package
+      an NPC picks. That leans into Layer 6, but it is the only dialogue-free way to see
+      the grouping;
+    - (c) xnvse-capture.md §5 says the clock runs in menus, but it stopped in the
+      container menu. The doc was left unchanged for you to rule on.
+    Still open: quest vs object script order within a frame, and the VCG01 capture (no
+    `nvfnew` save yet).
+
+19. **5D: scripts run in `nvforever --play` (PR #62).** Quest and object scripts tick each
+    frame. Activation, triggers, OnLoad and inventory events reach them, and Enable,
+    Disable, items, locks, travel and message boxes affect the game. Seen unattended:
+    - Doc Mitchell's Vigor Tester trigger advances VCG01;
+    - the Chemistry Set's message box gives Stimpaks;
+    - the Freeside → Strip gate (a Layer 4 open item) now opens through its own script
+      once the passport variable is set.
+
+    Decisions for you:
+    - message boxes don't pause the player;
+    - queued boxes;
+    - a new game doesn't start VCG00 (no waking in Doc's bed yet);
+    - inventory MenuMode code 1002 is a guess;
+    - trigger tests against the player are a guess;
+    - the overlay's wording and layout are our own.
+
+    **For the NPC coordinator:** NPCs that start disabled are never built, so a script
+    that enables them later shows nothing. Spawning them hidden, or one shared "spawn
+    disabled" rule in `world.rs` / `actors.rs`, would fix it for NPCs and lights.
+    `RefVisual` is already on actor entities.
+
+20. **Function coverage (#66) and effect scripts in the game (#67).** Script uses
+    handled: 95.0% → 99.98% (implemented 88.1% → 92.6%). New features:
+    - reputation (fame/infamy with thresholds);
+    - effect scripts on consumables, which now run in `--play` when an aid item is used;
+    - PlaceAtMe, ownership, regions, destruction stages, factions, fast travel,
+      challenges and casino state.
+
+    Decisions for you (scripts.md §10):
+    - (a) GetReputationThreshold's 25/50/75% levels and 4×4 grid are a guess with
+      1,786 uses; a capture is proposed;
+    - (b) effect-script timing is a guess;
+    - (c) RemoveAllTypedItems codes other than 40 follow the script-extender
+      community's numbering;
+    - (d) Layer 6 state checks (GetSitting, IsMoving, GetDetected…) stay stubs for now;
+    - (e) the xEdit source was read on GitHub for the catalogue, and
+      `script_functions.py` gained `--xedit-from-catalogue`.
+21. **Coordinator mistake, fixed forward.** PR #64 committed `nvforever-wire.exe`
+    (97 MB, an engine build the coordinator had copied into the worktree root; our own
+    binary, no game data) because of a `git add -A`. #67 removed it and now ignores
+    `*.exe`. The blob is still in `main`'s history. Purging it needs a history rewrite
+    and a force-push of `main`, which is your call. While cleaning up, a second copy of
+    the binary turned out corrupt in the shared object store (the push failed on it). It
+    was unreferenced after amending, so the coordinator ran
+    `git reflog expire --expire-unreachable=now --all` (no stash existed) and deleted
+    that one loose object. `git fsck --connectivity-only` is clean.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
@@ -140,20 +252,41 @@ coordinators could not message each other, so this section is how they share sta
 3. **#51 (Layer 5A script reader)**: this coordinator ran every check on `main` (#49) +
    #51 and all passed. The other coordinator merged it; the merged tree differs only in
    `docs/`.
-4. **This coordinator is handling the remaining NPC and engine work on this machine**:
-   - **#50** (distant-LOD fade, no pop-in) conflicts with #44 in `engine/nvforever/src/main.rs`
-     and `world.rs`. Its session was asked to merge `main` and recheck that actors still
-     spawn.
-   - **The KF-playback session** ("Play KF animations on assembled NPCs") is to open a
-     PR once it has merged #44, #47 and #48.
-
-   Please leave those two PRs to this coordinator.
+4. **#50 and #54 merged by this coordinator.**
+   - **#50** (distant-LOD fade, no pop-in) was rebased by its session onto `main`
+     (resolving the conflicts with #44's actors). Engine clippy and tests pass on
+     `main` + #50. Its smoke run: exit 0, 208 cells, 33 actors drawn.
+   - **#54** (workstream 5 part E: KF idle animation on actors) was brought up to date
+     with `main` twice by its session. On the final tree, every CLAUDE.md check
+     passes. The lab is at 329/365 with 0 regressions; the errors are only goldens not
+     on this machine. Smoke runs in both poses: exit 0, 33 actors animated, none
+     missing a clip.
 5. **Two smoke-test locks exist.** Sessions on this machine were told to take
    `.claude\smoke.lock` (mkdir/rmdir in the repo root) before running the game. The
-   other coordinator's sessions use `C:\fnv-private\capture\run.lock`. They don't see
-   each other's lock, so two game runs can overlap. Pick one when you're back.
+   other coordinator's sessions use `C:\fnv-private\capture\run.lock`. Since item 13
+   above, the Layer 5 coordinator takes both, so runs no longer overlap. Merging the two
+   into one lock is still worth doing when you're back.
 6. **Cross-session messages between Desktop sessions are held** when their permission
    modes differ. This coordinator runs with bypass permissions and the workers do not, so
    it used the app's session-messaging path instead. Every worker session refused to run
    `gh pr merge` on another session's request (correctly: only you can authorise that),
    so this coordinator did the merges itself under your direct instruction.
+7. **NPCs now play their idle animation by default (decision for you to confirm).** PR
+   "actor pose: idle by default" changes `nvforever`'s default from `--actor-pose bind`
+   (the frozen bind pose, your decision of 2026-10-08) to `--actor-pose idle`. The
+   reason is your instruction of 2026-10-09: "I need working NPCs". #54's session
+   rightly would not take that change on a relayed request, so this coordinator made
+   it. `--actor-pose bind` still gives the frozen pose.
+   - **Effects:** no parity-lab scenario depends on the default. `L3.frame.*` renders
+     now show animated NPCs wherever NPCs are in view, which is closer to the game's
+     reference frames.
+   - **Smoke run with the new default:** exit 0, 34 actors drawn and 34 animated, 0
+     clips missing, 27.1 fps.
+   - **To undo:** in `engine/nvforever/src/main.rs`, set `default_value_t` back to
+     `ActorPose::Bind` and move `#[default]` in `actors.rs`. Two doc lines also need
+     changing back.
+8. **Still open for NPCs:**
+   - Creatures (part D) are not started.
+   - Clips are not chosen by situation (walk, sit, talk); that is Layer 6.
+   - `nvf-viewer --anim` needs #54's accumulation-root rule (its follow-up).
+   - The body skin `.egt` and race FaceGen data are unused.

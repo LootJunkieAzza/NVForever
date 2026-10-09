@@ -1,0 +1,70 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "A door's OnActivate writes another reference's variable: scripted Activate with and without the flag",
+  "save": "nvfdoc",
+  "given": [
+    {
+      "kind": "ref",
+      "ref": "0x00104C0F",
+      "dead": false,
+      "vars": {
+        "PlayerLeft": 1
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_ref_var",
+      "ref": "0x00104C0F",
+      "var": "PlayerLeft",
+      "value": 0
+    },
+    {
+      "op": "get_ref",
+      "ref": "0x00104C0F",
+      "fields": [
+        "var.PlayerLeft"
+      ],
+      "label": "PlayerLeft reset"
+    },
+    {
+      "op": "activate_read",
+      "target": "0x00103E61",
+      "actor": "player",
+      "read": {
+        "ref": "0x00104C0F",
+        "field": "var.PlayerLeft"
+      },
+      "label": "PlayerLeft read in the script that activated the door"
+    },
+    {
+      "op": "get_ref",
+      "ref": "0x00104C0F",
+      "fields": [
+        "var.PlayerLeft"
+      ],
+      "label": "PlayerLeft after the plain activation"
+    },
+    {
+      "op": "activate_read",
+      "target": "0x00103E61",
+      "actor": "player",
+      "run_on_activate": true,
+      "read": {
+        "ref": "0x00104C0F",
+        "field": "var.PlayerLeft"
+      },
+      "label": "PlayerLeft read in the script that activated the door with the flag"
+    },
+    {
+      "op": "get_ref",
+      "ref": "0x00104C0F",
+      "fields": [
+        "var.PlayerLeft"
+      ],
+      "label": "PlayerLeft after the flagged activation"
+    }
+  ]
+}

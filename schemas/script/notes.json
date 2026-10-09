@@ -1381,7 +1381,8 @@
    "page": "GetIsCreatureType",
    "summary": "Returns 1 if the calling creature is of the creature type given by integer parameter.",
    "notes": [
-    "Page includes a creature type table mapping numbers to types."
+    "Page includes a creature type table mapping numbers to types.",
+    "The page's example uses type 5 for feral ghouls."
    ],
    "bugs": []
   },
@@ -1819,7 +1820,8 @@
    "notes": [
     "Only one axis is nonzero at a time; with zero fame and infamy, all three axes return 1.",
     "Higher fame returns 2 to 6 on the good axis and 0 on the others, and similarly for infamy.",
-    "Page lists the tier names per axis, with 0 meaning none of the tiers, 1 neutral."
+    "Page lists the tier names per axis, with 0 meaning none of the tiers, 1 neutral.",
+    "Tier numbers per axis, lowest first. Fame side: Smiling Troublemaker 2, Good Natured Rascal 3, Accepted 4, Liked 5, Idolized 6. Infamy side: Sneering Punk 2, Merciful Thug 3, Shunned 4, Hated 5, Vilified 6. Mixed: Dark Hero or Soft Hearted Devil 2, Mixed 3, Unpredictable 4, Wild Child 5. Neutral is 1 everywhere."
    ],
    "bugs": []
   },
@@ -2894,7 +2896,8 @@
     "Works with leveled creature lists but not leveled items, which show an error marker.",
     "Runtime-created actors survive cell reset unless killed (then removed after about three days); projectiles survive resets; picked-up placed items are destroyed; explosions unload after one animation.",
     "The returned reference is reliable only for non-pickable objects; using one after pickup can crash, and the self-reference getter misbehaves on such objects.",
-    "Unneeded placed references should be disabled and marked for delete to prevent save bloat."
+    "Unneeded placed references should be disabled and marked for delete to prevent save bloat.",
+    "Direction codes for the (ineffective) offset: 0 ahead, 1 behind, 2 left, 3 right."
    ],
    "bugs": [
     "The distance and direction arguments have no effect; the object always lands in a safe spot near the caller.",
@@ -3101,7 +3104,8 @@
     "Type code omitted or -1 removes everything like RemoveAllItems, 0 removes nothing; other values are form type IDs (page has a code table).",
     "With a target container the items move there with equipment condition kept; otherwise destroyed like RemoveItem.",
     "A non-zero retain-ownership flag keeps original ownership, which can count as stealing when handing items to the player; otherwise ownership is cleared.",
-    "A suppress-messages flag of 1 hides the item added pop-up when transferring to the player."
+    "A suppress-messages flag of 1 hides the item added pop-up when transferring to the player.",
+    "In the page's example, code 40 selects weapons; the full code table lives on a separate form-type page."
    ],
    "bugs": []
   },
