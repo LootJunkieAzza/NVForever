@@ -30,6 +30,21 @@
 //!   scripts see what combat did. Explosions hit with location −1. Each hit sends an
 //!   [`ActorHit`] (nvforever plays a flinch or the death pose). Without the script runtime
 //!   (`NVF_PLAY_SCRIPTS=0`) hits are only logged.
+//! - **Limb hits** (step C8): an actor whose hit volume has body parts
+//!   (`crate::hitvol::ActorParts`) is hit on a part of its BPTD: the part's damage
+//!   multiplier, its location for `GetHitLocation`, and limb damage (the damage dealt
+//!   times the weapon's Limb Dmg Mult) on its condition (`Game::hit`), which cripples the
+//!   limb at 0. Explosions hit no part (location −1) [design]. The player's crippled limbs
+//!   ([`PlayerLimbs`]) widen the spread (the documented crippled-arm terms), weaken melee
+//!   (`Attacker::arm_condition`) and slow movement [design]; the HUD lists them.
+//! - **Explosives and destructibles** (step C7): grenades and other thrown weapons are
+//!   lobbed projectiles; mines arm and wait for an actor; C-4 waits for
+//!   `DetonatePlacedExplosives`, which the detonator's OnFire script calls (weapons' OnFire
+//!   blocks run on each shot). Explosions hurt actors (armour, knockdown by the EXPL flags
+//!   and the documented formula, logged), damage destructible objects in their radius and
+//!   push loose objects. Bullets damage destructibles they hit. Destruction stages
+//!   (`Game::damage_object`, as `DamageObject`) disable, destroy, burn down by their
+//!   self-damage and set off their explosions, which can set off others.
 //! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
 //!   tracers at the projectile's tracer chance, an ammo counter, a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
@@ -48,9 +63,12 @@ use fnv_phys::{layers, Filter, Key, Owner, Queries};
 use fnv_sim::FormId;
 
 use crate::activate::HudMessage;
+use crate::hitvol::ActorParts;
+use fnv_combat::data::{BodyPart, WeaponStats};
+use fnv_game::combat::LimbHit;
 use crate::control::PlayerControl;
 use crate::script::{with_world, ScriptState};
-use fnv_game::combat::{HitInfo, HitResult};
+use fnv_game::combat::{CombatRequest, DestructionChange, HitInfo, HitResult};
 use crate::phys::PhysState;
 use crate::player::{Player, MAX_PITCH};
 use crate::sim::SimState;
@@ -84,6 +102,81 @@ pub struct ActorHit {
     pub form_id: u32,
     pub died: bool,
     pub knocked_out: bool,
+    /// Where it was hit (`GetHitLocation`'s numbering; −1 none, 0 torso).
+    pub location: i32,
+    /// The hit crippled a limb.
+    pub crippled: bool,
+}
+
+/// The player's limb conditions (codes 25–31, 100 healthy, 0 or less crippled), read
+/// from the script runtime each frame (step C8).
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct PlayerLimbs {
+    pub condition: [f32; 7],
+}
+
+impl Default for PlayerLimbs {
+    fn default() -> Self {
+        PlayerLimbs { condition: [100.0; 7] }
+    }
+}
+
+/// The limbs by condition code 25–31, for messages.
+const LIMB_NAMES: [&str; 7] = ["head", "torso", "left arm", "right arm", "left leg", "right leg", "brain"];
+
+/// Movement with one or both legs crippled, as a share of normal speed [design].
+const ONE_LEG_SPEED: f32 = 0.7;
+const BOTH_LEGS_SPEED: f32 = 0.5;
+
+impl PlayerLimbs {
+    pub fn crippled(&self, code: u16) -> bool {
+        code.checked_sub(25).and_then(|i| self.condition.get(i as usize)).is_some_and(|c| *c <= 0.0)
+    }
+
+    /// Left and right arm crippled.
+    pub fn arms(&self) -> (bool, bool) {
+        (self.crippled(27), self.crippled(28))
+    }
+
+    /// Arm condition as `Attacker::arm_condition` takes it: 1 healthy, 0.5 with one arm
+    /// crippled, 0 with both [design].
+    pub fn arm_condition(&self) -> f32 {
+        match self.arms() {
+            (false, false) => 1.0,
+            (true, true) => 0.0,
+            _ => 0.5,
+        }
+    }
+
+    /// The share of normal movement speed the legs allow.
+    pub fn speed_mult(&self) -> f32 {
+        match (self.crippled(29), self.crippled(30)) {
+            (false, false) => 1.0,
+            (true, true) => BOTH_LEGS_SPEED,
+            _ => ONE_LEG_SPEED,
+        }
+    }
+
+    /// The crippled limbs, named.
+    pub fn crippled_names(&self) -> Vec<&'static str> {
+        (25u16..=31).filter(|&c| self.crippled(c)).map(|c| LIMB_NAMES[(c - 25) as usize]).collect()
+    }
+}
+
+/// The body part an actor was hit on (step C8): its BPTD entry, when its volume has parts.
+fn body_part(c: &Combat, parts: &ActorParts, actor: ActorId, part: Option<u8>) -> Option<BodyPart> {
+    let data = parts.data_of(actor as u32)?;
+    c.forms.body_parts.get(&data)?.parts.get(part? as usize).cloned()
+}
+
+/// The limb damage of a hit dealing `dealt` on part `bp` with weapon `w`: none when the
+/// part has no limb condition or the weapon's Limb Dmg Mult is 0 [documented: WEAP field;
+/// hypothesis: 0 means no limb damage].
+fn limb_hit(bp: Option<&BodyPart>, dealt: f32, w: &WeaponStats) -> Option<LimbHit> {
+    let bp = bp?;
+    let condition = fnv_game::combat::limb_condition(bp.actor_value.as_deref()?)?;
+    let damage = (dealt * w.limb_dmg_mult.max(0.0)) as f64;
+    (damage > 0.0).then_some(LimbHit { condition, health_percent: bp.health_percent as f64, damage })
 }
 
 /// Whether the script runtime has the actor dead.
@@ -100,6 +193,9 @@ pub struct HitFeedback {
     /// The last actor hit: name, health, maximum, seconds since.
     pub target: Option<(String, f32, f32, f32)>,
 }
+
+/// Height above a destructible's position its stage explosions go off [design].
+const DESTRUCTION_BLAST_HEIGHT: f32 = 40.0;
 
 /// Seconds the hit marker and the target's health stay up [design].
 const MARKER_SECONDS: f32 = 0.18;
@@ -121,6 +217,7 @@ pub struct CombatStats {
     pub swings: u32,
     pub power_attacks: u32,
     pub melee_hits: u32,
+    pub knockdowns: u32,
 }
 
 /// A melee swing in progress (step C6).
@@ -144,6 +241,10 @@ struct Flying {
 struct Pending {
     due: f32,
     actor: Option<ActorId>,
+    /// The body part hit (step C8).
+    part: Option<u8>,
+    /// The placed reference hit, for destructible objects.
+    object: Option<u64>,
     point: V3,
     projectiles: u32,
 }
@@ -177,6 +278,8 @@ pub struct Combat {
     /// How long Use has been held for the next melee attack.
     held: Option<f32>,
     swing: Option<Swing>,
+    /// Explosions to set off this frame (impacts, detonations, destruction stages).
+    boom: Vec<(FormId, V3)>,
     /// Use was pressed during a swing: the next swing starts when it ends [design].
     queued: bool,
     /// The trigger last frame (for presses during a swing).
@@ -197,14 +300,30 @@ impl Plugin for CombatPlugin {
         app.init_resource::<WeaponAnim>()
             .init_resource::<CombatStats>()
             .init_resource::<HitFeedback>()
+            .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
             .add_systems(Startup, (init_combat, spawn_hud, spawn_hit_hud))
             .add_systems(
                 Update,
-                (equip_sync, fire, melee, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, equip_sync, fire, melee, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hud, update_hit_hud).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
+    }
+}
+
+/// Read the player's limb conditions from the script runtime (step C8).
+fn track_limbs(mut limbs: ResMut<PlayerLimbs>, mut script: Option<ResMut<ScriptState>>, mut sim: ResMut<SimState>) {
+    let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) else { return };
+    let now = with_world(rt, &mut sim, |rt| rt.game.limb_conditions(FormId::PLAYER_REF)).map(|v| v as f32);
+    if now != limbs.condition {
+        let before = *limbs;
+        limbs.condition = now;
+        for c in 25u16..=31 {
+            if limbs.crippled(c) != before.crippled(c) {
+                info!("combat: player's {} {}", LIMB_NAMES[(c - 25) as usize], if limbs.crippled(c) { "crippled" } else { "healed" });
+            }
+        }
     }
 }
 
@@ -228,6 +347,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         swing: None,
         queued: false,
         was_trigger: false,
+        boom: Vec::new(),
         cycle: None,
         kick: Kick::default(),
         flying: Vec::new(),
@@ -274,7 +394,8 @@ fn equip_sync(mut c: ResMut<Combat>, sim: Res<SimState>, mut anim: ResMut<Weapon
     c.ammo = chain.ammo;
     let carried = player_count(&sim, c.ammo);
     let timing = Timing::of(w, &anim.timing, &c.tuning);
-    let no_ammo = melee || c.self_ammo;
+    // Ranged weapons without a projectile (the detonator, binoculars) use no ammo.
+    let no_ammo = melee || c.self_ammo || (chain.projectile.is_none() && chain.ammo_choices.is_empty());
     c.cycle = Some(Cycle::new(w, timing, no_ammo, carried));
     anim.attack = w.attack_anim.clone();
     anim.reload = w.reload_anim.clone();
@@ -316,8 +437,16 @@ impl CombatWorld for PhysView<'_> {
                 Owner::Actor { form_id, .. } => Some(form_id as ActorId),
                 _ => None,
             },
+            part: match h.owner {
+                Owner::Actor { part, .. } if part != fnv_phys::actors::WHOLE => Some(part),
+                _ => None,
+            },
             small_transparent: matches!(h.owner, Owner::Ref { layer, .. } if layer == layers::TRANSPARENT_SMALL || layer == layers::TRANSPARENT_SMALL_ANIM),
             material: h.material,
+            object: match h.owner {
+                Owner::Ref { form_id, .. } => Some(form_id as u64),
+                _ => None,
+            },
         })
     }
 
@@ -353,6 +482,8 @@ fn fire(
     mut control: ResMut<PlayerControl>,
     mut anim: ResMut<WeaponAnim>,
     mut stats: ResMut<CombatStats>,
+    mut script: Option<ResMut<ScriptState>>,
+    limbs: Res<PlayerLimbs>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -401,8 +532,14 @@ fn fire(
                 if c.self_ammo {
                     let _ = sim.world.remove_item(FormId::PLAYER_REF, id, 1);
                 }
+                // The weapon's OnFire blocks (the detonator's DetonatePlacedExplosives).
+                if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                    if with_world(rt, &mut sim, |rt| rt.game.weapon_fired(FormId::PLAYER_REF, id)) {
+                        info!("combat: OnFire of {} ran", w.edid.as_deref().unwrap_or("?"));
+                    }
+                }
                 if chain.projectile.is_none() {
-                    debug!("combat: {} attacks (melee and unarmed hits are step C6)", w.edid.as_deref().unwrap_or("?"));
+                    debug!("combat: {} fires no projectile", w.edid.as_deref().unwrap_or("?"));
                     continue;
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
@@ -415,7 +552,8 @@ fn fire(
                     skill: attacker(&mut sim, w.skill.as_deref(), false).skill,
                     strength: sim.world.actor_value(FormId::PLAYER_REF, "Strength").unwrap_or(5.0),
                     aiming_move_divisor: 1.0,
-                    ..Stance::default()
+                    left_arm_crippled: limbs.arms().0,
+                    right_arm_crippled: limbs.arms().1,
                 };
                 let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
                 let cone = spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects);
@@ -470,7 +608,7 @@ fn apply_hit(
     info: HitInfo,
     stats: &mut CombatStats,
     feedback: &mut HitFeedback,
-    hud: Option<&mut HudMessage>,
+    mut hud: Option<&mut HudMessage>,
     messages: &mut MessageWriter<ActorHit>,
 ) -> Option<HitResult> {
     let r = script.and_then(|s| s.rt.as_mut()).map(|rt| with_world(rt, sim, |rt| rt.game.hit(target, dealt as f64, info)))?;
@@ -479,18 +617,29 @@ fn apply_hit(
     if r.died {
         stats.kills += 1;
         stats.xp += r.xp;
-        if let Some(h) = hud {
+        if let Some(h) = hud.as_deref_mut() {
             h.show(if r.xp > 0.0 { format!("{name} killed (+{} XP)", r.xp) } else { format!("{name} killed") });
         }
         info!("combat: {name} {target} killed{}", if r.xp > 0.0 { format!(", +{} XP", r.xp) } else { String::new() });
     } else if r.knocked_out {
         info!("combat: {name} {target} knocked out (essential)");
     }
+    if let Some((code, condition)) = r.limb {
+        let limb = code.checked_sub(25).and_then(|i| LIMB_NAMES.get(i as usize)).copied().unwrap_or("limb");
+        if r.crippled {
+            info!("combat: {name} {target}: {limb} crippled");
+            if let Some(h) = hud.filter(|_| !r.died) {
+                h.show(format!("{name}: {limb} crippled"));
+            }
+        } else {
+            debug!("combat: {name} {target}: {limb} condition {condition:.0}");
+        }
+    }
     if !r.immune {
         feedback.marker_age = Some(0.0);
         feedback.kill = r.died;
         feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
-        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out });
+        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled });
     }
     Some(r)
 }
@@ -510,6 +659,8 @@ fn melee(
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
     mut messages: MessageWriter<ActorHit>,
+    parts: Res<ActorParts>,
+    limbs: Res<PlayerLimbs>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -574,22 +725,28 @@ fn melee(
             }
             hits
         };
-        for (actor, _) in hits {
+        for (actor, hit) in hits {
             let target = FormId(actor as u32);
             stats.melee_hits += 1;
             let (dt_v, dr) = target_armor(c, &mut sim, target);
-            let a = attacker(&mut sim, w.skill.as_deref(), false);
-            let h = HitInput { weapon: &w, projectiles: 1, condition: 1.0, ammo_effects: &[], part: HitPart::default(), power: if power { c.tuning.power_damage } else { 1.0 } };
+            let mut a = attacker(&mut sim, w.skill.as_deref(), false);
+            a.arm_condition = limbs.arm_condition();
+            let bp = body_part(c, &parts, actor, hit.part);
+            let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
+            let h = HitInput { weapon: &w, projectiles: 1, condition: 1.0, ammo_effects: &[], part, power: if power { c.tuning.power_damage } else { 1.0 } };
             let roll = c.rng.next_f32();
             let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
             let agility = sim.world.actor_value(target, "Agility").unwrap_or(5.0);
             let push = damage::knockback_force(&c.rules, d.dealt, agility);
-            let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location: 0, critical: d.critical };
+            let location = bp.as_ref().map_or(0, BodyPart::location);
+            let limb = limb_hit(bp.as_ref(), d.dealt, &w);
+            let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
             match apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
                 Some(r) => info!(
-                    "combat: {}{} hits {target} for {:.1} (DT {:.0}{}), health {:.0}/{:.0}, knockback {push:.0}",
+                    "combat: {}{} hits {target} on {} for {:.1} (DT {:.0}{}), health {:.0}/{:.0}, knockback {push:.0}",
                     w.edid.as_deref().unwrap_or("?"),
                     if power { " power attack" } else { "" },
+                    bp.as_ref().and_then(|b| b.name.as_deref()).unwrap_or("the body"),
                     r.dealt,
                     d.dt,
                     if d.critical { ", critical" } else { "" },
@@ -605,7 +762,67 @@ fn melee(
     }
 }
 
-/// Fly the projectiles, deliver hits when due, set off explosions.
+/// Explosions set off per frame at most (chains of destructibles) [design].
+const MAX_EXPLOSIONS_PER_FRAME: u32 = 64;
+
+/// Where a reference stands (its simulation state, else its placement).
+fn ref_pos(sim: &SimState, r: FormId) -> Option<V3> {
+    sim.world.peek(r).map(|s| s.pos).or_else(|| sim.refs.get(r).map(|p| p.pos))
+}
+
+/// Queue what a destruction change sets off and report the rest (step C7).
+fn queue_destruction(c: &mut Combat, sim: &SimState, r: FormId, ch: &DestructionChange) {
+    if ch.after == ch.before {
+        return;
+    }
+    let at = ref_pos(sim, r).map(|p| [p[0], p[1], p[2] + DESTRUCTION_BLAST_HEIGHT]);
+    info!(
+        "combat: {r} destruction stage {} -> {}{}{}{}",
+        ch.before,
+        ch.after,
+        if ch.destroyed { ", destroyed" } else { "" },
+        if ch.disabled { ", disabled" } else { "" },
+        if ch.explosions.is_empty() { String::new() } else { format!(", {} explosion(s)", ch.explosions.len()) }
+    );
+    if ch.model.is_some() || ch.damage_stage.is_some() {
+        debug!("combat: {r} model {:?} damage stage {:?}: not drawn yet", ch.model, ch.damage_stage);
+    }
+    if let Some(at) = at {
+        c.boom.extend(ch.explosions.iter().map(|&e| (e, at)));
+    }
+}
+
+/// Object damage to a destructible reference through the script runtime.
+fn damage_destructible(c: &mut Combat, sim: &mut SimState, script: Option<&mut ScriptState>, r: FormId, amount: f32) {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    let ch = with_world(rt, sim, |rt| rt.game.damage_object(r, amount as f64));
+    if let Some(ch) = ch {
+        queue_destruction(c, sim, r, &ch);
+    }
+}
+
+/// Destructible references whose collision overlaps a sphere, with their distance.
+fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&ScriptState>, at: V3, radius: f32) -> Vec<(FormId, f32)> {
+    let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
+    phys.world.update_queries();
+    let shape = fnv_collide::Shape::Sphere { radius };
+    let pose = fnv_collide::Iso { translation: at, ..fnv_collide::Iso::IDENTITY };
+    let owners = phys.world.queries().overlap(&shape, &pose, &Filter::default()).unwrap_or_default();
+    let mut out: Vec<(FormId, f32)> = Vec::new();
+    for o in owners {
+        let Owner::Ref { form_id, .. } = o else { continue };
+        let r = FormId(form_id);
+        if out.iter().any(|x| x.0 == r) || !rt.game.is_destructible(r) {
+            continue;
+        }
+        let d = ref_pos(sim, r).map_or(radius, |p| vec::len(vec::sub(p, at)).min(radius));
+        out.push((r, d));
+    }
+    out
+}
+
+/// Fly the projectiles, deliver hits when due, set off explosions (and what they set
+/// off: destruction stages, detonations).
 #[allow(clippy::too_many_arguments)]
 fn fly(
     time: Res<Time>,
@@ -617,28 +834,47 @@ fn fly(
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
     mut messages: MessageWriter<ActorHit>,
+    parts: Res<ActorParts>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
-    if c.flying.is_empty() && c.pending.is_empty() {
+    // What scripts asked (DetonatePlacedExplosives) and what burns down (self-damage).
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        let (requests, burning) = with_world(rt, &mut sim, |rt| (std::mem::take(&mut rt.game.combat_requests), rt.game.destruction_tick(dt as f64)));
+        for req in requests {
+            let CombatRequest::Detonate(actor) = req;
+            let shooter = if actor == FormId::PLAYER_REF { Some(PLAYER) } else { Some(actor.0 as ActorId) };
+            let mut n = 0;
+            for f in c.flying.iter_mut().filter(|f| f.p.shooter == shooter) {
+                if let Some(ProjEvent::Explode { explosion, point }) = f.p.detonate() {
+                    c.boom.push((explosion, point));
+                    n += 1;
+                }
+            }
+            c.flying.retain(|f| f.p.alive);
+            info!("combat: {actor} detonates placed explosives: {n}");
+        }
+        for (r, ch) in burning {
+            queue_destruction(c, &sim, r, &ch);
+        }
+    }
+    if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() {
         return;
     }
-    let mut explode: Vec<(FormId, V3)> = Vec::new();
-    let mut blasted: Vec<(FormId, f32)> = Vec::new();
     {
         let world = view(&mut phys);
         for f in &mut c.flying {
             let before = f.p.pos;
             for e in f.p.step(&world, dt) {
                 match e {
-                    ProjEvent::Hit { actor, point, delay, .. } => {
-                        c.pending.push(Pending { due: c.time + delay, actor, point, projectiles: f.projectiles_per_shot });
+                    ProjEvent::Hit { actor, part, object, point, delay, .. } => {
+                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, projectiles: f.projectiles_per_shot });
                         if f.tracer {
                             let from = if f.p.hitscan { f.origin } else { before };
                             c.marks.push(Mark { from, to: point, age: 0.0, life: 0.08, impact: false });
                         }
                     }
-                    ProjEvent::Explode { explosion, point } => explode.push((explosion, point)),
+                    ProjEvent::Explode { explosion, point } => c.boom.push((explosion, point)),
                     ProjEvent::Expired { .. } => {}
                 }
             }
@@ -647,16 +883,71 @@ fn fly(
             }
         }
         c.flying.retain(|f| f.p.alive);
-        for (id, at) in explode {
-            stats.explosions += 1;
-            let Some(x) = c.forms.explosions.get(&id) else { continue };
-            for b in blast(&world, &c.tuning, x, at) {
-                info!("combat: blast {} hits {:08X} at {:.0} for {:.1} (before armour)", x.edid.as_deref().unwrap_or("?"), b.actor, b.distance, b.damage);
-                blasted.push((FormId(b.actor as u32), b.damage));
-            }
-            c.marks.push(Mark { from: at, to: at, age: 0.0, life: 0.6, impact: true });
-            info!("combat: explosion {} at ({:.0}, {:.0}, {:.0})", x.edid.as_deref().unwrap_or("?"), at[0], at[1], at[2]);
+    }
+    let weapon = c.weapon;
+    // Explosions, with those they set off, a bounded number per frame.
+    let mut n = 0;
+    while let Some((id, at)) = c.boom.pop() {
+        n += 1;
+        if n > MAX_EXPLOSIONS_PER_FRAME {
+            warn!("combat: more than {MAX_EXPLOSIONS_PER_FRAME} explosions in one frame; {} left for the next", c.boom.len() + 1);
+            c.boom.push((id, at));
+            break;
         }
+        stats.explosions += 1;
+        let Some(x) = c.forms.explosions.get(&id).cloned() else { continue };
+        let hits = {
+            let world = view(&mut phys);
+            blast(&world, &c.tuning, &x, at)
+        };
+        let always = x.flags.iter().any(|f| f == "Knock Down - Always");
+        let by_formula = x.flags.iter().any(|f| f == "Knock Down - By Formula");
+        for b in hits {
+            let target = FormId(b.actor as u32);
+            let (dt_v, dr) = target_armor(c, &mut sim, target);
+            let dealt = (b.damage - dt_v).max(b.damage * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
+            let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: -1, critical: false, limb: None };
+            if let Some(r) = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
+                // Knockdown [documented: the EXPL flags; Explosion Knockdown Formula].
+                let agility = sim.world.actor_value(target, "Agility").unwrap_or(5.0);
+                let chance = if r.died || r.immune {
+                    0.0
+                } else if always {
+                    1.0
+                } else if by_formula {
+                    damage::knockdown_chance(&c.rules, r.dealt as f32, agility, (r.health + r.dealt) as f32, r.max_health as f32)
+                } else {
+                    0.0
+                };
+                let down = chance > 0.0 && c.rng.next_f32() < chance;
+                if down {
+                    stats.knockdowns += 1;
+                }
+                info!(
+                    "combat: blast {} on {target} at {:.0}: {:.1} health damage, health {:.0}/{:.0}{}",
+                    x.edid.as_deref().unwrap_or("?"),
+                    b.distance,
+                    r.dealt,
+                    r.health,
+                    r.max_health,
+                    if down { ", knocked down (not animated yet)" } else { "" }
+                );
+            }
+        }
+        for (r, d) in destructibles_near(&mut phys, &sim, script.as_deref(), at, x.radius) {
+            let dmg = damage::explosion_damage(&c.tuning, x.damage, x.radius, d);
+            damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg);
+        }
+        let pushed = phys.world.push_dynamic(at, x.radius, x.force);
+        c.marks.push(Mark { from: at, to: at, age: 0.0, life: 0.6, impact: true });
+        info!(
+            "combat: explosion {} at ({:.0}, {:.0}, {:.0}), {pushed} loose object(s) pushed{}",
+            x.edid.as_deref().unwrap_or("?"),
+            at[0],
+            at[1],
+            at[2],
+            if x.radiation_level > 0.0 || x.enchantment.is_some() || x.placed_object.is_some() { " (radiation, effect and placed object not built yet)" } else { "" }
+        );
     }
     let now = c.time;
     let due: Vec<Pending> = {
@@ -664,39 +955,39 @@ fn fly(
         c.pending = keep;
         d
     };
-    let weapon = c.weapon;
-    // Blasts: the damage against the target's armour (the DT floor and DR, §5.3).
-    for (target, raw) in blasted {
-        let (dt_v, dr) = target_armor(c, &mut sim, target);
-        let dealt = (raw - dt_v).max(raw * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
-        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: -1, critical: false };
-        if let Some(r) = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
-            info!("combat: blast on {target}: {:.1} health damage, health {:.0}/{:.0}", r.dealt, r.health, r.max_health);
-        }
-    }
     let Some(id) = weapon else { return };
     let w = c.forms.weapons[&id].clone();
     let chain = c.forms.chain(id, c.ammo);
     let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
     for p in due {
         c.marks.push(Mark { from: p.point, to: p.point, age: 0.0, life: 0.3, impact: true });
+        let effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
+        let a = attacker(&mut sim, w.skill.as_deref(), false);
+        let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part));
+        let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
+        let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: 1.0, ammo_effects: &effects, part, power: 1.0 };
+        let roll = c.rng.next_f32();
         let Some(actor) = p.actor else {
             stats.world_hits += 1;
+            // A destructible object takes the hit's damage (no armour) (step C7).
+            if let Some(obj) = p.object {
+                let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
+                damage_destructible(c, &mut sim, script.as_deref_mut(), FormId(obj as u32), d.dealt);
+            }
             continue;
         };
         stats.actor_hits += 1;
-        let effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
-        let a = attacker(&mut sim, w.skill.as_deref(), false);
-        let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: 1.0, ammo_effects: &effects, part: HitPart::default(), power: 1.0 };
-        let roll = c.rng.next_f32();
         let target = FormId(actor as u32);
         let (dt_v, dr) = target_armor(c, &mut sim, target);
         let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
-        // One capsule per actor: every hit is on the torso (location 0) until body parts.
-        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location: 0, critical: d.critical };
+        // Without body parts the whole capsule counts as the torso (location 0).
+        let location = bp.as_ref().map_or(0, BodyPart::location);
+        let limb = limb_hit(bp.as_ref(), d.dealt, &w);
+        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
         match apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
             Some(r) => info!(
-                "combat: hit {target} for {:.1} (DT {:.0}{}), health {:.0}/{:.0}{}",
+                "combat: hit {target} on {} for {:.1} (DT {:.0}{}), health {:.0}/{:.0}{}",
+                bp.as_ref().and_then(|b| b.name.as_deref()).unwrap_or("the body"),
                 r.dealt,
                 d.dt,
                 if d.critical { ", critical" } else { "" },
@@ -766,8 +1057,8 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
     if exit.read().last().is_some() {
         let s = &*stats;
         info!(
-            "combat: {} shots, {} projectiles, {} actor hits, {} world hits, {} explosions, {} swings ({} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
-            s.shots, s.projectiles, s.actor_hits, s.world_hits, s.explosions, s.swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
+            "combat: {} shots, {} projectiles, {} actor hits, {} world hits, {} explosions ({} knockdowns), {} swings ({} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
+            s.shots, s.projectiles, s.actor_hits, s.world_hits, s.explosions, s.knockdowns, s.swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
         );
     }
 }
@@ -822,6 +1113,7 @@ fn update_hit_hud(
     mut marker: Query<&mut BorderColor, With<HitMarker>>,
     mut target: Query<&mut Text, (With<TargetText>, Without<PlayerHealthText>)>,
     mut health: Query<&mut Text, (With<PlayerHealthText>, Without<TargetText>)>,
+    limbs: Res<PlayerLimbs>,
 ) {
     let dt = time.delta_secs();
     let playing = *state.get() == PlayState::Playing;
@@ -856,7 +1148,12 @@ fn update_hit_hud(
         Some(rt) if playing => with_world(rt, &mut sim, |rt| {
             let max = rt.game.max_health(FormId::PLAYER_REF);
             let now = fnv_game::functions::actor_health(&mut rt.game, FormId::PLAYER_REF).unwrap_or(max);
-            format!("HP {:.0}/{:.0}", now, max)
+            let crippled = limbs.crippled_names();
+            if crippled.is_empty() {
+                format!("HP {:.0}/{:.0}", now, max)
+            } else {
+                format!("HP {:.0}/{:.0}  crippled: {}", now, max, crippled.join(", "))
+            }
         }),
         _ => String::new(),
     };

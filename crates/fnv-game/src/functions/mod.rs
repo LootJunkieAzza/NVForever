@@ -488,7 +488,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1259, "GetForceHitReaction", Stub("combat")),
         (0x1051, "GetArmorRating", Stub("combat (armor rating)")),
         (0x11AC, "GetPlantedExplosive", Stub("combat (explosives)")),
-        (0x124D, "DetonatePlacedExplosives", Stub("combat (explosives)")),
+        (0x124D, "DetonatePlacedExplosives", Impl(actor::detonate_placed_explosives)),
         (0x11EB, "SetVatsTarget", Stub("combat (VATS)")),
         (0x10EB, "GetVATSTargetHeight", Stub("combat (VATS)")),
         (0x10E0, "GetVATSMode", Stub("combat (VATS)")),
@@ -596,6 +596,16 @@ pub(crate) fn none() -> Result<Value, String> {
 }
 
 /// The base form of a reference.
+/// The destruction stage of a reference (−1 without data or damage).
+pub(crate) fn objects_destruction_stage(g: &Game, r: FormId) -> i32 {
+    objects::destruction_stage(g, r)
+}
+
+/// Disable a reference as `Disable` does.
+pub(crate) fn objects_disable(g: &mut Game, r: FormId) {
+    objects::disable_ref(g, r)
+}
+
 /// An actor's current health (Health's permanent part minus its damage).
 pub fn actor_health(g: &mut Game, actor: FormId) -> Result<f64, String> {
     actor::actor_value(g, actor, crate::combat::HEALTH)

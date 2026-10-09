@@ -21,6 +21,12 @@
 //!   (location, critical, attacker, weapon) and runs the target's OnHit (the attacker as
 //!   subject) and OnHitWith (the weapon) blocks [documented: block names, catalogue;
 //!   hypothesis: their order].
+//! - **Limb damage** (step C8): a hit on a body part lowers that part's condition actor
+//!   value (25–31, starting at 100) by the limb damage as a share of the part's pool, the
+//!   part's health percentage of the actor's maximum health: `loss = limb damage ÷
+//!   (max health × percent ÷ 100) × 100`. The limb is crippled when its condition
+//!   reaches 0 [documented: GECK wiki Body Part Data, crippled after that percentage of
+//!   total health; hypothesis: the count-down form]. Conditions stop at 0.
 //! - **No damage** for actors of a race with the Child flag [documented: GECK wiki Race]
 //!   or creatures flagged Invulnerable [documented: xEdit flag name].
 //! - **Essential** actors (base flag or `SetActorRefEssential`) are not killed: at zero
@@ -42,6 +48,28 @@ use serde::Serialize;
 /// Health's actor value code.
 pub const HEALTH: u16 = 16;
 
+/// What scripts ask of the engine's combat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum CombatRequest {
+    /// Set off the placed explosives of this actor that detonate
+    /// (`DetonatePlacedExplosives`).
+    Detonate(FormId),
+}
+
+/// What damage did to a destructible reference (step C7).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct DestructionChange {
+    pub before: i32,
+    pub after: i32,
+    /// Explosions of the stages reached, in order.
+    pub explosions: Vec<FormId>,
+    pub destroyed: bool,
+    pub disabled: bool,
+    /// The last stage's replacement model and model damage stage, when it has them.
+    pub model: Option<String>,
+    pub damage_stage: Option<u8>,
+}
+
 /// What a hit did.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct HitResult {
@@ -56,6 +84,21 @@ pub struct HitResult {
     pub immune: bool,
     /// XP the player gained for the kill.
     pub xp: f64,
+    /// The hit limb's condition after the hit, with its actor value code (step C8).
+    pub limb: Option<(u16, f64)>,
+    /// That hit crippled the limb (its condition reached 0 now).
+    pub crippled: bool,
+}
+
+/// A hit on a body part (step C8).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LimbHit {
+    /// The part's condition actor value code (25–31).
+    pub condition: u16,
+    /// The part's share of the actor's maximum health, percent (BPTD health percent).
+    pub health_percent: f64,
+    /// Limb damage: the hit's damage times the weapon's Limb Dmg Mult.
+    pub damage: f64,
 }
 
 /// A hit's circumstances.
@@ -66,6 +109,17 @@ pub struct HitInfo {
     /// GetHitLocation's index (−1 none, 0 torso, …).
     pub location: i32,
     pub critical: bool,
+    /// The body part's limb damage, when the hit is on a part with a condition.
+    pub limb: Option<LimbHit>,
+}
+
+/// The limb-condition actor value codes, Perception Condition (25) to Brain Condition
+/// (31) [documented: xEdit ActorValue].
+pub const LIMB_CONDITIONS: std::ops::RangeInclusive<u16> = 25..=31;
+
+/// The limb-condition actor value code of a BPTD part's actor value name.
+pub fn limb_condition(name: &str) -> Option<u16> {
+    actor::av_by_name(name).filter(|c| LIMB_CONDITIONS.contains(c))
 }
 
 /// Settings with their documented defaults (GECK wiki Experience Settings).
@@ -189,6 +243,11 @@ impl Game<'_> {
         }
         let health = actor::actor_value(self, target, HEALTH).unwrap_or(before - dealt);
         let mut out = HitResult { dealt, health, max_health, ..HitResult::default() };
+        if let Some(l) = info.limb {
+            let (condition, crippled) = self.damage_limb(target, l, max_health);
+            out.limb = Some((l.condition, condition));
+            out.crippled = crippled;
+        }
         if health <= floor {
             if essential {
                 self.extra.entry(target).or_default().unconscious = true;
@@ -202,6 +261,130 @@ impl Game<'_> {
             }
         }
         out
+    }
+
+    /// Lower a limb's condition by a hit (see the module notes): its condition after, and
+    /// whether this hit crippled it.
+    pub fn damage_limb(&mut self, target: FormId, l: LimbHit, max_health: f64) -> (f64, bool) {
+        let pool = max_health * l.health_percent / 100.0;
+        let before = actor::actor_value(self, target, l.condition).unwrap_or(100.0);
+        if pool <= 0.0 || l.damage <= 0.0 || before <= 0.0 {
+            return (before, false);
+        }
+        let loss = (l.damage / pool * 100.0).min(before);
+        actor::add_damage(self, target, l.condition, loss);
+        let after = before - loss;
+        (after, after <= 0.0)
+    }
+
+    /// An actor's limb conditions, codes 25–31 in order.
+    pub fn limb_conditions(&mut self, r: FormId) -> [f64; 7] {
+        let mut out = [100.0; 7];
+        for (i, code) in LIMB_CONDITIONS.enumerate() {
+            out[i] = actor::actor_value(self, r, code).unwrap_or(100.0);
+        }
+        out
+    }
+
+    /// Whether the actor's limb (condition actor value code) is crippled.
+    pub fn is_crippled(&mut self, r: FormId, condition: u16) -> bool {
+        actor::actor_value(self, r, condition).is_ok_and(|v| v <= 0.0)
+    }
+
+    /// Whether the reference's base has destruction data.
+    pub fn is_destructible(&self, r: FormId) -> bool {
+        base_of(self, r).is_some_and(|b| self.data.destructibles.contains_key(&b))
+    }
+
+    /// Object damage on a destructible reference (as `DamageObject`, step C7)
+    /// [documented: GECK wiki Destructible Object Stage]:
+    /// - damage adds up to the object's health; each stage applies once its health
+    ///   percentage is reached;
+    /// - a stage with Cap Damage stops one hit from going past it;
+    /// - Destroy marks the object destroyed (it takes no more damage but its own
+    ///   self-damage), Disable disables it;
+    /// - the stage's self-damage per second keeps damaging it ([`Game::destruction_tick`]);
+    /// - each stage reached runs OnDestructionStageChange [hypothesis: once per change]
+    ///   and its explosion is returned for the engine to set off.
+    ///
+    /// `None` when the reference has no destruction data or nothing changed hands.
+    pub fn damage_object(&mut self, r: FormId, amount: f64) -> Option<DestructionChange> {
+        let def = base_of(self, r).and_then(|b| self.data.destructibles.get(&b)).cloned()?;
+        let e = self.extra.get(&r);
+        if e.is_some_and(|e| e.destroyed) && e.and_then(|e| e.burning).is_none() {
+            return None;
+        }
+        let before = crate::functions::objects_destruction_stage(self, r);
+        let health = def.health.max(0) as f64;
+        let had = e.and_then(|e| e.damage).unwrap_or(0.0);
+        let mut total = had + amount.max(0.0);
+        if health > 0.0 {
+            total = total.min(health);
+            // Cap Damage: a stage newly reached stops the hit at its threshold.
+            let mut by_pct: Vec<&crate::data::DestructionStage> = def.stages.iter().collect();
+            by_pct.sort_by_key(|s| std::cmp::Reverse(s.health_percent));
+            let pct_after = 100.0 * (health - total) / health;
+            let pct_before = 100.0 * (health - had) / health;
+            for s in by_pct {
+                let p = s.health_percent as f64;
+                if s.flags & crate::data::DestructionStage::CAP_DAMAGE != 0 && pct_after <= p && pct_before > p {
+                    total = total.min(health * (1.0 - p / 100.0));
+                    break;
+                }
+            }
+        }
+        self.extra.entry(r).or_default().damage = Some(total);
+        let after = crate::functions::objects_destruction_stage(self, r);
+        let mut out = DestructionChange { before, after, ..DestructionChange::default() };
+        if after == before {
+            return Some(out);
+        }
+        for s in def.stages.iter().filter(|s| s.index as i32 > before && s.index as i32 <= after) {
+            if s.flags & crate::data::DestructionStage::DESTROY != 0 {
+                self.extra.entry(r).or_default().destroyed = true;
+                out.destroyed = true;
+            }
+            if s.flags & crate::data::DestructionStage::DISABLE != 0 {
+                crate::functions::objects_disable(self, r);
+                out.disabled = true;
+            }
+            out.explosions.extend(s.explosion);
+            if s.model.is_some() {
+                out.model = s.model.clone();
+            }
+            if s.damage_stage > 0 {
+                out.damage_stage = Some(s.damage_stage);
+            }
+            let dps = s.self_damage_per_second;
+            self.extra.entry(r).or_default().burning = (dps > 0).then_some(dps as f64);
+        }
+        if health > 0.0 && total >= health {
+            self.extra.entry(r).or_default().burning = None;
+        }
+        self.ref_event(r, event::ON_DESTRUCTION_STAGE_CHANGE, None, None);
+        Some(out)
+    }
+
+    /// Advance burning objects (a stage's self-damage per second) by `dt` seconds; the
+    /// changes that reached new stages, with their references.
+    pub fn destruction_tick(&mut self, dt: f64) -> Vec<(FormId, DestructionChange)> {
+        let burning: Vec<(FormId, f64)> = self.extra.iter().filter_map(|(r, e)| e.burning.map(|d| (*r, d))).collect();
+        let mut out = Vec::new();
+        for (r, dps) in burning {
+            if let Some(c) = self.damage_object(r, dps * dt) {
+                if c.after != c.before {
+                    out.push((r, c));
+                }
+            }
+        }
+        out
+    }
+
+    /// Run the OnFire blocks of the weapon `actor` fired (its object script)
+    /// [documented: block name; observed: the detonator's script, `DetonatorOnFire`, is
+    /// an OnFire block].
+    pub fn weapon_fired(&mut self, actor: FormId, weapon: FormId) -> bool {
+        self.item_event(actor, weapon, event::ON_FIRE, None)
     }
 
     /// The XP the player earns for killing `target` (see the module notes).
