@@ -67,7 +67,7 @@ pub fn damage_report(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &
     let rules = Rules::from_forms(c);
     let t = CombatTuning::default();
     let eff = ammo_effects(c, &ch.ammo_effects);
-    let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head } };
+    let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head }, power: 1.0 };
     let normal = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, 0.999_999);
     let crit = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, 0.0);
     let per_shot = normal.dealt * ch.projectiles_per_shot.max(1) as f32;
@@ -103,14 +103,14 @@ impl CombatWorld for Range {
                 let s = -b - disc.sqrt();
                 if (0.0..=len).contains(&s) {
                     let p = vec::add(from, vec::scale(dir, s));
-                    best = Some(WorldHit { point: p, normal: vec::normalize(vec::sub(p, self.target)), distance: s, actor: Some(TARGET), small_transparent: false, material: None });
+                    best = Some(WorldHit { point: p, normal: vec::normalize(vec::sub(p, self.target)), distance: s, actor: Some(TARGET), small_transparent: false, material: None, object: None, part: None });
                 }
             }
         }
         if dir[2] < 0.0 && from[2] >= 0.0 {
             let s = -from[2] / dir[2];
             if s <= len && best.as_ref().is_none_or(|b| s < b.distance) {
-                best = Some(WorldHit { point: vec::add(from, vec::scale(dir, s)), normal: [0.0, 0.0, 1.0], distance: s, actor: None, small_transparent: false, material: None });
+                best = Some(WorldHit { point: vec::add(from, vec::scale(dir, s)), normal: [0.0, 0.0, 1.0], distance: s, actor: None, small_transparent: false, material: None, object: None, part: None });
             }
         }
         best
@@ -230,7 +230,7 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
                 continue;
             }
             hits += 1;
-            let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head } };
+            let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head }, power: 1.0 };
             let d = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, rng.next_f32());
             if d.critical {
                 crits += 1;
