@@ -1,0 +1,2608 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "q5c_trial_fx",
+ "title": "Layer 5 round 3 trial: effect scripts of aid items (about 8 min)",
+ "start": "nvfdoc (uses aid items, damages the player, opens Doc's dresser; never saved).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetVariable \"fTimer\" 100000 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetVariable \"bRunTimer\" 1 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nStartQuest rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nlet fV := (100000 - (GetVariable \"fTimer\" rF1)) * 64\nSetFunctionValue fV\nEnd\n",
+   "label": "clock at start",
+   "field": "ticks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "clock at start",
+   "field": "GameDaysPassed"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Nighteye\nSetFunctionValue fV\nEnd\n",
+   "label": "player at start",
+   "field": "Nighteye"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 518683\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player at start",
+   "field": "cateye"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player at start",
+   "field": "nuka cola"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 989285\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player at start",
+   "field": "contreras"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player at start",
+   "field": "caps"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nSetFunctionValue fV\nEnd\n",
+   "label": "player at start",
+   "field": "PerceptionCondition"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "player at start",
+   "field": "Health"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "player at start",
+   "field": "base Health"
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 518683\nlet rF2 := BuildRef fM1 86430\nlet rF3 := BuildRef fM1 989285\nplayer.AddItem rF1 3 1\nplayer.AddItem rF2 2 1\nplayer.AddItem rF3 2 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fA\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86430\nlet rF2 := BuildRef fM1 15\nlet fA := player.GetItemCount rF2\nplayer.EquipItem rF1 0 1\nSetFunctionValue (($ fA) + \"|\" + ($ player.GetItemCount rF2) + \"|\" + ($ player.GetItemCount rF1))\nEnd\n",
+   "label": "nuka cola used",
+   "field": "caps before|caps after|colas in the same script"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "0"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "1"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "2"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "3"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "4"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "5"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "6"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "7"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "8"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "9"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "10"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "11"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "12"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "13"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "14"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "15"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "16"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "17"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "18"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "19"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "20"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "21"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "22"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "23"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "24"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "25"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "26"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "27"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "28"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet rF2 := BuildRef fM1 86430\nSetFunctionValue (($ (player.GetItemCount rF1)) + \"|\" + ($ (player.GetItemCount rF2)))\nEnd\n",
+   "label": "sample:nuka cola caps|colas",
+   "field": "29"
+  },
+  {
+   "script": "float fV\nBegin Function { }\nplayer.DamageAV PerceptionCondition 40\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nSetFunctionValue fV\nEnd\n",
+   "label": "limb before supplies",
+   "field": "PerceptionCondition"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fA\nfloat fB\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 989285\nlet fA := player.GetAV PerceptionCondition\nplayer.EquipItem rF1 0 1\nlet fB := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 20\nSetFunctionValue (($ fA) + \"|\" + ($ fB) + \"|\" + ($ player.GetAV PerceptionCondition) + \"|\" + ($ player.GetItemCount rF1))\nEnd\n",
+   "label": "supplies used",
+   "field": "before|after use|after damage|count"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "0"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "1"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "2"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "3"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "4"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "5"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "6"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "7"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "8"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "9"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "10"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "11"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "12"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "13"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "14"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "15"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "16"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "17"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "18"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV PerceptionCondition\nplayer.DamageAV PerceptionCondition 5\nSetFunctionValue fV\nEnd\n",
+   "label": "sample:limb after supplies",
+   "field": "19"
+  },
+  {
+   "script": "float fV\nBegin Function { }\nplayer.RestoreAV PerceptionCondition 100\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fV\nBegin Function { }\nplayer.DamageAV Health 40\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "2"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "3"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "4"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "5"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "6"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "7"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "8"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "9"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "11"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "12"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "13"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "14"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "15"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "16"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "17"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "18"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "19"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "20"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "22"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "23"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "24"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "25"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "26"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "27"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "28"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "29"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "30"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "31"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "33"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "34"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "35"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "36"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "37"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "38"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen off health|ticks",
+   "field": "39"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1363170\nplayer.AddSpell rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 0
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "2"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "3"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "4"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "5"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "6"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "7"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "8"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "9"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "11"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "12"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "13"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "14"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "15"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "16"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "17"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "18"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "19"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "20"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "22"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "23"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "24"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "25"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "26"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "27"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "28"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "29"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "30"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "31"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "33"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "34"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "35"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "36"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "37"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "38"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "39"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "40"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "41"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "42"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "44"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "45"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "46"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "47"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "48"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "49"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "50"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "51"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "52"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "53"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "55"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "56"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "57"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "58"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "59"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "60"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "61"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "62"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "63"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "64"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "66"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "67"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "68"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "69"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "70"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "71"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "72"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "73"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "74"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "75"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "77"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "78"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "79"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "80"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "81"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "82"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "83"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "84"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "85"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "86"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "87"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "88"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "89"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "90"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "91"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "92"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "93"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "94"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "95"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "96"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "97"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "98"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "99"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "100"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "101"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "102"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "103"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "104"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "105"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "106"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "107"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "108"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "109"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "110"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "111"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "112"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "113"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "114"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "115"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "116"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "117"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "118"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen on health|ticks",
+   "field": "119"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064503\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 1
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "regen menu open",
+   "field": "menu.1008"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "2"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "3"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "4"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "5"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "6"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "7"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "8"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "9"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "11"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "12"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "13"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "14"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "15"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "16"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "17"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "18"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "19"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "20"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "22"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "23"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "24"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "25"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "26"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "27"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "28"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "29"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "30"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "31"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "33"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "34"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "35"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "36"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "37"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "38"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "39"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "40"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "41"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "42"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "44"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "45"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "46"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "47"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "48"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "49"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "50"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "51"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "52"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "53"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "55"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "56"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "57"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "58"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "59"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "60"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "61"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "62"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "63"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "64"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "66"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "67"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "68"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "69"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "70"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "71"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "72"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "73"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "74"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "75"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "77"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "78"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "79"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "80"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "81"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "82"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "83"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "84"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "85"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "86"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "87"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "88"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "89"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "90"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "91"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "92"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "93"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "94"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "95"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "96"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "97"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "98"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "99"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "100"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "101"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "102"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "103"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "104"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "105"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "106"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "107"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "108"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "109"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "110"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "111"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "112"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "113"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "114"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "115"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "116"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "117"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "118"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen in menu health|ticks",
+   "field": "119"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "2"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "3"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "4"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "5"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "6"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "7"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "8"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "9"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "11"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "12"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "13"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "14"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "15"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "16"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "17"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "18"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "19"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "20"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "22"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "23"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "24"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "25"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "26"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "27"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "28"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "29"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "30"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "31"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "33"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "34"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "35"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "36"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "37"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "38"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "39"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "40"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "41"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "42"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "44"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "45"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "46"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "47"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "48"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "49"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "50"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "51"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "52"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "53"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "55"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "56"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "57"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "58"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen after menu health|ticks",
+   "field": "59"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1363170\nplayer.RemoveSpell rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 0
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "2"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "3"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "4"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "5"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "6"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "7"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "8"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "9"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "11"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "12"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "13"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "14"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "15"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "16"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "17"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "18"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "19"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "20"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "22"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "23"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "24"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "25"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "26"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "27"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "28"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "29"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "30"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "31"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "33"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "34"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "35"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "36"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "37"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "38"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ ((player.GetAV Health) * 1000)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:regen removed health|ticks",
+   "field": "39"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 518683\nlet rF2 := BuildRef fM1 1056823\nplayer.EquipItem rF1 0 1\nSetFunctionValue (($ player.GetAV Nighteye) + \"|\" + ($ player.GetItemCount rF1) + \"|\" + ($ (100000 - (GetVariable \"fTimer\" rF2)) * 64))\nEnd\n",
+   "label": "cateye 1 used",
+   "field": "Nighteye|count|ticks in the same script"
+  },
+  {
+   "screenshot": "cateye1_used"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 1 used",
+   "field": "GameDaysPassed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 first frames Nighteye|ticks",
+   "field": "0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 first frames Nighteye|ticks",
+   "field": "1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 first frames Nighteye|ticks",
+   "field": "2"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 first frames Nighteye|ticks",
+   "field": "3"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 first frames Nighteye|ticks",
+   "field": "4"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 first frames Nighteye|ticks",
+   "field": "5"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 first frames Nighteye|ticks",
+   "field": "6"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 first frames Nighteye|ticks",
+   "field": "7"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 first frames Nighteye|ticks",
+   "field": "8"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 first frames Nighteye|ticks",
+   "field": "9"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nlet fV := 0\nif player.GetAV Nighteye == 0\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 20000
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nlet fV := (100000 - (GetVariable \"fTimer\" rF1)) * 64\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 1 finished",
+   "field": "ticks"
+  },
+  {
+   "screenshot": "cateye1_finished"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 1 finished",
+   "field": "GameDaysPassed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 after Finish Nighteye|ticks",
+   "field": "0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 after Finish Nighteye|ticks",
+   "field": "1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 after Finish Nighteye|ticks",
+   "field": "2"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 after Finish Nighteye|ticks",
+   "field": "3"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 after Finish Nighteye|ticks",
+   "field": "4"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 after Finish Nighteye|ticks",
+   "field": "5"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 after Finish Nighteye|ticks",
+   "field": "6"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 after Finish Nighteye|ticks",
+   "field": "7"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 after Finish Nighteye|ticks",
+   "field": "8"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nSetFunctionValue (($ (player.GetAV Nighteye)) + \"|\" + ($ ((100000 - (GetVariable \"fTimer\" rF1)) * 64)))\nEnd\n",
+   "label": "sample:cateye 1 after Finish Nighteye|ticks",
+   "field": "9"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 518683\nlet rF2 := BuildRef fM1 1056823\nplayer.EquipItem rF1 0 1\nSetFunctionValue (($ player.GetAV Nighteye) + \"|\" + ($ (100000 - (GetVariable \"fTimer\" rF2)) * 64))\nEnd\n",
+   "label": "cateye 2 used",
+   "field": "Nighteye|ticks in the same script"
+  },
+  {
+   "screenshot": "cateye2_used"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 2 used",
+   "field": "GameDaysPassed"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nlet fV := (100000 - (GetVariable \"fTimer\" rF1)) * 64\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 2 menu",
+   "field": "ticks"
+  },
+  {
+   "screenshot": "cateye2_menu_open"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064503\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 2 menu",
+   "field": "menu.1008"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Nighteye\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 2 menu",
+   "field": "Nighteye"
+  },
+  {
+   "frames": 870
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nlet fV := (100000 - (GetVariable \"fTimer\" rF1)) * 64\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 2 menu",
+   "field": "ticks before close"
+  },
+  {
+   "screenshot": "cateye2_menu_close"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nlet fV := (100000 - (GetVariable \"fTimer\" rF1)) * 64\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 2 menu",
+   "field": "ticks after close"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nlet fV := 0\nif player.GetAV Nighteye == 0\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 20000
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nlet fV := (100000 - (GetVariable \"fTimer\" rF1)) * 64\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 2 finished",
+   "field": "ticks"
+  },
+  {
+   "screenshot": "cateye2_finished"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 2 finished",
+   "field": "GameDaysPassed"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 518683\nlet rF2 := BuildRef fM1 1056823\nplayer.EquipItem rF1 0 1\nSetFunctionValue (100000 - (GetVariable \"fTimer\" rF2)) * 64\nEnd\n",
+   "label": "cateye 3 used",
+   "field": "ticks"
+  },
+  {
+   "frames": 600
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 518683\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 4 before",
+   "field": "count"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 518683\nplayer.AddItem rF1 1 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 5
+  },
+  {
+   "query": "float fM1\nref rF1\nref rF2\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 518683\nlet rF2 := BuildRef fM1 1056823\nplayer.EquipItem rF1 0 1\nSetFunctionValue (($ player.GetAV Nighteye) + \"|\" + ($ (100000 - (GetVariable \"fTimer\" rF2)) * 64))\nEnd\n",
+   "label": "cateye 4 used",
+   "field": "Nighteye|ticks"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nlet fV := 0\nif player.GetAV Nighteye == 0\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 20000
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nlet fV := (100000 - (GetVariable \"fTimer\" rF1)) * 64\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 3/4 first zero",
+   "field": "ticks"
+  },
+  {
+   "script": "float fV\nBegin Function { }\nplayer.SetAV Nighteye 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 0
+  },
+  {
+   "until": "float fV\nBegin Function { }\nlet fV := 0\nif player.GetAV Nighteye == 0\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3000
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1056823\nlet fV := (100000 - (GetVariable \"fTimer\" rF1)) * 64\nSetFunctionValue fV\nEnd\n",
+   "label": "cateye 3/4 second zero",
+   "field": "ticks"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Nighteye\nSetFunctionValue fV\nEnd\n",
+   "label": "player at the end",
+   "field": "Nighteye"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 518683\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "player at the end",
+   "field": "cateye"
+  }
+ ]
+}

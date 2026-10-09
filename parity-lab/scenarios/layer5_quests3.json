@@ -1,0 +1,263 @@
+{
+ "scenarios": [
+  {
+   "id": "L5.quest.reputation",
+   "layer": 5,
+   "description": "Reputation functions: AddReputation and RemoveReputation per deed size (1-5) on both axes of two reputations with different scales, SetReputation edges (negative, above the scale, fractional, sizes 0 and 6), and GetReputation, GetReputationPct and GetReputationThreshold (mixed/good/bad) over a fame x infamy grid at the level boundaries (0.15, 0.5 and 1 x the REPU's DATA value). In-game capture on save nvfdoc. Input parity-lab/inputs/layer5/quest3_reputation.actions.json (fnv.script.actions/1 with the round 3 additions, docs/spec-notes/layer5-captures.md sections 4, 8 and 9); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest3/quest3_reputation.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest3_reputation.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.0001
+   },
+   "tags": [
+    "script",
+    "reputation",
+    "conditions",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.effect_start",
+   "layer": 5,
+   "description": "Effect scripts of aid items: ScriptEffectStart has run when EquipItem returns (Nuka-Cola's cap, Cateye's Nighteye, Contreras' supplies restoring a limb); a duration-0 effect restores nothing after the use; an ability's ScriptEffectUpdate restores ScriptEffectElapsedSeconds / 10 health per frame (changes per frame and the rate per second of script time). In-game capture on save nvfdoc. Input parity-lab/inputs/layer5/quest3_effect_start.actions.json (fnv.script.actions/1 with the round 3 additions, docs/spec-notes/layer5-captures.md sections 4, 8 and 9); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest3/quest3_effect_start.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest3_effect_start.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.01
+   },
+   "tags": [
+    "script",
+    "effect-script",
+    "inventory",
+    "timing",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.effect_duration",
+   "layer": 5,
+   "description": "Effect script duration: seconds of script time (GetSecondsPassed) from using a Cateye to its ScriptEffectFinish (Nighteye back to 0), without and with a container menu held open during the effect, and with a second Cateye taken while the first is active (one Finish or two). In-game capture on save nvfdoc. Input parity-lab/inputs/layer5/quest3_effect_duration.actions.json (fnv.script.actions/1 with the round 3 additions, docs/spec-notes/layer5-captures.md sections 4, 8 and 9); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest3/quest3_effect_duration.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest3_effect_duration.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.25
+   },
+   "tags": [
+    "script",
+    "effect-script",
+    "timing",
+    "menumode",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.script_order",
+   "layer": 5,
+   "description": "Order of quest and object scripts within one frame: BeatrixFX's GameMode adds an hour to GameHour; two Goodsprings windows (WastelandWindowScript) copy GetCurrentTime into a variable in their GameMode every frame; the lag, in frames, between GameHour's jump and the windows' variables (0: the object scripts ran after the quest script in that frame). In-game capture on save nvftest. Input parity-lab/inputs/layer5/quest3_script_order.actions.json (fnv.script.actions/1 with the round 3 additions, docs/spec-notes/layer5-captures.md sections 4, 8 and 9); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest3/quest3_script_order.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest3_script_order.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label"
+   },
+   "tags": [
+    "script",
+    "quest",
+    "object-script",
+    "gamemode",
+    "timing",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.quest.r3_holdout_a",
+   "layer": 5,
+   "description": "Layer 5 round 3 quest scenario. In-game capture on save nvfdoc. Input parity-lab/inputs/layer5/quest3_holdout_a.actions.json (fnv.script.actions/1 with the round 3 additions, docs/spec-notes/layer5-captures.md sections 4, 8 and 9); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest3/quest3_holdout_a.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest3_holdout_a.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.0001
+   },
+   "tags": [
+    "script",
+    "M5",
+    "needs-local-capture"
+   ],
+   "holdout": true
+  },
+  {
+   "id": "L5.quest.r3_holdout_b",
+   "layer": 5,
+   "description": "Layer 5 round 3 quest scenario. In-game capture on save nvfdoc. Input parity-lab/inputs/layer5/quest3_holdout_b.actions.json (fnv.script.actions/1 with the round 3 additions, docs/spec-notes/layer5-captures.md sections 4, 8 and 9); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "quest3/quest3_holdout_b.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/quest3_holdout_b.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.25
+   },
+   "tags": [
+    "script",
+    "M5",
+    "needs-local-capture"
+   ],
+   "holdout": true
+  }
+ ]
+}
