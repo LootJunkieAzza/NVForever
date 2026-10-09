@@ -7,23 +7,33 @@ item once you've ruled on it.
 
 ## Merges into `main` (2026-10-09)
 
-1. **#45 (in-game screenshots, plugin v7) and #44 (static NPCs with FaceGen) merged
-   together.** On the combined tree: workspace tests, both clippy runs, the engine tests
-   and both Python suites pass, and the parity lab is at 337/352. That is the same 336
-   passes as `main` (336/351), plus the new `L3.actors.appearance`, which passes. The
-   golden for it (`C:\fnv-private\goldens\actor\appearance_deterministic.json`) did not
-   exist on this machine, so I built it with the PR's independent oracle
-   (`tools/capture/oracle_actor.py`). That's a new golden, not an edit to an existing one.
-   The moving-camera smoke test and the day/night time-lapse were run before merging;
-   results are in the merge commit message.
-2. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
+1. **#45 (in-game screenshots, plugin v7) merged by the coordinator, after checking it
+   together with #44 (static NPCs with FaceGen).** On the combined tree, the workspace
+   tests, both clippy runs, the engine tests and both Python suites pass. The parity lab
+   is at 337/352: the same 336 passes as `main` (336/351), plus the new
+   `L3.actors.appearance`, which passes. The golden for it
+   (`C:\fnv-private\goldens\actor\appearance_deterministic.json`) did not exist on this
+   machine, so I built it with the PR's independent oracle (`tools/capture/oracle_actor.py`).
+   That's a new golden, not an edit to an existing one. The moving-camera smoke test
+   passed (exit 0, 34 actors drawn, 0 unresolved), and so did the day/night time-lapse.
+   The results are posted as comments on both PRs.
+2. **Other sessions merged at the same time, under your GitHub account:** #44 at 01:06Z,
+   then #47 (Goodsprings windmill animation, quadratic key tangents) and #48 (animation
+   data groundwork, "workstream 5 part F"). These came from sessions this coordinator
+   cannot see in the session list. #48 mentions a "KF-playback session" that owns
+   `engine/` animation, and possibly a cloud or other-machine session. Keep that in mind
+   when two sessions both think they coordinate merges. The coordinator re-checked the
+   resulting `main` (e5db7eb) as a whole. All checks pass, the lab is at 337/352 with 0
+   regressions, and the moving-camera smoke test and time-lapse were re-run on its engine
+   binary.
+3. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
    (same commits, its PR #38 was closed). `layer4-phys-wt` is an early copy of the physics
    workstream from 2026-10-07, superseded by `claude/layer4-phys`. Neither was merged or
    deleted. Deleting the merged and superseded branches on GitHub is your call.
-3. **The two renderer sessions that were still running** (dusk lighting, Hor+ field of
+4. **The two renderer sessions that were still running** (dusk lighting, Hor+ field of
    view) were asked to merge `main`, run the CLAUDE.md checks and open a PR each, which
    the coordinator merges. Their results are added below when they land.
-4. **The suggested "sky and cloud look" task** (from the screenshot session) was never
+5. **The suggested "sky and cloud look" task** (from the screenshot session) was never
    started. It touches the same sky code as the dusk session, so it should run after that
    one merges. Start it when you're back, or tell a session to.
 
@@ -54,3 +64,38 @@ item once you've ruled on it.
    the captures cover the intro quest itself. Until then, captures use the existing
    `nvftest` and `nvfdoc` saves. Workstream 5C records their quest state first, to see
    how far into the chain each one is.
+
+## NPC coordinator on the owner's desktop (2026-10-09)
+
+A second coordinating session ("NPC implementation coordination", Claude Desktop on the
+owner's PC) ran at the same time as the one above. The owner asked it to get every local
+session's work tested, PR'd and merged, with working NPCs as the goal. The two
+coordinators could not message each other, so this section is how they share state.
+
+1. **#44, #47 and #48 were merged by this coordinator**, not by unknown sessions (item 2
+   above). Before merging, each one passed the CLAUDE.md checks on a tree that combined
+   it with the latest `main`: workspace tests and clippy, engine clippy, and both Python
+   suites for #48. #44's own session ran the moving-camera smoke test (exit 0, 33 actors
+   drawn, 258 FaceGen shapes morphed), and so did #47's session.
+2. **#49 (Hor+ field of view)**: merged by this coordinator after engine clippy and tests
+   passed on `main` + #49.
+3. **#51 (Layer 5A script reader)**: this coordinator ran every check on `main` (#49) +
+   #51 and all passed. The other coordinator merged it; the merged tree differs only in
+   `docs/`.
+4. **This coordinator is handling the remaining NPC and engine work on this machine**:
+   - **#50** (distant-LOD fade, no pop-in) conflicts with #44 in `engine/nvforever/src/main.rs`
+     and `world.rs`. Its session was asked to merge `main` and recheck that actors still
+     spawn.
+   - **The KF-playback session** ("Play KF animations on assembled NPCs") is to open a
+     PR once it has merged #44, #47 and #48.
+
+   Please leave those two PRs to this coordinator.
+5. **Two smoke-test locks exist.** Sessions on this machine were told to take
+   `.claude\smoke.lock` (mkdir/rmdir in the repo root) before running the game. The
+   other coordinator's sessions use `C:\fnv-private\capture\run.lock`. They don't see
+   each other's lock, so two game runs can overlap. Pick one when you're back.
+6. **Cross-session messages between Desktop sessions are held** when their permission
+   modes differ. This coordinator runs with bypass permissions and the workers do not, so
+   it used the app's session-messaging path instead. Every worker session refused to run
+   `gh pr merge` on another session's request (correctly: only you can authorise that),
+   so this coordinator did the merges itself under your direct instruction.
