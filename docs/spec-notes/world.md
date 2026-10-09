@@ -592,12 +592,69 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   plus 6 `.high.` variants), merged geometry of distant buildings and landmarks over the
   same 4 × 4-cell squares, textured from one atlas `...\blocks\<world>.buildings.dds`
   (+ `_n`). Separately, 692 `*_lod.nif` meshes sit next to their full models.
+  Block geometry [observed: blocks x−16.y0, x−12.y0, x−16.y−4]: one BSSegmentedTriShape
+  with vertex normals, tangents and bitangents, translated to the square's south-west
+  corner (the root node is not), clamp mode 0; its segments split the triangle list by
+  cell, segment i holding cell (i / 4, i mod 4) of the square (x-major): in 39 of the 40
+  non-empty segments that cell holds most of the segment's triangle centres, 83% of all
+  triangles (the rest belong to objects reaching into the next cell). A block has up to
+  16 segments (x−12.y0: 14, 8 of them empty). That the game hides a loaded cell's
+  segment is [hypothesis]; the renderer splits blocks by triangle centre instead (lod.rs).
 - **Settings**: `lodsettings\<world>.dlodsettings`, 24 bytes. For WastelandNV:
   u32 4, u32 32, u32 128, i16 −64, i16 −64, i16 63, i16 63, u32 4 [observed], read as
   smallest and largest level, grid size in cells, south-west and north-east cells, and
   object LOD level [hypothesis: matches the files present].
-- How the engine hides LOD under loaded cells, and when it switches levels, is not known
-  [hypothesis in the renderer: level 4 only; layer3.md].
+- **Coarser levels** [observed: level4.x12.y8, level8.x8.y8, level16.x0.y0,
+  level32.x0.y0 and level32.x−32.y−32 decoded]: every level is laid out like level 4 —
+  the root translated to the chunk's south-west corner (level32.x−32.y−32 → −131,072,
+  −131,072), one textured NiTriShape, UVs u = 1 − x / side, v = y / side for every
+  vertex, the extra f32 per vertex equal to its z for every vertex in all five, and the
+  untextured shape at water heights. The textured shape keeps about the same size at
+  every level (level 4: 1,299 vertices / 4,198 triangles; 8: 1,110 / 4,116; 16:
+  1,112 / 4,155; 32: 1,074 / 3,971 and 1,083 / 4,144), so the detail per cell drops
+  fourfold per level step; the vertices are irregular (235 distinct x values at
+  level 8), an adaptive triangulation. All 1,360 diffuse and 1,360 normal textures are
+  256 × 256 DXT1 with 9 mips at every level [observed: `fnvtool dds list`], so a
+  level-L texel spans 16 × L units.
+- **Chunk edges** [observed]: neighbouring chunks do not share their edge vertices.
+  Along x = 49,152, level4.x8.y8 has 16 edge positions and level4.x12.y8 52, 14 of them
+  in common (heights equal there); level8.x0.y8 / level8.x8.y8 along x = 32,768: 23 and
+  18, 6 in common; level4.x8.y8 against level8.x8.y8 along the same line: 12 and 18,
+  8 in common. Side by side they leave T-junction cracks, at the same level and across
+  levels; the renderer hangs skirts from every chunk's open edges (layer3.md).
+- **No tree LOD** [observed]: the archives (base game and Update.bsa) hold no tree LOD
+  meshes, lists or atlases; the only per-tree distant data are the billboards
+  (`textures\trees\billboards\`, §2).
+- **Load distances** in the INI files [observed: the owner's `FalloutPrefs.ini`; the
+  game folder's `Fallout_default.ini` and the Launcher presets `low.ini`, `medium.ini`,
+  `high.ini`, `VeryHigh.ini`; both are only read]. Section `[TerrainManager]` also sets
+  `bUseNewTerrainSystem=1`, `bUseDistantObjectBlocks=1`, `fBlockMorphDistanceMult=0.70`,
+  `fHighBlockLoadDistanceLow=20000` (all presets).
+
+  | Setting | Owner | Low / Medium / High / Very High |
+  |---|---|---|
+  | `[General] uGridsToLoad` | 5 | — |
+  | `[General] uExterior Cell Buffer` | 36 | — |
+  | `[General] uGridDistantCount`, `uGridDistantTreeRange` | 20, 5 | — |
+  | `[TerrainManager] fBlockLoadDistance` | 125,000 | 125,000 in all |
+  | `[TerrainManager] fBlockLoadDistanceLow` | 50,000 | 25,000 / 50,000 / 50,000 / 50,000 |
+  | `[TerrainManager] fSplitDistanceMult` | 1.5 | 0.75 / 1.0 / 1.0 / 1.5 |
+  | `[TerrainManager] fTreeLoadDistance` | 40,000 | 0 / 25,000 / 26,000 / 40,000 |
+  | `[LOD] fLODFadeOutMultObjects` | 15 (`Fallout.ini`: 5) | 2.5 / 2.5 / 7.5 / 15 |
+  | `[LOD] fLODMultObjects`, `fLODMultTrees`, `fLODFadeOutPercent` | 5, 0.5, 0.6 | — |
+  | `[Grass] fGrassStartFadeDistance` | 7,000 | 0 / 3,000 / 5,000 / 7,000 |
+
+  Readings [hypothesis]: fBlockLoadDistance is how far terrain chunks and object
+  blocks are drawn, fBlockLoadDistanceLow how far the finest (level 4) chunks reach,
+  fSplitDistanceMult scales the distances at which coarser chunks give way to finer
+  ones (at Very High and Low, fSplitDistanceMult × 8 cells × 4,096 = 49,152 and 24,576
+  lands within 2% of fBlockLoadDistanceLow; at Medium and High it does not), and
+  fTreeLoadDistance how far distant trees are drawn (0 at Low: none). uGridDistantCount
+  and uGridDistantTreeRange look like the older distant-land settings (cell counts) that
+  the new terrain system replaces. Which INI file wins when both set a value is not
+  known. What NVForever does with each: layer3.md "Distant LOD".
+- How the game hides LOD under loaded cells, and exactly when it switches levels, is not
+  known; the renderer's rules are [hypothesis] (layer3.md, `engine/nvforever/src/lod.rs`).
 
 ## 8. Interior lighting and lights
 
