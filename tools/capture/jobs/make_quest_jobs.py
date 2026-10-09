@@ -7,7 +7,8 @@ parity-lab/inputs/layer5/; this file keeps only the diagnostic jobs.
   python tools/capture/jobs/make_quest_jobs.py
 
 Quest FormIDs (FalloutNV.esm, looked up read-only 2026-10-09): VCG01 0x00104C1C,
-VMS22 0x00112577. No game data is stored here.
+VMS22 0x00112577, VMQ03aTimer 0x001446AF, VMS16 0x00104EAE. No game data is stored here.
+Results: docs/spec-notes/layer5-captures.md section 1.
 """
 import json
 import os
@@ -71,8 +72,52 @@ def trial():
     return j
 
 
+def trial2():
+    """After q5_trial (quest Editor IDs do not compile in job scripts; BuildRef quests
+    do): the remaining reads by ref, writes by console line (Editor IDs, as a player
+    types them) and by xNVSE's SetVariable, SetStage/StartQuest/StopQuest with a ref.
+    Changes VMS22 (stage 10: objectives only), VMQ03aTimer (started and stopped) and a
+    VMS22 variable; never saved."""
+    vcg01, vms22, timer, vms16 = quest_ref(0x104C1C), quest_ref(0x112577), quest_ref(0x1446AF), quest_ref(0x104EAE)
+    steps = [
+        num("GetStageDone rQ 200", "ref", "GetStageDone VCG01 200", *vcg01),
+        num("GetQuestCompleted rQ", "ref", "GetQuestCompleted VCG01", *vcg01),
+        num("GetObjectiveDisplayed rQ 10", "ref", "GetObjectiveDisplayed VCG01 10", *vcg01),
+        num("GetObjectiveCompleted rQ 10", "ref", "GetObjectiveCompleted VCG01 10", *vcg01),
+        num('GetVariable "nButton" rQ', "ref", "GetVariable nButton VCG01", *vcg01),
+        num('GetVariable "NoSuchVariable" rQ', "ref", "GetVariable NoSuchVariable VCG01", *vcg01),
+        num('GetVariable "VMS22DinoPic" rQ', "write", "VMS22DinoPic at start", *vms22),
+        {"console": "set VMS22.VMS22DinoPic to 5"}, {"frames": cs.SETTLE_FRAMES},
+        num('GetVariable "VMS22DinoPic" rQ', "write", "after console set to 5", *vms22),
+        {"script": cs.function(vms22[0], [*vms22[1], 'SetVariable "VMS22DinoPic" 7 rQ'], returns_value=False)},
+        {"frames": cs.SETTLE_FRAMES},
+        num('GetVariable "VMS22DinoPic" rQ', "write", "after SetVariable 7", *vms22),
+        num("GetStageDone rQ 10", "stage", "VMS22 done 10 before", *vms22),
+        {"script": cs.function(vms22[0], [*vms22[1], "SetStage rQ 10"], returns_value=False)},
+        {"frames": cs.SETTLE_FRAMES_LONG},
+        num("GetStageDone rQ 10", "stage", "VMS22 done 10 after SetStage rQ 10", *vms22),
+        num("GetQuestRunning rQ", "start", "VMQ03aTimer running at start", *timer),
+        {"script": cs.function(timer[0], [*timer[1], "StartQuest rQ"], returns_value=False)},
+        {"frames": cs.SETTLE_FRAMES},
+        num("GetQuestRunning rQ", "start", "after StartQuest rQ", *timer),
+        {"script": cs.function(timer[0], [*timer[1], "StopQuest rQ"], returns_value=False)},
+        {"frames": cs.SETTLE_FRAMES},
+        num("GetQuestRunning rQ", "start", "after StopQuest rQ", *timer),
+        {"console": "StartQuest VMQ03aTimer"}, {"frames": cs.SETTLE_FRAMES},
+        num("GetQuestRunning rQ", "start", "after console StartQuest", *timer),
+        {"console": "StopQuest VMQ03aTimer"}, {"frames": cs.SETTLE_FRAMES},
+        num("GetQuestRunning rQ", "start", "after console StopQuest", *timer),
+        num("GetObjectiveDisplayed rQ 10", "objective", "VMS16 objective 10 displayed at start", *vms16),
+        {"console": "SetObjectiveDisplayed VMS16 10 0"}, {"frames": cs.SETTLE_FRAMES},
+        num("GetObjectiveDisplayed rQ 10", "objective", "after console SetObjectiveDisplayed VMS16 10 0", *vms16),
+    ]
+    j = cs.job("q5_trial2", "nvftest (changes VMS22 and VMQ03aTimer; never saved).", steps, cs.MASTERS)
+    j["title"] = "Layer 5 trial 2: quests by ref, writes by console and SetVariable (a few seconds)"
+    return j
+
+
 def main():
-    for j in (trial(),):
+    for j in (trial(), trial2()):
         path = os.path.join(HERE, f"{j['name']}.steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(j, indent=1) + "\n")
