@@ -1,0 +1,279 @@
+//! `fnvtool actor …`: actor appearance (workstream 5, crate `fnv-actor`). Contract:
+//! docs/spec-notes/actors.md §5; `actor anims` (module `actor_anims`): docs/spec-notes/animation.md §6.
+
+use crate::esm_cmd::open_load_order;
+use crate::ActorCmd;
+use anyhow::{anyhow, Context};
+use fnv_actor::{mesh, mesh::PartMesh, ActorForms, Resolver};
+use fnv_esm::decode::formid_str;
+use fnv_esm::{LoadOrder, Schema};
+use fnv_sim::{FormId, FormStore};
+use fnv_world::placed::placement;
+use fnv_world::WorldIndex;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
+
+pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
+    match cmd {
+        ActorCmd::Appearance { lo, schema, reference, cell, all, deterministic } => {
+            let schema = Schema::load_dir(&schema).with_context(|| schema.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let ix = WorldIndex::build(&lo, &schema);
+            let actors = ActorForms::build(&lo, &schema);
+            let forms = FormStore::build(&lo, &schema);
+            let refs: Vec<u32> = match (reference, cell) {
+                (Some(r), _) => vec![r],
+                (None, Some(c)) => {
+                    let cell = ix.cell_by_name(&c).ok_or_else(|| anyhow!("no cell {c}"))?;
+                    cell.refs.iter().copied().filter(|r| ix.refs.get(r).is_some_and(|e| &e.sig == b"ACHR")).collect()
+                }
+                _ if all => ix.refs.iter().filter(|(_, e)| &e.sig == b"ACHR").map(|(&r, _)| r).collect(),
+                _ => unreachable!("clap requires --ref, --cell or --all"),
+            };
+            let mut v = appearance(&lo, &schema, &actors, &forms, refs, deterministic);
+            v["load_order"] = json!(plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
+            Ok(v)
+        }
+        ActorCmd::Forms { lo, schema } => {
+            let schema = Schema::load_dir(&schema).with_context(|| schema.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let lo = LoadOrder::new(&plugins)?;
+            Ok(forms_report(&ActorForms::build(&lo, &schema)))
+        }
+        ActorCmd::Meshes { lo: lo_args, schema: schema_dir, nif_schema } => {
+            let schema = Schema::load_dir(&schema_dir).with_context(|| schema_dir.display().to_string())?;
+            let nif_dir = nif_schema.unwrap_or_else(|| schema_dir.parent().map(|p| p.join("nif")).unwrap_or_default());
+            let nif = fnv_nif::Schema::load_dir(&nif_dir).with_context(|| nif_dir.display().to_string())?;
+            let vfs = fnv_vfs::Vfs::open_default(&lo_args.data_dir).with_context(|| lo_args.data_dir.display().to_string())?;
+            let plugins = open_load_order(&lo_args)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let ix = WorldIndex::build(&lo, &schema);
+            let actors = ActorForms::build(&lo, &schema);
+            let forms = FormStore::build(&lo, &schema);
+            let refs: Vec<u32> = ix.refs.iter().filter(|(_, e)| &e.sig == b"ACHR").map(|(&r, _)| r).collect();
+            meshes(&lo, &schema, &actors, &forms, &vfs, &nif, refs)
+        }
+        ActorCmd::Anims { lo: lo_args, schema: schema_dir, nif_schema, functions, summary_only } => {
+            let schema = Schema::load_dir(&schema_dir).with_context(|| schema_dir.display().to_string())?;
+            let parent = schema_dir.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+            let nif_dir = nif_schema.unwrap_or_else(|| parent.join("nif"));
+            let nif = fnv_nif::Schema::load_dir(&nif_dir).with_context(|| nif_dir.display().to_string())?;
+            let fn_path = functions.unwrap_or_else(|| parent.join("script").join("functions.json"));
+            let fn_names = crate::actor_anims::condition_function_names(&fn_path)?;
+            let vfs = fnv_vfs::Vfs::open_default(&lo_args.data_dir).with_context(|| lo_args.data_dir.display().to_string())?;
+            let plugins = open_load_order(&lo_args)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let mut v = crate::actor_anims::report(&lo, &schema, &vfs, &nif, &fn_names, summary_only);
+            v["load_order"] = json!(plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
+            v["archives"] = json!(vfs.archives().collect::<Vec<_>>());
+            v["condition_function_names"] = json!(fn_names.len());
+            Ok(v)
+        }
+    }
+}
+
+/// Every part file used by placed NPCs, attached to the skeleton it is used with.
+fn meshes(
+    lo: &LoadOrder,
+    schema: &Schema,
+    actors: &ActorForms,
+    forms: &FormStore,
+    vfs: &fnv_vfs::Vfs,
+    nif: &fnv_nif::Schema,
+    mut refs: Vec<u32>,
+) -> anyhow::Result<Value> {
+    refs.sort_unstable();
+    let resolver = Resolver { actors, forms };
+    // (skeleton, part model) -> (role, actors using it)
+    let mut pairs: BTreeMap<(String, String), (String, u64)> = BTreeMap::new();
+    let mut textures: BTreeMap<String, u64> = BTreeMap::new();
+    for r in refs {
+        let Some(base) = placement(lo, schema, r).filter(|p| !p.deleted()).and_then(|p| p.base) else { continue };
+        let Ok(a) = resolver.resolve(FormId(base), FormId(r)) else { continue };
+        for p in &a.parts {
+            let e = pairs.entry((a.skeleton.clone(), p.model.clone())).or_insert_with(|| (p.role.clone(), 0));
+            e.1 += 1;
+            if let Some(t) = &p.texture {
+                *textures.entry(t.clone()).or_default() += 1;
+            }
+        }
+    }
+    let mut cache: BTreeMap<String, Result<PartMesh, String>> = BTreeMap::new();
+    let mut load = |path: &str| -> Result<PartMesh, String> {
+        cache
+            .entry(path.to_string())
+            .or_insert_with(|| {
+                let data = match vfs.read(path) {
+                    None => return Err("not found".to_string()),
+                    Some(Err(e)) => return Err(e.to_string()),
+                    Some(Ok(d)) => d,
+                };
+                let file = fnv_nif::file::NifFile::parse(&data, Some(nif)).map_err(|e| e.to_string())?;
+                let dec = fnv_nif::scene::Decoded::new(&file, &data, nif);
+                Ok(mesh::analyse(&file, &dec))
+            })
+            .clone()
+    };
+    let mut problems = Vec::new();
+    let mut kinds: BTreeMap<String, u64> = BTreeMap::new();
+    let mut variants: BTreeMap<String, u64> = BTreeMap::new();
+    for ((skel, model), (role, uses)) in &pairs {
+        let skeleton = match load(skel) {
+            Ok(s) => s,
+            Err(e) => {
+                problems.push(json!({"skeleton": skel, "model": model, "role": role, "actors": uses, "problems": [format!("skeleton: {e}")]}));
+                continue;
+            }
+        };
+        let part = match load(model) {
+            Ok(p) => p,
+            Err(e) => {
+                bump(&mut kinds, "unreadable");
+                problems.push(json!({"skeleton": skel, "model": model, "role": role, "actors": uses, "problems": [e]}));
+                continue;
+            }
+        };
+        let kind = match (part.skinned_shapes > 0, part.rigid_shapes > 0) {
+            (true, false) => "skinned",
+            (false, true) => "rigid",
+            (true, true) => "mixed",
+            (false, false) => "no shapes",
+        };
+        bump(&mut kinds, format!("{role} {kind}{}", if part.prn.is_some() { " +Prn" } else { "" }));
+        if role == "hair" {
+            let has = |n: &str| part.shape_names.iter().any(|s| s.eq_ignore_ascii_case(n));
+            bump(&mut variants, format!("NoHat {} / Hat {}", has("NoHat"), has("Hat")));
+        }
+        let p = mesh::attach_problems(&part, &skeleton);
+        if !p.is_empty() {
+            problems.push(json!({"skeleton": skel, "model": model, "role": role, "actors": uses, "problems": p}));
+        }
+    }
+    let missing_textures: Vec<&String> = textures.keys().filter(|t| !vfs.exists(t)).collect();
+    Ok(json!({
+        "schema": "fnv.actor.meshes/1",
+        "pairs": pairs.len(),
+        "part_kinds": kinds,
+        "hair_variants": variants,
+        "textures": textures.len(),
+        "missing_textures": missing_textures,
+        "problems": problems,
+    }))
+}
+
+/// Observational statistics over every NPC_ record (not only placed ones).
+fn forms_report(actors: &ActorForms) -> Value {
+    use fnv_actor::records::template;
+    let mut by_template: BTreeMap<String, u64> = BTreeMap::new();
+    let mut skeletons: BTreeMap<String, u64> = BTreeMap::new();
+    let mut own_model_when_traits_only: BTreeMap<String, u64> = BTreeMap::new();
+    let mut template_targets: BTreeMap<String, u64> = BTreeMap::new();
+    let mut facegen_lengths: BTreeMap<String, u64> = BTreeMap::new();
+    for n in actors.npcs.values() {
+        let t = n.template.is_some();
+        let traits = t && n.template_flags & template::TRAITS != 0;
+        let model = t && n.template_flags & template::MODEL_ANIMATION != 0;
+        let inv = t && n.template_flags & template::INVENTORY != 0;
+        bump(&mut by_template, format!("tplt={t} traits={traits} model={model} inventory={inv}"));
+        if let Some(tp) = n.template {
+            let k = actors.sigs.get(&tp).map_or("missing".into(), |s| String::from_utf8_lossy(s).into_owned());
+            bump(&mut template_targets, k);
+        }
+        bump(&mut skeletons, n.skeleton.as_deref().map_or("none".into(), |s| s.to_ascii_lowercase()));
+        if traits && !model {
+            let face = n.facegen.as_ref().is_some_and(|f| f.fggs.iter().any(|v| *v != 0.0));
+            bump(
+                &mut own_model_when_traits_only,
+                format!(
+                    "skeleton={} hair={} facegen_nonzero={face}",
+                    n.skeleton.as_deref().map_or("none".into(), |s| s.to_ascii_lowercase()),
+                    n.hair.is_some()
+                ),
+            );
+        }
+        if let Some(f) = &n.facegen {
+            bump(&mut facegen_lengths, format!("{}/{}/{}", f.fggs.len(), f.fgga.len(), f.fgts.len()));
+        }
+    }
+    let races: BTreeMap<String, Value> = actors
+        .races
+        .values()
+        .map(|r| {
+            let parts = |l: &Vec<fnv_actor::records::RacePart>| {
+                l.iter().map(|p| json!({"index": p.index, "model": p.model, "icon": p.icon})).collect::<Vec<_>>()
+            };
+            (
+                format!("{} {}", r.id, r.edid.clone().unwrap_or_default()),
+                json!({"height": r.height, "head_male": parts(&r.head[0]).len(), "head_female": parts(&r.head[1]).len(),
+                       "body_male": parts(&r.body[0]), "facegen": [r.facegen[0].is_some(), r.facegen[1].is_some()]}),
+            )
+        })
+        .collect();
+    json!({
+        "schema": "fnv.actor.forms/1",
+        "counts": {"npcs": actors.npcs.len(), "races": actors.races.len(), "hairs": actors.hairs.len(), "eyes": actors.eyes.len(),
+                   "head_parts": actors.head_parts.len(), "armors": actors.armors.len(), "leveled_npcs": actors.leveled.len()},
+        "templates": by_template,
+        "template_targets": template_targets,
+        "skeletons": skeletons,
+        "traits_templated_own_model": own_model_when_traits_only,
+        "facegen_lengths": facegen_lengths,
+        "races": races,
+        "issues": actors.issues.to_json(),
+    })
+}
+
+fn bump(m: &mut BTreeMap<String, u64>, k: impl Into<String>) {
+    *m.entry(k.into()).or_default() += 1;
+}
+
+fn appearance(lo: &LoadOrder, schema: &Schema, actors: &ActorForms, forms: &FormStore, mut refs: Vec<u32>, deterministic: bool) -> Value {
+    refs.sort_unstable();
+    let resolver = Resolver { actors, forms };
+    let mut out = Vec::new();
+    let mut outcomes: BTreeMap<String, u64> = BTreeMap::new();
+    let mut base_kinds: BTreeMap<String, u64> = BTreeMap::new();
+    let mut worn_counts: BTreeMap<String, u64> = BTreeMap::new();
+    for r in refs {
+        let Some(p) = placement(lo, schema, r) else {
+            bump(&mut outcomes, "no placement");
+            continue;
+        };
+        if p.deleted() {
+            bump(&mut outcomes, "deleted");
+            continue;
+        }
+        let Some(base) = p.base else {
+            bump(&mut outcomes, "no base");
+            out.push(json!({"reference": formid_str(r), "error": "no base"}));
+            continue;
+        };
+        let kind = actors.sigs.get(&FormId(base)).map_or("missing".to_string(), |s| String::from_utf8_lossy(s).into_owned());
+        bump(&mut base_kinds, kind);
+        match resolver.resolve(FormId(base), FormId(r)) {
+            Ok(a) => {
+                bump(&mut outcomes, if a.random { "resolved random" } else { "resolved deterministic" });
+                if deterministic && a.random {
+                    continue;
+                }
+                bump(&mut worn_counts, a.worn.len().to_string());
+                let mut v = serde_json::to_value(&a).expect("appearance serialises");
+                v["reference"] = json!(formid_str(r));
+                v["base"] = json!(formid_str(base));
+                v["scale"] = json!(f64::from(p.scale));
+                out.push(v);
+            }
+            Err(e) => {
+                bump(&mut outcomes, format!("{e:?}").split('(').next().unwrap_or("error").to_string());
+                out.push(json!({"reference": formid_str(r), "base": formid_str(base), "error": e.to_string()}));
+            }
+        }
+    }
+    json!({
+        "schema": "fnv.actor.appearance/1",
+        "summary": {"outcomes": outcomes, "base_kinds": base_kinds, "worn_items": worn_counts},
+        "issues": actors.issues.to_json(),
+        "actors": out,
+    })
+}
