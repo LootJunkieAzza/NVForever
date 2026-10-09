@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import capture_frames as cf  # noqa: E402
 import capture_steps as cs  # noqa: E402
 
-CAMERAS = {"format": cf.CAMERAS_FORMAT, "start": "Load a save.",
+CAMERAS = {"format": cf.CAMERAS_FORMAT, "start": "Load a save.", "console_first": ["tgm"],
            "cameras": [{"id": "gs_noon", "pos": [-70500, 1200, 8300], "heading": 45, "pitch": -5, "hour": 12,
                         "weather": "NVWastelandClear", "fov": 75},
                        {"id": "lake", "pos": [55500.5, 37536, 2960], "heading": 90}]}
@@ -27,7 +27,8 @@ def out_lines(skip=(), stop_early=False):
             continue
         lines.append({"kind": "screenshot", "step": 9, "label": cid, "file": f"shots/fr.009.{cid}.1.png",
                       "width": 4, "height": 2, "mean": mean, "foreground": fg})
-        for f, v in (("x", 1.5), ("y", 2.0), ("z", 3.0), ("heading", 45.0), ("pitch", -5.0), ("hour", 12.123456)):
+        for f, v in (("x", 1.5), ("y", 2.0), ("z", 3.0), ("heading", 45.0), ("pitch", -5.0), ("hour", 12.123456),
+                     ("first_person", 1.0 if cid == "gs_noon" else 0.0)):
             lines.append({"kind": "result", "step": 10, "label": cid, "field": f, "value": v})
     if not stop_early:
         lines.append({"kind": "end", "steps": 30})
@@ -40,15 +41,18 @@ class JobTests(unittest.TestCase):
         self.assertEqual(job["format"], cs.STEPS_FORMAT)
         steps = job["steps"][len(cs.MASTERS):]
         consoles = [s["console"] for s in steps if "console" in s]
-        self.assertEqual(consoles[:5], ["cow WastelandNV -18 0", "CloseAllMenus", "set GameHour to 12", "fw 000FFC88",
+        self.assertEqual(consoles[:6], ["tgm", "cow WastelandNV -18 0", "CloseAllMenus", "set GameHour to 12", "fw 000FFC88",
                                         "CloseAllMenus"])
         self.assertEqual(consoles.count("tm"), 4, "HUD off and on again for each camera")
         shots = [s["screenshot"] for s in steps if "screenshot" in s]
         self.assertEqual(shots, ["gs_noon", "lake"])
         i = next(k for k, s in enumerate(steps) if s.get("screenshot") == "gs_noon")
         self.assertEqual(steps[i - 2], {"console": "tm"})
-        self.assertEqual([s["field"] for s in steps[i + 1:i + 7]], ["x", "y", "z", "heading", "pitch", "hour"])
-        self.assertTrue(all(s["label"] == "gs_noon" for s in steps[i + 1:i + 7]))
+        self.assertEqual([s["field"] for s in steps[i + 1:i + 8]], ["x", "y", "z", "heading", "pitch", "hour", "first_person"])
+        self.assertTrue(all(s["label"] == "gs_noon" for s in steps[i + 1:i + 8]))
+        text = json.dumps(steps)
+        self.assertLess(text.index("DisablePlayerControls 0 0 0 1 0 0 0"), text.index('"screenshot"'))
+        self.assertGreater(text.index("EnablePlayerControls"), text.index('"screenshot"'))
         self.assertIn("player.SetPos X 55500.5", json.dumps(job))
         self.assertIn("cow WastelandNV 13 9", consoles, "lake camera's own grid square")
         lake = json.dumps(steps[steps.index({"console": "cow WastelandNV 13 9"}):])
@@ -95,7 +99,7 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual((gs["masks"], gs["min_ssim"], gs["holdout"]), ([[0, 0, 10, 10]], 0.7, True))
         self.assertEqual(gs["weather"], "NVWastelandClear")
         self.assertNotIn("weather", man["frames"][2])
-        self.assertEqual(len(warnings), 2, warnings)  # lake: not in front, black
+        self.assertEqual(len(warnings), 3, warnings)  # lake: third person, not in front, black
 
     def test_manifest_command_copies_pictures(self):
         with tempfile.TemporaryDirectory() as tmp:
