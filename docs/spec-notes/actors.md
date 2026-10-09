@@ -329,6 +329,12 @@ per situation (AI, packages, movement) is Layer 6 and not done here.
   such a clip plays, its accumulation root is held at the identity
   (`Clip::undriven_accum_root`). Rendered, Doc Mitchell then stands with his feet on the
   floor at the height of the bind pose [observed, screenshot].
+- nvf-viewer follows the same rule (`AnimState::start`), and puts the root back to its
+  bind transform when the next sequence drives it or `AnimState::stop` is called. With
+  `characters\_male\upperbody.nif` and `mtidle.kf`, the skeleton's `Bip01 Pelvis` is
+  67.77 units up in the bind pose, 134.02 with the root left at its bind transform and
+  66.25 with the root held. The feet are 7.07 up in the bind pose, 74.1 without the
+  hold and 6.4 with it [observed: world positions logged by a temporary viewer patch].
 
 ### 7.3 Engine
 
