@@ -168,7 +168,9 @@ What it does now:
 - Test aids: `--time-scale <h/s>` runs the clock at that many game hours per real second
   once the start cells are loaded, logging a "time-lapse" sample (sun elevation, light
   and sky luminance) every game hour; `--timelapse <dir>` also saves a frame per hour
-  (the day/night smoke test in CLAUDE.md). `--auto-fly <speed>` flies the camera forward, `--run-seconds <n>` exits
+  (the day/night smoke test in CLAUDE.md), or every `--timelapse-step <game minutes>` for
+  a video (frames `NNNN_HHMM.png`; at `--time-scale 0.25` a 3-minute step gives 480
+  frames per game day, none dropped at 1600x900). `--auto-fly <speed>` flies the camera forward, `--run-seconds <n>` exits
   after n seconds; together a headless smoke test of streaming and LOD rebuilds (40 s at
   4000 units/s streams 200-260 cells). Meshes on the GPU are render-world only and cannot
   be read back; code that derives meshes later (LOD trimming) asks the model cache for
