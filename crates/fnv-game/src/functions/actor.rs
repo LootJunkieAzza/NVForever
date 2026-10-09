@@ -47,6 +47,13 @@ fn squash(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace() && *c != '_').flat_map(char::to_lowercase).collect()
 }
 
+/// An actor value code from its xEdit name (`Perception Condition`), without regard to
+/// case and spaces.
+pub fn av_by_name(name: &str) -> Option<u16> {
+    let want = squash(name);
+    AV_NAMES.iter().position(|n| squash(n) == want).map(|i| i as u16)
+}
+
 /// An actor value code from its name: the script name the decoder uses
 /// (`encodings.json`, e.g. `NightEye`, `PerceptionCondition`) or the xEdit name, either
 /// without regard to case and spaces (`Nighteye`, `Night Eye`), or a number.
@@ -194,6 +201,15 @@ pub fn get_dead(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.kill(r, a.opt_form(0));
+    none()
+}
+
+/// `actor.DetonatePlacedExplosives`: the actor's placed explosives that detonate (C-4)
+/// go off [documented: GECK wiki Projectile, "Detonates"]. The projectiles are the
+/// engine's: the request waits in `Game::combat_requests`.
+pub fn detonate_placed_explosives(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.on.or(ctx.self_ref).unwrap_or(FormId::PLAYER_REF);
+    g.combat_requests.push(crate::combat::CombatRequest::Detonate(r));
     none()
 }
 
