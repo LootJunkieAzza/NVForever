@@ -23,7 +23,8 @@ mod quest;
 mod refs;
 mod reputation;
 
-pub use reputation::tiers as reputation_tiers;
+pub use reputation::{store as reputation_store, tiers as reputation_tiers};
+pub use actor::{actor_value, av_code, set_current as set_actor_value_current};
 
 use crate::game::{Game, InstKey};
 use fnv_script::vm::{ArgValue, Value};
@@ -212,9 +213,9 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x100E, "GetActorValue", Impl(actor::get_actor_value)),
         (0x100F, "SetActorValue", Impl(actor::set_actor_value)),
         (0x1010, "ModActorValue", Impl(actor::mod_actor_value)),
-        (0x110E, "ForceActorValue", Impl(actor::set_actor_value)),
+        (0x110E, "ForceActorValue", Impl(actor::force_actor_value)),
         (0x1181, "DamageActorValue", Impl(actor::damage_actor_value)),
-        (0x1182, "RestoreActorValue", Impl(actor::mod_actor_value)),
+        (0x1182, "RestoreActorValue", Impl(actor::restore_actor_value)),
         (0x1115, "GetBaseActorValue", Impl(actor::get_base_actor_value)),
         (0x11EF, "GetPermanentActorValue", Impl(actor::get_base_actor_value)),
         (0x102E, "GetDead", Impl(actor::get_dead)),

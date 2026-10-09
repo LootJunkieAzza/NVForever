@@ -126,9 +126,14 @@ pub struct RefExtra {
     /// Faction rank changes: a rank, or −1 for "removed".
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub factions: BTreeMap<FormId, i8>,
-    /// Actor values other than S.P.E.C.I.A.L. (those live in the world), by code.
+    /// Actor values other than S.P.E.C.I.A.L. (those live in the world), by code: the
+    /// permanent part (base and permanent modifiers), without damage.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub actor_values: BTreeMap<u16, f64>,
+    /// Damage taken per actor value code (DamageActorValue; RestoreActorValue heals it),
+    /// S.P.E.C.I.A.L. included. The current value is the permanent part minus this.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub av_damage: BTreeMap<u16, f64>,
     /// Packages added with AddScriptPackage (the last one is current).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub packages: Vec<FormId>,
@@ -800,8 +805,12 @@ impl<'a> Game<'a> {
     /// menu was one ordinary frame for an every-frame quest and the quest's own 0.5 s
     /// delay for VMQ03aTimer, `L5.quest.seconds_after_menu`; layer5-captures.md §8.3 e].
     /// MenuMode keeps its own delay counter, which advances only in menus [hypothesis].
-    /// Order: quests before references, each in FormID order, then carried items
-    /// [hypothesis; not settled by the captures, layer5-captures.md §8.3 d].
+    /// Order: quest scripts before the object scripts of references [observed for one
+    /// pair: BeatrixFX's GameMode moved GameHour on and two Goodsprings windows
+    /// (WastelandWindowScript, copying GetCurrentTime every frame) saw the new hour in
+    /// the same frame, `L5.quest.script_order`, layer5-captures.md §9.3 c; hypothesis
+    /// for every other pair], each in FormID order [hypothesis], then the items the
+    /// player carries, then active magic effects [hypothesis].
     pub fn tick(&mut self) {
         self.frame += 1;
         if self.loading {
@@ -1153,9 +1162,21 @@ impl<'a> Game<'a> {
     /// cast on it, an ability added to it) to `target`. Each effect whose conditions
     /// pass (subject: the target) becomes an [`ActiveEffect`]; an effect whose base
     /// effect is a Script effect runs its ScriptEffectStart block at once, inside this
-    /// call, in an instance of its own [hypothesis: at once; per effect, in the item's
-    /// effect order]. An effect of duration 0 that is not permanent then finishes at
-    /// once (ScriptEffectFinish) [hypothesis]. Returns the effects started.
+    /// call, in an instance of its own [observed: Nuka-Cola's cap, Cateye's Nighteye and
+    /// Contreras' supplies' restored limb were there on the line after `EquipItem`,
+    /// layer5-captures.md §9.3 b; hypothesis: per effect, in the item's effect order].
+    ///
+    /// An effect of duration 0 that is not permanent finishes inside the call as well
+    /// (ScriptEffectFinish right after the start): nothing of it runs afterwards
+    /// [observed: a limb damaged again after Contreras' supplies (duration 0) stayed
+    /// damaged in the next 20 frames, §9.3 b; hypothesis: Finish runs inside the call
+    /// rather than not at all; the supplies' blocks all do the same].
+    ///
+    /// The same item applied again while its effect is still active adds its duration
+    /// to the active effect: one effect, one Finish [observed: a second Cateye 10.2 s
+    /// after the first ended 240 s after the first, with no second Finish, §9.3 b;
+    /// hypothesis: the start block does not run again, and only effects of the same
+    /// item (and effect index) merge]. Returns the effects started.
     pub fn apply_magic_item(&mut self, target: FormId, source: FormId, caster: Option<FormId>, permanent: bool) -> Vec<u32> {
         let data = self.data;
         let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
@@ -1164,6 +1185,18 @@ impl<'a> Game<'a> {
             let label = format!("{} effect {index}", data.name(source));
             if !self.conditions_pass(&e.conditions, Some(target), caster, &label) {
                 continue;
+            }
+            if !permanent && e.duration > 0 {
+                let active = self
+                    .effects
+                    .iter_mut()
+                    .find(|x| !x.permanent && x.target == target && x.source == source && x.index == index);
+                if let Some(x) = active {
+                    x.duration += e.duration as f64;
+                    let (id, duration) = (x.id, x.duration);
+                    self.emit(EventKind::EffectExtended { id, target, source, duration });
+                    continue;
+                }
             }
             let id = self.next_effect;
             self.next_effect += 1;
@@ -1233,10 +1266,13 @@ impl<'a> Game<'a> {
 
     /// One frame of active effects (game time only): each runs ScriptEffectUpdate with
     /// ScriptEffectElapsedSeconds = the frame time, then an effect whose duration has
-    /// passed finishes [hypothesis: update every frame, finish on the frame the
-    /// duration is reached; documented: ScriptEffectElapsedSeconds is the time since
-    /// the last update, non-zero only in ScriptEffectUpdate]. Effects on dead actors
-    /// keep running [hypothesis].
+    /// passed finishes. Observed (layer5-captures.md §9.3 b): Update runs every frame
+    /// (an ability restoring ScriptEffectElapsedSeconds / 10 health changed it in 59 of
+    /// 59 frame steps, at 0.1 HP per second of script time, so Elapsed is the time since
+    /// the previous Update, as documented on the GECK wiki); an open menu stops Update
+    /// and the duration; Cateye's 120 s effect finished 119.82–119.94 s of
+    /// GetSecondsPassed time after the use. Hypothesis: the effects run after the
+    /// frame's quest and object scripts, and effects on dead actors keep running.
     fn update_effects(&mut self, dt: f64) {
         let ids: Vec<u32> = self.effects.iter().map(|e| e.id).collect();
         for id in ids {

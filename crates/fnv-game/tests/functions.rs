@@ -287,6 +287,76 @@ fn reputation_points_tiers_and_percentages() {
     assert_eq!(t(1, 3), [0, 0, 3]);
     assert_eq!(t(3, 3), [5, 0, 0]);
     assert_eq!(t(2, 3), [2, 0, 0]);
+    assert_eq!(t(1, 1), [3, 0, 0]);
+    assert_eq!(t(0, 0), [1, 1, 1]);
+}
+
+/// The round 3 rules [observed: layer5-captures.md §9.3 a] on a scale of 20.
+#[test]
+fn reputation_limits_levels_and_ignored_sizes() {
+    let f = fixture();
+    let mut g = game(&f);
+    let set = |g: &mut Game, axis: f64, v: f64| {
+        call(g, 0x1238, None, &[r(REP), n(axis), n(v)]);
+    };
+    let fame = |g: &mut Game| g.player.reputation[&FormId(REP)][1];
+    // AddReputation stops at the scale, also from above it.
+    set(&mut g, 1.0, 19.0);
+    call(&mut g, 0x1239, None, &[r(REP), n(1.0), n(5.0)]);
+    assert_eq!(fame(&mut g), 20.0);
+    set(&mut g, 1.0, 40.0);
+    call(&mut g, 0x1239, None, &[r(REP), n(1.0), n(1.0)]);
+    assert_eq!(fame(&mut g), 20.0);
+    // RemoveReputation stops at 0 and leaves a value above the scale above it.
+    set(&mut g, 1.0, 40.0);
+    call(&mut g, 0x123A, None, &[r(REP), n(1.0), n(1.0)]);
+    assert_eq!(fame(&mut g), 39.0);
+    set(&mut g, 1.0, 1.0);
+    call(&mut g, 0x123A, None, &[r(REP), n(1.0), n(5.0)]);
+    assert_eq!(fame(&mut g), 0.0);
+    // Sizes other than 1-5 change nothing.
+    set(&mut g, 1.0, 5.0);
+    for size in [0.0, 6.0, -2.0] {
+        call(&mut g, 0x1239, None, &[r(REP), n(1.0), n(size)]);
+        call(&mut g, 0x123A, None, &[r(REP), n(1.0), n(size)]);
+    }
+    assert_eq!(fame(&mut g), 5.0);
+    // SetReputation keeps anything; the percentage is not capped.
+    set(&mut g, 1.0, -3.0);
+    assert_eq!(call(&mut g, 0x123D, None, &[r(REP), n(1.0)]), -3.0);
+    assert_eq!(call(&mut g, 0x123E, None, &[r(REP), n(1.0)]), -0.15);
+    set(&mut g, 1.0, 40.0);
+    assert_eq!(call(&mut g, 0x123E, None, &[r(REP), n(1.0)]), 2.0);
+    // Levels at 15 %, 50 %, 100 %, a boundary counting as the higher level.
+    for (v, good) in [(2.9, 1.0), (3.0, 4.0), (9.9, 4.0), (10.0, 5.0), (19.9, 5.0), (20.0, 6.0)] {
+        set(&mut g, 1.0, v);
+        assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(1.0)]), good, "fame {v}");
+    }
+}
+
+/// Damage and restore [documented: catalogue; observed: layer5-captures.md §9.3 b].
+#[test]
+fn restore_heals_damage_only() {
+    let f = fixture();
+    let mut g = game(&f);
+    let av = |c: u16| ArgValue::Enum(c);
+    // Perception condition (25) starts at 100.
+    call(&mut g, 0x1181, Some(PLAYER), &[av(25), n(40.0)]);
+    assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(25)]), 60.0);
+    call(&mut g, 0x1182, Some(PLAYER), &[av(25), n(100.0)]);
+    assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(25)]), 100.0);
+    call(&mut g, 0x1182, Some(PLAYER), &[av(25), n(100.0)]);
+    assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(25)]), 100.0);
+    // ForceActorValue moves the permanent part so the current value is the target.
+    call(&mut g, 0x1181, Some(PLAYER), &[av(25), n(10.0)]);
+    call(&mut g, 0x110E, Some(PLAYER), &[av(25), n(50.0)]);
+    assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(25)]), 50.0);
+    assert_eq!(call(&mut g, 0x1115, Some(PLAYER), &[av(25)]), 60.0);
+    call(&mut g, 0x1182, Some(PLAYER), &[av(25), n(100.0)]);
+    assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(25)]), 60.0);
+    // ModActorValue is permanent.
+    call(&mut g, 0x1010, Some(PLAYER), &[av(25), n(5.0)]);
+    assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(25)]), 65.0);
 }
 
 #[test]
@@ -328,6 +398,30 @@ fn a_consumed_ingestible_runs_its_effect_script_for_its_duration() {
     call(&mut g, 0x1142, Some(PLAYER), &[r(ALCH)]);
     assert!(g.effects.is_empty());
     assert_eq!(g.world.global(FormId(G_DONE)).unwrap(), 1.0);
+}
+
+/// The same item again while its effect is active adds its duration: one effect, one
+/// Finish [observed: a second Cateye, layer5-captures.md §9.3 b].
+#[test]
+fn the_same_item_again_extends_the_active_effect() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    g.world.add_item(p, FormId(ALCH), 2).unwrap();
+    g.consume(p, FormId(ALCH)).unwrap();
+    g.frames(30);
+    g.world.set_global(FormId(G_EFF), 0.0).unwrap();
+    assert!(g.consume(p, FormId(ALCH)).unwrap().is_empty());
+    assert_eq!(g.effects.len(), 1);
+    assert_eq!(g.effects[0].duration, 2.0);
+    // No second start.
+    assert_eq!(g.world.global(FormId(G_EFF)).unwrap(), 0.0);
+    // 2 s from the first dose: not done after 1.5 s, done after 2 s.
+    g.frames(59);
+    assert_eq!(g.world.global(FormId(G_DONE)).unwrap(), 0.0);
+    g.frames(31);
+    assert_eq!(g.world.global(FormId(G_DONE)).unwrap(), 1.0);
+    assert!(g.effects.is_empty());
 }
 
 #[test]
