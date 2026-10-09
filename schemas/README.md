@@ -10,6 +10,7 @@ so a wrong layout is fixed by editing JSON, not code.
 - `common.json` — shared types and subrecords whose layout is identical everywhere
 - `world.json` — CELL, WRLD, LAND, LTEX, REFR, ACHR, ACRE
 - `objects.json` — base objects (STAT, WEAP, ARMO, CONT, …)
+- `combat.json` — PROJ, EXPL, BPTD, AMEF, ENCH, SPEL (docs/spec-notes/combat-data.md)
 - `gameplay.json` — GLOB, SCPT, QUST, DIAL, INFO, NPC_, CREA, RACE, HAIR, EYES, HDPT, FACT, levelled lists, …
 
 **Record header flags.** A record entry may name bits of its record header's flags
