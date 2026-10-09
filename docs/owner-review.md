@@ -17,15 +17,21 @@ item once you've ruled on it.
    That's a new golden, not an edit to an existing one. The moving-camera smoke test
    passed (exit 0, 34 actors drawn, 0 unresolved), and so did the day/night time-lapse.
    The results are posted as comments on both PRs.
-2. **Other sessions merged at the same time, under your GitHub account:** #44 at 01:06Z,
+2. **Other merges at the same time, under your GitHub account:** #44 at 01:06Z,
    then #47 (Goodsprings windmill animation, quadratic key tangents) and #48 (animation
-   data groundwork, "workstream 5 part F"). These came from sessions this coordinator
-   cannot see in the session list. #48 mentions a "KF-playback session" that owns
+   data groundwork, "workstream 5 part F"). They turned out to be the second
+   coordinator's ("NPC coordinator" section below). #48 mentions a "KF-playback session" that owns
    `engine/` animation, and possibly a cloud or other-machine session. Keep that in mind
    when two sessions both think they coordinate merges. The coordinator re-checked the
    resulting `main` (e5db7eb) as a whole. All checks pass, the lab is at 337/352 with 0
    regressions, and the moving-camera smoke test and time-lapse were re-run on its engine
    binary.
+2b. **Later merges (by the NPC coordinator or the PRs' own sessions):** #49 (Hor+ field of view,
+   `--fov 75` = 91.3° at 16:9; frame SSIM 0.18–0.24 → 0.39–0.49), #50 (distant LOD gives way
+   only to loaded cells; cells fade in and out, `--cell-fade`), and #53 (NPC workstream
+   coordination notes). The coordinator re-checked `main` with each one: engine clippy and
+   tests, root clippy and tests, and the moving-camera smoke test plus the time-lapse after
+   #50 (exit 0, run finished, 215 cells, 24+ hourly samples).
 3. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
    (same commits, its PR #38 was closed). `layer4-phys-wt` is an early copy of the physics
    workstream from 2026-10-07, superseded by `claude/layer4-phys`. Neither was merged or
@@ -64,6 +70,58 @@ item once you've ruled on it.
    the captures cover the intro quest itself. Until then, captures use the existing
    `nvftest` and `nvfdoc` saves. Workstream 5C records their quest state first, to see
    how far into the chain each one is.
+7. **5A (script reader, PR #51) is merged with `L5.script.decode` failing at 0.997.**
+   14,863 of 14,907 units match the independent oracle, and the decoder leaves no
+   undecoded argument. The 44 that differ are each explained in
+   `docs/spec-notes/scripts.md` §3.4:
+   - 32 where the wiki-derived catalogue lists too few parameters for ShowCaravanMenu,
+     SetNPCRadio, StartCannibal, EnableLoadingMenu and Unlock;
+   - 7 where an Editor ID was renamed after compiling;
+   - 2 compiled against an older version of another script;
+   - the GetInCharGen opcode anomaly;
+   - 2 where the compiler dropped an extra argument.
+
+   Choose one:
+   - (a) keep the scenario failing as the honest record;
+   - (b) add observed signatures for those five functions to `schemas/script/notes.json`
+     so both sides read the right parameter count (this fixes 32, leaving 12 real
+     data mismatches);
+   - (c) split the scenario so known data mismatches are reported separately.
+
+   The coordinator did not change the scenario, golden or comparator (lab rules). My
+   recommendation is (b), then (a) for the remaining 12.
+8. **Is the 5A oracle independent enough?** It never reads compiled bytes. But a few
+   compiler rules it applies (lines made only of `=`/`-`, inline `ref` declarations)
+   were found by comparing source with bytecode. They are listed in scripts.md §3.4.
+9. **Where the parameter-encoding table lives.** `crates/fnv-script/data/encodings.json`
+   currently lives in the crate. The alternative is `schemas/script/` next to
+   `functions.json`, which fits the "schemas as data" rule better. Moving it is cheap;
+   say which you prefer.
+
+10. **A save for the intro chain (5C, PR #55): please make one.** Both existing saves
+    are past the intro: VCG01 is complete, VMQ01 is running at stage 10. To capture
+    VCG01 itself, start a new game. As soon as you can look around in Doc Mitchell's
+    house, open the console and type `save nvfnew`. Tell the next session it exists.
+11. **5C judgement calls to confirm:**
+    - (a) The variable-storage scenario assumes quest-script variables store values the
+      same way the job script's own variables do. A job can't write `set quest.var`.
+    - (b) Quest-delay scenarios use a 0.05 s tolerance and skip the irregular first run
+      after StartQuest.
+    - (c) The holdouts are `L5.quest.result_additem` and `L5.quest.delay_flagged_zero`.
+    - (d) VCG02 has stage 5 done but is stopped in both saves. This contradicts the
+      observed "SetStage starts a stopped quest" and is unexplained. A script may have
+      stopped it.
+12. **Capture method change:** job scripts in the original game cannot name a quest by
+    its Editor ID (`GetStage VCG01` doesn't compile from a job, and the console line
+    silently does nothing). Captures use `BuildRef` plus xNVSE's
+    `GetVariable`/`SetVariable` instead (layer5-captures.md). This is capture tooling
+    only. The engine has no xNVSE dependency.
+13. **Reply to the NPC coordinator (section below), from the Layer 5 coordinator:** read
+    and agreed. #50 and #54 (actors' idle animation) are left to the NPC coordinator.
+    The Layer 5 coordinator only re-checks `main` after they land. Its game runs now
+    take **both** `C:\fnv-private\capture\run.lock` and `.claude\smoke.lock` (the main
+    checkout's), so they can't overlap either side's runs. Layer 5 PRs (`claude/layer5-*`)
+    stay with the Layer 5 coordinator.
 
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
