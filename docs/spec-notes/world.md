@@ -623,6 +623,20 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   lights, is not used]. With Bevy's physically based inverse-square falloff instead, the
   porch lamp lit a small hot spot and left the door and wall dark, where in game they are
   lit warm [observed, owner's screenshots].
+- **Placed light radius**: a placed light's `XRDS` "Radius" [documented: xEdit] is an
+  offset added to its base's DATA radius [observed, below]. Interior LIGH references:
+  10,087 in the ten masters, 8,524 with `XRDS` (`crates/fnv-world/examples/light_survey.rs
+  --xrds`); `XRDS` / base radius runs from -0.893 to 73.2 (median 0.21), and base +
+  `XRDS` is positive for every one, while 2,142 values in FalloutNV.esm alone are
+  negative, so `XRDS` cannot be an absolute radius. Whole interiors are built from lights
+  whose base radius is useless alone: every light of the REPCONN basement
+  (RocketLabBasement) has base radius 16 or 20 and `XRDS` 134 to 1,171. Against the
+  in-game frames (tools/capture/README.md section 7, `tools/capture/frames/interiors.json`,
+  2026-10-09), adding `XRDS` raised SSIM on all seven interior frames: Doc Mitchell's
+  house 0.588 -> 0.697, 0.421 -> 0.683, 0.594 -> 0.762, 0.589 -> 0.703 and the Prospector
+  Saloon 0.750 -> 0.806, 0.721 -> 0.742, 0.701 -> 0.721; in the living-room frame the base
+  radius left the left wall dark where the game lights it [observed]. The renderer's range
+  is max(0, base + `XRDS`) (`fnv_world::lighting::placed_light_radius`).
 - **External emittance**: a placed reference's `XEMI` names a region (REGN) or a light
   (LIGH) as its "Emittance" [documented: xEdit wbDefinitionsFNV.pas REFR], and
   BSShaderFlags bit 29 is "External_Emittance" [documented: nif.xml]. REGN `RDAT` heads
@@ -641,11 +655,30 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
     by day.
 
   The renderer resolves XEMI to the region's highest-chance weather or the light's
-  colour and scales by its sunlight colour at the current hour (the light colour for a
-  LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,
+  colour times its fade (the GECK tutorials: emittance takes the light's colour and
+  brightness, level-design.md section 2) and scales by its sunlight colour at the current
+  hour (that colour times fade for a LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,
   and the colour of LIGH references [hypothesis]. Shapes on references without XEMI are
   unchanged. Before this the beam drew at full strength day and night and the rays were
   white.
+  XEMI on light references [observed, `light_survey --xemi`]: 2,508 of 10,087 interior
+  lights carry one (1,497 name a LIGH, 1,011 a REGN such as NVInteriorRegion or
+  NewVegasRegion); outdoors 304 of 1,070 (246 REGN, mostly InvertedDaylightRegion). In
+  Doc Mitchell's house most lights name another light (e.g. OfficeLightKeyNeutral names
+  DLC01FXLightMillSmoke, colour (255, 162, 85)). Which rule the game applies to a light
+  named by a light is not settled: against the four Doc Mitchell frames, scaling the
+  light's colour by the target's colour times fade (kept), by its colour alone, replacing
+  the colour, or ignoring LIGH targets all score within 0.03 SSIM of each other; ignoring
+  them gives a lower mean colour error (0.008-0.028 against 0.033-0.049), but the near
+  walls of the entry frame are warm in game, as with scaling [observed].
+- **Interior reference frames** (2026-10-09, plugin v7, save nvfdoc, 1280 x 720,
+  `fDefaultFOV=75`) [observed]: `capture_frames.py` cameras with a `cell` travel by `coc`.
+  Seven frames exist (Doc Mitchell's house x 4, Prospector Saloon x 3). The Vault 21 and
+  REPCONN basement cameras reached their poses (recorded position and angles match) but
+  the plugin's screenshot step failed there in both runs ("BitBlt failed"), only in those
+  two cells; why is not known. Remaining differences: the game's lamp bulbs and sunlit
+  windows glow with a halo (bloom) the renderer lacks, and Doc Mitchell's house is a
+  little warmer and brighter in game.
 - **Interior image space**: CELL `XCIM` names the cell's image space [documented:
   xEdit]. In interiors the renderer grades with it instead of the worldspace's; e.g. the
   Prospector Saloon's ShackInteriorWaste01 (saturation 0.82, tint (1.0, 0.71, 0.27) at
@@ -663,7 +696,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
    layer units; to settle with in-game captures at Lake Mead at several heights and
    distances from the shore.
 4. Weather selection rule and the meaning of WLST globals (see §6).
-5. Light brightness and falloff (LIGH radius, falloff exponent) and the XCLL rotation
-   angles; to calibrate against in-game interior screenshots.
+5. Light brightness and falloff shape (the falloff exponent), the XCLL rotation angles,
+   fog power and clip distance, and the rule for a light whose XEMI names a light (section
+   8). The radius is settled (section 8, "Placed light radius"). Interior frames of Vault
+   21 and the REPCONN basement are still to capture (section 8).
 6. The engine's handling of SCOL references: whether it draws the combined mesh (assumed)
    or the parts.

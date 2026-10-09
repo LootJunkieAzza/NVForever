@@ -514,7 +514,7 @@ fn spawn_dormant(
         }
         (b"LIGH", _) => {
             let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(cell_e))).id();
-            if crate::lights::spawn_light(commands, holder, world, base.form_id, rt.translation.into(), light_scale, p.emittance, emittance) {
+            if crate::lights::spawn_light(commands, holder, world, base.form_id, rt.translation.into(), light_scale, p, emittance) {
                 crate::actors::spawn_hidden(commands, holder, r);
                 stats.lights_hidden += 1;
             } else {
