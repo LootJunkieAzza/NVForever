@@ -379,7 +379,7 @@ fn load_cell(
                 continue;
             }
         }
-        // Placed creatures (actors.rs `spawn_creature`, actors.md §9).
+        // Placed creatures (actors.rs `spawn_creature`, actors.md §10).
         if let (Some((aw, parts)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| &b.sig == b"CREA")) {
             let mut ctx = ActorCtx { cache: parts, models };
             if crate::actors::spawn_creature(commands, cell_e, to_cell * ref_affine(&p), r, b.form_id, aw, &mut ctx, &mut stats.actors, false) {

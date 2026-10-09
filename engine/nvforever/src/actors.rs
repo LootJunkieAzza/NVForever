@@ -3,7 +3,7 @@
 //! assembles them on one skeleton, playing its locomotion clips with `--actor-pose idle`
 //! (the default; docs/spec-notes/actors.md §7–8, `locomotion.rs`) or frozen in the bind
 //! pose; FaceGen shapes the faces (`facegen.rs`). Placed creatures (part D, actors.md
-//! §9) are assembled the same way from their skeleton and NIFZ models and play their
+//! §10) are assembled the same way from their skeleton and NIFZ models and play their
 //! skeleton's idle.
 //!
 //! References not enabled at the start of a game (initially disabled, or behind a
@@ -25,6 +25,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::facegen::FaceGenCache;
 use crate::locomotion::{simulate, walk_test_at, walk_test_period, ClipSet, Locomotion, WalkTest};
+use crate::weapons::{Stance, WeaponHold, WeaponMode};
+use fnv_actor::weapon::AnimType;
 
 /// How placed actors are posed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
@@ -66,11 +68,18 @@ pub struct ActorWorld {
     /// (screenshots): the idle's clip time, or with the walk test the script time.
     pub pose_time: Option<f32>,
     pub walk_test: Option<WalkTestArgs>,
+    /// How carried weapons are shown (`--actor-weapons`), and the draw/holster test aid's
+    /// period (`--actor-weapon-test`).
+    pub weapon_mode: WeaponMode,
+    pub weapon_test: Option<f32>,
     /// Locomotion clip sets by (skeleton, body); `None` when no idle was found.
     sets: Mutex<ClipSets>,
+    /// Weapon stances by (skeleton, prefix); `None` when they could not be loaded.
+    stances: Mutex<Stances>,
 }
 
 type ClipSets = HashMap<(String, Body), Option<Arc<ClipSet>>>;
+type Stances = HashMap<(String, String), Option<Arc<Stance>>>;
 
 impl ActorWorld {
     pub fn build(lo: &LoadOrder, schema: &Schema) -> ActorWorld {
@@ -82,7 +91,10 @@ impl ActorWorld {
             pose: ActorPose::Bind,
             pose_time: None,
             walk_test: None,
+            weapon_mode: WeaponMode::None,
+            weapon_test: None,
             sets: Mutex::new(HashMap::new()),
+            stances: Mutex::new(HashMap::new()),
         }
     }
 
@@ -155,6 +167,9 @@ pub struct ActorStats {
     pub creature_clip_missing: usize,
     /// Actors and creatures spawned hidden (not enabled at the start).
     pub spawned_hidden: usize,
+    /// Actors holding a weapon, and those whose weapon model or stance clips are missing.
+    pub armed: usize,
+    pub weapon_missing: usize,
 }
 
 /// Spawn the actor placed by `reference` under `parent` with the reference transform
@@ -286,7 +301,6 @@ pub fn spawn(
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
                 let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
                 let mut player = blend_player(&spawned, &skel);
-                let mut ec = commands.entity(spawned.root);
                 if let Some(w) = walk {
                     let base = Transform::from_matrix(Mat4::from(rt));
                     let mut wt = WalkTest { base, speed: w.speed, t: clip_phase(reference) * walk_test_period(w.speed) };
@@ -299,7 +313,7 @@ pub fn spawn(
                         }
                         None => wt.transform(&walk_test_at(wt.t, w.speed)),
                     };
-                    ec.insert((tr, wt));
+                    commands.entity(spawned.root).insert((tr, wt));
                     stats.walking += 1;
                 } else if let Some(t) = world.pose_time {
                     let len = set.info(Move::Idle).map_or(1.0, |c| c.duration).max(f32::EPSILON);
@@ -307,7 +321,12 @@ pub fn spawn(
                     lo.hold = true;
                 }
                 lo.layers(&mut player);
+                let weapon = arm(commands, &spawned, &skel, &a, reference, world, ctx, &mut player, stats);
+                let mut ec = commands.entity(spawned.root);
                 ec.insert((lo, player));
+                if let Some(w) = weapon {
+                    ec.insert(w);
+                }
                 stats.animated += 1;
             }
             None => stats.clip_missing += 1,
@@ -318,7 +337,7 @@ pub fn spawn(
     true
 }
 
-/// Spawn the creature placed by `reference` (ACRE) under `parent` (actors.md §9): its
+/// Spawn the creature placed by `reference` (ACRE) under `parent` (actors.md §10): its
 /// skeleton with the NIFZ models, scaled by the reference's and the creature's base
 /// scale, playing the skeleton's idle with `--actor-pose idle`. `rt` is the reference
 /// transform (parent space). Returns whether anything was drawn.
@@ -356,7 +375,7 @@ pub fn spawn_creature(
         let meshes = vec![None; part.shapes.len()];
         uses.push(PartUse { meshes, part, materials, hidden_shapes: Vec::new(), by_ancestor: true });
     }
-    // The creature's base scale (BNAM) on top of the reference's [hypothesis, §9.1].
+    // The creature's base scale (BNAM) on top of the reference's [hypothesis, §10.1].
     let rt = rt * Affine3A::from_scale(Vec3::splat(c.base_scale as f32));
     let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
     commands.entity(spawned.root).insert((Name::new(format!("Creature {reference:08X} {}", c.edid.as_deref().unwrap_or(""))), RefVisual(reference)));
@@ -387,6 +406,73 @@ pub fn spawn_creature(
     stats.unbound_shapes += spawned.unbound;
     stats.creatures += 1;
     true
+}
+
+/// Give an actor its weapon (part H, actors.md §9): the model under the skeleton's
+/// `Weapon` node and a [`WeaponHold`] with the stance's clips, or nothing when the actor
+/// carries no drawable weapon or weapons are off.
+#[allow(clippy::too_many_arguments)]
+fn arm(
+    commands: &mut Commands,
+    spawned: &nvf_assets::actor::SpawnedActor,
+    skel: &nvf_assets::actor::PreparedSkeleton,
+    a: &Appearance,
+    reference: u32,
+    world: &ActorWorld,
+    ctx: &mut ActorCtx,
+    player: &mut nvf_assets::anim_play::BlendPlayer,
+    stats: &mut ActorStats,
+) -> Option<WeaponHold> {
+    if world.weapon_mode == WeaponMode::None {
+        return None;
+    }
+    let w = a.weapon.and_then(|id| world.actors.weapons.get(&id))?;
+    let prefix = w.anim_type.as_deref().and_then(AnimType::from_name)?.prefix();
+    let model = w.model.as_deref()?;
+    let key = (fnv_vfs::normalize(&a.skeleton), prefix.to_string());
+    let stance = world
+        .stances
+        .lock()
+        .expect("stances")
+        .entry(key)
+        .or_insert_with(|| match Stance::load(ctx, &a.skeleton, skel, prefix) {
+            Ok((s, line)) => {
+                info!("actor weapons: {line}");
+                Some(Arc::new(s))
+            }
+            Err(e) => {
+                warn!("actor weapons: {prefix}: {e}");
+                None
+            }
+        })
+        .clone();
+    let (Some(stance), Some(part)) = (stance, ctx.part(&fnv_actor::resolve::mesh_path(model))) else {
+        stats.weapon_missing += 1;
+        return None;
+    };
+    for e in crate::weapons::spawn_model(commands, spawned, stance.weapon_node, &part) {
+        commands.entity(e).insert(RefVisual(reference));
+    }
+    let skel_parent = skel.parents[stance.weapon_node].unwrap_or(0);
+    let mut hold = WeaponHold::new(stance, world.weapon_mode == WeaponMode::Drawn, skel_parent);
+    if let Some(period) = world.weapon_test {
+        hold.test = Some((period, clip_phase(reference) * 2.0 * period));
+    }
+    if let Some(t) = world.pose_time {
+        // A repeatable pose: the test aid runs from its start to `t`; otherwise the stage's
+        // clip is held at `t`.
+        match hold.test.as_mut() {
+            Some(test) => {
+                test.1 = 0.0;
+                hold.simulate(t);
+            }
+            None => hold.anim.time = t,
+        }
+        hold.hold = true;
+    }
+    hold.layers(player);
+    stats.armed += 1;
+    Some(hold)
 }
 
 #[cfg(test)]

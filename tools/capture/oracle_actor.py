@@ -15,7 +15,7 @@ usage: oracle_actor.py appearance <data_dir> <plugin>... [--all | --ref <formid>
        -> fnv.actor.appearance/1
        oracle_actor.py creatures <data_dir> <plugin>... [--all | --ref <formid>]
                                  [--deterministic] [--schema DIR] [-o out.json]
-       -> fnv.actor.creatures/1 (actors.md §9.1 and §9.4; no --check-meshes part)
+       -> fnv.actor.creatures/1 (actors.md §10.1 and §10.4; no --check-meshes part)
 `--schema` is accepted for command-line compatibility with fnvtool and ignored; without
 `--ref` every ACHR of the load order is listed (`--all` is the default).
 Exit codes: 0 ok, 1 input unreadable, 2 usage error.
@@ -347,7 +347,7 @@ def parse_glob(forms, gid, plugin, subs):
 
 
 def zstring_list(raw):
-    """NIFZ / KFFZ (actors.md §9.1): NUL-separated names; each trimmed, empty ones left
+    """NIFZ / KFFZ (actors.md §10.1): NUL-separated names; each trimmed, empty ones left
     out (the list ends with an extra NUL)."""
     if raw is None:
         return []
@@ -359,7 +359,7 @@ def zstring_list(raw):
     return out
 
 
-# CREA DATA type byte (actors.md §9.1) [documented: xEdit via the schema].
+# CREA DATA type byte (actors.md §10.1) [documented: xEdit via the schema].
 CREATURE_KINDS = ("Animal", "Mutated Animal", "Mutated Insect", "Abomination", "Super Mutant",
                   "Feral Ghoul", "Robot", "Giant")
 
@@ -699,7 +699,7 @@ def _lower_path(name: str) -> str:
 
 
 class CreatureResolver:
-    """actors.md §9.1, written from the spec note."""
+    """actors.md §10.1, written from the spec note."""
 
     def __init__(self, forms: Forms):
         self.forms = forms
@@ -733,7 +733,7 @@ class CreatureResolver:
         return result
 
     def source(self, crea, bit, state):
-        """First CREA along the TPLT chain whose template flag `bit` is clear (§9.1); a
+        """First CREA along the TPLT chain whose template flag `bit` is clear (§10.1); a
         flag without a TPLT ends the chain."""
         seen = set()
         cur = crea
@@ -776,7 +776,7 @@ def placed_creatures(index: oracle_world.WorldIndex):
 
 
 def creatures_document(index, diag, load_order, deterministic: bool, only=None) -> dict:
-    """fnv.actor.creatures/1 (actors.md §9.4), without the --check-meshes part."""
+    """fnv.actor.creatures/1 (actors.md §10.4), without the --check-meshes part."""
     forms = Forms(index, diag)
     resolver = CreatureResolver(forms)
     outcomes = {}
