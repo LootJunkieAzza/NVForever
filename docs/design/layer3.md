@@ -191,8 +191,10 @@ What it does now:
 - Interiors: `--cell <interior Editor ID>` loads that one cell with its own lighting
   (XCLL merged with its lighting template, world.md §8) instead of sky, LOD and terrain;
   the camera starts at the middle of its references. Lights: every enabled LIGH
-  reference becomes a point (or spot) light, indoors and out (`--light-scale`, tuned by
-  eye in GSDocMitchellHouse).
+  reference becomes a point (or spot) light, indoors and out, reaching its base radius
+  plus the reference's XRDS (world.md §8; `--light-scale`, tuned by eye in
+  GSDocMitchellHouse). Interior frames (Doc Mitchell's house, Prospector Saloon) are
+  image scenarios like the exterior ones (`L3.frame.int_*`, tag `interior`).
 - Test aids: `--time-scale <h/s>` runs the clock at that many game hours per real second
   once the start cells are loaded, logging a "time-lapse" sample (sun elevation, light
   and sky luminance) every game hour; `--timelapse <dir>` also saves a frame per hour
@@ -259,7 +261,9 @@ game units unchanged.
    square of `uGridsToLoad` cells, 5 [observed: the owner's `FalloutPrefs.ini` and
    `Fallout.ini`], so `--radius 2`); load on background tasks; despawn outside a
    hysteresis margin. Distant load distances follow the owner's INI (Distant LOD above).
-6. **Lighting, sky, weather** (first version done; clouds, stars, interiors to do): sun direction and colours from the climate/weather records
+6. **Lighting, sky, weather** (first version done; interiors: cell lighting, placed light
+   radius (XRDS) and emittance done, seven interior reference frames; clouds, stars, light
+   falloff shape, fog power and Vault/REPCONN frames to do): sun direction and colours from the climate/weather records
    by time of day; fog; interior lighting from XCLL / lighting templates; point lights
    from LIGH references.
 7. **Water** (second version done: WATR fog, fresnel world reflections, refraction, under-water fog, noise layers, rain and wake ripples, distant water; falling rain to do with the script engine, Layer 4): worldspace / cell water height, WATR records, placeable water (PWAT).
