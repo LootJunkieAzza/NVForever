@@ -1,0 +1,98 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "ControlRumble stage 0: five log entries without conditions, each with a result script",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "ControlRumble",
+      "running": false,
+      "completed": false,
+      "stage": 0,
+      "done": [
+        0
+      ],
+      "not_done": [
+        1
+      ],
+      "vars": {
+        "initDefaults": 1,
+        "RumbleNow": 0,
+        "Stage1Fired": 0,
+        "Stage1FireOnTimerValue": 0,
+        "stage1RumbleLeft": 0,
+        "Stage1Duration": 0,
+        "timerMaxValue": 10
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_quest_var",
+      "quest": "ControlRumble",
+      "var": "Stage1Fired",
+      "value": 7
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "ControlRumble",
+      "var": "Stage1FireOnTimerValue",
+      "value": 7
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "ControlRumble",
+      "var": "stage1RumbleLeft",
+      "value": 7
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "ControlRumble",
+      "var": "Stage1Duration",
+      "value": 7
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "ControlRumble",
+      "var": "timerMaxValue",
+      "value": 7
+    },
+    {
+      "op": "get_quest",
+      "quest": "ControlRumble",
+      "label": "ControlRumble before stage 0",
+      "fields": [
+        "running",
+        "stage",
+        "done.0",
+        "var.Stage1Fired",
+        "var.Stage1FireOnTimerValue",
+        "var.stage1RumbleLeft",
+        "var.Stage1Duration",
+        "var.timerMaxValue"
+      ]
+    },
+    {
+      "op": "set_stage",
+      "quest": "ControlRumble",
+      "stage": 0
+    },
+    {
+      "op": "get_quest",
+      "quest": "ControlRumble",
+      "label": "ControlRumble after stage 0",
+      "fields": [
+        "running",
+        "stage",
+        "done.0",
+        "var.Stage1Fired",
+        "var.Stage1FireOnTimerValue",
+        "var.stage1RumbleLeft",
+        "var.Stage1Duration",
+        "var.timerMaxValue"
+      ]
+    }
+  ]
+}

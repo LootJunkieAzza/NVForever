@@ -1,0 +1,124 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "OnActivate of dead and living actors run by a scripted Activate, with and without the flag",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "vDialogueEDE",
+      "vars": {
+        "bEDEExamined": 0
+      }
+    },
+    {
+      "kind": "ref",
+      "ref": "0x001572E6",
+      "dead": true
+    },
+    {
+      "kind": "ref",
+      "ref": "0x0011F654",
+      "dead": false
+    },
+    {
+      "kind": "ref",
+      "ref": "0x0012319B",
+      "dead": false,
+      "vars": {
+        "Freed": 0
+      }
+    },
+    {
+      "kind": "ref",
+      "ref": "0x0012319C",
+      "dead": false,
+      "vars": {
+        "Freed": 0
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "activate",
+      "target": "0x001572E6",
+      "actor": "player",
+      "label": "dead ED-E activated"
+    },
+    {
+      "op": "get_quest",
+      "quest": "vDialogueEDE",
+      "label": "bEDEExamined after the plain activation",
+      "fields": [
+        "var.bEDEExamined"
+      ]
+    },
+    {
+      "op": "activate",
+      "target": "0x001572E6",
+      "actor": "player",
+      "run_on_activate": true,
+      "label": "dead ED-E activated with the flag"
+    },
+    {
+      "op": "get_quest",
+      "quest": "vDialogueEDE",
+      "label": "bEDEExamined after the flagged activation",
+      "fields": [
+        "var.bEDEExamined"
+      ]
+    },
+    {
+      "op": "kill",
+      "target": "0x0011F654"
+    },
+    {
+      "op": "get_ref",
+      "ref": "0x0011F654",
+      "fields": [
+        "dead"
+      ],
+      "label": "legionary killed"
+    },
+    {
+      "op": "activate",
+      "target": "0x0011F654",
+      "actor": "player",
+      "run_on_activate": true,
+      "label": "dead legionary activated with the flag"
+    },
+    {
+      "op": "kill",
+      "target": "0x0012319B"
+    },
+    {
+      "op": "get_ref",
+      "ref": "0x0012319B",
+      "fields": [
+        "dead"
+      ],
+      "label": "hostage 1 killed"
+    },
+    {
+      "op": "activate",
+      "target": "0x0012319B",
+      "actor": "player",
+      "run_on_activate": true,
+      "label": "dead hostage activated with the flag"
+    },
+    {
+      "op": "set_ref_var",
+      "ref": "0x0012319C",
+      "var": "Freed",
+      "value": 1
+    },
+    {
+      "op": "activate",
+      "target": "0x0012319C",
+      "actor": "player",
+      "run_on_activate": true,
+      "label": "living freed hostage activated with the flag"
+    }
+  ]
+}

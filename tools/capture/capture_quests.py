@@ -33,6 +33,7 @@ ACTIONS_FORMAT = "fnv.script.actions/1"
 TRACE_FORMAT = "fnv.script.trace/1"
 GIVEN_PREFIX = "__given__"
 SAMPLE_PREFIX = "sample"
+MENU_PREFIX = "menu"
 
 InputError = cs.InputError
 
@@ -186,7 +187,7 @@ def state_job(defs, name, start):
 
 # --------------------------------------------------------------------------- values
 
-BOOL_FIELDS = ("running", "completed", "disabled", "opened")
+BOOL_FIELDS = ("running", "completed", "disabled", "opened", "dead", "current")
 
 
 def typed(field, v):
@@ -316,6 +317,153 @@ SIM_OPS = {"add_item", "remove_item", "remove_all_items", "enable", "disable", "
            "get_item_count", "get_disabled", "get_global"}
 LOCAL_TYPES = ("short", "int", "long", "float")
 
+# Round 2 additions (docs/spec-notes/layer5-captures.md section 8.2).
+SETTLE_KILL = 60
+SETTLE_PACKAGE = 60
+REF_FIELDS = ("disabled", "dead")
+
+
+def ref_field_expr(r, field):
+    """The script expression that reads one field of the reference in ref variable `r`:
+    `var.<name>` (its object script's variable, xNVSE's GetVariable called on the
+    reference, trial q5b_trial_doc), `disabled`, `dead`."""
+    if field == "disabled":
+        return f"{r}.GetDisabled"
+    if field == "dead":
+        return f"{r}.GetDead"
+    parts = field.split(".")
+    if parts[0] == "var" and len(parts) == 2:
+        return f'{r}.GetVariable "{cs.plain_name(parts[1], "an object-script variable")}"'
+    raise InputError(f"unknown reference field {field!r}")
+
+
+def ref_script(names, ctx, body, decls=("float fV",)):
+    """A function script with the named forms in ref variables; `body` lines use {0},
+    {1}, … for them."""
+    n = cs.Names(*ctx)
+    ops = [n.operand(x) for x in names]
+    return cs.function(n.decls + list(decls), n.setup + [line.format(*ops) for line in body])
+
+
+def _ref(a, i, key):
+    r = a.get(key)
+    if not isinstance(r, str) or not r:
+        raise InputError(f"action {i}: needs {key!r} (a FormID, an Editor ID or 'player')")
+    return r
+
+
+def read_expr(i, read, slot):
+    """(names, field, expression) for the `read` object of activate_read: a reference's
+    field ({"ref", "field"}) or a quest's ({"quest", "field"}); the form goes into ref
+    variable {slot}."""
+    if not isinstance(read, dict) or "field" not in read or ("ref" in read) == ("quest" in read):
+        raise InputError(f"action {i}: 'read' needs 'field' and one of 'ref' or 'quest'")
+    if "ref" in read:
+        ref_field_expr("r", read["field"])
+        return read["ref"], read["field"], ref_field_expr(f"{{{slot}}}", read["field"])
+    field_expr("q", read["field"])
+    return cs.plain_name(read["quest"], f"action {i}: the quest"), read["field"], field_expr(f"{{{slot}}}", read["field"])
+
+
+def counts_expr(items, container_slot, first_slot):
+    """'<count>|<count>|...': the counts of `items` (ref variables {first_slot}, ...)
+    held by the actor or container in {container_slot}, as text."""
+    return ' + "|" + '.join(f"($ {{{container_slot}}}.GetItemCount {{{first_slot + k}}})" for k in range(len(items)))
+
+
+def activate_line(a):
+    """The Activate statement: with `run_on_activate` the target's OnActivate block runs
+    (Activate's second parameter, [documented: GECK wiki Activate]); without it the
+    default activation happens and the block does not run [observed: trials
+    q5b_trial_test2/3, q5b_trial_doc2/3, docs/spec-notes/layer5-captures.md section 8]."""
+    return "{0}.Activate {1} 1" if a.get("run_on_activate") else "{0}.Activate {1}"
+
+
+def round2_steps(i, a, ctx):
+    """Steps for the round 2 operations, or None for any other op."""
+    op = a.get("op")
+    if op == "activate" and a.get("run_on_activate"):
+        steps = [{"script": ref_script([_ref(a, i, "target"), a.get("actor", "player")], ctx,
+                                       [activate_line(a), "SetFunctionValue 1"], ())},
+                 {"frames": cs.SETTLE_FRAMES_LONG}]
+        if a.get("label"):
+            # As fnv.sim.actions/1 activate: observed by the container menu it opened.
+            steps += [cs.query(cs.function(["float fV"], [f"let fV := MenuMode {cs.CONTAINER_MENU}", "SetFunctionValue fV"]),
+                               a["label"], "opened"),
+                      {"console": "CloseAllMenus"}, {"frames": cs.SETTLE_FRAMES_LONG}]
+        return steps
+    if op == "set_ref_var":
+        r, var = _ref(a, i, "ref"), cs.plain_name(a.get("var"), f"action {i}: the variable")
+        return [{"script": ref_script([r], ctx, [f'{{0}}.SetVariable "{var}" {literal(a["value"])}', "SetFunctionValue 1"])},
+                {"frames": cs.SETTLE_FRAMES}]
+    if op == "get_ref":
+        r, label = _ref(a, i, "ref"), _label(a, i)
+        out = []
+        for f in _fields(a, i):
+            ref_field_expr("r", f)
+            out.append(cs.query(ref_script([r], ctx, [f"let fV := {ref_field_expr('{0}', f)}", "SetFunctionValue fV"]),
+                                label, f))
+        return out
+    if op == "activate_read":
+        # Activate and a read in the same script: shows whether the OnActivate block has
+        # run when Activate returns.
+        target, actor, label = _ref(a, i, "target"), a.get("actor", "player"), _label(a, i)
+        name, field, expr = read_expr(i, a.get("read"), 2)
+        script = ref_script([target, actor, name], ctx, [activate_line(a), f"let fV := {expr}", "SetFunctionValue fV"])
+        return [cs.query(script, label, field), {"frames": cs.SETTLE_FRAMES_LONG}]
+    if op == "sample_ref_var":
+        r, label = _ref(a, i, "ref"), _label(a, i)
+        var = cs.plain_name(a.get("var"), f"action {i}: the variable")
+        n = int(a.get("frames", 0))
+        if n <= 0:
+            raise InputError(f"action {i}: sample_ref_var needs positive frames")
+        script = ref_script([r], ctx, [f'let fV := {{0}}.GetVariable "{var}"', "SetFunctionValue fV"])
+        return [cs.query(script, f"{SAMPLE_PREFIX}:{label}", str(k)) for k in range(n)]
+    if op == "add_item_read":
+        # AddItem and the counts of `read` items in the same script; no pause after it,
+        # so a following sample_items starts on the next frame.
+        to, item, label = _ref(a, i, "to"), _ref(a, i, "item"), _label(a, i)
+        items = a.get("read") or []
+        if not isinstance(items, list) or not items:
+            raise InputError(f"action {i}: add_item_read needs a non-empty 'read' list of items")
+        script = ref_script([to, item] + items, ctx, [f"{{0}}.AddItem {{1}} {int(a['count'])} 1",
+                                                      f"SetFunctionValue ({counts_expr(items, 0, 2)})"], ())
+        return [cs.query(script, label, "counts")]
+    if op == "sample_items":
+        of, label = _ref(a, i, "of"), _label(a, i)
+        items = a.get("items") or []
+        n = int(a.get("frames", 0))
+        if not isinstance(items, list) or not items or n <= 0:
+            raise InputError(f"action {i}: sample_items needs 'items' and positive 'frames'")
+        script = ref_script([of] + items, ctx, [f"SetFunctionValue ({counts_expr(items, 0, 1)})"], ())
+        return [cs.query(script, f"{SAMPLE_PREFIX}:{label}", str(k)) for k in range(n)]
+    if op == "menu_gap":
+        # A menu held open for `frames` game loops (the container menu of `via`, opened by
+        # the player's activation, closed by the console's CloseAllMenus); the quest
+        # variable is read in the last loop of the menu and then once per loop.
+        via, q, label = _ref(a, i, "via"), _quest(a, i), _label(a, i)
+        var = cs.plain_name(a.get("var"), f"action {i}: the variable")
+        n, after = int(a.get("frames", 0)), int(a.get("after", 0))
+        if n <= 0 or after <= 0:
+            raise InputError(f"action {i}: menu_gap needs positive 'frames' and 'after'")
+        read = quest_script(q, ctx, [f'let fV := GetVariable "{var}" {{q}}', "SetFunctionValue fV"])
+        return ([{"script": ref_script([via], ctx, ["{0}.Activate player", "SetFunctionValue 1"], ())},
+                 {"frames": n - 1}, cs.query(read, f"{MENU_PREFIX}:{label}", "before"), {"console": "CloseAllMenus"}]
+                + [cs.query(read, f"{SAMPLE_PREFIX}:{label}", str(k)) for k in range(after)])
+    if op == "kill":
+        return [{"script": ref_script([_ref(a, i, "target")], ctx, ["{0}.Kill", "SetFunctionValue 1"], ())},
+                {"frames": SETTLE_KILL}]
+    if op == "evaluate_package":
+        return [{"script": ref_script([_ref(a, i, "of")], ctx, ["{0}.EvaluatePackage", "SetFunctionValue 1"], ())},
+                {"frames": SETTLE_PACKAGE}]
+    if op == "is_current_package":
+        # xNVSE's GetCurrentPackage compared with the package.
+        of, pkg, label = _ref(a, i, "of"), _ref(a, i, "package"), _label(a, i)
+        script = ref_script([of, pkg], ctx, ["let rP := {0}.GetCurrentPackage", "let fV := 0", "if rP == {1}",
+                                             "  let fV := 1", "endif", "SetFunctionValue fV"], ("ref rP", "float fV"))
+        return [cs.query(script, label, "current")]
+    return None
+
 
 def action_steps(i, a, ctx):
     """In-game steps for one fnv.script.actions/1 action (index i). Everything that names
@@ -374,8 +522,11 @@ def action_steps(i, a, ctx):
             raise InputError(f"action {i}: sample_var needs positive frames")
         script = quest_script(q, ctx, [f'let fV := GetVariable "{var}" {{q}}', "SetFunctionValue fV"])
         return [cs.query(script, f"{SAMPLE_PREFIX}:{label}", str(k)) for k in range(n)]
-    if op in SIM_OPS:
+    if op in SIM_OPS and not (op == "activate" and a.get("run_on_activate")):
         return cs.action_steps(i, a, ctx, time_mode="hour")
+    steps = round2_steps(i, a, ctx)
+    if steps is not None:
+        return steps
     raise InputError(f"action {i}: unknown op {op!r}")
 
 
@@ -393,6 +544,12 @@ def given_steps(i, g, ctx):
         return [cs.query(cs.number_query("{0}.GetItemCount {1}", ctx, [g.get("of"), g.get("item")]), label, "count")]
     if kind == "disabled":
         return [cs.query(cs.number_query("{0}.GetDisabled", ctx, [g.get("of")]), label, "disabled")]
+    if kind == "ref":
+        r = g.get("ref")
+        if not isinstance(r, str) or not r:
+            raise InputError(f"given {i}: needs 'ref'")
+        return [cs.query(ref_script([r], ctx, [f"let fV := {ref_field_expr('{0}', f)}", "SetFunctionValue fV"]), label, f)
+                for f in given_expected(g)]
     raise InputError(f"given {i}: unknown kind {kind!r}")
 
 
@@ -422,6 +579,10 @@ def given_expected(g):
         return {"count": g["count"]}
     if kind == "disabled":
         return {"disabled": g["disabled"]}
+    if kind == "ref":
+        out = {f"var.{n}": v for n, v in g.get("vars", {}).items()}
+        out.update({f: g[f] for f in REF_FIELDS if f in g})
+        return out
     raise InputError(f"unknown given kind {kind!r}")
 
 
@@ -457,6 +618,9 @@ def sample_observation(a, values):
     runs, skip = a.get("runs"), int(a.get("skip", 0))
     diag = {"label": a["label"], "samples": len(values), "changes": len(changes), "loops_between": frames,
             "all_drops": changes, "first": values[0][1] if values else None, "last": values[-1][1] if values else None}
+    if a.get("values"):
+        # Round 2 addition: the successive distinct values (a state variable's steps).
+        obs["values"] = [v for n, (_, v) in enumerate(values) if n == 0 or v != values[n - 1][1]]
     if runs is None:
         obs["changes"] = len(changes)
     else:
@@ -467,14 +631,58 @@ def sample_observation(a, values):
     return obs, diag
 
 
+def split_counts(text, n):
+    """The item counts of a '<count>|<count>' result (integers)."""
+    parts = str(text).split("|")
+    if len(parts) != n:
+        raise InputError(f"expected {n} counts, got {text!r}")
+    return [int(round(float(x))) for x in parts]
+
+
+def items_observation(a, rows):
+    """What a sample_items action observed, per item: `first.<item>` (the count at the
+    first sample), `final.<item>` (at the last) and `settled.<item>` (the index of the
+    first sample from which the count stays at its final value)."""
+    items = a["items"]
+    bad = [r for r in rows if "error" in r]
+    if bad or not rows:
+        return {"error": f"{len(bad)} of {len(rows)} samples failed" + (f": {bad[0]['error']}" if bad else "")}
+    series = [split_counts(r["value"], len(items)) for r in sorted(rows, key=lambda r: int(r["field"]))]
+    obs = {}
+    for k, item in enumerate(items):
+        values = [row[k] for row in series]
+        settled = len(values) - 1
+        while settled > 0 and values[settled - 1] == values[-1]:
+            settled -= 1
+        obs.update({f"first.{item}": values[0], f"final.{item}": values[-1], f"settled.{item}": settled})
+    return obs
+
+
+def menu_gap_observation(a, before, rows):
+    """What a menu_gap action observed: `drop`, the variable's value read in the last
+    loop of the menu minus its value at the first change after the menu closed."""
+    if before is None or "error" in before:
+        return {"error": f"the value in the menu was not read: {before and before.get('error')}"}
+    bad = [r for r in rows if "error" in r]
+    if bad:
+        return {"error": f"{len(bad)} samples failed: {bad[0]['error']}"}
+    v0 = before["value"]
+    for r in sorted(rows, key=lambda r: int(r["field"])):
+        if r["value"] != v0:
+            return {"drop": v0 - r["value"]}
+    return {"error": f"no change in {len(rows)} loops after the menu"}
+
+
 def golden_document(doc, mods, results, source=None):
     """fnv.script.trace/1 golden: one observation per labelled action (fields typed as
     in the trace contract), the given preconditions checked against the save."""
     acts = doc.get("actions", [])
-    by_label, samples, given = {}, {}, {}
+    by_label, samples, given, menus = {}, {}, {}, {}
     for r in results:
         label = r["label"]
-        if label.startswith(GIVEN_PREFIX + ":"):
+        if label.startswith(MENU_PREFIX + ":"):
+            menus[label.split(":", 1)[1]] = r
+        elif label.startswith(GIVEN_PREFIX + ":"):
             given.setdefault(int(label.split(":", 1)[1]), {})[r["field"]] = r
         elif label.startswith(SAMPLE_PREFIX + ":"):
             samples.setdefault(label.split(":", 1)[1], []).append(r)
@@ -495,7 +703,15 @@ def golden_document(doc, mods, results, source=None):
         label = a.get("label")
         if not label:
             continue
-        if a.get("op") == "sample_var":
+        if a.get("op") == "menu_gap":
+            observations.append({"label": label, "step": i,
+                                 **menu_gap_observation(a, menus.get(label), samples.get(label, []))})
+            continue
+        if a.get("op") == "sample_items":
+            rows = samples.get(label, [])
+            observations.append({"label": label, "step": i, **items_observation(a, rows)})
+            continue
+        if a.get("op") in ("sample_var", "sample_ref_var"):
             rows = samples.get(label, [])
             bad = [r for r in rows if "error" in r]
             values = [(int(r["field"]), r["value"]) for r in rows if "error" not in r]
@@ -515,6 +731,11 @@ def golden_document(doc, mods, results, source=None):
                 f = "value"
             if "error" in r:
                 obs.setdefault("errors", {})[f] = r["error"]
+            elif a.get("op") == "add_item_read":
+                obs.update({f"count.{k}": n for k, n in zip(a["read"], split_counts(r.get("value"), len(a["read"])))})
+            elif a.get("op") == "get_package":
+                v = r.get("value")
+                obs[f] = cs.to_global(v, mods) if isinstance(v, str) and v.strip() and int(v, 16) else None
             else:
                 obs[f] = typed(f, r.get("value"))
         observations.append(obs)
