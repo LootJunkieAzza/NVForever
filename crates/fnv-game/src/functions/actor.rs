@@ -6,6 +6,14 @@
 //! (undamaged) and the other values at 0 here [hypothesis: their base values (skills,
 //! health, derived stats) are not read yet; a new character has no crippled limbs] and
 //! change through the setters.
+//!
+//! Each value is a permanent part (base plus permanent modifiers: SetActorValue,
+//! ModActorValue, ForceActorValue) minus a damage part (DamageActorValue, healed by
+//! RestoreActorValue, which never heals past zero damage) [documented: catalogue
+//! summaries of DamageActorValue and RestoreActorValue; observed: Contreras' supplies
+//! restoring 100 of a head condition damaged by 40 left it at 100,
+//! `L5.quest.effect_start`, layer5-captures.md §9.3 b]. Base and permanent modifiers are
+//! kept together [hypothesis: nothing captured tells them apart yet].
 
 use super::{base_of, none, yes, Args, Ctx};
 use crate::game::{event, Game};
@@ -17,11 +25,68 @@ fn special(code: u16) -> Option<&'static str> {
     (5..=11).contains(&code).then(|| SPECIAL[(code - 5) as usize])
 }
 
-pub fn actor_value(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
+/// The names of the actor value codes 0–76 [documented: xEdit `ActorValue`,
+/// `schemas/fnv/common.json`].
+const AV_NAMES: [&str; 77] = [
+    "Aggression", "Confidence", "Energy", "Responsibility", "Mood", "Strength", "Perception", "Endurance",
+    "Charisma", "Intelligence", "Agility", "Luck", "Action Points", "Carry Weight", "Critical Chance",
+    "Heal Rate", "Health", "Melee Damage", "Damage Resistance", "Poison Resistance", "Rad Resistance",
+    "Speed Multiplier", "Fatigue", "Karma", "XP", "Perception Condition", "Endurance Condition",
+    "Left Attack Condition", "Right Attack Condition", "Left Mobility Condition", "Right Mobility Condition",
+    "Brain Condition", "Barter", "Big Guns", "Energy Weapons", "Explosives", "Lockpick", "Medicine",
+    "Melee Weapons", "Repair", "Science", "Guns", "Sneak", "Speech", "Survival", "Unarmed",
+    "Inventory Weight", "Paralysis", "Invisibility", "Chameleon", "Night Eye", "Turbo", "Fire Resistance",
+    "Water Breathing", "Rad Level", "Bloody Mess", "Unarmed Damage", "Assistance", "Electric Resistance",
+    "Frost Resistance", "Energy Resistance", "EMP Resistance", "Variable01", "Variable02", "Variable03",
+    "Variable04", "Variable05", "Variable06", "Variable07", "Variable08", "Variable09", "Variable10",
+    "Ignore Crippled Limbs", "Dehydration", "Hunger", "Sleep Deprivation", "Damage Threshold",
+];
+
+fn squash(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace() && *c != '_').flat_map(char::to_lowercase).collect()
+}
+
+/// An actor value code from its name: the script name the decoder uses
+/// (`encodings.json`, e.g. `NightEye`, `PerceptionCondition`) or the xEdit name, either
+/// without regard to case and spaces (`Nighteye`, `Night Eye`), or a number.
+pub fn av_code(g: &Game, name: &str) -> Result<u16, String> {
+    if let Ok(n) = name.parse::<u16>() {
+        return Ok(n);
+    }
+    let want = squash(name);
+    if let Some(m) = g.data.table.enums.get("actor_value") {
+        if let Some((&c, _)) = m.iter().find(|(_, n)| squash(n) == want) {
+            return Ok(c);
+        }
+    }
+    AV_NAMES.iter().position(|n| squash(n) == want).map(|i| i as u16).ok_or_else(|| format!("no actor value named {name:?}"))
+}
+
+/// The permanent part of an actor value (base and permanent modifiers).
+fn permanent(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
     match special(code) {
         Some(name) => g.world.actor_value(actor, name).map(|v| v as f64).map_err(|e| e.to_string()),
         None => Ok(g.extra.get(&actor).and_then(|e| e.actor_values.get(&code)).copied().unwrap_or(default_value(code))),
     }
+}
+
+/// The damage an actor value has taken (0 or more).
+pub fn damage(g: &Game, actor: FormId, code: u16) -> f64 {
+    g.extra.get(&actor).and_then(|e| e.av_damage.get(&code)).copied().unwrap_or(0.0)
+}
+
+fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
+    let e = g.extra.entry(actor).or_default();
+    if d > 0.0 {
+        e.av_damage.insert(code, d);
+    } else {
+        e.av_damage.remove(&code);
+    }
+}
+
+/// The current value: the permanent part minus the damage.
+pub fn actor_value(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
+    Ok(permanent(g, actor, code)? - damage(g, actor, code))
 }
 
 fn set_value(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String> {
@@ -34,39 +99,71 @@ fn set_value(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), Strin
     }
 }
 
+/// Make the current value exactly `v` with no damage (the state a capture save reports:
+/// the runner's `given` of kind `actor_value`).
+pub fn set_current(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String> {
+    set_damage(g, actor, code, 0.0);
+    set_value(g, actor, code, v)
+}
+
 pub fn get_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     Ok(Value::Num(actor_value(g, r, a.code(0)?)?))
 }
 
-/// The base value: for S.P.E.C.I.A.L. the world's value (base unless set), otherwise
-/// the stored value [hypothesis: no separate modifiers are kept yet].
+/// The base value: the permanent part, without damage [hypothesis: base and permanent
+/// modifiers are not kept apart].
 pub fn get_base_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    get_actor_value(g, ctx, a)
+    let r = ctx.subject()?;
+    Ok(Value::Num(permanent(g, r, a.code(0)?)?))
 }
 
-/// `SetActorValue` / `ForceActorValue`: the value becomes the given number.
+/// `SetActorValue`: the base value becomes the given number; damage stays [documented:
+/// catalogue summary, "sets the base value"].
 pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     set_value(g, r, a.code(0)?, a.num(1)?)?;
     none()
 }
 
-/// `ModActorValue` / `RestoreActorValue`: add the amount [hypothesis: Restore is not
-/// capped at the base value yet].
-pub fn mod_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+/// `ForceActorValue`: the current value becomes the given number, by changing the
+/// permanent part by the difference [documented: catalogue notes].
+pub fn force_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let code = a.code(0)?;
-    let v = actor_value(g, r, code)? + a.num(1)?;
+    let diff = a.num(1)? - actor_value(g, r, code)?;
+    let v = permanent(g, r, code)? + diff;
     set_value(g, r, code, v)?;
     none()
 }
 
+/// `ModActorValue`: a permanent change by the amount [documented: catalogue summary].
+pub fn mod_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let code = a.code(0)?;
+    let v = permanent(g, r, code)? + a.num(1)?;
+    set_value(g, r, code, v)?;
+    none()
+}
+
+/// `DamageActorValue`: the damage grows by the amount [documented: catalogue summary; a
+/// negative amount heals at most the damage taken, hypothesis].
 pub fn damage_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let code = a.code(0)?;
-    let v = actor_value(g, r, code)? - a.num(1)?;
-    set_value(g, r, code, v)?;
+    let d = damage(g, r, code) + a.num(1)?;
+    set_damage(g, r, code, d);
+    none()
+}
+
+/// `RestoreActorValue`: the damage shrinks by the amount, never below zero, so the value
+/// never rises past its permanent part [documented: catalogue notes; observed:
+/// `L5.quest.effect_start`].
+pub fn restore_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let code = a.code(0)?;
+    let d = damage(g, r, code) - a.num(1)?.max(0.0);
+    set_damage(g, r, code, d);
     none()
 }
 
