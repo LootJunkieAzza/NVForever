@@ -361,3 +361,9 @@ with the animation data notes.
 folder per body and stance prefix, and each clip's root motion: accumulation-root
 translation and turn per cycle, ground speed, text keys) is defined in
 docs/spec-notes/actors.md §8.5 together with the locomotion notes.
+
+# Weapon stance clips (workstream 5, part H)
+
+`fnvtool actor weapons` (`fnv.actor.weapons/1`: per stance prefix the holster, equip, aim
+and unequip clips with their `prn:` keys and track priorities, and the weapon each placed
+NPC draws) is defined in docs/spec-notes/actors.md §9.5 together with the weapon notes.

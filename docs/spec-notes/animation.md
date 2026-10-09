@@ -150,8 +150,10 @@ by the tree. None of this is verified; see §5 and §7.
   1/2 Hand, Pistol Ballistic/Energy, Rifle Ballistic/Automatic/Energy, Handle, Launcher,
   Grenade Throw, Land Mine, Mine Drop, Thrown) [documented: xEdit wbWeaponAnimTypeEnum];
   the mapping (`h2h`, `1hm`, `2hm`, `1hp`, `2hr`, `2ha`, `2hh`, `2hl`, `1gt`, `1lm`,
-  `1md`; no separate energy prefixes) and the `mt`/`sneak`/`swim`/`pa`/`vats` stance
-  prefixes are [hypothesis].
+  `1md`; no separate energy prefixes) is [observed] for every type an NPC carries, from
+  the weapon parts the clips animate and the WEAP attack animations
+  (docs/spec-notes/actors.md §9.3); `1lm`/`1md` and the `mt`/`sneak`/`swim`/`pa`/`vats`
+  stance prefixes are [hypothesis].
 - Sequence names (270 kinds, `SpecialIdle_…` collapsed): `SpecialIdle_*` 1,525, Equip 138,
   Unequip 135, Aim 132, Forward 115, FastForward 96, Holster 92, Idle 86, AttackRight 81,
   Backward 77, TurnRight 75, TurnLeft 74, … — the animation group names Layer 6 will
@@ -201,8 +203,8 @@ of 18,881; creatures: 94,471 of 97,292.
 6. **Condition functions without an opcode** in `schemas/script/functions.json` (451
    IsLastIdlePlayed, 258, 123): should the generated catalogue take xEdit's index for
    them, as it does for other unused vanilla functions?
-7. **File prefixes** (§3.2): is the mapping to WEAP animation types right, and where do
-   energy pistols and rifles take their animations?
+7. ~~File prefixes~~ → answered from the data (2026-10-09, actors.md §9.3): energy
+   pistols use `1hp`, energy rifles `2hr`, thrown weapons `1gt`.
 8. **Fallout 3 DLC folders without skeletons** (224 files): leftovers to ignore?
 
 ## 6. CLI contract
