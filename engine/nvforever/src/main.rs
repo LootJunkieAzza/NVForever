@@ -15,6 +15,7 @@ mod fly;
 mod lights;
 mod lod;
 mod lodgen;
+mod nav;
 mod reflection;
 mod ripples;
 mod imagespace;
@@ -148,6 +149,10 @@ struct Args {
     /// Added to the z of --pos (e.g. the eye height above a captured player position).
     #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
     eye_height: f32,
+    /// With --screenshot: seconds to wait after the start's cells are loaded (shaders
+    /// compile meanwhile; longer to catch something moving, e.g. an --npc-travel NPC).
+    #[arg(long, default_value_t = 4.0, requires = "screenshot")]
+    screenshot_delay: f32,
     /// With --screenshot: also write the lab's frame document (fnv.frame/1) here.
     #[arg(long, requires = "screenshot")]
     frame_json: Option<PathBuf>,
@@ -190,6 +195,20 @@ struct Args {
     /// Test aid with --play: walk forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0, requires = "play")]
     auto_walk: f32,
+    /// An NPC walks to a target over the navmesh: "ACTOR=TARGET", each a placed
+    /// reference (Editor ID or FormID) or the target as "x,y,z" (repeatable;
+    /// docs/design/navmesh.md §5).
+    #[arg(long)]
+    npc_travel: Vec<String>,
+    /// Walking speed of --npc-travel NPCs, game units per second.
+    #[arg(long, default_value_t = nav::WALK_SPEED)]
+    npc_speed: f32,
+    /// The free camera follows the first --npc-travel NPC (through doors too).
+    #[arg(long, requires = "npc_travel", conflicts_with = "play")]
+    follow_npc: bool,
+    /// Draw the navmesh near the camera and the travellers' paths.
+    #[arg(long)]
+    show_navmesh: bool,
 }
 
 #[derive(Component)]
@@ -349,6 +368,14 @@ fn main() -> AppExit {
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
+    let nav_state = if args.npc_travel.is_empty() && !args.show_navmesh {
+        None
+    } else {
+        match nav::NavState::build(&world, &args.npc_travel, args.npc_speed, args.show_navmesh, args.follow_npc) {
+            Ok(n) => Some(n),
+            Err(e) => return fail(e),
+        }
+    };
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -388,6 +415,7 @@ fn main() -> AppExit {
         hide: args.hide.iter().map(|h| h.to_ascii_lowercase()).collect(),
         interior,
         light_scale: args.light_scale,
+        managed: nav_state.as_ref().map(|n| n.travellers.iter().map(|t| t.reference).collect()).unwrap_or_default(),
         stats: Default::default(),
     })
     .insert_resource(world)
@@ -416,6 +444,24 @@ fn main() -> AppExit {
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);
+    }
+    if let Some(n) = nav_state {
+        let follow = n.follow;
+        app.insert_resource(n).add_systems(Startup, nav::log_startup).add_systems(
+            Update,
+            (nav::drive.after(world::stream), nav::follow_camera.after(fly::fly).before(world::stream), nav::draw.after(nav::drive)),
+        ).add_systems(
+            Last,
+            nav::report,
+        );
+        if play.is_none() {
+            // Travellers' door trips (and the camera following one) use the play mode's
+            // travel message; without --play, the renderer applies it alone.
+            app.add_message::<nvf_play::Travel>();
+            if follow {
+                app.add_systems(Update, (worldspace::switch, world::travel).chain().after(nav::drive));
+            }
+        }
     }
     if args.screenshot.is_some() {
         app.add_systems(Update, screenshot_and_exit);
@@ -655,7 +701,7 @@ fn screenshot_and_exit(
     }
     let Some(r) = *ready_at else { return };
     // Pipelines compile during the first seconds; give them time after the last load.
-    if *frames < 10_000 && *elapsed >= r + 4.0 {
+    if *frames < 10_000 && *elapsed >= r + args.screenshot_delay.max(0.0) {
         if let Some(path) = &args.screenshot {
             for f in models.failures.iter().take(20) {
                 warn!("model: {f}");

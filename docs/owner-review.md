@@ -335,3 +335,25 @@ coordinators could not message each other, so this section is how they share sta
    - Clips are not chosen by situation (walk, sit, talk); that is Layer 6.
    - `nvf-viewer --anim` needs #54's accumulation-root rule (its follow-up).
    - The body skin `.egt` and race FaceGen data are unused.
+
+## Navmesh and travelling NPCs (2026-10-09, session "navmesh")
+
+Owner request: navmesh building for worldspaces and AI, tested with an NPC navigating
+the world, able to tell it can reach its package's target through interiors and
+worldspaces. Design: `docs/design/navmesh.md`; facts: `docs/spec-notes/navmesh.md`.
+
+1. **New crate `fnv-nav`** (reader, nav graph, hierarchical paths with door routes and
+   locks, path following), **`fnvtool nav`** (survey, graph, near, path, walk) and
+   **`nvforever --npc-travel / --follow-npc / --show-navmesh`**. Headless physics walks
+   all arrive, including Doc Mitchell's house to the Strip through 7 doors and 8 spaces.
+2. **Decisions taken (design §7), each reversible:** NPC walking speed 86.8 units/s;
+   ledge links unused by default; locked doors closed to actors without the key; in the
+   walk test, other actors and hinged doors are left out of the collision world.
+3. **Animated in-cell doors** (your request, with NPCs waiting for the Open animation):
+   designed in §6.1 and queued as a separate task; not part of this change.
+4. **I ran the engine before reading the smoke-lock note above** (item 5 of the NPC
+   coordinator's section): the first `nvforever` runs of this session took neither
+   lock. Later smoke runs take both.
+5. **A useful reference if you can capture it:** the GECK's "Test Pathfinding" tool
+   (your Menus export) shows the path an actor would take between two triangles. A few
+   captured paths would let the lab compare our routes with the original's.
