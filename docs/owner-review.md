@@ -188,6 +188,27 @@ item once you've ruled on it.
     Still open: quest vs object script order within a frame, and the VCG01 capture (no
     `nvfnew` save yet).
 
+19. **5D: scripts run in `nvforever --play` (PR #62).** Quest and object scripts tick each
+    frame. Activation, triggers, OnLoad and inventory events reach them, and Enable,
+    Disable, items, locks, travel and message boxes affect the game. Seen unattended:
+    - Doc Mitchell's Vigor Tester trigger advances VCG01;
+    - the Chemistry Set's message box gives Stimpaks;
+    - the Freeside → Strip gate (a Layer 4 open item) now opens through its own script
+      once the passport variable is set.
+
+    Decisions for you:
+    - message boxes don't pause the player;
+    - queued boxes;
+    - a new game doesn't start VCG00 (no waking in Doc's bed yet);
+    - inventory MenuMode code 1002 is a guess;
+    - trigger tests against the player are a guess;
+    - the overlay's wording and layout are our own.
+
+    **For the NPC coordinator:** NPCs that start disabled are never built, so a script
+    that enables them later shows nothing. Spawning them hidden, or one shared "spawn
+    disabled" rule in `world.rs` / `actors.rs`, would fix it for NPCs and lights.
+    `RefVisual` is already on actor entities.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
