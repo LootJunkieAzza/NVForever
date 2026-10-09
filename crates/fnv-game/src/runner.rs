@@ -126,7 +126,10 @@ pub enum Action {
     /// default action.
     PlayerActivate { target: String, #[serde(default)] actor: Option<String> },
     /// A dialogue line (INFO) is said: its result scripts run on the speaker.
-    SayInfo { info: String, #[serde(default)] speaker: Option<String> },
+    SayInfo { info: String, #[serde(default)] speaker: Option<String>, #[serde(default)] force: bool },
+    /// The first of several lines whose conditions pass is said (the speaker picks the
+    /// line that fits, as dialogue does); observation `said`: the INFO, or none.
+    SayFirst { infos: Vec<String>, #[serde(default)] speaker: Option<String>, #[serde(default)] label: Option<String> },
     /// A package starts, finishes or changes on an actor.
     Package { actor: String, package: String, event: String },
     /// A `SayTo` line finished (SayToDone blocks of the speaker).
@@ -145,6 +148,8 @@ pub enum Action {
     /// Enabled state, cell, position and Layer 5 flags of a reference.
     GetRef { of: String, #[serde(default)] label: Option<String> },
     Kill { actor: String, #[serde(default)] killer: Option<String> },
+    /// A comment in the input (why the next stand-in is there); no effect, no frames.
+    Note { text: String },
 }
 
 /// Frames that pass after an action (layer5-captures.md §4.1).
@@ -157,6 +162,7 @@ fn frames_after(a: &Action) -> u64 {
         Action::AddItem { .. } | Action::RemoveItem { .. } | Action::Enable { .. } | Action::Disable { .. } | Action::SetGlobal { .. } => 11,
         Action::GetItemCount { .. } | Action::GetDisabled { .. } | Action::GetGlobal { .. } => 11,
         Action::GetQuest { .. } | Action::SampleVar { .. } | Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } => 0,
+        Action::Note { .. } => 0,
         // Stand-ins: one frame.
         _ => 1,
     }
@@ -169,6 +175,19 @@ pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
     }
     if s.starts_with("0x") || s.starts_with("0X") {
         return s.parse().map_err(|e: fnv_sim::form::BadFormId| e.to_string());
+    }
+    if let Some(script) = s.strip_prefix("scripted:") {
+        // The placed reference whose base form runs this script (the first in FormID
+        // order when several do).
+        let sc = resolve(g, script)?;
+        return g
+            .world
+            .placed
+            .refs
+            .values()
+            .find(|p| g.data.script_of_base(p.base) == Some(sc))
+            .map(|p| p.id)
+            .ok_or_else(|| format!("no placed reference runs {script}"));
     }
     if let Some(r) = g.world.placed.by_edid(s) {
         return Ok(r);
@@ -388,7 +407,7 @@ fn step(g: &mut Game, a: &Action) -> Result<Option<(String, Map<String, Json>)>,
             g.set_objective(q, *index, *displayed, *completed);
         }
         Action::GetQuest { .. } | Action::SampleVar { .. } => unreachable!("handled by the caller"),
-        Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } => {}
+        Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } | Action::Note { .. } => {}
         Action::AddItem { to, item, count } => {
             let (to, item) = (resolve(g, to)?, resolve(g, item)?);
             call(g, 0x1002, Some(to), vec![form_arg(item), num_arg(*count as f64)]);
@@ -455,13 +474,36 @@ fn step(g: &mut Game, a: &Action) -> Result<Option<(String, Map<String, Json>)>,
             let t = resolve(g, target)?;
             g.activate(actor, t, ActMode::Hand)?;
         }
-        Action::SayInfo { info, speaker } => {
+        Action::SayInfo { info, speaker, force } => {
             let i = resolve(g, info)?;
             let s = match speaker {
                 Some(s) => Some(resolve(g, s)?),
                 None => None,
             };
-            g.run_info(i, s)?;
+            g.run_info(i, s, *force)?;
+        }
+        Action::SayFirst { infos, speaker, label: l } => {
+            let s = match speaker {
+                Some(s) => Some(resolve(g, s)?),
+                None => None,
+            };
+            let mut said = Json::Null;
+            for name in infos {
+                let i = resolve(g, name)?;
+                let def = g.data.infos.get(&i).ok_or_else(|| format!("{name} is not a dialogue line"))?;
+                let sp = s.or(def.speaker);
+                let pass = g.conditions_pass(&def.conditions.clone(), sp, Some(FormId::PLAYER_REF), &format!("INFO {i}"));
+                if pass {
+                    g.run_info(i, s, true)?;
+                    said = json!(i.to_string());
+                    break;
+                }
+            }
+            if said.is_null() {
+                return Err("no line's conditions pass".into());
+            }
+            obs.insert("said".into(), said);
+            lab = l.clone();
         }
         Action::Package { actor, package, event: ev } => {
             let (a, p) = (resolve(g, actor)?, resolve(g, package)?);
@@ -707,7 +749,8 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::GetDisabled { label, .. }
         | Action::GetGlobal { label, .. }
         | Action::GetVar { label, .. }
-        | Action::GetRef { label, .. } => label.clone(),
+        | Action::GetRef { label, .. }
+        | Action::SayFirst { label, .. } => label.clone(),
         _ => None,
     }
 }
