@@ -719,7 +719,7 @@ fn drive_body(
 
     // Attacks and reloads (combat): the clips of the weapon, their timing in the rig in
     // view, and whether combat started one since the last frame.
-    let attack = m.intern(attack_stem(anim.attack.as_deref()));
+    let attack = if anim.power { m.intern("attackpower".to_string()) } else { m.intern(attack_stem(anim.attack.as_deref())) };
     let reload = anim.reload.clone().map(|r| m.intern(r));
     let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
