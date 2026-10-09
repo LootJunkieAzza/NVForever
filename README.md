@@ -18,7 +18,7 @@ viewer renders meshes with textures, skinning and animation
 | 2 | NIF, DDS, KF assets, viewer | 160/160 block types, 1,036,695 blocks exact; 56/56 parity scenarios; viewer (owner visual check pending) |
 | 3 | World and rendering | in progress: world data checked on the full load order; free-camera explorer draws terrain and objects (no LOD, sky, water or SpeedTree yet) |
 | 4 | Core simulation | started: headless `fnv-sim` (forms, references, inventories with per-item extra data and equipping, encumbrance, leveled lists, activation, game clock, container respawn, enable parents, placed explosives, delta state, action traces); container contents and item value/weight match an independent oracle; leveled-list distribution and in-game trace scenarios await captures; collision and physics in parallel workstreams ([docs/design/layer4.md](docs/design/layer4.md)) |
-| 5 | Scripting | planned 2026-10-09: bytecode reader and interpreter, quests, conditions, event dispatch ([docs/design/layer5.md](docs/design/layer5.md)) |
+| 5 | Scripting | in progress: every compiled script decodes (`fnv-script`); interpreter, quests, conditions and events (`fnv-game`, 18/22 `L5` scenarios against in-game captures); scripts run in `nvforever --play`; the intro chain advances headless with stand-ins for Layer 6 ([docs/design/layer5.md](docs/design/layer5.md)) |
 | 6–7 | Gameplay, UI/audio/saves | not started |
 
 ## Where things go (separate from the game)
