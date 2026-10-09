@@ -9,8 +9,11 @@
 //!   teleports its activator there, into the destination door's cell, is the default
 //!   activation of simulation.md §5, observed for Doc Mitchell's front door]. That these
 //!   are places to stand is [hypothesis: the game puts the player there on entering by that
-//!   door]. What the game does with a start over nothing, or where `coc` puts the player in
-//!   an interior, is not documented here (capture proposed in physics.md §6.7).
+//!   door].
+//! - **The cell's own spot** ([`coc_spot`]), where the console's `coc` puts the player and
+//!   where the game put a player who fell out of the gas station [observed: capture
+//!   pc_coc, physics.md §6.7]: the cell's COCMarkerHeading (its position and heading),
+//!   else its XMarker (heading 0), else the first door arrival into it (heading 0).
 //! - **Standing test**: the arrival rule's vertical ray (physics.md §6.2) finds a support
 //!   that is walkable (its normal within the controller's `max_slope_deg`) and is not the
 //!   reference the spot is for, and the capsule fits on it [engineering choice].
@@ -25,16 +28,24 @@ use fnv_phys::{layers, CharacterParams, Filter, Owner};
 use fnv_sim::{FormId, RefTable};
 
 /// Below the lowest bound of an interior's static collision by this much the player has
-/// fallen out of the cell [engineering choice: a little under the 1000 units of the
-/// exterior rule, as interiors have no terrain to fall back onto; a fall of 800 units
-/// takes about 1.5 s at the game's gravity].
-pub const INTERIOR_FELL_THROUGH: f32 = 800.0;
+/// fallen out of the cell [engineering choice within what capture pc_coc allows: the game
+/// let a player put over nothing in the gas station fall for at least 0.59 s and caught
+/// them by 1.12 s, between about 100 and 410 units under the cell's lowest collision,
+/// physics.md §6.7].
+pub const INTERIOR_FELL_THROUGH: f32 = 256.0;
+
+/// Base forms of the markers `coc` uses (FalloutNV.esm STAT records) [observed: `esm
+/// inventory`; the roles from capture pc_coc].
+pub const COC_MARKER: u32 = 0x0000_0032;
+pub const X_MARKER: u32 = 0x0000_003B;
 
 /// Where a spot comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     /// The XTEL destination of door `from`, whose destination door `door` is in the cell.
     DoorArrival { from: u32, door: u32 },
+    /// A marker reference of the cell (COCMarkerHeading or XMarker).
+    Marker(u32),
 }
 
 /// A candidate standing spot.
@@ -65,9 +76,35 @@ pub fn arrivals_into(links: impl IntoIterator<Item = DoorLink>, cell: u32, cell_
         .map(|l| Spot { feet: l.pos, heading: l.rot_z, source: Source::DoorArrival { from: l.from, door: l.dest_door } })
         .collect();
     v.sort_by_key(|s| match s.source {
-        Source::DoorArrival { from, .. } => from,
+        Source::DoorArrival { from, .. } | Source::Marker(from) => from,
     });
     v
+}
+
+/// The cell's own spot from its references `(FormID, base, position, rotation)` in FormID
+/// order and its door arrivals: the first COCMarkerHeading (position, z rotation as
+/// heading), else the first XMarker, else the first door arrival, both facing north
+/// [observed: `coc` in Doc Mitchell's house went to its COCMarkerHeading facing its 270°;
+/// in the gas station and the saloon, which have none, to their one XMarker facing 0; in
+/// the general store, which has neither, to the XTEL position of the door into it facing
+/// 0, not the XTEL's −90° (capture pc_coc); which of several XMarkers or doors is
+/// [hypothesis]].
+pub fn coc_spot(refs: impl IntoIterator<Item = (u32, u32, [f32; 3], [f32; 3])>, arrivals: &[Spot]) -> Option<Spot> {
+    let (mut coc, mut x) = (None, None);
+    for (id, base, pos, rot) in refs {
+        if base == COC_MARKER && coc.is_none() {
+            coc = Some(Spot { feet: pos, heading: rot[2], source: Source::Marker(id) });
+        } else if base == X_MARKER && x.is_none() {
+            x = Some(Spot { feet: pos, heading: 0.0, source: Source::Marker(id) });
+        }
+    }
+    coc.or(x).or_else(|| arrivals.first().map(|a| Spot { heading: 0.0, ..*a }))
+}
+
+/// [`coc_spot`] of interior `cell` from the plugins.
+pub fn cell_spot(refs: &RefTable, cell: u32) -> Option<Spot> {
+    let placed = refs.by_cell.get(&FormId(cell)).into_iter().flatten().filter_map(|id| refs.get(*id)).map(|r| (r.id.0, r.base.0, r.pos, r.rot));
+    coc_spot(placed, &door_arrivals(refs, cell))
 }
 
 /// The arrival points of every door leading into interior `cell` (from the plugins).
@@ -248,7 +285,7 @@ mod tests {
 
     #[test]
     fn fell_out_below_the_lowest_collision_by_the_margin() {
-        assert!(!fell_out(7000.0, 7500.0));
+        assert!(!fell_out(7300.0, 7500.0));
         assert!(!fell_out(7500.0 - INTERIOR_FELL_THROUGH, 7500.0));
         assert!(fell_out(7500.0 - INTERIOR_FELL_THROUGH - 1.0, 7500.0));
     }
@@ -269,5 +306,20 @@ mod tests {
         assert!((h - FRAC_PI_2).abs() < 1e-5 && p.abs() < 1e-5, "east, level");
         let (h, p) = aim([0.0, 0.0, 10.0], [0.0, -10.0, 0.0]);
         assert!((h - PI).abs() < 1e-5 && (p + PI / 4.0).abs() < 1e-5, "south, 45° down");
+    }
+
+    #[test]
+    fn the_cells_own_spot_is_its_coc_marker_else_its_xmarker_else_a_door_arrival() {
+        let arrival = Spot { feet: [5.0, 6.0, 7.0], heading: -1.57, source: Source::DoorArrival { from: 9, door: 8 } };
+        let coc = (3, COC_MARKER, [1.0, 2.0, 3.0], [0.0, 0.0, 4.71]);
+        let x = (2, X_MARKER, [4.0, 4.0, 4.0], [0.0, 0.0, 1.0]);
+        let other = (1, 0x1234, [0.0; 3], [0.0; 3]);
+        let s = coc_spot([other, x, coc], &[arrival]).unwrap();
+        assert_eq!((s.feet, s.heading, s.source), ([1.0, 2.0, 3.0], 4.71, Source::Marker(3)));
+        let s = coc_spot([other, x], &[arrival]).unwrap();
+        assert_eq!((s.feet, s.heading, s.source), ([4.0, 4.0, 4.0], 0.0, Source::Marker(2)));
+        let s = coc_spot([other], &[arrival]).unwrap();
+        assert_eq!((s.feet, s.heading), ([5.0, 6.0, 7.0], 0.0));
+        assert!(coc_spot([other], &[]).is_none());
     }
 }
