@@ -242,10 +242,41 @@ by eye]: a morphed vertex = base vertex + Σ coefficientᵢ × scaleᵢ × delta
 symmetric (FGGS) and asymmetric (FGGA) modes, for every part with an `.egm` beside its
 model whose vertex count covers the shape; the face texture = the head's texture (the
 race ICON) + Σ FGTSᵢ × scaleᵢ × EGT modeᵢ, upsampled bilinearly and flipped vertically.
-The race FaceGen data, the RACE "FaceGen - Main clamp" / "Face clamp" values and the
-body's "Upper Body Texture" `.egt` are not used yet. In the Goodsprings flight
-(`--auto-fly 4000`, 40 s) 267 shapes were morphed and 34 faces textured, with no EGM
-mismatching its shape.
+The race FaceGen data and the RACE "FaceGen - Main clamp" / "Face clamp" values are not
+used (§4.2). In the Goodsprings flight (`--auto-fly 4000`, 40 s) 267 shapes were morphed
+and 34 faces textured, with no EGM mismatching its shape.
+
+### 4.1 Body skin
+
+- The race's body index 3 ("Upper Body Texture", §1.1) names an `.egt`:
+  `characters\_male\upperbodyhumanmale.egt` for every adult human male race, and
+  `…female`, `…child`, `…old` variants [observed: `fnvtool actor forms`]. These files
+  have the documented EGT layout with 32 × 32 images, 50 symmetric and 0 asymmetric
+  modes, 153,864 bytes each — the size the header implies [observed: 5 files checked],
+  so FGTS (50 values) fits them as it fits the head's.
+- Rule [hypothesis: the face rule of §4 applied to the body; not checked against the
+  game]: the body skin texture = the race's upper body ICON
+  (`characters\male\upperbodymale.dds`, 1024 × 1024 [observed]) + Σ FGTSᵢ × scaleᵢ × EGT
+  modeᵢ, upsampled bilinearly and flipped vertically. The engine gives it to every shape
+  whose diffuse is that texture — the race's upper body and skin shapes inside outfits
+  that name it — and halves it to 512 × 512 to keep one copy per actor small
+  (`FaceGenCache::skin_texture`). `--no-facegen` turns it off.
+- Hands are not tinted: their `.egt` files (`lefthandmale.egt`, `righthandold.egt`, …,
+  also 32 × 32 × 50) sit in `characters\_male\`, but no record names them and the hand
+  meshes are `lefthand.nif` / `righthand.nif`, so which one a race uses is not known
+  [open].
+
+### 4.2 Race FaceGen data (not used)
+
+Each RACE carries FGGS/FGGA/FGTS per sex (§1.1). Over the 3,386 placed NPCs with 50
+FGGS values [observed, `fnvtool actor appearance --all`, FalloutNV.esm]: none has the
+race's values; the median length of an NPC's FGGS vector is 6.0 and of the race's 13.2,
+and the median distance between the two is 17.2 — larger than either. So NPC values are
+not scattered around the race's, as absolute coordinates with a race default would be.
+Whether the game adds the race's coefficients to the NPC's, or uses them only in the
+character generator, is open [hypothesis either way]; faces drawn from the NPC's values
+alone matched the owner's screenshot of Sunny Smiles by eye (§4), so the race data stays
+unused until an in-game comparison of several NPCs of one race settles it.
 
 ## 5. CLI contract
 
@@ -604,11 +635,13 @@ the Prospector Saloon porch, Goodsprings [observed]:
   whether it scales the turn clip's rate are open. The walk test turns at 90°/s.
 - **Ground following**: the walk test moves in the placement's plane; a real mover needs
   the ground height (Layer 4 physics) per step.
-- **`nvf-viewer --anim`**: `anim_play::BoundClip` and `BlendPlayer` could replace the
-  viewer's single-clip player, so walk clips play in place there too (today the viewer
-  holds only an undriven root; a walking clip's `Bip01` travel shows as drift).
-- **Creatures (part D)**: the same selector should work with a creature skeleton's own
-  `locomotion\` folder, but creature clips use other names and prefixes (not surveyed).
+- **`nvf-viewer --anim`** (done 2026-10-09): the viewer's single-clip player
+  (`AnimState::start`) holds an undriven accumulation root at the identity (§7.2) and
+  removes a driven root's per-cycle travel in proportion to the cycle phase
+  (`Playing::in_place`, the rule of §8.2), so walk and run clips play in place there
+  too. World objects' clips keep their travel.
+- **Creatures (part D)**: done for the idle (§10.3); creature walk and turn clips are
+  not surveyed and not played.
 
 ## 9. Weapons: holstering and drawing (part H)
 
@@ -803,3 +836,148 @@ Owner's machine, 2026-10-09, release build [observed].
   Holstered weapons cost about 2 µs per actor and frame (the holster clips have 2–4
   tracks); drawing, holding and walking together about 18 µs more. Up to 17 actors were
   posed at once, 0.21–0.28 ms per frame.
+
+## 10. Creatures (part D)
+
+Placed creatures (ACRE) are drawn like NPCs: one skeleton per creature, its body models
+skinned to it, the skeleton's idle playing. Plan and status: docs/design/static-actors.md
+part D.
+
+### 10.1 Records and resolution (`Resolver::resolve_creature`)
+
+- **CREA** [documented: xEdit wbDefinitionsFNV.pas CREA; layouts in
+  `schemas/fnv/gameplay.json`]: `MODL` the skeleton (relative to `meshes\`), `NIFZ`
+  "Model List" (model file names, NUL-separated, animation.md §1.3), `KFFZ`
+  "Animations" (`.kf` file names), `BNAM` "Base Scale" (f32), `ACBS` (as NPC_: template
+  flags u16 at byte 22), `TPLT` template, `DATA` type byte (0 Animal, 1 Mutated Animal, 2
+  Mutated Insect, 3 Abomination, 4 Super Mutant, 5 Feral Ghoul, 6 Robot, 7 Giant).
+  xEdit hides `MODL`, `NIFZ`, `NIFT` and `KFFZ` when the Model/Animation template flag
+  (bit 6) is set and `BNAM` when the Stats flag (bit 1) is set [documented].
+- **LVLC** has the LVLN layout [documented: xEdit]; it is picked like an LVLN (§2.1:
+  entries with level ≤ 1, pool by "Calculate from all levels", uniform pick seeded by the
+  reference FormID, each list once per creature, chance none not applied). A pool with
+  more than one distinct entry makes the creature `random`.
+- **Base**: the ACRE's `NAME` (a CREA, or an LVLC resolved as above; anything else is an
+  error: an NPC_ or LVLN base is "not a creature base").
+- **Templates**: for Model/Animation (bit 6) and Stats (bit 1), the data comes from the
+  first CREA along the `TPLT` chain whose flag for that group is clear, starting at the
+  base; a `TPLT` naming an LVLC is resolved as above. A flag without a `TPLT` ends the
+  chain at that creature.
+- **Skeleton**: the Model/Animation source's `MODL` as an archive path (§2 path rule);
+  absent or an editor placeholder (file name starting with `marker`) is an error ("names
+  no skeleton").
+- **Parts**: each `NIFZ` name of the Model/Animation source, in record order, trimmed,
+  `/` → `\`, ASCII lower case, leading `\` removed, joined to the skeleton's folder:
+  `<skeleton folder>\<name>` [observed: animation.md §4]. Role `body`, `form` the
+  Model/Animation source. Empty names are skipped.
+- **Anims**: the source's `KFFZ` names, trimmed, `/` → `\`, ASCII lower case, empty ones
+  skipped (not played yet; Layer 6).
+- **Base scale**: the Stats source's `BNAM`, 1 when absent. The engine multiplies the
+  reference's scale by it [hypothesis: values match the creatures' sizes in the game by
+  eye — bark scorpions 0.3–0.4 of the radscorpion model, young bighorners 0.8–1.5,
+  geckos 0.55–1.0; `nvvoid` placeholders 0.1].
+
+Observed on the ten masters (`fnvtool actor creatures --all --check-meshes`,
+2026-10-09): 3,739 placed ACRE, every base a CREA (none an LVLC; LVLC appear only as
+templates), all resolved: 2,346 deterministic, 1,393 random. 46 skeletons. NIFZ models
+per creature: 1 (3,026), 2 (273), 3–10 (440). Base scale 1 for 1,738; 0.1 for 440 (431
+`nvvoid`); 0.15–1.5 otherwise. DATA types: Mutated Animal 845, Mutated Insect 804,
+Animal 688, Abomination 605, Robot 460, Feral Ghoul 244, Super Mutant 93.
+
+### 10.2 Meshes and assembly
+
+Over the 230 (skeleton, model) pairs placed creatures use [observed]: 138 models are
+skinned, 81 rigid (no skin; robots' screens, saws and tracks, Mr. House's pod parts, dog
+skull caps), 8 have no shapes (`nvvoid.nif` and similar placeholders), 3 files are
+missing (`ghoul\mmm_ghoulvariant_v1.nif` for 26 creatures,
+`nvpenthouemaincomputer\nvpenthousemaincomputer_housescreen.nif` for 2 and
+`radscorpion\nvdlc03superlaserstingenergize.nif` for 51). Every skin bone of every
+skinned model is a node of its skeleton. Every unskinned shape has an ancestor node in
+its own file whose name is a skeleton node (e.g. the Securitron's `Screen01` under the
+file's copy of a skeleton bone), so none needs the `Prn` or root fallback.
+
+Rules (engine, `nvf_assets::actor`, `PartUse::by_ancestor`):
+- Skinned shapes bind to the skeleton's bones by name, as NPC parts (§3).
+- An unskinned shape hangs from the skeleton node named like its **nearest ancestor**
+  in the part file that the skeleton has, keeping the transforms of the nodes between
+  (its own included) [hypothesis: the part file's copy of the bone has the skeleton's
+  bind transform, so the shape lands where the file puts it]; else from the part's `Prn`
+  bone (NPC rule, §1.2); else from the skeleton's root with the whole transform below the
+  part's root.
+- Hidden nodes, editor markers and dismemberment caps are left out as for NPCs.
+- Textures are the models' own (NIFT texture hashes are not read).
+
+### 10.3 Idle
+
+Every one of the 46 skeleton folders has `mtidle.kf` directly in it (41 of the 42
+creature folders with a skeleton in `Fallout - Meshes.bsa`; `zaxeye` has none), and
+walks, where present, in `locomotion\` (`nvbighorner\locomotion\mtforward.kf`) [observed].
+The clip lookup (§8.3, `clip_candidates`) therefore ends with `<folder>\<prefix><move>.kf`;
+creatures use the male body's lookup. Each creature plays its idle at the spread phase
+of §7.3 with the accumulation-root rule of §7.2; other moves wait for Layer 6.
+
+### 10.4 CLI contract
+
+`fnvtool actor creatures <Data> <plugins…> --schema <dir> (--ref <formid> | --cell
+<edid|formid> | --all) [--deterministic] [--check-meshes [--nif-schema <dir>]]` →
+`fnv.actor.creatures/1`. The creatures are the given reference, the ACRE of the cell, or
+every ACRE of the load order (a record of type ACRE inside a cell-children group; winning
+definition), skipping deleted winners. With `--deterministic`, creatures whose `random`
+is true are left out.
+Top level: `schema`, `summary` {`outcomes` (`resolved deterministic`, `resolved random`,
+`deleted`, errors by kind), `base_kinds` (base record type per creature)}, `issues`,
+`creatures`, `load_order`, and with `--check-meshes` `meshes` {`pairs`, `skeletons`,
+`part_kinds`, `idle_clips` (per skeleton, the idle found relative to its folder),
+`rigid_at_root` [{`skeleton`, `model`, `shapes`, `of`, `creatures`}], `problems`
+[{`skeleton`, `model`, `creatures`, `problems`}]}.
+Each creature, ordered by reference FormID: {`reference`, `base`, `scale` (XSCL, default
+1, f32 widened), `creature` (the CREA after leveled resolution), `edid` (its EDID),
+`kind`? (DATA type name of the Model/Animation source), `skeleton`, `base_scale` (f32
+widened), `parts` [{`role`, `form`, `model`}], `anims` [name], `random`}; or
+{`reference`, `base`, `error`}. FormIDs print as `0x%08X`.
+
+### 10.5 Checks against the game and cost
+
+- **Reference frames** (2026-10-09, `tools/capture/frames/creatures_cameras.json`, save
+  `nvftest`, noon, clear weather; screenshots kept privately in
+  `C:\fnv-private\references\partd\`) against `nvforever` at the recorded poses
+  (`--fov 75`, eye height 120) [observed]:
+  - Goodsprings bighorner pen: the young bighorners stand on the ground with the game's
+    shape, horns and fur colour and about the same size (XSCL 0.7–1.0 × BNAM 1.5); the
+    game's had walked together, ours stand at their placements. SSIM 0.39 (160 px
+    wide; sky, grass and lighting dominate as for the frames of Layer 3).
+  - Coyotes east of Goodsprings: feet on the slope, size and coat match the game's
+    coyote by eye; SSIM 0.43.
+  - Victor's shack: the game's Victor had moved away; ours stands at his placement with
+    body, wheel and screen frame in place (the screen face, an animated texture, shows
+    blank). SSIM 0.36.
+- **Moving-camera smoke test** (`--cell Goodsprings --auto-fly 4000 --run-seconds 40`,
+  after merging main with part H weapons): exit 0, "run finished", 50.0 fps; 115
+  creatures drawn and animated, none unresolved or without an idle; 47 NPCs drawn and
+  animated (39 armed); 31 actors and creatures spawned hidden; 26 bodies skin-tinted;
+  posing 16.3 µs per actor and frame (up to 79 posed at once, 0.41 ms per frame).
+  Creature clip sets loaded: `nvraven`, `nvbighorner`, `dog`, `radscorpion`,
+  `nvsecuritron`, `blowfly`, `nvvoid`, `nvcazadores`, `nvmantis`, each with its idle
+  (1.7–16.7 s) and every idle track bound except two Securitron prop nodes
+  (`Screen01`, `##VoiceBox_talk`).
+
+## 11. Actors not enabled at the start
+
+A placed NPC or creature whose reference is not enabled at the start of a game
+(initially disabled, or following a disabled enable parent; world.rs
+`WorldData::enabled`) and not deleted is spawned **hidden** when its cell loads: the
+whole actor is built as usual (parts, FaceGen, idle) with `Visibility::Hidden` on its
+root and a `SpawnedDisabled(reference)` marker (`engine/nvforever/src/actors.rs`). Its
+entities carry `RefVisual(reference)` like any actor, so when a script enables it
+(`ref_enabled`, or an enable parent's), nvf-play's visual sync shows it
+(docs/design/layer5-play.md §4). If the simulation already has the reference enabled
+when its cell loads (enabled while the cell was away), a component hook on
+`SpawnedDisabled` shows it at once. Without `--play` such actors stay hidden. Light
+sources of such references (LIGH) are spawned the same way under a hidden `RefVisual`
+holder; their models stay with nvf-play's `script_draw.rs` [engine rules]. The run
+summary's `ActorStats` counts hidden actors (`spawned_hidden`); `StreamStats::
+lights_hidden` the lights.
+
+Observed (`--cell Goodsprings --auto-fly 4000`, 40 s, 2026-10-09): 31 actors and
+creatures spawned hidden. Not yet checked in a `--play` run that enables one (the
+showing goes through the existing `RefVisual` sync).
