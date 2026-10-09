@@ -22,7 +22,7 @@ pub enum EventKind {
     ObjectiveCompleted { quest: FormId, index: i32, on: bool },
     /// A script variable was written: `owner` names the instance (`quest:…`,
     /// `ref:…`, `item:…@…`), `index` and `name` the variable.
-    VarSet { owner: String, index: u16, #[serde(skip_serializing_if = "Option::is_none")] name: Option<String>, value: Value },
+    VarSet { owner: String, index: u16, #[serde(skip_serializing_if = "Option::is_none")] name: Option<String>, #[serde(serialize_with = "value_json")] value: Value },
     GlobalSet { global: FormId, value: f32 },
     RefEnabled { reference: FormId },
     RefDisabled { reference: FormId },
@@ -36,7 +36,9 @@ pub enum EventKind {
     /// A dialogue or package result script ran (runner inputs standing in for Layer 6).
     ResultScript { unit: String, #[serde(skip_serializing_if = "Option::is_none")] on: Option<FormId> },
     /// A function whose system is Layer 6 (dialogue, AI packages, combat, sound, image
-    /// space, menus): recorded, no effect.
+    /// space, menus): recorded, no effect. A call identical to one already traced from
+    /// the same unit (a per-frame block repeating it) is counted in `final.stubbed`, not
+    /// traced again.
     Stub { opcode: String, name: String, unit: String, #[serde(skip_serializing_if = "Option::is_none")] on: Option<FormId>, args: Vec<serde_json::Value> },
     /// A function with no implementation yet (first call per opcode and unit; all calls
     /// are counted in `final.unhandled`).
@@ -50,6 +52,14 @@ pub enum EventKind {
     /// A variable index the target script does not declare (docs/spec-notes/scripts.md
     /// §2.5): read as 0, written as given.
     UndeclaredVariable { owner: String, index: u16, unit: String },
+}
+
+/// A value in the trace: a number, or a reference as its FormID.
+fn value_json<S: serde::Serializer>(v: &Value, s: S) -> Result<S::Ok, S::Error> {
+    match v {
+        Value::Num(x) => s.serialize_f64(*x),
+        Value::Ref(f) => s.serialize_str(&FormId(*f).to_string()),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

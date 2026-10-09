@@ -184,6 +184,7 @@ pub struct Game<'a> {
     /// Calls per opcode that reached a Layer 6 stub.
     pub stubbed: BTreeMap<u16, u64>,
     unhandled_seen: BTreeSet<(u16, String)>,
+    stubs_seen: BTreeSet<(u16, String, String)>,
     pub rng: ChaCha8Rng,
     depth: u32,
 }
@@ -260,6 +261,7 @@ impl<'a> Game<'a> {
             unhandled: BTreeMap::new(),
             stubbed: BTreeMap::new(),
             unhandled_seen: BTreeSet::new(),
+            stubs_seen: BTreeSet::new(),
             rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x5C21_7000),
             depth: 0,
         }
@@ -808,9 +810,7 @@ impl<'a> Game<'a> {
             },
             Some(Kind::Stub(_)) => {
                 *self.stubbed.entry(ctx.opcode).or_default() += 1;
-                let n = name();
-                let args = args.iter().map(|a| arg_json(self.data, a)).collect();
-                self.emit(EventKind::Stub { opcode: format!("0x{:04X}", ctx.opcode), name: n, unit: ctx.unit.clone(), on: ctx.on.or(ctx.self_ref), args });
+                self.stub_note(ctx, args);
                 Value::ZERO
             }
             None => {
@@ -830,8 +830,13 @@ impl<'a> Game<'a> {
     pub fn stub_note(&mut self, ctx: &Ctx, args: &[ArgValue]) {
         let data = self.data;
         let name = data.table.get(ctx.opcode).map(|f| f.name.clone()).unwrap_or_default();
-        let args = args.iter().map(|a| arg_json(data, a)).collect();
-        self.emit(EventKind::Stub { opcode: format!("0x{:04X}", ctx.opcode), name, unit: ctx.unit.clone(), on: ctx.on.or(ctx.self_ref), args });
+        let args: Vec<serde_json::Value> = args.iter().map(|a| arg_json(data, a)).collect();
+        let on = ctx.on.or(ctx.self_ref);
+        let sig = format!("{on:?}{args:?}");
+        if !self.stubs_seen.insert((ctx.opcode, ctx.unit.clone(), sig)) {
+            return;
+        }
+        self.emit(EventKind::Stub { opcode: format!("0x{:04X}", ctx.opcode), name, unit: ctx.unit.clone(), on, args });
     }
 
     // ---- snapshots -----------------------------------------------------------------
