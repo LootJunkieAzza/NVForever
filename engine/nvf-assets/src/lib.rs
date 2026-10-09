@@ -1,7 +1,9 @@
 //! Bevy asset plugins shared by the viewer and the game: the game's archives (VFS), NIF
-//! scene graphs and prepared static models, DDS textures, KF playback.
+//! scene graphs and prepared static models, DDS textures, KF playback (one clip, or layered
+//! clips blended by priority).
 
 pub mod actor;
+pub mod anim_blend;
 pub mod anim_play;
 pub mod data;
 pub mod model;

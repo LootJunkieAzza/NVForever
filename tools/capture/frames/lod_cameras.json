@@ -1,0 +1,11 @@
+{
+ "format": "fnv.capture.cameras/1",
+ "start": "Load a test save (e.g. nvftest); the job travels to each camera. Long views for distant LOD (terrain levels, object blocks, distant trees; docs/design/generated-lod.md section 5): cell centres on high ground chosen with fnvtool world heights so that the next five cells along the view lie lower, standing on the terrain; goodsprings_east is the town view east (LOD object blocks on the hills).",
+ "console_first": ["tgm", "tdetect"],
+ "cameras": [
+  {"id": "black_mountain_north", "world": "WastelandNV", "pos": [6144, 6144], "heading": 0, "pitch": 3, "hour": 12, "weather": "NVWastelandClear", "fov": 75},
+  {"id": "spring_mountains_east", "world": "WastelandNV", "pos": [-96256, 112640], "heading": 90, "pitch": 5, "hour": 12, "weather": "NVWastelandClear", "fov": 75},
+  {"id": "hoover_ridge_lake", "world": "WastelandNV", "pos": [96256, 26624], "heading": 300, "pitch": 4, "hour": 12, "weather": "NVWastelandClear", "fov": 75},
+  {"id": "goodsprings_east", "world": "WastelandNV", "pos": [-70500, 1200], "heading": 90, "pitch": 0, "hour": 12, "weather": "NVWastelandClear", "fov": 75}
+ ]
+}

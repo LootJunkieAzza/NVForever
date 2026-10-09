@@ -3,6 +3,8 @@
 //! Exit codes: 0 success, 1 the input could not be processed, 2 usage error.
 
 mod actor_anims;
+mod actor_locomotion;
+mod actor_weapons;
 mod actor_cmd;
 mod bsa_cmd;
 mod collide_cmd;
@@ -117,6 +119,35 @@ pub enum ActorCmd {
         #[arg(long)]
         schema: PathBuf,
     },
+    /// Placed creatures (ACRE): skeleton, NIFZ body models, base scale and KFFZ list
+    /// after leveled and template resolution (fnv.actor.creatures/1); with
+    /// `--check-meshes`, whether each model joins its skeleton.
+    #[command(group(clap::ArgGroup::new("which").required(true).args(["reference", "cell", "all"])))]
+    Creatures {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// One placed creature (ACRE FormID).
+        #[arg(long = "ref", value_parser = parse_formid)]
+        reference: Option<u32>,
+        /// Every ACRE in a cell (Editor ID or FormID).
+        #[arg(long)]
+        cell: Option<String>,
+        /// Every ACRE in the load order.
+        #[arg(long)]
+        all: bool,
+        /// Only creatures whose resolution involves no random leveled choice.
+        #[arg(long)]
+        deterministic: bool,
+        /// Also load every (skeleton, model) pair and report skin bones and parent
+        /// bones the skeleton lacks, and missing files (adds `meshes`).
+        #[arg(long)]
+        check_meshes: bool,
+        /// NIF schema directory for --check-meshes (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+    },
     /// For every placed NPC: do its part meshes join its skeleton (skin bones and `Prn`
     /// bones present), and do its models and textures exist (fnv.actor.meshes/1)?
     Meshes {
@@ -147,6 +178,38 @@ pub enum ActorCmd {
         /// Leave out the per-file and per-IDLE lists (summary and groups only).
         #[arg(long)]
         summary_only: bool,
+    },
+    /// Weapon stance clips of a skeleton folder (equip, unequip, holster, aim: `prn:` keys,
+    /// track priorities, holster and hand bones) and the weapon each placed NPC draws
+    /// (fnv.actor.weapons/1).
+    Weapons {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Skeleton folder (VFS path).
+        #[arg(long, default_value = r"meshes\characters\_male")]
+        folder: String,
+    },
+    /// Locomotion clips of a skeleton folder (idle, walk, run, turn per body and stance)
+    /// and the root motion of each: accumulation-root translation and turn per cycle,
+    /// ground speed (fnv.actor.locomotion/1).
+    Locomotion {
+        /// The game's Data folder (archives are read from it).
+        data_dir: PathBuf,
+        /// NIF schema directory.
+        #[arg(long)]
+        nif_schema: PathBuf,
+        /// Skeleton folder (VFS path).
+        #[arg(long, default_value = r"meshes\characters\_male")]
+        folder: String,
+        /// Also sample the accumulation root and `Bip01 NonAccum` at this many points per
+        /// clip.
+        #[arg(long, default_value_t = 0)]
+        samples: usize,
     },
 }
 

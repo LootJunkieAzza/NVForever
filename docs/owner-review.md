@@ -5,6 +5,27 @@ started 2026-10-09). Each item has the decision taken, why, and what changes if 
 decide differently. Newest items go at the end of each section. Strike out or delete an
 item once you've ruled on it.
 
+## Read first: your autosave was overwritten (2026-10-09 09:45)
+
+During capture round 4 (VCG01 from `nvfnew`, PR #79), one trial drove VCG01 to stage 55,
+whose result script calls `Autosave`. Turning off scripted autosaves in the INI did not
+stop it. The game wrote a new `autosave.fos` in `Documents\My Games\FalloutNV\Saves`
+at 09:45:56:
+- your 05:43 autosave became `autosave.fos.bak` and is still there;
+- the older `autosave.fos.bak` it replaced is gone (the 05:43 file may itself have come
+  from an earlier capture);
+- your named saves (Save 1–11, `nvftest`, `nvfdoc`, `nvfnew`) are untouched.
+
+To get the 05:43 autosave back, rename `autosave.fos.bak` to `autosave.fos` yourself
+(the tools never write to the Saves folder). Prevention:
+- `capture_run.py` now backs up the rolling saves before every run, then fails (exit 3)
+  and lists any change if the game writes to the Saves folder (tools/capture/README.md);
+- no scenario reaches stage 55;
+- capturing stage 55 needs your consent to let the game autosave there.
+
+The same run also triggered Steam achievement 31 (`AddAchievement 31`) in four game
+sessions. You already had it from an earlier playthrough.
+
 ## Merges into `main` (2026-10-09)
 
 1. **#45 (in-game screenshots, plugin v7) merged by the coordinator, after checking it
@@ -280,6 +301,110 @@ item once you've ruled on it.
     - AddReputationExact clamping wasn't captured;
     - the engine now advances the game clock before each frame's scripts (#76) [hypothesis].
 
+24. **Your GECK wiki export (2026-10-09) is used.** It is in `C:\fnv-private\geckwiki`;
+    the four `GECK-2026100909*.xml` files are identical, so three can go.
+    `docs/spec-notes/quests-dialogue.md` is our own summary of its 19 pages, checked for
+    copied wording (no 8-word run in common).
+    - **Agrees with the captures:** AND/OR precedence, all passing stage items run,
+      repeated stages, completed ≠ stopped, and SetStage starting a quest.
+    - **New documented rules:** SetObjectiveDisplayed starts a quest; quest variables
+      live on while it is stopped; condition Run On meanings; "Run on Target" is invalid
+      on stages and targets; Next quest becomes the active quest.
+    - **Dialogue groundwork for Layer 6:** begin/end result scripts, Say Once, Goodbye,
+      Random stacks, speech challenges.
+    - **One disagreement:** the wiki says the "Default" delay flag means 5 s, but the
+      captures show the record's delay is used whenever it is non-zero. The runtime
+      follows the captures.
+
+    The runtime session was given these rules to check against.
+
+25. **Two more notes from your wiki exports (scripting and actor pages).** The three
+    `GECK-2026100909*.xml` files in `C:\fnv-private\geckwiki` now hold different pages
+    (19 quest, 53 scripting, 7 actor pages), so keep all three (item 24 said they were
+    identical). `docs/spec-notes/script-language.md` covers the base-game script
+    language and `docs/spec-notes/actor-behaviour.md` AI packages, detection, factions,
+    combat and idles. Both are our own wording (no 8-word run in common with the
+    exports). Extender (xNVSE) features get one short section, marked out of scope.
+    - **The captures win twice:** integer variables truncate toward zero (the wiki says
+      floor), and float variables are doubles (the wiki says single precision). The
+      runtime already follows the captures.
+    - **Runtime differs from the wiki, no capture yet:** calls on an empty `ref` stop the
+      script in the wiki but are skipped in the runtime; disabled references run their
+      scripts in the wiki but not in the runtime; scripted items in other actors' or
+      containers' inventories don't run; Return ends one block, not the frame (matters
+      in 5 shipped scripts); result-script variables don't overwrite the quest script's;
+      script packages stack instead of replacing each other; EvaluatePackage keeps a
+      script package.
+    - Each note ends with capture candidates. Nothing was changed in the runtime.
+
+26. **Your `objects.xml` export (9 pages, mostly category indexes).** Three facts were
+    new; each is handled as below.
+    - **Quest items can't be dropped or sold, and bodies holding one don't despawn until
+      it's taken.** Nothing read a quest-item record flag, so `--play` let you drop
+      anything. A session on `claude/quest-items` is adding the flag (from xEdit's
+      definitions, confirmed in the data) and the rule.
+    - **"Random Anim Start":** world objects with it start their idle animation at a
+      random time, so copies don't animate in step. Nothing reads it yet. **For the
+      NPC/animation coordinator:** this belongs with the placed-model animation of #47
+      (`engine/nvf-assets` model.rs).
+    - **Leveled lists pick by the player's level relative to the encounter zone.**
+      `fnv-sim` uses the player's level only (no ECZN). This matters for leveled actors
+      (Layer 6); noted, not changed.
+
+    The export is kept as `C:\fnv-private\geckwiki\objects.xml`.
+
+27. **Your "Getting started" export (Bethesda's tutorial series, 20 pages used).**
+    `docs/spec-notes/level-design.md` is our own summary (no 8-word run in common with the
+    export), with data checks run on `FalloutNV.esm` this session. The tutorials were
+    written for Fallout 3, so each rule still needs a New Vegas check where it matters.
+    - **Settled from the data:** placed primitive bounds (`XPRM`) are half extents. Of
+      1,341 portal/room pairs, 1,298 put the portal on a room face that way, none the
+      other way. Physics already reads them so.
+    - **Triggers (for the `--play` session):** any actor can fire a trigger (and, without
+      the "ActorZone" flag, any object); OnTrigger runs every frame. Ours tests the player
+      only, as three points on the player's axis.
+    - **Lights (for the renderer):** a placed light's radius can differ from its base.
+      6,484 of 7,742 interior lights carry `XRDS`, which looks like an offset added to the
+      base radius; the renderer ignores it. Emittance from a light should also carry its
+      brightness, and objects should fade in by size. None of this is changed yet.
+    - **Culling:** rooms, portals and occlusion planes are described in detail. The
+      renderer has none of them; that costs speed, not looks, except in rare cases.
+    - **Encounter zones:** a zone's level is fixed the first time you enter it. This
+      adds to item 26.
+
+    The full list of differences, by file, is the note's §11.2; capture ideas are its §13.
+
+28. **The intro, headless (#86) and in the game (#96).** The runtime reproduces your
+    `nvfnew` captures: all four `L5.intro.*` pass, holdout included, and L5 is 28/32.
+    `nvforever --play --new-game` runs the opening in Doc Mitchell's house unattended to
+    VCG01 stage 200, with stage timings matching the walk-through and the capture
+    (mostly within a few hundredths of a second). Decisions for you, from #86 and #96:
+    - (a) message boxes hold scripts only in inputs whose `given` includes a menu; the
+      alternative is adding the pack quests' state to the older inputs;
+    - (b) a new game puts the player at `VCG01PlayerStartMarkerREF` and sets VCG00
+      stage 0 directly;
+    - (c) dialogue line length is fitted (1.1 s + 1/16 s per character) until voice
+      files are read; the psych intro runs 18 s against about 13 s in game;
+    - (d) unattended `--play` runs answer script boxes after 0.25 s; attended runs wait
+      for you;
+    - (e) NPC trigger capsules use the player's placeholder size times scale;
+    - (f) `--new-game` lives in `engine/nvforever/src/main.rs`.
+29. **Quest items (#91).** Bit 10 "Quest Item" on WEAP/ARMO/ALCH/BOOK/KEYM/MISC/LIGH
+    [documented: xEdit]. 339 shipped items set it [observed]. The player can't drop them
+    (`--play` says so). A scripted `Drop` still drops them, as tested in game, and
+    storing them in containers is allowed [hypothesis] until checked by hand
+    (layer4-captures.md B14). Record-header flags are now schema data (`header_flags`).
+30. **Lock trouble and a proposal.** Twice today the shared lock folders got stuck:
+    - a session that hit the usage limit died holding them;
+    - at 14:22 an unknown session created both and never used them;
+    - once they vanished while the coordinator held them, cause unknown.
+
+    The coordinator removed stale locks only after checking that no FalloutNV or
+    nvforever process was running. Proposal: one shared helper (e.g.
+    `tools/capture/locks.py`) that writes an owner file (session, PID, time) into each
+    lock, treats a lock as stale when its PID is gone, and is used by every runner. Say
+    if you want it built.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
@@ -335,6 +460,92 @@ coordinators could not message each other, so this section is how they share sta
    - Clips are not chosen by situation (walk, sit, talk); that is Layer 6.
    - `nvf-viewer --anim` needs #54's accumulation-root rule (its follow-up).
    - The body skin `.egt` and race FaceGen data are unused.
+
+## Layers 1–4 close-out (coordinator "Layers 1–4 and housekeeping", 2026-10-09 afternoon)
+
+The owner asked for Layers 1–4 to be worked through and the repository tidied, using the
+in-game comparison tools. Eight workstreams ran in parallel worktrees; their PRs were
+checked and merged by this coordinator (owner approved merging when green): #91, #93,
+#95, #97, #98, #99, #100, #101, #102. Lab on `main` after the merges: **376/402 pass, 0 regressions** (L1 111/115, L2 51/56, L3 99/109, L4 87/90, L5 28/32; the 8 errors are holdouts whose goldens are not on this machine; the 18 fails are the 4 xEdit rows of item 3, 7 exterior frames below `min_ssim` 0.6, the 3 accepted physics residuals and the 4 known Layer 5 rows).
+
+1. **⚠️ Your autosave was rewritten again.** A Layer 4 capture (`pc_drop_fall`) walked
+   out of Doc Mitchell's house through the front door, and the game wrote `autosave.fos`.
+   `capture_run.py` backed up the previous `autosave.fos`, `.bak` and `.nvse` first, to
+   `C:\fnv-private\capture\saves-backup\1791556049`. Copy them back into
+   `Documents\My Games\FalloutNV\Saves` yourself if you want them (the tools never write
+   there). The older movement jobs (layer4-captures.md §5) leave the house the same way,
+   so treat any job that passes a door as one that may autosave.
+2. **Accepted physics residuals (your decision today):** `L4.phys.drops.b11_goodsprings`
+   17/20, `L4.phys.walk.portal_wall` 5/6 and `L4.phys.drops.swim_h2o_fresh` 8/9 stay
+   failing as the honest record; nobody tunes them further (layer4.md §4).
+3. **Layer 1 (#93).** The four failing xEdit scenarios are xEdit normalising the file,
+   not our reader: three missing required EDID/FULL subrecords that xEdit exports as `""`,
+   and GRA's out-of-range master index, which xEdit folds into the plugin's own. Our
+   reader and the independent oracle agree on all four. Decide:
+   - (a) add a "documented differences" list to the scenario format (proposal in
+     layer1.md §5.1), or (b) leave the four failing.
+   - The game does what xEdit does with the out-of-range index (the reference is placed
+     as GRA's own, captured). Following it needs an `oracle_world.py` change and two
+     regenerated L3 interior goldens — your call (golden regeneration).
+   - Record layouts now cover 70 of 107 types, with nothing left undecoded at the end
+     of a record in any master. FalloutNV.esm's SHA-256 is unchanged; a Steam "verify"
+     is still yours if you want the checksum question closed. The licence is still yours.
+4. **Layer 2 (#101).** Archive precedence is settled in game: `Update.bsa` and the DLC
+   `<Plugin> - Main.bsa` archives override the base archives, whatever the file dates.
+   Loose files on top stay a hypothesis (Data has no loose meshes or textures; put one
+   there by hand if you want it confirmed). Five fixed-camera frames were captured for a
+   mesh-by-mesh comparison; no asset bug was found. Their `L2.frame.*` scenarios are not
+   generated yet, and their threshold (provisional `min_ssim` 0.6) needs you.
+5. **Layer 3 (#95, #98, #99, #100).**
+   - **Creatures** are drawn with their idle animation; disabled NPCs, creatures and
+     lights are now spawned hidden, so a script's Enable shows them (item 19 above);
+     "Random Anim Start" objects no longer animate in step. Whether the game adds the
+     race's FaceGen data to an NPC's is open: say if you want the capture (several NPCs
+     of one race).
+   - **Distant land:** terrain LOD levels 4–32, object blocks out to 125,000 units, distant
+     tree billboards to 40,000, distances from your INI; the interior-start bug is fixed;
+     smoke test 47.6 → 54.0 fps. **Question:** the game's view of the hill east of
+     Goodsprings matched ours only at `--radius 4`, not at your `uGridsToLoad=5`
+     (`--radius 2`). Raise the default load radius?
+   - **Interiors:** a placed light's radius is its base radius plus `XRDS` (settled with
+     seven new interior reference frames; SSIM up on all seven, e.g. Doc's living room
+     0.42 → 0.68).
+   - **Sky (docs only):** the new captures settled that the noon darkening is not eye
+     adaptation, that clouds move with seconds since the save loaded (not the game hour),
+     and that sunlight is about 0.6–0.66× too strong while shaded faces should be lit
+     nearly neutral, not blue. Nothing in the renderer changed yet. **Questions:** record
+     seconds-since-load in the frame scenarios so clouds can be matched? And the lab
+     renders frames with sun shadows on (your default) while the game draws none — should
+     the frame scenarios pass `--shadow-distance 0`?
+   - The plugin's screenshot step fails ("BitBlt failed") in Vault 21, REPCONN and Big MT;
+     the three saloon frames crash inside the lab (0xC0000142) but render fine outside it.
+6. **Layer 4 (#97, #102).**
+   - **Played by hand** (M4's last open item) with real OS keyboard and mouse input
+     (layer4.md §4). The five problems found — free-fly help text in play mode, Esc
+     quitting at once, message-box buttons not clickable, a raw FormID in a menu error,
+     "level 0" lock prompts — are fixed: Esc now opens a Resume / Quit pause menu.
+   - **Captured and modelled:** dropped items fall (and face the player's heading); the
+     player is about 130 units tall; pushing matches the game; `coc` and a fall into
+     nothing land on the cell's marker; physics-moved clutter is written back; Caps Lock,
+     Ctrl (sneak) and Q (auto-move) work; `iHoursToRespawnCell` is 72 and a cell resets 72
+     hours after the player leaves it; placed frag mines are live; the Pip-Boy and its
+     glove are worn from the start.
+   - **Still open:** crouched and eye height; player disarming of mines; Chet's restock
+     rule (Ringo's days are not global, but the simulation still applies them to every
+     merchant); armour on the ground should be drawn with MOD2 (male), which the engine
+     does not do yet; Layer 5's `coc_destination` should follow the marker rule.
+7. **Housekeeping.**
+   - The README now describes the project as it is (status table, `--play`, the comparison
+     tools, every crate).
+   - Build folders of 33 merged worktrees were deleted (C: free space 75 → 195 GB); the
+     worktrees themselves were kept. Merged remote branches (78) are untouched; deleting
+     them is still your call. `frosty-nash`'s one useful doc line was taken in; the other
+     unmerged branches add nothing to `main` except `layer5-play-2` (Layer 5, left alone).
+   - **Lock incident:** when all agents stopped at the usage limit, a leftover lock loop
+     of one agent took both game locks and held them with nothing running (about
+     14:22–14:54), which blocked the Layer 5 session's windowed checks; they never ran and
+     need re-running there. All game runs since go through a wrapper that releases both
+     locks in a trap. Keep it that way for loops that wait for the locks.
 
 ## Navmesh and travelling NPCs (2026-10-09, session "navmesh")
 

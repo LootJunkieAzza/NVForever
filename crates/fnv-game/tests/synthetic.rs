@@ -149,6 +149,10 @@ const PACK_GATED: u32 = 0x910;
 const PACK_IDLE: u32 = 0x911;
 const PACK_SCRIPTED: u32 = 0x912;
 const NPC: u32 = 0x920;
+const NPC_SCRIPT: u32 = 0x921;
+const TOPIC: u32 = 0x930;
+const INFO_A: u32 = 0x931;
+const INFO_B: u32 = 0x932;
 const CELL: u32 = 0x200;
 const ACT_REF: u32 = 0x300;
 const NPC_REF: u32 = 0x320;
@@ -205,7 +209,18 @@ fn plugin_bytes() -> Vec<u8> {
         unit(0, &script(&[(2, Some([le16(1), r(1)].concat()), body)]), &[(1, "nUsed", 1)], &[0x14, QUEST, MESSAGE]),
     ]
     .concat();
-    let scpt = [record(b"SCPT", 0, QUEST_SCRIPT, &qscript), record(b"SCPT", 0, ACT_SCRIPT, &actscript)].concat();
+    // NPC script: nDone (1, short).
+    //   begin SayToDone
+    //     set nDone to nDone + 1
+    //   end
+    let body = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
+    let npcscript = [vec![sub(b"EDID", z("NpcScript"))], unit(0, &script(&[(0x07, None, body)]), &[(1, "nDone", 1)], &[])].concat();
+    let scpt = [
+        record(b"SCPT", 0, QUEST_SCRIPT, &qscript),
+        record(b"SCPT", 0, ACT_SCRIPT, &actscript),
+        record(b"SCPT", 0, NPC_SCRIPT, &npcscript),
+    ]
+    .concat();
     // The quest: start game enabled, delay 0.5 s.
     let mut q = vec![
         sub(b"EDID", z("Q")),
@@ -252,7 +267,12 @@ fn plugin_bytes() -> Vec<u8> {
         b"NPC_",
         0,
         NPC,
-        &[sub(b"EDID", z("TestNpc")), sub(b"PKID", PACK_GATED.to_le_bytes().to_vec()), sub(b"PKID", PACK_IDLE.to_le_bytes().to_vec())],
+        &[
+            sub(b"EDID", z("TestNpc")),
+            sub(b"SCRI", NPC_SCRIPT.to_le_bytes().to_vec()),
+            sub(b"PKID", PACK_GATED.to_le_bytes().to_vec()),
+            sub(b"PKID", PACK_IDLE.to_le_bytes().to_vec()),
+        ],
     );
     let achr = record(
         b"ACHR",
@@ -260,6 +280,18 @@ fn plugin_bytes() -> Vec<u8> {
         NPC_REF,
         &[sub(b"EDID", z("TestNpcREF")), sub(b"NAME", NPC.to_le_bytes().to_vec()), sub(b"DATA", vec![0; 24])],
     );
+    // A topic with two Say Once lines of the quest; their end scripts set TestGlobal to
+    // 3 and 4.
+    let line = |id: u32, text: &str, value: &str| {
+        let mut subs = vec![sub(b"DATA", vec![0, 0, 4, 0]), sub(b"QSTI", QUEST.to_le_bytes().to_vec()), sub(b"NAM1", z(text)), sub(b"NEXT", vec![])];
+        subs.extend(unit(0, &set(var(b'G', 1), ex(&[a(value)])), &[], &[GLOBAL]));
+        record(b"INFO", 0, id, &subs)
+    };
+    let dial = [
+        record(b"DIAL", 0, TOPIC, &[sub(b"EDID", z("TestTopic"))]),
+        group(TOPIC.to_le_bytes(), 7, &[line(INFO_A, "Hello there", "3"), line(INFO_B, "Bye", "4")].concat()),
+    ]
+    .concat();
     let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
     let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &[refr, achr].concat()));
     [
@@ -271,6 +303,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"NPC_", &npc),
         top(b"PACK", &pack),
         top(b"QUST", &qust),
+        top(b"DIAL", &dial),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
     ]
     .concat()
@@ -331,7 +364,7 @@ fn data_reads_quest_stages_conditions_and_units() {
     assert_eq!(s.raw, 0);
     assert_eq!(s.var_index("bRun"), Some(2));
     assert_eq!(d.script_of_base(FormId(ACTIVATOR)), Some(FormId(ACT_SCRIPT)));
-    assert_eq!(d.scripted_by_cell[&FormId(CELL)], vec![FormId(ACT_REF)]);
+    assert_eq!(d.scripted_by_cell[&FormId(CELL)], vec![FormId(ACT_REF), FormId(NPC_REF)]);
     assert_eq!(d.messages[&FormId(MESSAGE)].buttons, vec!["Yes", "No"]);
 }
 
@@ -563,4 +596,137 @@ fn the_runner_reads_and_writes_reference_variables_and_activates_with_the_flag()
     assert_eq!(by("flagged")["var.nUsed"], 2.0);
     assert_eq!(by("sampled")["values"], json!([2.0]));
     assert_eq!(by("package")["current"], true);
+}
+
+#[test]
+fn say_to_says_the_next_unsaid_line_and_runs_its_end_script_when_it_ends() {
+    let f = fixture();
+    assert_eq!(f.data.topics[&FormId(TOPIC)], vec![FormId(INFO_A), FormId(INFO_B)]);
+    assert_eq!(f.data.infos[&FormId(INFO_A)].topic, Some(FormId(TOPIC)));
+    assert!(f.data.infos[&FormId(INFO_A)].say_once);
+    let mut g = game(&f);
+    g.new_game();
+    let speaker = FormId(NPC_REF);
+    assert_eq!(g.say(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_A)));
+    assert!(g.is_talking(speaker));
+    // "Hello there": 1.1 s + 11 / 16 s = 1.7875 s of game time; a menu holds it.
+    g.menu = Some(1001);
+    g.frames(300);
+    assert!(g.is_talking(speaker));
+    g.menu = None;
+    g.frames(106);
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 5.0);
+    g.frames(2);
+    assert!(!g.is_talking(speaker));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 3.0);
+    // Say Once: the next SayTo takes the second line, then there is none left.
+    assert_eq!(g.say(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_B)));
+    // Nothing left to say: the line being said goes on.
+    assert_eq!(g.say(speaker, None, FormId(TOPIC), false), None);
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::NoLine { .. })));
+    g.frames(120);
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 4.0);
+    // A stopped quest's lines are not said.
+    let mut h = game(&f);
+    assert_eq!(h.say(speaker, None, FormId(TOPIC), false), None);
+}
+
+#[test]
+fn say_to_done_follows_say_as_well_as_say_to() {
+    // docs/spec-notes/level-design.md §11.2 D1: SayToDone runs on the speaker after a
+    // line said with Say as well as with SayTo.
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let speaker = FormId(NPC_REF);
+    let done = |g: &Game| g.var(InstKey::Ref { reference: speaker }, 1).num();
+    assert_eq!(g.say(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_A)));
+    g.frames(120);
+    assert!(!g.is_talking(speaker));
+    assert_eq!(done(&g), 1.0);
+    assert_eq!(g.say(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_B)));
+    g.frames(120);
+    assert_eq!(done(&g), 2.0);
+    // A line cut by another does not end: no SayToDone for it.
+    let mut h = game(&f);
+    h.new_game();
+    h.say(speaker, None, FormId(TOPIC), false);
+    h.say(speaker, None, FormId(TOPIC), false);
+    h.frames(120);
+    assert_eq!(done(&h), 1.0);
+}
+
+#[test]
+fn a_message_box_is_a_menu_until_closed_and_holds_the_rest_of_the_frame() {
+    use fnv_game::game::menus;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    g.set_stage(q(), 10);
+    g.activate(FormId::PLAYER_REF, FormId(ACT_REF), ActMode::Hand).unwrap();
+    assert_eq!(g.menu, Some(menus::MESSAGE));
+    // The quest timer (1 s, set by stage 10) does not run while the box is open.
+    let t0 = g.time;
+    g.frames(300);
+    assert_eq!(g.time, t0);
+    assert!(!g.quest_state(q()).stages_done.contains(&20));
+    // A second box waits for the first.
+    g.show_box(FormId(MESSAGE));
+    assert_eq!(g.close_menu(), Some(menus::MESSAGE));
+    assert_eq!(g.menu, Some(menus::MESSAGE));
+    // Closing a box that waits for a button presses OK (button 0).
+    assert_eq!(g.message_box.as_ref().unwrap().pressed, Some(0));
+    g.close_menu();
+    assert_eq!(g.menu, None);
+    g.frames(120);
+    assert!(g.quest_state(q()).stages_done.contains(&20));
+}
+
+#[test]
+fn the_runner_runs_the_round_4_operations() {
+    let f = fixture();
+    let input: fnv_game::runner::Input = serde_json::from_value(json!({
+        "format": "fnv.script.actions/1",
+        "given": [{"kind": "menu", "menu": 1001, "open": true}],
+        "actions": [
+            {"op": "set_stage", "quest": "Q", "stage": 10},
+            {"op": "get_menus", "menus": [1001, 1051], "label": "menus at the start"},
+            {"op": "dismiss_message_boxes", "max": 2, "wait_frames": 5, "label": "boxes"},
+            {"op": "set_quest_var", "quest": "Q", "var": "fTimer", "value": 1, "stopwatch": true},
+            {"op": "wait_quest", "quest": "Q", "field": "done.20", "value": true, "max_frames": 600, "label": "Q 20", "stopwatch": true},
+            {"op": "wait_menu", "menu": 1051, "max_frames": 5, "label": "no name menu"},
+            {"op": "player_activate", "target": "TestActivatorREF"},
+            {"op": "close_menus"},
+            {"op": "start_stopwatch"},
+            {"op": "get_tag_skills", "skills": ["Guns"], "label": "tags"},
+            {"op": "get_ref", "ref": "TestActivatorREF", "fields": ["destroyed"], "label": "ref"}
+        ]
+    }))
+    .unwrap();
+    let out = fnv_game::runner::run(&f.data, &f.forms, &f.refs, &input).unwrap();
+    let obs = out["observations"].as_array().unwrap();
+    let by = |l: &str| obs.iter().find(|o| o["label"] == l).unwrap_or_else(|| panic!("no {l}")).clone();
+    assert_eq!(by("menus at the start")["menu.1001"], true);
+    assert_eq!(by("menus at the start")["menu.1051"], false);
+    assert_eq!(by("boxes")["closed"], 1);
+    let w = by("Q 20");
+    assert_eq!(w["found"], true);
+    // The quest runs every 0.5 s and its countdown ends below 0: on its third or fourth
+    // run after the countdown was set (the phase of the 0.5 s cycle varies).
+    let secs = w["seconds"].as_f64().unwrap();
+    assert!((1.0..=2.1).contains(&secs), "{secs}");
+    assert_eq!(by("no name menu")["found"], false);
+    assert_eq!(by("tags")["tag.Guns"], false);
+    assert_eq!(by("ref")["destroyed"], false);
+    assert!(out["steps"].as_array().unwrap().iter().all(|s| s.get("error").is_none()), "{}", out["steps"]);
+}
+
+#[test]
+fn saving_functions_are_recorded_and_do_nothing() {
+    use fnv_game::functions::{is_stub, lookup, Kind};
+    // Autosave, SaveGame-style functions: Layer 6 stubs, never a file write.
+    for (op, name) in [(0x115E, "Autosave"), (0x127B, "SystemSave"), (0x1217, "ForceSave")] {
+        assert!(is_stub(op), "{name}");
+        assert!(matches!(lookup(op), Some(Kind::Stub(_))));
+    }
 }

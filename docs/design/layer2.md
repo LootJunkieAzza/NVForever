@@ -81,9 +81,12 @@ payload equals the mip-chain layout exactly in every file [observed].
 `fnv-vfs` indexes the archives lowest-precedence first and loose files last.
 `SArchiveList` from the owner's `Fallout.ini` equals the shipped default [observed]:
 Textures, Textures2, Meshes, Voices1, Sound, Misc. Then `Update.bsa`, then each plugin's
-own archives in load order. The relative order of `Update.bsa` and the plugin archives,
-and whether the engine uses list order or file timestamps (`bInvalidateOlderFiles=1`),
-are **[hypothesis]** — see open question 3.
+own archives in load order. Settled with in-game screenshots (2026-10-09, bsa.md
+"Precedence") [observed]: `Update.bsa` overrides `Fallout - Meshes.bsa` and a DLC archive
+overrides the base archives, whatever the file timestamps (the overriding archives are
+the older files). Still **[hypothesis]**: `Update.bsa` against the DLC archives, DLC
+against DLC, and loose files on top (no loose mesh or texture exists to test with).
+`NVF_ARCHIVE_ORDER` (comma-separated, lowest first) replaces the order for diagnostics.
 
 ### 2.6 Scene and geometry conventions (spec notes §6)
 
@@ -144,8 +147,17 @@ skinned meshes bound to their bone entities, and plays embedded sequences or tho
    bones, Torch, Quiver, BackWeapon, SideWeapon, thumb and twist bones [observed], which
    suggests a rig from an older game left in this 20.0.0.4 file [hypothesis]).
    Screenshots stay private (game-derived).
-7. Pending, needs the owner: visual comparison with the original game (fixed camera,
-   same mesh) — this becomes the image-comparison scenario type planned in spec §8.1.
+7. Visual comparison with the original game (replaces the owner's 10-minute check),
+   partly done 2026-10-09 with the capture plugin's screenshots (no owner time): five
+   fixed cameras (Nellis hangar, Camp Forlorn Hope guard tower, Westside Atomic Wrangler,
+   two at the Prospector Saloon bar) captured in game and rendered by `nvforever` at the
+   recorded poses. In the three exterior frames the placed meshes line up with the game's
+   (position, orientation, texture placement; no flips or missing alpha seen on those
+   objects) [observed]; the remaining differences are lighting and tone (renderer work).
+   The two saloon frames (bottles, glass pitchers, cash register, broken mirror) were
+   captured but not yet compared. `parity-lab/tools/gen_layer2_frames.py` turns these
+   private frames (`<goldens>/frames_l2`) into `L2.frame.*` image scenarios; they are not
+   yet run in the lab and their `min_ssim` (provisional 0.6) is to be fixed with the owner.
 
 Known viewer limitations: the camera frames the bind-pose bounds, so an animation that
 moves the root can sit off-centre (press F); materials approximate the original shaders;
@@ -153,17 +165,12 @@ environment maps, glow maps, particles and collision are not drawn.
 
 ## 5. Open questions and verification steps for the owner
 
-1. **Visual check** (10 minutes): run the viewer (README) on a few meshes you know —
-   e.g. `meshes\clutter\junk\nv\nvnukacolaquartz.nif`, a weapon, a creature with
-   `--anim` — and tell me what looks wrong (orientation, texture flips, missing alpha,
-   normal-map handedness).
-2. **Renderer reference**: for the future image-comparison scenarios, a few screenshots
-   from the original game with the camera fixed (console `tfc`, then record position),
-   noting resolution, time of day and weather.
-3. **Archive precedence**: does a loose file or a DLC archive override `Fallout -
-   Meshes.bsa` for the same path in-game, and does `Update.bsa` override base archives?
-   A quick test: compare an object whose mesh exists in both `Update.bsa` and
-   `Fallout - Meshes.bsa` (list: `fnvtool bsa list` both and intersect).
+1. ~~Visual check~~ — replaced by in-game screenshots (§4 item 7); the saloon frames are
+   still to be compared.
+2. ~~Renderer reference~~ — done by `capture_frames.py` (tools/capture/README.md §7).
+3. ~~Archive precedence~~ — settled for `Update.bsa` and DLC archives over the base
+   archives (bsa.md "Precedence"). Loose files stay untested: none exists in `Data` and
+   NVForever never writes there; only the owner could add one by hand if wanted.
 4. Licence decision (GPL-3.0 placeholder vs MIT/Apache) — unchanged from Layer 1; nothing
    in Layer 2 forces GPL.
 

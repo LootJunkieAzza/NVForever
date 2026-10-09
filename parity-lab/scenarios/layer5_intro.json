@@ -1,0 +1,175 @@
+{
+ "scenarios": [
+  {
+   "id": "L5.intro.opening",
+   "layer": 5,
+   "description": "The Goodsprings intro from the new-game save: the pack plugins' message boxes hold GameMode; VCG00's countdown (stages 95, 100) starts VCG01 (0, 1, 3 by its timers); Doc Mitchell's lines set 5, 8 and 10; the name menu (stage 10) and the race menu (36, with 40 set by VCG01's MenuMode 1036 block) stop script time until closed; 15, 35 and 50 by timers; state at 50 (stage 55 autosaves and is never reached). Timed steps compare the script-time stopwatch within 0.1 s. In-game capture on the owner's new-game save nvfnew. Input parity-lab/inputs/layer5/intro_opening.actions.json (fnv.script.actions/1 with the round 4 additions, docs/spec-notes/layer5-captures.md sections 4, 8, 9 and 10); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "intro/intro_opening.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/intro_opening.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.1
+   },
+   "tags": [
+    "script",
+    "quests",
+    "intro",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.intro.tester",
+   "layer": 5,
+   "description": "VCG01 60 to 80 without stage 55: stages set while a message box holds GameMode, Doc's first VCG01Intro line setting 5, the vigor tester's OnActivate (SPECIAL menu, stage 65 inside Activate, objective 30 completed, tester destroyed), stage 65's timer and Doc's reaction variables, 70 to 80 through Doc's lines (75 sets 76 and 76 sets 79 inside their result scripts). In-game capture on the owner's new-game save nvfnew. Input parity-lab/inputs/layer5/intro_tester.actions.json (fnv.script.actions/1 with the round 4 additions, docs/spec-notes/layer5-captures.md sections 4, 8, 9 and 10); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "intro/intro_tester.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/intro_tester.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.1
+   },
+   "tags": [
+    "script",
+    "quests",
+    "intro",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.intro.complete",
+   "layer": 5,
+   "description": "VCG01 80 to 200 without stage 55: VCG01Test's tag-skill calculation from psych-test scores, 85 to 110 (tag-skill and trait menus closed, 1 s timers), 115, and VGenericTimer's event 3 completing and stopping VCG01 and starting VMQ01 (stage 10, objectives 10, 25, 30), VCG02 (stage 5, objective 3, running) and VCG04; GameHour set to 8 within 0.1 h. In-game capture on the owner's new-game save nvfnew. Input parity-lab/inputs/layer5/intro_complete.actions.json (fnv.script.actions/1 with the round 4 additions, docs/spec-notes/layer5-captures.md sections 4, 8, 9 and 10); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "intro/intro_complete.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/intro_complete.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.1
+   },
+   "tags": [
+    "script",
+    "quests",
+    "intro",
+    "M5",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L5.intro.r4_holdout",
+   "layer": 5,
+   "description": "Layer 5 round 4 intro scenario. In-game capture on the owner's new-game save nvfnew. Input parity-lab/inputs/layer5/intro_r4_holdout.actions.json (fnv.script.actions/1 with the round 4 additions, docs/spec-notes/layer5-captures.md sections 4, 8, 9 and 10); fnvtool script run errors on the additions until workstream 5B implements them.",
+   "oracle": {
+    "golden": "intro/intro_r4_holdout.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "script",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer5/intro_r4_holdout.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 0.0001
+   },
+   "tags": [
+    "script",
+    "M5",
+    "needs-local-capture"
+   ],
+   "holdout": true
+  }
+ ]
+}

@@ -68,13 +68,14 @@ pub struct Targeted {
 
 /// The last on-screen message and how long it has been shown.
 #[derive(Resource, Default)]
-struct HudMessage {
+pub struct HudMessage {
     text: String,
     age: f32,
 }
 
 impl HudMessage {
-    fn show(&mut self, text: String) {
+    /// Show a line on screen (replacing the last one).
+    pub fn show(&mut self, text: String) {
         self.text = text;
         self.age = 0.0;
     }
@@ -225,10 +226,10 @@ impl AutoActivate {
     }
 }
 
-/// E activates the target; the outcome's effects go out as messages.
+/// Activate (E) activates the target; the outcome's effects go out as messages.
 #[allow(clippy::too_many_arguments)]
 fn activate(
-    keys: Res<ButtonInput<KeyCode>>,
+    input: crate::bindings::ControlInput,
     time: Option<Res<Time>>,
     auto: Option<ResMut<AutoActivate>>,
     target: Res<Target>,
@@ -244,7 +245,7 @@ fn activate(
         (Some(mut a), Some(t)) => a.fire(t.elapsed_secs()),
         _ => false,
     };
-    if !keys.just_pressed(KeyCode::KeyE) && !fired {
+    if !input.just_pressed(crate::bindings::Control::Activate) && !fired {
         return;
     }
     let Some(t) = target.0.as_ref() else { return };

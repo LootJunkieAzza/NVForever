@@ -5,7 +5,7 @@
 //! Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
 //! F12 screenshot, Esc quit. With `--play` the camera is the player instead (Layer 4,
 //! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md),
-//! and Esc in a menu closes the menu.
+//! Esc opens the pause menu (Resume / Quit) and closes the open menu.
 
 mod actors;
 mod emittance;
@@ -14,14 +14,18 @@ mod facegen;
 mod fly;
 mod lights;
 mod lod;
+mod locomotion;
+mod weapons;
 mod lodgen;
 mod nav;
+mod player_body;
 mod reflection;
 mod ripples;
 mod imagespace;
 mod sky;
 mod terrain;
 mod tree;
+mod treelod;
 mod underwater;
 mod water;
 mod world;
@@ -82,7 +86,8 @@ struct Args {
     /// Pitch in degrees (negative looks down).
     #[arg(long, default_value_t = -10.0, allow_hyphen_values = true)]
     pitch: f32,
-    /// Cells loaded around the camera's cell in each direction.
+    /// Cells loaded around the camera's cell in each direction (2: the 5 x 5 cells of
+    /// the game's uGridsToLoad=5, its default and the owner's INI value).
     #[arg(long, default_value_t = 2)]
     radius: i32,
     /// Time of day in hours (0-24).
@@ -94,9 +99,20 @@ struct Args {
     /// Override the weather's fog distances: "near,far" in game units.
     #[arg(long)]
     fog: Option<String>,
-    /// Distant LOD (terrain chunks, object blocks) within this many 4-cell chunks.
-    #[arg(long, default_value_t = 8)]
-    lod_radius: i32,
+    /// Distant LOD (terrain chunks, object blocks) out to this distance in game units
+    /// (the game's fBlockLoadDistance; default the owner's INI value) [hypothesis: lod.rs].
+    #[arg(long, default_value_t = 125_000.0)]
+    lod_distance: f32,
+    /// Finest terrain LOD (level 4) within this distance (fBlockLoadDistanceLow).
+    #[arg(long, default_value_t = 50_000.0)]
+    lod_near_distance: f32,
+    /// Coarser terrain LOD splits while the camera is nearer than this x its side
+    /// (fSplitDistanceMult).
+    #[arg(long, default_value_t = 1.5)]
+    lod_split: f32,
+    /// Distant trees drawn as billboards out to this distance (fTreeLoadDistance); 0: none.
+    #[arg(long, default_value_t = 40_000.0)]
+    tree_distance: f32,
     /// Do not draw distant LOD.
     #[arg(long)]
     no_lod: bool,
@@ -108,7 +124,7 @@ struct Args {
     /// LOD chunks (docs/design/generated-lod.md).
     #[arg(long)]
     no_lodgen: bool,
-    /// Generated terrain replaces the game's LOD within this many 4-cell chunks.
+    /// Generated terrain replaces the game's level-4 LOD within this many 4-cell chunks.
     #[arg(long, default_value_t = 4)]
     lodgen_radius: i32,
     /// Generated terrain: diffuse texels per chunk side (power of two; normals get half).
@@ -169,6 +185,10 @@ struct Args {
     /// Test aid with --time-scale: also save a screenshot in this folder at every whole hour.
     #[arg(long, requires = "time_scale")]
     timelapse: Option<PathBuf>,
+    /// Test aid with --timelapse: game minutes between saved frames (60: one per hour; a
+    /// few minutes give frames for a video).
+    #[arg(long, default_value_t = 60.0, requires = "timelapse")]
+    timelapse_step: f32,
     /// Test aid: exit with success after this many seconds (smoke tests).
     #[arg(long)]
     run_seconds: Option<f32>,
@@ -189,9 +209,27 @@ struct Args {
     /// frozen bind pose (docs/spec-notes/actors.md §7).
     #[arg(long, value_enum, default_value_t = actors::ActorPose::Idle)]
     actor_pose: actors::ActorPose,
-    /// Test aid with --actor-pose idle: hold every NPC at this clip time (seconds).
+    /// Test aid with --actor-pose idle: hold every NPC at this clip time (seconds); with
+    /// --actor-walk-test, at this time of the walk script (run from its start, repeatable).
     #[arg(long)]
     actor_pose_time: Option<f32>,
+    /// Test aid: NPCs walk a fixed script along their forward axis at this speed (units
+    /// per second): out, stop, turn, back, and a backward leg (docs/spec-notes/actors.md
+    /// §8.4). Needs --actor-pose idle.
+    #[arg(long)]
+    actor_walk_test: Option<f32>,
+    /// How NPCs' weapons are shown: holstered (the default), drawn, or not at all
+    /// (docs/spec-notes/actors.md §9). Needs --actor-pose idle.
+    #[arg(long, value_enum, default_value_t = weapons::WeaponMode::Holstered)]
+    actor_weapons: weapons::WeaponMode,
+    /// Test aid: armed NPCs draw and holster their weapon, each state held this many
+    /// seconds (docs/spec-notes/actors.md §9.4).
+    #[arg(long)]
+    actor_weapon_test: Option<f32>,
+    /// With --actor-walk-test: only NPCs within this distance of the start position
+    /// (game units; 0 = all).
+    #[arg(long, default_value_t = 0.0, requires = "actor_walk_test")]
+    actor_walk_test_radius: f32,
     /// Test aid with --play: walk forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0, requires = "play")]
     auto_walk: f32,
@@ -209,6 +247,11 @@ struct Args {
     /// Draw the navmesh near the camera and the travellers' paths.
     #[arg(long)]
     show_navmesh: bool,
+    /// With --play: start a new game: in Doc Mitchell's house at the opening's start
+    /// marker, with the opening quest VCG00 started (docs/design/layer5-play.md); --cell,
+    /// --pos and --heading are ignored.
+    #[arg(long, requires = "play")]
+    new_game: bool,
 }
 
 #[derive(Component)]
@@ -217,6 +260,16 @@ struct Overlay;
 fn parse_vec<const N: usize>(s: &str) -> Option<[f32; N]> {
     let v: Vec<f32> = s.split(',').map(|x| x.trim().parse().ok()).collect::<Option<_>>()?;
     v.try_into().ok()
+}
+
+/// The distant LOD distances from the command line (lod.rs).
+fn lod_settings(args: &Args) -> lod::LodSettings {
+    lod::LodSettings {
+        far: args.lod_distance.max(0.0),
+        near: args.lod_near_distance.max(0.0),
+        split: args.lod_split.max(0.0),
+        trees: args.tree_distance.max(0.0),
+    }
 }
 
 /// The generated-terrain job: parameters, cache folder (NVForever's home, never the game's
@@ -269,6 +322,20 @@ fn main() -> AppExit {
     };
     info!("world index built in {:.2}s", t0.elapsed().as_secs_f64());
 
+    // A new game starts at the opening's marker (nvf-play).
+    let mut args = args;
+    if args.new_game {
+        match nvf_play::script::new_game_start(world.lo, world.schema, world.index) {
+            Ok(s) => {
+                info!("new game: interior {:08X}, feet {:?}, heading {:.0}", s.interior, s.feet, s.heading_deg);
+                args.cell = format!("0x{:08X}", s.interior);
+                args.pos = Some(format!("{},{},{}", s.feet[0], s.feet[1], s.feet[2] + nvf_play::player::EYE_HEIGHT));
+                args.heading = s.heading_deg;
+                args.eye_height = 0.0;
+            }
+            Err(e) => return fail(format!("--new-game: {e}")),
+        }
+    }
     // Interior mode when --cell names an interior cell.
     let interior = world.index.cell_by_name(&args.cell).filter(|c| c.world.is_none()).map(|c| c.form_id);
     // Start position (game space).
@@ -350,12 +417,15 @@ fn main() -> AppExit {
         heading_deg: args.heading,
         pitch_deg: args.pitch,
         auto_walk: args.auto_walk,
+        start_at_cell_spot: args.pos.is_none(),
     });
-    let lodgen = if args.no_lod || args.no_lodgen || interior.is_some() {
+    // Also for an interior start: LOD stays off inside and is switched on at the door out
+    // (world::travel), with generated terrain for the start worldspace.
+    let lodgen = if args.no_lod || args.no_lodgen {
         None
     } else {
         match lodgen_job(&args, &world, &game) {
-            Ok(job) => Some(lod::GenState::new(job, args.lodgen_radius.clamp(0, args.lod_radius))),
+            Ok(job) => Some(lod::GenState::new(job, args.lodgen_radius.max(0))),
             Err(e) => return fail(e),
         }
     };
@@ -365,6 +435,12 @@ fn main() -> AppExit {
         a.facegen_enabled = !args.no_facegen;
         a.pose = args.actor_pose;
         a.pose_time = args.actor_pose_time;
+        a.walk_test = args.actor_walk_test.map(|speed| actors::WalkTestArgs { speed, radius: args.actor_walk_test_radius, center: start });
+        a.weapon_mode = args.actor_weapons;
+        a.weapon_test = args.actor_weapon_test;
+        if a.walk_test.is_some() && a.pose == actors::ActorPose::Bind {
+            warn!("--actor-walk-test needs --actor-pose idle; actors stay in the bind pose");
+        }
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
@@ -402,7 +478,7 @@ fn main() -> AppExit {
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
     .insert_resource(fly::AutoFly(args.auto_fly))
-    .insert_resource(lod::LodState::new(&world, args.lod_radius, !args.no_lod && interior.is_none(), lodgen))
+    .insert_resource(lod::LodState::new(&world, lod_settings(&args), !args.no_lod && interior.is_none(), lodgen))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
     .insert_resource(Streamer {
@@ -430,10 +506,15 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
+    .init_resource::<locomotion::ActorAnimCost>()
+    .add_systems(Update, (locomotion::walk_test, locomotion::drive, weapons::reparent).chain())
     .add_systems(Update, timelapse.after(sky::update_sky));
+    if args.new_game {
+        app.insert_resource(nvf_play::script::NewGame);
+    }
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
@@ -444,6 +525,10 @@ fn main() -> AppExit {
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);
+        if play.is_some() {
+            // The player's own body (player_body.rs): needs the actor records.
+            app.add_plugins(player_body::PlayerBodyPlugin);
+        }
     }
     if let Some(n) = nav_state {
         let follow = n.follow;
@@ -467,7 +552,15 @@ fn main() -> AppExit {
         app.add_systems(Update, screenshot_and_exit);
     }
     if let Some(secs) = args.run_seconds {
-        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, lod: Res<lod::LodState>, actors: Option<Res<actors::ActorWorld>>, anim: Res<AnimCost>, mut commands: Commands, mut t: Local<(f32, u32)>| {
+        #[allow(clippy::too_many_arguments)]
+        let summary = move |time: Res<Time>,
+                            streamer: Res<Streamer>,
+                            lod: Res<lod::LodState>,
+                            actors: Option<Res<actors::ActorWorld>>,
+                            anim: Res<AnimCost>,
+                            actor_anim: Res<locomotion::ActorAnimCost>,
+                            mut commands: Commands,
+                            mut t: Local<(f32, u32)>| {
             t.0 += time.delta_secs();
             t.1 += 1;
             if t.0 >= secs {
@@ -476,19 +569,35 @@ fn main() -> AppExit {
                     "run finished after {:.1}s: {} cells loaded in total, {} loaded now, {} frames ({:.1} per second), generated LOD chunks {} baked, {} from the cache, actors {:?}",
                     t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached, streamer.stats.actors
                 );
+                info!("distant LOD at the end: {}", lod.describe());
                 info!(
                     "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame",
                     anim.peak,
                     anim.total.as_secs_f64() * 1e3 / f64::from(anim.frames.max(1)),
                     anim.total.as_secs_f64() * 1e6 / anim.clip_frames.max(1) as f64
                 );
+                let c = &*actor_anim;
+                if c.actor_frames == 0 {
+                    info!("actor animation: no actors posed");
+                } else {
+                    info!(
+                    "actor animation: up to {} actors posed at once, {:.3} ms per frame on average, {:.2} us per actor and frame, {:.2} clips per actor and frame ({:.1}% of actor frames with more than one clip), {:.1} tracks per actor and frame",
+                    c.peak,
+                    c.total.as_secs_f64() * 1e3 / f64::from(c.frames.max(1)),
+                    c.total.as_secs_f64() * 1e6 / c.actor_frames.max(1) as f64,
+                    c.layer_frames as f64 / c.actor_frames.max(1) as f64,
+                    100.0 * c.blend_frames as f64 / c.actor_frames.max(1) as f64,
+                    c.tracks as f64 / c.actor_frames as f64
+                    );
+                }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
                     info!("FaceGen: {} shapes morphed, {} faces textured, {} EGMs not matching their shape", fg.morphed_shapes, fg.faces_textured, fg.mismatched);
                 }
                 commands.write_message(AppExit::Success);
             }
-        });
+        };
+        app.add_systems(Update, summary);
     }
     app.run()
 }
@@ -557,18 +666,24 @@ fn overlay(
     lod: Res<lod::LodState>,
     cam: Query<&GlobalTransform, With<FlyCam>>,
     mut text: Query<&mut Text, With<Overlay>>,
+    play_state: Option<Res<State<nvf_play::PlayState>>>,
 ) {
     let (Ok(cam), Ok(mut t)) = (cam.single(), text.single_mut()) else { return };
     let g = world::bevy_to_game(cam.translation());
     let c = fnv_world::cell_of(g.x, g.y);
     let s = &streamer.stats;
     t.0 = format!(
-        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {} (animated {})  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  LOD chunks {} generated {} (baking {}) blocks {}  lights {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
+        "pos {:.0}, {:.0}, {:.0}  cell {},{}
+cells {} ({} loads, {:.0} ms total)  refs drawn {} (animated {})  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}
+models {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  {}  lights {}
+{}
+{}",
         g.x, g.y, g.z, c.0, c.1,
         streamer.loaded.len(), s.cells_loaded, s.load_ms,
         s.refs_drawn, s.refs_animated, s.refs_skipped_disabled, s.refs_skipped_type, s.refs_speedtree, s.refs_no_model, s.shapes,
         models.len(), models.failures.len(), textures.failures.len(), terrain.layers, terrain.quadrants_without_base,
-        s.water_planes, lod.chunks, lod.generated, lod.gen_pending(), lod.blocks, s.lights, sky.describe(),
+        s.water_planes, lod.describe(), s.lights, sky.describe(),
+        if play_state.is_some() { nvf_play::HELP } else { "WASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit" },
     );
 }
 
@@ -578,9 +693,9 @@ fn keys(
     mut commands: Commands,
     mut n: Local<u32>,
 ) {
-    // With --play, Esc in a menu closes the menu (nvf-play) instead of quitting.
-    let in_menu = play_state.is_some_and(|s| *s.get() == nvf_play::PlayState::Menu);
-    if input.just_pressed(KeyCode::Escape) && !in_menu {
+    // With --play, Esc is nvf-play's: it opens the pause menu (Resume / Quit) or closes
+    // the open menu, instead of quitting.
+    if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
     if input.just_pressed(KeyCode::F12) {
@@ -609,10 +724,14 @@ fn write_frame_json(out: &std::path::Path, image: &std::path::Path, args: &Args,
 }
 
 /// With --time-scale: the clock starts once the cells around the start are loaded; then
-/// one log line per whole game hour, and a screenshot with --timelapse.
+/// one log line per whole game hour, and with --timelapse a screenshot every
+/// --timelapse-step game minutes.
+#[allow(clippy::too_many_arguments)]
 fn timelapse(
     mut last: Local<Option<i32>>,
     mut seen: Local<u32>,
+    mut last_slot: Local<Option<i64>>,
+    mut frames: Local<u32>,
     mut sky: ResMut<sky::SkyState>,
     streamer: Res<Streamer>,
     args: Res<Args>,
@@ -629,6 +748,21 @@ fn timelapse(
         }
         return;
     }
+    if let Some(dir) = &args.timelapse {
+        // Slots of --timelapse-step minutes from midnight; the hour wraps at 24, so a change
+        // of slot (not an increase) marks a new frame. Waits for the first slot boundary.
+        let step = args.timelapse_step.max(0.5) as f64;
+        let slot = (sky.hour as f64 * 60.0 / step).floor() as i64;
+        if *last_slot != Some(slot) {
+            if last_slot.is_some() {
+                *frames += 1;
+                let minutes = (slot as f64 * step).round() as i64;
+                let name = format!("{:04}_{:02}{:02}.png", *frames, minutes / 60 % 24, minutes % 60);
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(dir.join(name)));
+            }
+            *last_slot = Some(slot);
+        }
+    }
     let hour = sky.hour.floor() as i32;
     if *last == Some(hour) {
         return;
@@ -640,13 +774,10 @@ fn timelapse(
     }
     *seen += 1;
     info!("time-lapse {}  ({} hours passed)", sky.sample(), *seen);
-    if let Some(dir) = &args.timelapse {
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(dir.join(format!("{:02}_{hour:02}h.png", *seen))));
-    }
 }
 
-/// Time spent advancing clips (animated models and, with `--actor-pose idle`, actors),
-/// for the `--run-seconds` summary.
+/// Time spent advancing single clips (animated models; actors are timed by
+/// `locomotion::ActorAnimCost`), for the `--run-seconds` summary.
 #[derive(Resource, Default)]
 struct AnimCost {
     total: std::time::Duration,

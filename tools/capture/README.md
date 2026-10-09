@@ -233,6 +233,8 @@ python parity-lab/tools/gen_layer3_frames.py C:/fnv-private/goldens
 For each camera the job loads its grid square (`cow`), places the player (a camera without
 z stands on the terrain from `--data`), sets the hour and weather, waits, hides the HUD
 (`tm`), takes the screenshot and records the position, angles and hour the game reports;
+a camera with a `"cell"` (an interior Editor ID, e.g. `tools/capture/frames/interiors.json`)
+travels with `coc` instead and needs a z and `--data`;
 the manifest is written from those recorded values, and existing entries keep their
 `masks`, `min_ssim` and `holdout`. The save must be in first person. Look at each picture
 before trusting it: the finisher warns about black pictures and a window that was not in
@@ -244,9 +246,12 @@ First results (2026-10-09, plugin v7, save `nvftest`, the four starter cameras, 
 aligned with `nvforever`'s render of the recorded pose, except that the game's view is
 wider. Rendering `goodsprings_noon` with `--fov 91.3` instead of 75 lines the two up
 (SSIM 0.18 → 0.42); 91.3° is the horizontal angle at 16:9 of a 75° horizontal FOV defined
-at 4:3 ("Hor+") [hypothesis for the game's rule; one camera measured]. The remaining
+at 4:3 ("Hor+") [hypothesis for the game's rule; one camera measured]. All four cameras
+then confirmed it, and `nvforever --fov` now applies the rule itself, so the scenarios
+keep passing the game's setting (75) (`docs/spec-notes/camera.md` §2). The remaining
 differences are rendering (sky colour and clouds, missing grass, tone). The lake camera
-has a creature in the bottom-left corner that needs a mask.
+has a creature in the bottom-left corner; no mask is needed (owner decision 2026-10-09:
+the frames judge lighting and the world's look, and actors in shot don't matter).
 
 **Setup (once).** Pick how to save screenshots: the game's own key needs
 `bAllowScreenShot=1` in the `[Display]` section of your `Fallout.ini` (you edit it
@@ -457,7 +462,16 @@ failed steps, problems (game did not start, crashed, old plugin, timeout) and th
 plugin's log lines from this run. `--trace-dir C:/fnv-private/goldens/sim` also builds the
 trace goldens of ended jobs. Jobs with manual steps are refused unless `--attended`
 (someone presses End after each); other jobs already pending in `jobs\` are refused
-unless `--include-pending`. Exit code 0 means every job ended. The default console lines
+unless `--include-pending`. Exit code 0 means every job ended.
+
+**Saves guard (2026-10-09).** The game can write to the Saves folder by itself: VCG01's
+stage 55 runs `Autosave`, which rewrote the owner's `autosave.fos` during a capture
+although `bAllowScriptedAutosave` was 0 (docs/owner-review.md). Before launching,
+`capture_run.py` copies the rolling saves (`autosave*`, `quicksave*`) to
+`<capture dir>\saves-backup\<time>` (reading the Saves folder only). After the run it
+compares the folder listing; any change is listed under `saves_changed` and in the
+problems, and the exit code is 3. It never restores anything into the Saves folder: that
+is the owner's to do. Avoid jobs that reach scripted autosaves. The default console lines
 for loading and quitting (`load <save>`, `qqq`) worked on the owner's install
 (xnvse-capture.md §6); `--menu-console` / `--quit-console` change them. The read-only
 trial, to check a new setup:

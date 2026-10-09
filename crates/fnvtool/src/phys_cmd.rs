@@ -642,6 +642,19 @@ struct Script {
     params: BTreeMap<String, f64>,
     /// Observation points: `(label, step)`, from `observe`.
     observe: Vec<(String, usize)>,
+    /// Loose objects added before the walk (`props`).
+    props: Vec<Prop>,
+}
+
+/// A model's collision placed in the world before the walk, e.g. a clutter item for the
+/// character to push (`"props": [{"label", "model", "at": [x, y, z], "rot"?: [x, y, z]}]`,
+/// angles in radians as a reference's). It is added as a reference with FormID
+/// 0xFF000000 + its index (above every placed one).
+struct Prop {
+    label: String,
+    model: String,
+    at: [f32; 3],
+    rot: [f32; 3],
 }
 
 struct Segment {
@@ -727,7 +740,22 @@ impl Script {
                 observe.push((format!("t{:.2}", (i * every) as f64 / hz as f64), from + i * every));
             }
         }
+        let mut props = Vec::new();
+        for (i, pr) in v.get("props").and_then(Value::as_array).into_iter().flatten().enumerate() {
+            let at = pr["at"].as_array().filter(|a| a.len() == 3).ok_or_else(|| anyhow!("prop {i}: \"at\" must be [x, y, z]"))?;
+            let rot = match pr.get("rot") {
+                None => [0.0; 3],
+                Some(r) => [num(&r[0], "rot[0]")?, num(&r[1], "rot[1]")?, num(&r[2], "rot[2]")?],
+            };
+            props.push(Prop {
+                label: pr["label"].as_str().map_or_else(|| format!("prop{i}"), str::to_string),
+                model: pr["model"].as_str().ok_or_else(|| anyhow!("prop {i} needs a \"model\" path"))?.to_string(),
+                at: [num(&at[0], "at[0]")?, num(&at[1], "at[1]")?, num(&at[2], "at[2]")?],
+                rot,
+            });
+        }
         Ok(Script {
+            props,
             observe,
             start: [num(&start[0], "start[0]")?, num(&start[1], "start[1]")?],
             start_z: start.get(2).map(|z| num(z, "start[2]")).transpose()?,
@@ -779,7 +807,30 @@ fn walk_cmd(
     meshes: Option<&mut Meshes>,
 ) -> anyhow::Result<Value> {
     let (params, character) = script.parameters()?;
-    let mut b = build(lo, schema, ix, centre, radius, &[], params, meshes, &plugin_in_world(lo, schema));
+    let mut meshes = meshes;
+    let mut b = build(lo, schema, ix, centre, radius, &[], params, meshes.as_deref_mut(), &plugin_in_world(lo, schema));
+    let mut props = Vec::new();
+    for (i, pr) in script.props.iter().enumerate() {
+        let m = meshes.as_deref_mut().ok_or_else(|| anyhow!("props need the meshes (no --no-meshes, and the NIF schema)"))?;
+        let objects = m.objects(&pr.model).map_err(|e| anyhow!("prop {}: {}: {e}", pr.label, pr.model))?;
+        let id = 0xFF00_0000 + i as u32;
+        let pose = RefPose { form_id: id, position: pr.at, rotation: fnv_world::transform::ref_rotation(pr.rot), scale: 1.0 };
+        let rep = b.world.add_ref(&pose, &objects);
+        if rep.bodies == 0 {
+            bail!("prop {}: {} has no collision", pr.label, pr.model);
+        }
+        let mass: f32 = objects.iter().map(|o| o.mass).sum();
+        // One object: its body's pose gives the prop's reference pose (what the game's
+        // GetPos reads); otherwise the first body's position is reported.
+        let local = (objects.len() == 1 && rep.bodies == 1).then(|| objects[0].node_transform.compose(&objects[0].body_transform));
+        props.push((id, json!({"label": pr.label, "model": pr.model, "formid": fid(id), "bodies": rep.bodies, "havok_mass": mass}), local));
+    }
+    let prop_pos = |w: &fnv_phys::PhysWorld, id: u32, local: &Option<fnv_collide::Iso>| {
+        w.ref_bodies(id).first().map(|b| match local {
+            Some(l) => ref_pose_of(b, l).0,
+            None => b.translation,
+        })
+    };
     let [x, y] = script.start;
     let start_z = match script.start_z {
         Some(z) => z,
@@ -838,10 +889,14 @@ fn walk_cmd(
                 *touched.entry(*o).or_default() += 1;
             }
             for (label, _) in script.observe.iter().filter(|(_, at)| *at == step) {
-                observations.push(json!({"label": label, "feet": s.feet, "grounded": s.grounded, "swimming": s.swimming}));
+                let mut o = json!({"label": label, "feet": s.feet, "grounded": s.grounded, "swimming": s.swimming});
+                if !props.is_empty() {
+                    o["props"] = json!(props.iter().map(|(id, _, l)| prop_pos(world, *id, l)).collect::<Vec<_>>());
+                }
+                observations.push(o);
             }
             if step.is_multiple_of(every) || step == total {
-                trace.push(json!({
+                let mut t = json!({
                     "step": step,
                     "feet": s.feet,
                     "vertical_speed": c.vertical_speed,
@@ -851,7 +906,11 @@ fn walk_cmd(
                     "gap": s.gap,
                     "swimming": s.swimming,
                     "touched": s.touched.iter().map(owner_json).collect::<Vec<_>>(),
-                }));
+                });
+                if !props.is_empty() {
+                    t["props"] = json!(props.iter().map(|(id, _, l)| prop_pos(world, *id, l)).collect::<Vec<_>>());
+                }
+                trace.push(t);
             }
         }
     }
@@ -871,10 +930,38 @@ fn walk_cmd(
         "touched": touched.iter().map(|(o, n)| json!({"owner": owner_json(o), "steps": n})).collect::<Vec<_>>(),
     });
     v["trace"] = json!(trace);
+    if !props.is_empty() {
+        v["props"] = json!(props
+            .iter()
+            .map(|(id, p, local)| {
+                let mut p = p.clone();
+                let b = b.world.ref_bodies(*id).first().copied();
+                p["end"] = json!(b.map(|b| b.translation));
+                p["end_rotation"] = json!(b.map(|b| b.rotation));
+                p["asleep"] = json!(b.map(|b| b.sleeping));
+                if let (Some(b), Some(l)) = (b, local) {
+                    let (pos, rot) = ref_pose_of(&b, l);
+                    p["end_ref"] = json!(pos);
+                    p["end_ref_angles_deg"] = json!(fnv_world::transform::ref_angles(&rot).map(f32::to_degrees));
+                }
+                p
+            })
+            .collect::<Vec<_>>());
+    }
     if !script.observe.is_empty() {
         v["observations"] = json!(observations);
     }
     Ok(v)
+}
+
+/// The reference pose (position, row-major rotation) of a body placed at `ref ∘ local`
+/// (scale 1): `R = R_body R_localᵀ`, `t = t_body − R t_local`.
+fn ref_pose_of(b: &fnv_phys::BodyState, local: &fnv_collide::Iso) -> ([f32; 3], [f32; 9]) {
+    use fnv_world::transform::{mul, transpose};
+    let r = mul(&b.rotation, &transpose(&local.rotation));
+    let t = local.translation;
+    let rt = [0, 3, 6].map(|i| r[i] * t[0] + r[i + 1] * t[1] + r[i + 2] * t[2]);
+    ([b.translation[0] - rt[0], b.translation[1] - rt[1], b.translation[2] - rt[2]], r)
 }
 
 /// Sample points of `phys heights`, in grid steps (128 units) east and north of a cell's

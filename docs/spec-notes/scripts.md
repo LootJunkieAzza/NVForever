@@ -512,8 +512,15 @@ function does. Tests run the VM in strict mode; the game runs it in lenient mode
   §2.6 runs the same statements as a jump by the stored count [hypothesis, from 5A].
 - Calls: the explicit reference (`Ref.Func`, the `0x001C` prefix or `r` before `X`) is
   resolved first, then every argument (references through the reference list; `SCRV`
-  entries read the local variable), then `Host::call`. A call on an empty reference
-  variable is skipped with a `call_failed` trace event [hypothesis].
+  entries read the local variable), then `Host::call`. **A call on an empty reference
+  variable stops the script for this run**, silently in the game [documented: GECK wiki
+  Ref Variable, Eval and Let pages, owner export 2026-10-09; docs/spec-notes/script-language.md §7.3 row
+  1]; here it is traced as `call_failed`. A `Set` whose expression stopped the script
+  leaves its variable unchanged [documented: Let, "a failed set stops the script"].
+  Until round 4 the call read 0 and the script went on.
+- **Return ends the script for this run**, not just its block: a later block of the same
+  event does not run [documented: GECK wiki Adding an Options Menu, owner export 2026-10-09; script-language.md
+  §7.3 row 2, which lists the five shipped units where this can matter].
 - **Unknown opcodes** (not in `functions.json`; one in the masters, 0x127C, §2.6) and
   `Raw` pieces: strict runs fail; lenient runs skip the call (value 0) and trace
   `skipped`.
@@ -560,29 +567,45 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   stop the quest; only a script's StopQuest does (VMS22, VMS16 stage 110).
 - **SetObjectiveDisplayed 1 clears the objective's completed flag; SetObjectiveCompleted
   does not display** (VMS16 objectives 5 and 10). Only objectives the quest defines
-  change; displaying one starts a stopped quest [documented: GECK wiki].
+  change; displaying one starts a stopped quest [documented: GECK wiki
+  SetObjectiveDisplayed; also Quest scripts and Quest Data Tab, owner export 2026-10-09: SetStage, StartQuest
+  and SetObjectiveDisplayed start a quest].
+- **A stopped quest keeps its variables**, readable and writable [documented: GECK wiki
+  Quest scripts, owner export 2026-10-09]: `quest.var` reaches the instance whether or not the quest runs.
+- **Complete Quest with a Next quest** makes that quest the player's active quest
+  [documented: GECK wiki Quest Stages Tab, owner export 2026-10-09]. Not modelled (the active quest is the
+  Pip-Boy's, Layer 6); `StageEntry::next_quest` is read.
 - **Script delay: the `DATA` delay whenever it is non-zero, whatever the "Default Script
   Processing Delay" flag says; 0 means 5 s; a delay shorter than a frame runs every
   frame** (VMQ03aTimer 0.5 s, CGTutorial 1.0 s, VCG01 and VCG00 0.01 s, VMS40Timer 0 → 5 s)
-  [also documented: GECK wiki SetQuestDelay]. A stopped quest's script does not run.
+  [also documented: GECK wiki SetQuestDelay]. The wiki's Quest Data Tab and Quest scripts
+  pages (owner export 2026-10-09) say the flag means the INI's 5 s whatever the field; the captures show the
+  field used whenever it is non-zero, and the observed rule is kept
+  (docs/spec-notes/quests-dialogue.md §5). A stopped quest's script does not run.
   The first run after StartQuest is not modelled (it was irregular in game; the
   scenarios skip it): the counter starts at 0 on StartQuest.
-- **GetSecondsPassed** returns the game time since the same instance last called it,
-  read from a clock with 1/64 s resolution [observed: every drop is a multiple of
-  0.015625 s; hypothesis that the clock, not the frame, is quantised], 0 on the first
-  call, and the same value for every call in one frame [documented: GECK wiki
-  GetSecondsPassed]. **Menus and loading screens do not count**: the game time
+- **GetSecondsPassed** returns the game time between the start of the instance's
+  previous per-frame run (GameMode, ScriptEffectUpdate) and the start of this one, read
+  from a clock with 1/64 s resolution [observed: every drop is a multiple of 0.015625 s;
+  hypothesis that the clock, not the frame, is quantised], 0 on the first run, and the
+  same value for every call in one run [documented: GECK wiki GetSecondsPassed]. It does
+  **not** depend on when the script last called it [observed: VCG01's countdowns,
+  restarted by a stage after a pause in which the script had not called it (the
+  countdown before had run out, or Doc's lines ran), came at 0.95–1.0 × their fTimer:
+  7 at 3.22 s of 3.25, 70 at 0.96 of 1.0, 95, 100 and 105 at 0.96–0.98 of 1.0,
+  layer5-captures.md §10.7; `Game::mark_run`]. Round 3 counted the time since the last
+  call, which made the walk-through's 85 → 90 countdown expire at once; that rule is
+  gone. **Menus and loading screens do not count**: the game time
   (`Game::time`) and the GameMode quest delay stop while a menu is open or a loading
   screen is up [observed: after a 900-frame container menu the first drop was one frame
   for VCG00 and VMQ03aTimer's own 0.5 s, `L5.quest.seconds_after_menu`; a `coc` loading
-  screen was not counted either; layer5-captures.md §8.3 e]. A gap in game mode (the
-  quest script not calling it for a while) is counted whole: VCG01's timer between
-  stages 85 and 90 in the walk-through (§9) expired at once because the quest script had
-  not called GetSecondsPassed since stage 70 [hypothesis that the game does the same;
-  a Wait-menu gap is not captured].
+  screen was not counted either; layer5-captures.md §8.3 e; a quest timer and an object
+  script's stopwatch stood still in the name menu, §10.1]. A Wait-menu gap is not
+  captured.
 - **New game**: every quest flagged "Start game enabled" runs, with no stage set
-  [hypothesis from the flag's name]; VCG00 is the quest the New Game menu starts
-  [documented: GECK wiki SetStage notes]; the runner starts it as an input.
+  [documented: GECK wiki Quest Data Tab, owner export 2026-10-09]; VCG00 is the quest the New Game menu starts
+  [documented: GECK wiki SetStage notes]; the runner starts it as an input, or (round 4)
+  starts from the facts of the new-game save `nvfnew` (§8, §9).
 
 ## 6. Conditions (`fnv_game::cond`)
 
@@ -602,10 +625,17 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   AND, so **OR binds tighter than AND** [observed: GoodspringsFleePackage's `A OR B, C`
   and SunnySmilesStayAtCurrentLocation's `D, Q, S45 OR S40 OR S20` chose as `(A OR B)
   AND C` and `D AND Q AND (S45 OR S40 OR S20)`, neither left to right nor AND first,
-  `L5.quest.condition_groups`, layer5-captures.md §8.3 b]; it matches `||` binding
-  tighter than `&&` in compiled expressions (§3.3).
-- Subjects: quest stage conditions run on the player [hypothesis]; a dialogue line's on
-  its speaker, with the player as target; an AI package's on its actor (§7.5).
+  `L5.quest.condition_groups`, layer5-captures.md §8.3 b; also documented: GECK wiki
+  Category:Conditions, owner export 2026-10-09]; it matches `||` binding tighter than `&&` in compiled
+  expressions (§3.3).
+- Subjects: quest stage conditions run on the player [hypothesis]; the wiki says "Run on
+  Target" and most reference functions are invalid on stages and quest targets, since a
+  stage is not a reference [documented: GECK wiki Quest Stages Tab and Quest Objectives
+  Tab, owner export 2026-10-09; docs/spec-notes/quests-dialogue.md §2], which leaves
+  the subject of the valid ones open. A dialogue line's run on its speaker, with the
+  listener (the player, or SayTo's target) as target [documented: Category:Conditions:
+  Subject is the speaker, Target the listener]; an AI package's on its actor (§7.5); an
+  effect's on the effect's target [documented: same page].
 - Evaluation calls the same implementations as scripts (index = opcode − 0x1000). Every
   condition function the intro chain's quests and dialogue use (248 conditions) is
   implemented. An unhandled one reads 0.
@@ -629,13 +659,15 @@ the original (test `snapshots_round_trip`).
 
 | Event | When (here) | Tag |
 |---|---|---|
-| GameMode | every frame: the OnLoad blocks due (below), then running quests whose delay has passed (FormID order), then enabled scripted references in loaded cells (FormID order), then the scripted items the player carries (FormID order), then active magic effects (§7.6) | quest scripts before object scripts [observed for one pair: BeatrixFX's GameMode moved GameHour on and two Goodsprings windows (WastelandWindowScript, copying GetCurrentTime every frame) saw the new hour in the same frame, `L5.quest.script_order`, layer5-captures.md §9.3 c]; every other part of the order [hypothesis]; delays [observed]; carried items [observed: JarPistolPowder, `L5.quest.onadd_gamemode`; other holders not modelled, hypothesis] |
-| MenuMode | instead of GameMode while a menu is open (`Game::menu`); a block's menu code must match; quests run it on their delay, counted in menu time only | [hypothesis] |
+| GameMode | every frame: the OnLoad blocks due (below), then running quests whose delay has passed (FormID order), then scripted references in loaded cells, disabled ones included (FormID order), then the scripted items the player carries (FormID order), then active magic effects (§7.6), then dialogue lines (§7.7). A menu opened by one of these scripts holds the ones after it until it closes (§7.7) | quest scripts before object scripts [observed for one pair: BeatrixFX's GameMode moved GameHour on and two Goodsprings windows (WastelandWindowScript, copying GetCurrentTime every frame) saw the new hour in the same frame, `L5.quest.script_order`, layer5-captures.md §9.3 c]; every other part of the order [hypothesis]; delays [observed]; carried items [observed: JarPistolPowder, `L5.quest.onadd_gamemode`; other holders not modelled, hypothesis: the wiki's Scripting for Beginners page says an item's script runs while its holder is loaded, owner export 2026-10-09]; disabled references [documented: GECK wiki Object scripts, owner export 2026-10-09] |
+| MenuMode | instead of GameMode while a menu is open (`Game::menu`, a message box included); a block's menu code must match; quests run it on their delay, counted in menu time only | VCG01's `MenuMode 1036` set stage 40 while the race menu was open [observed: layer5-captures.md §10.3]; the delay counter [hypothesis] |
 | OnActivate | an activation by hand runs the block *instead of* the default action, inside the activation; the default runs only if the block calls `Activate`; a scripted `Activate` (flag 0) runs the default and never the block; with flag 1 the block runs instead, or the default when the target has no block; the block runs on dead actors too; a block parameter (`OnActivate player`) must match the activator | [observed: `L5.quest.ref_activation`, `.dead_activation`, layer5-captures.md §8.3 d, f; documented: GECK wiki Activate] |
 | OnLoad | scripted references in a cell when it becomes loaded (the player's cell, plus the 5×5 grid outdoors), at once; a reference enabled in a loaded cell at the start of the next frame, not inside Enable | cell load [hypothesis]; after Enable [observed: jukebox and broken radio, layer5-captures.md §8.3 d] |
 | OnAdd / OnEquip / OnUnequip | AddItem (each item of a form list), pick-up, EquipItem / UnequipItem, on the item's script, inside the call; the item's GameMode follows by the next frame | [documented: AddItem's OnAdd; per call, not per item, hypothesis; observed: OnAdd then GameMode by the next frame, `L5.quest.onadd_gamemode`] |
 | OnDeath | KillActor | [hypothesis: at once] |
-| OnTriggerEnter / OnTrigger / OnTriggerLeave, SayToDone, OnPackageStart/Done/Change | runner inputs until physics sensors (5D) and Layer 6 | — |
+| SayToDone | when a line said by SayTo or Say ends, after its end result script (§7.7); also the runner input `say_to_done` | after Say too [documented: GECK tutorials, level-design.md §11.2 D1]; the order [hypothesis] |
+| OnTriggerEnter / OnTrigger / OnTriggerLeave | runner inputs (`trigger_enter`); in `nvforever --play` any actor's capsule against the volume (docs/design/layer5-play.md §3) | who and how [documented: level-design.md §11.2 T1–T3]; Enter before OnTrigger on the entering frame [hypothesis] |
+| OnPackageStart/Done/Change | runner inputs until Layer 6 | — |
 
 A dead actor's default activation opens its inventory (the loot menu) [observed:
 `L5.quest.dead_activation`]. A scripted item's instance is per holder and item;
@@ -659,6 +691,18 @@ state and one call per frame:
   stays [hypothesis, from the GECK wiki's ShowMessage and GetButtonPressed pages; with a
   global button the `--play` integration saw Doc Mitchell's chemistry set take every
   box's button].
+- Round 4 (§7.7): scripts now open menus themselves (`Game::open_menu`: a message box
+  is 1001, the name, race, tag-skill, trait and S.P.E.C.I.A.L. menus have their codes),
+  and boxes wait in `Game::boxes`. The engine should show `game.menu` and call
+  `game.close_menu()` when the player closes it (OK / Done) and `game.press_button(b)` for
+  a button, instead of overwriting `game.menu` every frame. `nvforever --play` does so
+  since 5D round 2 (docs/design/layer5-play.md §2): it sets `game.message_box.pressed`
+  before the frame's tick and calls `close_menu` after it, so a `MenuMode 1001` block
+  still reads the button once (with `press_button` the box would close before MenuMode
+  ran).
+  `GameConfig::modal_message_boxes` (default on) switches boxes back to notifications.
+  Dialogue lines advance in `tick` (`Game::speech`); the engine can play their voice
+  files from the `line_started` events.
 These replace the engine-side handling `nvf-play` (PR #62) has for "no script time in
 menus, message boxes and the frames after a door load" and "OnLoad the frame after
 Enable". Until it switches: an OnLoad the engine runs itself (`ref_event(r, ON_LOAD)`)
@@ -668,14 +712,17 @@ quest MenuMode blocks with a delay never run (keeping `dt` and setting `menu` av
 that). The frames right after a door's cell load are the engine's to mark with
 `loading` (the captures saw about 22 frames without script runs after a `coc`).
 
-Disabled and deleted references do not run their scripts [hypothesis].
+Disabled references run their per-frame blocks [documented: GECK wiki Object scripts,
+owner export 2026-10-09; round 3 had them stopped, a hypothesis]; deleted ones do not, and OnLoad at a cell
+load needs the reference enabled (a disabled reference has no 3D to load) [hypothesis].
+Return ends the script for the run, later blocks of the same event included (§4.2).
 
 ### 7.3 Functions
 
 `fnv_game::functions::registry()` lists every handled opcode with its catalogue name (a
 test checks the name against `functions.json`). Dispatch is by opcode only.
 
-- **Implemented (133)**: quests (SetStage, GetStage, GetStageDone, Start/StopQuest,
+- **Implemented (133 in round 2; 225 after round 3; 232 after round 4)**: quests (SetStage, GetStage, GetStageDone, Start/StopQuest,
   GetQuestRunning, GetQuestCompleted, CompleteQuest, Set/GetObjectiveDisplayed,
   Set/GetObjectiveCompleted, GetQuestVariable, GetScriptVariable, SetQuestDelay);
   references (Enable, Disable, GetDisabled, MoveTo, MoveToMarkerWithFade, GetSelf,
@@ -697,7 +744,7 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   RewardKarma, Get/ModPCMiscStat, ShowMap, GetMapMarkerVisible); messages and misc
   (ShowMessage, GetButtonPressed, ShowWarning, MenuMode, GetRandomPercent,
   GetSecondsPassed, GetGlobalValue, GetCurrentTime, GetGameSetting, Abs); and four Layer 6
-  states that read "no" without Layer 6 (IsInCombat, IsTalking) or the PC platform
+  states that read "no" without Layer 6 (IsInCombat; IsTalking until round 4) or the PC platform
   (IsXBox, IsPS3) [decision].
 - **Added in round 3 (92, 2026-10-09; rules in §7.6)**: reputations
   (GetReputationThreshold, Add/RemoveReputation, AddReputationExact, GetReputationPct);
@@ -722,16 +769,20 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   ResetQuest); GetDayOfWeek, Sqrt, IsWin32 (1, the PC version) and IsGoreDisabled (0,
   the default) [decision]. Seven of them were stubs before (SetEnemy, SetAlly,
   IgnoreCrime, SetIgnoreFriendlyHits, SetScale, CastImmediateOnSelf, RemoveSpell).
-- **Layer 6 stubs (170)**, traced as `stub` with
+- **Added in round 4 (7, §7.7)**: SayTo, Say (dialogue lines), IsTalking (a line in
+  progress), and the menus GetPlayerName, ShowRaceMenu, SetTagSkills, ShowTraitMenu,
+  ShowLoveTesterMenuParams (each opens its menu). All seven were stubs before.
+- **Layer 6 stubs (170 after round 3; 163 after round 4)**, traced as `stub` with
   their arguments and no effect; `functions::registry()` names each one's system. From
   round 2: AI packages (ResetAI, GetCurrentAIPackage, GetCurrentAIProcedure, SetAlert,
-  GetFurnitureMarkerID, IsCurrentFurnitureRef), dialogue (SayTo, Say,
-  StartConversation, GetTalkedToPC, SetDisposition), combat (StartCombat, StopCombat,
+  GetFurnitureMarkerID, IsCurrentFurnitureRef), dialogue (StartConversation,
+  GetTalkedToPC, SetDisposition), combat (StartCombat, StopCombat,
   GetHitLocation, GetShouldAttack, IsWeaponOut, GetWeaponAnimType, GetVATSValue), crime
   (SendTrespassAlarm), animation (PlayGroup, PlayIdle, Look, StopLook), appearance
   (AgeRace), sound and video, image space, weather, SetGlobalTimeMultiplier, rendering
   (SwapTexture, SetActorAlpha, PlayMagicShaderVisuals), HUD and Pip-Boy, menus,
-  Autosave, IncrementScriptedChallenge, IsSneaking. Round 3 adds 117: animation
+  Autosave (a recorded no-op: no script ever writes a save here; SystemSave and
+  ForceSave too), IncrementScriptedChallenge, IsSneaking. Round 3 adds 117: animation
   (IsAnimPlaying, GetAnimAction, IsIdlePlaying, PickIdle, IsLeftUp, IsFacingUp,
   Rotate), AI (GetSitting, IsCurrentFurnitureObj, GetSleeping, GetIsAlerted, ForceFlee,
   SetPackDuration, the used-item checks, the Cannibal and Mister Sandman perk checks),
@@ -777,7 +828,7 @@ CGTutorial script read a new character as hurt, crippled and with a broken weapo
 first run (its stages 200, 210 and 218), which the capture saves never show
 (layer5-captures.md §2: only stage 2 done).
 
-### 7.4 Coverage (`fnvtool script coverage`, 2026-10-09, after round 3)
+### 7.4 Coverage (`fnvtool script coverage`, 2026-10-09, after rounds 3 and 4)
 
 `implemented` and `stub` are filled per opcode. Over the ten masters (401 opcodes called
 or used by conditions; shares by the catalogue's `script_calls` + `condition_uses`):
@@ -786,8 +837,10 @@ or used by conditions; shares by the catalogue's `script_calls` + `condition_use
 |---|---|---|---|
 | all, round 2 | 133 implemented, 60 stubs | 88.1% | 95.0% |
 | all, round 3 | 225 implemented, 170 stubs, 5 unhandled (+ the unknown 0x127C) | 92.6% | 99.98% |
+| all, round 4 | 232 implemented, 163 stubs, 5 unhandled (+ 0x127C) | 93.7% | 99.98% |
 | top 40 by use | 36 implemented, 4 stubs (SayTo, StartCombat, PlayGroup, ResetAI) | 78.4% of all uses are in these 40 | |
-| intro chain (295 units, 248 conditions; `fnv_game::intro`) | 72 of 110 implemented, 38 stubs | 83.2% (all 248 conditions) | 100% |
+| intro chain (295 units, 248 conditions; `fnv_game::intro`), round 3 | 72 of 110 implemented, 38 stubs | 83.2% (all 248 conditions) | 100% |
+| intro chain, round 4 | 79 of 110 implemented, 31 stubs | 88.5% | 100% |
 
 The intro chain has no unhandled function left: SetLevel is implemented and
 SetSPECIALPoints is a menu stub (character creation).
@@ -799,7 +852,9 @@ factions, chargen, casino levels, power armor, topics, level, `hardcore_was_off`
 `RefExtra` per reference (essential, killer, object damage, added spells, broadcast
 state, crime and friendly-hit flags, talking actor, critical stage, scale, level,
 minimal use), `Game::forms` (`FormChanges`: faction reactions, base essential flags,
-names, quest items, cell owners, public cells, item values), `Game::effects` (active magic
+names, quest items (no longer written since 2026-10-09: SetQuestObject sets
+`fnv_sim::World::set_quest_object`, see simulation.md §3 "Quest items"), cell owners,
+public cells, item values), `Game::effects` (active magic
 effects). All are in `fnv.game.state/1` snapshots (new fields default when absent).
 Records read (schema layouts added in this round where marked): REPU DATA (new), CHAL
 DATA (new), REGN WNAM/RPLI/RPLD (new), MGEF DATA (new), the EFID/EFIT/CTDA effects of
@@ -919,6 +974,72 @@ the GameYear / GameMonth (from 0) / GameDay globals [hypothesis; 18 October 2281
 masters' start date, is a Tuesday]. IsAlwaysHardcore: on now and never switched off
 [hypothesis].
 
+### 7.7 Menus, message boxes and dialogue lines (round 4, 2026-10-09)
+
+Evidence: the round 4 captures from the new-game save `nvfnew` (layer5-captures.md §10),
+the masters' source text, and the GECK wiki pages the owner exported (owner export 2026-10-09).
+
+**Menus.** `Game::menu` is the open menu's code. Scripts open five menus, each with the
+code observed right after the stage whose result script calls the function
+[observed: layer5-captures.md §10.2–10.4]: GetPlayerName 1051 (name), ShowRaceMenu 1036
+(race), SetTagSkills 1048 (tag skills), ShowTraitMenu 1084 (traits),
+ShowLoveTesterMenuParams 1074 (the Vigor Tester's S.P.E.C.I.A.L. menu, opened inside
+the tester's OnActivate, inside `Activate`). What the player does in them (the name, the
+race, the picks) is outside the scripts; `Game::close_menu` closes the menu as the
+player's OK / Done or the console's CloseAllMenus would [observed: CloseAllMenus closed
+each of them, and the chain went on as after the player's OK, §10.1, §10.3]. While a menu
+is open, game time stops, GameMode does not run and MenuMode does [observed: the
+stopwatch read 0.0 s after 120 frames of the name menu; VCG01's 1 s timer of stage 10
+ended 0.95 s after the menu closed; §10.7]. A second menu replaces the first
+[hypothesis].
+
+**Message boxes.** ShowMessage of a message with the Message Box flag (or buttons) is a
+menu, code 1001, until the player closes it [observed: the four pack plugins' "items
+added" boxes held GameMode, VCG00's countdown and the world clock, §10.1]; other
+messages are corner notifications and only traced. A box shown while a menu or another
+box is open waits and opens when they close (`Game::boxes`) [hypothesis]. Closing a box
+that waits for a button presses button 0 (OK) [hypothesis]; `Game::press_button` picks
+another. **A menu opened during GameMode holds the frame's remaining GameMode scripts**
+(quests keep their due delay and run once it closes) [hypothesis, generalised from the
+pack boxes opening one at a time, each after the previous one was closed, as their
+quests ran, §10.1–10.2]. Which pack box opens first varies in the game; here the pack
+quests run in FormID order, 5 s (their quest delay 0) after the game starts: Classic,
+Mercenary, Caravan, Tribal. In the game the next box came 0.45–1.4 s after a close
+[observed, §10.2]; here 1 frame (they were all due) — a difference.
+
+**Dialogue lines** (`Game::say`, `Game::speech`). `speaker.SayTo target topic` and
+`speaker.Say topic` say the topic's first line the speaker can say:
+- The topic's lines (INFO) come from the "topic children" group after each DIAL, in file
+  order of the plugin that first defines each [documented: group types, xEdit;
+  hypothesis that file order is the editor's list order; the masters' INFOs have no PNAM].
+  Lines of higher-priority quests come first [documented: GECK wiki Quest Data Tab].
+- A line is said when its quest runs [hypothesis] and the quest's conditions pass
+  [documented: Quest Data Tab: checked first, for all of the quest's dialogue], its own
+  conditions pass (subject the speaker, target the listener; the player for Say)
+  [documented: Category:Conditions], and, with Say Once, the speaker has not said it
+  [documented: Category:Dialogue: once per actor]. Random lines are taken in order, not
+  at random [hypothesis]. ANAM restricts the speaker.
+- The begin result script runs when the line starts, the end script when it ends
+  [documented: Category:Dialogue], on the speaker, with the line's quest as the quest.
+  Then the speaker's SayToDone blocks run, for Say as well as SayTo [documented: GECK
+  tutorials, level-design.md §11.2 D1; hypothesis on the order].
+- A line lasts 1.1 s plus 1/16 s per character of each response's text
+  (`LINE_BASE_SECONDS`, `LINE_SECONDS_PER_CHAR`) [hypothesis: fitted to the observed
+  spans of Doc Mitchell's lines (29 characters: 2.9 s; three lines of 193: 15.4 s; two of
+  129: 10 s), §10.2–10.3; the game uses the voice file's length, which the runner does
+  not read]. Only game time counts (menus stop a line) [hypothesis, consistent with Doc's
+  stage 60 line ending after the message boxes, §10.3].
+- A speaker saying a line that starts another (SayTo in a result script, or a new SayTo)
+  stops the first without its end script [hypothesis]; a speaker that is disabled,
+  deleted or dead stops its line [hypothesis]. IsTalking is 1 while a line is said.
+- What this reproduces [observed, §10.2–10.3]: Doc's SayTo VCG01Intro takes the next
+  unsaid line each time; three lines' end scripts chain SayTo to reach the line that sets
+  stage 10; the first line of the topic is said again at stage 60 when it was never said
+  (stage 5 then set while GetStage stays 60); VCG01DocReactions picks the reaction by
+  `nDocReaction`.
+- Not modelled: the dialogue menu (player choices, StartConversation, topics the player
+  picks), Run Immediately, Say Once a Day, the voice file lengths, Goodbye.
+
 ### 7.5 AI packages (the start of Layer 6, `Game::select_package`)
 
 Read: every `PACK`'s conditions (the `CTDA` before its begin/end/change sections) and
@@ -961,7 +1082,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `say_info {info, speaker?, force?}` | a dialogue line being said: its begin and end result scripts run on the speaker; refused when its conditions fail (with the conditions and their values in the error) unless `force` |
 | `say_first {infos, speaker?, label?}` | the speaker picking the first line whose conditions pass; observation `said` |
 | `package {actor, package, event: start/done/change}` | an AI package event: the package's result script and the actor's OnPackage* blocks |
-| `say_to_done {actor, topic?}` | a SayTo line finishing (SayToDone blocks) |
+| `say_to_done {actor, topic?}` | a SayTo or Say line finishing (SayToDone blocks) |
 | `trigger_enter {trigger, actor?, event: enter/inside/leave}` | an actor in a trigger volume (OnTriggerEnter / OnTrigger / OnTriggerLeave) |
 | `press_button {button}` | the player picking a message box button |
 | `menu {menu}` | a menu opening (MenuMode with that code) or closing (`null`) |
@@ -1006,6 +1127,33 @@ Round 3 of the contract (layer5-captures.md §9.2), frames as there:
 damage). Actor values are named by their script name (`encodings.json`, e.g. `NightEye`)
 or xEdit name, ignoring case and spaces (`Nighteye`).
 
+Round 4 of the contract (layer5-captures.md §10.4), frames as there:
+
+| op | runner |
+|---|---|
+| `start_stopwatch` | the stopwatch's zero is now (`Game::time`, the script time); 1 + 2 frames |
+| `set_quest_var` + `stopwatch` | the variable, and the stopwatch's zero in the same frame; 1 + 10 |
+| `dismiss_message_boxes` | `max` times: wait (checked before each frame, at most `wait_frames`) for menu 1001, count it if open, `Game::close_menu`, 3 frames; `closed` |
+| `close_menus` | `Game::close_menu`; 1 + 3 |
+| `wait_quest`, `wait_menu` | checked before each frame, at most `max_frames`; one frame later `found` (read again) and, with `stopwatch` and found, `seconds` |
+| `get_menus`, `get_tag_skills` | `menu.<code>` (`Game::menu`), `tag.<Skill>` (IsPlayerTagSkill); one frame each |
+| `get_ref` field `destroyed` | GetDestroyed |
+| `press_button`, `menu` (stand-ins) | `Game::press_button` (the box closes); `Game::open_menu` / `close_menu` |
+
+`given` kind `menu` opens a menu before action 0; for 1001 a box of an unnamed message.
+**Message boxes hold GameMode only when the input states the menus of its save** (any
+`given` kind `menu`): rounds 1–3 do not, and their saves (`nvftest`, `nvfdoc`) had
+closed long ago the boxes a new game shows (the pack plugins' "items added", the
+add-ons' "loaded" messages), which the runner, starting from the new-game state, would
+otherwise show and keep open [decision; owner review: the alternative is to give those
+inputs the pack and add-on quest states]. **A new game puts the player at the opening's
+start marker** (`VCG01PlayerStartMarkerREF`, where VCG00 stage 0 moves the player and
+where `nvfnew` has it [observed: layer5-captures.md §10.2]); before round 4 the player
+had no place, and the add-ons' start quests, which wait for the player to leave Doc
+Mitchell's house, acted at once [decision]. **Reads take one frame**
+(`get_item_count`, `get_disabled`, `get_global`; they took 11): the capture schedules a
+pause only after steps that change the game (`capture_steps.py`).
+
 Names: `player`, a hex FormID, an Editor ID of any record, `scripted:<SCPT>[#n]` (the
 n-th placed reference whose base runs that script) and `placed:<base>` (the first placed
 reference of a base form).
@@ -1017,7 +1165,8 @@ to another script's variables (own locals with `trace_locals`), `global_set`,
 `ref_enabled/disabled` on change, `item_added/removed`, `message_shown` with text and
 buttons, `moved`, `activated`, `block_run`, `result_script`, `stub` (each distinct call
 once per unit), `unhandled`, `call_failed`, `script_error`, `skipped`,
-`undeclared_variable`); `final` (frames, every touched quest with stages, objectives and
+`undeclared_variable`, and from round 4 `menu_opened`, `menu_closed`, `line_started`,
+`line_ended`, `no_line`); `final` (frames, every touched quest with stages, objectives and
 named variables, the player state, reported references, unhandled and stubbed call
 counts).
 
@@ -1029,64 +1178,95 @@ names no stage: CGTutorial (save 2, new game 0), VCG01 (save 200, new game 0), V
 contract), so these rows need `"stage"` (or `"done"`) in the input's `given`; the delays
 and drops of the same scenarios match. (`L5.script.decode` is 5A's.)
 
+**`L5.*` (2026-10-09, round 4): 28 of 32 pass** (24 before): `L5.intro.opening`,
+`.tester`, `.complete` and the round 4 holdout pass; the four known fails remain (the
+three `delay_*` inputs without a stage, `L5.script.decode`).
+
 ## 9. Headless intro chain (`crates/fnv-game/walkthrough/intro.actions.json`)
 
-From the new-game state, with dialogue lines, packages, trigger volumes, menus, combat
-deaths and crafting given as inputs (each marked with a `note` in the file). Run with
-`fnvtool script run <Data> <ten masters> --schema schemas/fnv --actions
-crates/fnv-game/walkthrough/intro.actions.json` (4,430 frames, about 2 s).
+Round 4: the walk-through starts from the facts of the new-game save `nvfnew`
+(layer5-captures.md §2, §10): a pack plugin's message box open, VCG00 running at 90 with
+its 3 s countdown (stages 0 and 90 done, `bRunTimer` 1), VCG01 running with nothing
+done, VCG01Test, CGTutorial and the pack quests running, VCG02–VCG04, VMQ01 and
+VGenericTimer stopped, S.P.E.C.I.A.L. all 5, the player at the opening's start marker.
+From there the game's own timers, Doc Mitchell's SayTo lines (§7.7) and the menus drive
+the chain. Stand-ins are left only for what the player does: the OK / Done of the boxes
+and menus, walking into the two triggers (60, 115), the couch and the psych test (their
+result scripts: the scores, the calculation, objective 40, the verdict line that sets
+85), Doc's farewell dialogue (two lines; the second starts VGenericTimer's event 3) and
+the hardcore question (button 0). Run with `fnvtool script run <Data> <ten masters>
+--schema schemas/fnv --actions crates/fnv-game/walkthrough/intro.actions.json` (10,618
+frames, about 2 s). The VCG02 / VCG03 part is the round 3 one (Sunny's lines, packages,
+deaths and crafting as inputs).
 
-- **VCG00** (opening): start, its MenuMode block sets stage 0, whose result script sets
-  90; the timer sets 95 and 100; stage 100 sets VCG01 stage 0 and stops VCG00. Stages
-  done 0, 90, 95, 100 — **the same set the capture saves have** (layer5-captures.md §2).
-- **VCG01** (Doc Mitchell): stages 0 → 1 → 3 by the quest timer; 13 Doc lines (by INFO
-  FormID) set 5, 10, 25, 30, 36, 45, 55, 75 (the reaction line chosen by its conditions
-  from 16), 80, 85 (the psych verdict chosen from 5), 98, 110; the timer sets 7, 8, 15,
-  35, 50, 70, 90, 95, 100, 102, 105; the race menu's MenuMode 1036 block sets 40; the
-  trigger before the Vigor Tester sets 60; activating the Vigor Tester by hand runs its
-  OnActivate (65); stage 75's script sets 76, whose script sets 79; the exit trigger sets
-  115; Doc's farewell line starts VGenericTimer, which sets **VCG01 200 (complete) and
-  VCG02 5**; stage 200 starts VMQ01 (stage 10, objectives 10/25/30) and VCG04. Stages
-  done: all defined stages but 9, 17, 20, 37, 78 — **exactly the set in the capture
-  saves**. Objective 40 (sit on the couch) stays open: VCG01CouchTrigger's OnTrigger
-  needs IsCurrentFurnitureRef (sitting is Layer 6 AI).
-- **VCG02** (Sunny Smiles): her lines set 10 and 25 and complete objectives 5, 40, 60;
-  the shooting trigger (OnTrigger with Sunny) sets 20; her two travel packages finishing
-  set 30 and 40; the two geckos' OnDeath set 45 and 50; the six well geckos complete
-  objective 50 and display 60; Sunny's line that starts VCG03 also completes VCG02
-  (CompleteQuest), and Trudy's line stops it at stage 50. Objective 10 (shoot three bottles) stays open: the bottles' OnHitWith
-  block needs IsWeaponOut and GetWeaponAnimType (combat, Layer 6).
-- **VCG03** (healing powder): Sunny's line sets stage 10, which enables the Xander root
-  and broc flower; picking both by hand (their OnActivate) completes objective 10 on the
-  quest script's next 5-second run; the crafting menu is replaced by adding the powder,
-  which completes objective 30; Trudy's line completes 40, completes the quest and stops
-  it.
-- **VCG04** runs from VCG01's stage 200; it waits for the player to leave the Goodsprings
-  area (a player-position check every frame), which this walk-through does not do.
+Results: VCG00 stages done 0, 90, 95, 100; VCG01 all defined stages but 9, 17, 20, 37,
+78 — **both the sets of the capture saves** (§2 there); VCG01 200 completes and stops
+VCG01, starts VMQ01 (10, objectives 10/25/30), VCG04 and VCG02 (5, objective 3,
+running), GameHour 8, as `L5.intro.complete` saw; tag skills Guns, Science, Sneak;
+CGTutorial 2 at 55 with no box (as observed); 55's `autosave` a recorded no-op. VCG02
+and VCG03 end as in round 3 (VCG02 stopped by Trudy's line at 50, VCG03 completed).
 
-What blocks a run without inputs: every stage switch that is a dialogue line, a package
-finishing, a trigger volume, a menu or a combat result is Layer 6 or physics (5D).
-No function of the chain is unhandled since round 3 (§7.4); the furniture and combat
-state checks above are stubs. Round 3 changed nothing in the chain's stages,
-objectives or observations (same stages done, same 0 step errors): the quest-by-quest
-results above stand. What changed: 27 of the 29 `unhandled` events are gone (left:
-AddItemToLeveledList and IsDLCInstalled, from scripts outside the chain that the
-walk-through's cells load), the player's Concussion effect starts at frame 303
-(§7.6), and vSafehouse's sleep/sandbox variables differ (its schedule now reads
-GetDayOfWeek). The round 3 runtime work (observed reputation, effect and actor value
-rules, §7.3 and §7.6) changed nothing in the walk-through: its trace (events, final
-quests, player state, observations) is identical.
+**Stage timeline against the capture** (script seconds, from the first box closed, then
+each step from the stage before it; capture: §10.2, §10.3, §10.7, natural order):
 
-Differences from the capture saves: VCG02 is running at stage 5 right after VCG01 here;
-in both saves it is not running (an open question in layer5-captures.md §7). One script
-that stops it is FalloutNV SCPT 0x0011E65E (an OnTriggerEnter for the player); this
-walk-through does not enter that trigger.
+| Stage | Walk-through | Capture | Note |
+|---|---|---|---|
+| VCG00 95 / 100 / VCG01 0 | 3.03 / +1 frame / same frame | 3.03 / +1 sample / same sample | |
+| VCG01 1, 3 | +0.22, +2.83 (6.10) | 3.28, 6.09–6.13 | |
+| 5 (Doc's first line) | +2.90 (9.00) | 9.05 | line length fitted |
+| 7, 8 | +3.27, +1 frame | 3.22 after 5, +1 sample | |
+| 10 (three lines), name menu | +15.37 (27.65), menu 1051 | 27.81, menu 1051 | fitted |
+| 15 after the name menu | 1.02 | 0.95–0.97 | |
+| 25, 30 | +10.5, +14.8 (Doc's lines) | lines (not timed) | |
+| 35, 36, race menu, 40 | +3.02, +1.78, 1036, 40 inside it | 2.97, a line, 1036, 40 inside | |
+| 45, 50 | +11.1 (lines), +3.02 | lines, 2.98 | |
+| 55 | +10.2 (two lines) | about 10 s | fitted |
+| 60 → objective 30 | 8.75 (Doc's line; trigger by input) | about 10 s | line length |
+| 65, menu 1074 | inside the activation | inside the activation | |
+| 70 | 1.02 after the menu | 0.96 | |
+| 75, 76, 79 | one frame | one frame | |
+| 80 | +18.1 (three psych intro lines) | about 13 s | **line lengths** |
+| 85 → 90, menu 1048 | 1.02 | 1 s | 85 by stand-in |
+| 95 | 1.02 after the menu | 0.96 | |
+| 98, 100, 102, menu 1084 | lines (17.9), +1.02, +1 frame | lines, 1 s (0.98), next frame | |
+| 105 | 1.02 after the menu | 0.97 | |
+| 110 | +3.47 (lines) | lines | |
+| 115, 200 | by input; 200 0.4 s after the farewell | by the job; event 3 | |
+
+Differences: (1) the pack boxes came 5 s after the start (the pack quests' 5 s delay
+from a new game) and then one frame after each close; in the game they came 0.45–1.4 s
+after each close, and which pack came first varied; (2) every span made of Doc's lines
+uses the fitted line length, off by up to about 5 s (80: 18.1 against about 13 s; 60's
+line 8.75 against about 10 s); (3) the timer steps run 1/60 s frames against the
+capture's 25–40 loops per second, so they read 1.02 against 0.95–0.97 (within one capture
+frame). Everything else (which stage follows which, by what, and which menu each opens)
+is as captured.
+
+Round 3's walk-through (from the bare new-game state with every Doc line as an input)
+reached the same stages done; its round 3 note on the 85 → 90 countdown expiring at once
+is gone with the GetSecondsPassed rule of §5.
+
+What still blocks a run without inputs: the player's own actions (menus' OK, the walk,
+the couch, the psych test and farewell dialogue choices, the hardcore answer), AI
+packages finishing and combat (VCG02), crafting (VCG03).
 
 ## 10. Open questions (5B)
 
 - A stray `ElseIf` right after a chain that took a branch (§4.2): suppressed or tested?
   No capture had two thresholds in one run.
 - GetSecondsPassed across a Wait-menu gap, and inside a MenuMode block (§5).
+- Round 4 (§7.7): the length of a line (voice files are not read; the fit is off by up to
+  about 5 s); whether a line advances in a menu; whether a new SayTo cuts the line being
+  said or waits; the box queue and the "menu holds the frame's GameMode" rule (the pack
+  boxes came 0.45–1.4 s after each close in the game, one frame here); Random lines.
+- Documented rules listed by the coordinator but not done (docs/spec-notes/
+  script-language.md and actor-behaviour.md cross-checks): an inventory item's object
+  script runs while its holder is loaded (only the player's items run here; containers'
+  untouched inventories live in their base forms); a dialogue result script that declares
+  variables overwrites the quest script's variable at the same index (a documented bug,
+  not emulated); one script package per actor (a second AddScriptPackage replaces the
+  first, here they stack) and EvaluatePackage dropping a script package without
+  must-complete / must-reach-location (Layer 6 package logic).
 - A stage entry whose conditions fail next to ones that pass (skipped, the others run:
   hypothesis); whether an entry's conditions see the effects of earlier entries' scripts.
 - Frame order: quest scripts before object scripts is observed for one pair only

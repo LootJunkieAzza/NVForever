@@ -62,6 +62,17 @@ pub struct InfoDef {
     /// end) [documented: xEdit "Script (Begin)"/"Script (End)"].
     pub begin: Option<UnitId>,
     pub end: Option<UnitId>,
+    /// The topic (DIAL) the line belongs to: the label of its enclosing "topic children"
+    /// group [documented: xEdit group types; observed: every INFO of the masters sits in
+    /// such a group].
+    pub topic: Option<FormId>,
+    /// DATA flags: Say Once (an actor says the line only once [documented: GECK wiki
+    /// Category:Dialogue, owner export 2026-10-09]) and Goodbye.
+    pub say_once: bool,
+    pub goodbye: bool,
+    /// Characters of each response text (NAM1), in order: the stand-in for the length of
+    /// the voice file (docs/spec-notes/scripts.md §7.7).
+    pub response_chars: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -168,6 +179,11 @@ pub struct GameData {
     pub scripts: HashMap<FormId, UnitId>,
     pub quests: BTreeMap<FormId, QuestDef>,
     pub infos: HashMap<FormId, InfoDef>,
+    /// The dialogue lines (INFO) of each topic (DIAL), in topic order: the order of the
+    /// plugin that first defines each line, then its place in that file; lines a later
+    /// plugin adds follow the earlier plugins' [hypothesis: the masters' INFOs carry no
+    /// PNAM ordering, so file order stands for the editor's list order].
+    pub topics: HashMap<FormId, Vec<FormId>>,
     /// PACK begin / end / change result scripts.
     pub packages: HashMap<FormId, [Option<UnitId>; 3]>,
     /// Every PACK with its conditions.
@@ -271,6 +287,7 @@ impl GameData {
             scripts: HashMap::new(),
             quests: BTreeMap::new(),
             infos: HashMap::new(),
+            topics: HashMap::new(),
             packages: HashMap::new(),
             package_defs: HashMap::new(),
             messages: HashMap::new(),
@@ -407,6 +424,14 @@ impl GameData {
                 d.weapon_skills.insert(id, v);
             }
         }
+        d.topics = topic_lines(lo);
+        for (topic, lines) in &d.topics {
+            for i in lines {
+                if let Some(info) = d.infos.get_mut(i) {
+                    info.topic = Some(*topic);
+                }
+            }
+        }
         for (id, p) in &refs.refs {
             if let (Some(cell), Some(_)) = (p.cell, d.script_of_base(p.base)) {
                 d.scripted_by_cell.entry(cell).or_default().push(*id);
@@ -447,6 +472,36 @@ impl GameData {
     pub fn is_quest(&self, id: FormId) -> bool {
         self.quests.contains_key(&id)
     }
+}
+
+/// Every topic's dialogue lines in topic order ([`GameData::topics`]).
+fn topic_lines(lo: &LoadOrder) -> HashMap<FormId, Vec<FormId>> {
+    use fnv_esm::raw::{group_type, visit_records};
+    // Line -> (topic, plugin, ordinal) of its first definition.
+    let mut first: HashMap<u32, (u32, usize, usize)> = HashMap::new();
+    for (pi, p) in lo.plugins.iter().enumerate() {
+        let mut ord = 0usize;
+        visit_records(p.nodes.get(1..).unwrap_or_default(), &mut |r, groups| {
+            ord += 1;
+            if &r.header.sig != b"INFO" {
+                return;
+            }
+            let Some(g) = groups.iter().rev().find(|g| g.group_type == group_type::TOPIC_CHILDREN) else { return };
+            let (Some(info), Some(topic)) = (lo.to_global(pi, r.header.form_id), lo.to_global(pi, g.label_u32())) else { return };
+            first.entry(info).or_insert((topic, pi, ord));
+        });
+    }
+    let mut by_topic: HashMap<FormId, Vec<(usize, usize, FormId)>> = HashMap::new();
+    for (info, (topic, pi, ord)) in first {
+        by_topic.entry(FormId(topic)).or_default().push((pi, ord, FormId(info)));
+    }
+    by_topic
+        .into_iter()
+        .map(|(t, mut v)| {
+            v.sort();
+            (t, v.into_iter().map(|x| x.2).collect())
+        })
+        .collect()
 }
 
 fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usize, r: &Record) -> Read {
@@ -622,6 +677,12 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 match *s {
                     b"QSTI" => info.quest = fid(v),
                     b"ANAM" => info.speaker = fid(v),
+                    b"DATA" => {
+                        let f = v.as_ref().and_then(|v| v.get("flags1"));
+                        info.say_once = has_flag(f, "Say Once");
+                        info.goodbye = has_flag(f, "Goodbye");
+                    }
+                    b"NAM1" => info.response_chars.push(v.as_ref().and_then(Json::as_str).map_or(0, |s| s.chars().count())),
                     b"NEXT" => after_next = true,
                     b"CTDA" if !after_next => {
                         if let Some(c) = cond(v, &mut out.issues) {

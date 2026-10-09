@@ -116,12 +116,14 @@ triangles and the door that ends it.
   "x,y,z"), `--npc-speed` (86.8 by default), `--follow-npc` (the free camera chases the
   first traveller and the renderer follows it through doors), `--show-navmesh` (outline
   red, cell seams cyan, ledges orange, preferred green, water blue, door triangles yellow,
-  paths magenta). Travellers play `mtforward.kf` in place (the accumulation root's drift
-  taken out, the rate scaled to the walking speed) and their idle when standing; cells do
-  not spawn them while they travel. Smoke test:
+  paths magenta). A traveller's root is moved by the walker, and its `Locomotion`
+  (`engine/nvforever/src/locomotion.rs`, workstream 5 part G) gets the velocity it
+  actually moved at and its turn rate, so the actor's own clip set (walk, turns, idle)
+  is chosen and blended as for any actor; cells do not spawn travellers while they
+  travel. Smoke test:
   `nvforever --data <Data> --cell Goodsprings --npc-travel DocMitchellREF=GSChetRef
   --npc-travel SunnyRef=EasyPeteRef --follow-npc --run-seconds 105` (expect "nav summary:
-  2 of 2 travellers arrived"; Doc arrives after about 83 s).
+  2 of 2 travellers arrived"; Doc arrives after 83–90 s depending on frame rate).
 
 ## 6. Next
 

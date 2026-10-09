@@ -10,6 +10,12 @@
 //! they cannot be moved, equipped or dropped from a menu [observed by the owner: the game
 //! never shows the glove in the inventory]; Take All leaves them in the container
 //! [hypothesis: hidden items stay where they are].
+//!
+//! Quest items (`World::is_quest_item`: the record's "Quest Item" header flag, or a
+//! script's SetQuestObject) are listed and marked; dropping one is refused by the
+//! simulation and the status line says so [documented: GECK wiki Category:Items, the
+//! player cannot drop one]. Storing one in a container is allowed [hypothesis: the page
+//! does not mention containers]. The wording is ours.
 
 use fnv_sim::forms::{BaseData, FormStore, ItemKind};
 use fnv_sim::refs::PlacedRef;
@@ -34,6 +40,8 @@ pub struct Row {
     pub kind: Option<ItemKind>,
     /// At least one unit is equipped.
     pub equipped: bool,
+    /// A quest item: the player cannot drop it (`World::is_quest_item`).
+    pub quest: bool,
 }
 
 /// An inventory's rows (sorted) and totals.
@@ -56,6 +64,19 @@ pub fn display_name(forms: &FormStore, id: FormId) -> String {
 }
 
 /// The rows of `holder`'s inventory, sorted by name.
+/// A failed command in words for the player: items by name, not FormID. Starts with
+/// "Cannot" (the menu draws such lines as warnings).
+pub fn plain_error(forms: &FormStore, e: &SimError) -> String {
+    let name = |id: &FormId| forms.get(*id).and_then(|b| b.name.clone().or_else(|| b.edid.clone())).unwrap_or_else(|| "this item".into());
+    match e {
+        SimError::NotEquippable(item) => format!("Cannot equip or use {}", name(item)),
+        SimError::NotCarried { item, .. } => format!("Cannot find {} in the inventory", name(item)),
+        SimError::NotAnItem(item) => format!("Cannot carry {}", name(item)),
+        SimError::Deleted(item) => format!("Cannot reach {}: it is gone", name(item)),
+        other => format!("Cannot: {other}"),
+    }
+}
+
 pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimError> {
     let forms = world.forms;
     let hardcore = world.config().hardcore;
@@ -78,9 +99,13 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
                 value: it.and_then(|i| i.value),
                 kind: it.map(|i| i.kind),
                 equipped: inv.is_equipped(item),
+                quest: false, // below, once the inventory is no longer borrowed
             }
         })
         .collect();
+    for r in &mut rows {
+        r.quest = world.is_quest_item(r.item);
+    }
     rows.sort_by_cached_key(|r| (r.name.to_lowercase(), r.item));
     let value = rows.iter().map(|r| r.value.unwrap_or(0) as i64 * r.count as i64).sum();
     Ok(Listing { rows, weight: totals.weight, value })
@@ -313,7 +338,7 @@ impl MenuModel {
                 let r = self.act(world, cmd, &mut out);
                 self.status = Some(match r {
                     Ok(msg) => msg,
-                    Err(e) => format!("Cannot: {e}"),
+                    Err(e) => plain_error(world.forms, &e),
                 });
                 if out.changed {
                     if let Err(e) = self.refresh(world) {
@@ -377,7 +402,10 @@ impl MenuModel {
             (Mode::Inventory, Command::Drop | Command::DropStack) => {
                 let Some(r) = sel else { return Ok("Nothing selected".into()) };
                 let want = if cmd == Command::Drop { 1 } else { r.count };
-                let created = world.drop_item(PLAYER, r.item, want)?;
+                let created = match world.player_drop_item(r.item, want) {
+                    Err(SimError::QuestItem(_)) => return Ok(format!("{} is a quest item and can't be dropped", name(&r))),
+                    other => other?,
+                };
                 out.changed = !created.is_empty();
                 self.dropped.extend(&created);
                 out.created = created;
@@ -394,11 +422,11 @@ impl MenuModel {
         match self.mode {
             Mode::Container(_) => [
                 "Up/Down select   Left/Right column   Enter/Space move one   Shift+Enter move stack   R take all",
-                "Click a row to select it, again to move one   Wheel scroll   E/Esc/Tab close   * equipped",
+                "Click a row to select it, again to move one   Wheel scroll   E/Esc/Tab close   * equipped   Q quest item",
             ],
             Mode::Inventory => [
                 "Up/Down select   Enter/Space equip/unequip (aid: use)   X drop one   Shift+X drop stack",
-                "Click a row to select it, again to equip   Wheel scroll   Tab/Esc/E close   * equipped",
+                "Click a row to select it, again to equip   Wheel scroll   Tab/Esc/E close   * equipped   Q quest item",
             ],
         }
     }
