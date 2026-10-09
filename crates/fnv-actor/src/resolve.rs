@@ -9,6 +9,8 @@
 //!    "best protection by DT and DR" part is the owner's statement, 2026-10-08).
 //! 3. Race parts are hidden where worn armour covers their slot; headgear covering
 //!    Hat selects the hair model's `Hat` shape (§2.4).
+//! 4. The weapon an actor holds: among the same carried items, the drawable weapon with
+//!    the highest base damage (§9; `crate::weapon::choose_weapon`).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -18,7 +20,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_core::SeedableRng;
 use serde::Serialize;
 
-use crate::records::{template, ActorForms, FaceGen, Npc, RacePart};
+use crate::records::{template, ActorForms, Creature, FaceGen, Npc, RacePart};
 
 /// BMDT biped slot bits [documented: xEdit wbBMDT].
 pub mod slot {
@@ -86,21 +88,64 @@ pub struct Appearance {
     /// Body index 3, "Upper Body Texture": an `.egt` for the body skin (part C).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body_egt: Option<String>,
+    /// The race's upper body skin texture (body index 0 ICON), whether or not the
+    /// upper body is drawn: the texture the body `.egt` tints (engine use; not part of
+    /// the appearance document).
+    #[serde(skip)]
+    pub body_texture: Option<String>,
+    /// The weapon the actor draws (part H, §9). Not part of `fnv.actor.appearance/1`.
+    #[serde(skip)]
+    pub weapon: Option<FormId>,
     /// Whether a leveled choice that could have gone another way decided the actor base
     /// or its worn armour (§2.1): such actors depend on the random stream, the others are
     /// fully determined by the data.
     pub random: bool,
 }
 
+/// What a placed creature is drawn from (docs/spec-notes/actors.md §10).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CreatureAppearance {
+    /// The creature base after leveled resolution.
+    pub creature: FormId,
+    pub edid: Option<String>,
+    /// DATA type of the Model/Animation source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Skeleton, archive path.
+    pub skeleton: String,
+    /// BNAM of the Stats source; 1 when absent.
+    pub base_scale: f64,
+    /// The NIFZ models, role `body`, in record order.
+    pub parts: Vec<Part>,
+    /// KFFZ names, lower case.
+    pub anims: Vec<String>,
+    /// Whether a leveled pick could have gone another way.
+    pub random: bool,
+}
+
+/// Archive path of a creature's NIFZ entry: the name in the skeleton's folder
+/// [observed: docs/spec-notes/animation.md §4].
+pub fn creature_part_path(skeleton: &str, name: &str) -> String {
+    let folder = skeleton.rsplit_once('\\').map_or("", |(f, _)| f);
+    let name = name.trim().replace('/', "\\").to_ascii_lowercase();
+    format!("{folder}\\{}", name.trim_start_matches('\\'))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum ResolveError {
     NotAnActor(FormId),
-    /// A creature: not handled before part D.
+    /// A creature base given to the NPC resolver ([`Resolver::resolve_creature`]
+    /// handles it).
     Creature(FormId),
     LeveledEmpty(FormId),
     TooDeep(FormId),
     NoRace(FormId),
     UnknownRace(FormId),
+    /// A creature was asked for, but the base is an NPC (or leveled NPC).
+    NotACreature(FormId),
+    /// A creature whose Model/Animation source names no skeleton, or an editor
+    /// placeholder.
+    NoSkeleton(FormId),
 }
 
 impl std::fmt::Display for ResolveError {
@@ -112,6 +157,8 @@ impl std::fmt::Display for ResolveError {
             ResolveError::TooDeep(id) => write!(f, "template or leveled chain too deep at {id} (cycle?)"),
             ResolveError::NoRace(id) => write!(f, "{id} has no race"),
             ResolveError::UnknownRace(id) => write!(f, "race {id} is not loaded"),
+            ResolveError::NotACreature(id) => write!(f, "{id} is not a creature base"),
+            ResolveError::NoSkeleton(id) => write!(f, "creature {id} names no skeleton"),
         }
     }
 }
@@ -173,12 +220,18 @@ impl<'a> Resolver<'a> {
         let named = |n: &Npc| n.skeleton.as_deref().filter(|s| !is_editor_marker(s)).map(mesh_path);
         let skeleton = named(model).or_else(|| named(traits)).unwrap_or_else(|| HUMAN_SKELETON.to_string());
 
-        let worn = self.choose_armor(inventory.id, &mut ch);
+        let carried = self.carried(inventory.id, &mut ch);
+        let worn = self.choose_armor(&carried);
+        let weapon = crate::weapon::choose_weapon(&carried, &self.actors.weapons);
         let covered = worn.iter().filter_map(|w| self.actors.armors.get(w)).fold(0, |acc, a| acc | a.slots);
 
         let mut parts = Vec::new();
         let mut body_egt = None;
+        let mut body_texture = None;
         for p in &race.body[sex] {
+            if p.index == 0 {
+                body_texture = p.icon.as_deref().map(texture_path);
+            }
             let (role, hidden_by) = match p.index {
                 0 => ("body:upper_body", slot::UPPER_BODY),
                 1 => ("body:left_hand", slot::LEFT_HAND),
@@ -240,6 +293,8 @@ impl<'a> Resolver<'a> {
             facegen: model.facegen.clone(),
             race_facegen: race.facegen[sex].clone(),
             body_egt,
+            body_texture,
+            weapon,
             random: ch.random,
         })
     }
@@ -296,8 +351,76 @@ impl<'a> Resolver<'a> {
         Err(ResolveError::TooDeep(npc.id))
     }
 
-    /// Worn armour from the carried items of `npc` (§2.3).
-    fn choose_armor(&self, npc: FormId, ch: &mut Choices) -> Vec<FormId> {
+    /// Resolve a creature base placed by `reference` (actors.md §10): an LVLC is picked
+    /// like an LVLN (§2.1); the skeleton, model list and animation list come from the
+    /// Model/Animation source of the template chain, the base scale from the Stats
+    /// source.
+    pub fn resolve_creature(&self, base: FormId, reference: FormId) -> Result<CreatureAppearance, ResolveError> {
+        let mut ch = Choices { rng: rng_for(reference), picks: HashMap::new(), random: false };
+        let crea = self.creature_base(base, &mut ch, 0)?;
+        let model = self.creature_source(crea, template::MODEL_ANIMATION, &mut ch)?;
+        let stats = self.creature_source(crea, template::STATS, &mut ch)?;
+        let skeleton =
+            model.skeleton.as_deref().filter(|s| !is_editor_marker(s)).map(mesh_path).ok_or(ResolveError::NoSkeleton(model.id))?;
+        let parts = model
+            .models
+            .iter()
+            .map(|m| Part { role: "body".into(), form: model.id, model: creature_part_path(&skeleton, m), texture: None })
+            .collect();
+        Ok(CreatureAppearance {
+            creature: crea.id,
+            edid: crea.edid.clone(),
+            kind: model.kind.clone(),
+            skeleton,
+            base_scale: stats.base_scale.unwrap_or(1.0),
+            parts,
+            anims: model.anims.iter().map(|a| a.replace('/', "\\").to_ascii_lowercase()).collect(),
+            random: ch.random,
+        })
+    }
+
+    /// A CREA base for `id`, resolving leveled creatures (LVLC) once per actor.
+    fn creature_base(&self, id: FormId, ch: &mut Choices, depth: u32) -> Result<&'a Creature, ResolveError> {
+        if depth > MAX_DEPTH {
+            return Err(ResolveError::TooDeep(id));
+        }
+        if let Some(c) = self.actors.creatures.get(&id) {
+            return Ok(c);
+        }
+        if let Some(l) = self.actors.leveled_creatures.get(&id) {
+            let next = match ch.picks.get(&id) {
+                Some(&p) => p,
+                None => {
+                    let (pool, _) = leveled_pool(&l.entries, l.all_levels, DISPLAY_LEVEL);
+                    ch.random |= distinct(pool.iter().map(|e| e.1)) > 1;
+                    let p = pick_leveled(&l.entries, l.all_levels, DISPLAY_LEVEL, &mut ch.rng).ok_or(ResolveError::LeveledEmpty(id))?;
+                    ch.picks.insert(id, p);
+                    p
+                }
+            };
+            return self.creature_base(next, ch, depth + 1);
+        }
+        match self.actors.sigs.get(&id) {
+            Some(b"NPC_") | Some(b"LVLN") => Err(ResolveError::NotACreature(id)),
+            _ => Err(ResolveError::NotAnActor(id)),
+        }
+    }
+
+    /// The creature whose data a template-flag group comes from (as
+    /// [`Self::template_source`] for NPCs).
+    fn creature_source(&self, c: &'a Creature, group: u16, ch: &mut Choices) -> Result<&'a Creature, ResolveError> {
+        let mut cur = c;
+        for _ in 0..MAX_DEPTH {
+            match cur.template {
+                Some(t) if cur.template_flags & group != 0 => cur = self.creature_base(t, ch, 0)?,
+                _ => return Ok(cur),
+            }
+        }
+        Err(ResolveError::TooDeep(c.id))
+    }
+
+    /// The carried items of `npc`, leveled lists resolved, in carried order.
+    fn carried(&self, npc: FormId, ch: &mut Choices) -> Vec<FormId> {
         let Some(entries) = self.forms.entries(npc) else { return Vec::new() };
         let mut carried = Vec::new();
         for e in entries {
@@ -306,11 +429,16 @@ impl<'a> Resolver<'a> {
             // reports cycles when it loads.
             let _ = leveled::resolve(self.forms, e.item, e.count, DISPLAY_LEVEL, &mut ch.rng, &mut carried);
         }
+        carried.iter().map(|e| e.item).collect()
+    }
+
+    /// Worn armour from the carried items (§2.3).
+    fn choose_armor(&self, carried: &[FormId]) -> Vec<FormId> {
         let mut candidates: Vec<(usize, FormId)> = Vec::new();
-        for (order, e) in carried.iter().enumerate() {
-            let is_armor = matches!(self.forms.get(e.item).map(|b| &b.data), Some(BaseData::Item(i)) if i.kind == ItemKind::Armor);
-            if is_armor && self.actors.armors.contains_key(&e.item) && !candidates.iter().any(|c| c.1 == e.item) {
-                candidates.push((order, e.item));
+        for (order, &item) in carried.iter().enumerate() {
+            let is_armor = matches!(self.forms.get(item).map(|b| &b.data), Some(BaseData::Item(i)) if i.kind == ItemKind::Armor);
+            if is_armor && self.actors.armors.contains_key(&item) && !candidates.iter().any(|c| c.1 == item) {
+                candidates.push((order, item));
             }
         }
         let armors: BTreeMap<FormId, (f32, i32, u32)> = candidates
@@ -483,6 +611,13 @@ mod tests {
         assert!(is_editor_marker("marker_creature.nif"));
         assert!(is_editor_marker(r"Meshes\Marker_X.NIF"));
         assert!(!is_editor_marker(r"Characters\_Male\Skeleton.NIF"));
+    }
+
+    #[test]
+    fn creature_parts_sit_beside_the_skeleton() {
+        let sk = mesh_path(r"creatures\NVBigHorner\skeleton.nif");
+        assert_eq!(creature_part_path(&sk, "NVBigHorner.nif"), r"meshes\creatures\nvbighorner\nvbighorner.nif");
+        assert_eq!(creature_part_path(&sk, " Sub/Part.NIF"), r"meshes\creatures\nvbighorner\sub\part.nif");
     }
 
     #[test]

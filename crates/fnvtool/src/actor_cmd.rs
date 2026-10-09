@@ -1,6 +1,7 @@
 //! `fnvtool actor …`: actor appearance (workstream 5, crate `fnv-actor`). Contract:
 //! docs/spec-notes/actors.md §5; `actor anims` (module `actor_anims`): docs/spec-notes/animation.md §6; `actor locomotion`
-//! (module `actor_locomotion`): docs/spec-notes/actors.md §8.5.
+//! (module `actor_locomotion`): docs/spec-notes/actors.md §8.5; `actor weapons` (module
+//! `actor_weapons`): §9.5.
 
 use crate::esm_cmd::open_load_order;
 use crate::ActorCmd;
@@ -33,6 +34,34 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
                 _ => unreachable!("clap requires --ref, --cell or --all"),
             };
             let mut v = appearance(&lo, &schema, &actors, &forms, refs, deterministic);
+            v["load_order"] = json!(plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
+            Ok(v)
+        }
+        ActorCmd::Creatures { lo: lo_args, schema: schema_dir, reference, cell, all, deterministic, check_meshes, nif_schema } => {
+            let schema = Schema::load_dir(&schema_dir).with_context(|| schema_dir.display().to_string())?;
+            let plugins = open_load_order(&lo_args)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let ix = WorldIndex::build(&lo, &schema);
+            let actors = ActorForms::build(&lo, &schema);
+            let forms = FormStore::build(&lo, &schema);
+            let refs: Vec<u32> = match (reference, cell) {
+                (Some(r), _) => vec![r],
+                (None, Some(c)) => {
+                    let cell = ix.cell_by_name(&c).ok_or_else(|| anyhow!("no cell {c}"))?;
+                    cell.refs.iter().copied().filter(|r| ix.refs.get(r).is_some_and(|e| &e.sig == b"ACRE")).collect()
+                }
+                _ if all => ix.refs.iter().filter(|(_, e)| &e.sig == b"ACRE").map(|(&r, _)| r).collect(),
+                _ => unreachable!("clap requires --ref, --cell or --all"),
+            };
+            let check = if check_meshes {
+                let nif_dir = nif_schema.unwrap_or_else(|| schema_dir.parent().map(|p| p.join("nif")).unwrap_or_default());
+                let nif = fnv_nif::Schema::load_dir(&nif_dir).with_context(|| nif_dir.display().to_string())?;
+                let vfs = fnv_vfs::Vfs::open_default(&lo_args.data_dir).with_context(|| lo_args.data_dir.display().to_string())?;
+                Some((vfs, nif))
+            } else {
+                None
+            };
+            let mut v = creatures(&lo, &schema, &actors, &forms, refs, deterministic, check.as_ref().map(|(v, n)| (v, n)));
             v["load_order"] = json!(plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
             Ok(v)
         }
@@ -71,12 +100,165 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
             v["condition_function_names"] = json!(fn_names.len());
             Ok(v)
         }
+        ActorCmd::Weapons { lo: lo_args, schema: schema_dir, nif_schema, folder } => {
+            let schema = Schema::load_dir(&schema_dir).with_context(|| schema_dir.display().to_string())?;
+            let nif_dir = nif_schema.unwrap_or_else(|| schema_dir.parent().map(|p| p.join("nif")).unwrap_or_default());
+            let nif = fnv_nif::Schema::load_dir(&nif_dir).with_context(|| nif_dir.display().to_string())?;
+            let vfs = fnv_vfs::Vfs::open_default(&lo_args.data_dir).with_context(|| lo_args.data_dir.display().to_string())?;
+            let plugins = open_load_order(&lo_args)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let mut v = crate::actor_weapons::report(&lo, &schema, &vfs, &nif, &folder);
+            v["load_order"] = json!(plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
+            Ok(v)
+        }
         ActorCmd::Locomotion { data_dir, nif_schema, folder, samples } => {
             let nif = fnv_nif::Schema::load_dir(&nif_schema).with_context(|| nif_schema.display().to_string())?;
             let vfs = fnv_vfs::Vfs::open_default(&data_dir).with_context(|| data_dir.display().to_string())?;
             Ok(crate::actor_locomotion::report(&vfs, &nif, &folder, samples))
         }
     }
+}
+
+/// `fnvtool actor creatures` (fnv.actor.creatures/1, docs/spec-notes/actors.md §10.4).
+#[allow(clippy::too_many_arguments)]
+fn creatures(
+    lo: &LoadOrder,
+    schema: &Schema,
+    actors: &ActorForms,
+    forms: &FormStore,
+    mut refs: Vec<u32>,
+    deterministic: bool,
+    check: Option<(&fnv_vfs::Vfs, &fnv_nif::Schema)>,
+) -> Value {
+    refs.sort_unstable();
+    let resolver = Resolver { actors, forms };
+    let mut out = Vec::new();
+    let mut outcomes: BTreeMap<String, u64> = BTreeMap::new();
+    let mut base_kinds: BTreeMap<String, u64> = BTreeMap::new();
+    // (skeleton, model) -> creatures using it (for --check-meshes)
+    let mut pairs: BTreeMap<(String, String), u64> = BTreeMap::new();
+    for r in refs {
+        let Some(p) = placement(lo, schema, r) else {
+            bump(&mut outcomes, "no placement");
+            continue;
+        };
+        if p.deleted() {
+            bump(&mut outcomes, "deleted");
+            continue;
+        }
+        let Some(base) = p.base else {
+            bump(&mut outcomes, "no base");
+            out.push(json!({"reference": formid_str(r), "error": "no base"}));
+            continue;
+        };
+        let kind = actors.sigs.get(&FormId(base)).map_or("missing".to_string(), |s| String::from_utf8_lossy(s).into_owned());
+        bump(&mut base_kinds, kind);
+        match resolver.resolve_creature(FormId(base), FormId(r)) {
+            Ok(a) => {
+                bump(&mut outcomes, if a.random { "resolved random" } else { "resolved deterministic" });
+                for part in &a.parts {
+                    *pairs.entry((a.skeleton.clone(), part.model.clone())).or_default() += 1;
+                }
+                if deterministic && a.random {
+                    continue;
+                }
+                let mut v = serde_json::to_value(&a).expect("creature serialises");
+                v["reference"] = json!(formid_str(r));
+                v["base"] = json!(formid_str(base));
+                v["scale"] = json!(f64::from(p.scale));
+                out.push(v);
+            }
+            Err(e) => {
+                bump(&mut outcomes, format!("{e:?}").split('(').next().unwrap_or("error").to_string());
+                out.push(json!({"reference": formid_str(r), "base": formid_str(base), "error": e.to_string()}));
+            }
+        }
+    }
+    let mut v = json!({
+        "schema": "fnv.actor.creatures/1",
+        "summary": {"outcomes": outcomes, "base_kinds": base_kinds},
+        "issues": actors.issues.to_json(),
+        "creatures": out,
+    });
+    if let Some((vfs, nif)) = check {
+        v["meshes"] = creature_meshes(vfs, nif, &pairs);
+    }
+    v
+}
+
+/// Every (skeleton, model) pair placed creatures use: how the model joins the skeleton.
+fn creature_meshes(vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema, pairs: &BTreeMap<(String, String), u64>) -> Value {
+    let mut cache: BTreeMap<String, Result<PartMesh, String>> = BTreeMap::new();
+    let mut load = |path: &str| -> Result<PartMesh, String> {
+        cache
+            .entry(path.to_string())
+            .or_insert_with(|| {
+                let data = match vfs.read(path) {
+                    None => return Err("not found".to_string()),
+                    Some(Err(e)) => return Err(e.to_string()),
+                    Some(Ok(d)) => d,
+                };
+                let file = fnv_nif::file::NifFile::parse(&data, Some(nif)).map_err(|e| e.to_string())?;
+                let dec = fnv_nif::scene::Decoded::new(&file, &data, nif);
+                Ok(mesh::analyse(&file, &dec))
+            })
+            .clone()
+    };
+    let mut kinds: BTreeMap<String, u64> = BTreeMap::new();
+    let mut problems = Vec::new();
+    let mut idles: BTreeMap<String, u64> = BTreeMap::new();
+    let mut skeletons: BTreeMap<&str, u64> = BTreeMap::new();
+    let mut rigid_at_root = Vec::new();
+    for ((skel, model), uses) in pairs {
+        *skeletons.entry(skel.as_str()).or_default() += uses;
+        let skeleton = match load(skel) {
+            Ok(s) => s,
+            Err(e) => {
+                bump(&mut kinds, "skeleton unreadable");
+                problems.push(json!({"skeleton": skel, "model": model, "creatures": uses, "problems": [format!("skeleton: {e}")]}));
+                continue;
+            }
+        };
+        let part = match load(model) {
+            Ok(p) => p,
+            Err(e) => {
+                bump(&mut kinds, "unreadable");
+                problems.push(json!({"skeleton": skel, "model": model, "creatures": uses, "problems": [e]}));
+                continue;
+            }
+        };
+        let kind = match (part.skinned_shapes > 0, part.rigid_shapes > 0) {
+            (true, false) => "skinned",
+            (false, true) => "rigid",
+            (true, true) => "mixed",
+            (false, false) => "no shapes",
+        };
+        bump(&mut kinds, kind);
+        let at_root = mesh::creature_rigid_at_root(&part, &skeleton);
+        if at_root > 0 {
+            rigid_at_root.push(json!({"skeleton": skel, "model": model, "shapes": at_root, "of": part.rigid_shapes, "creatures": uses}));
+        }
+        let p = mesh::creature_attach_problems(&part, &skeleton);
+        if !p.is_empty() {
+            problems.push(json!({"skeleton": skel, "model": model, "creatures": uses, "problems": p}));
+        }
+    }
+    // The idle each skeleton would play (actors.md §10.3).
+    for skel in skeletons.keys() {
+        let folder = skel.rsplit_once('\\').map_or("", |(f, _)| f);
+        let found = fnv_actor::locomotion::clip_candidates(folder, fnv_actor::locomotion::Body::Male, "mt", fnv_actor::locomotion::Move::Idle)
+            .into_iter()
+            .find(|p| vfs.exists(p));
+        bump(&mut idles, found.map_or("missing".to_string(), |p| p.strip_prefix(folder).unwrap_or(&p).to_string()));
+    }
+    json!({
+        "pairs": pairs.len(),
+        "skeletons": skeletons.len(),
+        "part_kinds": kinds,
+        "idle_clips": idles,
+        "rigid_at_root": rigid_at_root,
+        "problems": problems,
+    })
 }
 
 /// Every part file used by placed NPCs, attached to the skeleton it is used with.

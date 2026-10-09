@@ -1,15 +1,19 @@
 # Static actors: NPCs drawn as one assembled entity (workstream 5)
 
 Status 2026-10-08: **parts A, B and C done** (C: geometry and face-texture FaceGen;
-the body's skin `.egt` and the race FaceGen data are not used yet); part D (creatures)
-not started; part E (animation playback) done: `nvforever` (default `--actor-pose idle`)
-plays `mtidle.kf` on each actor's skeleton, all 60 transform tracks binding to
+since 2026-10-09 the body skin `.egt` too, actors.md §4.1; the race FaceGen data stays
+unused, §4.2); part D (creatures) done 2026-10-09 (§8 below); part E (animation
+playback) done: `nvforever` (default `--actor-pose idle`) plays `mtidle.kf` on each actor's skeleton, all 60 transform tracks binding to
 `skeleton.nif`, with skinned, rigid and FaceGen parts following (actors.md §7); since
 2026-10-09 this is the default (owner decision: the owner asked for working NPCs; set by
 the desktop coordinator, reversible), and `--actor-pose bind` keeps the frozen bind pose.
 Part G (locomotion playback) done 2026-10-09: idle, walk, run and turn clips chosen from
 each actor's velocity and turn rate, two-clip cross-fades, rate and phase matched to the
-clips' root motion; the test aid `--actor-walk-test` moves actors (actors.md §8). Part A: schema
+clips' root motion; the test aid `--actor-walk-test` moves actors (actors.md §8).
+Part H (weapons) done 2026-10-09: armed NPCs show their weapon holstered (at the hip or on
+the back) by default and draw and holster it with the game's equip clips, layered over
+locomotion by track priority; `--actor-weapons none|holstered|drawn`,
+`--actor-weapon-test` (actors.md §9). Part A: schema
 layouts, `fnv-actor` resolution, `fnvtool actor forms | appearance | meshes`, the
 independent oracle `tools/capture/oracle_actor.py` and `L3.actors.appearance` (all 1,149
 deterministic actors equal). Part B: `nvf_assets::actor` assembles each placed NPC on
@@ -179,9 +183,10 @@ Done when 1–5 hold for humanoids with FaceGen faces (parts A, B and C).
 | A — data | schema additions, `fnv-actor` resolution, CLI, oracle, `L3.actors.appearance`, spec note | `fnv-sim` (leveled lists, inventories) |
 | B — assembly | one-skeleton spawning in `nvf-assets`, viewer `--npc`, world streaming of actors, frozen bind pose | A's `ActorAppearance` (stub first) |
 | C — FaceGen | spec note for `.egm`/`.egt`/`.tri` from public documentation, head/hair/hat morphs from FGGS/FGGA, skin texture morph from FGTS | B |
-| D — creatures | CREA (`MODL` skeleton + `NIFZ` model list), ACRE placement | B |
+| D — creatures (done 2026-10-09) | CREA (`MODL` skeleton + `NIFZ` model list), LVLC and template resolution, ACRE placement, idle; `fnvtool actor creatures`, oracle, `L3.actors.creatures`; actors.md §10; §8 below | B |
 | E — animation playback | `--actor-pose idle` (the default since 2026-10-09): a looping KF idle on each actor's skeleton by bone name (anim_play), accumulation root held at the identity, no per-frame allocation; findings in actors.md §7. Choosing clips by situation stays Layer 6 | B |
 | F — animation data (headless) | IDLE schema and reader (`fnv_actor::idle`), `.kf` catalogue by skeleton folder (`fnvtool actor anims`), spec note docs/spec-notes/animation.md; groundwork for Layer 6 animation selection | A |
+| H — weapons: holster and draw | the weapon an NPC carries drawn as a model on the skeleton's `Weapon` node, holstered by default; the stance's holster, equip, aim and unequip clips layered over locomotion by track priority; `prn:` keys move the weapon between holster bone and hand; test aid `--actor-weapon-test`; `fnvtool actor weapons`; actors.md §9; plan in §7 below | G |
 | G — locomotion playback | idle, walk, run and turn clips chosen from velocity and turn rate, cross-faded (two-clip weighted blend), playback rate synced to ground speed from the clips' root motion; test aid `--actor-walk-test`; `fnvtool actor locomotion`; actors.md §8; plan in §6 below | E, F |
 
 A and B can run in parallel once the `ActorAppearance` struct is committed as a stub.
@@ -245,3 +250,69 @@ way with the feet on the floor (§8.7). Cost: 6–25 µs per one-clip pose and 2
 two-clip pose; in the engine 37–41 µs per actor and frame, the same range as part E
 (§8.6).
 
+## 7. Part H — weapons: holster and draw (plan, 2026-10-09)
+
+Owner request 2026-10-09: start on weapon equipping animations for NPCs. Facts and rules:
+docs/spec-notes/actors.md §9 (survey §9.1–9.3, engine §9.4).
+
+1. **Survey** (done before code): `fnvtool actor anims` lists the stance clips; the new
+   `fnvtool actor weapons` (`fnv.actor.weapons/1`) reports each stance's clips (`prn:`
+   keys, track priorities, holster and hand bones) and the weapon each placed NPC draws.
+2. **Headless** (`crates/fnv-actor`): WEAP in `records` (model, animation type, damage,
+   embedded); `Appearance::weapon` from the carried items (not serialised, so
+   `L3.actors.appearance` is unaffected); `weapon` module: type → stance prefix, clip
+   paths, `prn:` parsing, holster/hand bones, the draw-cycle state machine. Unit tests.
+3. **Engine sampling** (`nvf-assets`): `BlendPlayer` takes up to four clips and blends by
+   per-track priority (actors.md §9.4); a node no clip drives any more returns to its
+   bind transform.
+4. **Engine control** (`nvforever`): a `WeaponHold` component per armed actor (its stance
+   clips bound to the skeleton, the draw cycle, the holster and hand bones); the weapon
+   model spawned under the `Weapon` node and re-parented when the cycle passes a `prn:`
+   key; `--actor-weapons none|holstered|drawn`, `--actor-weapon-test <s>`.
+5. **Checks**: unit tests (stance mapping, weapon choice, `prn:` parsing, draw cycle,
+   priority blending); screenshots of armed NPCs holstered, drawing and drawn (kept
+   privately); the moving-camera smoke test with weapons and with the test aid; cost per
+   actor and frame against part G (§8.6).
+
+Out of scope: when to draw (Layer 6: combat, packages, the player's presence), attacks,
+reloads and firing, the `##` weapon-part tracks, stance-specific walk clips
+(`1hpforward.kf`, …), power-armour and sneak variants, creatures' weapons.
+
+Results (2026-10-09): 1–5 done. 3,139 of 3,942 placed NPCs carry a drawable weapon
+(actors.md §9.3); every stance's clips load and give a holster and a hand bone (§9.1).
+Screenshots show a revolver at the hip and a rifle on the back, both drawn into the hands,
+and a rifle held at the ready while walking (§9.6). Holstered weapons cost about 2 µs per
+actor and frame, drawing while walking about 18 µs more (§9.7). Open for the owner: the
+exact holster placement against in-game screenshots, and the default (`holstered`; set
+`--actor-weapons none` for the part G look).
+
+## 8. Part D — creatures (2026-10-09)
+
+Facts and rules: docs/spec-notes/actors.md §10 (records, resolution, meshes, idle, CLI).
+
+- **Headless**: `fnv_actor::records::Creature` (CREA) and LVLC lists;
+  `Resolver::resolve_creature` → `CreatureAppearance` (creature after LVLC and template
+  resolution, skeleton, NIFZ parts beside it, base scale, KFFZ names, `random`).
+- **CLI and oracle**: `fnvtool actor creatures` (`fnv.actor.creatures/1`, with
+  `--check-meshes`); `tools/capture/oracle_actor.py creatures`, written from the spec
+  note; `L3.actors.creatures` compares the 2,346 deterministic placed creatures of the
+  ten masters (all equal).
+- **Engine**: `actors::spawn_creature` assembles each placed creature with
+  `nvf_assets::actor::spawn_actor` (`PartUse::by_ancestor`: unskinned shapes hang from
+  their nearest ancestor that the skeleton has), scales it by XSCL × BNAM, and plays the
+  skeleton's `mtidle.kf` through the locomotion player (male body lookup, spread phase).
+  `world.rs` calls it for CREA bases next to the NPC call.
+- **Also in this round**: actors and creatures that are not enabled at the start are
+  spawned hidden so a script's Enable shows them (actors.md §11; owner-review item 19);
+  light sources of such lights likewise; "Random Anim Start" spreads placed models'
+  idle phases (animation.md §8); `nvf-viewer --anim` plays walks in place (actors.md
+  §8.8); the body skin `.egt` tints the body texture (actors.md §4.1).
+- **Not done**: creature walk/turn/attack clips and KFFZ special idles (Layer 6); NIFT
+  texture variants; hand `.egt`; race FaceGen data (§4.2 of actors.md).
+
+Results (2026-10-09): `L3.actors.creatures` 2,346 of 2,346 equal; every skin bone of the
+230 (skeleton, model) pairs is in its skeleton and every rigid shape finds a bone
+(actors.md §10.2); in-game reference frames of the Goodsprings bighorners, coyotes and
+Victor match by eye in place, size and look (SSIM 0.36–0.43, sky and grass dominated);
+the moving-camera smoke test draws and animates 115 creatures with no idle missing, at
+50 fps (actors.md §10.5).

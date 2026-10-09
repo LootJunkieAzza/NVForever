@@ -33,11 +33,20 @@ pub enum Action {
     Disarm,
 }
 
+/// A lock level by the name the game gives it: the levels the editor offers, 0 Very Easy,
+/// 25 Easy, 50 Average, 75 Hard, 100 Very Hard and Requires Key [documented: GECK wiki
+/// "Non-NPC population", docs/spec-notes/level-design.md §7; the only levels placed locks
+/// use, simulation.md §5 [observed]]; 255 is Requires Key [hypothesis, simulation.md §5].
+/// Any other level is shown as a number.
 pub fn lock_text(level: u8) -> String {
-    if level == KEY_ONLY_LEVEL {
-        "requires a key".into()
-    } else {
-        format!("level {level}")
+    match level {
+        0 => "Very Easy".into(),
+        25 => "Easy".into(),
+        50 => "Average".into(),
+        75 => "Hard".into(),
+        100 => "Very Hard".into(),
+        KEY_ONLY_LEVEL => "Requires Key".into(),
+        _ => format!("level {level}"),
     }
 }
 
@@ -254,7 +263,7 @@ mod tests {
             let e = run(&act(o.clone()));
             assert!(matches!(e.as_slice(), [Effect::Message(_)]), "{o:?}: {e:?}");
         }
-        assert_eq!(run(&act(Outcome::Locked { level: 255 })), vec![Effect::Message("Thing is locked (requires a key)".into())]);
+        assert_eq!(run(&act(Outcome::Locked { level: 255 })), vec![Effect::Message("Thing is locked (Requires Key)".into())]);
     }
 
     #[test]
@@ -262,8 +271,8 @@ mod tests {
         assert_eq!(prompt("Stimpak", &Action::Take { count: 3 }), "Stimpak (3)\nE) Take");
         assert_eq!(prompt("Stimpak", &Action::Take { count: 1 }), "Stimpak\nE) Take");
         assert_eq!(prompt("Door", &Action::Travel { to: Some("Goodsprings".into()) }), "Door\nE) Open: Goodsprings");
-        assert_eq!(prompt("Safe", &Action::Locked { level: 50 }), "Safe\nE) Locked (level 50)");
-        assert_eq!(Action::Locked { level: 255 }.label(), "Locked (requires a key)");
+        assert_eq!(prompt("Safe", &Action::Locked { level: 50 }), "Safe\nE) Locked (Average)");
+        assert_eq!(Action::Locked { level: 255 }.label(), "Locked (Requires Key)");
     }
 
     #[test]

@@ -1,0 +1,183 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "cl_d2_mines_disarm",
+ "title": "B10 follow-up: the Activate control on a placed frag mine in view (no god mode)",
+ "start": "nvftest (goes to Nipton house 8 with coc; Health raised to 5000)",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "coc NiptonHouse8Paranoid"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1283062\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetAV Health 5000\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "D0 start",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "D0 start",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "D0 start",
+   "field": "disabled"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X 198.5\nplayer.SetPos Y -518.7\nplayer.SetPos Z 4490\nplayer.SetAngle Z 270\nplayer.SetAngle X 60\nTapControl 5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 2
+  },
+  {
+   "query": "ref rX\nBegin Function { }\nlet rX := GetCrosshairRef\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "D1 2 loops",
+   "field": "crosshair"
+  },
+  {
+   "frames": 8
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "D1 10 loops",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "D1 10 loops",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "D1 10 loops",
+   "field": "disabled"
+  },
+  {
+   "query": "ref rX\nBegin Function { }\nlet rX := GetCrosshairRef\nSetFunctionValue (GetFormIDString rX)\nEnd\n",
+   "label": "D2 0.5 s",
+   "field": "crosshair"
+  },
+  {
+   "frames": 20
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "D2 0.5 s",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "D2 0.5 s",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "D2 0.5 s",
+   "field": "disabled"
+  },
+  {
+   "script": "Begin Function { }\nTapControl 5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "D3 second tap, 1 s",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "D3 second tap, 1 s",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "D3 second tap, 1 s",
+   "field": "disabled"
+  },
+  {
+   "frames": 180
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Health\nSetFunctionValue fV\nEnd\n",
+   "label": "D4 4 s",
+   "field": "health"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 17212\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "D4 4 s",
+   "field": "frag_mines"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1287765\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "D4 4 s",
+   "field": "disabled"
+  },
+  {
+   "console": "CloseAllMenus"
+  }
+ ]
+}
