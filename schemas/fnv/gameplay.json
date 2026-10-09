@@ -1588,6 +1588,12 @@
      "type": "f32",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "KFFZ": {
+     "name": "Animations",
+     "type": "zstring_array",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record; wbArrayS(KFFZ, 'Animations', wbStringLC('Animation')): .kf file names, each NUL-terminated; the list ends with one extra NUL [observed]"
     }
    }
   },
@@ -1903,6 +1909,18 @@
      "type": "formid",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "KFFZ": {
+     "name": "Animations",
+     "type": "zstring_array",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record; wbArrayS(KFFZ, 'Animations', wbStringLC('Animation')): .kf file names, each NUL-terminated; the list ends with one extra NUL [observed]"
+    },
+    "NIFZ": {
+     "name": "Model List",
+     "type": "zstring_array",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record; wbArrayS(NIFZ, 'Model List', wbStringLC('Model')): .nif file names, each NUL-terminated; the list ends with one extra NUL [observed]"
     }
    }
   },
@@ -2147,6 +2165,75 @@
      "type": "u16",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas RACE record; xEdit: wbInteger(SNAM, 'Unknown', itU16), once per sex"
+    },
+    "INDX": {
+     "name": "Index",
+     "type": "u32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas RACE record (wbHeadParts / wbBodyParts). Meaning depends on position: after NAM0 it is a head part (wbHeadPartIndexEnum: 0 Head, 1 Ears, 2 Mouth, 3 Teeth Lower, 4 Teeth Upper, 5 Tongue, 6 Left Eye, 7 Right Eye), after NAM1 a body part (wbDefinitionsCommon.pas wbBodyPartIndexEnum, non-TES4 branch: 0 Upper Body, 1 Left Hand, 2 Right Hand, 3 Upper Body Texture); schema v1 cannot express position-dependent enums, so it stays a plain u32"
+    }
+   }
+  },
+  "HAIR": {
+   "name": "Hair",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Playable",
+       "1": "Not Male",
+       "2": "Not Female",
+       "3": "Fixed"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas HAIR record"
+    }
+   }
+  },
+  "EYES": {
+   "name": "Eyes",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Playable",
+       "1": "Not Male",
+       "2": "Not Female"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas EYES record"
+    }
+   }
+  },
+  "HDPT": {
+   "name": "Head Part",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Playable",
+     "type": {
+      "enum": "u8",
+      "values": {
+       "0": "False",
+       "1": "True"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas HDPT record (wbBoolEnum)"
+    },
+    "HNAM": {
+     "name": "Extra Part",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas HDPT record; repeated, one HDPT per subrecord"
     }
    }
   },
@@ -2217,6 +2304,73 @@
      "type": "Empty",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas PERK record"
+    }
+   }
+  },
+  "IDLE": {
+   "name": "Idle Animation",
+   "confidence": "documented",
+   "subrecords": {
+    "ANAM": {
+     "name": "Animations",
+     "type": {
+      "struct": [
+       {
+        "name": "parent",
+        "type": "formid"
+       },
+       {
+        "name": "previous",
+        "type": "formid"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IDLE record; Parent and Previous, each an IDLE or NULL"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "animation_group_section",
+        "type": "u8"
+       },
+       {
+        "name": "loop_min",
+        "type": "u8"
+       },
+       {
+        "name": "loop_max",
+        "type": "u8"
+       },
+       {
+        "name": "unused",
+        "type": "u8"
+       },
+       {
+        "name": "replay_delay",
+        "type": "i16"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "No attacking"
+         }
+        },
+        "optional": true
+       },
+       {
+        "name": "unused2",
+        "type": "u8",
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IDLE record; Flags and the last unused byte optional (SetOptionalFrom(4)); Animation Group Section is a u8 whose low six bits name the section (wbIdleAnam: 0 Idle, 1 Movement, 2 Left Arm, 3 Left Hand, 4 Weapon, 5 Weapon Up, 6 Weapon Down, 7 Special Idle, 20 Whole Body, 21 Upper Body) and whose bits 0x40/0x80 xEdit labels Loose Idle / (clear) Must return a file; kept raw here"
     }
    }
   }

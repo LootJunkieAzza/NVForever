@@ -13,7 +13,7 @@
 //! ```
 //!
 //! Type expressions: a primitive name (`u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 formid
-//! zstring string bytes`), a named type from `types`, or an object:
+//! zstring zstring_array string bytes`), a named type from `types`, or an object:
 //! `{"struct": [fields]}`, `{"array": T, "count": N}` (no count = fill the rest),
 //! `{"enum": prim, "values": {"0": "Name"}}`, `{"flags": prim, "bits": {"0": "Name"}}`.
 //! Struct fields may be `"optional": true` (allowed to be absent at the end).
@@ -39,6 +39,10 @@ pub enum Prim {
     FormId,
     /// NUL-terminated Windows-1252 string occupying the rest of the field.
     ZString,
+    /// NUL-terminated Windows-1252 strings filling the rest of the field, decoded to a
+    /// list. One extra NUL after the last string closes the list and is not an element
+    /// [observed: every CREA KFFZ/NIFZ in the ten masters ends that way].
+    ZStringArray,
     /// Windows-1252 string without terminator occupying the rest of the field.
     String,
     /// Opaque bytes occupying the rest of the field (hex in output).
@@ -60,6 +64,7 @@ impl Prim {
             "f64" => Prim::F64,
             "formid" => Prim::FormId,
             "zstring" => Prim::ZString,
+            "zstring_array" => Prim::ZStringArray,
             "string" => Prim::String,
             "bytes" => Prim::Bytes,
             _ => return None,
@@ -72,7 +77,7 @@ impl Prim {
             Prim::U16 | Prim::I16 => Some(2),
             Prim::U32 | Prim::I32 | Prim::F32 | Prim::FormId => Some(4),
             Prim::U64 | Prim::I64 | Prim::F64 => Some(8),
-            Prim::ZString | Prim::String | Prim::Bytes => None,
+            Prim::ZString | Prim::ZStringArray | Prim::String | Prim::Bytes => None,
         }
     }
     pub fn is_integer(self) -> bool {

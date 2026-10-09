@@ -8,7 +8,7 @@ use crate::value::{Struct, Value};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyKind {
     Linear,
-    /// Hermite with stored forward/backward tangents.
+    /// Hermite with stored tangents: `backward` leaves the key, `forward` arrives at it.
     Quadratic,
     /// Kochanek–Bartels (tension, bias, continuity).
     Tbc,
@@ -32,6 +32,8 @@ impl KeyKind {
 }
 
 /// One key: time, value and (for quadratic keys) tangents; TBC parameters for TBC keys.
+/// Despite the nif.xml names, `forward` is the tangent arriving at the key and
+/// `backward` the one leaving it [observed: docs/spec-notes/nif.md §5].
 #[derive(Debug, Clone, PartialEq)]
 pub struct Key<const N: usize> {
     pub time: f32,
@@ -106,7 +108,7 @@ impl<const N: usize> Keys<N> {
         Some(match self.kind {
             KeyKind::Constant => a.value,
             KeyKind::Linear | KeyKind::XyzRotation => lerp(a.value, b.value, u),
-            KeyKind::Quadratic => hermite(a.value, a.forward, b.value, b.backward, u),
+            KeyKind::Quadratic => hermite(a.value, a.backward, b.value, b.forward, u),
             KeyKind::Tbc => {
                 let prev = if i > 0 { &ks[i - 1] } else { a };
                 let next = if i + 2 < ks.len() { &ks[i + 2] } else { b };
@@ -575,6 +577,22 @@ mod tests {
         // 0.5·1 + 0.125·2 + 0.5·4 − 0.125·4 = 2.25.
         let v = k.sample(1.5).unwrap()[0];
         assert!((v - 2.25).abs() < 1e-5, "{v}");
+    }
+
+    #[test]
+    fn quadratic_tangents_leave_backward_arrive_forward() {
+        // The spinning windmill's blades: two turns in 7 s, the tangent leaving the first
+        // key in `backward` and the one arriving at the last in `forward`; a steady spin.
+        let turn = 4.0 * std::f32::consts::PI;
+        let mut a = key(0.0, [0.0]);
+        a.backward = [turn];
+        let mut b = key(7.0, [turn]);
+        b.forward = [turn];
+        let k = Keys { kind: KeyKind::Quadratic, keys: vec![a, b] };
+        for t in [1.0f32, 1.75, 3.5, 6.0] {
+            let v = k.sample(t).unwrap()[0];
+            assert!((v - turn * t / 7.0).abs() < 1e-4, "{t}: {v}");
+        }
     }
 
     #[test]

@@ -227,6 +227,49 @@ fn schema_cannot_request_unbounded_zero_width_arrays() {
     assert_eq!(cov.totals().4, 1, "must be reported as an error");
 }
 
+#[test]
+fn zstring_array_lists_and_terminator() {
+    let mut s = Schema::default();
+    s.merge_str(
+        r#"{"format":"fnv.schema/1","records":{"CREA":{"name":"C","subrecords":{
+            "KFFZ":{"name":"Animations","type":"zstring_array"}}}}}"#,
+        "t",
+    )
+    .unwrap();
+    s.validate().unwrap();
+    let cases: [(&[u8], Option<&str>); 5] = [
+        (b"Aim.kf\0b.kf\0\0", Some(r#"["Aim.kf","b.kf"]"#)),
+        (b"a.kf\0", Some(r#"["a.kf"]"#)),
+        (b"\0", Some("[]")),
+        (b"\0\0", Some("[]")),
+        (b"a.kf\0b.kf", None),
+    ];
+    for (i, (data, want)) in cases.iter().enumerate() {
+        let r = record(b"CREA", 0, 0x10 + i as u32, &write_subrecords(&[sub(b"KFFZ", data)]));
+        let mut f = tes4(&[], 2, &[]);
+        f.extend(group(b"CREA", 0, &r));
+        let p = Plugin::parse(&f, "T.esm".into()).unwrap();
+        let mut cov = Coverage::default();
+        visit_records(&p.nodes[1..], &mut |r, _| cov.add_record(r, &s, None));
+        let (_, ok, _, _, error) = cov.totals();
+        match want {
+            Some(w) => {
+                assert_eq!((ok, error), (1, 0), "case {i}");
+                let v = decode_record(p.nodes[1..].iter().find_map(first_record).unwrap(), &s).to_string();
+                assert!(v.contains(w), "case {i}: {v}");
+            }
+            None => assert_eq!(error, 1, "case {i}: an unterminated list is an error"),
+        }
+    }
+}
+
+fn first_record(n: &fnv_esm::raw::Node) -> Option<&fnv_esm::raw::Record> {
+    match n {
+        fnv_esm::raw::Node::Record(r) => Some(r),
+        fnv_esm::raw::Node::Group(g) => g.children.iter().find_map(first_record),
+    }
+}
+
 /// Malformed-input properties: parsing and decoding never panic, and whatever
 /// parses is written back byte-for-byte.
 mod malformed {
