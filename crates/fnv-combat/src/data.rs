@@ -464,14 +464,14 @@ impl CombatForms {
     /// 10mm Hollow Point, 10mm JHP) [observed]; owner's account of the game 2026-10-09:
     /// a weapon defaults to the plain round unless only another type is carried, going
     /// down the list [hypothesis until captured].
-    pub fn ammo_for(&self, weapon: FormId, has: impl Fn(FormId) -> bool) -> Option<FormId> {
+    pub fn ammo_for(&self, weapon: FormId, mut has: impl FnMut(FormId) -> bool) -> Option<FormId> {
         let choices = self.ammo_choices(self.weapons.get(&weapon)?);
         choices.iter().copied().find(|&a| has(a)).or_else(|| choices.first().copied())
     }
 
     /// The next ammo for Ammo Swap: the next choice down the list (wrapping) that the
     /// carrier has, or `current` when no other is carried [design].
-    pub fn next_ammo(&self, weapon: FormId, current: FormId, has: impl Fn(FormId) -> bool) -> Option<FormId> {
+    pub fn next_ammo(&self, weapon: FormId, current: FormId, mut has: impl FnMut(FormId) -> bool) -> Option<FormId> {
         let choices = self.ammo_choices(self.weapons.get(&weapon)?);
         let at = choices.iter().position(|&a| a == current).unwrap_or(0);
         (1..=choices.len()).map(|k| choices[(at + k) % choices.len()]).find(|&a| a != current && has(a)).or(Some(current))

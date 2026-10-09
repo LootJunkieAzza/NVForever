@@ -28,7 +28,10 @@
 //!   `sneak` (Left Ctrl), `weapon` (R), `aim` (the right mouse button, pressed or
 //!   released), `view` (F), `jump` (Space), `zoom=<units>` (the third-person distance),
 //!   `orbit=<yaw deg>:<pitch deg>` (Toggle POV held with the camera circled that far
-//!   round the player) or `release` (Toggle POV let go).
+//!   round the player) or `release` (Toggle POV let go); for combat (step C4): `fire`
+//!   (Use pressed, or let go if held), `reload` (a Ready Item tap with the weapon out),
+//!   `swap` (Ammo Swap) and `aimactor` (turn the view to the middle of the nearest
+//!   actor's hit volume).
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
@@ -110,6 +113,10 @@ enum Press {
     Zoom(f32),
     Orbit(f32, f32),
     Release,
+    Fire,
+    Reload,
+    Swap,
+    AimActor,
 }
 
 fn press(rest: &str) -> Result<Press, String> {
@@ -120,13 +127,17 @@ fn press(rest: &str) -> Result<Press, String> {
         "view" => Press::View,
         "jump" => Press::Jump,
         "release" => Press::Release,
+        "fire" => Press::Fire,
+        "reload" => Press::Reload,
+        "swap" => Press::Swap,
+        "aimactor" => Press::AimActor,
         _ => {
             if let Some(Ok(d)) = rest.strip_prefix("zoom=").map(|d| d.trim().parse::<f32>()) {
                 Press::Zoom(d)
             } else if let Some(Ok((y, p))) = rest.strip_prefix("orbit=").map(look_angles) {
                 Press::Orbit(y, p)
             } else {
-                return Err(format!("{rest:?}: expected sneak, weapon, aim, view, jump, zoom=<units>, orbit=<yaw>:<pitch> or release"));
+                return Err(format!("{rest:?}: expected sneak, weapon, aim, view, jump, zoom=<units>, orbit=<yaw>:<pitch>, release, fire, reload, swap or aimactor"));
             }
         }
     })
@@ -189,6 +200,8 @@ struct Aids {
     /// Block held by the `aim` press (kept every frame: the real button's state is read
     /// each frame).
     aim_held: Option<bool>,
+    /// Use held by `fire` presses (combat).
+    fire_held: bool,
 }
 
 pub(crate) fn setup(app: &mut App) {
@@ -269,7 +282,14 @@ pub(crate) fn setup(app: &mut App) {
 }
 
 /// `NVF_PLAY_TEST_MOVE` and `NVF_PLAY_TEST_CONTROL`, after the real keys were read.
-fn keys_and_controls(time: Res<Time>, mut aids: ResMut<Aids>, mut intent: ResMut<MoveIntent>, mut control: ResMut<PlayerControl>) {
+fn keys_and_controls(
+    time: Res<Time>,
+    mut aids: ResMut<Aids>,
+    mut intent: ResMut<MoveIntent>,
+    mut control: ResMut<PlayerControl>,
+    phys: Res<PhysState>,
+    mut player: ResMut<Player>,
+) {
     let now = time.elapsed_secs();
     for m in take_due(&mut aids.moves, now) {
         info!("test aid: movement keys forward {} right {}{}", m.forward, m.right, if m.walk { " walking" } else { "" });
@@ -291,6 +311,10 @@ fn keys_and_controls(time: Res<Time>, mut aids: ResMut<Aids>, mut intent: ResMut
                 control.orbit = crate::control::Orbit { yaw, pitch, held: true, moved: true };
             }
             Press::Release => control.orbit.held = false,
+            Press::Fire => aids.fire_held = !aids.fire_held,
+            Press::Reload => control.reload = true,
+            Press::Swap => control.ammo_swap = true,
+            Press::AimActor => aim_at_nearest_actor(&phys, &mut player),
         }
         info!(
             "test aid: control {p:?}: sneak {} weapon out {} aiming {:?} view {:?} distance {:.0}",
@@ -300,6 +324,24 @@ fn keys_and_controls(time: Res<Time>, mut aids: ResMut<Aids>, mut intent: ResMut
     if let Some(a) = aids.aim_held {
         control.aiming = a;
     }
+    if aids.fire_held {
+        control.trigger = control.weapon_out;
+    }
+}
+
+/// Turn the view to the middle of the nearest actor hit volume (combat test aid).
+fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player) {
+    let eye = player.eye();
+    let d2 = |c: [f32; 3]| (c[0] - eye[0]).powi(2) + (c[1] - eye[1]).powi(2) + (c[2] - eye[2]).powi(2);
+    let nearest = phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (id, v.center()))).min_by(|a, b| d2(a.1).total_cmp(&d2(b.1)));
+    let Some((id, c)) = nearest else {
+        warn!("test aid: aimactor: no actor hit volume");
+        return;
+    };
+    let (dx, dy, dz) = (c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]);
+    player.heading = dx.atan2(dy);
+    player.pitch = dz.atan2(dx.hypot(dy));
+    info!("test aid: aiming at actor {id:08X} ({:.0} units away)", d2(c).sqrt());
 }
 
 fn take_shots(time: Res<Time>, mut aids: ResMut<Aids>, mut commands: Commands) {
@@ -405,7 +447,9 @@ mod tests {
         assert!(move_keys("1").is_err() && move_keys("1:0:run").is_err());
         assert_eq!(press("zoom=250").unwrap(), Press::Zoom(250.0));
         assert_eq!(press("weapon").unwrap(), Press::Weapon);
-        assert!(press("fire").is_err());
+        assert_eq!(press("fire").unwrap(), Press::Fire);
+        assert_eq!(press("aimactor").unwrap(), Press::AimActor);
+        assert!(press("shoot").is_err());
         assert_eq!(press("orbit=180:0").unwrap(), Press::Orbit(std::f32::consts::PI, 0.0));
         assert_eq!(press("release").unwrap(), Press::Release);
     }

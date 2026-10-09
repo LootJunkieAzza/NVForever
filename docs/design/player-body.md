@@ -48,13 +48,14 @@ controls.md (bindings).
 | Auto Move | Q | walks forward until Forward or Back is pressed |
 | Jump | Space | jump loop in the air, landing clip after 0.35 s of falling |
 | Crouch/Sneak | Left Ctrl | crouched idle and movement at `fMoveSneakMult` (0.57) of the speed |
-| Ready Item | R | weapon away: draw it; weapon out: tap = reload (not built), hold 0.5 s = holster |
-| Use | left mouse | weapon away: draws it; attacking is not built |
+| Ready Item | R | weapon away: draw it; weapon out: tap = reload (combat C4), hold 0.5 s = holster |
+| Use | left mouse | weapon away: draws it; weapon out: the trigger (combat C4: guns, launchers, thrown weapons; melee is C6) |
 | Block | right mouse, Left Alt | held: guns aim down the sights (`AimIS`), fists and melee block (`blockidle`) |
 | Toggle POV | F, middle mouse | tap: first/third person; held while the mouse moves: the camera circles the player (not turning them) and swings back when let go; wheel zooms in third person |
 | Activate | E | as before |
 | Menu Mode | Tab | the inventory (the Pip-Boy is not built) |
-| Rest, Vats, Hotkey 1–8 (2 = Ammo Swap), QuickSave F5, QuickLoad F9, Grab Z | | bound; pressing one shows "… : not available yet" |
+| Ammo Swap | 2 | the next carried ammo type down the weapon's list, then a reload (combat C4) |
+| Rest, Vats, Hotkeys 1 and 3–8, QuickSave F5, QuickLoad F9, Grab Z | | bound; pressing one shows "… : not available yet" |
 
 Mouse look uses the game's `fMouseSensitivity` (0.002 radians per count) and
 `bInvertYValues` (off). The F9 test aid that opened the nearest container moved to F10

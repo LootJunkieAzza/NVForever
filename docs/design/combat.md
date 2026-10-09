@@ -1,8 +1,8 @@
 # Combat design: weapons, projectiles, damage, melee
 
-Status 2026-10-09: **design for review; steps C1 (data), C2 (rules) and C3 (hit volumes)
-built** on `claude/combat-data`, `claude/combat-rules` and `claude/combat-hitvol`
-(docs/spec-notes/combat-data.md, docs/spec-notes/combat-rules.md §7 for C3). Owner requests 2026-10-09:
+Status 2026-10-09: **design for review; steps C1 (data), C2 (rules), C3 (hit volumes) and
+C4 (the player shooting) built** on `claude/combat-data`, `-rules`, `-hitvol` and
+`-shoot` (docs/spec-notes/combat-data.md, docs/spec-notes/combat-rules.md §7–8). Owner requests 2026-10-09:
 
 1. On top of the player body (docs/design/player-body.md: controls, equipping, drawing and
    holstering), "the actual damage/projectile systems in place for shooting and melee

@@ -224,7 +224,56 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     150 units at each capsule's middle hit its own actor for 12 of the 13, and
     something else first for one [observed 2026-10-09].
 
-## 8. Open points
+## 8. The player shooting (step C4)
+
+- **Weapon and ammo** (`engine/nvf-play/src/combat.rs`):
+  - The equipped weapon comes from the simulation, with the ammo from
+    `CombatForms::ammo_for` (the first carried entry of its list).
+  - The magazine is a view of the carried rounds. A shot removes `ammo_use` rounds
+    from the inventory; a reload moves nothing.
+  - A weapon with no ammo but a projectile (grenades) spends itself.
+  - A newly equipped weapon starts loaded with what is carried [design].
+- **Controls.** Use is the trigger; the press that draws the weapon does not fire. A
+  Ready Item tap reloads, and Ammo Swap takes the next carried ammo, then reloads
+  [design].
+- **Readiness and clips.** The cycle runs once the player body reports the weapon drawn
+  and in hand (`WeaponAnim::ready`; without a body, as soon as it is wanted out).
+  - The body gives the attack clip's length and `Hit` key and the reload clip's
+    length, from the rig in view. The attack clip is `{prefix}{attack}{is}.kf` from the
+    WEAP attack animation; the reload clip is `{prefix}reload{x}.kf`
+    (`fnv_actor::player_clips`).
+  - The body plays the clip once each time combat counts an attack or a reload.
+- **Shots.**
+  - They leave the eye along the view, inside the cone from §3. The stance is taken
+    from the controls and the character: aiming, sneaking, moving, airborne.
+  - The skill is derived from its attribute and Luck (`damage::derived_skill`;
+    which attribute governs which skill is a hypothesis), since the simulation has no
+    skills yet.
+  - Recoil turns the view's pitch.
+- **The world.** Projectiles fly against the physics world (`PhysView`):
+  - rays skip the player's capsule and the layers the character passes;
+  - actor hit volumes (§7) report the actor;
+  - small-transparent colliders are the layers TRANSPARENT_SMALL and
+    TRANSPARENT_SMALL_ANIM.
+- **Hits.** Hits and blasts are logged with the damage the rules give (target DT 0, no
+  body part); applying it is step C5.
+- **Feedback** [design, until impact effects and audio]:
+  - an impact marker for 0.3 s (0.6 s for explosions);
+  - tracers at the PROJ tracer chance;
+  - an ammo counter (magazine / carried, the ammo's abbreviation).
+- **Test aids.** `NVF_PLAY_TEST_CONTROL` presses `fire`, `reload`, `swap` and
+  `aimactor` (look at the nearest actor's hit volume).
+- **Checked** [observed 2026-10-09, `nvforever --cell Goodsprings --play`, exit 0, "run
+  finished"]:
+  - **9mm pistol** (50 rounds given): magazine 13/13, one shot per trigger pull. Two
+    shots hit a creature 1244 units away for 9.2 each (16 × the skill bonus at Guns
+    15). A reload took one round. The screenshot shows the first-person pistol and the
+    counter `12 / 37  9mm`.
+  - **Missile launcher:** the missile struck the ground about 158 units from the
+    creature it was aimed at. The explosion caught it for 176 and another creature at
+    501 units for 125 (before armour).
+
+## 9. Open points
 
 - Every [design] number is a first guess for the owner to tune in play.
 - Projectile gravity units and speeds: the owner's projectile capture round.
