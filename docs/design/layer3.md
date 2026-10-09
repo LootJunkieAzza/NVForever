@@ -171,8 +171,13 @@ What it does now:
   untextured water-height shape is skipped (water planes cover it).
   Within `--lodgen-radius` chunks (default 4) the game's chunks are replaced by terrain
   generated from the LAND records at 4 × their texture resolution, cut out exactly
-  around the loaded cells and cached in NVForever's home (docs/design/generated-lod.md). Interim rules, to compare with screenshots; small dark
-  boxes on distant ridges (probably rock formations in the object LOD) to check.
+  around the loaded cells and cached in NVForever's home (docs/design/generated-lod.md). Interim rules, to compare with screenshots. Dark boxes on
+  ridges (the "checkerboard squares" seen east of Goodsprings) are object LOD block
+  geometry over cells beyond the 5 × 5 loaded square, not a fade dither: they stay with
+  `--tree-distance 0`, vanish with `--no-lod` (with the hill) and with `--radius 4`, which
+  draws that hill's rocks and trees as the game's `goodsprings_east` frame shows them
+  [observed 2026-10-09]. Why the block rocks render dark and boxy (block normal maps or
+  shading) is open.
 - SpeedTree trees (TREE; distant ones as billboards, see Distant LOD): geometry generated from the `.spt` parameters by `fnv-spt`
   (speedtree.md §5): bark tubes with the standard material, leaf cards turned towards
   the camera by a vertex shader (tree.wgsl, also in the prepass so depth and shadows
