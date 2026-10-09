@@ -328,6 +328,17 @@ collision notes.
 `fnvtool sim doors` (`fnv.sim.doors/1`) are defined in docs/spec-notes/simulation.md §7
 together with the simulation notes.
 
+`fnvtool sim door-models <data_dir> <plugin>... --schema <dir> [--nif-schema <dir>]`
+(`fnv.sim.door_models/1`): every DOOR base with `door`, `edid`, `model`, `flags` (FNAM),
+`open_sound`/`close_sound`/`loop_sound` (SNAM/ANAM/BNAM), its placed references (`refs`,
+`teleport_refs`, `in_cell_refs`, `in_cell_with_lock`, `in_cell_open_by_default`), its
+model's `sequences` (`name`, `start`, `stop`, `cycle_type`, `tracks`, `text_keys` as
+`[time, text]`), `bodies` (collision objects counted by motion and layer, and for
+keyframed bodies of Open/Close models whether the end of Close equals the stored pose
+and whether the end of Open moves them) and `error`; `summary` aggregates them
+(`by_sequence_names`, `text_keys_by_sequence`, `durations`, `cycle_types`,
+`rigid_bodies`, `flags`). Notes: docs/spec-notes/doors.md.
+
 # Layer 5 (compiled scripts)
 
 `fnvtool script units` (`fnv.script.units/1`), `script decode` (`fnv.script.decode/1`),

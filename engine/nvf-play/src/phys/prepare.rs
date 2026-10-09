@@ -11,12 +11,13 @@
 use super::cells::PhysCell;
 use super::LoadTimes;
 use crate::PlayData;
+use fnv_collide::anim::ModelAnim;
 use fnv_collide::CollisionObject;
 use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
-use fnv_phys::{ref_collision, ModelCollision, PhysParams, PreparedRef, PreparedTerrain, RefPose};
+use fnv_phys::{ref_collision_with, ModelCollision, PhysParams, PreparedRef, PreparedTerrain, RefCollisionOptions, RefPose};
 use fnv_world::land::{load_land, LandParts};
-use fnv_world::placed::placement;
+use fnv_world::placed::{base_object, placement};
 use fnv_world::Placement;
 use nvf_assets::GameData;
 use std::collections::HashMap;
@@ -29,9 +30,10 @@ pub(super) fn ms_since(t: Instant) -> f64 {
 
 type Objects = Arc<Vec<CollisionObject>>;
 
-/// What a model contributes: its solid collision objects and its water volumes (phantoms
-/// on the Water layer, physics.md §6.6), or why it could not be read.
-type ModelResult = Result<(Objects, Objects), String>;
+/// What a model contributes: its solid collision objects, its water volumes (phantoms
+/// on the Water layer, physics.md §6.6) and, for a door model with "Open" and "Close"
+/// sequences, its animation (`crate::doors`); or why it could not be read.
+type ModelResult = Result<(Objects, Objects, Option<Arc<ModelAnim>>), String>;
 
 /// Collision per model path (lower case), shared by the loader thread and the main
 /// thread. A model is read once: a second caller waits for the first.
@@ -60,7 +62,13 @@ impl ModelCache {
     /// A model's solid collision objects (empty when it has none), read through
     /// `fnv_collide::nif` once.
     pub fn objects(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> Result<Objects, String> {
-        self.read(data, path, times).map(|(solid, _)| solid)
+        self.read(data, path, times).map(|(solid, _, _)| solid)
+    }
+
+    /// A door model's animation (read through the cache), when it has "Open" and
+    /// "Close" sequences that move its nodes.
+    pub fn door_anim(&self, data: &GameData, path: &str, times: &mut LoadTimes) -> Option<Arc<ModelAnim>> {
+        self.read(data, path, times).ok().and_then(|(_, _, anim)| anim)
     }
 }
 
@@ -78,7 +86,7 @@ impl ModelCollision for Models<'_> {
 
     fn water(&mut self, path: &str) -> Objects {
         match self.cache.slot(path).get() {
-            Some(Ok((_, water))) => water.clone(),
+            Some(Ok((_, water, _))) => water.clone(),
             _ => Arc::default(),
         }
     }
@@ -102,8 +110,11 @@ fn read_model(data: &GameData, path: &str, times: &mut LoadTimes) -> ModelResult
     let t = Instant::now();
     let (solid, phantoms, _) = fnv_collide::nif::collision_and_phantoms(&file, dec.as_ref().expect("decoded with the file"));
     let water: Vec<CollisionObject> = phantoms.into_iter().filter(|o| o.layer == fnv_phys::layers::WATER).collect();
+    let dec = dec.expect("decoded with the file");
+    let anim = solid.iter().any(|o| o.motion == fnv_collide::Motion::Keyframed).then(|| ModelAnim::new(&file, &dec));
+    let anim = anim.filter(|a| a.door().is_some()).map(Arc::new);
     times.convert += ms_since(t);
-    Ok((Arc::new(solid), Arc::new(water)))
+    Ok((Arc::new(solid), Arc::new(water), anim))
 }
 
 /// What preparing needs: the plugins, the archives and the world's parameters. Cheap to
@@ -159,6 +170,27 @@ pub struct RefShapes {
     /// object and it is dynamic: physics can move the reference, and the body's pose
     /// gives the reference's (`crate::dropped::ref_pose_from_body`).
     pub dynamic_local: Option<fnv_collide::Iso>,
+    /// A door that opens in place: its keyframed bodies follow its animation.
+    pub door: Option<DoorBodies>,
+}
+
+/// The keyframed bodies of a door that opens in place (`crate::doors`), posed from its
+/// model's "Open" and "Close" sequences.
+#[derive(Clone)]
+pub struct DoorBodies {
+    pub anim: Arc<ModelAnim>,
+    /// (object index in the reference's collision objects, node block, body transform)
+    /// of each keyframed object.
+    pub objects: Vec<(u16, usize, fnv_collide::Iso)>,
+}
+
+/// The model of a DOOR reference without XTEL (a door that opens in place).
+fn in_place_door_model(src: &Source, pl: &Placement) -> Option<String> {
+    if pl.teleport {
+        return None;
+    }
+    let base = base_object(src.d.lo, src.d.schema, pl.base?)?;
+    (&base.sig == b"DOOR").then(|| base.model_path()).flatten()
 }
 
 /// A reference of a prepared cell.
@@ -213,13 +245,21 @@ pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShap
     let t0 = Instant::now();
     let before = *times;
     let mut tallies = Vec::new();
+    // A door with an animation keeps its moving parts even when it starts open: they are
+    // posed from the animation (`fnv_phys::RefCollisionOptions::posed_doors`).
+    let anim = match (&src.data, in_place_door_model(src, pl)) {
+        (Some(data), Some(path)) => src.models.door_anim(data, &path, times),
+        _ => None,
+    };
+    let options = RefCollisionOptions { posed_doors: anim.is_some() };
     let mut models = src.data.as_ref().map(|data| Models { data, cache: &src.models, times: &mut *times });
-    let rc = ref_collision(
+    let rc = ref_collision_with(
         src.d.lo,
         src.d.schema,
         pl,
         models.as_mut().map(|m| m as &mut dyn ModelCollision),
         &mut |what| tallies.push(what),
+        options,
     );
     let in_models = (times.read - before.read) + (times.parse - before.parse) + (times.convert - before.convert);
     times.records += ms_since(t0) - in_models;
@@ -233,5 +273,15 @@ pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShap
         [o] if o.motion == fnv_collide::Motion::Dynamic => Some(o.node_transform.compose(&o.body_transform)),
         _ => None,
     };
-    RefShapes { tallies, water: rc.water, prepared, dynamic_local }
+    let door = anim.map(|anim| DoorBodies {
+        anim,
+        objects: rc
+            .objects
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| o.motion == fnv_collide::Motion::Keyframed)
+            .map(|(i, o)| (i as u16, o.node_block, o.body_transform))
+            .collect(),
+    });
+    RefShapes { tallies, water: rc.water, prepared, dynamic_local, door }
 }

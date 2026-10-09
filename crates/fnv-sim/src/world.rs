@@ -303,7 +303,9 @@ impl<'a> World<'a> {
             inventory,
             // A reference with lock data starts locked. [hypothesis]
             lock: placed.and_then(|p| p.lock).map(|l| LockState { level: l.level, key: l.key, locked: true }),
-            open: false,
+            // A door flagged Open by Default starts open. [hypothesis from the flag's
+            // name; a gate so flagged let the player drop through it, physics.md §4]
+            open: placed.is_some_and(|p| p.open_by_default),
             extra: Extra {
                 condition: placed.and_then(|p| p.health),
                 owner: placed.and_then(|p| p.owner),

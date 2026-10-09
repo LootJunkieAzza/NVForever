@@ -59,6 +59,28 @@ pub fn ref_collision(
     models: Option<&mut dyn ModelCollision>,
     tally: &mut dyn FnMut(&'static str),
 ) -> RefCollision {
+    ref_collision_with(lo, schema, pl, models, tally, RefCollisionOptions::default())
+}
+
+/// Choices of [`ref_collision_with`] that differ from the shared rule.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RefCollisionOptions {
+    /// Keep the keyframed parts of a door flagged Open by Default: the caller poses them
+    /// from the door's "Open" sequence ([`crate::PhysWorld::pose_ref_object`],
+    /// `fnv_collide::anim`). Off in the shared rule, which has no animation and leaves
+    /// them out (`open_door_moving_parts`).
+    pub posed_doors: bool,
+}
+
+/// [`ref_collision`] with `options`.
+pub fn ref_collision_with(
+    lo: &LoadOrder,
+    schema: &Schema,
+    pl: &Placement,
+    models: Option<&mut dyn ModelCollision>,
+    tally: &mut dyn FnMut(&'static str),
+    options: RefCollisionOptions,
+) -> RefCollision {
     let Some(base) = pl.base.and_then(|b| base_object(lo, schema, b)) else {
         tally("no_base");
         return RefCollision::default();
@@ -96,7 +118,7 @@ pub fn ref_collision(
                             tally("model_without_collision");
                         }
                     }
-                    Ok(o) if &base.sig == b"DOOR" && pl.open_by_default => {
+                    Ok(o) if &base.sig == b"DOOR" && pl.open_by_default && !options.posed_doors => {
                         // An open door's moving part is out of the doorway: a player dropped
                         // on a closed-looking gate flagged Open by Default fell straight
                         // through it [observed: B11, gate 0x0010757E]. Its open pose comes

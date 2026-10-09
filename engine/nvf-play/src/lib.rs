@@ -12,6 +12,7 @@
 pub mod activate;
 pub mod bindings;
 pub mod control;
+pub mod doors;
 pub mod dropped;
 pub mod menu;
 pub mod moved;
