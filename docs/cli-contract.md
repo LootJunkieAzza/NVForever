@@ -361,3 +361,10 @@ with the animation data notes.
 folder per body and stance prefix, and each clip's root motion: accumulation-root
 translation and turn per cycle, ground speed, text keys) is defined in
 docs/spec-notes/actors.md §8.5 together with the locomotion notes.
+
+# Placed creatures (workstream 5, part D)
+
+`fnvtool actor creatures` (`fnv.actor.creatures/1`: every placed creature after leveled
+and template resolution — skeleton, NIFZ body models, base scale, KFFZ names — and with
+`--check-meshes` how each model joins its skeleton) is defined in
+docs/spec-notes/actors.md §9.4 together with the creature notes.

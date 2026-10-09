@@ -29,6 +29,11 @@ pub struct PartMesh {
     pub shape_names: Vec<String>,
     /// Every node name in the file (for a skeleton: its bones).
     pub node_names: BTreeSet<String>,
+    /// For each unskinned shape, the names of its ancestor nodes from its parent up to,
+    /// but not including, the root.
+    pub rigid_ancestors: Vec<Vec<String>>,
+    /// The root node's name.
+    pub root_name: Option<String>,
 }
 
 /// Block index of the root: the first block, as the files are laid out [observed:
@@ -60,11 +65,54 @@ pub fn analyse(file: &NifFile, dec: &Decoded) -> PartMesh {
                     }
                 }
             }
-            None => out.rigid_shapes += 1,
+            None => {
+                out.rigid_shapes += 1;
+                out.rigid_ancestors.push(ancestors(file, dec, i));
+            }
         }
     }
     out.prn = root_prn(dec);
+    out.root_name = dec.blocks.get(ROOT).and_then(|b| b.as_ref().ok()).and_then(|b| b.text("name")).map(str::to_string);
     out
+}
+
+/// Names of the nodes above block `i`, from its parent up to (not including) the root.
+fn ancestors(file: &NifFile, dec: &Decoded, i: usize) -> Vec<String> {
+    let parent = |c: usize| {
+        (0..file.blocks.len()).find(|&p| {
+            dec.is_a(p, "NiNode") && dec.blocks[p].as_ref().ok().is_some_and(|s| s.refs("children").unwrap_or_default().contains(&(c as i32)))
+        })
+    };
+    let mut out = Vec::new();
+    let mut cur = parent(i);
+    while let Some(p) = cur.filter(|&p| p != ROOT && out.len() < 256) {
+        out.push(dec.blocks[p].as_ref().ok().and_then(|s| s.text("name")).unwrap_or("").to_string());
+        cur = parent(p);
+    }
+    out
+}
+
+/// The skeleton bone an unskinned shape of a creature part hangs from (actors.md §9.2):
+/// its nearest ancestor in the part file whose name is a skeleton node; else the part's
+/// `Prn` when the skeleton has it; else `None` (the skeleton's root).
+pub fn creature_rigid_bone<'a>(ancestors: &'a [String], prn: Option<&'a str>, has: impl Fn(&str) -> bool) -> Option<&'a str> {
+    ancestors.iter().map(String::as_str).find(|n| has(n)).or(prn.filter(|p| has(p)))
+}
+
+/// What is wrong with attaching a creature's `part` to its `skeleton` (actors.md §9.2):
+/// skin bones the skeleton lacks. Unskinned shapes that find no bone hang from the root
+/// by rule; they are counted by [`creature_rigid_at_root`].
+pub fn creature_attach_problems(part: &PartMesh, skeleton: &PartMesh) -> Vec<String> {
+    part.skin_bones.iter().filter(|b| !skeleton.node_names.contains(*b)).map(|b| format!("skin bone not in skeleton: {b}")).collect()
+}
+
+/// Unskinned shapes of a creature part that hang from the skeleton's root (no ancestor
+/// and no `Prn` names a skeleton node).
+pub fn creature_rigid_at_root(part: &PartMesh, skeleton: &PartMesh) -> usize {
+    part.rigid_ancestors
+        .iter()
+        .filter(|a| creature_rigid_bone(a, part.prn.as_deref(), |n| skeleton.node_names.contains(n)).is_none())
+        .count()
 }
 
 fn root_prn(dec: &Decoded) -> Option<String> {
