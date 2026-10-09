@@ -489,6 +489,7 @@ impl Settle for PhysSettle<'_> {
                     json!({"kind": "ref", "formid": FormId(form_id), "object": object, "layer": layer})
                 }
                 Owner::Character { id } => json!({"kind": "character", "id": id}),
+                Owner::Actor { form_id, layer } => json!({"kind": "actor", "formid": FormId(form_id), "layer": layer}),
             };
             json!({"owner": owner, "z": h.point[2], "shell": h.shell})
         });

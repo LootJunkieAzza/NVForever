@@ -321,7 +321,8 @@ pub fn place_camera(
     let shoulder = orbit_shoulder(settings.map_or(DEFAULT_SHOULDER, |s| s.shoulder), o.yaw);
     let pivot = body.pivot.unwrap_or(eye);
     let (base, want) = third_person_spot(pivot, heading, pitch, shoulder, control.distance);
-    let filter = Filter { exclude_layers: fnv_phys::layers::character_ignores(), ..Default::default() };
+    // The camera is not pushed in by actors' hit volumes (combat C3).
+    let filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
     // From the pivot sideways to the shoulder, then back along the view.
     let mut from = pivot;
     let mut to = base;
