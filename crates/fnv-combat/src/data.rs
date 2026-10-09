@@ -1,0 +1,790 @@
+//! Step C1 (docs/design/combat.md §4): the combat content of a load order, read with the
+//! record layouts in `schemas/fnv` (WEAP and AMMO in `objects.json`; PROJ, EXPL, BPTD,
+//! AMEF, ENCH, SPEL in `combat.json`). Field meanings and sources are in
+//! docs/spec-notes/combat-data.md; this module keeps the records' own units and names.
+//!
+//! Nothing is dropped silently: a value that is missing, null where a form is expected,
+//! or points at a record of the wrong type is counted in [`CombatForms::issues`].
+
+use std::collections::{BTreeMap, HashMap};
+
+use fnv_esm::{LoadOrder, Record, Schema};
+use fnv_sim::extract::{self, all, first, global, has_flag, int, local_fid, num, text, Decoded, Issues};
+use fnv_sim::settings::{unhex, Setting};
+use fnv_sim::FormId;
+use rayon::prelude::*;
+use serde::Serialize;
+use serde_json::Value;
+
+/// The set flag names of a decoded flags value, in bit order.
+fn flag_names(v: Option<&Value>) -> Vec<String> {
+    v.and_then(|f| f.get("set")).and_then(Value::as_array).map(|a| a.iter().filter_map(|n| n.as_str().map(str::to_string)).collect()).unwrap_or_default()
+}
+
+/// An enum value as the schema names it; a value the schema does not name comes back
+/// as its number, so it stays visible.
+fn label(v: Option<&Value>) -> Option<String> {
+    match v? {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+fn f(v: Option<&Value>, key: &str) -> f32 {
+    v.and_then(|v| num(v, key)).unwrap_or(0.0) as f32
+}
+
+fn u(v: Option<&Value>, key: &str) -> u32 {
+    v.and_then(|v| int(v, key)).unwrap_or(0).max(0) as u32
+}
+
+fn path(v: Option<&Value>) -> Option<String> {
+    v.and_then(text).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+/// Resolves the file-local FormIDs of one record.
+struct Ctx<'a> {
+    lo: &'a LoadOrder<'a>,
+    pi: usize,
+    id: FormId,
+    issues: Issues,
+}
+
+impl Ctx<'_> {
+    /// A FormID field (a subrecord value or a struct member). Null (0) is `None`.
+    fn fid(&mut self, what: &str, v: Option<&Value>) -> Option<FormId> {
+        let local = local_fid(v?)?;
+        match global(self.lo, self.pi, local) {
+            Ok(g) => g,
+            Err(l) => {
+                let id = self.id;
+                self.issues.note("FormID outside master list", || format!("{id} {what} 0x{l:08X}"));
+                None
+            }
+        }
+    }
+
+    fn field(&mut self, what: &str, v: Option<&Value>, key: &str) -> Option<FormId> {
+        self.fid(what, v.and_then(|v| v.get(key)))
+    }
+}
+
+/// A weapon mod slot (WMI1–3 with the matching DNAM effect and values).
+#[derive(Debug, Clone, Serialize)]
+pub struct WeaponMod {
+    pub slot: u8,
+    /// The IMOD item.
+    pub item: Option<FormId>,
+    /// DNAM "Effect - Mod N" (Increase Damage, Decrease Spread, …).
+    pub effect: Option<String>,
+    pub value_a: f32,
+    pub value_b: f32,
+}
+
+/// WEAP: `DATA`, `DNAM`, `CRDT` and the forms the weapon names.
+#[derive(Debug, Clone, Serialize)]
+pub struct WeaponStats {
+    pub edid: Option<String>,
+    pub name: Option<String>,
+    // DATA
+    pub value: i32,
+    /// Maximum condition.
+    pub health: i32,
+    pub weight: f32,
+    /// Per shot (shared among the shot's projectiles), per hit for melee.
+    pub base_damage: i32,
+    pub clip_size: u32,
+    // DNAM
+    pub anim_type: Option<String>,
+    pub anim_mult: f32,
+    pub attack_mult: f32,
+    /// Melee reach multiplier (× fCombatDistance × the actor's scale).
+    pub reach: f32,
+    /// DNAM Flags 1 and Flags 2, by name.
+    pub flags: Vec<String>,
+    pub automatic: bool,
+    pub ammo_use: u32,
+    /// The spread cone's median angle in degrees.
+    pub min_spread: f32,
+    /// Unused in New Vegas; kept for reports.
+    pub spread: f32,
+    pub sight_fov: f32,
+    /// The weapon's own projectile (the ammo's, when it has one, replaces it).
+    pub projectile: Option<FormId>,
+    pub projectile_count: u32,
+    pub min_range: f32,
+    pub max_range: f32,
+    pub on_hit: Option<String>,
+    /// Shots per second of an automatic weapon.
+    pub fire_rate: f32,
+    pub attack_shots_per_sec: f32,
+    /// Set only when the "Override - Action Points" flag is.
+    pub action_points: Option<f32>,
+    /// Set only when the "Override - Damage to Weapon Mult" flag is.
+    pub damage_to_weapon_mult: Option<f32>,
+    pub aim_arc: f32,
+    pub skill: Option<String>,
+    /// The resistance that applies (DamageResist, FireResist, …; "None" for none).
+    pub resist: Option<String>,
+    pub limb_dmg_mult: f32,
+    pub sight_usage: f32,
+    pub semi_auto_fire_delay: [f32; 2],
+    pub strength_req: u32,
+    pub skill_req: u32,
+    pub regen_rate: f32,
+    pub kill_impulse: f32,
+    pub impulse_dist: f32,
+    pub reload_anim: Option<String>,
+    pub attack_anim: Option<String>,
+    pub mods: Vec<WeaponMod>,
+    /// DNAM ended before `resist_type`: the short form xEdit allows (fields from the 37th
+    /// on absent); the later fields then read as zero.
+    pub short_dnam: bool,
+    // CRDT
+    pub crit_damage: u32,
+    pub crit_mult: f32,
+    pub crit_on_death: bool,
+    /// SPEL applied on a critical hit.
+    pub crit_effect: Option<FormId>,
+    // other subrecords
+    /// NAM0: an AMMO, or a FLST of acceptable ammo.
+    pub ammo: Option<FormId>,
+    /// EITM: the object effect (ENCH) applied on a hit.
+    pub enchantment: Option<FormId>,
+    pub impact_dataset: Option<FormId>,
+    pub embedded: bool,
+    pub playable: bool,
+    pub sound_level: Option<String>,
+}
+
+/// AMMO.
+#[derive(Debug, Clone, Serialize)]
+pub struct AmmoStats {
+    pub edid: Option<String>,
+    pub name: Option<String>,
+    pub short_name: Option<String>,
+    pub abbrev: Option<String>,
+    pub value: i32,
+    pub clip_rounds: u32,
+    pub flags: Vec<String>,
+    /// Replaces the weapon's projectile when set.
+    pub projectile: Option<FormId>,
+    /// Replaces the weapon's count when non-zero.
+    pub projectiles_per_shot: u32,
+    pub weight: f32,
+    /// Item added to the shooter's inventory with this percentage chance per shot.
+    pub consumed: Option<(FormId, f32)>,
+    /// AMEF effects (RCIL).
+    pub effects: Vec<FormId>,
+}
+
+/// AMEF.
+#[derive(Debug, Clone, Serialize)]
+pub struct AmmoEffect {
+    pub edid: Option<String>,
+    pub name: Option<String>,
+    /// Damage Mod, DR Mod, DT Mod, Spread Mod, Weapon Condition Mod, Fatigue Mod.
+    pub kind: Option<String>,
+    /// Add, Multiply, Subtract.
+    pub operation: Option<String>,
+    pub value: f32,
+}
+
+/// PROJ.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectileStats {
+    pub edid: Option<String>,
+    pub name: Option<String>,
+    pub model: Option<String>,
+    /// Missile, Lobber, Beam, Flame, Continuous Beam.
+    pub kind: Option<String>,
+    pub flags: Vec<String>,
+    pub gravity: f32,
+    pub speed: f32,
+    pub range: f32,
+    pub tracer_chance: f32,
+    pub impact_force: f32,
+    pub fade_duration: f32,
+    pub muzzle_flash_light: Option<FormId>,
+    pub muzzle_flash_duration: f32,
+    pub muzzle_flash_model: Option<String>,
+    /// The EXPL field; it fires only with the "Explosion" flag (see [`Self::explodes`]).
+    pub explosion: Option<FormId>,
+    pub alt_trigger_timer: f32,
+    pub alt_trigger_proximity: f32,
+    pub default_weapon: Option<FormId>,
+    pub bouncy_mult: f32,
+    pub sound_level: Option<String>,
+}
+
+impl ProjectileStats {
+    pub fn has(&self, flag: &str) -> bool {
+        self.flags.iter().any(|f| f == flag)
+    }
+
+    /// The explosion this projectile sets off, if it sets one off.
+    pub fn explodes(&self) -> Option<FormId> {
+        self.explosion.filter(|_| self.has("Explosion"))
+    }
+}
+
+/// EXPL.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExplosionStats {
+    pub edid: Option<String>,
+    pub name: Option<String>,
+    pub model: Option<String>,
+    pub force: f32,
+    pub damage: f32,
+    pub radius: f32,
+    pub is_radius: f32,
+    pub flags: Vec<String>,
+    pub impact_dataset: Option<FormId>,
+    pub radiation_level: f32,
+    pub radiation_dissipation_time: f32,
+    pub radiation_radius: f32,
+    /// EITM: the object effect applied to what the blast catches.
+    pub enchantment: Option<FormId>,
+    pub placed_object: Option<FormId>,
+    pub image_space_modifier: Option<FormId>,
+    pub sound_level: Option<String>,
+}
+
+/// One part of a BPTD.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct BodyPart {
+    pub name: Option<String>,
+    /// The bone the part hangs from.
+    pub node: Option<String>,
+    pub vats_target: Option<String>,
+    pub ik_start_node: Option<String>,
+    pub damage_mult: f32,
+    pub flags: Vec<String>,
+    pub part_type: Option<String>,
+    /// Crippled at this percentage of the actor's total health.
+    pub health_percent: u32,
+    /// The limb-condition actor value the part lowers.
+    pub actor_value: Option<String>,
+    pub to_hit_chance: u32,
+    pub tracking_max_angle: f32,
+    pub severable_explosion: Option<FormId>,
+    pub severable_debris: Option<FormId>,
+    pub severable_impact_dataset: Option<FormId>,
+    pub explodable_chance_percent: u32,
+    pub explodable_explosion: Option<FormId>,
+    pub explodable_debris: Option<FormId>,
+    pub explodable_impact_dataset: Option<FormId>,
+    pub limb_replacement_model: Option<String>,
+    pub limb_replacement_scale: f32,
+    pub gore_target_bone: Option<String>,
+}
+
+/// BPTD.
+#[derive(Debug, Clone, Serialize)]
+pub struct BodyPartData {
+    pub edid: Option<String>,
+    pub model: Option<String>,
+    pub parts: Vec<BodyPart>,
+    pub ragdoll: Option<FormId>,
+}
+
+/// One effect of an ENCH or SPEL (EFID + EFIT, then its conditions).
+#[derive(Debug, Clone, Serialize)]
+pub struct EffectItem {
+    /// The MGEF base effect.
+    pub base: Option<FormId>,
+    pub magnitude: u32,
+    pub area: u32,
+    pub duration: u32,
+    /// Self, Touch, Target.
+    pub range: Option<String>,
+    pub actor_value: Option<String>,
+    pub conditions: u32,
+}
+
+/// ENCH (object effect) or SPEL (actor effect).
+#[derive(Debug, Clone, Serialize)]
+pub struct EffectForm {
+    pub sig: String,
+    pub edid: Option<String>,
+    pub name: Option<String>,
+    /// ENCH: Weapon or Apparel; SPEL: Actor Effect, Ability, Poison, ….
+    pub kind: Option<String>,
+    pub flags: Vec<String>,
+    pub effects: Vec<EffectItem>,
+}
+
+/// The records a shot follows, resolved for one weapon and ammo.
+#[derive(Debug, Clone, Serialize)]
+pub struct ShotChain {
+    pub weapon: FormId,
+    /// The ammo the weapon accepts (NAM0 itself, or the AMMO entries of its FLST).
+    pub ammo_choices: Vec<FormId>,
+    /// The ammo used: the one asked for when the weapon accepts it, else the first choice.
+    pub ammo: Option<FormId>,
+    pub projectile: Option<FormId>,
+    /// "ammo" or "weapon": whose projectile field gave `projectile`.
+    pub projectile_from: Option<&'static str>,
+    pub projectiles_per_shot: u32,
+    /// The weapon's base damage shared evenly among the shot's projectiles.
+    pub damage_per_projectile: f32,
+    pub explosion: Option<FormId>,
+    pub ammo_effects: Vec<FormId>,
+}
+
+#[derive(Default)]
+pub struct CombatForms {
+    pub weapons: BTreeMap<FormId, WeaponStats>,
+    pub ammo: HashMap<FormId, AmmoStats>,
+    pub ammo_effects: HashMap<FormId, AmmoEffect>,
+    pub projectiles: HashMap<FormId, ProjectileStats>,
+    pub explosions: HashMap<FormId, ExplosionStats>,
+    pub body_parts: HashMap<FormId, BodyPartData>,
+    /// ENCH and SPEL.
+    pub effects: HashMap<FormId, EffectForm>,
+    /// Every FLST (weapons name their ammo through them).
+    pub form_lists: HashMap<FormId, Vec<FormId>>,
+    /// Game settings by lower-case Editor ID.
+    pub settings: BTreeMap<String, Setting>,
+    /// Signature of the winning record of every loaded form.
+    pub sigs: HashMap<FormId, [u8; 4]>,
+    pub edids: HashMap<String, FormId>,
+    pub issues: Issues,
+}
+
+/// IPDS is only registered (its signature), so references to it can be checked.
+const SIGS: &[&[u8; 4]] = &[b"WEAP", b"AMMO", b"AMEF", b"PROJ", b"EXPL", b"BPTD", b"ENCH", b"SPEL", b"FLST", b"GMST", b"IPDS"];
+
+enum Loaded {
+    Weapon(Box<WeaponStats>),
+    Ammo(AmmoStats),
+    AmmoEffect(AmmoEffect),
+    Projectile(Box<ProjectileStats>),
+    Explosion(Box<ExplosionStats>),
+    BodyParts(BodyPartData),
+    Effect(EffectForm),
+    FormList(Vec<FormId>),
+    Setting(Setting),
+    Other,
+}
+
+impl CombatForms {
+    pub fn build(lo: &LoadOrder, schema: &Schema) -> CombatForms {
+        let mut out = CombatForms::default();
+        let mut wanted: Vec<(FormId, usize, &Record)> = Vec::new();
+        for (&g, defs) in &lo.index {
+            let Some(d) = defs.last() else { continue };
+            let r = lo.records[d.plugin as usize][d.ordinal as usize];
+            // Deleted records (flag 0x20) are not forms.
+            if !SIGS.contains(&&r.header.sig) || r.header.flags & 0x20 != 0 {
+                continue;
+            }
+            wanted.push((FormId(g), d.plugin as usize, r));
+        }
+        wanted.sort_by_key(|w| w.0);
+        let loaded: Vec<_> = wanted
+            .par_iter()
+            .map(|&(id, pi, r)| {
+                let mut cx = Ctx { lo, pi, id, issues: Issues::default() };
+                let res = match extract::decode(r, schema) {
+                    Ok(d) => (first(&d, b"EDID").and_then(text), load_one(&mut cx, &r.header.sig, &d)),
+                    Err(e) => {
+                        cx.issues.note("record does not decode", || format!("{id}: {e}"));
+                        (None, Loaded::Other)
+                    }
+                };
+                (id, r.header.sig, res, cx.issues)
+            })
+            .collect();
+        for (id, sig, (edid, l), issues) in loaded {
+            out.issues.merge(issues);
+            out.sigs.insert(id, sig);
+            if let Some(e) = &edid {
+                out.edids.insert(e.to_ascii_lowercase(), id);
+            }
+            match l {
+                Loaded::Weapon(w) => {
+                    out.weapons.insert(id, *w);
+                }
+                Loaded::Ammo(a) => {
+                    out.ammo.insert(id, a);
+                }
+                Loaded::AmmoEffect(a) => {
+                    out.ammo_effects.insert(id, a);
+                }
+                Loaded::Projectile(p) => {
+                    out.projectiles.insert(id, *p);
+                }
+                Loaded::Explosion(e) => {
+                    out.explosions.insert(id, *e);
+                }
+                Loaded::BodyParts(b) => {
+                    out.body_parts.insert(id, b);
+                }
+                Loaded::Effect(e) => {
+                    out.effects.insert(id, e);
+                }
+                Loaded::FormList(l) => {
+                    out.form_lists.insert(id, l);
+                }
+                Loaded::Setting(s) => {
+                    if let Some(e) = edid {
+                        out.settings.insert(e.to_ascii_lowercase(), s);
+                    }
+                }
+                Loaded::Other => {}
+            }
+        }
+        out
+    }
+
+    pub fn by_edid(&self, edid: &str) -> Option<FormId> {
+        self.edids.get(&edid.to_ascii_lowercase()).copied()
+    }
+
+    /// A numeric game setting by Editor ID (any case).
+    pub fn setting(&self, edid: &str) -> Option<f32> {
+        self.settings.get(&edid.to_ascii_lowercase()).and_then(Setting::as_f32)
+    }
+
+    /// The AMMO forms a weapon accepts: NAM0 when it is an AMMO, the AMMO entries of
+    /// NAM0 when it is a form list [documented: GECK wiki Weapons and Ammo, owner export
+    /// 2026-10-09], in list order.
+    pub fn ammo_choices(&self, weapon: &WeaponStats) -> Vec<FormId> {
+        let Some(a) = weapon.ammo else { return Vec::new() };
+        if self.ammo.contains_key(&a) {
+            return vec![a];
+        }
+        self.form_lists.get(&a).map(|l| l.iter().copied().filter(|x| self.ammo.contains_key(x)).collect()).unwrap_or_default()
+    }
+
+    /// Resolve the shot chain of `weapon` loaded with `ammo` (the first acceptable ammo
+    /// when `ammo` is `None` or not accepted) [the default choice is a hypothesis].
+    ///
+    /// The ammo's projectile, when set, replaces the weapon's; so does a non-zero
+    /// projectile count; the weapon's damage is shared among the projectiles
+    /// [documented: GECK wiki Ammo]. A projectile sets off its explosion only with its
+    /// "Explosion" flag [documented: GECK wiki Projectile].
+    pub fn chain(&self, weapon: FormId, ammo: Option<FormId>) -> Option<ShotChain> {
+        let w = self.weapons.get(&weapon)?;
+        let ammo_choices = self.ammo_choices(w);
+        let ammo = ammo.filter(|a| ammo_choices.contains(a)).or_else(|| ammo_choices.first().copied());
+        let a = ammo.and_then(|a| self.ammo.get(&a));
+        let (projectile, projectile_from) = match a.and_then(|a| a.projectile) {
+            Some(p) => (Some(p), Some("ammo")),
+            None => (w.projectile, w.projectile.map(|_| "weapon")),
+        };
+        let projectiles_per_shot = match a.map(|a| a.projectiles_per_shot) {
+            Some(n) if n > 0 => n,
+            _ => w.projectile_count,
+        };
+        let explosion = projectile.and_then(|p| self.projectiles.get(&p)).and_then(ProjectileStats::explodes);
+        Some(ShotChain {
+            weapon,
+            ammo_choices,
+            ammo,
+            projectile,
+            projectile_from,
+            projectiles_per_shot,
+            damage_per_projectile: w.base_damage as f32 / projectiles_per_shot.max(1) as f32,
+            explosion,
+            ammo_effects: a.map(|a| a.effects.clone()).unwrap_or_default(),
+        })
+    }
+}
+
+fn load_one(cx: &mut Ctx, sig: &[u8; 4], d: &[Decoded]) -> Loaded {
+    match sig {
+        b"WEAP" => Loaded::Weapon(Box::new(weapon(cx, d))),
+        b"AMMO" => Loaded::Ammo(ammo(cx, d)),
+        b"AMEF" => {
+            let v = first(d, b"DATA");
+            Loaded::AmmoEffect(AmmoEffect {
+                edid: first(d, b"EDID").and_then(text),
+                name: first(d, b"FULL").and_then(text),
+                kind: label(v.and_then(|v| v.get("type"))),
+                operation: label(v.and_then(|v| v.get("operation"))),
+                value: f(v, "value"),
+            })
+        }
+        b"PROJ" => Loaded::Projectile(Box::new(projectile(cx, d))),
+        b"EXPL" => Loaded::Explosion(Box::new(explosion(cx, d))),
+        b"BPTD" => Loaded::BodyParts(body_parts(cx, d)),
+        b"ENCH" | b"SPEL" => Loaded::Effect(effect_form(cx, sig, d)),
+        b"FLST" => {
+            let items = all(d, b"LNAM").cloned().collect::<Vec<_>>();
+            Loaded::FormList(items.iter().filter_map(|v| cx.fid("LNAM", Some(v))).collect())
+        }
+        b"GMST" => {
+            let edid = first(d, b"EDID").and_then(text).unwrap_or_default();
+            match first(d, b"DATA").and_then(Value::as_str).and_then(unhex) {
+                Some(bytes) => Loaded::Setting(Setting::from_bytes(&edid, &bytes)),
+                None => Loaded::Other,
+            }
+        }
+        _ => Loaded::Other,
+    }
+}
+
+fn weapon(cx: &mut Ctx, d: &[Decoded]) -> WeaponStats {
+    let data = first(d, b"DATA");
+    let dn = first(d, b"DNAM");
+    let crdt = first(d, b"CRDT");
+    let flags1 = dn.and_then(|v| v.get("flags1"));
+    let flags2 = dn.and_then(|v| v.get("flags2"));
+    let f2 = |name: &str| flags2.is_some_and(|x| has_flag(x, name));
+    let mut flags = flag_names(flags1);
+    flags.extend(flag_names(flags2));
+    let id = cx.id;
+    if dn.is_none() {
+        cx.issues.note("WEAP without DNAM", || id.to_string());
+    }
+    let mut mods = Vec::new();
+    for (slot, sig) in [(1u8, b"WMI1"), (2, b"WMI2"), (3, b"WMI3")] {
+        let item = cx.fid("WMI", first(d, sig));
+        let effect = label(dn.and_then(|v| v.get(format!("effect_mod{slot}"))));
+        let value_a = f(dn, &format!("value_a_mod{slot}"));
+        let value_b = f(dn, &format!("value_b_mod{slot}"));
+        if item.is_some() || value_a != 0.0 || value_b != 0.0 {
+            mods.push(WeaponMod { slot, item, effect, value_a, value_b });
+        }
+    }
+    WeaponStats {
+        edid: first(d, b"EDID").and_then(text),
+        name: first(d, b"FULL").and_then(text),
+        value: data.and_then(|v| int(v, "value")).unwrap_or(0) as i32,
+        health: data.and_then(|v| int(v, "health")).unwrap_or(0) as i32,
+        weight: f(data, "weight"),
+        base_damage: data.and_then(|v| int(v, "base_damage")).unwrap_or(0) as i32,
+        clip_size: u(data, "clip_size"),
+        anim_type: label(dn.and_then(|v| v.get("animation_type"))),
+        anim_mult: f(dn, "animation_multiplier"),
+        attack_mult: f(dn, "animation_attack_multiplier"),
+        reach: f(dn, "reach"),
+        automatic: flags1.is_some_and(|x| has_flag(x, "Is Automatic")),
+        flags,
+        ammo_use: u(dn, "ammo_use"),
+        min_spread: f(dn, "min_spread"),
+        spread: f(dn, "spread"),
+        sight_fov: f(dn, "sight_fov"),
+        projectile: cx.field("DNAM projectile", dn, "projectile"),
+        projectile_count: u(dn, "projectile_count"),
+        min_range: f(dn, "min_range"),
+        max_range: f(dn, "max_range"),
+        on_hit: label(dn.and_then(|v| v.get("on_hit"))),
+        fire_rate: f(dn, "fire_rate"),
+        attack_shots_per_sec: f(dn, "attack_shots_per_sec"),
+        action_points: f2("Override - Action Points").then(|| f(dn, "override_action_points")),
+        damage_to_weapon_mult: f2("Override - Damage to Weapon Mult").then(|| f(dn, "override_damage_to_weapon_mult")),
+        aim_arc: f(dn, "aim_arc"),
+        skill: label(dn.and_then(|v| v.get("skill"))),
+        resist: label(dn.and_then(|v| v.get("resist_type"))),
+        limb_dmg_mult: f(dn, "limb_dmg_mult"),
+        sight_usage: f(dn, "sight_usage"),
+        semi_auto_fire_delay: [f(dn, "semi_automatic_fire_delay_min"), f(dn, "semi_automatic_fire_delay_max")],
+        strength_req: u(dn, "strength_req"),
+        skill_req: u(dn, "skill_req"),
+        regen_rate: f(dn, "regen_rate"),
+        kill_impulse: f(dn, "kill_impulse"),
+        impulse_dist: f(dn, "impulse_dist"),
+        reload_anim: label(dn.and_then(|v| v.get("reload_animation"))),
+        attack_anim: label(dn.and_then(|v| v.get("attack_animation"))),
+        mods,
+        short_dnam: dn.is_some_and(|v| v.get("resist_type").is_none()),
+        crit_damage: u(crdt, "critical_damage"),
+        crit_mult: f(crdt, "crit_percent_mult"),
+        crit_on_death: crdt.and_then(|v| v.get("flags")).is_some_and(|x| has_flag(x, "On Death")),
+        crit_effect: cx.field("CRDT effect", crdt, "effect"),
+        ammo: cx.fid("NAM0", first(d, b"NAM0")),
+        enchantment: cx.fid("EITM", first(d, b"EITM")),
+        impact_dataset: cx.fid("INAM", first(d, b"INAM")),
+        embedded: flags1.is_some_and(|x| has_flag(x, "Embedded Weapon")),
+        playable: !flags1.is_some_and(|x| has_flag(x, "Non-Playable")),
+        sound_level: label(first(d, b"VNAM")),
+    }
+}
+
+fn ammo(cx: &mut Ctx, d: &[Decoded]) -> AmmoStats {
+    let data = first(d, b"DATA");
+    let dat2 = first(d, b"DAT2");
+    let consumed = cx.field("DAT2 consumed_ammo", dat2, "consumed_ammo").map(|c| (c, f(dat2, "consumed_percentage")));
+    let effects = all(d, b"RCIL").cloned().collect::<Vec<_>>();
+    AmmoStats {
+        edid: first(d, b"EDID").and_then(text),
+        name: first(d, b"FULL").and_then(text),
+        short_name: first(d, b"ONAM").and_then(text),
+        abbrev: first(d, b"QNAM").and_then(text),
+        value: data.and_then(|v| int(v, "value")).unwrap_or(0) as i32,
+        clip_rounds: u(data, "clip_rounds"),
+        flags: flag_names(data.and_then(|v| v.get("flags"))),
+        projectile: cx.field("DAT2 projectile", dat2, "projectile"),
+        projectiles_per_shot: u(dat2, "projectiles_per_shot"),
+        weight: f(dat2, "weight"),
+        consumed,
+        effects: effects.iter().filter_map(|v| cx.fid("RCIL", Some(v))).collect(),
+    }
+}
+
+fn projectile(cx: &mut Ctx, d: &[Decoded]) -> ProjectileStats {
+    let v = first(d, b"DATA");
+    ProjectileStats {
+        edid: first(d, b"EDID").and_then(text),
+        name: first(d, b"FULL").and_then(text),
+        model: path(first(d, b"MODL")),
+        kind: label(v.and_then(|v| v.get("type"))),
+        flags: flag_names(v.and_then(|v| v.get("flags"))),
+        gravity: f(v, "gravity"),
+        speed: f(v, "speed"),
+        range: f(v, "range"),
+        tracer_chance: f(v, "tracer_chance"),
+        impact_force: f(v, "impact_force"),
+        fade_duration: f(v, "fade_duration"),
+        muzzle_flash_light: cx.field("DATA muzzle_flash_light", v, "muzzle_flash_light"),
+        muzzle_flash_duration: f(v, "muzzle_flash_duration"),
+        muzzle_flash_model: path(first(d, b"NAM1")),
+        explosion: cx.field("DATA explosion", v, "explosion"),
+        alt_trigger_timer: f(v, "explosion_alt_trigger_timer"),
+        alt_trigger_proximity: f(v, "explosion_alt_trigger_proximity"),
+        default_weapon: cx.field("DATA default_weapon_source", v, "default_weapon_source"),
+        bouncy_mult: f(v, "bouncy_mult"),
+        sound_level: label(first(d, b"VNAM")),
+    }
+}
+
+fn explosion(cx: &mut Ctx, d: &[Decoded]) -> ExplosionStats {
+    let v = first(d, b"DATA");
+    ExplosionStats {
+        edid: first(d, b"EDID").and_then(text),
+        name: first(d, b"FULL").and_then(text),
+        model: path(first(d, b"MODL")),
+        force: f(v, "force"),
+        damage: f(v, "damage"),
+        radius: f(v, "radius"),
+        is_radius: f(v, "is_radius"),
+        flags: flag_names(v.and_then(|v| v.get("flags"))),
+        impact_dataset: cx.field("DATA impact_dataset", v, "impact_dataset"),
+        radiation_level: f(v, "radiation_level"),
+        radiation_dissipation_time: f(v, "radiation_dissipation_time"),
+        radiation_radius: f(v, "radiation_radius"),
+        enchantment: cx.fid("EITM", first(d, b"EITM")),
+        placed_object: cx.fid("INAM", first(d, b"INAM")),
+        image_space_modifier: cx.fid("MNAM", first(d, b"MNAM")),
+        sound_level: label(v.and_then(|v| v.get("sound_level"))),
+    }
+}
+
+/// BPTD parts: each starts at BPTN, or at BPNN when no BPTN opened it (the name is
+/// optional) [documented: xEdit wbDefinitionsFNV.pas BPTD, dfStructFirstNotRequired].
+fn body_parts(cx: &mut Ctx, d: &[Decoded]) -> BodyPartData {
+    let mut parts: Vec<BodyPart> = Vec::new();
+    let mut open = false;
+    for s in d {
+        let v = s.value.as_ref();
+        match &s.sig {
+            b"BPTN" => {
+                parts.push(BodyPart { name: v.and_then(text), ..BodyPart::default() });
+                open = true;
+            }
+            b"BPNN" => {
+                if !open {
+                    parts.push(BodyPart::default());
+                }
+                open = false;
+                if let Some(p) = parts.last_mut() {
+                    p.node = v.and_then(text);
+                }
+            }
+            b"BPNT" | b"BPNI" | b"BPND" | b"NAM1" | b"NAM4" => {
+                let Some(p) = parts.last_mut() else {
+                    let id = cx.id;
+                    cx.issues.note("BPTD part field before any part", || format!("{id} {}", String::from_utf8_lossy(&s.sig)));
+                    continue;
+                };
+                match &s.sig {
+                    b"BPNT" => p.vats_target = v.and_then(text),
+                    b"BPNI" => p.ik_start_node = v.and_then(text),
+                    b"NAM1" => p.limb_replacement_model = path(v),
+                    b"NAM4" => p.gore_target_bone = v.and_then(text),
+                    _ => {
+                        p.damage_mult = f(v, "damage_mult");
+                        p.flags = flag_names(v.and_then(|v| v.get("flags")));
+                        p.part_type = label(v.and_then(|v| v.get("part_type")));
+                        p.health_percent = u(v, "health_percent");
+                        p.actor_value = label(v.and_then(|v| v.get("actor_value")));
+                        p.to_hit_chance = u(v, "to_hit_chance");
+                        p.tracking_max_angle = f(v, "tracking_max_angle");
+                        p.explodable_chance_percent = u(v, "explodable_explosion_chance_percent");
+                        p.limb_replacement_scale = f(v, "limb_replacement_scale");
+                    }
+                }
+                if &s.sig == b"BPND" {
+                    let p_ix = parts.len() - 1;
+                    let ids = [
+                        cx.field("BPND severable_explosion", v, "severable_explosion"),
+                        cx.field("BPND severable_debris", v, "severable_debris"),
+                        cx.field("BPND severable_impact_dataset", v, "severable_impact_dataset"),
+                        cx.field("BPND explodable_explosion", v, "explodable_explosion"),
+                        cx.field("BPND explodable_debris", v, "explodable_debris"),
+                        cx.field("BPND explodable_impact_dataset", v, "explodable_impact_dataset"),
+                    ];
+                    let p = &mut parts[p_ix];
+                    [
+                        p.severable_explosion,
+                        p.severable_debris,
+                        p.severable_impact_dataset,
+                        p.explodable_explosion,
+                        p.explodable_debris,
+                        p.explodable_impact_dataset,
+                    ] = ids;
+                }
+            }
+            _ => {}
+        }
+    }
+    BodyPartData {
+        edid: first(d, b"EDID").and_then(text),
+        model: path(first(d, b"MODL")),
+        parts,
+        ragdoll: cx.fid("RAGA", first(d, b"RAGA")),
+    }
+}
+
+/// ENCH/SPEL: each effect starts at EFID; EFIT and CTDA that follow belong to it
+/// [documented: xEdit wbEffects].
+fn effect_form(cx: &mut Ctx, sig: &[u8; 4], d: &[Decoded]) -> EffectForm {
+    let head = if sig == b"ENCH" { first(d, b"ENIT") } else { first(d, b"SPIT") };
+    let mut effects: Vec<EffectItem> = Vec::new();
+    for s in d {
+        let v = s.value.as_ref();
+        match &s.sig {
+            b"EFID" => {
+                let base = cx.fid("EFID", v);
+                effects.push(EffectItem { base, magnitude: 0, area: 0, duration: 0, range: None, actor_value: None, conditions: 0 });
+            }
+            b"EFIT" => {
+                if let Some(e) = effects.last_mut() {
+                    e.magnitude = u(v, "magnitude");
+                    e.area = u(v, "area");
+                    e.duration = u(v, "duration");
+                    e.range = label(v.and_then(|v| v.get("type")));
+                    e.actor_value = label(v.and_then(|v| v.get("actor_value")));
+                }
+            }
+            b"CTDA" => {
+                if let Some(e) = effects.last_mut() {
+                    e.conditions += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    EffectForm {
+        sig: String::from_utf8_lossy(sig).into_owned(),
+        edid: first(d, b"EDID").and_then(text),
+        name: first(d, b"FULL").and_then(text),
+        kind: label(head.and_then(|v| v.get("type"))),
+        flags: flag_names(head.and_then(|v| v.get("flags"))),
+        effects,
+    }
+}
