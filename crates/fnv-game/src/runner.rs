@@ -7,7 +7,7 @@
 //! box buttons) and are listed in docs/spec-notes/scripts.md §8.
 
 use crate::functions::{actor_value, av_code, set_actor_value_current, Ctx};
-use crate::game::{event, ActMode, Game, GameConfig, InstKey};
+use crate::game::{event, menus, ActMode, Game, GameConfig, InstKey};
 use crate::trace::EventKind;
 use crate::GameData;
 use fnv_script::vm::{literal, to_int_storage, ArgValue, Value};
@@ -106,6 +106,9 @@ pub enum Given {
     },
     /// An actor value's current value, undamaged (round 3).
     ActorValue { of: String, av: String, value: f64 },
+    /// A menu open (or not) before action 0 (round 4, layer5-captures.md §10.4): a
+    /// message box (1001) of a message the input does not name, or another menu code.
+    Menu { menu: u16, open: bool },
 }
 
 /// One read of `use_item` (round 3): an actor value of the user (`av.<name>`) or the
@@ -164,7 +167,8 @@ pub enum Action {
     SetStageRead { quest: String, stage: i32, field: String, label: String },
     StartQuest { quest: String },
     StopQuest { quest: String },
-    SetQuestVar { quest: String, var: String, value: f64 },
+    /// With `stopwatch` (round 4), the stopwatch starts in the same frame.
+    SetQuestVar { quest: String, var: String, value: f64, #[serde(default)] stopwatch: bool },
     SetLocal { #[serde(rename = "type")] ty: String, value: f64, #[serde(default)] label: Option<String> },
     SetObjective { quest: String, index: i32, #[serde(default)] displayed: Option<bool>, #[serde(default)] completed: Option<bool> },
     GetQuest { quest: String, fields: Vec<String>, #[serde(default)] label: Option<String> },
@@ -242,6 +246,24 @@ pub enum Action {
     /// Several series once per frame; `lags` of each series' first jump behind the
     /// first series'.
     SampleJumps { reads: Vec<JumpRead>, frames: u64, min_step: f64, #[serde(default)] label: Option<String> },
+    // ---- round 4 of the contract (layer5-captures.md §10.4) ----
+    /// The stopwatch's zero is now (seconds of game time, the time scripts count).
+    StartStopwatch {},
+    /// Up to `max` times: wait (checked each frame, at most `wait_frames`) for a message
+    /// box, then close menus as the player's OK would; `closed`: the boxes that were open.
+    DismissMessageBoxes { max: u32, wait_frames: u64, #[serde(default)] label: Option<String> },
+    /// Close the open menu as the player's OK / Done would (CloseAllMenus).
+    CloseMenus {},
+    /// Wait (checked each frame, at most `max_frames`) until a quest field equals
+    /// `value`; one frame later `found` (the field read again) and, with `stopwatch`,
+    /// `seconds` on the stopwatch.
+    WaitQuest { quest: String, field: String, value: Json, max_frames: u64, label: String, #[serde(default)] stopwatch: bool },
+    /// The same for "menu `menu` is open".
+    WaitMenu { menu: u16, max_frames: u64, label: String, #[serde(default)] stopwatch: bool },
+    /// Whether each menu is open (`menu.<code>`), one frame each.
+    GetMenus { menus: Vec<u16>, label: String },
+    /// IsPlayerTagSkill of each skill (`tag.<Skill>`), one frame each.
+    GetTagSkills { skills: Vec<String>, label: String },
     // ---- headless stand-ins (scripts.md §8) ----
     /// Seconds of game loop at the fixed frame step.
     AdvanceSeconds { seconds: f64 },
@@ -307,7 +329,9 @@ fn frames_after(a: &Action) -> u64 {
         Action::SetLocal { .. } => 1,
         Action::Activate { .. } | Action::RemoveAllItems { .. } => 31,
         Action::AddItem { .. } | Action::RemoveItem { .. } | Action::Enable { .. } | Action::Disable { .. } | Action::SetGlobal { .. } => 11,
-        Action::GetItemCount { .. } | Action::GetDisabled { .. } | Action::GetGlobal { .. } => 11,
+        // A read is one query step with no pause after it (capture_steps.py adds the
+        // pause only after steps that change the game).
+        Action::GetItemCount { .. } | Action::GetDisabled { .. } | Action::GetGlobal { .. } => 1,
         Action::SetRefVar { .. } => 11,
         Action::ActivateRead { .. } => 31,
         Action::Kill { .. } | Action::EvaluatePackage { .. } => 61,
@@ -327,6 +351,11 @@ fn frames_after(a: &Action) -> u64 {
         // 1 + frames + 5: the menu's frames pass inside the step.
         Action::HoldMenu { .. } => 6,
         Action::GoToCell { .. } => 600,
+        // Round 4 (layer5-captures.md §10.4).
+        Action::StartStopwatch { .. } => 3,
+        Action::CloseMenus { .. } => 4,
+        Action::DismissMessageBoxes { .. } | Action::WaitQuest { .. } | Action::WaitMenu { .. } => 0,
+        Action::GetMenus { .. } | Action::GetTagSkills { .. } => 0,
         // Stand-ins: one frame.
         _ => 1,
     }
@@ -415,6 +444,7 @@ fn ref_var(g: &Game, r: FormId, var: &str) -> Result<(InstKey, FormId, Option<u1
 fn ref_field(g: &mut Game, r: FormId, f: &str) -> Result<Json, String> {
     Ok(match f {
         "dead" => json!(g.extra.get(&r).is_some_and(|e| e.dead)),
+        "destroyed" => json!(g.extra.get(&r).is_some_and(|e| e.destroyed)),
         "disabled" => json!(!g.world.is_enabled(r).map_err(|e| e.to_string())?),
         _ => match f.strip_prefix("var.") {
             Some(v) => {
@@ -639,6 +669,17 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
             let code = av_code(g, av)?;
             set_actor_value_current(g, who, code, *value)?;
         }
+        Given::Menu { menu, open } => {
+            if *open {
+                if *menu == menus::MESSAGE {
+                    // A box of a message the input does not name, in front of any other.
+                    g.boxes.insert(0, FormId(0));
+                }
+                g.open_menu(*menu);
+            } else if g.menu == Some(*menu) {
+                g.close_menu();
+            }
+        }
     }
     Ok(())
 }
@@ -751,11 +792,50 @@ fn jump_value(g: &mut Game, r: &JumpRead) -> Result<f64, String> {
     }
 }
 
+/// Whether a read field equals a wanted value: booleans as booleans, numbers to 1e-6
+/// (a boolean field also matches 1 / 0).
+fn same_value(got: &Json, want: &Json) -> bool {
+    match (got, want) {
+        (Json::Bool(a), Json::Bool(b)) => a == b,
+        (Json::Bool(a), Json::Number(n)) | (Json::Number(n), Json::Bool(a)) => n.as_f64() == Some(if *a { 1.0 } else { 0.0 }),
+        (Json::Number(a), Json::Number(b)) => match (a.as_f64(), b.as_f64()) {
+            (Some(a), Some(b)) => (a - b).abs() < 1e-6,
+            _ => false,
+        },
+        _ => got == want,
+    }
+}
+
+/// Run frames until `holds`, checked before each frame, at most `max` frames.
+fn wait_until(g: &mut Game, max: u64, holds: impl Fn(&Game) -> Result<bool, String>) -> Result<bool, String> {
+    for k in 0..=max {
+        if holds(g)? {
+            return Ok(true);
+        }
+        if k < max {
+            g.tick();
+        }
+    }
+    Ok(false)
+}
+
+/// The observation of `wait_quest` / `wait_menu`: `found`, and with the stopwatch and
+/// found, `seconds`.
+fn waited(g: &Game, st: &RunState, obs: &mut Map<String, Json>, found: bool, stopwatch: bool) -> Result<(), String> {
+    obs.insert("found".into(), json!(found));
+    if stopwatch && found {
+        let t0 = st.stopwatch.ok_or("no stopwatch was started before this wait")?;
+        obs.insert("seconds".into(), json!(g.time - t0));
+    }
+    Ok(())
+}
+
 /// The runner's own state across actions.
 #[derive(Default)]
 struct RunState {
     /// Game time ([`Game::time`], the script time GetSecondsPassed counts) at the last
-    /// `use_item` with `stopwatch` (layer5-captures.md §9.2, "The stopwatch").
+    /// `use_item` with `stopwatch` (layer5-captures.md §9.2, "The stopwatch"), the last
+    /// `start_stopwatch` or `set_quest_var` with `stopwatch` (§10.4).
     stopwatch: Option<f64>,
 }
 
@@ -785,9 +865,12 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
             let q = quest(g, q)?;
             g.stop_quest(q);
         }
-        Action::SetQuestVar { quest: q, var, value } => {
+        Action::SetQuestVar { quest: q, var, value, stopwatch } => {
             let q = quest(g, q)?;
             set_quest_var(g, q, var, *value)?;
+            if *stopwatch {
+                st.stopwatch = Some(g.time);
+            }
         }
         Action::SetLocal { ty, value, label: l } => {
             obs.insert("value".into(), json!(set_local(ty, *value)?));
@@ -1037,11 +1120,75 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 return Err(format!("no block of {} accepted the trigger event", g.data.name(t)));
             }
         }
-        Action::PressButton { button } => match &mut g.message_box {
-            Some(m) => m.pressed = Some(*button),
-            None => return Err("no message box is open".into()),
+        Action::PressButton { button } => g.press_button(*button)?,
+        Action::Menu { menu } => match menu {
+            Some(m) => g.open_menu(*m),
+            None => {
+                g.close_menu();
+            }
         },
-        Action::Menu { menu } => g.menu = *menu,
+        // ---- round 4 (layer5-captures.md §10.4) ----
+        Action::StartStopwatch {} => st.stopwatch = Some(g.time),
+        Action::CloseMenus {} => {
+            g.close_menu();
+        }
+        Action::DismissMessageBoxes { max, wait_frames, label: l } => {
+            // As the capture does it: wait for a box (checked before each frame), note
+            // whether one is open, close menus, then three frames.
+            let mut closed = 0;
+            for _ in 0..*max {
+                for k in 0..=*wait_frames {
+                    if g.menu == Some(menus::MESSAGE) {
+                        break;
+                    }
+                    if k < *wait_frames {
+                        g.tick();
+                    }
+                }
+                if g.menu == Some(menus::MESSAGE) {
+                    closed += 1;
+                }
+                g.close_menu();
+                g.frames(3);
+            }
+            if l.is_some() {
+                obs.insert("closed".into(), json!(closed));
+                lab = l.clone();
+            }
+        }
+        Action::WaitQuest { quest: qn, field: f, value, max_frames, label: l, stopwatch } => {
+            lab = Some(l.clone());
+            let q = quest(g, qn)?;
+            let holds = |g: &Game| field(g, q, f).map(|v| same_value(&v, value));
+            wait_until(g, *max_frames, |g| holds(g))?;
+            g.tick();
+            let found = holds(g)?;
+            waited(g, st, &mut obs, found, *stopwatch)?;
+        }
+        Action::WaitMenu { menu, max_frames, label: l, stopwatch } => {
+            lab = Some(l.clone());
+            let holds = |g: &Game| Ok(g.menu == Some(*menu));
+            wait_until(g, *max_frames, holds)?;
+            g.tick();
+            let found = g.menu == Some(*menu);
+            waited(g, st, &mut obs, found, *stopwatch)?;
+        }
+        Action::GetMenus { menus: codes, label: l } => {
+            for c in codes {
+                obs.insert(format!("menu.{c}"), json!(g.menu == Some(*c)));
+                g.tick();
+            }
+            lab = Some(l.clone());
+        }
+        Action::GetTagSkills { skills, label: l } => {
+            lab = Some(l.clone());
+            for name in skills {
+                let code = av_code(g, name)?;
+                let v = call(g, 0x11CE, None, vec![ArgValue::Enum(code)]).num();
+                obs.insert(format!("tag.{name}"), json!(v != 0.0));
+                g.tick();
+            }
+        }
         Action::MovePlayer { to } => {
             let t = resolve(g, to)?;
             call(g, 0x109E, Some(FormId::PLAYER_REF), vec![form_arg(t)]);
@@ -1316,6 +1463,20 @@ fn quests_json(g: &Game) -> Json {
     Json::Object(out)
 }
 
+/// Where a new game puts the player: the marker the opening moves the player to
+/// (VCG00 stage 0, `player.moveto VCG01PlayerStartMarkerREF` [observed in the masters]),
+/// in Doc Mitchell's house, where the new-game save `nvfnew` has the player [observed:
+/// layer5-captures.md §10.2]. Without a place the player is in no cell, and the add-ons'
+/// start quests (which wait for the player to leave Doc Mitchell's house) would act at
+/// once. Inputs that need the player elsewhere move it (`go_to_cell`, `move_player`).
+pub const NEW_GAME_START: &str = "VCG01PlayerStartMarkerREF";
+
+fn new_game_start(g: &mut Game) {
+    if let Some(m) = g.world.placed.by_edid(NEW_GAME_START) {
+        call(g, 0x109E, Some(FormId::PLAYER_REF), vec![form_arg(m)]);
+    }
+}
+
 /// Run an input document against a fresh world and game state.
 pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -> Result<Json, String> {
     if input.format != ACTIONS_FORMAT {
@@ -1329,10 +1490,23 @@ pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -
         refs,
         SimConfig { seed: input.seed, player_level: input.player_level, hardcore: input.hardcore, ..SimConfig::default() },
     );
-    let cfg = GameConfig { frame_seconds: input.frame_seconds, trace_locals: input.trace_locals, seed: input.seed, ..GameConfig::default() };
+    // Message boxes hold GameMode (round 4) when the input states the menus of its save
+    // (`given` kind `menu`, layer5-captures.md §10.4); inputs of rounds 1–3 do not, and
+    // their saves had long closed the boxes a new game shows (the pack plugins' and the
+    // add-ons' "loaded" messages), so there message boxes are only traced
+    // (docs/spec-notes/scripts.md §8; owner review).
+    let modal = input.given.iter().any(|g| matches!(g, Given::Menu { .. }));
+    let cfg = GameConfig {
+        frame_seconds: input.frame_seconds,
+        trace_locals: input.trace_locals,
+        seed: input.seed,
+        modal_message_boxes: modal,
+        ..GameConfig::default()
+    };
     let mut g = Game::new(data, world, cfg);
     if input.new_game {
         g.new_game();
+        new_game_start(&mut g);
     }
     let mut given_errors = Vec::new();
     for (i, gv) in input.given.iter().enumerate() {
@@ -1486,7 +1660,12 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::SampleAv { label, .. }
         | Action::SampleAvDamage { label, .. }
         | Action::SampleJumps { label, .. } => label.clone(),
-        Action::ActivateRead { label, .. }
+        Action::DismissMessageBoxes { label, .. } => label.clone(),
+        Action::WaitQuest { label, .. }
+        | Action::WaitMenu { label, .. }
+        | Action::GetMenus { label, .. }
+        | Action::GetTagSkills { label, .. }
+        | Action::ActivateRead { label, .. }
         | Action::AddItemRead { label, .. }
         | Action::SampleItems { label, .. }
         | Action::MenuGap { label, .. }
