@@ -587,6 +587,8 @@ it adds:
 | walk speed | 86.8 units/s (`MoveSpeeds::OBSERVED`) | [observed: §6.3, a level-1 character, Speed Mult 100; the formula (encumbrance, sneaking, weapon out) is unknown; `fMoveBaseSpeed` is 77] |
 | run speed | 344 units/s | [observed: §6.3; `fMoveBaseSpeed × fMoveRunMult` would be 308] |
 | run by default, Shift walks | | [observed: Always Run is on in the owner's game and the Run control is bound to left Shift, §6.3] |
+| Caps Lock toggles Always Run (then Shift runs), Ctrl toggles sneaking, Q toggles Auto Move | since 2026-10-09 | [observed: the owner's control map binds Always Run, Crouch/Sneak and Auto Move to these keys; sneaking toggles (mv_values); that Shift runs with Always Run off and that Forward/Back end Auto Move is hypothesis] (docs/design/layer4-play.md §6, input audit) |
+| sneaking speed | 197.7/344 of the speed otherwise | [observed running forward, mv_values §6.3; walking and other directions hypothesis]; the capsule and the eye stay as standing (see capsule height) |
 | backwards at 0.79 of the forward speed (`BACK_SPEED_FRACTION`); sideways and diagonals at the forward speed, diagonals not faster | | [observed: backwards 272.8 against 344, §6.3; sideways and diagonals hypothesis] |
 | eye height above the feet | 112 units | [hypothesis: placeholder for a standing human at about 70 units per metre] |
 | the player reference's z rotation is its compass heading in radians | written to the simulation each frame | [hypothesis: door teleport markers' rotations are read the same way] |
@@ -1781,7 +1783,13 @@ as used), then
 `trace` holds every `--every`th step and the last. A script may add `"observe": {"from_step":
 s, "every": n, "count": k}`: the output then holds `observations`, the feet (and `grounded`, `swimming`)
 after steps s + n, s + 2n, … s + kn, labelled `"t<seconds after step s, two decimals>"`
-(`t0.25` …); it must end within the script. Other top-level fields (e.g. the `capture`
+(`t0.25` …); it must end within the script. Optional `"props": [{"label", "model", "at":
+[x, y, z], "rot"?: [x, y, z]}]` (since 2026-10-09) adds each model's collision before the
+walk as a reference with FormID 0xFF000000 + its index (needs the meshes), e.g. a clutter
+item for the character to push; the output then has `props` (`label`, `model`, `formid`,
+`bodies`, `havok_mass` (the objects' stored masses summed), `end`, `end_rotation`,
+`asleep`), each trace entry `props` (first body's position per prop) and each observation
+`props`. Without `props` the output is unchanged. Other top-level fields (e.g. the `capture`
 block that `tools/capture/capture_moves.py` reads) are ignored. Runs are deterministic: the same
 inputs give byte-identical output [observed: the Goodsprings script below, run twice].
 `crates/fnv-phys/scripts/goodsprings_walk.json` is such a script (synthetic input, not a
