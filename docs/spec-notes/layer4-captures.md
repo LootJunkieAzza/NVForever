@@ -147,6 +147,7 @@ directory's `jobs\`). Results are in the notes named.
 | `ld_lock_levels` (`make_lock_drop_jobs.py`) | GetLocked / GetLockLevel at level 255 (scripted `Lock 255`, authored trunk with key), menus after scripted activation | GetLocked 1 at 255; no menu without the key, container menu with it; simulation.md §5 |
 | `ld_drop_refs` (`make_lock_drop_jobs.py`) | references a drop creates, what a scripted pick-up leaves | one ref per drop (0xFF00xxxx), 50 ahead / 30 up, taken refs left out of `GetFirstRef … 0`; simulation.md §5 |
 | `ld_drop_stack` (`make_lock_drop_jobs.py`) | scripted Activate on dropped stacks of 2 and 3 | gives 1 item, the stack is taken; simulation.md §5 |
+| `qi_drop_quest_item` (hand-written, 2026-10-09) | `IsQuestItem` of a KEYM with header bit 10; scripted `player.Drop` of it and of a stimpak made a quest item with `SetQuestObject` | bit 10 reads as quest item; scripted drops ignore the flag (both dropped); simulation.md §3 "Quest items" |
 | `ld_placed_stack` (`make_lock_drop_jobs.py`) | scripted Activate on a placed XCNT 12 stack (BB rounds, GSHouseInterior03) | gives 1 round, the stack then counts 1; a second activation gives 1 more; simulation.md §5 |
 | `dt_teleport_rest` | rest height after Doc Mitchell's door over time; `SetPos` placements and drops at the destination, on flat and sloped terrain | 3.84 above the LAND surface, a stable height; triangulation confirmed; physics.md §6.2 |
 | `dt_rest_detail` | fall traces, repeated drops, drop grids, Doc Mitchell's porch | `SetPos` drops end 3.5–11 above terrain (unreliable); porch 1.04 above the floor; physics.md §6.2 |
@@ -276,6 +277,14 @@ written.
   graded heights (e.g. stacked crates, porch and road edges measured with `fnvtool phys
   cell --ray`) and up LAND squares of known steepness, positions sampled per loop, would
   settle both; targets not chosen yet.
+- **B14 quest items by hand** (attended; 2026-10-09). The rules in simulation.md §3
+  "Quest items" that the engine applies to the player's own actions are documented, not
+  observed, and scripted substitutes do not exercise them (`qi_drop_quest_item`: scripted
+  drops ignore the flag). By hand, with a quest item (e.g. `player.additem 00068E8D 1`,
+  Doc Hoff's Supply Key, no script), never saving: (1) Pip-Boy, select it, drop: is it
+  refused, and what message does the game show; (2) open a container (e.g. the gas
+  station's) and store it: allowed or refused; (3) with a merchant, is it absent from the
+  sell list or refused. The engine allows (2) [hypothesis].
 
 ## 4. Owner answers (2026-10-08, in game, attended)
 

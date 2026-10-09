@@ -178,7 +178,9 @@ float variable (inventory slots); failures are recorded per step, not fatal.
 A script variable named `fW` does not compile while `fSw`, `fH`, `fP` do (the swimming
 jobs, 2026-10-08; why is not known); `IsSwimming` compiles but read 0 for the player
 throughout, also while swimming; `GetAV Rads` does not compile, `GetAV RadiationRads`
-does; `GetActiveMenuMode` does not compile. Arriving at some places (Boulder Beach by
+does; scripts declaring the ref variables `rK` and `rS` did not compile at all, the same
+scripts with `rF1` and `rF2` did, and `IsQuestItem <ref var>` compiles and runs (the
+quest-item job, 2026-10-09; which of the two names fails is not known); `GetActiveMenuMode` does not compile. Arriving at some places (Boulder Beach by
 `coc` or by `SetPos`) leaves `MenuMode` 1 with the game clock stopped until the console's
 `CloseAllMenus` (physics.md §6.6). `Activate`, `EquipItem`, `Lock`, `Unlock`, `Drop` run as statements; `while rScan != 0`
 loops over `GetFirstRef` / `GetNextRef`, `rScan.GetBaseObject` compared with a `BuildRef`

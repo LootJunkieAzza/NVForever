@@ -293,6 +293,33 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
         }
     }
 
+    // Quest items as the loader reads them (the schema's "Quest Item" header flag), and
+    // every header flag bit set on winning item records whatever the schema names
+    // (observation for types the sources give no quest flag).
+    let mut quest_by_type: BTreeMap<String, u64> = BTreeMap::new();
+    let mut quest_list = Vec::new();
+    for b in forms.bases.values() {
+        if forms.is_quest_item(b.id) {
+            bump(&mut quest_by_type, sig_str(&b.sig));
+            quest_list.push(json!({"formid": b.id.to_string(), "sig": sig_str(&b.sig), "edid": b.edid, "name": b.name}));
+        }
+    }
+    let mut header_bits: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+    for defs in lo.index.values() {
+        let Some(d) = defs.last() else { continue };
+        let r = lo.records[d.plugin as usize][d.ordinal as usize];
+        if ItemKind::from_sig(&r.header.sig).is_none() {
+            continue;
+        }
+        let e = header_bits.entry(sig_str(&r.header.sig)).or_default();
+        bump(e, "records");
+        for bit in 0..32 {
+            if r.header.flags & (1 << bit) != 0 {
+                bump(e, format!("bit {bit:02}"));
+            }
+        }
+    }
+
     let player_base = forms.get(FormId::PLAYER_BASE).map(|b| json!({"sig": sig_str(&b.sig), "edid": b.edid}));
     let player_ref = refs.get(FormId::PLAYER_REF).map(|r| json!({"sig": sig_str(&r.sig), "base": r.base}));
     let mut issues = forms.issues.clone();
@@ -303,6 +330,7 @@ fn forms_report(lo: &LoadOrder, forms: &FormStore, refs: &RefTable) -> Value {
         "bases": by_kind,
         "items": item_stats.iter().map(|(k, v)| (k.clone(), json!({"total": v[0], "value_known": v[1], "weight_known": v[2]}))).collect::<serde_json::Map<_, _>>(),
         "carried_items": {"targets": cnto_targets, "counts": cnto_counts, "unusual_samples": odd_entries},
+        "quest_items": {"by_type": quest_by_type, "total": quest_list.len(), "items": quest_list, "item_record_header_bits": header_bits},
         "leveled_items": {"lists": lvl_lists, "entries": lvl_entries, "flags": lvl_flags, "targets": lvlo_targets},
         "globals": forms.globals.len(),
         "settings": forms.settings.len(),
