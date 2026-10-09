@@ -9,6 +9,7 @@
 
 mod actors;
 mod deaths;
+mod doors;
 mod emittance;
 mod fade;
 mod facegen;
@@ -204,6 +205,9 @@ struct Args {
     /// Do not draw NPCs (workstream 5, docs/design/static-actors.md).
     #[arg(long)]
     no_actors: bool,
+    /// Test aid: open every door that opens in place as soon as it is drawn (doors.rs).
+    #[arg(long)]
+    open_doors: bool,
     /// Draw NPCs with the race's base face (no FaceGen morphs or face textures).
     #[arg(long)]
     no_facegen: bool,
@@ -446,6 +450,7 @@ fn main() -> AppExit {
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
+    let open_doors = args.open_doors;
     let nav_state = if args.npc_travel.is_empty() && !args.show_navmesh {
         None
     } else {
@@ -511,6 +516,8 @@ fn main() -> AppExit {
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
+    .add_plugins(nvf_play::doors::DoorsPlugin)
+    .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
     .add_systems(Update, (locomotion::walk_test, locomotion::drive, weapons::reparent).chain())
     .add_systems(Update, timelapse.after(sky::update_sky));
@@ -828,8 +835,8 @@ fn screenshot_and_exit(
         *ready_at = Some(*elapsed);
         let s = &streamer.stats;
         info!(
-            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}), disabled {}, not drawn {} {:?}, no model {}, shapes {}",
-            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
+            "cells loaded in {:.2}s ({:.0} ms loading): refs drawn {} (animated {}, doors {}), disabled {}, not drawn {} {:?}, no model {}, shapes {}",
+            *elapsed, s.load_ms, s.refs_drawn, s.refs_animated, s.refs_doors, s.refs_skipped_disabled, s.refs_skipped_type, s.skipped_types, s.refs_no_model, s.shapes
         );
     }
     let Some(r) = *ready_at else { return };
