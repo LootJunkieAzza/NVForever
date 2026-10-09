@@ -109,14 +109,16 @@ e.g. compiled script data, counted separately as `opaque_bytes`):
 | GunRunnersArsenal.esm | 92.51 % | 224 / 259 | 0 | 0 |
 
 Largest undecoded record types by instances: PACK (AI packages), NAVM/NAVI (navmesh),
-IMAD (image-space modifiers, 12,002), TERM (3,925), IDLE (3,194); plus CREA NIFT/NIFZ,
-DIAL INFC/INFX, REFR TNAM. **Record-specific layouts exist for 40 of the 107 record types
+IMAD (image-space modifiers, 12,002), TERM (3,925); plus CREA NIFT, DIAL INFC/INFX,
+REFR TNAM. (IDLE and CREA NIFZ/KFFZ decode since 2026-10-08, docs/spec-notes/animation.md
+§1.) **Record-specific layouts exist for 40 of the 107 record types
 present**; the other 67 decode only their shared subrecords (EDID, FULL, OBND, models,
 scripts, …). Adding them is the main remaining Layer 1 work item. Schema v1 limits behind several gaps: no context rules
-(the same signature meaning different things by position), no length-prefixed strings or
-string arrays, no unions (GMST DATA depends on the Editor ID's first letter). Schema v2
-should add `union` (with a decider: size, or a sibling field, or EDID prefix),
-`lstring`/`string_array`, and ordered subrecord groups.
+(the same signature meaning different things by position), no length-prefixed strings, no unions (GMST DATA depends on the Editor ID's first letter), no
+count-prefixed arrays (CREA NIFT). Schema v2 should add `union` (with a decider: size, or
+a sibling field, or EDID prefix), `lstring`, count-prefixed arrays, and ordered subrecord
+groups. NUL-separated string lists already have the primitive `zstring_array` (added
+2026-10-08 for KFFZ/NIFZ).
 
 ## 3. Code and schema
 

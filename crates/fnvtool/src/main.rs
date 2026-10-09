@@ -2,6 +2,8 @@
 //! document on stdout (schemas in docs/cli-contract.md) and diagnostics on stderr.
 //! Exit codes: 0 success, 1 the input could not be processed, 2 usage error.
 
+mod actor_anims;
+mod actor_cmd;
 mod bsa_cmd;
 mod collide_cmd;
 mod dds_cmd;
@@ -73,6 +75,74 @@ enum Cmd {
     /// Layer 5 compiled scripts: units, bytecode IR, canonical text, opcode coverage.
     #[command(subcommand)]
     Script(script_cmd::ScriptCmd),
+    /// Actor appearance: the parts that make up placed NPCs (workstream 5).
+    #[command(subcommand)]
+    Actor(ActorCmd),
+}
+
+#[derive(Subcommand)]
+pub enum ActorCmd {
+    /// The parts list of placed NPCs: skeleton, race parts, hair, head parts, worn
+    /// armour and FaceGen coefficients (fnv.actor.appearance/1).
+    #[command(group(clap::ArgGroup::new("which").required(true).args(["reference", "cell", "all"])))]
+    Appearance {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// One placed actor (ACHR FormID).
+        #[arg(long = "ref", value_parser = parse_formid)]
+        reference: Option<u32>,
+        /// Every ACHR in a cell (Editor ID or FormID).
+        #[arg(long)]
+        cell: Option<String>,
+        /// Every ACHR in the load order.
+        #[arg(long)]
+        all: bool,
+        /// Only actors whose appearance involves no random leveled choice (`random`
+        /// false): the part an independent implementation can reproduce exactly.
+        #[arg(long)]
+        deterministic: bool,
+    },
+    /// What the appearance loaders read, with observational statistics on templates,
+    /// skeletons, races and FaceGen data (fnv.actor.forms/1).
+    Forms {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+    },
+    /// For every placed NPC: do its part meshes join its skeleton (skin bones and `Prn`
+    /// bones present), and do its models and textures exist (fnv.actor.meshes/1)?
+    Meshes {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+    },
+    /// Animation data catalogue: every `.kf` grouped by skeleton folder with its
+    /// sequences and how many tracks bind to that skeleton, IDLE records per animation
+    /// group with the `.kf` they name (found / missing), and creature KFFZ lists
+    /// (fnv.actor.anims/1).
+    Anims {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Script function catalogue for naming condition functions (default:
+        /// `script/functions.json` next to --schema; names are left out if absent).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// Leave out the per-file and per-IDLE lists (summary and groups only).
+        #[arg(long)]
+        summary_only: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -540,6 +610,7 @@ fn main() -> ExitCode {
         Cmd::Collide(c) => collide_cmd::run(c),
         Cmd::Sim(c) => sim_cmd::run(c),
         Cmd::Script(c) => script_cmd::run(c),
+        Cmd::Actor(c) => actor_cmd::run(c),
     };
     match res {
         Ok(v) => {
