@@ -633,10 +633,14 @@ impl<'a> World<'a> {
 
     /// Carried weight against capacity. Capacity = fAVDCarryWeightsBase +
     /// fAVDCarryWeightMult × Strength (150 + 10 × Strength in the masters); the actor is
-    /// over-encumbered when the weight exceeds it. [observed in game: capacity 200 at
-    /// Strength 5 and 160 at Strength 1, equipped items counted — xNVSE capture,
-    /// `L4.sim.trace.goodsprings_weight_and_time`; the over-encumbered threshold itself
-    /// (weight > capacity) is still hypothesis]
+    /// over-encumbered when the whole part of the weight exceeds it. [observed in game:
+    /// capacity 200 at Strength 5 and 160 at Strength 1, equipped items counted — xNVSE
+    /// capture, `L4.sim.trace.goodsprings_weight_and_time`; with capacity 200 the player
+    /// still ran (343 units/s) carrying 199.5, 200.0 and 200.5 and walked (85 units/s,
+    /// `IsRunning` 0) carrying 201.0, 201.5, 202, 203, 205 and 210.5 —
+    /// `cl_b_encumbrance_speed`, `cl_b2_encumbrance_speed`, docs/spec-notes/simulation.md
+    /// §3. Whole part vs. weight ≥ capacity + 1 differ only for fractional capacities:
+    /// hypothesis]
     pub fn encumbrance(&mut self, actor: FormId) -> Result<Encumbrance, SimError> {
         let strength = self.actor_value(actor, "strength")?;
         let capacity = self.setting("fAVDCarryWeightsBase")? + self.setting("fAVDCarryWeightMult")? * strength;
@@ -645,7 +649,7 @@ impl<'a> World<'a> {
         Ok(Encumbrance {
             weight: t.weight,
             capacity: capacity as f64,
-            over: t.weight > capacity as f64,
+            over: t.weight.floor() > capacity as f64,
             unknown_weight: t.unknown_weight,
         })
     }
