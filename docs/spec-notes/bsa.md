@@ -109,7 +109,10 @@ describes the algorithm; verified on every file and folder name in the corpus, o
   `[Archive]` has `SArchiveList=Fallout - Textures.bsa, Fallout - Textures2.bsa, Fallout -
   Meshes.bsa, Fallout - Voices1.bsa, Fallout - Sound.bsa, Fallout - Misc.bsa`,
   `bInvalidateOlderFiles=1`, `SInvalidationFile=ArchiveInvalidation.txt` [observed]. The
-  user's live `Fallout.ini` (in Documents\My Games) may differ (e.g. add `Update.bsa`).
+  owner's live `Fallout.ini` and `FalloutPrefs.ini` (Documents\My Games\FalloutNV, read
+  2026-10-09) have the same three values (the same six archives in the same order, no
+  `Update.bsa`), plus `bUseArchives=1`, `bCheckRuntimeCollisions=0` and the three
+  `iRetain…Table=1` lines [observed]; layer2.md §2.5 uses this list.
   Plugin-named archives (`DeadMoney - Main.bsa` for `DeadMoney.esm`) are believed to load
   automatically with their plugin [hypothesis]. Precedence between loose files, list
   order and plugin archives needs a runtime test.
