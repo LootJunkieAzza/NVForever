@@ -515,6 +515,95 @@
     "M4",
     "needs-local-capture"
    ]
+  },
+  {
+   "id": "L4.sim.trace.goodsprings_cell_respawn",
+   "layer": 4,
+   "description": "Cell respawn of an ordinary container (parity-lab/inputs/layer4/goodsprings_cell_respawn.actions.json): the General Store fridge 0x00105824 (base VLootFridgeClosedTier1WastelandRS, Respawns flag, leveled contents, no merchant) and the toolbox 0x001057FF (no Respawns flag) are emptied and given one teddy bear each, an item their leveled lists cannot yield, so the observation is exact: the teddy bear is gone exactly when the container was reset. Absences from GSGeneralStore (leaving and coming back by the console's coc, time by GameHour) of 48, 1 (after 30 h inside), 40 + 40, 71 and 73 hours, after a first 74 h absence that resets the cell whatever the save remembers. Against an in-game capture (save nvftest; docs/spec-notes/simulation.md section 3, iHoursToRespawnCell 72). Only `count` is compared; the golden's other fields (stacks, clock, Chet's merchant box) are diagnostics.",
+   "oracle": {
+    "golden": "sim/goodsprings_cell_respawn.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/goodsprings_cell_respawn.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "fields": [
+     "count"
+    ]
+   },
+   "tags": [
+    "sim",
+    "respawn",
+    "containers",
+    "time",
+    "M4",
+    "needs-local-capture"
+   ]
+  },
+  {
+   "id": "L4.sim.trace.nipton_placed_mines",
+   "layer": 4,
+   "description": "A placed explosive activated by script (parity-lab/inputs/layer4/nipton_placed_mines.actions.json): the frag mine 0x0013A656 (PGRE, base MineFragProjectile) in NiptonHouse8Paranoid, `<mine>.Activate player`: Frag Mines held before and after, the mine's GetDisabled and position before and after, and whether a menu opened, against an in-game capture (save nvftest, coc into the house; docs/spec-notes/simulation.md section 1). Position tolerance 1 game unit.",
+   "oracle": {
+    "golden": "sim/nipton_placed_mines.trace.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "sim",
+     "run",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--actions",
+     "{lab_root}/inputs/layer4/nipton_placed_mines.actions.json"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/observations",
+    "key": "label",
+    "abs_tol": 1.0
+   },
+   "tags": [
+    "sim",
+    "activation",
+    "explosives",
+    "M4",
+    "needs-local-capture"
+   ]
   }
  ]
 }

@@ -276,7 +276,22 @@ impl<'a> World<'a> {
             None if id == FormId::PLAYER_REF => (FormId::PLAYER_BASE, None),
             None => return Err(SimError::UnknownRef(id)),
         };
-        let inventory = self.roll_inventory(base)?;
+        let mut inventory = self.roll_inventory(base)?;
+        if id == FormId::PLAYER_REF {
+            // The player wears the non-playable armour it carries: the Pip-Boy Glove and
+            // the Pip-Boy 3000 that the base form NPC_ 0x7 lists. [observed in game,
+            // docs/spec-notes/simulation.md §2: `GetEquipped` 1 for both in the saves
+            // nvftest and nvfdoc (`cl_a_pipboy_*`); the owner never saw the glove
+            // unequipped. A new game before the intro (nvfnew) holds neither: handing them
+            // over is the intro's script, Layer 5]
+            if let Some(inv) = inventory.as_mut() {
+                for item in inv.iter().map(|(i, _)| i).collect::<Vec<_>>() {
+                    if self.forms.item(item).is_some_and(|it| it.kind == ItemKind::Armor && it.non_playable) {
+                        inv.set_equipped(item);
+                    }
+                }
+            }
+        }
         Ok(RefState {
             base,
             cell: placed.and_then(|p| p.cell),
@@ -432,22 +447,39 @@ impl<'a> World<'a> {
         Ok(n)
     }
 
-    /// Move everything; returns the stacks moved. Extra data (condition, owner) moves
-    /// with the items; equipped items are unequipped.
+    /// Whether `item` is a non-playable item (ARMO BMDT "Non-Playable").
+    fn non_playable(forms: &FormStore, item: FormId) -> bool {
+        forms.item(item).is_some_and(|it| it.non_playable)
+    }
+
+    /// Move everything but non-playable items (as [`World::remove_all_items`], the same
+    /// script function with a target); returns the stacks moved. Extra data (condition,
+    /// owner) moves with the items; equipped items are unequipped.
     pub fn transfer_all(&mut self, from: FormId, to: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
         self.inventory(to)?;
-        let stacks: Vec<_> = self.inventory(from)?.iter().collect();
+        let forms = self.forms;
+        let stacks: Vec<_> = self.inventory(from)?.iter().filter(|&(i, _)| !Self::non_playable(forms, i)).collect();
         for &(item, n) in &stacks {
             self.transfer(from, to, item, n)?;
         }
         Ok(stacks)
     }
 
-    /// Empty an inventory; returns the stacks removed.
+    /// Empty an inventory except for non-playable items, which stay as they are
+    /// (equipped ones stay equipped); returns the stacks removed. [observed in game,
+    /// docs/spec-notes/simulation.md §3: `player.RemoveAllItems` left the Pip-Boy Glove
+    /// and the Pip-Boy 3000, both still equipped, and nothing else (`cl_a_pipboy_nvftest`);
+    /// that other non-playable items and other holders behave alike is hypothesis]
     pub fn remove_all_items(&mut self, from: FormId) -> Result<Vec<(FormId, i32)>, SimError> {
+        let forms = self.forms;
         let inv = self.inventory(from)?;
-        let stacks: Vec<_> = inv.iter().collect();
-        *inv = Inventory::new();
+        let keep: Vec<_> = inv.groups().filter(|&(i, _, _)| Self::non_playable(forms, i)).collect();
+        let mut kept = Inventory::new();
+        for &(item, extra, n) in &keep {
+            kept.add_extra(item, n, extra);
+        }
+        let stacks: Vec<_> = inv.iter().filter(|&(i, _)| kept.count(i) == 0).collect();
+        *inv = kept;
         Ok(stacks)
     }
 
@@ -601,10 +633,14 @@ impl<'a> World<'a> {
 
     /// Carried weight against capacity. Capacity = fAVDCarryWeightsBase +
     /// fAVDCarryWeightMult × Strength (150 + 10 × Strength in the masters); the actor is
-    /// over-encumbered when the weight exceeds it. [observed in game: capacity 200 at
-    /// Strength 5 and 160 at Strength 1, equipped items counted — xNVSE capture,
-    /// `L4.sim.trace.goodsprings_weight_and_time`; the over-encumbered threshold itself
-    /// (weight > capacity) is still hypothesis]
+    /// over-encumbered when the whole part of the weight exceeds it. [observed in game:
+    /// capacity 200 at Strength 5 and 160 at Strength 1, equipped items counted — xNVSE
+    /// capture, `L4.sim.trace.goodsprings_weight_and_time`; with capacity 200 the player
+    /// still ran (343 units/s) carrying 199.5, 200.0 and 200.5 and walked (85 units/s,
+    /// `IsRunning` 0) carrying 201.0, 201.5, 202, 203, 205 and 210.5 —
+    /// `cl_b_encumbrance_speed`, `cl_b2_encumbrance_speed`, docs/spec-notes/simulation.md
+    /// §3. Whole part vs. weight ≥ capacity + 1 differ only for fractional capacities:
+    /// hypothesis]
     pub fn encumbrance(&mut self, actor: FormId) -> Result<Encumbrance, SimError> {
         let strength = self.actor_value(actor, "strength")?;
         let capacity = self.setting("fAVDCarryWeightsBase")? + self.setting("fAVDCarryWeightMult")? * strength;
@@ -613,7 +649,7 @@ impl<'a> World<'a> {
         Ok(Encumbrance {
             weight: t.weight,
             capacity: capacity as f64,
-            over: t.weight > capacity as f64,
+            over: t.weight.floor() > capacity as f64,
             unknown_weight: t.unknown_weight,
         })
     }
@@ -978,7 +1014,12 @@ impl<'a> World<'a> {
             BaseData::Actor(_) => Outcome::Talk { actor: target },
             BaseData::Activator | BaseData::Furniture => Outcome::Activated,
             BaseData::LeveledItem(_) => Outcome::NoDefault { sig: "LVLI".into() },
-            // A placed explosive: disarming it gives the weapon that fires it.
+            // A placed explosive activated by script: nothing happens. [observed in
+            // game, docs/spec-notes/simulation.md §1: `<mine>.Activate player` on two
+            // placed frag mines in Nipton left them enabled and in place and gave no Frag
+            // Mine (`bl_placed_mines`, `L4.sim.trace.nipton_placed_mines`)]
+            BaseData::Projectile { .. } if scripted => Outcome::NoDefault { sig: "PROJ".into() },
+            // The player's own activation disarms it and gives the weapon that fires it.
             // [hypothesis: in-game disarming of placed mines; the Explosives skill check
             // and the chance to trigger are Layer 6]
             BaseData::Projectile { item: Some(item) } => {
