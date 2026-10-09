@@ -116,8 +116,10 @@ struct Args {
     /// adapters), for comparisons.
     #[arg(long)]
     no_grade: bool,
-    /// Sun shadows reach this far from the camera (game units); 0 turns them off.
-    #[arg(long, default_value_t = 16_000.0)]
+    /// Sun shadows reach this far from the camera (game units); 0, the default, turns them
+    /// off: the original game casts no sun shadows from the world (docs/spec-notes/world.md
+    /// §6, "Sun path and shadows").
+    #[arg(long, default_value_t = 0.0)]
     shadow_distance: f32,
     /// World units per terrain texture repeat [hypothesis; docs/design/layer3.md].
     #[arg(long, default_value_t = 4096.0 / 6.0)]
