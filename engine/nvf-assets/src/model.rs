@@ -83,15 +83,25 @@ pub struct RigShape {
     pub skin: Option<(Handle<SkinnedMeshInverseBindposes>, Vec<usize>)>,
 }
 
+/// A door model's "Open" and "Close" sequences (docs/spec-notes/doors.md).
+#[derive(Debug, Clone)]
+pub struct DoorClips {
+    pub open: Clip,
+    pub close: Clip,
+}
+
 /// An animated model's scene graph, spawned per reference.
 #[derive(Debug, Clone)]
 pub struct Rig {
     pub nodes: Vec<RigNode>,
     pub shapes: Vec<RigShape>,
     /// The sequence played in a loop [hypothesis: placed objects play their embedded
-    /// `Idle` sequence from load, else `SpecialIdle` (windmills); doors' `Open`/`Close`
-    /// and the like wait for events; docs/spec-notes/nif.md §6].
-    pub idle: Clip,
+    /// `Idle` sequence from load, else `SpecialIdle` (windmills); docs/spec-notes/nif.md
+    /// §6].
+    pub idle: Option<Clip>,
+    /// A door's sequences, played when it opens or closes (nvf-play `doors`); the rig is
+    /// drawn in its stored pose until then.
+    pub door: Option<DoorClips>,
 }
 
 impl Rig {
@@ -105,6 +115,20 @@ impl Rig {
     /// for base objects flagged "Random Anim Start", so copies of one model do not move
     /// in step (docs/spec-notes/animation.md §8).
     pub fn spawn_at_phase(&self, commands: &mut Commands, parent: Entity, transform: Transform, source: &str, phase: f32) -> (Entity, Vec<Entity>) {
+        let (root, drawn, _) = self.spawn_nodes(commands, parent, transform, source, phase);
+        (root, drawn)
+    }
+
+    /// Like [`Self::spawn_at_phase`], also returning the node entities by name (to bind
+    /// other clips later, as doors do).
+    pub fn spawn_nodes(
+        &self,
+        commands: &mut Commands,
+        parent: Entity,
+        transform: Transform,
+        source: &str,
+        phase: f32,
+    ) -> (Entity, Vec<Entity>, HashMap<String, Entity>) {
         let entities: Vec<Entity> = self
             .nodes
             .iter()
@@ -130,11 +154,17 @@ impl Rig {
             }
             drawn.push(e);
         }
-        let by_name: HashMap<&str, Entity> =
-            self.nodes.iter().zip(&entities).filter_map(|(n, e)| Some((n.name.as_deref()?, *e))).collect();
-        let playing = Playing::new(source, &self.idle, |n| by_name.get(n).copied()).at_phase(phase);
-        commands.entity(entities[0]).insert(playing);
-        (entities[0], drawn)
+        let mut by_name: HashMap<String, Entity> = HashMap::new();
+        for (n, e) in self.nodes.iter().zip(&entities) {
+            if let Some(name) = &n.name {
+                by_name.entry(name.clone()).or_insert(*e);
+            }
+        }
+        if let Some(idle) = &self.idle {
+            let playing = Playing::new(source, idle, |n| by_name.get(n).copied()).at_phase(phase);
+            commands.entity(entities[0]).insert(playing);
+        }
+        (entities[0], drawn, by_name)
     }
 }
 
@@ -227,14 +257,17 @@ impl ModelCtx<'_> {
         // The embedded sequence played from load: Idle, else SpecialIdle, that moves at
         // least one node of this file.
         let seqs = sequences(&file, &dec);
-        let idle = ["idle", "specialidle"].iter().find_map(|want| {
-            seqs.iter()
-                .filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want)))
-                .map(Clip::from_sequence)
-                .find(|c| c.tracks.iter().any(|(n, _)| objects.iter().any(|o| o.name.as_deref() == Some(n.as_str()))))
-        });
+        let moves = |c: &Clip| c.tracks.iter().any(|(n, _)| objects.iter().any(|o| o.name.as_deref() == Some(n.as_str())));
+        let named = |want: &str| {
+            seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want))).map(Clip::from_sequence).find(&moves)
+        };
+        let idle = named("idle").or_else(|| named("specialidle"));
+        // A door's Open and Close, when both move nodes of this file.
+        let door = named("open").zip(named("close")).map(|(open, close)| DoorClips { open, close });
         // Rig nodes: the root first, then every object reachable from it.
-        let mut rig = idle.and_then(|idle| {
+        let animated = idle.is_some() || door.is_some();
+        let mut rig = animated
+            .then(|| {
             let root = root?;
             let mut index: HashMap<usize, usize> = HashMap::from([(root, 0)]);
             let mut order = vec![root];
@@ -261,8 +294,9 @@ impl ModelCtx<'_> {
                     }
                 })
                 .collect();
-            Some((Rig { nodes, shapes: Vec::new(), idle }, index))
-        });
+            Some((Rig { nodes, shapes: Vec::new(), idle, door }, index))
+            })
+            .flatten();
 
         for o in objects.iter().filter(|o| !o.is_node) {
             // Walk to the root: accumulate the transform below the root's own and look

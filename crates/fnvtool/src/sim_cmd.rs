@@ -65,7 +65,165 @@ pub fn run(cmd: SimCmd) -> anyhow::Result<Value> {
             let ix = fnv_world::WorldIndex::build(&lo, &schema);
             Ok(doors(&ix, &RefTable::from_index(&lo, &schema, &ix)))
         }
+        SimCmd::DoorModels { lo: lo_args, schema: schema_dir, nif_schema } => {
+            let plugins = open_load_order(&lo_args)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let schema = Schema::load_dir(&schema_dir)?;
+            let nif_dir = nif_schema.unwrap_or_else(|| schema_dir.parent().map(|p| p.join("nif")).unwrap_or_default());
+            let nif = fnv_nif::Schema::load_dir(&nif_dir).with_context(|| nif_dir.display().to_string())?;
+            let vfs = fnv_vfs::Vfs::open_default(&lo_args.data_dir).with_context(|| lo_args.data_dir.display().to_string())?;
+            let forms = FormStore::build(&lo, &schema);
+            let refs = RefTable::build(&lo, &schema);
+            Ok(door_models(&lo, &schema, &forms, &refs, &vfs, &nif))
+        }
     }
+}
+
+/// Animation sequences of one door model, and its rigid bodies counted by block type,
+/// layer and motion system.
+fn door_model(vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema, path: &str) -> Result<(Vec<Value>, BTreeMap<String, u64>), String> {
+    use fnv_nif::scene::Decoded;
+    let data = match vfs.read(path) {
+        None => return Err("not found".into()),
+        Some(Err(e)) => return Err(e.to_string()),
+        Some(Ok(d)) => d,
+    };
+    let f = fnv_nif::NifFile::parse(&data, Some(nif)).map_err(|e| e.to_string())?;
+    let dec = Decoded::new(&f, &data, nif);
+    let seqs = fnv_nif::anim::sequences(&f, &dec)
+        .into_iter()
+        .map(|s| {
+            json!({"name": s.name, "start": s.start_time, "stop": s.stop_time, "cycle_type": s.cycle_type,
+                "tracks": s.tracks.len(), "text_keys": s.text_keys.iter().map(|(t, k)| json!([t, k])).collect::<Vec<_>>()})
+        })
+        .collect();
+    let mut bodies = BTreeMap::new();
+    let anim = fnv_collide::anim::ModelAnim::new(&f, &dec);
+    let door = anim.door();
+    for o in fnv_collide::nif::collision_objects(&f, &dec).0 {
+        bump(&mut bodies, format!("{:?} layer {}", o.motion, o.layer));
+        let Some((open, close)) = door else { continue };
+        if o.motion != fnv_collide::Motion::Keyframed {
+            continue;
+        }
+        // How far the body's origin and a point a unit off it move: bind against the
+        // end of Close (should be ~0 if the stored pose is the closed one) and the end of
+        // Open.
+        let at = |s: Option<&fnv_collide::anim::AnimSequence>, t: f32| {
+            anim.node_to_root(s, t, o.node_block).map(|n| {
+                let x = n.iso.compose(&o.body_transform);
+                [x.apply([0.0; 3]), x.apply([50.0, 0.0, 0.0]), x.apply([0.0, 50.0, 0.0])]
+            })
+        };
+        let dist = |a: [[f32; 3]; 3], b: [[f32; 3]; 3]| {
+            (0..3).map(|i| (0..3).map(|k| (a[i][k] - b[i][k]).powi(2)).sum::<f32>().sqrt()).fold(0.0f32, f32::max)
+        };
+        if let (Some(bind), Some(c), Some(op)) = (at(None, 0.0), at(Some(close), close.length()), at(Some(open), open.length())) {
+            let (bc, bo) = (dist(bind, c), dist(bind, op));
+            bump(&mut bodies, format!("keyframed: bind vs close end {}", if bc < 1.0 { "same" } else { "differs" }));
+            bump(&mut bodies, format!("keyframed: open end moves {}", if bo >= 1.0 { "yes" } else { "no" }));
+        }
+    }
+    Ok((seqs, bodies))
+}
+
+/// Every DOOR base with its model's sequences and its placed references
+/// (docs/spec-notes/doors.md). Observational: it decides which doors can animate.
+fn door_models(lo: &LoadOrder, schema: &Schema, forms: &FormStore, refs: &RefTable, vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema) -> Value {
+    #[derive(Default)]
+    struct Placed {
+        refs: u64,
+        teleport: u64,
+        in_cell: u64,
+        in_cell_locked: u64,
+        open_by_default: u64,
+    }
+    let mut placed: BTreeMap<FormId, Placed> = BTreeMap::new();
+    for p in refs.refs.values() {
+        if forms.sig(p.base) != Some(*b"DOOR") {
+            continue;
+        }
+        let e = placed.entry(p.base).or_default();
+        e.refs += 1;
+        if p.teleport.is_some() {
+            e.teleport += 1;
+        } else {
+            e.in_cell += 1;
+            if p.lock.is_some() {
+                e.in_cell_locked += 1;
+            }
+            if fnv_world::placed::placement(lo, schema, p.id.0).is_some_and(|pl| pl.open_by_default) {
+                e.open_by_default += 1;
+            }
+        }
+    }
+    let mut by_sequences: BTreeMap<String, [u64; 3]> = BTreeMap::new(); // bases, refs, in-cell refs
+    let mut text_key_sets: BTreeMap<String, u64> = BTreeMap::new();
+    let mut body_kinds: BTreeMap<String, u64> = BTreeMap::new();
+    let mut flags: BTreeMap<String, u64> = BTreeMap::new();
+    let mut durations: BTreeMap<String, u64> = BTreeMap::new();
+    let mut cycles: BTreeMap<String, u64> = BTreeMap::new();
+    let mut rows = Vec::new();
+    for b in forms.bases.values().filter(|b| &b.sig == b"DOOR") {
+        let Some(d) = fnv_world::placed::door_record(lo, schema, b.id.0) else { continue };
+        let pl = placed.remove(&b.id).unwrap_or_default();
+        bump(&mut flags, format!("0x{:02X}", d.flags));
+        let (seqs, bodies, error) = match d.model.as_deref().map(|m| door_model(vfs, nif, m)) {
+            None => (vec![], BTreeMap::new(), Some("no model".to_string())),
+            Some(Ok((s, b))) => (s, b, None),
+            Some(Err(e)) => (vec![], BTreeMap::new(), Some(e)),
+        };
+        let mut names: Vec<String> = seqs.iter().map(|s| s["name"].as_str().unwrap_or("?").to_string()).collect();
+        names.sort();
+        let key = if error.is_some() { "(error)".to_string() } else { names.join("+") };
+        let e = by_sequences.entry(key).or_default();
+        e[0] += 1;
+        e[1] += pl.refs;
+        e[2] += pl.in_cell;
+        for s in &seqs {
+            let name = s["name"].as_str().unwrap_or("?");
+            let keys: Vec<&str> = s["text_keys"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|k| k[1].as_str())
+                .map(|k| k.split(':').next().unwrap_or(k).trim())
+                .collect();
+            bump(&mut text_key_sets, format!("{name}: {}", keys.join(",")));
+            let dur = s["stop"].as_f64().unwrap_or(0.0) - s["start"].as_f64().unwrap_or(0.0);
+            bump(&mut durations, format!("{name}: {dur:.2}"));
+            bump(&mut cycles, format!("{name}: {}", s["cycle_type"]));
+        }
+        for (k, v) in &bodies {
+            *body_kinds.entry(k.clone()).or_default() += v;
+        }
+        rows.push(json!({
+            "door": b.id.to_string(), "edid": b.edid, "model": d.model, "flags": d.flags,
+            "open_sound": d.open_sound.map(|s| FormId(s).to_string()),
+            "close_sound": d.close_sound.map(|s| FormId(s).to_string()),
+            "loop_sound": d.loop_sound.map(|s| FormId(s).to_string()),
+            "refs": pl.refs, "teleport_refs": pl.teleport, "in_cell_refs": pl.in_cell,
+            "in_cell_with_lock": pl.in_cell_locked, "in_cell_open_by_default": pl.open_by_default,
+            "sequences": seqs, "bodies": bodies, "error": error,
+        }));
+    }
+    let by_sequences: serde_json::Map<String, Value> = by_sequences
+        .into_iter()
+        .map(|(k, v)| (k, json!({"bases": v[0], "refs": v[1], "in_cell_refs": v[2]})))
+        .collect();
+    json!({
+        "schema": "fnv.sim.door_models/1",
+        "summary": {
+            "door_bases": rows.len(),
+            "by_sequence_names": by_sequences,
+            "text_keys_by_sequence": text_key_sets,
+            "durations": durations,
+            "cycle_types": cycles,
+            "rigid_bodies": body_kinds,
+            "flags": flags,
+        },
+        "doors": rows,
+    })
 }
 
 /// Teleport doors by where they lead. The destination cell is the one `World::activate`

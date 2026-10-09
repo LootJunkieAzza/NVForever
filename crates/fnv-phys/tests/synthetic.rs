@@ -989,3 +989,35 @@ fn placed_water_survives_adding_the_same_refs_bodies() {
     assert!(w.remove_ref(11));
     assert!(!w.remove_ref(11));
 }
+
+#[test]
+fn keyframed_door_blocks_until_posed_open() {
+    // A door panel 100 wide (y) across the path at x = 100, hinged at y = -50, on the
+    // AnimStatic layer, keyframed as door models are (docs/spec-notes/doors.md).
+    let mut w = ground();
+    let panel = CollisionObject {
+        layer: layers::ANIM_STATIC,
+        node_transform: Iso { translation: [0.0, -50.0, 0.0], rotation: ID },
+        body_transform: Iso { translation: [0.0, 50.0, 100.0], rotation: ID },
+        ..object(boxed([4.0, 50.0, 100.0]), Motion::Keyframed)
+    };
+    let pose = at(7, [100.0, 0.0, 0.0]);
+    w.add_ref(&pose, &[panel.clone()]);
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 10.0]);
+    settle(&mut w, &mut c, 30);
+    walk(&mut w, &mut c, [80.0, 0.0], 150);
+    assert!(c.feet[0] < 100.0 - 20.0, "blocked by the closed door: {:?}", c.feet);
+    // A static object cannot be posed; a missing object index is refused.
+    assert!(!w.pose_ref_object(&pose, 3, &panel.node_transform, &panel.body_transform));
+    // Swing the hinge 90° (the panel now runs along +x from the hinge, out of the path).
+    let open = Iso { translation: [0.0, -50.0, 0.0], rotation: rz(-std::f32::consts::FRAC_PI_2) };
+    assert!(w.pose_ref_object(&pose, 0, &open, &panel.body_transform));
+    let b = &w.ref_bodies(7)[0];
+    assert!((b.translation[0] - 150.0).abs() < 0.5 && (b.translation[1] + 50.0).abs() < 0.5, "{:?}", b.translation);
+    walk(&mut w, &mut c, [80.0, 0.0], 150);
+    assert!(c.feet[0] > 150.0, "walked through the open doorway: {:?}", c.feet);
+    // Stepping keeps the body where it was posed.
+    w.step();
+    let b = &w.ref_bodies(7)[0];
+    assert!((b.translation[0] - 150.0).abs() < 0.5, "{:?}", b.translation);
+}

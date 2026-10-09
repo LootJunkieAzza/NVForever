@@ -38,7 +38,7 @@ pub use arrival::Arrival;
 pub use character::{Character, CharacterInput, CharacterParams, CharacterStep};
 pub use convert::ConvertError;
 pub use layers::LayerSet;
-pub use placed::{ref_collision, ModelCollision, RefCollision};
+pub use placed::{ref_collision, ref_collision_with, ModelCollision, RefCollision, RefCollisionOptions};
 pub use swim::Stroke;
 pub use water::{PlacedWater, WaterArea};
 pub use world::{

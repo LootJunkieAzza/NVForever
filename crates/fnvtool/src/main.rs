@@ -467,6 +467,17 @@ pub enum SimCmd {
         #[arg(long)]
         schema: PathBuf,
     },
+    /// Every DOOR base: flags, sounds, placed references (teleport or not, locked) and
+    /// the animation sequences and collision bodies of its model (fnv.sim.door_models/1).
+    DoorModels {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `<schema>/../nif`).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
