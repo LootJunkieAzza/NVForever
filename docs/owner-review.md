@@ -32,6 +32,17 @@ item once you've ruled on it.
    coordination notes). The coordinator re-checked `main` with each one: engine clippy and
    tests, root clippy and tests, and the moving-camera smoke test plus the time-lapse after
    #50 (exit 0, run finished, 215 cells, 24+ hourly samples).
+2c. **#57 (dusk lighting) merged by the Layer 5 coordinator.** The sun path is fitted to 14
+   sun positions measured in game, and the world casts no sun shadows by default
+   (`--shadow-distance 0`; cascades stay opt-in). Frame SSIM: dusk 0.415 → 0.500, noon
+   0.421 → 0.448, hill 0.491 → 0.522, lake 0.390 → 0.440. Two questions for you, from
+   its PR:
+   - keep or remove the shadow cascades;
+   - a capture plan for ambient light (shaded faces are about 2× too dark and too blue
+     by day).
+2d. **"Sky and cloud look" started** (branch `claude/sky-look`, a background agent of the
+   Layer 5 coordinator) after #57 merged, since the two would have touched the same
+   code.
 3. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
    (same commits, its PR #38 was closed). `layer4-phys-wt` is an early copy of the physics
    workstream from 2026-10-07, superseded by `claude/layer4-phys`. Neither was merged or
