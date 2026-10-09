@@ -41,10 +41,10 @@ use crate::menu::model::Mode;
 use crate::menu::ActiveMenu;
 use crate::phys::PhysState;
 use crate::player::Player;
-use crate::script_events::{self, BoxMessage, EffectCtx, InvView, ScriptAid, ScriptEffect};
+use crate::script_events::{self, EffectCtx, InvView, ScriptAid, ScriptEffect};
 use crate::script_hud::ScriptHud;
 use crate::sim::SimState;
-use crate::{OpenContainer, PlayData, PlaySet, PlayWorld, RefChanged, Travel};
+use crate::{Location, OpenContainer, PlayData, PlaySet, PlayWorld, RefChanged, Travel};
 use bevy::prelude::*;
 use fnv_game::game::{event, ActMode};
 use fnv_game::trace::{Event, EventKind};
@@ -103,6 +103,14 @@ pub struct Runtime {
     skip: BTreeSet<usize>,
     /// A message-box button was picked: this frame still runs MenuMode 1001.
     pressed: bool,
+    /// Scripted references a script enabled: their 3D loads, OnLoad runs on the next
+    /// frame [observed: layer5-captures.md §8.3 d, "OnLoad after Enable runs by the next
+    /// frame, not inside Enable"].
+    enabled_3d: BTreeSet<FormId>,
+    /// Where the player was last frame, and frames left whose time does not count (a
+    /// door's loading screen).
+    location: Option<Location>,
+    frozen_frames: u32,
     pub triggers: crate::script_trigger::Triggers,
     /// Enable parent → references that follow it.
     children: HashMap<FormId, Vec<FormId>>,
@@ -210,6 +218,9 @@ impl Runtime {
             marked: BTreeSet::new(),
             skip: BTreeSet::new(),
             pressed: false,
+            enabled_3d: BTreeSet::new(),
+            location: None,
+            frozen_frames: 0,
             triggers: Default::default(),
             children,
             started: Instant::now(),
@@ -266,6 +277,17 @@ impl Runtime {
             self.player_cell = cell;
             self.game.player_entered(cell);
             debug!("script: player in cell {:?}; {} cells loaded for scripts", cell, self.game.loaded_cells.len());
+        }
+    }
+
+    /// OnLoad for references a script enabled since the last frame, still present in a
+    /// loaded cell (the engine's "3D loaded" for them).
+    fn loaded_3d(&mut self) {
+        let g = &mut self.game;
+        for r in std::mem::take(&mut self.enabled_3d) {
+            if g.present(r) && g.cell_of(r).is_some_and(|c| g.loaded_cells.contains(&c)) {
+                g.ref_event(r, event::ON_LOAD, None, None);
+            }
         }
     }
 
@@ -474,6 +496,7 @@ fn run_scripts(
     phys: Res<PhysState>,
     player: Res<Player>,
     menu: Res<ActiveMenu>,
+    location: Res<Location>,
     mut sim: ResMut<SimState>,
     mut script: ResMut<ScriptState>,
     mut hud: ResMut<ScriptHud>,
@@ -527,6 +550,17 @@ fn run_scripts(
         Some(Mode::Inventory) => Some(MENU_INVENTORY),
         None => None,
     };
+    // Menu and loading-screen time does not count: GetSecondsPassed's first value after
+    // a 54 s container menu was one ordinary frame, and the game clock stopped in the
+    // menu [observed: layer5-captures.md §8.3 e]. Frozen here: frames in a menu or under
+    // a waiting message box [hypothesis for the message box], and the two frames after
+    // the player's place changed (the destination loads on the spot in one of them).
+    if rt.location.is_some_and(|l| l != *location) {
+        rt.frozen_frames = 2;
+    }
+    rt.location = Some(*location);
+    let loading = rt.frozen_frames > 0;
+    rt.frozen_frames = rt.frozen_frames.saturating_sub(1);
     let dt = time.delta_secs_f64();
     let eye = player.eye_height;
     let mut presses = Vec::new();
@@ -535,6 +569,7 @@ fn run_scripts(
     with_world(rt, &mut sim, |rt| {
         rt.observe_inventory();
         rt.follow_player();
+        rt.loaded_3d();
         for a in &due {
             match a {
                 ScriptAid::Button(b) => presses.push(*b),
@@ -548,7 +583,8 @@ fn run_scripts(
         let waiting = rt.game.message_box.as_ref().is_some_and(|m| m.pressed.is_none());
         rt.game.menu = if waiting || rt.pressed { Some(MENU_MESSAGE) } else { menu_code };
         rt.pressed = false;
-        rt.game.cfg.frame_seconds = dt.max(1e-6);
+        let frozen = loading || rt.game.menu.is_some();
+        rt.game.cfg.frame_seconds = if frozen { 0.0 } else { dt };
         rt.game.tick();
         rt.snapshot_inventory();
         marked = rt.newly_marked();
@@ -589,6 +625,14 @@ fn run_scripts(
             let _ = log.out.flush();
         }
     }
+    for e in &events {
+        if let EventKind::RefEnabled { reference } = e.kind {
+            let onload = rt.game.ref_script(reference).and_then(|s| rt.game.data.script(s)).is_some_and(|u| u.has_block(event::ON_LOAD));
+            if onload {
+                rt.enabled_3d.insert(reference);
+            }
+        }
+    }
     let mut sent = BTreeSet::new();
     for e in effects {
         match e {
@@ -608,19 +652,18 @@ fn run_scripts(
             ScriptEffect::MessageBox(b) => hud.message_box(b),
         }
     }
+    // The test aid answers the box the scripts wait for, even behind other boxes (a
+    // person dismisses those first); with none waiting it closes the front box.
     for b in presses {
-        match hud.front().map(BoxMessage::waits) {
-            Some(true) => {
-                if !st.press(b) {
-                    warn!("test aid: button {b}: the scripts do not wait for it");
-                }
-                hud.pop_waiting();
+        if hud.has_waiting() {
+            if !st.press(b) {
+                warn!("test aid: button {b}: the scripts do not wait for it");
             }
-            Some(false) => {
-                hud.dismiss_front();
-                info!("test aid: message box dismissed");
-            }
-            None => warn!("test aid: button {b}: no message box is open"),
+            hud.pop_waiting();
+        } else if hud.dismiss_front() {
+            info!("test aid: message box dismissed");
+        } else {
+            warn!("test aid: button {b}: no message box is open");
         }
     }
 }
