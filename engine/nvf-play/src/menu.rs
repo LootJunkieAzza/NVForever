@@ -423,7 +423,7 @@ fn column(parent: &mut ChildSpawnerCommands, m: &MenuModel, side: Side) {
                 (true, false) => SELECTED_UNFOCUSED,
                 _ => Color::NONE,
             };
-            let name = format!("{} {}", if r.equipped { "*" } else { " " }, r.name);
+            let name = format!("{}{} {}", if r.equipped { "*" } else { " " }, if r.quest { "Q" } else { " " }, r.name);
             let node = Node { flex_direction: FlexDirection::Row, height: Val::Px(ROW_HEIGHT), align_items: AlignItems::Center, ..default() };
             c.spawn((Button, RowButton(side, i), node, BackgroundColor(bg))).with_children(|row| {
                 row.spawn(cell(name, NAME_WIDTH, TEXT));
