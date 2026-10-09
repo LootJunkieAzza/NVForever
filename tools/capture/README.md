@@ -478,12 +478,14 @@ python tools/capture/capture_quests.py defs --fnvtool <abs path>/target/release/
 python tools/capture/capture_quests.py state-job --defs C:/fnv-private/capture/quest/defs.json --name q5_state_nvftest -o <job>.steps.json
 python tools/capture/capture_quests.py state C:/fnv-private/capture/out/q5_state_nvftest.<time>.jsonl --defs <defs> -o C:/fnv-private/goldens/quest/state.nvftest.json
 python tools/capture/capture_quests.py diff <state a> <state b>
-python tools/capture/capture_quests.py job parity-lab/inputs/layer5/quest_stage_order.actions.json --name q5_quest_stage_order --start nvftest -o <job>.steps.json
+python tools/capture/capture_quests.py job parity-lab/inputs/layer5/quest_stage_order.actions.json --name q5_quest_stage_order --start nvftest --defs <defs> --data "<Data>" -o <job>.steps.json
 python tools/capture/capture_quests.py golden C:/fnv-private/capture/out/q5_quest_stage_order.<time>.jsonl --actions <the same input> -o C:/fnv-private/goldens/quest/quest_stage_order.trace.json
 ```
 Run each scenario job in its own `capture_run.py` session (they change quest state, and
-jobs in one session share it). Quests and globals are named by Editor ID in job lines
-(the runtime compiler resolves them, unlike base forms and references).
+jobs in one session share it). Job scripts cannot name a quest by Editor ID (neither can
+console lines in these sessions), so quests are built with `BuildRef` and their variables
+read and written with xNVSE's `GetVariable` / `SetVariable`; `job` resolves quest Editor
+IDs through `--defs` or `--data`.
 
 ## Tests
 

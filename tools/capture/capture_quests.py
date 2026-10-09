@@ -136,11 +136,11 @@ def quest_fields(q):
     return fields
 
 
-def field_expr(quest, field):
-    """The script expression that reads one state field of `quest` (an Editor ID: quests
-    keep theirs at run time, unlike base forms and references; see the trial job
-    q5_trial in docs/spec-notes/layer5-captures.md)."""
-    q = cs.plain_name(quest, "a quest")
+def field_expr(q, field):
+    """The script expression that reads one state field of the quest in ref variable `q`.
+    Quest Editor IDs do not compile in job scripts (trial q5_trial,
+    docs/spec-notes/layer5-captures.md section 1), so the quest is built with BuildRef and
+    its variables are read with xNVSE's GetVariable."""
     if field == "running":
         return f"GetQuestRunning {q}"
     if field == "completed":
@@ -154,7 +154,7 @@ def field_expr(quest, field):
         fn = "GetObjectiveDisplayed" if parts[2] == "displayed" else "GetObjectiveCompleted"
         return f"{fn} {q} {int(parts[1])}"
     if parts[0] == "var" and len(parts) == 2:
-        return f"{q}.{cs.plain_name(parts[1], 'a quest variable')}"
+        return f'GetVariable "{cs.plain_name(parts[1], "a quest variable")}" {q}'
     raise InputError(f"unknown quest field {field!r}")
 
 
@@ -162,8 +162,23 @@ def read_query(expr, label, field):
     return cs.query(cs.function(["float fV"], [f"let fV := {expr}", "SetFunctionValue fV"]), label, field)
 
 
+def quest_script(quest, ctx, body):
+    """A function script with the quest (Editor ID or FormID) in a ref variable; `body`
+    lines use {q} for it."""
+    n = cs.Names(*ctx)
+    q = n.operand(quest)
+    return cs.function(n.decls + ["float fV"], n.setup + [line.format(q=q) for line in body])
+
+
+def quest_query(quest, field, label, ctx):
+    field_expr("rQ", field)  # validates the field before any name is resolved
+    return cs.query(quest_script(quest, ctx, [f"let fV := {field_expr('{q}', field)}", "SetFunctionValue fV"]),
+                    label, field)
+
+
 def state_job(defs, name, start):
-    steps = [read_query(field_expr(q["edid"], f), q["edid"], f) for q in defs["quests"] for f in quest_fields(q)]
+    ctx = (cs.MASTERS, None)
+    steps = [quest_query(q["formid"], f, q["edid"], ctx) for q in defs["quests"] for f in quest_fields(q)]
     j = cs.job(name, start, steps, cs.MASTERS)
     j["title"] = f"Quest state of {len(defs['quests'])} quests (read-only, a few seconds)"
     return j
@@ -293,45 +308,59 @@ def _label(a, i):
     return label
 
 
-def _stmt(stmts, settle=cs.SETTLE_FRAMES):
-    return [{"script": cs.function([], stmts, returns_value=False)}, {"frames": settle}]
+def _script(quest, ctx, lines, settle=cs.SETTLE_FRAMES):
+    return [{"script": quest_script(quest, ctx, lines + ["SetFunctionValue 1"])}, {"frames": settle}]
 
 
 SIM_OPS = {"add_item", "remove_item", "remove_all_items", "enable", "disable", "set_global", "activate",
            "get_item_count", "get_disabled", "get_global"}
+LOCAL_TYPES = ("short", "int", "long", "float")
 
 
 def action_steps(i, a, ctx):
-    """In-game steps for one fnv.script.actions/1 action (index i)."""
+    """In-game steps for one fnv.script.actions/1 action (index i). Everything that names
+    a quest runs in a job script with the quest in a ref variable: neither job scripts
+    nor console lines resolve quest Editor IDs at run time, and quest variables are
+    read and written with xNVSE's GetVariable / SetVariable (trials q5_trial and
+    q5_trial2, docs/spec-notes/layer5-captures.md section 1)."""
     op = a.get("op")
     if op == "set_stage":
-        return _stmt([f"SetStage {_quest(a, i)} {int(a['stage'])}"], cs.SETTLE_FRAMES_LONG)
+        return _script(_quest(a, i), ctx, [f"SetStage {{q}} {int(a['stage'])}"], cs.SETTLE_FRAMES_LONG)
     if op == "set_stage_read":
         # SetStage and the read in one script: shows whether the stage's result script
         # has run when SetStage returns.
         q, label, field = _quest(a, i), _label(a, i), a.get("field")
-        expr = field_expr(q, field)
-        script = cs.function(["float fV"], [f"SetStage {q} {int(a['stage'])}", f"let fV := {expr}", "SetFunctionValue fV"])
+        field_expr("rQ", field)
+        script = quest_script(q, ctx, [f"SetStage {{q}} {int(a['stage'])}", f"let fV := {field_expr('{q}', field)}",
+                                       "SetFunctionValue fV"])
         return [cs.query(script, label, field), {"frames": cs.SETTLE_FRAMES_LONG}]
     if op in ("start_quest", "stop_quest"):
         fn = "StartQuest" if op == "start_quest" else "StopQuest"
-        return _stmt([f"{fn} {_quest(a, i)}"], cs.SETTLE_FRAMES)
+        return _script(_quest(a, i), ctx, [f"{fn} {{q}}"])
     if op == "set_quest_var":
         var = cs.plain_name(a.get("var"), f"action {i}: the variable")
-        return _stmt([f"set {_quest(a, i)}.{var} to {literal(a['value'])}"])
+        return _script(_quest(a, i), ctx, [f'SetVariable "{var}" {literal(a["value"])} {{q}}'])
     if op == "set_objective":
         q, idx = _quest(a, i), int(a["index"])
-        stmts = []
+        lines = []
         if "displayed" in a:
-            stmts.append(f"SetObjectiveDisplayed {q} {idx} {int(bool(a['displayed']))}")
+            lines.append(f"SetObjectiveDisplayed {{q}} {idx} {int(bool(a['displayed']))}")
         if "completed" in a:
-            stmts.append(f"SetObjectiveCompleted {q} {idx} {int(bool(a['completed']))}")
-        if not stmts:
+            lines.append(f"SetObjectiveCompleted {{q}} {idx} {int(bool(a['completed']))}")
+        if not lines:
             raise InputError(f"action {i}: set_objective needs 'displayed' or 'completed'")
-        return _stmt(stmts)
+        return _script(q, ctx, lines)
+    if op == "set_local":
+        # A Set statement with a numeric literal into a local variable of the given type,
+        # read back in the same script (the game's own compiler and Set statement).
+        kind, label = a.get("type"), _label(a, i)
+        if kind not in LOCAL_TYPES:
+            raise InputError(f"action {i}: set_local type must be one of {', '.join(LOCAL_TYPES)}")
+        script = cs.function([f"{kind} xV"], [f"set xV to {literal(a['value'])}", "SetFunctionValue xV"])
+        return [cs.query(script, label, "value")]
     if op == "get_quest":
         q, label = _quest(a, i), _label(a, i)
-        return [read_query(field_expr(q, f), label, f) for f in _fields(a, i)]
+        return [quest_query(q, f, label, ctx) for f in _fields(a, i)]
     if op == "wait_frames":
         return [{"frames": int(a["frames"])}]
     if op == "sample_var":
@@ -343,7 +372,7 @@ def action_steps(i, a, ctx):
         n = int(a["frames"])
         if n <= 0:
             raise InputError(f"action {i}: sample_var needs positive frames")
-        script = cs.function(["float fV"], [f"let fV := {q}.{var}", "SetFunctionValue fV"])
+        script = quest_script(q, ctx, [f'let fV := GetVariable "{var}" {{q}}', "SetFunctionValue fV"])
         return [cs.query(script, f"{SAMPLE_PREFIX}:{label}", str(k)) for k in range(n)]
     if op in SIM_OPS:
         return cs.action_steps(i, a, ctx, time_mode="hour")
@@ -356,7 +385,7 @@ def given_steps(i, g, ctx):
     kind = g.get("kind")
     if kind == "quest":
         q = cs.plain_name(g.get("quest"), f"given {i}: the quest")
-        return [read_query(field_expr(q, f), label, f) for f in given_fields(g)]
+        return [quest_query(q, f, label, ctx) for f in given_fields(g)]
     if kind == "global":
         name = cs.plain_name(g.get("name"), f"given {i}: the global")
         return [read_query(name, label, "value")]
@@ -414,8 +443,8 @@ def actions_job(doc, name, start, edids=None, console_first=()):
 
 def sample_observation(a, values):
     """What a sample_var action observed: `changes` (how many times the value changed
-    within the sampled loops), `drops` (previous minus new value at each of the first
-    `runs` changes) and, as diagnostics, the loops between changes."""
+    within the sampled loops), `drops` (previous minus new value at each of `runs`
+    changes after the first `skip`) and, as diagnostics, the loops between changes."""
     changes, frames, last, last_k = [], [], None, None
     for k, v in values:
         if last is not None and v != last:
@@ -425,16 +454,16 @@ def sample_observation(a, values):
             last_k = k
         last = v
     obs = {"label": a["label"]}
-    runs = a.get("runs")
+    runs, skip = a.get("runs"), int(a.get("skip", 0))
     diag = {"label": a["label"], "samples": len(values), "changes": len(changes), "loops_between": frames,
             "all_drops": changes, "first": values[0][1] if values else None, "last": values[-1][1] if values else None}
     if runs is None:
         obs["changes"] = len(changes)
     else:
-        if len(changes) < runs:
-            obs["error"] = f"only {len(changes)} changes in {len(values)} loops, {runs} wanted"
+        if len(changes) < skip + runs:
+            obs["error"] = f"only {len(changes)} changes in {len(values)} loops, {skip} + {runs} wanted"
         else:
-            obs["drops"] = changes[:runs]
+            obs["drops"] = changes[skip:skip + runs]
     return obs, diag
 
 
@@ -535,6 +564,7 @@ def main(argv=None):
     p.add_argument("--name", required=True)
     p.add_argument("--start", required=True)
     p.add_argument("--data", help="the game's Data folder (only read), to resolve Editor IDs of forms")
+    p.add_argument("--defs", help="a defs file whose quests resolve quest Editor IDs without --data")
     p.add_argument("--console-first", action="append", default=[], metavar="LINE")
     p.add_argument("-o", "--output")
 
@@ -569,7 +599,9 @@ def main(argv=None):
             for q, what, x, y in diff_states(load_json(args.a), load_json(args.b)):
                 print(f"{q}\t{what}\t{json.dumps(x)}\t{json.dumps(y)}")
         elif args.cmd == "job":
-            edids = cs.edid_index(args.data) if args.data else None
+            edids = cs.edid_index(args.data) if args.data else {}
+            if args.defs:
+                edids.update({q["edid"].lower(): int(q["formid"], 16) for q in load_json(args.defs)["quests"]})
             cs.write(actions_job(load_json(args.actions), args.name, args.start, edids, args.console_first), args.output)
         elif args.cmd == "golden":
             with open(args.output_jsonl, encoding="utf-8") as f:

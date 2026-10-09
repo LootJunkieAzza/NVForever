@@ -83,15 +83,13 @@ class StateJob(unittest.TestCase):
             "running", "completed", "stage", "done.10", "done.20",
             "objective.5.displayed", "objective.5.completed", "objective.7.displayed", "objective.7.completed",
             "var.nCount", "var.fTimer"])
-        self.assertEqual(cq.field_expr("TestQuest", "done.10"), "GetStageDone TestQuest 10")
-        self.assertEqual(cq.field_expr("TestQuest", "objective.5.completed"), "GetObjectiveCompleted TestQuest 5")
-        self.assertEqual(cq.field_expr("TestQuest", "var.fTimer"), "TestQuest.fTimer")
-        self.assertEqual(cq.field_expr("TestQuest", "running"), "GetQuestRunning TestQuest")
-        for bad in ("done", "objective.5.shown", "var.a.b", "nonsense"):
+        self.assertEqual(cq.field_expr("rQ", "done.10"), "GetStageDone rQ 10")
+        self.assertEqual(cq.field_expr("rQ", "objective.5.completed"), "GetObjectiveCompleted rQ 5")
+        self.assertEqual(cq.field_expr("rQ", "var.fTimer"), 'GetVariable "fTimer" rQ')
+        self.assertEqual(cq.field_expr("rQ", "running"), "GetQuestRunning rQ")
+        for bad in ("done", "objective.5.shown", "var.a.b", "nonsense", "var.0x12"):
             with self.assertRaises(cq.InputError):
-                cq.field_expr("TestQuest", bad)
-        with self.assertRaises(cq.InputError):
-            cq.field_expr("0x00104C1C", "stage")
+                cq.field_expr("rQ", bad)
 
     def test_job_has_mod_indices_then_one_query_per_field(self):
         j = cq.state_job(defs(), "q5_state", "Any save.")
@@ -100,7 +98,8 @@ class StateJob(unittest.TestCase):
         self.assertEqual(len(head), len(cs.MASTERS))
         body = j["steps"][len(head):]
         self.assertEqual([s["field"] for s in body], cq.quest_fields(defs()["quests"][0]))
-        self.assertIn("let fV := GetStage TestQuest", body[2]["query"])
+        self.assertIn("let fV := GetStage rF1", body[2]["query"])
+        self.assertIn("let rF1 := BuildRef fM1 2748", body[2]["query"])  # 0x01000ABC: DeadMoney.esm, local 0xABC
         self.assertTrue(all(s["label"] == "TestQuest" for s in body))
 
 
@@ -144,6 +143,8 @@ class State(unittest.TestCase):
         self.assertEqual(cq.diff_states(a, a), [])
 
 
+EDIDS = {"testquest": 0x00104C1C, "q": 0x00104C1D}
+
 ACTIONS = {
     "format": cq.ACTIONS_FORMAT, "title": "t",
     "given": [{"kind": "quest", "quest": "TestQuest", "running": False, "stage": 0, "not_done": [10],
@@ -162,26 +163,32 @@ ACTIONS = {
         {"op": "set_global", "name": "ScroungerOdds", "value": 0},
         {"op": "get_global", "name": "ScroungerOdds", "label": "odds"},
         {"op": "wait_frames", "frames": 5},
+        {"op": "set_local", "type": "short", "value": 40000, "label": "short"},
     ]}
 
 
 class Job(unittest.TestCase):
     def test_actions_to_steps(self):
-        j = cq.actions_job(ACTIONS, "q5_t", "nvftest")
+        j = cq.actions_job(ACTIONS, "q5_t", "nvftest", EDIDS)
         steps = j["steps"][len(cs.MASTERS):]
         given = [s for s in steps if s.get("label", "").startswith(cq.GIVEN_PREFIX)]
         self.assertEqual([s["field"] for s in given], ["running", "stage", "done.10", "objective.5.displayed",
                                                        "var.nCount", "value"])
         scripts = [s["script"] for s in steps if "script" in s]
-        self.assertIn("SetStage TestQuest 20", scripts[0])
-        self.assertTrue(any("set TestQuest.fTimer to 0.00000001\n" in s for s in scripts))
-        self.assertTrue(any("SetObjectiveDisplayed TestQuest 5 0" in s for s in scripts))
-        self.assertTrue(any("StartQuest TestQuest" in s for s in scripts))
+        self.assertIn("SetStage rF1 20", scripts[0])
+        self.assertIn('let fM1 := GetModIndex "FalloutNV.esm"', scripts[0])
+        self.assertTrue(any('SetVariable "fTimer" 0.00000001 rF1' in s for s in scripts))
+        self.assertTrue(any("SetObjectiveDisplayed rF1 5 0" in s for s in scripts))
+        self.assertTrue(any("StartQuest rF1" in s for s in scripts))
+        self.assertTrue(any("StopQuest rF1" in s for s in scripts))
+        self.assertEqual([s["console"] for s in steps if "console" in s], ["set ScroungerOdds to 0"])
+        local = [s for s in steps if s.get("label") == "short"][0]
+        self.assertIn("short xV" + chr(10), local["query"])
+        self.assertIn("set xV to 40000" + chr(10) + "SetFunctionValue xV", local["query"])
         same = [s for s in steps if s.get("label") == "same script"][0]
-        self.assertLess(same["query"].index("SetStage TestQuest 10"), same["query"].index("let fV := TestQuest.nCount"))
+        self.assertLess(same["query"].index("SetStage rF1 10"), same["query"].index('let fV := GetVariable "nCount" rF1'))
         samples = [s for s in steps if s.get("label") == "sample:timer"]
         self.assertEqual([s["field"] for s in samples], ["0", "1", "2", "3"])
-        self.assertIn({"console": "set ScroungerOdds to 0"}, steps)
         self.assertIn({"frames": 5}, steps)
 
     def test_bad_actions(self):
@@ -189,9 +196,10 @@ class Job(unittest.TestCase):
                   {"op": "get_quest", "quest": "Q", "fields": ["stage"]},
                   {"op": "set_objective", "quest": "Q", "index": 1},
                   {"op": "sample_var", "quest": "Q", "var": "v", "frames": 0, "label": "x"},
-                  {"op": "set_stage", "quest": "0x00104C1C", "stage": 1}):
+                  {"op": "set_stage", "quest": "Unknown", "stage": 1},
+                  {"op": "set_local", "type": "double", "value": 1, "label": "x"}):
             with self.assertRaises((cq.InputError, KeyError)):
-                cq.actions_job({"format": cq.ACTIONS_FORMAT, "actions": [a]}, "x", "y")
+                cq.actions_job({"format": cq.ACTIONS_FORMAT, "actions": [a]}, "x", "y", EDIDS)
         with self.assertRaises(cq.InputError):
             cq.actions_job({"format": "fnv.sim.actions/1"}, "x", "y")
 
@@ -241,6 +249,13 @@ class Golden(unittest.TestCase):
         _, problems = cq.golden_document(ACTIONS, mods, results)
         self.assertEqual(problems, ["given 0 running: expected False, the save has True"])
 
+    def test_skip(self):
+        values = [(0, 10.0), (1, 9.0), (2, 9.0), (3, 8.5), (4, 8.0)]
+        obs, _ = cq.sample_observation({"label": "x", "runs": 2, "skip": 1}, values)
+        self.assertEqual(obs["drops"], [0.5, 0.5])
+        obs, _ = cq.sample_observation({"label": "x", "runs": 3, "skip": 1}, values)
+        self.assertIn("error", obs)
+
     def test_too_few_runs(self):
         obs, diag = cq.sample_observation({"label": "x", "runs": 3}, [(0, 5.0), (1, 4.0)])
         self.assertIn("error", obs)
@@ -278,7 +293,8 @@ class Inputs(unittest.TestCase):
         for n in names:
             with open(os.path.join(root, n), encoding="utf-8") as f:
                 doc = json.load(f)
-            j = cq.actions_job(doc, n.split(".")[0], "save")
+            quests = {x["quest"] for x in doc.get("given", []) + doc["actions"] if "quest" in x}
+            j = cq.actions_job(doc, n.split(".")[0], "save", {q.lower(): 0x00100000 + k for k, q in enumerate(sorted(quests))})
             self.assertTrue(j["steps"], n)
             labels = [a["label"] for a in doc["actions"] if a.get("label")]
             self.assertEqual(len(labels), len(set(labels)), f"{n}: duplicate labels")
