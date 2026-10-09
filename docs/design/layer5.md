@@ -251,7 +251,11 @@ See `docs/owner-review.md` for the full list with options. In short:
 New facts go to `docs/spec-notes/scripts.md` (bytecode format, variables, events, quests,
 conditions; 5A and 5B) and `docs/spec-notes/script-functions.md` (the function table,
 unchanged in role). Capture procedures for Layer 5 go to `docs/spec-notes/layer5-captures.md`
-(5C).
+(5C). Rules from the GECK wiki quest, condition and dialogue pages (owner's
+export, 2026-10-09), cross-checked against the captures: `docs/spec-notes/quests-dialogue.md`.
+The base-game script language from the wiki's scripting pages, with its differences from
+the captures and the runtime: `docs/spec-notes/script-language.md`; AI packages,
+detection, factions and idles for Layer 6: `docs/spec-notes/actor-behaviour.md`.
 
 ## 7. Workstreams
 
