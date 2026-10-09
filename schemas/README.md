@@ -12,6 +12,26 @@ so a wrong layout is fixed by editing JSON, not code.
 - `objects.json` — base objects (STAT, WEAP, ARMO, CONT, …)
 - `gameplay.json` — GLOB, SCPT, QUST, DIAL, INFO, NPC_, CREA, RACE, HAIR, EYES, HDPT, FACT, levelled lists, …
 
+**Record header flags.** A record entry may name bits of its record header's flags
+field (the u32 after the data size), next to `name` and `subrecords`:
+
+```json
+"KEYM": {"name": "Key", "confidence": "documented",
+         "header_flags": {"bits": {"10": "Quest Item"}, "confidence": "documented",
+                          "note": "source"},
+         "subrecords": {}}
+```
+
+Bits are numbered from 0 (0x1) to 31; names are looked up case-insensitively
+(`Schema::header_flag(sig, name)` returns the mask). The key is additive: a loader that
+does not know it ignores it. The same rules apply as for layouts: only bits a source
+names (xEdit's per-record flag lists, `wbFlagsList([bit, name, …])`) are listed, never
+guessed ones, and bits xEdit calls "Unknown N" are left out. The flags every record
+shares and that the reader needs before a schema exists (master, deleted, compressed)
+stay in code (`fnv_esm::raw::record_flags`). Today: "Quest Item" (bit 10) on WEAP,
+ARMO, ALCH, BOOK, KEYM, MISC, LIGH, AMMO and IMOD (sources in each entry's `note` and in
+`docs/spec-notes/esm.md`).
+
 **Provenance.** Every entry carries `confidence` and a `note` naming its source. The
 current entries are `documented`: layouts were read from the xEdit project's public
 definitions (`Core/wbDefinitionsFNV.pas`, `Core/wbDefinitionsCommon.pas`, branch
