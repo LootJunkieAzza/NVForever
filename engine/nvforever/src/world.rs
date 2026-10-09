@@ -1,6 +1,7 @@
 //! WorldStreamingPlugin: load the cells around the camera and spawn their terrain and
 //! references; unload cells that fall out of range.
 
+use crate::fade::CellFade;
 use crate::terrain::{spawn_terrain, TerrainCtx, TerrainMaterials};
 use crate::water::{water_material, WaterCtx};
 use bevy::math::Affine3A;
@@ -9,6 +10,7 @@ use fnv_esm::{LoadOrder, Plugin as EsmPlugin, Schema as EsmSchema};
 use fnv_world::placed::{base_object, placement, BaseObject, Placement};
 use fnv_world::transform::ref_rotation;
 use fnv_world::{cell_of, WorldIndex, CELL_SIZE};
+use nvf_assets::actor::{ActorCtx, ActorParts};
 use nvf_assets::model::ModelCtx;
 use nvf_assets::{nif_material, NifMaterial};
 use nvf_play::{RefVisual, RenderCell};
@@ -16,8 +18,8 @@ use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
 
-/// Base object types drawn as static models. Actors (NPC_, CREA) need Layer 4 records;
-/// sounds and idle markers have no model.
+/// Base object types drawn as static models. NPCs are assembled from parts (`actors.rs`);
+/// creatures are not drawn yet; sounds and idle markers have no model.
 const DRAWN: [&[u8; 4]; 20] = [
     b"STAT", b"SCOL", b"MSTT", b"TREE", b"FURN", b"DOOR", b"CONT", b"ACTI", b"TACT", b"TERM", b"LIGH", b"MISC",
     b"WEAP", b"AMMO", b"ARMO", b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT",
@@ -101,7 +103,15 @@ pub struct TreeBillboard;
 pub struct Streamer {
     /// Cells within this many grid steps of the camera's cell are loaded.
     pub radius: i32,
+    /// Cells drawn, including exterior cells still fading out.
     pub loaded: HashMap<(i32, i32), Entity>,
+    /// Exterior cells fading in or out (fade.rs); loaded cells not in here are fully drawn.
+    pub fades: HashMap<(i32, i32), CellFade>,
+    /// Seconds a cell takes to fade in or out; 0 switches cells at once.
+    pub fade_secs: f32,
+    /// The cells around the start (or a door's destination) are in: cells loaded from now
+    /// on fade in (the first ones appear at once, as behind a loading screen).
+    pub settled: bool,
     /// Cells loaded per frame (loading is synchronous for now).
     pub per_frame: usize,
     /// Model path fragments not to draw (diagnostics).
@@ -111,6 +121,17 @@ pub struct Streamer {
     /// Multiplier on every LIGH light's brightness (1 = as stored).
     pub light_scale: f32,
     pub stats: StreamStats,
+}
+
+impl Streamer {
+    /// How much of an exterior cell is drawn: 0 not loaded … 1 fully drawn.
+    pub fn cell_level(&self, c: (i32, i32)) -> f32 {
+        match self.fades.get(&c) {
+            Some(f) => f.level,
+            None if self.loaded.contains_key(&c) => 1.0,
+            None => 0.0,
+        }
+    }
 }
 
 /// Which cell to load.
@@ -133,6 +154,7 @@ pub struct StreamStats {
     pub refs_animated: usize,
     pub water_planes: usize,
     pub lights: usize,
+    pub actors: crate::actors::ActorStats,
     pub shapes: usize,
     pub load_ms: f64,
     pub skipped_types: HashMap<String, usize>,
@@ -164,13 +186,17 @@ pub fn stream(
     mut water: WaterCtx,
     mut trees: crate::tree::TreeCtx,
     mut emittance: ResMut<crate::emittance::EmittanceState>,
+    time: Res<Time>,
+    actor_world: Option<Res<crate::actors::ActorWorld>>,
+    mut actor_parts: ResMut<ActorParts>,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
+    let mut actors = actor_world.as_deref().map(|w| (w, &mut *actor_parts));
     if let Some(id) = streamer.interior {
         if streamer.loaded.is_empty() {
             let t0 = std::time::Instant::now();
             let s = &mut *streamer;
-            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, s);
+            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, &mut actors, s);
             commands.entity(root).add_child(e);
             streamer.loaded.insert((i32::MIN, i32::MIN), e);
             streamer.stats.cells_loaded += 1;
@@ -184,29 +210,61 @@ pub fn stream(
     let want: HashSet<(i32, i32)> =
         (-r..=r).flat_map(|dx| (-r..=r).map(move |dy| (centre.0 + dx, centre.1 + dy))).collect();
 
-    // Unload with one cell of hysteresis.
+    // Unload with one cell of hysteresis, fading out first (fade.rs).
     let far: Vec<(i32, i32)> = streamer
         .loaded
         .keys()
         .filter(|c| (c.0 - centre.0).abs() > r + 1 || (c.1 - centre.1).abs() > r + 1)
         .copied()
         .collect();
+    let fading = streamer.fade_secs > 0.0;
     for c in far {
+        if fading {
+            streamer.fades.entry(c).or_insert(CellFade::new(1.0, true)).leaving = true;
+        } else if let Some(e) = streamer.loaded.remove(&c) {
+            commands.entity(e).despawn();
+        }
+    }
+    // Cells wanted again while fading out fade back in.
+    for c in &want {
+        if let Some(f) = streamer.fades.get_mut(c) {
+            f.leaving = false;
+        }
+    }
+    let rate = if fading { time.delta_secs() / streamer.fade_secs } else { 1.0 };
+    let mut gone = Vec::new();
+    for (c, f) in &mut streamer.fades {
+        f.level = (f.level + if f.leaving { -rate } else { rate }).clamp(0.0, 1.0);
+        if f.leaving && f.level <= 0.0 {
+            gone.push(*c);
+        }
+    }
+    for c in gone {
+        streamer.fades.remove(&c);
         if let Some(e) = streamer.loaded.remove(&c) {
             commands.entity(e).despawn();
         }
     }
 
-    let mut missing: Vec<(i32, i32)> = want.into_iter().filter(|c| !streamer.loaded.contains_key(c)).collect();
+    let mut missing: Vec<(i32, i32)> = want.iter().filter(|c| !streamer.loaded.contains_key(c)).copied().collect();
     missing.sort_by_key(|c| (c.0 - centre.0).abs().max((c.1 - centre.1).abs()) * 1000 + (c.0 - centre.0).abs() + (c.1 - centre.1).abs());
     for c in missing.into_iter().take(streamer.per_frame) {
         let t0 = std::time::Instant::now();
         let s = &mut *streamer;
-        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, s);
+        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, &mut actors, s);
         commands.entity(root).add_child(e);
         streamer.loaded.insert(c, e);
+        if fading {
+            // Before the start square is in, cells appear at once; their meshes still need
+            // their (fully drawn) ranges (fade.rs).
+            let level = if streamer.settled { 0.0 } else { 1.0 };
+            streamer.fades.insert(c, CellFade::new(level, false));
+        }
         streamer.stats.cells_loaded += 1;
         streamer.stats.load_ms += t0.elapsed().as_secs_f64() * 1000.0;
+    }
+    if !streamer.settled && want.iter().all(|c| streamer.loaded.contains_key(c)) {
+        streamer.settled = true;
     }
 }
 
@@ -244,6 +302,9 @@ pub fn travel(
     for (_, e) in streamer.loaded.drain() {
         commands.entity(e).despawn();
     }
+    // The destination appears at once, as after a loading screen.
+    streamer.fades.clear();
+    streamer.settled = false;
     streamer.interior = t.interior;
     sky.set_interior(t.interior.and_then(|id| fnv_world::lighting::cell_lighting(world.lo, world.schema, id)));
     sky.interior_grade = t.interior.and_then(|id| crate::sky::SkyState::cell_grade(world.lo, world.schema, id));
@@ -265,6 +326,7 @@ fn load_cell(
     water: &mut WaterCtx,
     trees: &mut crate::tree::TreeCtx,
     emittance: &mut crate::emittance::EmittanceState,
+    actors: &mut Option<(&crate::actors::ActorWorld, &mut ActorParts)>,
     streamer: &mut Streamer,
 ) -> Entity {
     let (hide, light_scale, stats) = (&streamer.hide, streamer.light_scale, &mut streamer.stats);
@@ -301,6 +363,12 @@ fn load_cell(
             continue;
         }
         let base: Option<BaseObject> = p.base.and_then(|b| base_object(world.lo, world.schema, b));
+        if let (Some((aw, parts)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| &b.sig == b"NPC_")) {
+            let mut ctx = ActorCtx { cache: parts, models };
+            if crate::actors::spawn(commands, cell_e, to_cell * ref_affine(&p), r, b.form_id, aw, &mut ctx, &mut stats.actors) {
+                continue;
+            }
+        }
         let Some(base) = base.filter(|b| DRAWN.contains(&&b.sig)) else {
             stats.refs_skipped_type += 1;
             let t = base_type_name(p.base.and_then(|b| base_object(world.lo, world.schema, b)).as_ref());

@@ -1,0 +1,14 @@
+[package]
+name = "fnv-script"
+description = "Compiled script reader (Layer 5): script units, bytecode to IR, function table, canonical decompiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-esm = { path = "../fnv-esm" }
+fnv-util = { path = "../fnv-util" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+rayon = "1"
