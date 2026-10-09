@@ -89,7 +89,56 @@ Subrecords [documented][observed]:
   the single-byte explanation is a hypothesis]. Either the shipped file has this defect
   or the user's copy is damaged — **verify the SHA-256 against a second copy or after a
   Steam "Verify integrity of game files"**. The reader accepts such streams when the
-  output size matches, and reports them.
+  output size matches, and reports them. Re-hashed read-only on 2026-10-09: the owner's
+  current `Data\FalloutNV.esm` (245,650,747 bytes) still has SHA-256
+  `50991d36804b7d1e70df1afd7471b72f0e29d1b456ee2516a9717c002564e7c1`, the value the
+  anomaly was first found in [observed]; telling a shipped defect from local damage still
+  needs a Steam "verify" (owner-only) or a second copy.
+
+## Cross-check against xEdit (M1)
+
+The owner's FNVEdit export (`tools/capture/xedit/export_inventory.pas`, private goldens
+`esm/<Plugin>.xedit.inventory.json`) covers all 10 masters, 629,788 records. Type,
+EditorID and FULL agree with `fnvtool` and with the independent `oracle_esm.py` on every
+record except **four rows** (2026-10-09) [observed]. In all four, both of our readers
+report what the file holds and the export shows xEdit's own normalisation:
+
+| Plugin | Record | File holds | xEdit export | Ours = oracle |
+|---|---|---|---|---|
+| FalloutNV.esm | DIAL 0x00152CCA | PNAM, DATA only; **no EDID** | `edid: ""` | `edid: null` |
+| DeadMoney.esm | RACE 0x01005819 `Christine` | EDID, DESC, DATA, ...; **no FULL** | `full: ""` | `full: null` |
+| OldWorldBlues.esm | CLAS 0x0101533F `NVDLC03SinkVendorClass` | EDID, DESC, DATA, ATTR; **no FULL** | `full: ""` | `full: null` |
+| GunRunnersArsenal.esm | REFR stored as **0x02000801** | that FormID | `0x01000801` | `0x02000801` |
+
+- **xEdit adds missing required subrecords as empty ones** [documented: xEdit
+  `Core/wbImplementation.pas`, branch dev-4.1.6, the record-loading code right after
+  `mrDef.AfterLoad`: for a record that is neither deleted nor a partial form, every member
+  the record definition marks *required* and the file lacks is added as an empty element,
+  logged as "Adding missing record"]. In `wbDefinitionsFNV.pas` DIAL starts with
+  `wbEDIDReqKC`, RACE and CLAS with `wbEDIDReq, wbFULLReq` [documented]. The export script
+  tests presence (`ElementExists` / `ElementBySignature`), finds the placeholder and writes
+  `""`. Check over all 10 masters [observed]: these three are the *only* records that lack
+  an EDID or FULL which xEdit's definition marks as required; all 1,126,037 other absent
+  EDID/FULL values (optional in xEdit) are `null` in the export, as in ours. The file has
+  no such subrecord, so `null` (absent) is the faithful reading; the difference is xEdit
+  normalisation, not data.
+- **xEdit folds an out-of-range master index into the file's own index** [documented:
+  xEdit `wbImplementation.pas`, `TwbMainRecord.DoGetFixedFormID`: a file index greater
+  than or equal to the plugin's master count is replaced by the plugin's own index]. GRA
+  has one master, so 0x02000801 is shown as 0x01000801. We keep the stored value and the
+  load order reports it as `unmappable` [observed]. Details of that REFR [observed]: its
+  base (NAME) is 0x02000800, also out of range (GRA's own 0x01000800 is the WEAP
+  `WeapNVDLC00Faderator`, "The Faderator"); it sits in the temporary children of
+  `TestMentats` (0x00108BED, FalloutNV.esm's "Mentats Test Level"); DATA position
+  (2341.27, 2058.89, 6991.75), rotation 0; no other subrecords. A developer test
+  placement saved while the file had one more master is the likely origin [hypothesis].
+  What the game does with it: Unknowns 4.
+
+Consequence: `L1.esm.inventory_xedit.{FalloutNV,DeadMoney,OldWorldBlues,GunRunnersArsenal}`
+fail by exactly these rows (scores 0.999998, 0.999975, 0.999981, 0.997433) and the other
+six pass with every row equal. Copying xEdit's behaviour into our reader would make the
+inventory say something the file does not, so the reader stays as it is; the comparator,
+scenarios and goldens are untouched (parity-lab/AGENT.md).
 
 ## Round-trip guarantees (tested)
 
@@ -101,13 +150,14 @@ Subrecords [documented][observed]:
 ## Unknowns (need analysis or the original game)
 
 1. Field-level layouts for the (record, subrecord) pairs not yet in `schemas/fnv`
-   (FalloutNV.esm: 322 of 1,155 pairs, 6.3% of subrecord instances; biggest: PACK, NAVM,
-   NAVI, IDLE) — tracked by `fnvtool esm coverage` as the work queue.
+   (FalloutNV.esm, 2026-10-09: 183 of 1,155 pairs, 5.3% of subrecord instances; biggest:
+   PACK, NAVM, NAVI, DIAL, TERM) — tracked by `fnvtool esm coverage` as the work queue.
 2. Order-dependent subrecords (same signature meaning different things depending on what
    precedes it, e.g. condition blocks, model sub-structures) — schema format v1 has no
    context rules yet.
 3. GMST `DATA` type depends on the first letter of the Editor ID (s/i/f) [documented in
-   xEdit as a union]; schema v1 cannot express this, so GMST DATA stays undecoded.
+   xEdit as a union]; schema v1 has only size-decided unions (`{"union": [...]}`, used for
+   WATR DATA), not EditorID-decided ones, so GMST DATA stays undecoded.
 4. Engine handling of the out-of-range FormID in GRA, of the bad-checksum LAND, and of
    the dangling reference DeadMoney INFO 0x01011B23 → 0x010108DD (no such record in any
    loaded file) [observed].
