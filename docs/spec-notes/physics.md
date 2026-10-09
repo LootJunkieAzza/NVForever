@@ -489,8 +489,8 @@ are fixed, but how many run per frame depends on frame times).
   without a character moving and jumping among a dozen tumbling boxes (`state_digest`
   over every body's position and velocity bits, every step) [observed: tests, same
   process]. Cross-platform identity is what `enhanced-determinism` is for
-  [hypothesis: not yet compared across machines; CI runs the tests on Linux, Windows and
-  macOS but compares nothing between them].
+  [hypothesis: not yet compared across machines; CI runs the tests on Linux only and
+  compares nothing between machines].
 - Bodies are created in call order, and rapier's results depend on it [hypothesis, as for
   any solver]; the tools add terrain by grid and references by FormID. Queries that
   return several colliders sort them.
