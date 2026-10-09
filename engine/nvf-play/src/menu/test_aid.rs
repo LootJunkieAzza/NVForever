@@ -15,6 +15,8 @@
 //! the inventory, half a second later selects the item's row and drops one unit (`Drop`,
 //! the X key), the whole stack (`DropStack`, Shift+X) or uses it (`One`, Enter: equips, or
 //! uses up an aid item) and logs the list, and half a second later closes the menu.
+//! Dropping a quest item is refused: the logged status says so and the item stays (give
+//! one first with `NVF_PLAY_TEST_GIVE`, e.g. The Platinum Chip, 001164FB).
 
 use super::model::{Command, MenuModel, Mode, Side};
 use super::{ActiveMenu, MenuInput, OpenInventory, OpenNearestContainer};
