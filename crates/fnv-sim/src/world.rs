@@ -136,6 +136,11 @@ pub enum SimError {
     MissingSetting(String),
     #[error("the global {0} is not defined by any plugin")]
     MissingGlobal(String),
+    /// The player tried to drop a quest item from the inventory menu
+    /// ([`World::player_drop_item`]) [documented: GECK wiki Category:Items and
+    /// SetQuestObject: the player cannot drop or sell one].
+    #[error("{0} is a quest item: the player cannot drop it")]
+    QuestItem(FormId),
     #[error(transparent)]
     Leveled(#[from] LeveledError),
 }
@@ -202,6 +207,10 @@ pub struct Snapshot {
     /// Unloaded cells: GameDaysPassed when each was detached (absent in older snapshots).
     #[serde(default)]
     pub detached_cells: BTreeMap<FormId, f32>,
+    /// Quest-item flags set by scripts (`SetQuestObject`), by base form; absent when
+    /// none (and in older snapshots).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub quest_objects: BTreeMap<FormId, bool>,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.sim.state/1";
@@ -215,6 +224,8 @@ pub struct World<'a> {
     globals: BTreeMap<FormId, f32>,
     /// Unloaded cells and the GameDaysPassed at which they were unloaded.
     detached_cells: BTreeMap<FormId, f32>,
+    /// Quest-item flags set at run time (`set_quest_object`); they replace the record's.
+    quest_objects: BTreeMap<FormId, bool>,
     next_dynamic: u32,
     rng: ChaCha8Rng,
 }
@@ -228,6 +239,7 @@ impl<'a> World<'a> {
             refs: BTreeMap::new(),
             globals: BTreeMap::new(),
             detached_cells: BTreeMap::new(),
+            quest_objects: BTreeMap::new(),
             next_dynamic: FormId::FIRST_DYNAMIC.0,
             rng: ChaCha8Rng::seed_from_u64(cfg.seed),
         }
@@ -417,7 +429,9 @@ impl<'a> World<'a> {
         Ok(self.inventory(from)?.remove(item, count))
     }
 
-    /// Move up to `count` from one inventory to another; returns how many moved.
+    /// Move up to `count` from one inventory to another; returns how many moved. Quest
+    /// items move like any other: the pages that forbid dropping and selling them say
+    /// nothing about containers, so storing one is allowed [hypothesis; not captured].
     pub fn transfer(&mut self, from: FormId, to: FormId, item: FormId, count: i32) -> Result<i32, SimError> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
@@ -469,12 +483,34 @@ impl<'a> World<'a> {
         Ok(stacks)
     }
 
+    /// Whether `item` is a quest item now: the value a script last set with
+    /// [`World::set_quest_object`], else the record's "Quest Item" header flag
+    /// (`Item::quest_item`). One flag per base form: SetQuestObject sets "the" quest-item
+    /// flag of the form [documented: GECK wiki SetQuestObject], the one GetFormFlag reads
+    /// as bit 10 [documented: GECK wiki GetFormFlag]; that a script's value replaces the
+    /// authored one for every reference is [hypothesis: the change is to the base form].
+    pub fn is_quest_item(&self, item: FormId) -> bool {
+        self.quest_objects.get(&item).copied().unwrap_or_else(|| self.forms.is_quest_item(item))
+    }
+
+    /// `SetQuestObject item flag`: set or clear the quest-item flag of a base form. It is
+    /// kept in snapshots.
+    pub fn set_quest_object(&mut self, item: FormId, quest: bool) {
+        self.quest_objects.insert(item, quest);
+    }
+
     /// Drop items from an inventory into the world, one new reference per group of
     /// identical extra data, in the holder's cell, [`DROP_AHEAD`] units in front of the
     /// holder along its heading and [`DROP_ABOVE`] units above its position. Returns the
     /// new references. [observed in game, docs/spec-notes/simulation.md §5: the player
     /// dropping 1, 2 and 3 stimpaks made one reference each (count 1, 2, 3) at exactly
     /// that offset, which did not move for 10 s; hypothesis for other actors and items]
+    ///
+    /// This is the mechanism scripts use (`Drop`, `DropMe`, the action scripts'
+    /// `drop_item`): it ignores the quest-item flag, as the game's scripted `player.Drop`
+    /// does [observed 2026-10-09, `qi_drop_quest_item`: a quest key and a stimpak marked
+    /// with SetQuestObject both left the player's inventory]. The player's own drop is
+    /// [`World::player_drop_item`].
     pub fn drop_item(&mut self, from: FormId, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
         if count <= 0 {
             return Err(SimError::BadCount(count));
@@ -510,6 +546,17 @@ impl<'a> World<'a> {
             out.push(id);
         }
         Ok(out)
+    }
+
+    /// The player drops items by hand (the inventory menu): as [`World::drop_item`], but a
+    /// quest item ([`World::is_quest_item`]) is refused with [`SimError::QuestItem`] and
+    /// nothing moves [documented: GECK wiki Category:Items and SetQuestObject: the player
+    /// cannot drop one]. The count is checked first.
+    pub fn player_drop_item(&mut self, item: FormId, count: i32) -> Result<Vec<FormId>, SimError> {
+        if count > 0 && self.is_quest_item(item) {
+            return Err(SimError::QuestItem(item));
+        }
+        self.drop_item(FormId::PLAYER_REF, item, count)
     }
 
     /// Equip one carried `item` on `actor`. Weapons replace the equipped weapon; armour
@@ -990,6 +1037,7 @@ impl<'a> World<'a> {
             refs: self.refs.clone(),
             globals: self.globals.clone(),
             detached_cells: self.detached_cells.clone(),
+            quest_objects: self.quest_objects.clone(),
         }
     }
 
@@ -1004,6 +1052,7 @@ impl<'a> World<'a> {
         w.refs = s.refs.clone();
         w.globals = s.globals.clone();
         w.detached_cells = s.detached_cells.clone();
+        w.quest_objects = s.quest_objects.clone();
         Ok(w)
     }
 }

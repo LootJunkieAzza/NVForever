@@ -464,6 +464,123 @@ class ActorOracleTest(unittest.TestCase):
             self.assertEqual(a, self.actors[a["reference"]])
 
 
+# =========================================================================== creatures
+
+STATS = 1 << 1
+
+
+def crea(formid, name, modl=None, nifz=(), kffz=(), bnam=None, tflags=0, tplt=None, kind=None):
+    payload = edid(name)
+    if modl is not None:
+        payload += sub(b"MODL", zstr(modl))
+    if nifz:
+        payload += sub(b"NIFZ", b"".join(zstr(n) for n in nifz) + b"\0")
+    payload += sub(b"ACBS", struct.pack("<IHHHHHHfhH", 0, 0, 0, 1, 0, 0, 100, 0.0, 0, tflags))
+    if tplt is not None:
+        payload += sub(b"TPLT", u32(tplt))
+    if kind is not None:
+        payload += sub(b"DATA", bytes([kind]) + bytes(16))
+    if kffz:
+        payload += sub(b"KFFZ", b"".join(zstr(n) for n in kffz) + b"\0")
+    if bnam is not None:
+        payload += sub(b"BNAM", f32s(bnam))
+    return record(b"CREA", formid, payload)
+
+
+def acre(formid, base, scale=None, flags=0):
+    payload = sub(b"NAME", u32(base)) + sub(b"DATA", f32s(0, 0, 0, 0, 0, 0))
+    if scale is not None:
+        payload += sub(b"XSCL", f32s(scale))
+    return record(b"ACRE", formid, payload, flags=flags)
+
+
+CREATURES = {
+    0xC00: 0xD00,  # plain gecko
+    0xC01: 0xD01,  # template: model and stats from 0xD00
+    0xC02: 0xD02,  # template through an LVLC with two entries -> random
+    0xC03: 0xD03,  # marker skeleton -> error
+    0xC04: 0x930,  # an NPC base -> error
+}
+
+
+def build_creature_plugin():
+    creatures = [
+        crea(0xD00, "Gecko", "Creatures\\NVGecko\\Skeleton.NIF", nifz=["NVGecko.NIF", " Sub/Spikes.nif "],
+             kffz=["SpecialIdle.KF"], bnam=0.55, kind=1),
+        crea(0xD01, "GeckoCopy", nifz=["Ignored.nif"], bnam=2.0, tflags=MODEL | STATS, tplt=0xD00, kind=0),
+        crea(0xD02, "LevelledGecko", tflags=MODEL, tplt=0xE00),
+        crea(0xD03, "Marker", "marker_creature.nif"),
+        crea(0xD04, "Other", "creatures\\other\\skeleton.nif", nifz=["other.nif"]),
+    ]
+    refs = [acre(ref, base, scale=0.7 if ref == 0xC00 else None) for ref, base in CREATURES.items()]
+    refs.append(acre(0xCFF, 0xD00, flags=0x20))
+    body = (
+        group(b"RACE", 0, race())
+        + group(b"NPC_", 0, npc(0x930, "PlainMale"))
+        + group(b"CREA", 0, *creatures)
+        + group(b"LVLC", 0, leveled(b"LVLC", 0xE00, "LvlGecko", [(1, 0xD00, 1), (1, 0xD04, 1)]))
+        + group(b"CELL", 0,
+                group(0, 2, group(0, 3,
+                                  record(b"CELL", 0xB00, edid("TestCell") + sub(b"DATA", b"\x01")),
+                                  group(0xB00, 6, group(0xB00, 8, *refs))))))
+    return tes4() + body
+
+
+class CreatureOracleTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        tmp = cls._tmp.name
+        with open(os.path.join(tmp, "Test.esm"), "wb") as f:
+            f.write(build_creature_plugin())
+        cls.docs = {}
+        for name, extra in (("all", []), ("det", ["--deterministic"])):
+            out = os.path.join(tmp, f"{name}.json")
+            code = oracle_actor.main(["creatures", tmp, "Test.esm", "-o", out] + extra)
+            assert code == 0, code
+            with open(out, encoding="utf-8") as f:
+                cls.docs[name] = json.load(f)
+        cls.by_ref = {c["reference"]: c for c in cls.docs["all"]["creatures"]}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def c(self, ref):
+        return self.by_ref[f"0x{ref:08X}"]
+
+    def test_document(self):
+        doc = self.docs["all"]
+        self.assertEqual(doc["schema"], "fnv.actor.creatures/1")
+        self.assertEqual(list(doc), ["schema", "summary", "issues", "creatures", "load_order"])
+        self.assertEqual(doc["summary"]["outcomes"]["deleted"], 1)
+        self.assertEqual(doc["summary"]["base_kinds"], {"CREA": 4, "NPC_": 1})
+
+    def test_plain_creature(self):
+        self.assertEqual(self.c(0xC00), {
+            "reference": "0x00000C00", "base": "0x00000D00", "creature": "0x00000D00", "edid": "Gecko",
+            "kind": "Mutated Animal", "skeleton": "meshes\\creatures\\nvgecko\\skeleton.nif", "base_scale": f32(0.55),
+            "parts": [{"role": "body", "form": "0x00000D00", "model": "meshes\\creatures\\nvgecko\\nvgecko.nif"},
+                      {"role": "body", "form": "0x00000D00", "model": "meshes\\creatures\\nvgecko\\sub\\spikes.nif"}],
+            "anims": ["specialidle.kf"], "random": False, "scale": f32(0.7)})
+
+    def test_template_groups(self):
+        c = self.c(0xC01)
+        self.assertEqual((c["creature"], c["edid"], c["kind"]), ("0x00000D01", "GeckoCopy", "Mutated Animal"))
+        self.assertEqual(c["base_scale"], f32(0.55))
+        self.assertEqual([p["form"] for p in c["parts"]], ["0x00000D00", "0x00000D00"])
+
+    def test_lvlc_template_is_random(self):
+        c = self.c(0xC02)
+        self.assertTrue(c["random"])
+        self.assertEqual(c["base_scale"], 1.0)
+        self.assertNotIn(f"0x{0xC02:08X}", {x["reference"] for x in self.docs["det"]["creatures"]})
+
+    def test_errors(self):
+        self.assertIn("names no skeleton", self.c(0xC03)["error"])
+        self.assertIn("not a creature base", self.c(0xC04)["error"])
+
+
 class PathTest(unittest.TestCase):
     def test_archive_path(self):
         self.assertEqual(oracle_actor.archive_path(b" \\Characters/Head/X.NIF \0", "meshes\\"),

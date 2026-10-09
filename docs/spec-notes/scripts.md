@@ -848,7 +848,9 @@ factions, chargen, casino levels, power armor, topics, level, `hardcore_was_off`
 `RefExtra` per reference (essential, killer, object damage, added spells, broadcast
 state, crime and friendly-hit flags, talking actor, critical stage, scale, level,
 minimal use), `Game::forms` (`FormChanges`: faction reactions, base essential flags,
-names, quest items, cell owners, public cells, item values), `Game::effects` (active magic
+names, quest items (no longer written since 2026-10-09: SetQuestObject sets
+`fnv_sim::World::set_quest_object`, see simulation.md §3 "Quest items"), cell owners,
+public cells, item values), `Game::effects` (active magic
 effects). All are in `fnv.game.state/1` snapshots (new fields default when absent).
 Records read (schema layouts added in this round where marked): REPU DATA (new), CHAL
 DATA (new), REGN WNAM/RPLI/RPLD (new), MGEF DATA (new), the EFID/EFIT/CTDA effects of
