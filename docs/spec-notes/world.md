@@ -490,6 +490,71 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   hypothesis: Freeside's noon hazy and slightly washed out, never clipped white; Big MT's
   sky blue-grey with clouds; the Goodsprings sunset slightly flatter than a high-contrast
   grade.
+- **Lighting and sky captures, 2026-10-09 afternoon** [observed: 66 screenshots of the
+  original game by `tools/capture/capture_frames.py` (plugin v7, save `nvftest`,
+  NVWastelandClear forced unless named, 1280 × 720, FOV 75), private under
+  `C:\fnv-private\l3sky\`; renders of the same cameras by `nvforever`]. Cameras: four views
+  at Goodsprings ((−70500, 1200) headings 45 and 225; (−69500, 2500) headings 90 and 270)
+  at 07:36, 09:06, 12:06, 15:06, 17:36, 19:06, 20:06, 22:06 and 02:06; the sky cameras of
+  `C:\fnv-private\sky\cap\cameras.json` plus the sun at 09:06 and 18:06 and the west sky at
+  20:06 and 20:36; Primm and Lake Mead (17:36); Freeside at 12:06. Big MT failed (the
+  plugin's BitBlt failed there).
+  - *No view-dependent eye adaptation*: with NVWastelandClearNight (no clouds) at 12:06,
+    the same sky direction has the same colour in frames pitched 0°, 30°, 60° and 89°
+    (25° up: (116, 117, 132) / (119, 119, 133); 45°: (108, 106, 118) / (109, 106, 118);
+    75°: (162, 146, 127) twice), although the frames range from mostly ground to all sky
+    and sun glow. So the dark noon sky is not exposure following the view; the HDR
+    setting (`bDoHighDynamicRange=1` in the owner's FalloutPrefs.ini) does not change the
+    exposure with what is in view, or not measurably [observed].
+  - *Cloud placement follows the time since the save was loaded*, not the game hour:
+    today's trial at 12:06 (22 s after loading) has the same clouds as the reference frame
+    goodsprings_noon taken in another session 22 s after loading (mean difference 0.14
+    grey levels over the sky), and so does the 07:36 frame taken 22 s after loading
+    (correlation 0.89), while the 12:06 frame of the same camera taken 171 s after loading
+    differs (−0.13). Between goodsprings_noon (22 s) and goodsprings_dusk (41 s) the
+    pattern moves about 70 px right and 26 px down at the top of the 1280 × 720 frame
+    (camera heading 45°). The reference frames were taken 22, 41, 59 and 79 s after
+    loading (noon, dusk, hill, lake). So the game's cloud pattern in a frame is
+    reproducible only with that time, which the scenarios do not carry; the renderer
+    scrolls from its own start [observed; matching it needs a "seconds since load" input
+    per frame and the game's scroll direction and rate in texture space, not done].
+  - *Sun glow*: ring medians around the sun (degrees from its centre): 12:06 looking up
+    without clouds (ClearNight) (233, 209, 184) at 6-8°, (190, 170, 155) at 12-16°,
+    (141, 130, 124) at 20-26°; with clouds (Clear) white to 8°, (241, 220, 182) at
+    12-16°, (168, 153, 134) at 20-26°; 09:06 (sun 36° up) with clouds white to 16°,
+    (235, 222, 195) at 20-26°, (180, 169, 158) at 32-40°; 18:06 (sun 20° up) white to
+    12°. The larger glow comes with clouds near the sun and grows as the sun gets lower
+    [observed]; the mechanism is not known.
+  - *West sky at dusk*: at 20:06 looking west the sky 15-35° up is about (60, 52, 62);
+    at 20:36 it is (3..10, 4..12, 11..19). With the earlier dusk series (green channel of
+    the upper-right region 97 at 19:12, 75 at 19:36, 49 at 20:06, 15 at 20:36), the sky
+    fades from sunset to night roughly linearly in display values from about 19:05 to
+    20:35 [observed], later than the renderer's night key at sunset end (20:00). Not
+    changed: moving the night key or blending in display values changes every weather
+    colour and needs its own check.
+  - *Light on surfaces* [observed, offline fit: game frames with the grade undone (the
+    renderer's grade at that hour) against ambient-only and sun-only renders without
+    tonemapper, grade or shadows, 160 × 90, 28 frames 07:36-20:06]: a lighting sum in
+    display values, texture × (a·ambient + b·sunlight + c·sunlight·N·L), fits every frame
+    better than the same sum in linear light (mean error 0.03-0.06 against 0.04-0.12 per
+    frame). Within the renderer's linear model the ambient as now (Bevy's 0.452 included)
+    is about right overall and the sun is too strong: the best constant factor on the
+    sunlight is 0.6-0.66 (mean error 0.0601 → 0.0547), best per hour about 0.5 at 09:06,
+    15:06 and 17:36 but 0.9-1.2 at 07:36, 12:06 and 19:06, so a constant is a compromise
+    [hypothesis to test]. 0.66 equals (1 / 1.21)^2.2, the day image space's Sunlight
+    Dimmer (NVDefaultExterior HDR 1.1 × NVWastelandIS 0x0B multiplier 1.1) as a divisor of
+    display values; the same reading at sunrise (×1.5) and sunset (+0.2,
+    NVWastelandSunsetIS `KIAD`) made those frames worse. Faces turned away from the sun
+    (boulder at 15:06-17:36, crate at 12:06) get an effective ambient of about (96..107,
+    100..110, 106..114) in display values where the weather gives (87, 105, 138): nearly
+    neutral. The clearest case is Primm at 12:06: a north-facing wall (sun 78° up in the
+    south-east) is brightly and warmly lit in the game and nearly black-blue in the
+    renderer, so the game lights faces turned away from a high sun much more than
+    texture × ambient (two-sided or wrapped sunlight are candidates). Not changed in the
+    renderer yet (no validated change).
+  - *Freeside at 12:06* (NVUrbanClear, HeavyHaze adapter): the game's picture is normal,
+    slightly hazy, never clipped white; the renderer's (IMGS-order reading of 0x12/0x13)
+    is close in tone (frame SSIM 0.575). This confirms the PR #43 reading [observed].
 - **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
   the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
   [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600
