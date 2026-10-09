@@ -28,7 +28,14 @@
 //!   `sneak` (Left Ctrl), `weapon` (R), `aim` (the right mouse button, pressed or
 //!   released), `view` (F), `jump` (Space), `zoom=<units>` (the third-person distance),
 //!   `orbit=<yaw deg>:<pitch deg>` (Toggle POV held with the camera circled that far
-//!   round the player) or `release` (Toggle POV let go).
+//!   round the player) or `release` (Toggle POV let go); for combat (step C4): `fire`
+//!   (Use pressed, or let go if held), `reload` (a Ready Item tap with the weapon out),
+//!   `swap` (Ammo Swap), `aimactor` (turn the view to the nearest actor's aim point: its
+//!   torso, or the middle of its single capsule), `aimnpc` (the same, NPCs only),
+//!   `aimnpc=<share>` (at that share of the NPC's height, 0 feet to 1 top: the head or
+//!   legs for limb hits), `aimpart=<n>` (at the nearest NPC's body part `n`, its index in
+//!   the NPC's BPTD, step C8) and `equip=<FormID hex>` (give one unless carried and equip it,
+//!   as `NVF_PLAY_TEST_EQUIP`).
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
@@ -110,6 +117,14 @@ enum Press {
     Zoom(f32),
     Orbit(f32, f32),
     Release,
+    Fire,
+    Reload,
+    Swap,
+    AimActor,
+    AimNpc,
+    AimNpcAt(f32),
+    AimPart(u8),
+    Equip(FormId),
 }
 
 fn press(rest: &str) -> Result<Press, String> {
@@ -120,13 +135,24 @@ fn press(rest: &str) -> Result<Press, String> {
         "view" => Press::View,
         "jump" => Press::Jump,
         "release" => Press::Release,
+        "fire" => Press::Fire,
+        "reload" => Press::Reload,
+        "swap" => Press::Swap,
+        "aimactor" => Press::AimActor,
+        "aimnpc" => Press::AimNpc,
         _ => {
-            if let Some(Ok(d)) = rest.strip_prefix("zoom=").map(|d| d.trim().parse::<f32>()) {
+            if let Some(Ok(id)) = rest.strip_prefix("equip=").map(|h| u32::from_str_radix(h.trim().trim_start_matches("0x"), 16)) {
+                Press::Equip(FormId(id))
+            } else if let Some(Ok(h)) = rest.strip_prefix("aimnpc=").map(|h| h.trim().parse::<f32>()) {
+                Press::AimNpcAt(h)
+            } else if let Some(Ok(n)) = rest.strip_prefix("aimpart=").map(|n| n.trim().parse::<u8>()) {
+                Press::AimPart(n)
+            } else if let Some(Ok(d)) = rest.strip_prefix("zoom=").map(|d| d.trim().parse::<f32>()) {
                 Press::Zoom(d)
             } else if let Some(Ok((y, p))) = rest.strip_prefix("orbit=").map(look_angles) {
                 Press::Orbit(y, p)
             } else {
-                return Err(format!("{rest:?}: expected sneak, weapon, aim, view, jump, zoom=<units>, orbit=<yaw>:<pitch> or release"));
+                return Err(format!("{rest:?}: expected sneak, weapon, aim, view, jump, zoom=<units>, orbit=<yaw>:<pitch>, release, fire, reload, swap or aimactor"));
             }
         }
     })
@@ -189,6 +215,8 @@ struct Aids {
     /// Block held by the `aim` press (kept every frame: the real button's state is read
     /// each frame).
     aim_held: Option<bool>,
+    /// Use held by `fire` presses (combat).
+    fire_held: bool,
 }
 
 pub(crate) fn setup(app: &mut App) {
@@ -269,7 +297,17 @@ pub(crate) fn setup(app: &mut App) {
 }
 
 /// `NVF_PLAY_TEST_MOVE` and `NVF_PLAY_TEST_CONTROL`, after the real keys were read.
-fn keys_and_controls(time: Res<Time>, mut aids: ResMut<Aids>, mut intent: ResMut<MoveIntent>, mut control: ResMut<PlayerControl>) {
+#[allow(clippy::too_many_arguments)]
+fn keys_and_controls(
+    time: Res<Time>,
+    mut aids: ResMut<Aids>,
+    mut intent: ResMut<MoveIntent>,
+    mut control: ResMut<PlayerControl>,
+    phys: Res<PhysState>,
+    mut player: ResMut<Player>,
+    play: Res<crate::PlayWorld>,
+    mut sim: ResMut<SimState>,
+) {
     let now = time.elapsed_secs();
     for m in take_due(&mut aids.moves, now) {
         info!("test aid: movement keys forward {} right {}{}", m.forward, m.right, if m.walk { " walking" } else { "" });
@@ -291,6 +329,22 @@ fn keys_and_controls(time: Res<Time>, mut aids: ResMut<Aids>, mut intent: ResMut
                 control.orbit = crate::control::Orbit { yaw, pitch, held: true, moved: true };
             }
             Press::Release => control.orbit.held = false,
+            Press::Fire => aids.fire_held = !aids.fire_held,
+            Press::Reload => control.reload = true,
+            Press::Swap => control.ammo_swap = true,
+            Press::AimActor => aim_at_nearest_actor(&phys, &mut player, |_| true, None),
+            Press::AimNpc => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), None),
+            Press::AimNpcAt(h) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Share(h))),
+            Press::AimPart(n) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Part(n))),
+            Press::Equip(item) => {
+                let w = &mut sim.world;
+                let carried = w.item_count(FormId::PLAYER_REF, item).unwrap_or(0) > 0;
+                let r = if carried { Ok(Vec::new()) } else { w.add_item(FormId::PLAYER_REF, item, 1) };
+                match r.and_then(|_| w.equip(FormId::PLAYER_REF, item)) {
+                    Ok(_) => info!("test aid: the player equips {item}"),
+                    Err(e) => warn!("test aid: equip {item}: {e}"),
+                }
+            }
         }
         info!(
             "test aid: control {p:?}: sneak {} weapon out {} aiming {:?} view {:?} distance {:.0}",
@@ -300,6 +354,41 @@ fn keys_and_controls(time: Res<Time>, mut aids: ResMut<Aids>, mut intent: ResMut
     if let Some(a) = aids.aim_held {
         control.aiming = a;
     }
+    if aids.fire_held {
+        control.trigger = control.weapon_out;
+    }
+}
+
+/// Turn the view to the middle of the nearest actor hit volume that `keep` accepts
+/// (combat test aid).
+/// Where on an actor a test aid aims.
+#[derive(Debug, Clone, Copy)]
+enum Aim {
+    /// A share of its height.
+    Share(f32),
+    /// A body part (its index in the actor's BPTD).
+    Part(u8),
+}
+
+/// Aim at the nearest kept actor: its aim point (`PhysWorld::actor_aim_point`), a share of
+/// its height or one of its body parts.
+fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, keep: impl Fn(u32) -> bool, aim: Option<Aim>) {
+    let eye = player.eye();
+    let d2 = |c: [f32; 3]| (c[0] - eye[0]).powi(2) + (c[1] - eye[1]).powi(2) + (c[2] - eye[2]).powi(2);
+    let point = |id: u32| match aim {
+        Some(Aim::Share(s)) => phys.world.actor_volume(id).map(|v| [v.feet[0], v.feet[1], v.feet[2] + v.height * s]),
+        Some(Aim::Part(n)) => phys.world.actor_part_center(id, n),
+        None => phys.world.actor_aim_point(id),
+    };
+    let nearest = phys.world.actor_volumes().filter(|&id| keep(id)).filter_map(|id| point(id).map(|p| (id, p))).min_by(|a, b| d2(a.1).total_cmp(&d2(b.1)));
+    let Some((id, c)) = nearest else {
+        warn!("test aid: aimactor: no actor hit volume");
+        return;
+    };
+    let (dx, dy, dz) = (c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]);
+    player.heading = dx.atan2(dy);
+    player.pitch = dz.atan2(dx.hypot(dy));
+    info!("test aid: aiming at actor {id:08X} ({:.0} units away)", d2(c).sqrt());
 }
 
 fn take_shots(time: Res<Time>, mut aids: ResMut<Aids>, mut commands: Commands) {
@@ -405,7 +494,11 @@ mod tests {
         assert!(move_keys("1").is_err() && move_keys("1:0:run").is_err());
         assert_eq!(press("zoom=250").unwrap(), Press::Zoom(250.0));
         assert_eq!(press("weapon").unwrap(), Press::Weapon);
-        assert!(press("fire").is_err());
+        assert_eq!(press("fire").unwrap(), Press::Fire);
+        assert_eq!(press("aimactor").unwrap(), Press::AimActor);
+        assert_eq!(press("aimnpc=0.9").unwrap(), Press::AimNpcAt(0.9));
+        assert_eq!(press("aimpart=4").unwrap(), Press::AimPart(4));
+        assert!(press("shoot").is_err());
         assert_eq!(press("orbit=180:0").unwrap(), Press::Orbit(std::f32::consts::PI, 0.0));
         assert_eq!(press("release").unwrap(), Press::Release);
     }

@@ -18,6 +18,21 @@ use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// The last hit an actor took (`crate::combat`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LastHit {
+    pub attacker: Option<FormId>,
+    pub weapon: Option<FormId>,
+    /// GetHitLocation's index: −1 none, 0 torso, 1–2 head, 3–6 arms, 7–12 legs, 13 brain,
+    /// 14 weapon [documented: catalogue notes of GetHitLocation].
+    pub location: i32,
+    pub critical: bool,
+}
+
+fn is_zero_f64(v: &f64) -> bool {
+    *v == 0.0
+}
+
 /// Begin-block event codes (docs/spec-notes/script-functions.md §3.3 [observed]).
 pub mod event {
     pub const GAME_MODE: u16 = 0x00;
@@ -28,6 +43,8 @@ pub mod event {
     pub const ON_UNEQUIP: u16 = 0x05;
     pub const ON_DROP: u16 = 0x06;
     pub const SAY_TO_DONE: u16 = 0x07;
+    pub const ON_HIT: u16 = 0x08;
+    pub const ON_HIT_WITH: u16 = 0x09;
     pub const ON_DEATH: u16 = 0x0A;
     pub const ON_PACKAGE_START: u16 = 0x0F;
     pub const ON_PACKAGE_DONE: u16 = 0x10;
@@ -37,6 +54,7 @@ pub mod event {
     pub const SCRIPT_EFFECT_FINISH: u16 = 0x12;
     pub const SCRIPT_EFFECT_UPDATE: u16 = 0x13;
     pub const ON_DESTRUCTION_STAGE_CHANGE: u16 = 0x23;
+    pub const ON_FIRE: u16 = 0x24;
     pub const ON_TRIGGER: u16 = 0x18;
     pub const ON_TRIGGER_ENTER: u16 = 0x1A;
     pub const ON_TRIGGER_LEAVE: u16 = 0x1B;
@@ -157,9 +175,20 @@ pub struct RefExtra {
     /// Who killed the actor (KillActor's killer), for IsKiller.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub killer: Option<FormId>,
+    /// The last hit taken (combat), for GetHitLocation.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_hit: Option<LastHit>,
+    /// Health damage taken from the player, and from anyone (kill XP's share rule).
+    #[serde(skip_serializing_if = "is_zero_f64", default)]
+    pub player_damage: f64,
+    #[serde(skip_serializing_if = "is_zero_f64", default)]
+    pub total_damage: f64,
     /// Object damage taken (DamageObject), for the destruction stage.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub damage: Option<f64>,
+    /// Self-damage per second of the destruction stage reached (burning down).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub burning: Option<f64>,
     /// Spells added with AddSpell, in order.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub spells: Vec<FormId>,
@@ -386,13 +415,17 @@ pub struct Speech {
     pub info: FormId,
     /// Seconds of game time left until the line ends.
     pub remaining: f64,
-    /// Said by SayTo: the speaker's SayToDone blocks run when it ends.
+    /// Said by SayTo (else by Say). The speaker's SayToDone blocks run when either ends
+    /// [documented: level-design.md §11.2 D1].
     #[serde(default)]
     pub say_to: bool,
 }
 
 pub struct Game<'a> {
     pub data: &'a GameData,
+    /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
+    /// the engine to take.
+    pub combat_requests: Vec<crate::combat::CombatRequest>,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -526,6 +559,7 @@ impl<'a> Game<'a> {
     pub fn new(data: &'a GameData, world: World<'a>, cfg: GameConfig) -> Game<'a> {
         Game {
             data,
+            combat_requests: Vec::new(),
             world,
             cfg,
             quests: BTreeMap::new(),
@@ -1164,7 +1198,7 @@ impl<'a> Game<'a> {
     /// not advance while a menu is open; observed: Doc's line started at stage 60 while
     /// a message box was open ended after the boxes, layer5-captures.md §10.3]): lines
     /// whose time is up end, in the order they started; each line's end result script
-    /// runs on its speaker, then, for SayTo, the speaker's SayToDone blocks. A speaker
+    /// runs on its speaker, then the speaker's SayToDone blocks (after Say too, D1). A speaker
     /// that was disabled, deleted or died stops its line [hypothesis].
     fn update_speech(&mut self, dt: f64) {
         let mut ended = Vec::new();
@@ -1192,9 +1226,9 @@ impl<'a> Game<'a> {
                     self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
                 }
             }
-            if s.say_to {
-                self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
-            }
+            // SayToDone follows a line said by Say as well as by SayTo [documented: GECK
+            // tutorials, docs/spec-notes/level-design.md §11.2 D1].
+            self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
         }
     }
 
