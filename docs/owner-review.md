@@ -599,5 +599,5 @@ an NPC waits until the open animation has finished. Design: `docs/design/navmesh
    `run.lock` during some of them. Any windowed check that overlapped them may need
    re-running. The final smoke runs (15:29–15:33) took `.claude\smoke.lock`;
    `run.lock` had been held since 11:39 with no owner file and no FalloutNV or
-   nvforever process running (stale-looking). I left it in place.
+   nvforever process running (stale-looking); removed at your request (15:45).
 
