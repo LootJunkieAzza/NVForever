@@ -597,5 +597,7 @@ an NPC waits until the open animation has finished. Design: `docs/design/navmesh
    `C:\fnv-private\capture\run.lock`) about fifteen times (13:50–15:10, 20–120 s
    each) before reading item 5 of the NPC coordinator's section; another session held
    `run.lock` during some of them. Any windowed check that overlapped them may need
-   re-running.
+   re-running. The final smoke runs (15:29–15:33) took `.claude\smoke.lock`;
+   `run.lock` had been held since 11:39 with no owner file and no FalloutNV or
+   nvforever process running (stale-looking). I left it in place.
 
