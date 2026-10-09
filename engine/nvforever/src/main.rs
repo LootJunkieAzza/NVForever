@@ -7,7 +7,9 @@
 //! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md),
 //! and Esc in a menu closes the menu.
 
+mod actors;
 mod emittance;
+mod facegen;
 mod fly;
 mod lights;
 mod lod;
@@ -163,6 +165,12 @@ struct Args {
     /// (Layer 4, nvf-play) instead of the free-fly camera.
     #[arg(long)]
     play: bool,
+    /// Do not draw NPCs (workstream 5, docs/design/static-actors.md).
+    #[arg(long)]
+    no_actors: bool,
+    /// Draw NPCs with the race's base face (no FaceGen morphs or face textures).
+    #[arg(long)]
+    no_facegen: bool,
     /// Test aid with --play: walk forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0, requires = "play")]
     auto_walk: f32,
@@ -316,6 +324,13 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     };
+    let actor_world = (!args.no_actors).then(|| {
+        let t0 = std::time::Instant::now();
+        let mut a = actors::ActorWorld::build(world.lo, world.schema);
+        a.facegen_enabled = !args.no_facegen;
+        info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
+        a
+    });
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -355,6 +370,7 @@ fn main() -> AppExit {
         stats: Default::default(),
     })
     .insert_resource(world)
+    .init_resource::<nvf_assets::actor::ActorParts>()
     .insert_resource(StartPose {
         position: start,
         heading: args.heading,
@@ -377,19 +393,26 @@ fn main() -> AppExit {
             .add_systems(Update, (worldspace::switch, world::travel).chain().before(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
     }
+    if let Some(a) = actor_world {
+        app.insert_resource(a);
+    }
     if args.screenshot.is_some() {
         app.add_systems(Update, screenshot_and_exit);
     }
     if let Some(secs) = args.run_seconds {
-        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, lod: Res<lod::LodState>, mut commands: Commands, mut t: Local<(f32, u32)>| {
+        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, lod: Res<lod::LodState>, actors: Option<Res<actors::ActorWorld>>, mut commands: Commands, mut t: Local<(f32, u32)>| {
             t.0 += time.delta_secs();
             t.1 += 1;
             if t.0 >= secs {
                 let (baked, cached) = lod.gen.as_ref().map_or((0, 0), |g| (g.baked, g.cached));
                 info!(
-                    "run finished after {:.1}s: {} cells loaded in total, {} loaded now, {} frames ({:.1} per second), generated LOD chunks {} baked, {} from the cache",
-                    t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached
+                    "run finished after {:.1}s: {} cells loaded in total, {} loaded now, {} frames ({:.1} per second), generated LOD chunks {} baked, {} from the cache, actors {:?}",
+                    t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached, streamer.stats.actors
                 );
+                if let Some(a) = actors {
+                    let fg = a.facegen.lock().expect("facegen cache");
+                    info!("FaceGen: {} shapes morphed, {} faces textured, {} EGMs not matching their shape", fg.morphed_shapes, fg.faces_textured, fg.mismatched);
+                }
                 commands.write_message(AppExit::Success);
             }
         });
