@@ -237,6 +237,9 @@ game units unchanged.
    `parity-lab/tools/gen_layer3_frames.py` (owner's manifest → private scenarios), and
    the capture procedure in `tools/capture/README.md` §7. Rendering is deterministic:
    two runs of the same camera give identical images (SSIM 1.0, MAE 0) [observed].
+   First reference frames (2026-10-09, four cameras at 16:9): `--fov` now follows the
+   game's Hor+ rule (the setting is the horizontal angle at 4:3; 75 → 91.3° at 16:9),
+   which aligned all four frames [hypothesis for the rule; docs/spec-notes/camera.md].
    Originally planned: an image comparator in the lab (perceptual metric with region masks,
    standard library only), a capture procedure for the original game, and fixed-camera
    scenarios.
