@@ -338,6 +338,8 @@ impl PhysWorld {
         let ignore = c.ignore_layers;
         let solid = move |_: ColliderHandle, co: &Collider| match Owner::decode(co.user_data) {
             Some(Owner::Ref { layer, .. }) => !ignore.contains(layer),
+            // Actor hit volumes are for shots, not for walking (combat.md §5.2).
+            Some(Owner::Actor { .. }) => false,
             _ => true,
         };
         let filter = QueryFilter::default().exclude_sensors().exclude_rigid_body(c.body).predicate(&solid);

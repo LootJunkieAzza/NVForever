@@ -291,7 +291,7 @@ impl Status {
                     self.touched.insert(*form_id);
                 }
                 Owner::Terrain { .. } => self.touched_terrain = true,
-                Owner::Character { .. } => {}
+                Owner::Character { .. } | Owner::Actor { .. } => {}
             }
         }
         self.last = Some(s.clone());
@@ -678,6 +678,7 @@ fn step(
     mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
+    limbs: Option<Res<crate::combat::PlayerLimbs>>,
 ) {
     if *state.get() != PlayState::Playing {
         phys.stepper = default();
@@ -720,8 +721,10 @@ fn step(
             }
         } else {
             *stroke_time = 0.0;
+            // Crippled legs slow the player (combat C8) [design].
+            let k = limbs.as_deref().map_or(1.0, crate::combat::PlayerLimbs::speed_mult);
             let [x, y] = velocity(&intent, player.heading, *speeds);
-            [x, y, 0.0]
+            [x * k, y * k, 0.0]
         };
         p.prev_feet = c.feet;
         let view = Some([player.heading.sin(), player.heading.cos()]);
