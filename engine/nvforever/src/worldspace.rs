@@ -78,14 +78,14 @@ pub fn switch(
         None
     } else {
         match crate::lodgen_job(&args, &world, &game) {
-            Ok(job) => Some(GenState::new(job, args.lodgen_radius.clamp(0, args.lod_radius))),
+            Ok(job) => Some(GenState::new(job, args.lodgen_radius.max(0))),
             Err(e) => {
                 warn!("render: generated LOD for {name}: {e}");
                 None
             }
         }
     };
-    *lod = LodState::new(&world, args.lod_radius, !args.no_lod, gen);
+    *lod = LodState::new(&world, crate::lod_settings(&args), !args.no_lod, gen);
 
     water.clear(&mut commands);
 }
