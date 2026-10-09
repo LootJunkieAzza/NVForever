@@ -665,8 +665,9 @@ the original (test `snapshots_round_trip`).
 | OnLoad | scripted references in a cell when it becomes loaded (the player's cell, plus the 5×5 grid outdoors), at once; a reference enabled in a loaded cell at the start of the next frame, not inside Enable | cell load [hypothesis]; after Enable [observed: jukebox and broken radio, layer5-captures.md §8.3 d] |
 | OnAdd / OnEquip / OnUnequip | AddItem (each item of a form list), pick-up, EquipItem / UnequipItem, on the item's script, inside the call; the item's GameMode follows by the next frame | [documented: AddItem's OnAdd; per call, not per item, hypothesis; observed: OnAdd then GameMode by the next frame, `L5.quest.onadd_gamemode`] |
 | OnDeath | KillActor | [hypothesis: at once] |
-| SayToDone | when a line said by SayTo ends, after its end result script (§7.7); also the runner input `say_to_done` | [hypothesis on the order] |
-| OnTriggerEnter / OnTrigger / OnTriggerLeave, OnPackageStart/Done/Change | runner inputs until physics sensors (5D) and Layer 6 | — |
+| SayToDone | when a line said by SayTo or Say ends, after its end result script (§7.7); also the runner input `say_to_done` | after Say too [documented: GECK tutorials, level-design.md §11.2 D1]; the order [hypothesis] |
+| OnTriggerEnter / OnTrigger / OnTriggerLeave | runner inputs (`trigger_enter`); in `nvforever --play` any actor's capsule against the volume (docs/design/layer5-play.md §3) | who and how [documented: level-design.md §11.2 T1–T3]; Enter before OnTrigger on the entering frame [hypothesis] |
+| OnPackageStart/Done/Change | runner inputs until Layer 6 | — |
 
 A dead actor's default activation opens its inventory (the loot menu) [observed:
 `L5.quest.dead_activation`]. A scripted item's instance is per holder and item;
@@ -694,8 +695,11 @@ state and one call per frame:
   is 1001, the name, race, tag-skill, trait and S.P.E.C.I.A.L. menus have their codes),
   and boxes wait in `Game::boxes`. The engine should show `game.menu` and call
   `game.close_menu()` when the player closes it (OK / Done) and `game.press_button(b)` for
-  a button, instead of overwriting `game.menu` every frame; until it does, a box or menu a
-  script opens holds the rest of that frame's GameMode only, and `boxes` keeps growing.
+  a button, instead of overwriting `game.menu` every frame. `nvforever --play` does so
+  since 5D round 2 (docs/design/layer5-play.md §2): it sets `game.message_box.pressed`
+  before the frame's tick and calls `close_menu` after it, so a `MenuMode 1001` block
+  still reads the button once (with `press_button` the box would close before MenuMode
+  ran).
   `GameConfig::modal_message_boxes` (default on) switches boxes back to notifications.
   Dialogue lines advance in `tick` (`Game::speech`); the engine can play their voice
   files from the `line_started` events.
@@ -1017,7 +1021,8 @@ Mercenary, Caravan, Tribal. In the game the next box came 0.45–1.4 s after a c
   at random [hypothesis]. ANAM restricts the speaker.
 - The begin result script runs when the line starts, the end script when it ends
   [documented: Category:Dialogue], on the speaker, with the line's quest as the quest.
-  Then, for SayTo, the speaker's SayToDone blocks run [hypothesis on the order].
+  Then the speaker's SayToDone blocks run, for Say as well as SayTo [documented: GECK
+  tutorials, level-design.md §11.2 D1; hypothesis on the order].
 - A line lasts 1.1 s plus 1/16 s per character of each response's text
   (`LINE_BASE_SECONDS`, `LINE_SECONDS_PER_CHAR`) [hypothesis: fitted to the observed
   spans of Doc Mitchell's lines (29 characters: 2.9 s; three lines of 193: 15.4 s; two of
@@ -1077,7 +1082,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `say_info {info, speaker?, force?}` | a dialogue line being said: its begin and end result scripts run on the speaker; refused when its conditions fail (with the conditions and their values in the error) unless `force` |
 | `say_first {infos, speaker?, label?}` | the speaker picking the first line whose conditions pass; observation `said` |
 | `package {actor, package, event: start/done/change}` | an AI package event: the package's result script and the actor's OnPackage* blocks |
-| `say_to_done {actor, topic?}` | a SayTo line finishing (SayToDone blocks) |
+| `say_to_done {actor, topic?}` | a SayTo or Say line finishing (SayToDone blocks) |
 | `trigger_enter {trigger, actor?, event: enter/inside/leave}` | an actor in a trigger volume (OnTriggerEnter / OnTrigger / OnTriggerLeave) |
 | `press_button {button}` | the player picking a message box button |
 | `menu {menu}` | a menu opening (MenuMode with that code) or closing (`null`) |
