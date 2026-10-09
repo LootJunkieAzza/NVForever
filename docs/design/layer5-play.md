@@ -43,6 +43,9 @@ where the runtime hooks in (`lib.rs`: modules, `PlaySet::Scripts`, the plugin;
      appeared → OnDrop; the item's script runs in its per-holder instance, subject the
      player [hypothesis: per change, not per unit; storing into a container runs
      nothing here].
+   - **Items used up** in the inventory menu (an aid item; the menu sends `ItemUsed`
+     after `World::equip` removed it): `Game::apply_magic_item` starts its effects,
+     including ScriptEffectStart/Update/Finish of effect scripts (scripts.md §7.6).
    - **The player's cell** (`RefState::cell`, kept by `player.rs`): when it changes,
      `Game::player_entered` loads it (the 5×5 grid outdoors [hypothesis, scripts.md
      §7.2]) and newly loaded cells' scripted references get OnLoad.
@@ -131,6 +134,8 @@ actors yet).
   0-based; a box without buttons is dismissed), `var:<quest or ref>:<name>:<value>`.
   Names are Editor IDs, hex FormIDs or `player`.
 - `NVF_PLAY_SCRIPTS=0`: no scripts (Layer 4 play exactly as before).
+- `NVF_PLAY_TEST_DROP=<seconds>:<item>:use` (menu/test_aid.rs) uses an item from the
+  inventory as Enter does; with an aid item its effects start in the runtime (below).
 - With the Layer 4 aids (`NVF_PLAY_TEST_NEAR`, `_ACTIVATE`, `_GOTO`, `_LOOK`, `_SHOTS`,
   layer4-play.md §6).
 
