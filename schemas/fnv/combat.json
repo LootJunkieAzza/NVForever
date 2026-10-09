@@ -1,0 +1,205 @@
+{
+ "format": "fnv.schema/1",
+ "types": {
+  "BodyLocation": {
+   "enum": "i8",
+   "values": {
+    "-1": "None",
+    "0": "Torso",
+    "1": "Head 1",
+    "2": "Head 2",
+    "3": "Left Arm 1",
+    "4": "Left Arm 2",
+    "5": "Right Arm 1",
+    "6": "Right Arm 2",
+    "7": "Left Leg 1",
+    "8": "Left Leg 2",
+    "9": "Left Leg 3",
+    "10": "Right Leg 1",
+    "11": "Right Leg 2",
+    "12": "Right Leg 3",
+    "13": "Brain",
+    "14": "Weapon"
+   }
+  },
+  "ProjectileData": {
+   "struct": [
+    {"name": "flags", "type": {"flags": "u16", "bits": {
+     "0": "Hitscan", "1": "Explosion", "2": "Alt. Trigger", "3": "Muzzle Flash",
+     "5": "Can Be Disabled", "6": "Can Be Picked Up", "7": "Supersonic", "8": "Pins Limbs",
+     "9": "Pass Through Small Transparent", "10": "Detonates", "11": "Rotation"}}},
+    {"name": "type", "type": {"enum": "u16", "values": {
+     "1": "Missile", "2": "Lobber", "4": "Beam", "8": "Flame", "16": "Continuous Beam"}}},
+    {"name": "gravity", "type": "f32"},
+    {"name": "speed", "type": "f32"},
+    {"name": "range", "type": "f32"},
+    {"name": "light", "type": "formid"},
+    {"name": "muzzle_flash_light", "type": "formid"},
+    {"name": "tracer_chance", "type": "f32"},
+    {"name": "explosion_alt_trigger_proximity", "type": "f32"},
+    {"name": "explosion_alt_trigger_timer", "type": "f32"},
+    {"name": "explosion", "type": "formid"},
+    {"name": "sound", "type": "formid"},
+    {"name": "muzzle_flash_duration", "type": "f32"},
+    {"name": "fade_duration", "type": "f32"},
+    {"name": "impact_force", "type": "f32"},
+    {"name": "sound_countdown", "type": "formid"},
+    {"name": "sound_disable", "type": "formid"},
+    {"name": "default_weapon_source", "type": "formid"},
+    {"name": "rotation", "type": "Vec3f", "optional": true},
+    {"name": "bouncy_mult", "type": "f32", "optional": true}
+   ]
+  },
+  "ExplosionData": {
+   "struct": [
+    {"name": "force", "type": "f32"},
+    {"name": "damage", "type": "f32"},
+    {"name": "radius", "type": "f32"},
+    {"name": "light", "type": "formid"},
+    {"name": "sound_1", "type": "formid"},
+    {"name": "flags", "type": {"flags": "u32", "bits": {
+     "0": "Radius in BS Units", "1": "Always Uses World Orientation", "2": "Knock Down - Always",
+     "3": "Knock Down - By Formula", "4": "Ignore LOS Check", "5": "Push Explosion Source Ref Only",
+     "6": "Ignore Image Space Swap"}}},
+    {"name": "is_radius", "type": "f32"},
+    {"name": "impact_dataset", "type": "formid"},
+    {"name": "sound_2", "type": "formid"},
+    {"name": "radiation_level", "type": "f32"},
+    {"name": "radiation_dissipation_time", "type": "f32"},
+    {"name": "radiation_radius", "type": "f32"},
+    {"name": "sound_level", "type": "SoundLevel"}
+   ]
+  },
+  "BodyPartNodeData": {
+   "struct": [
+    {"name": "damage_mult", "type": "f32"},
+    {"name": "flags", "type": {"flags": "u8", "bits": {
+     "0": "Severable", "1": "IK Data", "2": "IK Data - Biped Data", "3": "Explodable",
+     "4": "IK Data - Is Head", "5": "IK Data - Headtracking", "6": "To Hit Chance - Absolute"}}},
+    {"name": "part_type", "type": "BodyLocation"},
+    {"name": "health_percent", "type": "u8"},
+    {"name": "actor_value", "type": "ActorValueI8"},
+    {"name": "to_hit_chance", "type": "u8"},
+    {"name": "explodable_explosion_chance_percent", "type": "u8"},
+    {"name": "explodable_debris_count", "type": "u16"},
+    {"name": "explodable_debris", "type": "formid"},
+    {"name": "explodable_explosion", "type": "formid"},
+    {"name": "tracking_max_angle", "type": "f32"},
+    {"name": "explodable_debris_scale", "type": "f32"},
+    {"name": "severable_debris_count", "type": "i32"},
+    {"name": "severable_debris", "type": "formid"},
+    {"name": "severable_explosion", "type": "formid"},
+    {"name": "severable_debris_scale", "type": "f32"},
+    {"name": "gore_effects_positioning", "type": "PosRot"},
+    {"name": "severable_impact_dataset", "type": "formid"},
+    {"name": "explodable_impact_dataset", "type": "formid"},
+    {"name": "severable_decal_count", "type": "u8"},
+    {"name": "explodable_decal_count", "type": "u8"},
+    {"name": "unused_0", "type": {"array": "u8", "count": 2}},
+    {"name": "limb_replacement_scale", "type": "f32"}
+   ]
+  },
+  "AmmoEffectData": {
+   "struct": [
+    {"name": "type", "type": {"enum": "u32", "values": {
+     "0": "Damage Mod", "1": "DR Mod", "2": "DT Mod", "3": "Spread Mod",
+     "4": "Weapon Condition Mod", "5": "Fatigue Mod"}}},
+    {"name": "operation", "type": {"enum": "u32", "values": {"0": "Add", "1": "Multiply", "2": "Subtract"}}},
+    {"name": "value", "type": "f32"}
+   ]
+  },
+  "EnchantmentData": {
+   "struct": [
+    {"name": "type", "type": {"enum": "u32", "values": {"2": "Weapon", "3": "Apparel"}}},
+    {"name": "unused_0", "type": {"array": "u8", "count": 4}},
+    {"name": "unused_1", "type": {"array": "u8", "count": 4}},
+    {"name": "flags", "type": {"flags": "u8", "bits": {"0": "No Auto-Calc", "1": "Auto Calculate", "2": "Hide Effect"}}},
+    {"name": "unused_2", "type": {"array": "u8", "count": 3}}
+   ]
+  },
+  "ActorEffectData": {
+   "struct": [
+    {"name": "type", "type": {"enum": "u32", "values": {
+     "0": "Actor Effect", "1": "Disease", "2": "Power", "3": "Lesser Power", "4": "Ability",
+     "5": "Poison", "10": "Addiction"}}},
+    {"name": "cost_unused", "type": "u32"},
+    {"name": "level_unused", "type": "u32"},
+    {"name": "flags", "type": {"flags": "u8", "bits": {
+     "0": "No Auto-Calc", "1": "Immune to Silence 1?", "2": "PC Start Effect", "3": "Immune to Silence 2?",
+     "4": "Area Effect Ignores LOS", "5": "Script Effect Always Applies", "6": "Disable Absorb/Reflect",
+     "7": "Force Touch Explode"}}},
+    {"name": "unused_0", "type": {"array": "u8", "count": 3}}
+   ]
+  }
+ },
+ "records": {
+  "PROJ": {
+   "name": "Projectile",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {"name": "Data", "type": "ProjectileData", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PROJ record (dev-4.1.6); SetOptionalFrom(18): rotation and bouncy_mult may be absent; flag bit 4 is unnamed in xEdit and left out; type values 1/2/4/8/16 as xEdit's sparse enum"},
+    "NAM1": {"name": "Muzzle Flash Model FileName", "type": "zstring", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PROJ record (Muzzle Flash Model)"},
+    "NAM2": {"name": "Muzzle Flash Model Texture Hashes", "type": {"array": "TextureHash"}, "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PROJ record: wbModelInfo(NAM2), the same layout as MODT"},
+    "VNAM": {"name": "Sound Level", "type": "SoundLevel", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PROJ record"}
+   }
+  },
+  "EXPL": {
+   "name": "Explosion",
+   "confidence": "documented",
+   "subrecords": {
+    "MNAM": {"name": "Image Space Modifier", "type": "formid", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas EXPL record (IMAD)"},
+    "DATA": {"name": "Data", "type": "ExplosionData", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas EXPL record; radiation is a nested struct there (level, dissipation time, radius), flattened here"},
+    "INAM": {"name": "Placed Impact Object", "type": "formid", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas EXPL record"}
+   }
+  },
+  "BPTD": {
+   "name": "Body Part Data",
+   "confidence": "documented",
+   "subrecords": {
+    "BPTN": {"name": "Part Name", "type": "zstring", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas BPTD record; a part is BPTN (optional) BPNN BPNT BPNI BPND NAM1 NAM4 NAM5, repeated per part"},
+    "BPNN": {"name": "Part Node", "type": "zstring", "confidence": "documented", "note": "xEdit wbDefinitionsFNV.pas BPTD record"},
+    "BPNT": {"name": "VATS Target", "type": "zstring", "confidence": "documented", "note": "xEdit wbDefinitionsFNV.pas BPTD record"},
+    "BPNI": {"name": "IK Data - Start Node", "type": "zstring", "confidence": "documented", "note": "xEdit wbDefinitionsFNV.pas BPTD record"},
+    "BPND": {"name": "Node Data", "type": "BodyPartNodeData", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas BPTD record; part_type is wbBodyLocationEnum (wbDefinitionsCommon.pas)"},
+    "NAM1": {"name": "Limb Replacement Model", "type": "zstring", "confidence": "documented", "note": "xEdit wbDefinitionsFNV.pas BPTD record"},
+    "NAM4": {"name": "Gore Effects - Target Bone", "type": "zstring", "confidence": "documented", "note": "xEdit wbDefinitionsFNV.pas BPTD record"},
+    "NAM5": {"name": "Limb Replacement Model Texture Hashes", "type": {"array": "TextureHash"}, "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas BPTD record: wbModelInfo(NAM5), the same layout as MODT"},
+    "RAGA": {"name": "Ragdoll", "type": "formid", "confidence": "documented", "note": "xEdit wbDefinitionsFNV.pas BPTD record (RGDL)"}
+   }
+  },
+  "AMEF": {
+   "name": "Ammo Effect",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {"name": "Data", "type": "AmmoEffectData", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas AMEF record; meanings: GECK wiki Ammo Effect (owner, 2026-10-09)"}
+   }
+  },
+  "ENCH": {
+   "name": "Object Effect",
+   "confidence": "documented",
+   "subrecords": {
+    "ENIT": {"name": "Effect Data", "type": "EnchantmentData", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ENCH record; type values 0 and 1 are unnamed in xEdit and left out; effects are the shared EFID/EFIT/CTDA"}
+   }
+  },
+  "SPEL": {
+   "name": "Actor Effect",
+   "confidence": "documented",
+   "subrecords": {
+    "SPIT": {"name": "Data", "type": "ActorEffectData", "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas SPEL record; type values 6-9 are unnamed in xEdit and left out; effects are the shared EFID/EFIT/CTDA"}
+   }
+  }
+ }
+}

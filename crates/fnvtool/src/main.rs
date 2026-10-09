@@ -8,6 +8,8 @@ mod actor_weapons;
 mod actor_cmd;
 mod bsa_cmd;
 mod collide_cmd;
+mod combat_cmd;
+mod combat_sim;
 mod dds_cmd;
 mod spt_cmd;
 mod esm_cmd;
@@ -82,6 +84,9 @@ enum Cmd {
     /// Actor appearance: the parts that make up placed NPCs (workstream 5).
     #[command(subcommand)]
     Actor(ActorCmd),
+    /// Layer 6 combat data: weapons, ammo, projectiles, explosions, body parts.
+    #[command(subcommand)]
+    Combat(combat_cmd::CombatCmd),
     /// Navmeshes: records, the nav graph, paths and path-following walks.
     #[command(subcommand)]
     Nav(nav_cmd::NavCmd),
@@ -690,6 +695,7 @@ fn main() -> ExitCode {
         Cmd::Sim(c) => sim_cmd::run(c),
         Cmd::Script(c) => script_cmd::run(c),
         Cmd::Actor(c) => actor_cmd::run(c),
+        Cmd::Combat(c) => combat_cmd::run(c),
         Cmd::Nav(c) => nav_cmd::run(c),
     };
     match res {
