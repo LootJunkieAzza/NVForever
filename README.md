@@ -72,6 +72,7 @@ crates/
   fnv-vfs       read-only virtual file system (archives in precedence order + loose files)
   fnv-world     worldspaces, cells, references, landscape across a load order
   fnv-sim       Layer 4 core simulation: forms, references, inventories, activation (headless)
+  fnv-script    Layer 5 compiled scripts: script units, bytecode to IR, function table, decompiler
   fnvtool       CLI used by the parity lab (JSON on stdout)
 engine/         Bevy workspace (its own): nvf-assets, nvf-viewer (asset viewer), nvforever (game)
 schemas/fnv/    record layouts as data (fnv.schema/1)

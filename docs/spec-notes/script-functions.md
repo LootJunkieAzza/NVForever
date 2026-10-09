@@ -208,12 +208,22 @@ The wiki's argument types are free-form (`0/1`, `x/y/z`, `StatName`, `baseform`,
 
 ## 7. Open items
 
-- Parameter encodings beyond `r`/`n` (`z`, `Z`, `G`, raw codes); the trailing bytes of
-  `ShowMessage`; the meaning of the `Set` target letters (§3.2).
+- ~~Parameter encodings beyond `r`/`n` (`z`, `Z`, `G`, raw codes); the trailing bytes of
+  `ShowMessage`; the meaning of the `Set` target letters (§3.2).~~ Resolved 2026-10-09 in
+  [scripts.md](scripts.md) §2.4–2.5: `z` = f64 literal, `G` = global, `Z` = an axis
+  letter as a parameter and a reference value in expressions, raw codes = enumerated u16
+  or strings, depending on the function (encodings are per parameter, listed in
+  `crates/fnv-script/data/encodings.json`); ShowMessage's trailing bytes = format
+  variables + duration; `s`/`f` = Integer/FloatOrRef locals, `r` = another script's
+  variable. Every unit of the masters decodes with no unexplained byte.
 - Opcodes for the 181 vanilla functions without evidence. Options: a clean-room source
   that documents them, or the owner compiling one-line test scripts in the GECK and
   reading the bytecode back (a valid observation, but the owner decides).
-- The 10 scripts whose line count does not match, and the GetInCharGen anomaly (§4).
+- ~~The 10 scripts whose line count does not match~~: lines without a letter or digit
+  produce no statement; each script is explained in scripts.md §3.4. The GetInCharGen
+  anomaly (§4) stays open: the decoder keeps 0x127C as an unknown opcode.
 - Block names for the unused event codes 0x0B, 0x0D, 0x0E and 0x1D.
-- A Rust reader for this format belongs in Layer 3+ (scripting); this note and the
-  catalogue are its input.
+- ~~A Rust reader for this format~~: `crates/fnv-script` (Layer 5, scripts.md).
+- Parameter lists the wiki leaves out: ShowCaravanMenu, SetNPCRadio, StartCannibal,
+  EnableLoadingMenu and Unlock take more parameters than `params` lists (scripts.md
+  §3.6); 112 called functions never have a parameter block (scripts.md §2.2).
