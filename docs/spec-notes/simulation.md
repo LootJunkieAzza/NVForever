@@ -307,7 +307,18 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
   xEdit]. 1,378 references have XTEL; 1,376 pairs are reciprocal (the destination door's
   XTEL points back); 0x00087A6B → 0x000827BA and 0x000CAEB5 → 0x000CAFA5 point at doors
   that teleport elsewhere [observed]. Every destination exists and is a DOOR reference
-  [observed].
+  [observed]. By where they lead (`fnvtool sim doors`, §7; the destination cell as
+  `activate` resolves it, below): 274 interior → interior, 488 interior → worldspace,
+  488 worldspace → interior, 22 within one worldspace and **106 into another
+  worldspace**, between 22 worldspaces in 18 pairs, all 106 reciprocal [observed, ten
+  masters]. Examples: the Mojave's north and east gates ↔ FreesideNorthWorld
+  (0x00116420 ↔ 0x00116424, 0x0011641F ↔ 0x00116423), FreesideWorld ↔ TheStripWorldNew
+  (0x00116425 ↔ 0x0013BB0D), FreesideWorld ↔ FreesideNorthWorld (bus and side doors),
+  22 doors each way Mojave ↔ GreenhouseWorld01, 11 Mojave ↔ WastelandNVmini, the Dead
+  Money districts, Big MT ↔ Higgs Village (0x0300BF95 ↔ 0x0300BEBB) and Lonesome Road's
+  worldspaces. 6 of the 106 are locked, among them the Freeside → Strip gate 0x00116425
+  (level 255, key 0x00119875) [observed]; there is no Mojave ↔ FreesideWorld door
+  (FreesideWorld is reached through FreesideNorthWorld or the Strip) [observed].
 - **Default activation by base type** [hypothesis, GECK wiki's description of object
   types; to be captured]: item → the activator picks up the stack (XCNT count, default 1)
   and the reference leaves the world; container → opens its inventory; door → teleports
@@ -690,3 +701,19 @@ Lab comparator: **distribution** over `/cases`, keyed on `label`, `field` `outco
 Observational report behind §1–§5 (counts per base type, item value/weight coverage,
 carried-item targets, leveled-list statistics, reference flags, locks, teleport
 reciprocity, loader issues). Not a scenario.
+
+### `fnvtool sim doors <lo> --schema <dir>` → `fnv.sim.doors/1`
+
+Every teleport door (XTEL) by where it leads, behind the counts in §5. The destination
+cell is the one `World::activate` moves the actor into (`RefTable::teleport_cell`: the
+destination door's cell, or in a worldspace the exterior cell containing the XTEL
+position); a cell's worldspace is `RefTable::world_of`. Not a scenario.
+
+- `teleport_doors`: count; `by_kind`: counts of `interior_to_interior`,
+  `interior_to_world`, `world_to_interior`, `same_world`, `cross_world`, `unresolved`
+  (destination door not placed).
+- `cross_world_by_pair`: `"<from WRLD EDID> -> <to WRLD EDID>"` → count.
+- `cross_world`: one object per door into another worldspace: `door`, `edid`,
+  `from_world`, `from_cell`, `from_cell_name` (EDID, else `"x,y"`), `pos`, `to_door`,
+  `to_world`, `to_cell`, `to_cell_name`, `to_pos`, `to_rot` (XTEL), `back` (the
+  destination door's XTEL points back), `lock` (`{level, key}` or null).
