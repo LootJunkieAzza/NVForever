@@ -231,6 +231,12 @@ impl DoorMotion {
         self.phase == DoorPhase::Open
     }
 
+    /// Opening or closing. While it swings, a door's moving parts are not solid, so the
+    /// leaf cannot hit or push an actor [engine choice, owner request 2026-10-09].
+    pub fn swinging(&self) -> bool {
+        matches!(self.phase, DoorPhase::Opening | DoorPhase::Closing)
+    }
+
     /// Open or opening: where the door is headed.
     pub fn opens(&self) -> bool {
         matches!(self.phase, DoorPhase::Open | DoorPhase::Opening)
@@ -344,7 +350,9 @@ mod tests {
         let mut d = DoorMotion::new(false, 2.0, 1.0);
         assert_eq!(d.pose(), (false, 1.0));
         assert!(!d.is_open() && d.update(0.5).is_none());
+        assert!(!d.swinging());
         assert!(d.set_open(true));
+        assert!(d.swinging());
         assert!(!d.set_open(true), "already opening");
         assert_eq!(d.update(0.5), Some(0.0));
         assert_eq!((d.phase, d.time), (DoorPhase::Opening, 0.5));
@@ -358,7 +366,7 @@ mod tests {
         d.update(1.9);
         assert!(!d.is_open() && d.opens());
         d.update(0.1);
-        assert!(d.is_open());
+        assert!(d.is_open() && !d.swinging());
         assert_eq!(d.pose(), (true, 2.0));
     }
 

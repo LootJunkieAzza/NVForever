@@ -77,6 +77,11 @@ Design: docs/design/navmesh.md §6.1 (doors and actors following paths). Code:
   (`RefCollisionOptions::posed_doors`).
 - A door told to close while opening (or the reverse) turns back from the same fraction
   of the other sequence [engine choice; not observed].
+- While a door swings (opening or closing), its moving parts are not solid: the leaf
+  passes through actors instead of hitting or pushing them, and rays miss it; at rest,
+  open or closed, it is solid again [engine choice, owner request 2026-10-09; whether
+  the original game's swinging doors push actors is not known]. The frame and other
+  static parts stay solid throughout.
 - A sequence counts as finished at its `end` text key [engine choice from §1].
 - Sounds: NVForever has no sound playback; the sound keys are logged when passed.
 - Actors on paths: they stop in front of the door, open it and wait until the Open

@@ -202,7 +202,9 @@ Close, standing at 1,844 references without XTEL):
   every such door as it is drawn.
 - Physics (`fnv_phys::PhysWorld::pose_ref_object`; nvf-play `phys.rs` `pose_doors`): the
   door's keyframed bodies are moved to `ref ∘ animated node ∘ body transform` every frame
-  the clock changes. An Open by Default door keeps its moving parts (posed open) through
+  the clock changes, and are not solid while the door swings
+  (`PhysWorld::set_ref_keyframed_solid`, `DoorMotion::swinging`; owner request
+  2026-10-09), so a swinging leaf cannot hit or push an actor; at rest they are solid. An Open by Default door keeps its moving parts (posed open) through
   `RefCollisionOptions::posed_doors`; the shared rule `ref_collision` used by the parity
   lab is unchanged.
 - Simulation and activation (`nvf_play::doors`): `Doors` holds every door's clock,
@@ -248,5 +250,6 @@ by `Walker` elsewhere (the game's high and low processing levels are the model;
 5. Doors that open in place (§6.1): an actor opens one from a stop in line with the
    middle of the opening, the opening's width plus its clearance in front of it, and
    waits there until the Open sequence has ended; doors stay open (they do not close by
-   themselves); a door told to close while opening turns back. How the original game does
+   themselves); a door told to close while opening turns back; a swinging door's moving
+   parts are not solid (owner request). How the original game does
    each of these is not known.

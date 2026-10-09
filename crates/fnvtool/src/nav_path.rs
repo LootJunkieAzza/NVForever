@@ -388,10 +388,18 @@ struct WalkDoor {
     objects: Vec<(u16, usize, fnv_collide::Iso)>,
     /// The sequence and time the bodies were last posed at.
     shown: Option<(bool, f32)>,
+    /// Whether its moving parts were last made solid (not while it swings).
+    solid: Option<bool>,
 }
 
 impl WalkDoor {
     fn pose(&mut self, world: &mut PhysWorld, m: &DoorMotion) {
+        // Not solid while it swings (`DoorMotion::swinging`): the leaf cannot hit the walker.
+        let solid = !m.swinging();
+        if self.solid != Some(solid) {
+            world.set_ref_keyframed_solid(self.pose.form_id, solid);
+            self.solid = Some(solid);
+        }
         let want = m.pose();
         if self.shown == Some(want) {
             return;
@@ -550,7 +558,7 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
                     .collect();
                 let Some((open, close)) = anim.door() else { continue };
                 let m = *door_motion.entry(id).or_insert_with(|| DoorMotion::new(pl.open_by_default, open.end(), close.end()));
-                let mut wd = WalkDoor { pose: RefPose::from_placement(&pl), anim: anim.clone(), objects, shown: None };
+                let mut wd = WalkDoor { pose: RefPose::from_placement(&pl), anim: anim.clone(), objects, shown: None, solid: None };
                 wd.pose(&mut lw.built.world, &m);
                 walk_doors.insert(id, wd);
             }
