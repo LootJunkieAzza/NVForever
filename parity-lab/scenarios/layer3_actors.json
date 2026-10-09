@@ -39,6 +39,46 @@
     "appearance",
     "workstream5"
    ]
+  },
+  {
+   "id": "L3.actors.creatures",
+   "layer": 3,
+   "description": "Every placed creature (ACRE) whose resolution involves no random leveled choice (fnv.actor.creatures/1 --deterministic, docs/spec-notes/actors.md section 9): creature after LVLC and template resolution, skeleton, NIFZ body models beside it, base scale, KFFZ list; base game + DLC + packs, against the independent oracle tools/capture/oracle_actor.py creatures.",
+   "oracle": {
+    "golden": "actor/creatures_deterministic.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "actor",
+     "creatures",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--all",
+     "--deterministic"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/creatures",
+    "key": "reference"
+   },
+   "tags": [
+    "actors",
+    "creatures",
+    "workstream5"
+   ]
   }
  ]
 }

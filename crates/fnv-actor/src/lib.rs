@@ -5,7 +5,8 @@
 //!
 //! - [`records`]: NPC_, RACE, HAIR, EYES, HDPT, ARMO and LVLN read through the Layer 1
 //!   schema
-//! - [`resolve`]: placed actor → [`resolve::Appearance`] (parts list, worn armour)
+//! - [`resolve`]: placed actor → [`resolve::Appearance`] (parts list, worn armour), placed
+//!   creature → [`resolve::CreatureAppearance`] (skeleton, NIFZ models, base scale)
 //! - [`facegen`]: `.egm`/`.egt` FaceGen morphs and applying coefficients to them
 //! - [`mesh`]: how a part mesh joins the skeleton (skinned by bone name, rigid by `Prn`)
 //! - [`idle`]: IDLE records (idle animations) as data: model, links, group, raw conditions
@@ -27,4 +28,4 @@ pub mod resolve;
 pub mod weapon;
 
 pub use records::ActorForms;
-pub use resolve::{Appearance, Part, ResolveError, Resolver};
+pub use resolve::{Appearance, CreatureAppearance, Part, ResolveError, Resolver};

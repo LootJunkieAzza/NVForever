@@ -364,3 +364,31 @@ mod malformed {
         }
     }
 }
+
+#[test]
+fn size_union_picks_variant_by_length() {
+    use fnv_esm::decode::{decode_sub, DecodeCtx, SubStatus};
+    let text = r#"{"format":"fnv.schema/1",
+      "types":{"Old":{"struct":[{"name":"f","type":"f32"},{"name":"damage","type":"u16"}]}},
+      "records":{"WATR":{"name":"Water","subrecords":{"DATA":{"name":"D","type":
+        {"union":[{"size":2,"type":"u16"},{"size":6,"type":"Old"}]}}}},
+        "TEST":{"name":"T","subrecords":{"DATA":{"name":"D","type":
+        {"union":[{"size":1,"type":"u8"},{"type":"bytes"}]}}}}}}"#;
+    let mut s = Schema::default();
+    s.merge_str(text, "t").unwrap();
+    s.validate().unwrap();
+    let mut ctx = DecodeCtx { schema: &s, on_formid: None };
+    let d = decode_sub(b"WATR", &sub(b"DATA", &[7, 0]), &mut ctx);
+    assert_eq!((d.status, d.value.unwrap().to_string()), (SubStatus::Ok, "7".to_string()));
+    let d = decode_sub(b"WATR", &sub(b"DATA", &[0, 0, 128, 63, 9, 0]), &mut ctx);
+    assert_eq!(d.status, SubStatus::Ok);
+    let v = d.value.unwrap();
+    assert_eq!((v["damage"].as_u64(), v["f"].as_f64()), (Some(9), Some(1.0)));
+    // No variant for 3 bytes and no fallback: an error, not a guess.
+    assert_eq!(decode_sub(b"WATR", &sub(b"DATA", &[1, 2, 3]), &mut ctx).status, SubStatus::Error);
+    // A variant without a size is the fallback.
+    let d = decode_sub(b"TEST", &sub(b"DATA", &[1, 2, 3]), &mut ctx);
+    assert_eq!((d.status, d.value.unwrap().to_string()), (SubStatus::Ok, "\"010203\"".to_string()));
+    let bad = r#"{"format":"fnv.schema/1","common":{"DATA":{"type":{"union":[]}}}}"#;
+    assert!(Schema::default().merge_str(bad, "x").is_err());
+}
