@@ -1,0 +1,112 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Layer 5 round 2 scenario",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "ref",
+      "ref": "0x00104C7D",
+      "dead": false,
+      "disabled": false
+    },
+    {
+      "kind": "quest",
+      "quest": "VMS16",
+      "running": false,
+      "completed": false,
+      "stage": 0,
+      "not_done": [
+        70,
+        110
+      ]
+    },
+    {
+      "kind": "quest",
+      "quest": "VMS16b",
+      "running": false,
+      "completed": false,
+      "stage": 0,
+      "objectives": [
+        {
+          "index": 10,
+          "displayed": false,
+          "completed": false
+        },
+        {
+          "index": 15,
+          "displayed": false
+        }
+      ]
+    },
+    {
+      "kind": "disabled",
+      "of": "0x00105D4C",
+      "disabled": true
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_objective",
+      "quest": "VMS16b",
+      "index": 10,
+      "displayed": true
+    },
+    {
+      "op": "remove_all_items",
+      "from": "0x00104C7D"
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x00104C7D",
+      "item": "0x0000000F",
+      "label": "before"
+    },
+    {
+      "op": "kill",
+      "target": "0x00104C7D"
+    },
+    {
+      "op": "get_ref",
+      "ref": "0x00104C7D",
+      "fields": [
+        "dead"
+      ],
+      "label": "after"
+    },
+    {
+      "op": "get_item_count",
+      "of": "0x00104C7D",
+      "item": "0x0000000F",
+      "label": "count after"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16",
+      "label": "first quest after",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.110"
+      ]
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS16b",
+      "label": "second quest after",
+      "fields": [
+        "running",
+        "objective.10.displayed",
+        "objective.10.completed",
+        "objective.15.displayed"
+      ]
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x00105D4C",
+      "label": "reference after"
+    }
+  ]
+}
