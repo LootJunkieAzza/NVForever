@@ -1,0 +1,86 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Quest script delay, flag clear, DATA delay 0.01 s (VCG00)",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VCG00",
+      "running": false,
+      "vars": {
+        "bRunTimer": 1,
+        "fTimer": -0.014002632349729538
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_quest_var",
+      "quest": "VCG00",
+      "var": "fTimer",
+      "value": 100000
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VCG00",
+      "var": "bRunTimer",
+      "value": 1
+    },
+    {
+      "op": "sample_var",
+      "quest": "VCG00",
+      "var": "fTimer",
+      "frames": 120,
+      "label": "VCG00 timer while stopped"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VCG00",
+      "label": "VCG00 before StartQuest",
+      "fields": [
+        "running",
+        "stage"
+      ]
+    },
+    {
+      "op": "start_quest",
+      "quest": "VCG00"
+    },
+    {
+      "op": "sample_var",
+      "quest": "VCG00",
+      "var": "fTimer",
+      "frames": 120,
+      "runs": 6,
+      "skip": 1,
+      "label": "VCG00 timer while running"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VCG00",
+      "label": "VCG00 while running",
+      "fields": [
+        "running",
+        "stage"
+      ]
+    },
+    {
+      "op": "stop_quest",
+      "quest": "VCG00"
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VCG00",
+      "var": "bRunTimer",
+      "value": 1
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VCG00",
+      "var": "fTimer",
+      "value": -0.014002632349729538
+    }
+  ]
+}
