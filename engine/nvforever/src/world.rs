@@ -73,7 +73,7 @@ impl WorldData {
     /// Whether a reference is enabled at the start of a game: not initially disabled,
     /// and its enable parent (if any) in the required state [documented: XESP; the
     /// parent chain is followed, cycles count as disabled].
-    fn enabled(&self, p: &Placement, depth: usize) -> bool {
+    pub fn enabled(&self, p: &Placement, depth: usize) -> bool {
         if p.deleted() || p.initially_disabled() {
             return false;
         }
@@ -400,7 +400,7 @@ fn load_cell(
                 base.form_id,
                 (to_cell * ref_affine(&p)).translation.into(),
                 light_scale,
-                p.emittance,
+                &p,
                 emittance,
             )
         {
@@ -514,7 +514,7 @@ fn spawn_dormant(
         }
         (b"LIGH", _) => {
             let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(cell_e))).id();
-            if crate::lights::spawn_light(commands, holder, world, base.form_id, rt.translation.into(), light_scale, p.emittance, emittance) {
+            if crate::lights::spawn_light(commands, holder, world, base.form_id, rt.translation.into(), light_scale, p, emittance) {
                 crate::actors::spawn_hidden(commands, holder, r);
                 stats.lights_hidden += 1;
             } else {
