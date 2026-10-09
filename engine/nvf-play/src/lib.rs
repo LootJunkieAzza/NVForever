@@ -153,6 +153,14 @@ pub struct RefChanged {
     pub form_id: u32,
 }
 
+/// The player used up an item from the inventory (an aid item): the script runtime
+/// applies its effects, including effect scripts (`fnv_game::Game::apply_magic_item`).
+/// The menu has already removed the item from the simulation.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ItemUsed {
+    pub item: u32,
+}
+
 pub struct PlayPlugin(pub PlayData);
 
 impl Plugin for PlayPlugin {
@@ -165,6 +173,7 @@ impl Plugin for PlayPlugin {
             .add_message::<Travel>()
             .add_message::<OpenContainer>()
             .add_message::<RefChanged>()
+            .add_message::<ItemUsed>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin))
             .add_plugins(script::ScriptPlugin);
