@@ -210,6 +210,9 @@ pub fn stream(
             streamer.loaded.insert((i32::MIN, i32::MIN), e);
             streamer.stats.cells_loaded += 1;
             streamer.stats.load_ms += t0.elapsed().as_secs_f64() * 1000.0;
+            // The interior is its one cell: in once it is loaded (travellers in it wait
+            // for this, nav.rs).
+            streamer.settled = true;
         }
         return;
     }

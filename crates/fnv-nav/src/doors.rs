@@ -14,6 +14,9 @@ use fnv_world::WorldIndex;
 use serde::Serialize;
 use std::collections::HashMap;
 
+/// Corners (min, max) of an object's bounds.
+pub type Bounds = ([f32; 3], [f32; 3]);
+
 /// A door that opens in place, as placed.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct InPlaceDoor {
@@ -25,7 +28,7 @@ pub struct InPlaceDoor {
     pub rotation: [f32; 9],
     pub scale: f32,
     /// The base's OBND corners in the model's frame.
-    pub bounds: ([f32; 3], [f32; 3]),
+    pub bounds: Bounds,
 }
 
 impl InPlaceDoor {
@@ -183,7 +186,7 @@ pub fn in_place_doors(lo: &LoadOrder, schema: &Schema, ix: &WorldIndex) -> Vec<I
             (&winner(lo, base)?.1.header.sig == b"DOOR" && f.raw(b"XTEL").is_none()).then_some((r, cell, base))
         })
         .collect();
-    let mut bases: HashMap<u32, Option<([f32; 3], [f32; 3])>> = HashMap::new();
+    let mut bases: HashMap<u32, Option<Bounds>> = HashMap::new();
     let mut out = Vec::new();
     for (r, cell, base) in doors {
         let Some(c) = ix.cells.get(&cell) else { continue };

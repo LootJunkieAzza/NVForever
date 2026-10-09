@@ -616,7 +616,7 @@ impl NavGraph {
         let c = [c0[0] + w[0] * mid, c0[1] + w[1] * mid, c0[2]];
         let opening = hi - lo;
         let ahead = |q: [f32; 3]| (q[0] - c[0]) * n[0] + (q[1] - c[1]) * n[1];
-        let on_mesh = |x: f32, y: f32| self.nearest(space, [x, y, c[2]], 48.0).map(|(t, q)| (t, q));
+        let on_mesh = |x: f32, y: f32| self.nearest(space, [x, y, c[2]], 48.0);
         let walkable = |a: [f32; 3], b: [f32; 3]| {
             let t = self.locate(space, a, 128.0)?;
             self.walkable_line(space, t, a, b, clear, p)
