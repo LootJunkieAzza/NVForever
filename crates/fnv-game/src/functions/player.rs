@@ -136,11 +136,13 @@ pub fn get_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
     Ok(Value::Num(g.player.reputation.get(&r).map(|v| v[i]).unwrap_or(0.0)))
 }
 
-/// Sets the amount exactly [documented: GECK wiki SetReputation].
+/// Sets the amount exactly, with no limit [documented: GECK wiki SetReputation;
+/// observed: −3, 2.5 and twice the scale were stored as given, layer5-captures.md
+/// §9.3 a].
 pub fn set_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = a.form(0)?;
     let i = rep_axis(a)?;
-    g.player.reputation.entry(r).or_default()[i] = a.num(2)?;
+    super::reputation::store(g, r, i, a.num(2)?);
     none()
 }
 

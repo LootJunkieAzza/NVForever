@@ -629,7 +629,7 @@ the original (test `snapshots_round_trip`).
 
 | Event | When (here) | Tag |
 |---|---|---|
-| GameMode | every frame: the OnLoad blocks due (below), then running quests whose delay has passed (FormID order), then enabled scripted references in loaded cells (FormID order), then the scripted items the player carries (FormID order) | order [hypothesis]; delays [observed]; carried items [observed: JarPistolPowder, `L5.quest.onadd_gamemode`; other holders not modelled, hypothesis] |
+| GameMode | every frame: the OnLoad blocks due (below), then running quests whose delay has passed (FormID order), then enabled scripted references in loaded cells (FormID order), then the scripted items the player carries (FormID order), then active magic effects (§7.6) | quest scripts before object scripts [observed for one pair: BeatrixFX's GameMode moved GameHour on and two Goodsprings windows (WastelandWindowScript, copying GetCurrentTime every frame) saw the new hour in the same frame, `L5.quest.script_order`, layer5-captures.md §9.3 c]; every other part of the order [hypothesis]; delays [observed]; carried items [observed: JarPistolPowder, `L5.quest.onadd_gamemode`; other holders not modelled, hypothesis] |
 | MenuMode | instead of GameMode while a menu is open (`Game::menu`); a block's menu code must match; quests run it on their delay, counted in menu time only | [hypothesis] |
 | OnActivate | an activation by hand runs the block *instead of* the default action, inside the activation; the default runs only if the block calls `Activate`; a scripted `Activate` (flag 0) runs the default and never the block; with flag 1 the block runs instead, or the default when the target has no block; the block runs on dead actors too; a block parameter (`OnActivate player`) must match the activator | [observed: `L5.quest.ref_activation`, `.dead_activation`, layer5-captures.md §8.3 d, f; documented: GECK wiki Activate] |
 | OnLoad | scripted references in a cell when it becomes loaded (the player's cell, plus the 5×5 grid outdoors), at once; a reference enabled in a loaded cell at the start of the next frame, not inside Enable | cell load [hypothesis]; after Enable [observed: jukebox and broken radio, layer5-captures.md §8.3 d] |
@@ -757,6 +757,19 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   GetIsObjectType (1: form type names). The first call per opcode and unit is traced, all
   are counted in `final.unhandled`, the value is 0.
 
+**Actor values** (round 3). Each value is a permanent part (base and permanent
+modifiers) minus a damage part. SetActorValue sets the permanent part [documented:
+catalogue, "sets the base value"]; ModActorValue adds to it; ForceActorValue changes it by
+the difference between the target and the current value [documented: catalogue notes];
+DamageActorValue adds to the damage; RestoreActorValue takes it off, never below zero, so
+a value is never restored past its permanent part [documented: catalogue notes of
+DamageActorValue and RestoreActorValue; observed: Contreras' supplies (three blocks of
+`RestoreActorValue <limb> 100`) left a head condition damaged by 40 at 100,
+`L5.quest.effect_start`, layer5-captures.md §9.3 b]. Base and permanent modifiers are
+kept together and GetBaseActorValue / GetPermanentActorValue read the permanent part
+[hypothesis]. Damage is per reference in `RefExtra::av_damage` (S.P.E.C.I.A.L.
+included).
+
 Defaults where nothing is read yet [hypothesis]: actor values other than S.P.E.C.I.A.L.
 start at 0, except body-part conditions (codes 25–31) at 100; a living actor is at full
 health; with no weapon equipped GetWeaponHealthPerc is 100. Without these the
@@ -793,34 +806,65 @@ DATA (new), REGN WNAM/RPLI/RPLD (new), MGEF DATA (new), the EFID/EFIT/CTDA effec
 ALCH, SPEL, ENCH, INGR, RACE DATA flags, FACT XNAM, WEAP DNAM skill, CREA DATA type,
 DEST/DSTD on any record.
 
-**Reputations.** Infamy (axis 0) and fame (axis 1) per REPU [documented: GECK wiki
-GetReputation]. A REPU's `DATA` is its scale: GetReputationPct is the value over it
-[documented: GECK wiki GetReputationPct; observed: scales 10–100 in FalloutNV.esm,
-Goodsprings 15, NCR 80, Legion 100]. AddReputation / RemoveReputation size 1–5 add or
-take the points of fReputationBumpVeryMinor … VeryMajor, defaults 1, 2, 4, 7, 12
-[documented: GECK wiki AddReputation; observed: no master defines these settings];
-values do not go below 0 [hypothesis]. GetReputationThreshold [documented: GECK wiki:
-0–6, all axes 1 with no fame or infamy, one axis non-zero at a time, the tier names per
-axis] is computed from a fame level and an infamy level (0–3: the share of the scale
-reaching 0.25, 0.5, 0.75) [hypothesis: the boundaries are not documented] placed on the
-4×4 grid of `reputation::tiers` [hypothesis: the grid that fills the wiki's three axes
-exactly — fame only Accepted/Liked/Idolized, infamy only Shunned/Hated/Vilified, equal
-levels Mixed/Unpredictable/Wild Child, fame over infamy 1 Smiling Troublemaker/Good
-Natured Rascal, infamy over fame 1 Sneering Punk/Merciful Thug, 3 against 2 Dark Hero /
-Soft Hearted Devil]. Trace event `reputation_changed`.
+**Reputations** (rules replaced by the round 3 captures, layer5-captures.md §9.3 a,
+`L5.quest.reputation`). Infamy (axis 0) and fame (axis 1) per REPU, the same axis
+argument for all six functions [documented: GECK wiki GetReputation; observed]. A REPU's
+`DATA` is its scale [documented: GECK wiki GetReputationPct; observed: scales 10–100 in
+FalloutNV.esm; the limits and levels below are fractions of it on five reputations,
+scales 10–70].
+- AddReputation / RemoveReputation sizes 1–5 add or take 1, 2, 4, 7, 12 points, the
+  settings fReputationBumpVeryMinor … VeryMajor (no master defines them; their defaults)
+  [documented: GECK wiki AddReputation; observed: the same points on scales 10 and 70,
+  and the game read the five settings as 1, 2, 4, 7, 12]. Any other size does nothing
+  [observed: 0, 6, −2].
+- AddReputation's result is at most the scale, also when the value was set above it
+  (20 + 1 → 10 on a scale of 10); RemoveReputation's is at least 0 and leaves a value
+  above the scale above it (20 − 1 → 19) [observed]. A loss from a negative value ends
+  at 0, AddReputationExact is limited the same way by its sign, and a REPU without a
+  scale is not limited above [hypothesis, none captured].
+- SetReputation stores any value: negative, fractional, above the scale [observed: −3,
+  2.5, twice the scale].
+- GetReputationPct = value / scale, not capped (−0.3, 2) [observed].
+- GetReputationThreshold: per axis a level, 0 below 15 % of the scale, 1 from 15 %, 2 from
+  50 %, 3 from 100 %, a value on a boundary already at the higher level [observed: one
+  axis swept in steps of scale/1000]; the pair (fame level, infamy level) picks a cell of
+  the 4 × 4 grid in `reputation::tiers` (layer5-captures.md §9.3 a's table; the same on
+  all five scales) [observed; the tier names are documented on the GECK wiki]. The grid
+  is the one this note guessed in round 3; only the boundaries changed (they were
+  25/50/75 %).
+Trace event `reputation_changed` (SetReputation included).
 
 **Effect scripts.** `Game::apply_magic_item(target, item, caster, permanent)`: each
 effect of the item (EFID/EFIT) whose conditions pass on the target becomes an
 `ActiveEffect` with the EFIT duration; when its MGEF's archetype is 1 (Script)
 [documented: xEdit wbArchtypeEnum, wbMGEFFAssocItemDecider] its associated script runs
-in an instance of its own (`InstKey::Effect`, `effect:<id>`) on the target:
-ScriptEffectStart at once inside the call; ScriptEffectUpdate every game-time frame with
-ScriptEffectElapsedSeconds = the frame time [documented: GECK wiki
-ScriptEffectElapsedSeconds, non-zero only in the update block]; ScriptEffectFinish on the
-frame the duration is reached, then the instance is dropped; a zero-duration effect
-finishes right after its start [hypothesis, all timing: not captured]. Menus and loading
-screens stop the effect clock, as for GetSecondsPassed [hypothesis]. Effect conditions are
-tested once, at the start [hypothesis]. The engine API is `Game::consume(actor, item)`:
+in an instance of its own (`InstKey::Effect`, `effect:<id>`) on the target. Timing
+(observed unless tagged: aid items Cateye, Nuka-Cola and Contreras' medical supplies and
+the ability ImplantRegenBoost, layer5-captures.md §9.3 b, `L5.quest.effect_start`,
+`L5.quest.effect_duration`):
+- ScriptEffectStart runs inside the use (`EquipItem item 0 1`): its effects are there on
+  the script's next line, and the item count is already one lower.
+- A zero-duration effect: nothing of its script runs after the use. Here its
+  ScriptEffectFinish runs inside the call, right after the start [hypothesis: Finish
+  inside the call rather than not at all; with the supplies, whose three blocks all
+  restore the limbs, the two cannot be told apart].
+- ScriptEffectUpdate runs every frame of game time, with ScriptEffectElapsedSeconds = the
+  time since the previous Update (an ability adding Elapsed / 10 health changed it in 59
+  of 59 frame steps, at 0.1 HP per second of script time) [also documented: GECK wiki
+  ScriptEffectElapsedSeconds, non-zero only in the update block].
+- ScriptEffectFinish comes when the duration has passed in script time (the time
+  GetSecondsPassed counts): Cateye's 120 s ended 119.82–119.94 s of that time after the
+  use (here 120.0 s; the game ends effects up to 0.2 s early, hypothesis on why in
+  layer5-captures.md §9.3 b); then the instance is dropped.
+- A container menu stops Update and the duration (31 s of real time in a menu did not
+  count). Loading screens do the same [hypothesis].
+- The same item used again while its effect is active adds its duration to that effect:
+  one effect and one Finish, 240 s after the first of two Cateyes taken 10.2 s apart. The
+  start block does not run again (trace `effect_extended`) [hypothesis: not visible with
+  Cateye], and only the same item and effect index merge [hypothesis].
+- In a frame, effects run after the quest, object and item scripts [hypothesis].
+Effect conditions are tested once, at the start [hypothesis]. The engine API is
+`Game::consume(actor, item)`:
 one ingestible leaves the inventory and its effects start (the player using an aid
 item); EquipItem of an aid item does the same; the runner op `consume` stands in for it.
 AddSpell applies a spell permanently (no duration; abilities and addictions in the
@@ -943,6 +987,25 @@ Round 2 of the contract (layer5-captures.md §8.2), as the capture issues them:
 
 `given` kind `ref` sets object-script variables, `dead` and `disabled`.
 
+Round 3 of the contract (layer5-captures.md §9.2), frames as there:
+
+| op | runner |
+|---|---|
+| `set_reputation`, `add_reputation`, `remove_reputation` | the script functions with axis 1 (`fame`) or 0 (`infamy`) |
+| `get_reputation`, `set_reputation_read` | the fields through GetReputation, GetReputationPct and GetReputationThreshold (thresholds as integers); one frame per field, or none between the sets and the reads |
+| `use_item` | `EquipItem item 0 1` on the actor (an error if it carries none), then `av.<name>` / `count.<form>`; with `stopwatch`, the stopwatch's zero is the current game time |
+| `wait_av` | checks the value (to 1e-6) before each frame, at most `max_frames` frames; `seconds` = game time since the stopwatch's zero |
+| `hold_menu` | the player's default activation of `via` must open a container; menu 1008 for `frames` frames, then closed |
+| `damage_av`, `restore_av`, `get_av`, `set_av` | Damage/Restore/Get/SetActorValue (§7.3) |
+| `add_spell`, `remove_spell` | AddSpell / RemoveSpell (§7.6) |
+| `sample_av`, `sample_av_damage` | one sample per frame read before the frame runs (as `sample_items`); `per_second` over the game time of the span |
+| `go_to_cell` | the player moves to the cell's COCMarkerHeading reference, else (outdoors) the middle of the cell at height 0, and the cells around it load [hypothesis: where `coc` puts the player matters here only for the cells it loads; the Goodsprings exterior cell has no COC marker]; no loading-screen frames |
+| `sample_jumps` | every read once per frame after the frame's scripts ran; a jump is a change of at least `min_step` from the previous sample |
+
+`given` kinds `reputation` (SetReputation) and `actor_value` (the current value, with no
+damage). Actor values are named by their script name (`encodings.json`, e.g. `NightEye`)
+or xEdit name, ignoring case and spaces (`Nighteye`).
+
 Names: `player`, a hex FormID, an Editor ID of any record, `scripted:<SCPT>[#n]` (the
 n-th placed reference whose base runs that script) and `placed:<base>` (the first placed
 reference of a base form).
@@ -958,8 +1021,9 @@ once per unit), `unhandled`, `call_failed`, `script_error`, `skipped`,
 named variables, the player state, reported references, unhandled and stubbed call
 counts).
 
-**`L5.quest.*` (2026-10-09, round 2): 18 of 21 pass**, holdouts included (both
-rounds' holdouts pass). The three that fail compare GetStage of a quest whose `given`
+**`L5.quest.*` (2026-10-09, round 3): 24 of 27 pass**, holdouts included (all three
+rounds' holdouts pass; before round 3's runtime work the six round 3 scenarios errored
+on the new operations). The three that fail compare GetStage of a quest whose `given`
 names no stage: CGTutorial (save 2, new game 0), VCG01 (save 200, new game 0), VCG00
 (save 100, new game 0). The candidate starts from the new-game state (§4.1 of the
 contract), so these rows need `"stage"` (or `"done"`) in the input's `given`; the delays
@@ -1009,7 +1073,9 @@ results above stand. What changed: 27 of the 29 `unhandled` events are gone (lef
 AddItemToLeveledList and IsDLCInstalled, from scripts outside the chain that the
 walk-through's cells load), the player's Concussion effect starts at frame 303
 (§7.6), and vSafehouse's sleep/sandbox variables differ (its schedule now reads
-GetDayOfWeek).
+GetDayOfWeek). The round 3 runtime work (observed reputation, effect and actor value
+rules, §7.3 and §7.6) changed nothing in the walk-through: its trace (events, final
+quests, player state, observations) is identical.
 
 Differences from the capture saves: VCG02 is running at stage 5 right after VCG01 here;
 in both saves it is not running (an open question in layer5-captures.md §7). One script
@@ -1023,17 +1089,26 @@ walk-through does not enter that trigger.
 - GetSecondsPassed across a Wait-menu gap, and inside a MenuMode block (§5).
 - A stage entry whose conditions fail next to ones that pass (skipped, the others run:
   hypothesis); whether an entry's conditions see the effects of earlier entries' scripts.
-- Frame order between quest and object scripts (layer5-captures.md §8.3 d: not settled);
-  the rising plane's OnLoad on the line after Enable (§8.3 d, unexplained).
+- Frame order: quest scripts before object scripts is observed for one pair only
+  (layer5-captures.md §9.3 c); where effect scripts, inventory items' scripts and actors'
+  scripts come is not captured. The rising plane's OnLoad on the line after Enable
+  (§8.3 d, unexplained).
 - Scripted items held by actors other than the player, and by containers: do they run
   GameMode (§7.2)? OnAdd once per call or once per item.
 - MenuMode quest delays (one counter per mode, §7.2): not captured.
 - AI packages (§7.5): schedules, re-evaluation, and whether list order alone decides.
 - The `given` of `L5.quest.delay_flagged_1s`, `.delay_flagged_short` and `.delay_frame`
   lacks the quests' stages (§8).
-- Round 3 (§7.6), each a capture candidate: GetReputationThreshold's level boundaries
-  and the tier grid (SetReputation to chosen values, read all three axes); effect script
-  timing (Start inside the use, Update per frame, Finish on the frame the duration ends,
-  zero-duration effects, menus); GetDayOfWeek on the start date; GetDestructionStage after
+- Round 3 (§7.6), settled by the round 3 captures: the reputation limits, levels and
+  grid, and effect-script timing. Still open, each a capture candidate: a zero-duration
+  effect's Finish (inside the use or not at all); whether the second dose's Start runs;
+  whether two different items with the same base effect merge; effects on actors other
+  than the player and abilities' Start/Finish; ScriptEffectElapsedSeconds read in a
+  script; the early end of effects (up to 0.2 s); AddReputationExact's limits and a
+  loss from a negative value; base against permanent actor values (GetBaseActorValue
+  after ModActorValue); GetDayOfWeek on the start date; GetDestructionStage after
   DamageObject; PlaceAtMe of a stackable item with a count; GetFactionRelation between
   members of factions with mixed reactions.
+- The game clock: `Game::tick` does not move GameHour (the engine and `fnv-sim` own the
+  clock); `L5.quest.script_order` showed the game clock advances before object scripts
+  run in a frame, which matters once the runner advances it.
