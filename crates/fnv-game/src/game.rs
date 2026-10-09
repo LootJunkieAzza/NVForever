@@ -761,10 +761,12 @@ impl<'a> Game<'a> {
         RunOpts { strict: self.cfg.strict, max_steps: self.cfg.max_steps }
     }
 
-    fn exec(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx) {
+    /// Run statements; returns whether the run ended with `Return` (or a function that
+    /// acts as one).
+    fn exec(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx) -> bool {
         if self.depth >= MAX_DEPTH {
             self.emit(EventKind::ScriptError { unit: unit.key(), error: format!("nesting deeper than {MAX_DEPTH}") });
-            return;
+            return false;
         }
         self.depth += 1;
         let opts = self.opts();
@@ -773,8 +775,12 @@ impl<'a> Game<'a> {
         let mut ex = Exec { game: self, unit, locals, ctx };
         let r = Vm::new(table, &mut ex, opts).run(stmts);
         self.depth -= 1;
-        if let Err(e) = r {
-            self.emit(EventKind::ScriptError { unit: unit.key(), error: e.to_string() });
+        match r {
+            Ok(exit) => exit == fnv_script::vm::Exit::Returned,
+            Err(e) => {
+                self.emit(EventKind::ScriptError { unit: unit.key(), error: e.to_string() });
+                false
+            }
         }
     }
 
@@ -822,7 +828,12 @@ impl<'a> Game<'a> {
             }
             self.instance(key, Some(script));
             ran = true;
-            self.exec(unit, &b.body, Locals::Instance(key), ctx);
+            // Return ends the script for this run, not just its block: a later block
+            // of the same event does not run [documented: GECK wiki Adding an Options
+            // Menu, owner export; docs/spec-notes/script-language.md §7.3 row 2].
+            if self.exec(unit, &b.body, Locals::Instance(key), ctx) {
+                break;
+            }
         }
         ran
     }
@@ -1217,8 +1228,11 @@ impl<'a> Game<'a> {
         self.world.peek(r).is_none_or(|s| !s.deleted) && self.world.is_enabled(r).unwrap_or(false)
     }
 
-    /// Scripted references that run per-frame blocks now: enabled, in a loaded cell
-    /// [hypothesis: disabled references do not run their scripts].
+    /// Scripted references that run per-frame blocks now: in a loaded cell and not
+    /// deleted, disabled ones included [documented: GECK wiki Object scripts, owner
+    /// export: object scripts run even for disabled references]. OnLoad at a cell load
+    /// still needs the reference enabled (a disabled reference has no 3D to load)
+    /// [hypothesis].
     fn active_refs(&self) -> Vec<FormId> {
         let mut out: BTreeSet<FormId> = BTreeSet::new();
         for c in &self.loaded_cells {
@@ -1228,7 +1242,7 @@ impl<'a> Game<'a> {
         }
         out.extend(self.moved.iter().copied());
         out.into_iter()
-            .filter(|&r| self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) && self.present(r))
+            .filter(|&r| self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) && self.world.peek(r).is_none_or(|s| !s.deleted))
             .collect()
     }
 
@@ -1906,8 +1920,11 @@ impl Host for Exec<'_, '_> {
             Some(v) => match v.as_form() {
                 Some(f) => Some(FormId(f)),
                 None => {
-                    // A call on an empty reference variable: the engine cannot run it
-                    // [hypothesis: skipped with an error report].
+                    // A call on an empty reference variable stops the script silently
+                    // for this run [documented: GECK wiki Ref Variable, Eval and Let
+                    // pages, owner export; docs/spec-notes/script-language.md §7.3 row
+                    // 1]; traced as `call_failed`.
+                    self.game.stop_run = true;
                     let name = self.game.data.table.get(opcode).map(|f| f.name.clone()).unwrap_or_default();
                     let unit = self.unit.key();
                     self.game.emit(EventKind::CallFailed {
