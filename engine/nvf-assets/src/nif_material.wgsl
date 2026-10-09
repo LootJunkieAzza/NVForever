@@ -8,10 +8,16 @@
 //   taken out again, since the game's ambient term is a flat colour and highlights come
 //   from lights (and environment maps, not drawn yet).
 
+// Meshes in a crossfade (VisibilityRange; streamed cells fading in and out) are dithered
+// first, as Bevy's own PBR fragment does.
+
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::alpha_discard,
 }
+#ifdef VISIBILITY_RANGE_DITHER
+#import bevy_pbr::pbr_functions::visibility_range_dither
+#endif
 
 #ifdef PREPASS_PIPELINE
 #import bevy_pbr::{
@@ -49,6 +55,9 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
+#ifdef VISIBILITY_RANGE_DITHER
+    visibility_range_dither(in.position, in.visibility_range_dither);
+#endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     // |N·V|: the normal is already flipped towards the viewer on back faces of double-sided
     // shapes; abs() also covers single-sided ones seen edge-on.
