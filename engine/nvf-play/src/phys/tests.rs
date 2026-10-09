@@ -66,9 +66,13 @@ fn fake_cell(job: &Job) -> Prepared {
             open_by_default: false,
             emittance: None,
         };
+        // As `prepare::cell` does: at the simulation's pose when it holds another.
+        let pose = job.pose_of(pl.form_id);
+        let pl = prepare::at_pose(pl, pose);
         let obj = object(if dynamic { 15.0 } else { 50.0 }, if dynamic { Motion::Dynamic } else { Motion::Static });
         let prepared = PreparedRef::new(&params, &RefPose::from_placement(&pl), &[obj]);
-        refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared) }) });
+        let dynamic_local = dynamic.then_some(Iso::IDENTITY);
+        refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local }) });
     }
     // A pond: a reference with only a water volume (placed water, physics.md §6.6).
     let pond = Placement {
@@ -84,7 +88,7 @@ fn fake_cell(job: &Job) -> Prepared {
         emittance: None,
     };
     let water = vec![CollisionObject { layer: fnv_phys::layers::WATER, ..object(100.0, Motion::Static) }];
-    refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None }) });
+    refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None }) });
     let terrain = Some(PreparedTerrain::new(&params, (gx, gy), &heights));
     Prepared { cell: job.cell, heights: Some(heights), terrain, refs, times: LoadTimes::default() }
 }
@@ -241,4 +245,72 @@ fn cells_left_behind_are_cancelled_and_reset_forgets_requests() {
     p.reset(Space::Interior(7));
     assert_eq!(p.loader.pending().count(), 0);
     assert!(p.cells.is_empty());
+}
+
+/// The dynamic crate of cell (0, 0) as a placed reference the simulation knows.
+fn sim_with_crate() -> (SimState, u32, [f32; 3]) {
+    let id = 0x0100_0000 + (100 << 12) + (100 << 4) + 5;
+    let pos = [300.0 + 5.0 * 600.0, 1500.0 + 900.0, 400.0];
+    let mut table = RefTable::default();
+    table.refs.insert(
+        FormId(id),
+        fnv_sim::refs::PlacedRef {
+            id: FormId(id),
+            sig: *b"REFR",
+            edid: None,
+            base: FormId(0x0500_0000),
+            cell: None,
+            stored_in: None,
+            plugin: 0,
+            flags: 0,
+            in_persistent_group: false,
+            pos,
+            rot: [0.0, 0.0, 2.0],
+            scale: None,
+            count: None,
+            health: None,
+            owner: None,
+            lock: None,
+            teleport: None,
+            enable_parent: None,
+            linked: None,
+            merchant_container: None,
+        },
+    );
+    let forms: &'static FormStore = Box::leak(Box::default());
+    let refs: &'static RefTable = Box::leak(Box::new(table));
+    (SimState { forms, refs, world: World::new(forms, refs, SimConfig::default()) }, id, pos)
+}
+
+#[test]
+fn placed_clutter_moved_by_physics_is_written_back_and_reloads_there() {
+    let d = play_data();
+    let (mut sim, id, placed) = sim_with_crate();
+    let mut p = state(true);
+    p.load(&LoadCtx { d: &d, sim: &sim, data: None }, PhysCell::Exterior(0, 0));
+    assert!(p.placed_dynamic.get(&id).is_some_and(|c| !c.moved), "tracked, not moved yet");
+    assert!(sim.moved_pose(id).is_none());
+    let mut written = 0;
+    for _ in 0..240 {
+        p.world.step();
+        written += p.settle_placed(&mut sim.world).len();
+    }
+    assert!(p.placed_dynamic[&id].moved && written > 0);
+    let (pos, rot) = sim.moved_pose(id).expect("written back");
+    assert!(pos[2] < placed[2] - 200.0, "fell onto the terrain: {pos:?}");
+    // At rest: nothing more to write.
+    assert!(p.settle_placed(&mut sim.world).is_empty());
+    // Unloaded and loaded again: built at the simulation's pose, not the placement's.
+    p.unload(PhysCell::Exterior(0, 0));
+    assert!(!p.placed_dynamic.contains_key(&id));
+    // (The made-up cells have no records, so the job names the crate itself.)
+    let cell = PhysCell::Exterior(0, 0);
+    let job = with_poses(Job { cell, refs: vec![id], land: None, poses: Vec::new() }, &sim);
+    p.insert(&LoadCtx { d: &d, sim: &sim, data: None }, fake_cell(&job));
+    let b = p.world.ref_bodies(id)[0];
+    for i in 0..3 {
+        assert!((b.translation[i] - pos[i]).abs() < 1e-2, "{b:?} against {pos:?}");
+    }
+    assert!(fnv_world::transform::max_diff(&b.rotation, &fnv_world::transform::ref_rotation(rot)) < 1e-4);
+    assert!(!p.placed_dynamic[&id].moved, "a fresh start from where it rests");
 }
