@@ -376,6 +376,9 @@ The CLAUDE.md moving-camera smoke test (`--cell Goodsprings --auto-fly 4000
   (`advance_animations`, printed in the run summary), is the reliable figure: about
   0.8 ms per frame with 19 clips. It covers sampling and writing the bones' local
   transforms, not Bevy's transform propagation or skin upload.
+- On a quieter machine (2026-10-09, after merging main with the cell fades of #50), one
+  run each: bind 27.5 fps, idle 26.7 fps (33 actors animated, up to 24 clips at once,
+  29.3 µs per clip and frame) [observed].
 - Sampling the 60 tracks of `mtidle.kf` alone takes 20.2 µs per pose (`kf_bind_check`
   with `KF_BENCH=1`, 20,000 poses).
 - No per-frame allocation in sampling (§7.3).
