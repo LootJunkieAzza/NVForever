@@ -239,6 +239,15 @@ before trusting it: the finisher warns about black pictures and a window that wa
 front, not about NPCs walking by (add `masks` for those). The manual steps below remain
 the reference procedure.
 
+First results (2026-10-09, plugin v7, save `nvftest`, the four starter cameras, game at
+1280 × 720 with `fDefaultFOV=75`) [observed]: every camera came out first person and
+aligned with `nvforever`'s render of the recorded pose, except that the game's view is
+wider. Rendering `goodsprings_noon` with `--fov 91.3` instead of 75 lines the two up
+(SSIM 0.18 → 0.42); 91.3° is the horizontal angle at 16:9 of a 75° horizontal FOV defined
+at 4:3 ("Hor+") [hypothesis for the game's rule; one camera measured]. The remaining
+differences are rendering (sky colour and clouds, missing grass, tone). The lake camera
+has a creature in the bottom-left corner that needs a mask.
+
 **Setup (once).** Pick how to save screenshots: the game's own key needs
 `bAllowScreenShot=1` in the `[Display]` section of your `Fallout.ini` (you edit it
 yourself) and writes `ScreenShot<N>.bmp` into the game folder; Steam's F12 also works if
