@@ -1,9 +1,21 @@
 # Static actors: NPCs drawn as one assembled entity (workstream 5)
 
-Status 2026-10-08: **planned**, not started. Owner request 2026-10-08: render placed NPCs
-(no AI, no movement) with the parts of a humanoid — skeleton, body, hands, head, eyes,
-mouth, hair, beard and worn armour — put together as **a single entity** per actor.
-Creatures follow as a later part (§4, part D).
+Status 2026-10-08: **parts A, B and C done** (C: geometry and face-texture FaceGen;
+the body's skin `.egt` and the race FaceGen data are not used yet); part D (creatures)
+not started. Part A: schema
+layouts, `fnv-actor` resolution, `fnvtool actor forms | appearance | meshes`, the
+independent oracle `tools/capture/oracle_actor.py` and `L3.actors.appearance` (all 1,149
+deterministic actors equal). Part B: `nvf_assets::actor` assembles each placed NPC on
+one skeleton in the game (`nvforever`, `--no-actors` turns it off); facts and rules in
+docs/spec-notes/actors.md. Owner request 2026-10-08: render placed NPCs (no AI, no
+movement) with the parts of a humanoid — skeleton, body, hands, head, eyes, mouth, hair,
+beard and worn armour — put together as **a single entity** per actor. Creatures follow
+as a later part (§4, part D).
+
+Owner decisions 2026-10-08 (answers to §5): a **frozen bind pose** (no idle animation);
+**FaceGen is in scope** (part C before the workstream is done); an NPC with two outfits
+wears the one with the **best protection by DT and DR**; reference screenshots of a
+Goodsprings Settler and Sunny Smiles were provided (kept privately, not committed).
 
 Where it sits: drawing actors is Layer 3 scope (layer3.md §1 lists them as markers only),
 but choosing what an NPC wears needs Layer 4 data (`fnv-sim` inventories, leveled lists,
@@ -64,9 +76,9 @@ Checked on the owner's install with `fnvtool esm decode` and `fnvtool nif decode
   besides `hairdefaultfacegen*` and `headfemalefacegen.nif`). Faces are presumably built
   at run time from the race's base head plus the NPC's FGGS/FGGA/FGTS coefficients
   [hypothesis].
-- **Pose**: the skeleton's rest pose; the human idle is
-  `meshes\characters\_male\locomotion\mtidle.kf` (the folder also holds 2,024 `.kf` files,
-  mostly `idleanims\`).
+- **Pose**: the skeleton's bind pose, frozen (owner decision). The human idle would be
+  `meshes\characters\_male\locomotion\mtidle.kf` (the folder also holds 2,024 `.kf`
+  files, mostly `idleanims\`).
 
 ## 2. Design
 
@@ -117,21 +129,21 @@ Rules, all [hypothesis] until captured:
    carried items).
 2. **Body**: race body parts for the sex (indices 0–2), head parts (0, 2–7), eye texture
    from EYES, hair from HAIR with `HCLR` tint, each HDPT model.
-3. **Worn items**: from the resolved inventory, choose one ARMO per biped slot (rule to
-   capture: does the engine pick the highest DR, the highest value, or the first?). Its
-   worn model (MODL/MOD3 by sex) replaces the race part whose slot it covers (Upper Body →
-   upper body; Left/Right Hand → hands; Head → head). Hair flag → hide hair; Hat/Headband
-   → hair's `Hat` variant.
+3. **Worn items**: from the resolved inventory, best protection first (DT, then DR —
+   owner statement), each worn unless a better one shares a slot. Its worn model
+   (MODL/MOD3 by sex) replaces the race part whose slot it covers (Upper Body → upper
+   body; Left/Right Hand → hands; Head → head, head parts and hair). Hat → hair's `Hat`
+   shape; Hair without Hat → hair hidden (wigs). Details: actors.md §2.
 4. **Weapons** are out of scope for this workstream (no holsters).
 
 ### 2.3 Files
 
 | Item | Where | Notes |
 |---|---|---|
-| Spec note | `docs/spec-notes/actors.md` (new) | all facts above, tagged; capture procedures |
-| Schema | `schemas/fnv`: HAIR, EYES, HDPT records; RACE `INDX`; CREA `NIFZ` (part D) | from xEdit's public definitions, as in Layer 1 |
+| Spec note | `docs/spec-notes/actors.md` | all facts above, tagged; capture procedures |
+| Schema | `schemas/fnv`: HAIR, EYES, HDPT records; RACE `INDX` (done); CREA `NIFZ` (part D) | from xEdit's public definitions, as in Layer 1 |
 | Resolution | `crates/fnv-actor` (new; depends on `fnv-esm`, `fnv-world`, `fnv-sim`) | `resolve`, `ActorAppearance`; unit + synthetic-plugin tests |
-| CLI | `fnvtool actor appearance --ref <formid> \| --cell <edid>` → `fnv.actor.appearance/1` | contract in the spec note; one pointer paragraph in `docs/cli-contract.md` |
+| CLI | `fnvtool actor forms \| appearance \| meshes` | contract in actors.md §5; one pointer paragraph in `docs/cli-contract.md` |
 | Oracle | `tools/capture/oracle_actor.py` (+ test) | written from the spec note only |
 | Scenario | `parity-lab/scenarios/layer3_actors.json`: `L3.actors.appearance` | keyed on reference FormID vs the oracle |
 | Assembly | `engine/nvf-assets`: spawn a skeleton once and attach parts to it (skinned by name, rigid by `Prn`) | additive API next to `spawn_nif`; the viewer gets `--npc <edid>` to inspect one actor |
@@ -151,14 +163,14 @@ Rules, all [hypothesis] until captured:
    with and without actors.
 5. Owner visual check against in-game screenshots of the same NPCs (§5).
 
-Done when 1–5 hold for humanoids with the race's base head (parts A and B).
+Done when 1–5 hold for humanoids with FaceGen faces (parts A, B and C).
 
 ## 4. Parts
 
 | Part | Delivers | Depends on |
 |---|---|---|
 | A — data | schema additions, `fnv-actor` resolution, CLI, oracle, `L3.actors.appearance`, spec note | `fnv-sim` (leveled lists, inventories) |
-| B — assembly | one-skeleton spawning in `nvf-assets`, viewer `--npc`, world streaming of actors, idle pose (`mtidle.kf` looped, or frozen with `--actor-pose bind`) | A's `ActorAppearance` (stub first) |
+| B — assembly | one-skeleton spawning in `nvf-assets`, viewer `--npc`, world streaming of actors, frozen bind pose | A's `ActorAppearance` (stub first) |
 | C — FaceGen | spec note for `.egm`/`.egt`/`.tri` from public documentation, head/hair/hat morphs from FGGS/FGGA, skin texture morph from FGTS | B |
 | D — creatures | CREA (`MODL` skeleton + `NIFZ` model list), ACRE placement | B |
 
@@ -166,14 +178,11 @@ A and B can run in parallel once the `ActorAppearance` struct is committed as a 
 
 ## 5. Open questions for the owner
 
-1. **Static pose**: idle animation looping (`mtidle.kf`) or a frozen pose? The plan
-   defaults to the looping idle.
-2. **FaceGen**: without part C every NPC of a race and age has the same face. Is that
-   acceptable for a first cut, or should C come before B is merged?
-3. **Reference screenshots**: can `nvf_capture` (or you) take front and side screenshots
-   of Doc Mitchell, Sunny Smiles, Trudy and a Powder Ganger in game, with the HUD hidden
-   (console `tm`), for the visual check?
-4. **Armour choice**: an NPC carrying two outfits for the same slot — which one does it
-   wear? A capture with `GetEquipped` on a few NPCs would settle rule 3 of §2.2.
+1. ~~Static pose~~ → Owner 2026-10-08: frozen bind pose.
+2. ~~FaceGen~~ → Owner 2026-10-08: do FaceGen (part C).
+3. Reference screenshots → Owner 2026-10-08: a Goodsprings Settler and Sunny Smiles
+   provided. More would help for the headgear rules (actors.md §6): an NCR trooper with
+   helmet, a settler with a cowboy hat, a power armour helmet.
+4. ~~Armour choice~~ → Owner 2026-10-08: the best protection by DT and DR (actors.md §2.3).
 </content>
 </invoke>

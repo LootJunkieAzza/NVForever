@@ -327,3 +327,9 @@ collision notes.
 (`fnv.sim.actions/1` → `fnv.sim.trace/1`), `fnvtool sim forms` (`fnv.sim.forms/1`) and
 `fnvtool sim doors` (`fnv.sim.doors/1`) are defined in docs/spec-notes/simulation.md §7
 together with the simulation notes.
+
+# Actor appearance (workstream 5)
+
+`fnvtool actor forms` (`fnv.actor.forms/1`), `fnvtool actor appearance`
+(`fnv.actor.appearance/1`) and `fnvtool actor meshes` (`fnv.actor.meshes/1`) are defined in
+docs/spec-notes/actors.md §5 together with the actor appearance notes.

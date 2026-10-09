@@ -354,6 +354,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
+name = "fnv-actor"
+version = "0.1.0"
+dependencies = [
+ "fnv-esm",
+ "fnv-nif",
+ "fnv-sim",
+ "fnv-world",
+ "rand_chacha",
+ "rand_core",
+ "rayon",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fnv-bsa"
 version = "0.1.0"
 dependencies = [
@@ -508,6 +523,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "fnv-actor",
  "fnv-bsa",
  "fnv-collide",
  "fnv-dds",
