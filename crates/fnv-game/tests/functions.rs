@@ -1,0 +1,453 @@
+//! The function families of the 2026-10-09 coverage round on a synthetic plugin (no
+//! game data): reputations, effect scripts on a consumed ingestible, placed references,
+//! typed item removal, actor flags from records, factions, ownership, destruction,
+//! regions, challenges and the calendar. docs/spec-notes/scripts.md §7.6.
+
+mod common;
+
+use common::*;
+use fnv_esm::{LoadOrder, Plugin, Schema};
+use fnv_game::functions::Ctx;
+use fnv_game::game::{Game, GameConfig, InstKey};
+use fnv_game::trace::EventKind;
+use fnv_game::GameData;
+use fnv_script::vm::{ArgValue, Value};
+use fnv_script::FunctionTable;
+use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
+use serde_json::Value as Json;
+
+const G_YEAR: u32 = 0x801;
+const G_EFF: u32 = 0x807;
+const G_TIME: u32 = 0x808;
+const G_DONE: u32 = 0x809;
+const REP: u32 = 0x820;
+const CHAL: u32 = 0x821;
+const RACE_CHILD: u32 = 0x822;
+const F1: u32 = 0x823;
+const F2: u32 = 0x824;
+const NPC_CHILD: u32 = 0x830;
+const NPC_ADULT: u32 = 0x831;
+const CREA: u32 = 0x832;
+const MISC: u32 = 0x840;
+const WEAP: u32 = 0x841;
+const FLST: u32 = 0x842;
+const MGEF: u32 = 0x850;
+const EFFECT_SCRIPT: u32 = 0x851;
+const ALCH: u32 = 0x852;
+const ACTI: u32 = 0x860;
+const CONT: u32 = 0x861;
+const REGN: u32 = 0x870;
+const WRLD: u32 = 0x900;
+const EXT_CELL: u32 = 0x910;
+const CELL: u32 = 0x200;
+const ACTI_REF: u32 = 0x300;
+const CONT_REF: u32 = 0x301;
+const CHILD_REF: u32 = 0x320;
+const ADULT_REF: u32 = 0x321;
+const CREA_REF: u32 = 0x322;
+
+const SCRIPT_EFFECT_ELAPSED_SECONDS: u16 = 0x10BA;
+
+fn f32b(v: f32) -> Vec<u8> {
+    v.to_le_bytes().to_vec()
+}
+
+fn glob(fid: u32, edid: &str, v: f32) -> Vec<u8> {
+    record(b"GLOB", 0, fid, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", f32b(v))])
+}
+
+fn placed(sig: &[u8; 4], fid: u32, base: u32, pos: [f32; 3]) -> Vec<u8> {
+    let data = [f32b(pos[0]), f32b(pos[1]), f32b(pos[2]), vec![0; 12]].concat();
+    record(sig, 0, fid, &[sub(b"NAME", base.to_le_bytes().to_vec()), sub(b"DATA", data)])
+}
+
+fn npc(fid: u32, edid: &str, extra: Vec<fnv_esm::raw::Subrecord>) -> Vec<u8> {
+    record(b"NPC_", 0, fid, &[vec![sub(b"EDID", z(edid))], extra].concat())
+}
+
+/// DSTD: health percent, index, damage stage, flags, then 16 bytes of zeros.
+fn dstd(pct: u8, index: u8, flags: u8) -> fnv_esm::raw::Subrecord {
+    sub(b"DSTD", [vec![pct, index, index, flags], vec![0; 16]].concat())
+}
+
+fn plugin_bytes() -> Vec<u8> {
+    let globs = [
+        glob(G_YEAR, "GameYear", 2281.0),
+        glob(0x802, "GameMonth", 9.0),
+        glob(0x803, "GameDay", 18.0),
+        glob(0x804, "GameHour", 12.0),
+        glob(0x805, "GameDaysPassed", 5.0),
+        glob(0x806, "TimeScale", 30.0),
+        glob(G_EFF, "GEff", 0.0),
+        glob(G_TIME, "GTime", 0.0),
+        glob(G_DONE, "GDone", 0.0),
+    ]
+    .concat();
+    let repu = record(b"REPU", 0, REP, &[sub(b"EDID", z("RepTest")), sub(b"DATA", f32b(20.0))]);
+    let chal = record(b"CHAL", 0, CHAL, &[sub(b"EDID", z("ChalTest")), sub(b"DATA", [u32s(&[13, 1, 1, 0]), vec![0; 8]].concat())]);
+    let race = record(b"RACE", 0, RACE_CHILD, &[sub(b"EDID", z("ChildRace")), sub(b"DATA", [vec![0; 16], vec![0; 16], u32s(&[4])].concat())]);
+    let fact = [
+        record(b"FACT", 0, F1, &[sub(b"EDID", z("F1")), sub(b"XNAM", u32s(&[F2, 0, 1]))]),
+        record(b"FACT", 0, F2, &[sub(b"EDID", z("F2"))]),
+    ]
+    .concat();
+    let snam = |f: u32| sub(b"SNAM", [f.to_le_bytes().to_vec(), vec![0; 4]].concat());
+    let npcs = [
+        npc(0x7, "Player", vec![]),
+        npc(NPC_CHILD, "ChildNpc", vec![sub(b"RNAM", RACE_CHILD.to_le_bytes().to_vec()), snam(F1)]),
+        npc(NPC_ADULT, "AdultNpc", vec![snam(F2)]),
+    ]
+    .concat();
+    let crea_data = [vec![6u8, 0, 0, 0], vec![0; 6], vec![0; 7]].concat();
+    let crea = record(b"CREA", 0, CREA, &[sub(b"EDID", z("Robot")), sub(b"DATA", crea_data)]);
+    let misc = record(b"MISC", 0, MISC, &[sub(b"EDID", z("Junk")), sub(b"DATA", [1i32.to_le_bytes().to_vec(), f32b(1.0)].concat())]);
+    let weap_data = [10i32.to_le_bytes().to_vec(), 100i32.to_le_bytes().to_vec(), f32b(2.0), 5i16.to_le_bytes().to_vec(), vec![6]].concat();
+    let weap = record(b"WEAP", 0, WEAP, &[sub(b"EDID", z("Gun")), sub(b"DATA", weap_data)]);
+    let flst = record(b"FLST", 0, FLST, &[sub(b"EDID", z("GunList")), sub(b"LNAM", WEAP.to_le_bytes().to_vec())]);
+    // The base effect: archetype 1 (Script), its script 0x851 (scripts.md §7.6).
+    let mgef_data = [u32s(&[0]), f32b(0.0), u32s(&[EFFECT_SCRIPT]), vec![0xFF; 8], vec![0; 4], vec![0; 4], f32b(1.0), vec![0; 24], vec![0; 8], u32s(&[1]), vec![0xFF; 4]].concat();
+    assert_eq!(mgef_data.len(), 72);
+    let mgef = record(b"MGEF", 0, MGEF, &[sub(b"EDID", z("TestEffect")), sub(b"DATA", mgef_data)]);
+    // Effect script: Start sets GEff 1; Update adds ScriptEffectElapsedSeconds to GTime;
+    // Finish sets GDone 1.
+    let body_start = set(var(b'G', 1), ex(&[a("1")]));
+    let body_update = set(var(b'G', 2), ex(&[var(b'G', 2), xcall(SCRIPT_EFFECT_ELAPSED_SECONDS, &[]), a("+")]));
+    let body_finish = set(var(b'G', 3), ex(&[a("1")]));
+    let escript = [
+        vec![sub(b"EDID", z("TestEffectScript"))],
+        unit(0x100, &script(&[(0x11, None, body_start), (0x13, None, body_update), (0x12, None, body_finish)]), &[], &[G_EFF, G_TIME, G_DONE]),
+    ]
+    .concat();
+    let scpt = record(b"SCPT", 0, EFFECT_SCRIPT, &escript);
+    let enit = [u32s(&[5]), vec![0; 4], u32s(&[0]), f32b(0.0), u32s(&[0])].concat();
+    let efit = [u32s(&[0, 0, 1, 0]), (-1i32).to_le_bytes().to_vec()].concat();
+    let alch = record(
+        b"ALCH",
+        0,
+        ALCH,
+        &[sub(b"EDID", z("TestChem")), sub(b"DATA", f32b(0.5)), sub(b"ENIT", enit), sub(b"EFID", MGEF.to_le_bytes().to_vec()), sub(b"EFIT", efit)],
+    );
+    let acti = record(
+        b"ACTI",
+        0,
+        ACTI,
+        &[
+            sub(b"EDID", z("Crate")),
+            sub(b"DEST", [100i32.to_le_bytes().to_vec(), vec![2, 0, 0, 0]].concat()),
+            dstd(50, 1, 0),
+            sub(b"DSTF", vec![]),
+            dstd(0, 2, 4),
+            sub(b"DSTF", vec![]),
+        ],
+    );
+    let cnto = |item: u32, n: i32| sub(b"CNTO", [item.to_le_bytes().to_vec(), n.to_le_bytes().to_vec()].concat());
+    let cont = record(b"CONT", 0, CONT, &[sub(b"EDID", z("Box")), cnto(MISC, 3), cnto(WEAP, 1), sub(b"DATA", [vec![0], f32b(0.0)].concat())]);
+    let rpld = [f32b(0.0), f32b(0.0), f32b(4096.0), f32b(0.0), f32b(4096.0), f32b(4096.0), f32b(0.0), f32b(4096.0)].concat();
+    let regn = record(
+        b"REGN",
+        0,
+        REGN,
+        &[sub(b"EDID", z("TestRegion")), sub(b"WNAM", WRLD.to_le_bytes().to_vec()), sub(b"RPLI", u32s(&[1024])), sub(b"RPLD", rpld)],
+    );
+    let wrld = record(b"WRLD", 0, WRLD, &[sub(b"EDID", z("TestWorld"))]);
+    let ext = record(b"CELL", 0, EXT_CELL, &[sub(b"EDID", z("TestExterior")), sub(b"XCLC", [0i32.to_le_bytes(), 0i32.to_le_bytes()].concat())]);
+    let world_children = group(WRLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &ext)));
+    let cell = record(b"CELL", 0, CELL, &[sub(b"EDID", z("TestCell"))]);
+    let refs = [
+        placed(b"REFR", ACTI_REF, ACTI, [0.0; 3]),
+        placed(b"REFR", CONT_REF, CONT, [0.0; 3]),
+        placed(b"ACHR", CHILD_REF, NPC_CHILD, [0.0; 3]),
+        placed(b"ACHR", ADULT_REF, NPC_ADULT, [0.0; 3]),
+        placed(b"ACRE", CREA_REF, CREA, [0.0; 3]),
+    ]
+    .concat();
+    let children = group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs));
+    [
+        tes4(),
+        top(b"GLOB", &globs),
+        top(b"REPU", &repu),
+        top(b"CHAL", &chal),
+        top(b"RACE", &race),
+        top(b"FACT", &fact),
+        top(b"NPC_", &npcs),
+        top(b"CREA", &crea),
+        top(b"MISC", &misc),
+        top(b"WEAP", &weap),
+        top(b"FLST", &flst),
+        top(b"MGEF", &mgef),
+        top(b"SCPT", &scpt),
+        top(b"ALCH", &alch),
+        top(b"ACTI", &acti),
+        top(b"CONT", &cont),
+        top(b"REGN", &regn),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
+        top(b"WRLD", &[wrld, world_children].concat()),
+    ]
+    .concat()
+}
+
+struct Fixture {
+    data: GameData,
+    forms: FormStore,
+    refs: RefTable,
+}
+
+fn fixture() -> Fixture {
+    let plugins = vec![Plugin::parse(&plugin_bytes(), "Functions.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let table = FunctionTable::load(&p).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, table, &j, &refs);
+    Fixture { data, forms, refs }
+}
+
+fn game(f: &Fixture) -> Game<'_> {
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig { strict: true, ..GameConfig::default() });
+    g.player_entered(Some(FormId(CELL)));
+    g
+}
+
+fn r(x: u32) -> ArgValue {
+    ArgValue::Value(Value::Ref(x))
+}
+fn n(x: f64) -> ArgValue {
+    ArgValue::Value(Value::Num(x))
+}
+
+/// Call a function by opcode on `on` (or nothing), failing the test on a call error.
+fn call(g: &mut Game, op: u16, on: Option<u32>, args: &[ArgValue]) -> f64 {
+    let ctx = Ctx { unit: "test".into(), opcode: op, on: on.map(FormId), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    let before = g.events.len();
+    let v = g.call_function(&ctx, args);
+    for e in &g.events[before..] {
+        if let EventKind::CallFailed { name, error, .. } | EventKind::Unhandled { name, unit: error, .. } = &e.kind {
+            panic!("0x{op:04X} {name}: {error}");
+        }
+    }
+    match v {
+        Value::Num(x) => x,
+        Value::Ref(f) => f as f64,
+    }
+}
+
+const PLAYER: u32 = 0x14;
+
+#[test]
+fn records_read_for_the_new_functions() {
+    let f = fixture();
+    let d = &f.data;
+    assert_eq!(d.reputations[&FormId(REP)], 20.0);
+    assert_eq!(d.challenges[&FormId(CHAL)], 1);
+    assert!(d.child_races.contains(&FormId(RACE_CHILD)));
+    assert_eq!(d.faction_reactions[&FormId(F1)], vec![(FormId(F2), 1)]);
+    assert_eq!(d.actors[&FormId(CREA)].creature_type, Some(6));
+    let m = &d.magic_effects[&FormId(MGEF)];
+    assert_eq!((m.archetype, m.script), (1, Some(FormId(EFFECT_SCRIPT))));
+    assert_eq!(d.effect_items[&FormId(ALCH)][0].duration, 1);
+    let dd = &d.destructibles[&FormId(ACTI)];
+    assert_eq!((dd.health, dd.stages.clone()), (100, vec![(50, 1, 0), (0, 2, 4)]));
+    let rg = &d.regions[&FormId(REGN)];
+    assert_eq!(rg.world, Some(FormId(WRLD)));
+    assert!(rg.contains(100.0, 100.0) && !rg.contains(5000.0, 100.0) && !rg.contains(-1.0, 2000.0));
+}
+
+#[test]
+fn reputation_points_tiers_and_percentages() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Neutral: every axis 1.
+    for axis in 0..3 {
+        assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(axis as f64)]), 1.0);
+    }
+    // Deed size 3 = 4 points of fame (the documented default); twice = 8 of 20 = level 1.
+    call(&mut g, 0x1239, None, &[r(REP), n(1.0), n(3.0)]);
+    call(&mut g, 0x1239, None, &[r(REP), n(1.0), n(3.0)]);
+    assert_eq!(g.player.reputation[&FormId(REP)], [0.0, 8.0]);
+    assert_eq!(call(&mut g, 0x123E, None, &[r(REP), n(1.0)]), 0.4);
+    assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(1.0)]), 4.0); // Accepted
+    assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(0.0)]), 0.0);
+    assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(2.0)]), 0.0);
+    // Infamy at level 1 too: equal levels are Mixed (mixed axis 3).
+    call(&mut g, 0x123B, None, &[r(REP), n(0.0), n(5.0)]);
+    assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(0.0)]), 3.0);
+    assert_eq!(call(&mut g, 0x123F, None, &[r(REP), n(1.0)]), 0.0);
+    // RemoveReputation takes the same points back and does not go below 0.
+    call(&mut g, 0x123A, None, &[r(REP), n(0.0), n(5.0)]);
+    assert_eq!(g.player.reputation[&FormId(REP)][0], 0.0);
+    // The grid: each name on its axis.
+    use fnv_game::functions::reputation_tiers as t;
+    assert_eq!(t(3, 0), [0, 6, 0]);
+    assert_eq!(t(0, 2), [0, 0, 5]);
+    assert_eq!(t(2, 1), [0, 2, 0]);
+    assert_eq!(t(1, 3), [0, 0, 3]);
+    assert_eq!(t(3, 3), [5, 0, 0]);
+    assert_eq!(t(2, 3), [2, 0, 0]);
+}
+
+#[test]
+fn a_consumed_ingestible_runs_its_effect_script_for_its_duration() {
+    let f = fixture();
+    let mut g = game(&f);
+    let p = FormId::PLAYER_REF;
+    g.world.add_item(p, FormId(ALCH), 2).unwrap();
+    let ids = g.consume(p, FormId(ALCH)).unwrap();
+    assert_eq!(ids.len(), 1);
+    assert_eq!(g.world.item_count(p, FormId(ALCH)).unwrap(), 1);
+    // ScriptEffectStart ran inside the call.
+    assert_eq!(g.world.global(FormId(G_EFF)).unwrap(), 1.0);
+    assert_eq!(call(&mut g, 0x10DF, Some(PLAYER), &[r(ALCH)]), 1.0);
+    assert_eq!(call(&mut g, 0x10D6, Some(PLAYER), &[r(MGEF)]), 1.0);
+    // ScriptEffectElapsedSeconds is 0 outside an update.
+    assert_eq!(call(&mut g, 0x10BA, None, &[]), 0.0);
+    g.frames(30);
+    let t = g.world.global(FormId(G_TIME)).unwrap();
+    assert!((t - 0.5).abs() < 1e-3, "{t}");
+    assert_eq!(g.world.global(FormId(G_DONE)).unwrap(), 0.0);
+    // Menus stop the effect clock.
+    g.menu = Some(1002);
+    g.frames(120);
+    g.menu = None;
+    assert_eq!(g.world.global(FormId(G_TIME)).unwrap(), t);
+    g.frames(30);
+    assert_eq!(g.world.global(FormId(G_DONE)).unwrap(), 1.0);
+    assert!(g.effects.is_empty());
+    assert!(!g.instances.keys().any(|k| matches!(k, InstKey::Effect { .. })));
+    assert_eq!(call(&mut g, 0x10DF, Some(PLAYER), &[r(ALCH)]), 0.0);
+    // EquipItem of an aid item consumes it the same way.
+    g.world.set_global(FormId(G_EFF), 0.0).unwrap();
+    call(&mut g, 0x10EE, Some(PLAYER), &[r(ALCH)]);
+    assert_eq!(g.world.item_count(p, FormId(ALCH)).unwrap(), 0);
+    assert_eq!(g.world.global(FormId(G_EFF)).unwrap(), 1.0);
+    // Dispel ends it at once, with its finish block.
+    g.world.set_global(FormId(G_DONE), 0.0).unwrap();
+    call(&mut g, 0x1142, Some(PLAYER), &[r(ALCH)]);
+    assert!(g.effects.is_empty());
+    assert_eq!(g.world.global(FormId(G_DONE)).unwrap(), 1.0);
+}
+
+#[test]
+fn place_at_me_drop_and_typed_removal() {
+    let f = fixture();
+    let mut g = game(&f);
+    // An item makes one reference with the count; another form one per count.
+    let junk = call(&mut g, 0x1025, Some(ACTI_REF), &[r(MISC), n(5.0)]) as u32;
+    let s = g.world.peek(FormId(junk)).unwrap().clone();
+    assert_eq!((s.base, s.count, s.cell), (FormId(MISC), 5, Some(FormId(CELL))));
+    call(&mut g, 0x1025, Some(ACTI_REF), &[r(CONT), n(2.0)]);
+    let boxes = g.world.created().filter(|(_, s)| s.base == FormId(CONT)).count();
+    assert_eq!(boxes, 2);
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::Placed { .. })));
+    // Weapons (type 40) move to the player; the junk stays.
+    call(&mut g, 0x1249, Some(CONT_REF), &[r(PLAYER), n(0.0), n(0.0), n(40.0)]);
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(WEAP)).unwrap(), 1);
+    assert_eq!(g.world.item_count(FormId(CONT_REF), FormId(MISC)).unwrap(), 3);
+    // With no type everything goes, destroyed without a target.
+    call(&mut g, 0x1249, Some(CONT_REF), &[]);
+    assert_eq!(g.world.item_count(FormId(CONT_REF), FormId(MISC)).unwrap(), 0);
+    // Drop: the player's items fall into the world.
+    g.world.add_item(FormId::PLAYER_REF, FormId(MISC), 2).unwrap();
+    call(&mut g, 0x1057, Some(PLAYER), &[r(MISC), n(2.0)]);
+    assert_eq!(g.world.item_count(FormId::PLAYER_REF, FormId(MISC)).unwrap(), 0);
+    assert!(g.world.newest_created(FormId(MISC)).is_some());
+    // AddItemHealthPercent and the equipped weapon's condition.
+    call(&mut g, 0x11BC, Some(PLAYER), &[r(WEAP), n(1.0), n(0.5)]);
+    call(&mut g, 0x10EE, Some(PLAYER), &[r(WEAP)]);
+    let hp = call(&mut g, 0x11F4, Some(PLAYER), &[]);
+    assert!(hp == 100.0 || hp == 50.0);
+    call(&mut g, 0x11F5, Some(PLAYER), &[n(40.0)]);
+    assert!((call(&mut g, 0x11F4, Some(PLAYER), &[]) - 40.0).abs() < 1e-3);
+    call(&mut g, 0x11F6, Some(PLAYER), &[n(-15.0)]);
+    assert!((call(&mut g, 0x11F4, Some(PLAYER), &[]) - 25.0).abs() < 1e-3);
+    assert_eq!(call(&mut g, 0x118F, Some(PLAYER), &[r(FLST)]), 1.0);
+}
+
+#[test]
+fn actor_flags_factions_and_essential_state() {
+    let f = fixture();
+    let mut g = game(&f);
+    assert_eq!(call(&mut g, 0x116D, Some(CHILD_REF), &[]), 1.0);
+    assert_eq!(call(&mut g, 0x116D, Some(ADULT_REF), &[]), 0.0);
+    assert_eq!(call(&mut g, 0x11B6, Some(CREA_REF), &[n(6.0)]), 1.0);
+    assert_eq!(call(&mut g, 0x11B6, Some(CREA_REF), &[n(5.0)]), 0.0);
+    // F1 lists F2 as an enemy (FACT XNAM); SetAlly changes both directions.
+    assert_eq!(call(&mut g, 0x11C2, Some(CHILD_REF), &[r(ADULT_REF)]), 1.0);
+    assert_eq!(call(&mut g, 0x11C2, Some(ADULT_REF), &[r(CHILD_REF)]), 0.0);
+    call(&mut g, 0x1079, None, &[r(F1), r(F2), n(1.0)]);
+    assert_eq!(call(&mut g, 0x11C2, Some(CHILD_REF), &[r(ADULT_REF)]), 3.0);
+    assert_eq!(call(&mut g, 0x119B, None, &[r(F2), r(F1)]), 2.0);
+    // The player as a crime enemy of F2.
+    call(&mut g, 0x10C6, None, &[r(F2), n(1.0)]);
+    assert_eq!(call(&mut g, 0x11CC, Some(ADULT_REF), &[]), 1.0);
+    assert_eq!(call(&mut g, 0x11C2, Some(ADULT_REF), &[r(PLAYER)]), 1.0);
+    call(&mut g, 0x11C9, None, &[r(F2)]);
+    assert_eq!(call(&mut g, 0x10C5, None, &[r(F2)]), 0.0);
+    call(&mut g, 0x1214, Some(ADULT_REF), &[]);
+    assert_eq!(call(&mut g, 0x1047, Some(ADULT_REF), &[r(F2)]), 0.0);
+    // Essential: the base flag covers every reference; the reference flag adds to it.
+    assert_eq!(call(&mut g, 0x1162, Some(ADULT_REF), &[]), 0.0);
+    call(&mut g, 0x1273, Some(ADULT_REF), &[n(1.0)]);
+    assert_eq!(call(&mut g, 0x1162, Some(ADULT_REF), &[]), 1.0);
+    call(&mut g, 0x1003, None, &[r(NPC_CHILD), n(1.0)]);
+    assert_eq!(call(&mut g, 0x1162, Some(CHILD_REF), &[]), 1.0);
+    // KillActor keeps the killer.
+    call(&mut g, 0x108B, Some(CHILD_REF), &[r(PLAYER)]);
+    assert_eq!(call(&mut g, 0x1199, Some(CHILD_REF), &[r(PLAYER)]), 1.0);
+    assert_eq!(call(&mut g, 0x1199, Some(CHILD_REF), &[r(ADULT_REF)]), 0.0);
+}
+
+#[test]
+fn ownership_destruction_regions_challenges_and_calendar() {
+    let f = fixture();
+    let mut g = game(&f);
+    // Ownership: the player by default.
+    assert_eq!(call(&mut g, 0x1116, Some(ACTI_REF), &[]), 0.0);
+    call(&mut g, 0x1117, Some(ACTI_REF), &[]);
+    assert_eq!(call(&mut g, 0x1116, Some(ACTI_REF), &[]), 1.0);
+    call(&mut g, 0x1117, Some(ACTI_REF), &[r(F1)]);
+    assert_eq!(call(&mut g, 0x1116, Some(ACTI_REF), &[r(F1)]), 1.0);
+    call(&mut g, 0x118C, Some(ACTI_REF), &[]);
+    assert_eq!(call(&mut g, 0x1116, Some(ACTI_REF), &[r(F1)]), 0.0);
+    // Destruction: no damage −1; 60 of 100 → stage 1; 40 more → stage 2, destroyed.
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), -1.0);
+    call(&mut g, 0x116C, Some(ACTI_REF), &[n(10.0)]);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 0.0);
+    call(&mut g, 0x116C, Some(ACTI_REF), &[n(50.0)]);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 1.0);
+    call(&mut g, 0x116C, Some(ACTI_REF), &[n(40.0)]);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 2.0);
+    assert_eq!(call(&mut g, 0x10CB, Some(ACTI_REF), &[]), 1.0);
+    call(&mut g, 0x11D8, Some(ACTI_REF), &[]);
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), -1.0);
+    assert_eq!(call(&mut g, 0x10CB, Some(ACTI_REF), &[]), 0.0);
+    // Regions: never in an interior; in the exterior area, by position.
+    assert_eq!(call(&mut g, 0x1260, None, &[r(REGN)]), 0.0);
+    {
+        let p = g.world.get(FormId::PLAYER_REF).unwrap();
+        p.cell = Some(FormId(EXT_CELL));
+        p.pos = [100.0, 200.0, 0.0];
+    }
+    assert_eq!(call(&mut g, 0x1260, None, &[r(REGN)]), 1.0);
+    g.world.get(FormId::PLAYER_REF).unwrap().pos = [5000.0, 200.0, 0.0];
+    assert_eq!(call(&mut g, 0x1264, None, &[r(REGN)]), 0.0);
+    // Challenges and fast travel.
+    call(&mut g, 0x125E, None, &[r(CHAL)]);
+    assert!(g.player.challenges[&FormId(CHAL)].unlocked);
+    assert_eq!(call(&mut g, 0x1266, None, &[r(CHAL)]), 0.0);
+    call(&mut g, 0x1111, None, &[n(0.0), n(0.0), n(0.0)]);
+    assert!(g.player.fast_travel.travel_disabled && g.player.fast_travel.wait_disabled);
+    // From the interior back outside, without the keep flag: travel allowed again.
+    g.player_entered(Some(FormId(CELL)));
+    g.player_entered(Some(FormId(EXT_CELL)));
+    assert!(!g.player.fast_travel.travel_disabled);
+    // 18 October 2281 (month 9 counted from 0) is a Tuesday on the Gregorian calendar.
+    assert_eq!(call(&mut g, 0x10AA, None, &[]), 2.0);
+    // GetHeadingAngle: a target due east of a caller facing north is 90° to the right.
+    g.world.get(FormId(ADULT_REF)).unwrap().pos = [0.0, 0.0, 0.0];
+    g.world.get(FormId(CHILD_REF)).unwrap().pos = [100.0, 0.0, 0.0];
+    assert!((call(&mut g, 0x1063, Some(ADULT_REF), &[r(CHILD_REF)]) - 90.0).abs() < 1e-3);
+}
