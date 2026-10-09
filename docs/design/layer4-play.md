@@ -314,8 +314,46 @@ gate (rests 4350.47, unloaded in Freeside, back at 4350.46), CampGuardianCaves (
 (59500, 38500), walks out at (55599, 38457, 2634.1)); parity-lab 336/351, every result
 identical to main's `fnvtool`.
 
+Input audit (2026-10-09, `claude/l4-play-closeout`; reading the code against the
+original's control map, plus the coordinator's first hands-on run with real OS input on
+main 9be35d7). The original's bindings [observed: the owner's `FalloutPrefs.ini`
+[Controls], read-only; each value's second byte is a DirectInput scan code]: Forward W,
+Back S, Slide Left A, Slide Right D, Activate E, Crouch/Sneak left Ctrl, Run left Shift,
+Always Run Caps Lock, Auto Move Q, Jump Space, Menu Mode (Pip-Boy) Tab, Ready Item R,
+Grab Z, Toggle POV F, VATS V, Rest T, QuickSave F5, QuickLoad F9, Use left mouse, Block
+right mouse; `bAlwaysRunByDefault=1`, `bInvertYValues=0`, `fMouseSensitivity=0.0020`.
+Bevy's `KeyCode` names physical keys, as scan codes do, so layouts other than QWERTY
+keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
+- Caps Lock toggles Always Run (Shift then runs instead of walking); Ctrl toggles
+  sneaking (the original's control toggles [observed: `IsSneaking` after `TapControl 8`,
+  mv_values]), at 197.7/344 of the speed [observed running; walking hypothesis]; Q
+  toggles Auto Move, cancelled by Forward or Back [hypothesis]. Before, none of the three
+  existed.
+- Esc in the world opened nothing and quit the program at once (nvforever `keys`). It now
+  opens a pause menu (`pause.rs`: Resume / Quit, keys and clickable buttons; a
+  `PlayState::Menu`, so time, physics and mouse look stop and the cursor is free); Esc in
+  a menu still closes it. Without `--play` Esc still quits. `--run-seconds` and the test
+  aids are unaffected.
+- The status overlay's help line showed the fly camera's keys in `--play`; it now shows
+  `nvf_play::HELP` (the play controls).
+- Message-box buttons can be clicked (the original's can [observed by the coordinator]):
+  each is a button (`script_hud.rs` `BoxButton`), and the cursor is released while a box
+  is on screen.
+- Menu errors name items in words ("Cannot equip or use 10mm Round") instead of
+  "Cannot: 0x00004241 cannot be equipped" (`menu/model.rs` `plain_error`).
+- Lock prompts name the level: Very Easy, Easy, Average, Hard, Very Hard, Requires Key
+  for 0/25/50/75/100/255 [documented: GECK "Non-NPC population", level-design.md §7;
+  255 = Requires Key hypothesis], other levels as numbers.
+Kept, with the reason: mouse look stays 0.0025 rad per count (what the original's
+`fMouseSensitivity` 0.002 measures is not known) and is not inverted (the original's
+default); F9 stays the test aid that opens the nearest container (in the original it is
+QuickLoad; there is no saving yet); the right Shift also walks (unbound in the original).
+Not built: Ready Item, Grab, Toggle POV, VATS, Rest/Wait, hotkeys, saving.
+
 Open:
-- Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
+- Real keys and mouse: first hands-on run by the coordinator 2026-10-09 (mouse look,
+  WASD, jump, inventory and container menus by keys and mouse, doors, message boxes);
+  its findings are fixed above. Crouching and Auto Move by hand are not tried yet.
 - Dialogue and barter are not built.
 - ~~Locked doors that scripts open in the game stay locked~~: with Layer 5 scripts in
   `--play` (docs/design/layer5-play.md) the Freeside → Strip gate 0x00116425's own

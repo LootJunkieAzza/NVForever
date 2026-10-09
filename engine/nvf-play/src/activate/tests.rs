@@ -240,7 +240,7 @@ fn a_door_sends_travel_and_a_locked_chest_a_message() {
     let mut app = scene(&[(SAFE_REF, 50.0)]);
     press_e(&mut app);
     assert!(drain::<OpenContainer>(&mut app).is_empty());
-    assert_eq!(app.world().resource::<HudMessage>().text, "Chest is locked (level 50)");
+    assert_eq!(app.world().resource::<HudMessage>().text, "Chest is locked (Average)");
 }
 
 #[test]

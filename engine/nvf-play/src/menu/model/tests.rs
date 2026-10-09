@@ -253,7 +253,7 @@ fn inventory_equip_use_drop_and_errors() {
     // Not equippable: the error is shown, nothing changes.
     select(&mut m, Side::Player, "Bottle Cap");
     m.apply(&mut w, Command::One);
-    assert_eq!(m.status.as_deref(), Some("Cannot: 0x00000101 cannot be equipped"));
+    assert_eq!(m.status.as_deref(), Some("Cannot equip or use Bottle Cap"));
     assert_eq!(count(&mut w, 0x14, CAPS), 5);
     // Aid is used up.
     select(&mut m, Side::Player, "Aid");

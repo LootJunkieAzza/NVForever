@@ -97,14 +97,86 @@ impl MoveSpeeds {
 /// What the player asks for this frame.
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 pub struct MoveIntent {
-    /// +1 forward (W), −1 back (S).
+    /// +1 forward (W, or Auto Move), −1 back (S).
     pub forward: f32,
     /// +1 right (D), −1 left (A).
     pub right: f32,
-    /// Walk instead of run (Shift held) [hypothesis: running is the game's default].
+    /// Walk instead of run: the Run key (Shift) held with Always Run on, or not held with
+    /// it off [observed: Always Run is on by default and holding Run walks, physics.md
+    /// §6.3; that Run runs with Always Run off is hypothesis].
     pub walk: bool,
+    /// Sneaking (toggled by Ctrl).
+    pub sneak: bool,
     /// Jump (Space) on the next fixed step; kept until a step uses it.
     pub jump: bool,
+}
+
+/// The player's toggles: Always Run (Caps Lock), sneaking (Ctrl), Auto Move (Q).
+/// Kept across menus [hypothesis].
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct Controls {
+    /// [observed: `bAlwaysRunByDefault=1` in the original's default INI and the owner's]
+    pub always_run: bool,
+    pub sneaking: bool,
+    pub auto_move: bool,
+}
+
+impl Default for Controls {
+    fn default() -> Self {
+        Controls { always_run: true, sneaking: false, auto_move: false }
+    }
+}
+
+/// The keys of the original's control map for the controls NVForever has, by physical
+/// key (Bevy's `KeyCode` names the key's position, as DirectInput scan codes do)
+/// [observed: the owner's `FalloutPrefs.ini` [Controls], read-only: Forward 0x11 (W),
+/// Back 0x1F (S), Slide Left 0x1E (A), Slide Right 0x20 (D), Activate 0x12 (E),
+/// Crouch/Sneak 0x1D (left Ctrl), Run 0x2A (left Shift), Always Run 0x3A (Caps Lock),
+/// Auto Move 0x10 (Q), Jump 0x39 (Space), Menu Mode 0x0F (Tab); the byte is the
+/// DirectInput scan code (DIK_*); that these are the shipped defaults and not the
+/// owner's own choice is hypothesis]. Activate (E) is `crate::activate`'s, Menu Mode
+/// (Tab) `crate::menu`'s.
+pub mod keys {
+    use bevy::prelude::KeyCode;
+    pub const FORWARD: KeyCode = KeyCode::KeyW;
+    pub const BACK: KeyCode = KeyCode::KeyS;
+    pub const LEFT: KeyCode = KeyCode::KeyA;
+    pub const RIGHT: KeyCode = KeyCode::KeyD;
+    pub const JUMP: KeyCode = KeyCode::Space;
+    /// Also the right Shift (unbound in the original) [engineering choice].
+    pub const RUN: [KeyCode; 2] = [KeyCode::ShiftLeft, KeyCode::ShiftRight];
+    pub const ALWAYS_RUN: KeyCode = KeyCode::CapsLock;
+    pub const SNEAK: KeyCode = KeyCode::ControlLeft;
+    pub const AUTO_MOVE: KeyCode = KeyCode::KeyQ;
+}
+
+/// This frame's intent from the keys held (`pressed`) and pressed this frame (`just`),
+/// updating the toggles: Caps Lock flips Always Run, Ctrl flips sneaking [observed: the
+/// Crouch/Sneak control toggles, `IsSneaking` 1 after one tap and 0 after the next,
+/// capture mv_values], Q flips Auto Move, which walks forward until Forward or Back is
+/// pressed [hypothesis]. `jump` is only ever set here (a step clears it).
+pub fn read_keys(c: &mut Controls, intent: &mut MoveIntent, pressed: impl Fn(KeyCode) -> bool, just: impl Fn(KeyCode) -> bool) {
+    if just(keys::ALWAYS_RUN) {
+        c.always_run = !c.always_run;
+        info!("always run {}", if c.always_run { "on" } else { "off" });
+    }
+    if just(keys::SNEAK) {
+        c.sneaking = !c.sneaking;
+        info!("sneaking {}", if c.sneaking { "on" } else { "off" });
+    }
+    if just(keys::AUTO_MOVE) {
+        c.auto_move = !c.auto_move;
+    } else if c.auto_move && (just(keys::FORWARD) || just(keys::BACK)) {
+        c.auto_move = false;
+    }
+    let axis = |plus: KeyCode, minus: KeyCode| pressed(plus) as i32 as f32 - pressed(minus) as i32 as f32;
+    intent.forward = if c.auto_move { 1.0 } else { axis(keys::FORWARD, keys::BACK) };
+    intent.right = axis(keys::RIGHT, keys::LEFT);
+    intent.walk = keys::RUN.into_iter().any(&pressed) == c.always_run;
+    intent.sneak = c.sneaking;
+    if just(keys::JUMP) {
+        intent.jump = true;
+    }
 }
 
 /// Speed backwards as a fraction of the forward speed [observed: 272.8 against 344 units/s
@@ -112,9 +184,15 @@ pub struct MoveIntent {
 /// measured (the strafe runs hit a wall); they take the forward speed [hypothesis].
 pub const BACK_SPEED_FRACTION: f32 = 272.8 / 344.0;
 
+/// Speed while sneaking as a fraction of the speed otherwise [observed: 197.7 against 344
+/// units/s running forward, capture mv_values, physics.md §6.3; `fMoveSneakMult` is 0.57;
+/// the same fraction walking is hypothesis].
+pub const SNEAK_SPEED_FRACTION: f32 = 197.7 / 344.0;
+
 /// Horizontal velocity (game x, y) for an intent at a compass heading: diagonals not
 /// faster; straight backwards at [`BACK_SPEED_FRACTION`] of the speed, scaling with the
-/// backward share of a diagonal [hypothesis for diagonals].
+/// backward share of a diagonal [hypothesis for diagonals]; sneaking at
+/// [`SNEAK_SPEED_FRACTION`].
 pub fn velocity(intent: &MoveIntent, heading: f32, speeds: MoveSpeeds) -> [f32; 2] {
     let (s, c) = heading.sin_cos();
     // Forward is (sin h, cos h); right is forward turned 90° clockwise, (cos h, −sin h).
@@ -127,6 +205,9 @@ pub fn velocity(intent: &MoveIntent, heading: f32, speeds: MoveSpeeds) -> [f32; 
     if intent.forward < 0.0 {
         let back_share = -intent.forward / intent.forward.hypot(intent.right);
         speed *= 1.0 - back_share * (1.0 - BACK_SPEED_FRACTION);
+    }
+    if intent.sneak {
+        speed *= SNEAK_SPEED_FRACTION;
     }
     [v[0] / len * speed, v[1] / len * speed]
 }
@@ -206,6 +287,7 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MoveIntent>()
+            .init_resource::<Controls>()
             .init_resource::<Status>()
             .init_resource::<Net>()
             .insert_resource(NearAid::from_env())
@@ -251,17 +333,20 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
     commands.insert_resource(speeds);
 }
 
-/// The cursor is grabbed and hidden while playing in a focused window, released in menus.
-/// Not with `--auto-walk` (a test aid: the window must not hold the desktop's mouse).
+/// The cursor is grabbed and hidden while playing in a focused window, released in menus
+/// and while a script's message box is on screen (its buttons are clickable). Not with
+/// `--auto-walk` (a test aid: the window must not hold the desktop's mouse).
 fn grab_cursor(
     state: Res<State<PlayState>>,
     d: Res<PlayWorld>,
     unattended: Option<Res<crate::test_aid::Unattended>>,
+    hud: Option<Res<crate::script_hud::ScriptHud>>,
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
     let driven = d.auto_walk > 0.0 || unattended.is_some_and(|u| u.0);
-    let grab = *state.get() == PlayState::Playing && !driven && window.focused;
+    let boxed = hud.is_some_and(|h| h.front().is_some());
+    let grab = *state.get() == PlayState::Playing && !driven && !boxed && window.focused;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,
@@ -274,18 +359,17 @@ fn grab_cursor(
     }
 }
 
-fn read_input(keys: Res<ButtonInput<KeyCode>>, state: Res<State<PlayState>>, mut intent: ResMut<MoveIntent>) {
+fn read_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    state: Res<State<PlayState>>,
+    mut controls: ResMut<Controls>,
+    mut intent: ResMut<MoveIntent>,
+) {
     if *state.get() != PlayState::Playing {
         *intent = MoveIntent::default();
         return;
     }
-    let axis = |plus: KeyCode, minus: KeyCode| keys.pressed(plus) as i32 as f32 - keys.pressed(minus) as i32 as f32;
-    intent.forward = axis(KeyCode::KeyW, KeyCode::KeyS);
-    intent.right = axis(KeyCode::KeyD, KeyCode::KeyA);
-    intent.walk = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    if keys.just_pressed(KeyCode::Space) {
-        intent.jump = true;
-    }
+    read_keys(&mut controls, &mut intent, |k| keys.pressed(k), |k| keys.just_pressed(k));
 }
 
 /// Mouse look while the cursor is grabbed.
@@ -742,6 +826,52 @@ mod tests {
         let v = swim_velocity(&right, 0.0, down30, SWIM_SPEEDS);
         assert!((v[0] - 86.0).abs() < 1e-3 && v[2] == 0.0, "{v:?}");
         assert_eq!(swim_velocity(&MoveIntent::default(), 1.0, 0.5, SWIM_SPEEDS), [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn toggles_and_the_run_key() {
+        let mut c = Controls::default();
+        let mut i = MoveIntent::default();
+        let frame = |c: &mut Controls, i: &mut MoveIntent, held: &[KeyCode], pressed: &[KeyCode]| {
+            read_keys(c, i, |k| held.contains(&k) || pressed.contains(&k), |k| pressed.contains(&k));
+        };
+        // Always Run on: W runs, Shift+W walks.
+        frame(&mut c, &mut i, &[keys::FORWARD], &[]);
+        assert!(i.forward == 1.0 && !i.walk && !i.sneak);
+        frame(&mut c, &mut i, &[keys::FORWARD, KeyCode::ShiftLeft], &[]);
+        assert!(i.walk);
+        // Caps Lock turns it off: W walks, Shift+W runs.
+        frame(&mut c, &mut i, &[keys::FORWARD], &[keys::ALWAYS_RUN]);
+        assert!(!c.always_run && i.walk);
+        frame(&mut c, &mut i, &[keys::FORWARD, KeyCode::ShiftLeft], &[]);
+        assert!(!i.walk);
+        // Ctrl toggles sneaking; it stays on with no key held.
+        frame(&mut c, &mut i, &[], &[keys::SNEAK]);
+        assert!(c.sneaking && i.sneak);
+        frame(&mut c, &mut i, &[], &[]);
+        assert!(i.sneak);
+        frame(&mut c, &mut i, &[], &[keys::SNEAK]);
+        assert!(!i.sneak);
+        // Auto Move walks forward until Back (or Forward) is pressed.
+        frame(&mut c, &mut i, &[], &[keys::AUTO_MOVE]);
+        assert_eq!(i.forward, 1.0);
+        frame(&mut c, &mut i, &[], &[]);
+        assert_eq!(i.forward, 1.0);
+        frame(&mut c, &mut i, &[keys::BACK], &[keys::BACK]);
+        assert!(!c.auto_move && i.forward == -1.0);
+        // Jump is latched until a step clears it.
+        frame(&mut c, &mut i, &[], &[keys::JUMP]);
+        frame(&mut c, &mut i, &[], &[]);
+        assert!(i.jump);
+    }
+
+    #[test]
+    fn sneaking_is_slower() {
+        let run = MoveIntent { forward: 1.0, ..default() };
+        let sneak = MoveIntent { sneak: true, ..run };
+        let v = velocity(&sneak, 0.0, MoveSpeeds::OBSERVED);
+        assert!((v[1] - 197.7).abs() < 1e-3, "{v:?}");
+        assert!((velocity(&run, 0.0, MoveSpeeds::OBSERVED)[1] - 344.0).abs() < 1e-3);
     }
 
     #[test]
