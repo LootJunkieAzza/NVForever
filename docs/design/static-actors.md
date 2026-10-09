@@ -309,3 +309,10 @@ Facts and rules: docs/spec-notes/actors.md §10 (records, resolution, meshes, id
   §8.8); the body skin `.egt` tints the body texture (actors.md §4.1).
 - **Not done**: creature walk/turn/attack clips and KFFZ special idles (Layer 6); NIFT
   texture variants; hand `.egt`; race FaceGen data (§4.2 of actors.md).
+
+Results (2026-10-09): `L3.actors.creatures` 2,346 of 2,346 equal; every skin bone of the
+230 (skeleton, model) pairs is in its skeleton and every rigid shape finds a bone
+(actors.md §10.2); in-game reference frames of the Goodsprings bighorners, coyotes and
+Victor match by eye in place, size and look (SSIM 0.36–0.43, sky and grass dominated);
+the moving-camera smoke test draws and animates 115 creatures with no idle missing, at
+50 fps (actors.md §10.5).
