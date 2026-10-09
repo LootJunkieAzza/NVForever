@@ -242,10 +242,41 @@ by eye]: a morphed vertex = base vertex + Σ coefficientᵢ × scaleᵢ × delta
 symmetric (FGGS) and asymmetric (FGGA) modes, for every part with an `.egm` beside its
 model whose vertex count covers the shape; the face texture = the head's texture (the
 race ICON) + Σ FGTSᵢ × scaleᵢ × EGT modeᵢ, upsampled bilinearly and flipped vertically.
-The race FaceGen data, the RACE "FaceGen - Main clamp" / "Face clamp" values and the
-body's "Upper Body Texture" `.egt` are not used yet. In the Goodsprings flight
-(`--auto-fly 4000`, 40 s) 267 shapes were morphed and 34 faces textured, with no EGM
-mismatching its shape.
+The race FaceGen data and the RACE "FaceGen - Main clamp" / "Face clamp" values are not
+used (§4.2). In the Goodsprings flight (`--auto-fly 4000`, 40 s) 267 shapes were morphed
+and 34 faces textured, with no EGM mismatching its shape.
+
+### 4.1 Body skin
+
+- The race's body index 3 ("Upper Body Texture", §1.1) names an `.egt`:
+  `characters\_male\upperbodyhumanmale.egt` for every adult human male race, and
+  `…female`, `…child`, `…old` variants [observed: `fnvtool actor forms`]. These files
+  have the documented EGT layout with 32 × 32 images, 50 symmetric and 0 asymmetric
+  modes, 153,864 bytes each — the size the header implies [observed: 5 files checked],
+  so FGTS (50 values) fits them as it fits the head's.
+- Rule [hypothesis: the face rule of §4 applied to the body; not checked against the
+  game]: the body skin texture = the race's upper body ICON
+  (`characters\male\upperbodymale.dds`, 1024 × 1024 [observed]) + Σ FGTSᵢ × scaleᵢ × EGT
+  modeᵢ, upsampled bilinearly and flipped vertically. The engine gives it to every shape
+  whose diffuse is that texture — the race's upper body and skin shapes inside outfits
+  that name it — and halves it to 512 × 512 to keep one copy per actor small
+  (`FaceGenCache::skin_texture`). `--no-facegen` turns it off.
+- Hands are not tinted: their `.egt` files (`lefthandmale.egt`, `righthandold.egt`, …,
+  also 32 × 32 × 50) sit in `characters\_male\`, but no record names them and the hand
+  meshes are `lefthand.nif` / `righthand.nif`, so which one a race uses is not known
+  [open].
+
+### 4.2 Race FaceGen data (not used)
+
+Each RACE carries FGGS/FGGA/FGTS per sex (§1.1). Over the 3,386 placed NPCs with 50
+FGGS values [observed, `fnvtool actor appearance --all`, FalloutNV.esm]: none has the
+race's values; the median length of an NPC's FGGS vector is 6.0 and of the race's 13.2,
+and the median distance between the two is 17.2 — larger than either. So NPC values are
+not scattered around the race's, as absolute coordinates with a race default would be.
+Whether the game adds the race's coefficients to the NPC's, or uses them only in the
+character generator, is open [hypothesis either way]; faces drawn from the NPC's values
+alone matched the owner's screenshot of Sunny Smiles by eye (§4), so the race data stays
+unused until an in-game comparison of several NPCs of one race settles it.
 
 ## 5. CLI contract
 
@@ -604,8 +635,349 @@ the Prospector Saloon porch, Goodsprings [observed]:
   whether it scales the turn clip's rate are open. The walk test turns at 90°/s.
 - **Ground following**: the walk test moves in the placement's plane; a real mover needs
   the ground height (Layer 4 physics) per step.
-- **`nvf-viewer --anim`**: `anim_play::BoundClip` and `BlendPlayer` could replace the
-  viewer's single-clip player, so walk clips play in place there too (today the viewer
-  holds only an undriven root; a walking clip's `Bip01` travel shows as drift).
-- **Creatures (part D)**: the same selector should work with a creature skeleton's own
-  `locomotion\` folder, but creature clips use other names and prefixes (not surveyed).
+- **`nvf-viewer --anim`** (done 2026-10-09): the viewer's single-clip player
+  (`AnimState::start`) holds an undriven accumulation root at the identity (§7.2) and
+  removes a driven root's per-cycle travel in proportion to the cycle phase
+  (`Playing::in_place`, the rule of §8.2), so walk and run clips play in place there
+  too. World objects' clips keep their travel.
+- **Creatures (part D)**: done for the idle (§10.3); creature walk and turn clips are
+  not surveyed and not played.
+
+## 9. Weapons: holstering and drawing (part H)
+
+An NPC that carries a weapon shows it holstered and can draw and holster it with the
+game's own equip clips, layered over its locomotion by track priority. Nothing decides
+yet *when* to draw (Layer 6: combat, packages); the test aid `--actor-weapon-test <s>`
+toggles it. Plan and status: docs/design/static-actors.md part H.
+
+### 9.1 Clips (survey)
+
+`fnvtool actor anims` and `fnvtool actor weapons` (§9.5) on the owner's install,
+2026-10-09 [observed]. For each stance prefix (animation.md §3.2) `characters\_male\`
+holds four clips, named `<prefix><clip>.kf`:
+
+| Clip | Sequence | Cycle | Length | What it does |
+|---|---|---|---|---|
+| `holster` | Holster | clamp | 0.1–0.167 s | pose of the holstered weapon: drives `Weapon` (priority 55; 5 in `2hm`, 20 in `1gt`, `1md`, `2hh`), sometimes weapon parts, and one or two body nodes at priority 5 |
+| `equip` | Equip | clamp | 0.367–2.0 s | draws: legs at priority 25–27, upper body at 55 |
+| `aim` | Aim | loop | 2.0–13.3 s | weapon at the ready: legs 25 (`2hm` 15), spine 30, arms 35–45 |
+| `unequip` | Unequip | clamp | 0.367–2.0 s | holsters: priorities as `equip` |
+
+Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2):
+
+| Prefix | Types (§9.3) | Equip / unequip | Holstered at | Drawn at |
+|---|---|---|---|---|
+| `h2h` | Hand to Hand | 0.40 / 0.37 | `Bip01 R ForeTwist` | `Bip01 R ForeTwist` |
+| `1hm` | Melee (1 Hand) | 0.90 / 1.10 | `Bip01 Pelvis` | `Bip01 R Hand` |
+| `2hm` | Melee (2 Hand) | 1.20 / 1.20 | `Bip01 Spine2` | `Bip01 L Hand` |
+| `1hp` | Pistol (Ballistic, Energy) | 0.37 / 0.47 | `Bip01 Pelvis` | `Bip01 R Hand` |
+| `2hr` | Rifle (Ballistic, Energy) | 0.67 / 0.83 | `Bip01 Spine2` | `Bip01 R Hand` |
+| `2ha` | Rifle - Automatic | 1.00 / 0.83 | `Bip01 Spine2` | `Bip01 R Hand` |
+| `2hh` | Handle | 1.00 / 1.00 | `Bip01 R Hand` | `Bip01 R Hand` |
+| `2hl` | Launcher | 2.00 / 2.00 | `Bip01 Spine2` | `Bip01 R Hand` |
+| `1gt` | Grenade Throw, Thrown | 1.00 / 1.00 | `Bip01 Pelvis` | `Bip01 R Hand` |
+| `1lm` | Land Mine | 1.00 / 1.00 | `Bip01 Pelvis` | `Bip01 R Hand` |
+| `1md` | Mine Drop | 1.00 / 1.00 | `Bip01 Pelvis` | `Bip01 R Hand` |
+
+- The stance clips also drive the weapon model's own moving parts, `##`-named nodes
+  (`##357Cylinder`, `##MinigunBarrel`, …), mostly at priority 0 [observed: the tracks the
+  skeleton lacks].
+- The unarmed locomotion clips are priority 30 (walk, run) and 10 (`mtidle.kf`), and none
+  of them drives `Weapon` [observed: `kf_bind_check`].
+- `pa*` (power armour) and `sneak*` variants exist for several prefixes; not used.
+
+### 9.2 Where the weapon hangs
+
+- `skeleton.nif` has a node `Weapon` under `Bip01 R Hand`, at (6.17, 1.99, 0.76)
+  [observed]. A weapon model (e.g. `weapons\1handpistol\9mm.nif`) is a `BSFadeNode` at the
+  identity with its shapes and `##` part nodes below [observed].
+- The stance clips carry text keys `prn: <bone>` (also `Prn:`, and once `prn: Bip01 R
+  Hand  -at none`) and `Attach`/`Detach` [observed]. Reading [hypothesis]: from a `prn:`
+  key on, the `Weapon` node hangs from the named bone, and the clip's `Weapon` track
+  gives its transform relative to that bone. Equip clips end on the hand (`1hpequip`:
+  `prn: Bip01 R Hand` at 0.13 s), unequip clips on the holster bone (`1hpunequip`:
+  `prn: Bip01 Pelvis` at 0.20 s), holster clips name the holster bone. `Attach`/`Detach`
+  come close to the `prn:` keys but not always in the same order (`2haequip`: `Attach`
+  0.37 s, `prn: Bip01 R Hand` 0.93 s); they are not used.
+- Engine rule (`fnv_actor::weapon::mount_bones`, `WeaponAnim::parent`): holstered, the
+  weapon hangs from the holster clip's last `prn:` bone (else the unequip clip's); drawn,
+  from the aim clip's (else the equip clip's, else `Weapon`'s skeleton parent); while
+  equipping or unequipping, from the last `prn:` bone the clip has passed, starting from
+  where it was.
+- That NPCs show holstered weapons at the pelvis or on the back is [hypothesis, from the
+  holster clips]; an in-game screenshot of an NPC with a holstered pistol and one with a
+  rifle would settle it.
+
+### 9.3 Which weapon, which stance
+
+- WEAP: `MODL` third-person model, DNAM "Animation Type" (14 values), DNAM flags
+  "Embedded Weapon" and "Non-Playable", DATA base damage [documented: xEdit WEAP;
+  `schemas/fnv`]. 496 WEAP records, 372 drawable (a model, not embedded, a known type)
+  [observed].
+- An actor's weapon (`fnv_actor::weapon::choose_weapon`): among its carried items (the
+  same leveled-list results as its worn armour, §2.3), the drawable weapon with the
+  highest base damage, the first carried on ties [engine choice standing in for Layer 6's
+  equip logic].
+- Type → prefix (`AnimType::prefix`). The ESM gives only the type (DNAM); no field names
+  the clips, so the link is read from two kinds of evidence in the data [observed,
+  2026-10-09]:
+  - **Weapon parts.** A weapon model's moving parts are `##`-named nodes, and the stance
+    clips animate them by name. Matching the parts of the weapons placed NPCs carry
+    against the `##` tracks of every `<prefix>*.kf` in `characters\_male\` (all clips of
+    a prefix, not only the four of §9.1): the laser pistol's `##LPSideLatch`,
+    `##LPSmallEnergyCell`, `##LPTrigger` occur only in `1hp` clips, as do the parts of the
+    plasma pistol, Euclid's C-Finder, Plasma Defender and flare gun (Pistol - Energy →
+    `1hp`); the laser rifle's `##LR_CellReleaseSpring` occurs only in `2hr` clips (Rifle -
+    Energy → `2hr`; its `##MicroFusionCell` is also in `2ha` and `2hh` clips); the frag
+    grenade's `##GFPin`, the plasma grenade's slides and the dynamite's `##Lighter` only in
+    `1gt` clips (Grenade Throw → `1gt`); likewise `##MinigunBarrel` (`2hh`, Handle),
+    `##127SmgClip` (`2ha`, Automatic), `##mlIndicators` (`2hl`, Launcher), and every
+    ballistic pistol's and rifle's parts in `1hp` and `2hr`. Generic part names
+    (`##Trigger`, `##Clip`) occur under several prefixes and decide nothing; the recharger
+    pistol's parts occur in no clip.
+  - **Attack animations.** The thrown weapons (throwing knife, hatchet, spear) have no
+    moving parts, but their DNAM "Attack Animation" is AttackThrow6, 7 or 8, and the only
+    files of those names are `1gtattackthrow6.kf`, `…7.kf`, `…8.kf` (and their `sneak1gt`
+    copies) (Thrown → `1gt`). `1gtaim.kf` also animates `##Throwingkinfe` (sic), the
+    throwing knife's node.
+
+  So the energy types have no prefix of their own and share the ballistic ones, and
+  Thrown shares Grenade Throw's. Land Mine (`1lm`) and Mine Drop (`1md`) are matched by
+  name only (no NPC carries one).
+- Placed NPCs in the ten masters (3,942 resolved): 3,139 have a weapon (826 by fixed
+  data, 2,313 through a leveled roll), 803 none. By type: Pistol - Ballistic 690, Rifle -
+  Ballistic 559, Melee (1 Hand) 546, Rifle - Automatic 536, Melee (2 Hand) 471, Thrown 123,
+  Pistol - Energy 89, Rifle - Energy 53, Hand to Hand 26, Handle 20, Launcher 20, Grenade
+  Throw 6. Most common: the service rifle (262), sledgehammer (212), combat knife (202).
+  Every chosen weapon's model exists [observed].
+
+### 9.4 Engine
+
+- **Priority blending** (`nvf_assets::anim_play::BlendPlayer`, up to four clips): per
+  node, the clips that drive it are taken from the highest priority down; a priority
+  group takes its summed weight (at most what is left of 1), shared by weight within the
+  group; whatever is left goes to the next lower group, and finally to the bind pose
+  [hypothesis: the blending rule of the game's animation system; nif.xml documents the
+  per-track "Priority" field]. With only locomotion clips (weights summing to 1) this is
+  the plain weighted blend of part G. A node a clip stops driving goes back to its bind
+  transform.
+- **Draw cycle** (`fnv_actor::weapon::WeaponAnim`): holstered (holster clip, held at its
+  end) → equipping (equip clip) → drawn (aim clip, looping) → unequipping (unequip clip)
+  → holstered. Each change cross-fades over the incoming clip's `Blend: N` time (§8.3),
+  else 0.2 s; equip and unequip play to their end before the next change. The weapon
+  clips are layered over the locomotion clips: with the priorities of §9.1 the equip
+  clip takes the upper body (55) and, standing, the legs (25–27 > idle 10), while a
+  walk's legs (30) win.
+- **Weapon model**: drawn as a rigid part under the actor's `Weapon` node, which is moved
+  to the bone of §9.2 when it changes. The `##` part tracks are not played yet (the parts
+  stay at their model pose).
+- **Flags**: `--actor-weapons none|holstered|drawn` (default `holstered`) and the test aid
+  `--actor-weapon-test <s>` (draw, hold `<s>` seconds, holster, hold, repeat; each actor
+  starts at its spread phase). With `--actor-pose-time t` the cycle is run from its start
+  to `t` and held, like the walk test (§8.4).
+
+### 9.5 CLI contract
+
+`fnvtool actor weapons <Data> <plugins…> --schema <dir> [--nif-schema <dir>] [--folder
+<vfs folder>]` → `fnv.actor.weapons/1`. Top level: `schema`, `folder`, `stances`,
+`summary`, `actors`, `archives`, `load_order`.
+
+- `stances[]`, by prefix: {`prefix`, `anim_types` [names], `holster_bone`, `drawn_bone`
+  (§9.2), `clips` {`holster`|`equip`|`aim`|`unequip`: {`path`, `name`, `start_time`,
+  `stop_time`, `cycle_type`, `blend_time`, `prn` [[phase, bone]], `text_keys` [[time,
+  text]], `transform_priorities` {priority: tracks}, `weapon_track_priority`} or {`path`,
+  `error`}}}.
+- `summary`: `weap_records`, `drawable`, `actors` (counts: `no weapon`, `weapon
+  (deterministic)`, `weapon (random)`, `unresolved`), `by_anim_type`, `top_weapons`
+  [[edid, actors] × ≤ 25], `missing_models` {path: actors}.
+- `actors[]`, by reference FormID, those with a weapon: {`reference`, `edid`, `weapon`,
+  `weapon_edid`, `anim_type`, `prefix`, `model`, `random`}.
+
+Library: `fnv_actor::weapon` (`AnimType`, `choose_weapon`, `EquipClip`, `clip_path`,
+`prn_bone`, `ClipFacts`, `mount_bones`, `Stage`, `WeaponAnim`); `Appearance::weapon`
+(not serialised, so `fnv.actor.appearance/1` is unchanged).
+
+### 9.6 Visual check
+
+Screenshots kept privately (`C:\fnv-private\references\partg\weapons\`), Goodsprings, held with
+`--actor-pose-time` [observed]:
+
+- Easy Pete (.357 revolver, `1hp`): holstered, the revolver hangs at his right hip,
+  grip up, barrel down and back; drawn, it is in his right hand pointing forward at the
+  ready; at 0.10 s into the draw his hand reaches the hip, at 0.25 s the revolver is in
+  the hand coming up (the `prn: Bip01 R Hand` key is at 0.13 s).
+- A Goodsprings settler (varmint rifle, `2hr`): holstered, the rifle is slung diagonally
+  across his back; drawn, he holds it low at the ready in both hands; walking with it
+  drawn (`--actor-walk-test 85 --actor-weapons drawn`), his legs walk while his arms keep
+  the rifle at the ready (walk legs at priority 30 over the aim clip's 25, aim arms at 35
+  over the walk's 30).
+- This matches how the game shows NPCs' weapons as far as remembered [hypothesis]; an
+  in-game screenshot of the same NPCs would settle the exact holster placement.
+
+### 9.7 Performance
+
+Owner's machine, 2026-10-09, release build [observed].
+
+- Per pose (`blend_bench`, which binds every track name, weapon parts included, so it
+  overstates the engine a little; two runs): idle alone 19.8–20.5 µs; idle with a
+  holstered rifle (`2hrholster.kf`) 21.5–23.9 µs; walk with a drawn rifle (`2hraim.kf`)
+  23.0–26.1 µs; a walk → run fade with an equip → aim fade (four clips, 265 tracks)
+  53.3–55.6 µs. The two-clip locomotion figures of §8.6 are unchanged by the priority
+  rule (idle → walk 26.8–27.7 µs, walk → run 23.4–24.5 µs).
+- In the engine (`--cell Goodsprings --auto-fly 4000 --run-seconds 40`; exit 0 and "run
+  finished" in all three; 26 of 34 actors armed, no weapon model or stance missing):
+
+| Run | µs per actor and frame | Clips per actor and frame | Tracks per actor and frame | fps |
+|---|---|---|---|---|
+| `--actor-weapons none` | 45.1 | 1.00 | 60.0 | 25.8 |
+| default (holstered) | 46.9 | 1.79 | 62.3 | 23.8 |
+| `--actor-weapon-test 1.5 --actor-walk-test 120` | 63.2 | 2.13 | 107.9 | 24.7 |
+
+  Holstered weapons cost about 2 µs per actor and frame (the holster clips have 2–4
+  tracks); drawing, holding and walking together about 18 µs more. Up to 17 actors were
+  posed at once, 0.21–0.28 ms per frame.
+
+## 10. Creatures (part D)
+
+Placed creatures (ACRE) are drawn like NPCs: one skeleton per creature, its body models
+skinned to it, the skeleton's idle playing. Plan and status: docs/design/static-actors.md
+part D.
+
+### 10.1 Records and resolution (`Resolver::resolve_creature`)
+
+- **CREA** [documented: xEdit wbDefinitionsFNV.pas CREA; layouts in
+  `schemas/fnv/gameplay.json`]: `MODL` the skeleton (relative to `meshes\`), `NIFZ`
+  "Model List" (model file names, NUL-separated, animation.md §1.3), `KFFZ`
+  "Animations" (`.kf` file names), `BNAM` "Base Scale" (f32), `ACBS` (as NPC_: template
+  flags u16 at byte 22), `TPLT` template, `DATA` type byte (0 Animal, 1 Mutated Animal, 2
+  Mutated Insect, 3 Abomination, 4 Super Mutant, 5 Feral Ghoul, 6 Robot, 7 Giant).
+  xEdit hides `MODL`, `NIFZ`, `NIFT` and `KFFZ` when the Model/Animation template flag
+  (bit 6) is set and `BNAM` when the Stats flag (bit 1) is set [documented].
+- **LVLC** has the LVLN layout [documented: xEdit]; it is picked like an LVLN (§2.1:
+  entries with level ≤ 1, pool by "Calculate from all levels", uniform pick seeded by the
+  reference FormID, each list once per creature, chance none not applied). A pool with
+  more than one distinct entry makes the creature `random`.
+- **Base**: the ACRE's `NAME` (a CREA, or an LVLC resolved as above; anything else is an
+  error: an NPC_ or LVLN base is "not a creature base").
+- **Templates**: for Model/Animation (bit 6) and Stats (bit 1), the data comes from the
+  first CREA along the `TPLT` chain whose flag for that group is clear, starting at the
+  base; a `TPLT` naming an LVLC is resolved as above. A flag without a `TPLT` ends the
+  chain at that creature.
+- **Skeleton**: the Model/Animation source's `MODL` as an archive path (§2 path rule);
+  absent or an editor placeholder (file name starting with `marker`) is an error ("names
+  no skeleton").
+- **Parts**: each `NIFZ` name of the Model/Animation source, in record order, trimmed,
+  `/` → `\`, ASCII lower case, leading `\` removed, joined to the skeleton's folder:
+  `<skeleton folder>\<name>` [observed: animation.md §4]. Role `body`, `form` the
+  Model/Animation source. Empty names are skipped.
+- **Anims**: the source's `KFFZ` names, trimmed, `/` → `\`, ASCII lower case, empty ones
+  skipped (not played yet; Layer 6).
+- **Base scale**: the Stats source's `BNAM`, 1 when absent. The engine multiplies the
+  reference's scale by it [hypothesis: values match the creatures' sizes in the game by
+  eye — bark scorpions 0.3–0.4 of the radscorpion model, young bighorners 0.8–1.5,
+  geckos 0.55–1.0; `nvvoid` placeholders 0.1].
+
+Observed on the ten masters (`fnvtool actor creatures --all --check-meshes`,
+2026-10-09): 3,739 placed ACRE, every base a CREA (none an LVLC; LVLC appear only as
+templates), all resolved: 2,346 deterministic, 1,393 random. 46 skeletons. NIFZ models
+per creature: 1 (3,026), 2 (273), 3–10 (440). Base scale 1 for 1,738; 0.1 for 440 (431
+`nvvoid`); 0.15–1.5 otherwise. DATA types: Mutated Animal 845, Mutated Insect 804,
+Animal 688, Abomination 605, Robot 460, Feral Ghoul 244, Super Mutant 93.
+
+### 10.2 Meshes and assembly
+
+Over the 230 (skeleton, model) pairs placed creatures use [observed]: 138 models are
+skinned, 81 rigid (no skin; robots' screens, saws and tracks, Mr. House's pod parts, dog
+skull caps), 8 have no shapes (`nvvoid.nif` and similar placeholders), 3 files are
+missing (`ghoul\mmm_ghoulvariant_v1.nif` for 26 creatures,
+`nvpenthouemaincomputer\nvpenthousemaincomputer_housescreen.nif` for 2 and
+`radscorpion\nvdlc03superlaserstingenergize.nif` for 51). Every skin bone of every
+skinned model is a node of its skeleton. Every unskinned shape has an ancestor node in
+its own file whose name is a skeleton node (e.g. the Securitron's `Screen01` under the
+file's copy of a skeleton bone), so none needs the `Prn` or root fallback.
+
+Rules (engine, `nvf_assets::actor`, `PartUse::by_ancestor`):
+- Skinned shapes bind to the skeleton's bones by name, as NPC parts (§3).
+- An unskinned shape hangs from the skeleton node named like its **nearest ancestor**
+  in the part file that the skeleton has, keeping the transforms of the nodes between
+  (its own included) [hypothesis: the part file's copy of the bone has the skeleton's
+  bind transform, so the shape lands where the file puts it]; else from the part's `Prn`
+  bone (NPC rule, §1.2); else from the skeleton's root with the whole transform below the
+  part's root.
+- Hidden nodes, editor markers and dismemberment caps are left out as for NPCs.
+- Textures are the models' own (NIFT texture hashes are not read).
+
+### 10.3 Idle
+
+Every one of the 46 skeleton folders has `mtidle.kf` directly in it (41 of the 42
+creature folders with a skeleton in `Fallout - Meshes.bsa`; `zaxeye` has none), and
+walks, where present, in `locomotion\` (`nvbighorner\locomotion\mtforward.kf`) [observed].
+The clip lookup (§8.3, `clip_candidates`) therefore ends with `<folder>\<prefix><move>.kf`;
+creatures use the male body's lookup. Each creature plays its idle at the spread phase
+of §7.3 with the accumulation-root rule of §7.2; other moves wait for Layer 6.
+
+### 10.4 CLI contract
+
+`fnvtool actor creatures <Data> <plugins…> --schema <dir> (--ref <formid> | --cell
+<edid|formid> | --all) [--deterministic] [--check-meshes [--nif-schema <dir>]]` →
+`fnv.actor.creatures/1`. The creatures are the given reference, the ACRE of the cell, or
+every ACRE of the load order (a record of type ACRE inside a cell-children group; winning
+definition), skipping deleted winners. With `--deterministic`, creatures whose `random`
+is true are left out.
+Top level: `schema`, `summary` {`outcomes` (`resolved deterministic`, `resolved random`,
+`deleted`, errors by kind), `base_kinds` (base record type per creature)}, `issues`,
+`creatures`, `load_order`, and with `--check-meshes` `meshes` {`pairs`, `skeletons`,
+`part_kinds`, `idle_clips` (per skeleton, the idle found relative to its folder),
+`rigid_at_root` [{`skeleton`, `model`, `shapes`, `of`, `creatures`}], `problems`
+[{`skeleton`, `model`, `creatures`, `problems`}]}.
+Each creature, ordered by reference FormID: {`reference`, `base`, `scale` (XSCL, default
+1, f32 widened), `creature` (the CREA after leveled resolution), `edid` (its EDID),
+`kind`? (DATA type name of the Model/Animation source), `skeleton`, `base_scale` (f32
+widened), `parts` [{`role`, `form`, `model`}], `anims` [name], `random`}; or
+{`reference`, `base`, `error`}. FormIDs print as `0x%08X`.
+
+### 10.5 Checks against the game and cost
+
+- **Reference frames** (2026-10-09, `tools/capture/frames/creatures_cameras.json`, save
+  `nvftest`, noon, clear weather; screenshots kept privately in
+  `C:\fnv-private\references\partd\`) against `nvforever` at the recorded poses
+  (`--fov 75`, eye height 120) [observed]:
+  - Goodsprings bighorner pen: the young bighorners stand on the ground with the game's
+    shape, horns and fur colour and about the same size (XSCL 0.7–1.0 × BNAM 1.5); the
+    game's had walked together, ours stand at their placements. SSIM 0.39 (160 px
+    wide; sky, grass and lighting dominate as for the frames of Layer 3).
+  - Coyotes east of Goodsprings: feet on the slope, size and coat match the game's
+    coyote by eye; SSIM 0.43.
+  - Victor's shack: the game's Victor had moved away; ours stands at his placement with
+    body, wheel and screen frame in place (the screen face, an animated texture, shows
+    blank). SSIM 0.36.
+- **Moving-camera smoke test** (`--cell Goodsprings --auto-fly 4000 --run-seconds 40`,
+  after merging main with part H weapons): exit 0, "run finished", 50.0 fps; 115
+  creatures drawn and animated, none unresolved or without an idle; 47 NPCs drawn and
+  animated (39 armed); 31 actors and creatures spawned hidden; 26 bodies skin-tinted;
+  posing 16.3 µs per actor and frame (up to 79 posed at once, 0.41 ms per frame).
+  Creature clip sets loaded: `nvraven`, `nvbighorner`, `dog`, `radscorpion`,
+  `nvsecuritron`, `blowfly`, `nvvoid`, `nvcazadores`, `nvmantis`, each with its idle
+  (1.7–16.7 s) and every idle track bound except two Securitron prop nodes
+  (`Screen01`, `##VoiceBox_talk`).
+
+## 11. Actors not enabled at the start
+
+A placed NPC or creature whose reference is not enabled at the start of a game
+(initially disabled, or following a disabled enable parent; world.rs
+`WorldData::enabled`) and not deleted is spawned **hidden** when its cell loads: the
+whole actor is built as usual (parts, FaceGen, idle) with `Visibility::Hidden` on its
+root and a `SpawnedDisabled(reference)` marker (`engine/nvforever/src/actors.rs`). Its
+entities carry `RefVisual(reference)` like any actor, so when a script enables it
+(`ref_enabled`, or an enable parent's), nvf-play's visual sync shows it
+(docs/design/layer5-play.md §4). If the simulation already has the reference enabled
+when its cell loads (enabled while the cell was away), a component hook on
+`SpawnedDisabled` shows it at once. Without `--play` such actors stay hidden. Light
+sources of such references (LIGH) are spawned the same way under a hidden `RefVisual`
+holder; their models stay with nvf-play's `script_draw.rs` [engine rules]. The run
+summary's `ActorStats` counts hidden actors (`spawned_hidden`); `StreamStats::
+lights_hidden` the lights.
+
+Observed (`--cell Goodsprings --auto-fly 4000`, 40 s, 2026-10-09): 31 actors and
+creatures spawned hidden. Not yet checked in a `--play` run that enables one (the
+showing goes through the existing `RefVisual` sync).

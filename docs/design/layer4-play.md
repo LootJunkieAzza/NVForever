@@ -120,7 +120,11 @@ worldspace asks for it: world.md §6).
   `World::encumbrance`. Non-playable items (ARMO BMDT "Non-Playable", e.g. the Pip-Boy
   Glove) are not listed in either menu, so they cannot be stored, equipped or dropped
   [observed by the owner: the game never shows the glove and it stays equipped]; Take
-  All leaves them in the container [hypothesis].
+  All leaves them in the container [hypothesis]. Quest items (`World::is_quest_item`)
+  are listed with a "Q" mark; dropping one is refused by the simulation and the status
+  line says "<name> is a quest item and can't be dropped" [documented: GECK wiki
+  Category:Items; the wording is ours]; storing one in a container is allowed
+  [hypothesis] (2026-10-09, simulation.md §3 "Quest items").
 - Dropped items (`dropped.rs` and `phys.rs`; added 2026-10-08): created
   references are drawn from their base form's model at the simulation's pose as children
   of their `RenderCell` (so render streaming and door travel unload and reload them);

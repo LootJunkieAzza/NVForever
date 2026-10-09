@@ -21,7 +21,15 @@ fn main() {
         Arc::new(Clip::from_sequence(&fnv_nif::anim::sequences(&file, &dec)[0]))
     };
     let dir = r"meshes\characters\_male\locomotion";
-    let clips = [load(&format!(r"{dir}\mtidle.kf")), load(&format!(r"{dir}\male\mtforward.kf")), load(&format!(r"{dir}\male\mtfastforward.kf"))];
+    let stance = r"meshes\characters\_male";
+    let clips = [
+        load(&format!(r"{dir}\mtidle.kf")),
+        load(&format!(r"{dir}\male\mtforward.kf")),
+        load(&format!(r"{dir}\male\mtfastforward.kf")),
+        load(&format!(r"{stance}\2hraim.kf")),
+        load(&format!(r"{stance}\2hrequip.kf")),
+        load(&format!(r"{stance}\2hrholster.kf")),
+    ];
     // Node indices by track name (1 + order of first appearance; 0 is the actor's root).
     let mut names: HashMap<String, usize> = HashMap::new();
     for c in &clips {
@@ -36,7 +44,7 @@ fn main() {
     let mut player = BlendPlayer::new(nodes, Arc::new(vec![Transform::IDENTITY; n]));
     let mut out = Vec::with_capacity(n);
     let frames = 20_000;
-    let mut run = |label: &str, layers: [Option<(usize, f32)>; 2]| {
+    let mut run = |label: &str, layers: [Option<(usize, f32)>; 4]| {
         let t0 = Instant::now();
         let mut tracks = 0;
         for i in 0..frames {
@@ -47,8 +55,11 @@ fn main() {
         let per = t0.elapsed().as_secs_f64() / f64::from(frames);
         println!("{label}: {:.2} us per pose, {} tracks per pose", per * 1e6, tracks / frames as usize);
     };
-    run("idle (one clip)", [Some((0, 1.0)), None]);
-    run("walk (one clip)", [Some((1, 1.0)), None]);
-    run("idle -> walk (two clips)", [Some((1, 0.5)), Some((0, 0.5))]);
-    run("walk -> run (two clips)", [Some((2, 0.5)), Some((1, 0.5))]);
+    run("idle (one clip)", [Some((0, 1.0)), None, None, None]);
+    run("walk (one clip)", [Some((1, 1.0)), None, None, None]);
+    run("idle -> walk (two clips)", [Some((1, 0.5)), Some((0, 0.5)), None, None]);
+    run("walk -> run (two clips)", [Some((2, 0.5)), Some((1, 0.5)), None, None]);
+    run("idle + holstered rifle (two clips)", [Some((0, 1.0)), None, Some((5, 1.0)), None]);
+    run("walk + drawn rifle (two clips)", [Some((1, 1.0)), None, Some((3, 1.0)), None]);
+    run("walk -> run + equip -> aim (four clips)", [Some((2, 0.5)), Some((1, 0.5)), Some((3, 0.5)), Some((4, 0.5))]);
 }
