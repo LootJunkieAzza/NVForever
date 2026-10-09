@@ -396,3 +396,46 @@ down; equal priorities share by their clips' weights; a priority group takes at 
 weight still free; the bind pose fills the rest. Clips fade in over their `Blend` time
 (0.2 s without one) and out over 0.2 s. Nothing here was compared with the game frame
 by frame; §7 lists the captures that could.
+
+### 8.5 The first-person rig [observed unless tagged]
+
+- `meshes\characters\_1stperson\skeleton.nif` is the only non-`.kf` file of its folder
+  (426 `.kf` in `Fallout - Meshes.bsa`, 9 more in `Update.bsa`). Its tree: `Scene Root` →
+  `Bip01` → `Bip01 NonAccum` → `Bip01 Looking` (translation 0, 0, 118) → `Bip01 Translate`
+  (0, 0, −118) → `Bip01 Rotate` → `Bip` (0, 0.66, 67.77, the third-person `Bip01`'s offset)
+  → pelvis, spine, arms (with extra `Bip01 L/R Hand01`–`04` finger roots), legs; and
+  `Camera1st` under `Bip01 Looking` at (0, −3.74, 0) — 118 units above the feet, against
+  the third-person skeleton's `Camera3rd` at (0, −3.74, 118.36). `Weapon` hangs from
+  `Bip01 R Hand` at the same offset as in the third-person skeleton.
+- Layout: `mtidle.kf`, `sneakmt*.kf`, `swimmt*.kf`, `mtjump*.kf` and `mtturn*.kf` sit in
+  the folder itself; unarmed movement in `locomotion\mt{,fast}<dir>.kf` (no `male\`/
+  `female\`); weapon movement only for `1hp` and `1hm`; per weapon `aim`, `aimis` (no
+  `aimup`/`aimdown`), `equip`, `unequip`, `holster`, attacks, reloads, jams.
+- Tracks: `mtidle.kf` drives `Camera1st`, `Bip` and the arms (priority 20) and the
+  fingers (5); `locomotion\mtforward.kf` only `Bip01` (102.3 units over 1.2 s, as the
+  third-person clip) and `Bip01 NonAccum`; `sneakmtidle.kf` and `sneakmtforward.kf` put
+  `Bip01 NonAccum` at (0, 0, −40) (priority 28 and 30); `1hpaim.kf` drives `Bip`, the
+  spine, the arms and `Weapon` (45), `Camera1st` and `Bip01 NonAccum` (25);
+  `1hpequip.kf` arms and `Camera1st` (55), `Attach` at 0.167 s as in third person;
+  `1hpholster.kf` has `Prn: Bip01 Translate`; `2hraimis.kf` the arms at 54. No clip
+  drives `Bip01 Looking`.
+- Readings [hypothesis]: the game turns `Bip01 Looking` with the view's pitch (it is the
+  only node at camera height between the root and the arms, and `Bip01 Translate` undoes
+  its offset), so arms and weapon stay in front of the camera at `Camera1st`; crouching
+  lowers the whole rig and the camera by 40 (to 78); a holstered weapon hangs from
+  `Bip01 Translate`, out of view.
+- Parts: the hands have first-person meshes beside the third-person ones
+  (`characters\_male\lefthand1st.nif`, `righthand1st.nif`, `lefthandpipboyglove1st.nif`,
+  `femalelefthand1st.nif`, `femalerighthand1st.nif`, `femalelefthandpipboyglove1st.nif`).
+  Upper-body models name their sleeves `Arms…`: `upperbody.nif` `Arms:0`, `Arms:1`;
+  `vaultsuitarmor\m\outfitm.nif` `UpperBody`, `Arms`, `PipBoyOn`/`PipBoyOff`, `Arms\t`,
+  `Upperbody`, caps; `leatherarmor\m\outfitm.nif` `Arms`, `Arms02`, `Upperbody`, caps;
+  `raiderarmor01\m\outfit.nif` `Arms`, `UpperBody`, `Arms2`, caps;
+  `powerarmor\powerarmorcomplete.nif` `Arms`, `UpperBody\t`, `buttcover`, caps;
+  `leatherarmor\m\mark2leather.nif` `Arms01:0`, `body:0`, `upperbody:0`, `Armor:0`, caps.
+  The owner states that the first-person view draws only shapes called `Arms`
+  (2026-10-09); `fnv_actor::first_person` follows that for the upper body and draws hand
+  models whole.
+- Weapons: WEAP `WNAM` "1st Person Model" names a STAT [documented: xEdit]; the 9mm
+  pistol's is `1stPerson9mm` (0x000E7653), whose model is the same `9mm.NIF` with
+  texture swaps (`MODS`).

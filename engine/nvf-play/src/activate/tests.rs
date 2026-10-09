@@ -132,6 +132,8 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .insert_resource(phys)
         .insert_resource(Player { heading: std::f32::consts::FRAC_PI_2, pitch: 0.0, eye_height: 100.0, feet: [0.0; 3], body_eye: None })
         .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<crate::bindings::Bindings>()
         .init_resource::<Target>()
         .init_resource::<HudMessage>()
         .add_message::<Travel>()
