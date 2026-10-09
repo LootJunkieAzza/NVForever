@@ -1,7 +1,7 @@
 //! Player functions: experience, perks, notes, tag skills, achievements, controls.
 
 use super::{none, yes, Args, Ctx};
-use crate::game::Game;
+use crate::game::{FastTravel, Game};
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
 
@@ -98,12 +98,17 @@ pub fn get_player_controls_disabled(g: &mut Game, _ctx: &Ctx, a: &Args) -> Resul
     yes(g.player.controls_disabled.iter().zip(which).any(|(d, w)| *d && w))
 }
 
-/// The player's level from the configuration; other actors are not modelled.
+/// The player's level: SetLevel's, else the configuration's. Another actor's level is
+/// known only after SetLevel (NPC_ levels are not read yet).
 pub fn get_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
-    if ctx.subject_or_player() != FormId::PLAYER_REF {
-        return Err("levels of actors other than the player are not modelled".into());
+    let r = ctx.subject_or_player();
+    if r != FormId::PLAYER_REF {
+        return match g.extra.get(&r).and_then(|e| e.level) {
+            Some(l) => Ok(Value::Num(l as f64)),
+            None => Err("levels of actors other than the player are not modelled".into()),
+        };
     }
-    Ok(Value::Num(g.world.config().player_level as f64))
+    Ok(Value::Num(g.player.level.unwrap_or(g.world.config().player_level as i32) as f64))
 }
 
 pub fn remove_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -155,7 +160,9 @@ pub fn reward_karma(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String>
 }
 
 pub fn set_hardcore(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.hardcore = Some(a.num(0)? != 0.0);
+    let on = a.num(0)? != 0.0;
+    g.player.hardcore = Some(on);
+    g.player.hardcore_was_off |= !on;
     none()
 }
 
@@ -180,4 +187,86 @@ pub fn get_pc_misc_stat(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Str
 pub fn mod_pc_misc_stat(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     *g.player.misc_stats.entry(a.code(0)?).or_default() += a.num(1)?;
     none()
+}
+
+/// `EnableFastTravel [canTravel canWait keep]`: travel and waiting allowed or not;
+/// waiting is forced on whenever travel is allowed; without `keep` an interior →
+/// exterior change enables travel again ([`crate::Game::player_entered`])
+/// [documented: catalogue notes of EnableFastTravel]. Whether travel is possible at a
+/// moment (encumbrance, enemies) is the engine's.
+pub fn enable_fast_travel(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let travel = a.num_or(0, 1.0) != 0.0;
+    let wait = travel || a.num_or(1, 1.0) != 0.0;
+    let keep = a.num_or(2, 0.0) != 0.0;
+    g.player.fast_travel = FastTravel { travel_disabled: !travel, wait_disabled: !wait, keep };
+    none()
+}
+
+fn challenge(g: &Game, a: &Args) -> Result<FormId, String> {
+    let c = a.form(0)?;
+    if g.data.challenges.contains_key(&c) {
+        Ok(c)
+    } else {
+        Err(format!("{} is not a challenge", g.data.name(c)))
+    }
+}
+
+/// A challenge flagged Start Disabled becomes able to progress [documented: catalogue
+/// summary of UnlockChallenge]. Progress itself is counted by the challenge system
+/// (Layer 6).
+pub fn unlock_challenge(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let c = challenge(g, a)?;
+    g.player.challenges.entry(c).or_default().unlocked = true;
+    none()
+}
+
+/// 1 once the challenge was completed (a recurring one at least once) [documented:
+/// catalogue summary]. Completion is reported by the challenge system (Layer 6) or a
+/// runner input.
+pub fn get_challenge_completed(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let c = challenge(g, a)?;
+    yes(g.player.challenges.get(&c).is_some_and(|s| s.completed))
+}
+
+pub fn remove_recurring_from_challenge(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let c = challenge(g, a)?;
+    g.player.challenges.entry(c).or_default().not_recurring = true;
+    none()
+}
+
+/// `SetInCharGen flag` [documented: catalogue summary]; withholding level-ups is the
+/// levelling system's (not modelled).
+pub fn set_in_chargen(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.player.in_chargen = a.num(0)? != 0.0;
+    none()
+}
+
+pub fn get_in_chargen(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    yes(g.player.in_chargen)
+}
+
+/// The player's winnings level (0–4) at a casino (CSNO) [documented: catalogue
+/// summaries of GetCasinoWinningsLevel and GetCasinoWinningStage]: set by the casino
+/// games (Layer 6) or a runner input; 0 until then.
+pub fn get_casino_winnings_level(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    Ok(Value::Num(g.player.casino_levels.get(&a.form(0)?).copied().unwrap_or(0) as f64))
+}
+
+pub fn set_pc_can_use_power_armor(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.player.power_armor = a.num(0)? != 0.0;
+    none()
+}
+
+/// The topic becomes available to the player's dialogue (Layer 6 reads the set)
+/// [documented: catalogue summary of AddTopic].
+pub fn add_topic(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.player.topics.insert(a.form(0)?);
+    none()
+}
+
+/// 1 when Hardcore mode has been on all game [documented: catalogue summary]: on now
+/// and never switched off [hypothesis on what "all game" counts].
+pub fn is_always_hardcore(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let on = is_hardcore(g, ctx, a)?.num() != 0.0;
+    yes(on && !g.player.hardcore_was_off)
 }
