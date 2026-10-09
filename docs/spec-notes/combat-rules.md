@@ -341,7 +341,48 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   (`L5.script.decode` and three `delay_*`; layer5.md), so the new Health base changed
   no scenario.
 
-## 10. Open points
+## 10. Melee and unarmed (step C6)
+
+- **Swings** (`engine/nvf-play/src/combat.rs`, `melee`). Melee and unarmed weapons
+  don't use the gun cycle.
+  - A tap of Use swings on release. Holding Use for `power_hold` (0.4 s) starts a power
+    attack: base × `power_damage` (1.5), `power_time` (1.3) × slower. A press made
+    during a swing queues the next one [design].
+  - The swing takes the attack clip's length ÷ (attack × animation multiplier), or
+    1 ÷ "Attack Shots/Sec" without a clip. It strikes once, at the clip's `Hit` key
+    [documented: NiTextKeyExtraData], or at 40 % of the swing without one [design].
+  - The strike is a fan of `melee_rays` rays over ±`melee_arc_deg` from the eye along
+    the view, as long as the reach; each actor is hit once (`projectile::swing`).
+- **Reach** (`damage::melee_reach`) = `fCombatDistance` × scale × the WEAP Reach
+  [documented formula]. The masters lack `fCombatDistance`, and its placeholder is now
+  150 (a knife, reach 0.5, gets 75 units; a sledgehammer, 0.75, 112) [hypothesis,
+  tunable]. A Reach of 0 (the Fists) counts as 1 [hypothesis].
+- **Damage.** The melee and unarmed forms of §2, with the target's worn armour. The
+  attacker's Melee Weapons and Unarmed skills are derived from Strength and Endurance
+  (§8).
+- **Unarmed.** With no weapon equipped the player fights with the `Fists` WEAP
+  [hypothesis: the game's unarmed weapon form]. The Fists do 0 base damage, so a punch is
+  the UnarmedDamage actor value (0.5 + 0.05 × Unarmed) [documented].
+- **Knockback.** The force is computed with the documented Melee Knockback Formula and
+  logged. Actors are not pushed until they move physically (AI and ragdoll work).
+- **Blocking.** `damage::blocked` takes `block` (60 %) off a melee hit taken while
+  blocking [design]. Nothing attacks the player yet; NPC melee (Layer 6 AI) will use it.
+- **The body.** A power attack plays `{prefix}attackpower.kf` (`1hmattackpower.kf`,
+  `h2hattackpower.kf`). Normal swings use the weapon's attack animation, falling back to
+  its `_a` variant (`1hmattackright_a.kf`).
+- **Checked** [observed 2026-10-09, `nvforever --cell Goodsprings --play`, exit 0, "run
+  finished"]:
+  - **Sledgehammer** against the Goodsprings Settler (55 health, DT 2), standing on its
+    open side: three normal hits for 14.3 (24 × the skill bonus at Melee Weapons 15 +
+    MeleeDamage 2.5 − DT 2), then a power attack killed it (+10 XP). Knockback forces
+    were 100 and 143. The screenshot shows the first-person power swing, the target bar
+    at 0/55, the kill line and "Search".
+  - **From the fenced side** the swings missed: a ray along the view hit the fence at
+    71 units, and melee correctly doesn't reach through it.
+  - **Fists:** three taps, one pressed during a swing, gave three hits of 0.2 (Unarmed
+    damage 1.25 against DT 2, the 20 % floor).
+
+## 11. Open points
 
 - Every [design] number is a first guess for the owner to tune in play.
 - Projectile gravity units and speeds: the owner's projectile capture round.
