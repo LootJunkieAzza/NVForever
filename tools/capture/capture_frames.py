@@ -21,7 +21,8 @@ renders the same cameras with `nvforever` and compares (README section 7).
 Cameras (`fnv.capture.cameras/1`; positions are coordinates we choose, not game data):
 {
   "format": "fnv.capture.cameras/1",
-  "start": "Load a save outdoors in first person.",
+  "start": "Load a save outdoors.",
+  "console_first": ["tgm", "tdetect"],
   "cameras": [
     {"id": "goodsprings_noon", "world": "WastelandNV", "pos": [-70500, 1200],
      "heading": 45, "pitch": 0, "hour": 12, "weather": "NVWastelandClear", "fov": 75}
@@ -29,8 +30,12 @@ Cameras (`fnv.capture.cameras/1`; positions are coordinates we choose, not game 
 }
 pos is the player's feet [x, y] or [x, y, z]; heading is GetAngle Z (degrees, 0 = north,
 clockwise), pitch GetAngle X (positive looks down). weather (optional) is an Editor ID
-(needs --data) or a FormID "0x...". The save must be in first person: the picture is what
-the player's camera sees.
+(needs --data) or a FormID "0x...". console_first (optional) runs once before the first
+camera: the trial's lake camera without `tgm` showed the player killed by a creature
+[observed 2026-10-09]. Each camera forces the first-person view with
+`DisablePlayerControls 0 0 0 1 0 0 0` (the fourth flag, POV: "if currently in 3rd person,
+the view is forced into first person" [documented: GECK wiki DisablePlayerControls]),
+records IsPC1stPerson with the picture and gives the controls back afterwards.
 
 Travel follows what worked in the swimming captures [observed 2026-10-08, physics.md
 6.6]: the console's `cow` loads the camera's own grid square first and only a short
@@ -64,7 +69,11 @@ PLACE_FRAMES = 60
 FEET_CLEARANCE = 8.0
 # Fields recorded per camera, in this order, with the expressions that read them.
 RECORDED = [("x", "player.GetPos X"), ("y", "player.GetPos Y"), ("z", "player.GetPos Z"),
-            ("heading", "player.GetAngle Z"), ("pitch", "player.GetAngle X"), ("hour", "GameHour")]
+            ("heading", "player.GetAngle Z"), ("pitch", "player.GetAngle X"), ("hour", "GameHour"),
+            ("first_person", "IsPC1stPerson")]
+# DisablePlayerControls flags: movement, Pip-Boy, fighting, POV, looking, rollover text,
+# sneaking [documented: GECK wiki DisablePlayerControls]; only POV is set.
+FIRST_PERSON = "DisablePlayerControls 0 0 0 1 0 0 0"
 MANIFEST_DEFAULTS = {"eye_height": 120, "min_ssim": 0.6}
 
 
@@ -180,7 +189,7 @@ def camera_steps(cam, edids, terrain):
     gx, gy = math.floor(x / CELL), math.floor(y / CELL)
     steps = [{"console": f"cow {world} {gx} {gy}"}, {"until": in_square_until(gx, gy), "max_frames": cs.DOOR_LOOPS},
              {"frames": cs.AFTER_DOOR_FRAMES}, {"console": "CloseAllMenus"}, {"frames": PLACE_FRAMES},
-             place(x, y, z, heading, pitch)]
+             script(FIRST_PERSON), place(x, y, z, heading, pitch)]
     if cam.get("hour") is not None:
         # GameHour is set at the save's TimeScale; only moving the clock at a low TimeScale
         # crashed the game (xnvse-capture.md section 5).
@@ -191,7 +200,7 @@ def camera_steps(cam, edids, terrain):
     steps += [{"frames": WEATHER_FRAMES}, place(x, y, z, heading, pitch), {"console": "CloseAllMenus"},
               {"frames": PLACE_FRAMES}, {"console": "tm"}, {"frames": HUD_FRAMES}, {"screenshot": cid}]
     steps += [num(expr, cid, field) for field, expr in RECORDED]
-    steps += [{"console": "tm"}, {"frames": HUD_FRAMES}]
+    steps += [{"console": "tm"}, script("EnablePlayerControls"), {"frames": HUD_FRAMES}]
     return steps
 
 
@@ -209,10 +218,13 @@ def load_cameras(path):
 
 
 def frames_job(doc, name, edids=None, terrain=None):
-    steps = []
+    first = doc.get("console_first", [])
+    if not isinstance(first, list) or not all(isinstance(c, str) and c for c in first):
+        raise InputError("console_first must be a list of console lines")
+    steps = [{"console": c} for c in first]
     for cam in doc["cameras"]:
         steps += camera_steps(cam, edids, terrain)
-    start = doc.get("start") or "Load a save outdoors in first person."
+    start = doc.get("start") or "Load a save; the job travels to each camera."
     return cs.job(name, start, steps, cs.MASTERS)
 
 
@@ -260,10 +272,12 @@ def merge_manifest(manifest, cameras, frames):
         if fr is None:
             warnings.append(f"{cid}: no screenshot in the output")
             continue
-        missing = [f for f, _ in RECORDED if not isinstance(fr.get(f), (int, float))]
+        missing = [f for f, _ in RECORDED if f != "first_person" and not isinstance(fr.get(f), (int, float))]
         if missing:
             warnings.append(f"{cid}: not recorded: {', '.join(missing)}; left out")
             continue
+        if fr.get("first_person") != 1:
+            warnings.append(f"{cid}: not a first-person view (IsPC1stPerson {fr.get('first_person')})")
         if not fr.get("foreground"):
             warnings.append(f"{cid}: the game window was not in front; another window may be in the picture")
         if (fr.get("mean") or 0.0) < 0.02:
