@@ -1,6 +1,7 @@
 # Combat design: weapons, projectiles, damage, melee
 
-Status 2026-10-09: **design for review, nothing built.** Owner requests 2026-10-09:
+Status 2026-10-09: **design for review; step C1 (data) built** on `claude/combat-data`
+(facts and survey: docs/spec-notes/combat-data.md). Owner requests 2026-10-09:
 
 1. On top of the player body (docs/design/player-body.md: controls, equipping, drawing and
    holstering), "the actual damage/projectile systems in place for shooting and melee
@@ -94,7 +95,7 @@ The first step organises the data. It adds no behaviour.
 
 | Record | What combat reads | Layout today | Source for C1 |
 |---|---|---|---|
-| WEAP | `DATA` (value, health, weight, base damage, clip size), `DNAM` (weapon data), `CRDT` (critical damage, chance multiplier, effect), `VATS`, `NAM0` ammo, `INAM` impact data set, `WMI1–3` mods, sound FormIDs | all but `DNAM` | xEdit `wbDefinitionsFNV.pas` WEAP `DNAM`, with its size variants by form version if there are any |
+| WEAP | `DATA` (value, health, weight, base damage, clip size), `DNAM` (weapon data), `CRDT` (critical damage, chance multiplier, effect), `VATS`, `NAM0` ammo, `INAM` impact data set, `WMI1–3` mods, sound FormIDs | done (`DNAM` as the named type `WeaponDNAM`, optional from `resist_type`) | xEdit `wbDefinitionsFNV.pas` |
 | AMMO | `DATA` (speed, flags, clip rounds), `DAT2` (projectiles per shot, projectile, consumed ammo), `RCIL` ammo effects | done | — |
 | AMEF (ammo effect) | which value it changes (damage, DR, DT, fatigue, spread, weapon condition) and how (add, multiply, subtract) | none | xEdit AMEF; GECK wiki Ammo Effect page (owner, §4.2) |
 | PROJ | type (missile, lobber, beam, flame), speed, gravity, range, impact force, tracer chance, fade duration, muzzle flash, explosion with its trigger (impact, timer, proximity, remote detonation), flags (hitscan, can be disabled or picked up, pins limbs, passes through small transparent objects), default weapon, sounds | none | xEdit PROJ; meanings from the GECK wiki Projectile page (§4.2) |
@@ -350,12 +351,12 @@ until a change gives a reason to.
 
 ### 4.4 Tool and checks
 
-- `fnvtool combat weapon <form>` / `projectile <form>` / `explosion <form>` /
-  `body-parts <form>`: resolved JSON, as other `fnvtool` subcommands print.
-- `fnvtool combat survey <Data>`: every WEAP in the ten masters resolved, and counts of
-  what's missing (a weapon with no ammo, ammo with no projectile, a projectile with an
-  explosion that doesn't exist, …). The survey numbers go into the spec note
-  [observed].
+- `fnvtool combat weapon --form <f> [--ammo <a>]`: a weapon's stats and its resolved
+  shot chain. `fnvtool combat form --form <f>`: any combat record as read. These two
+  replace the per-type commands planned here.
+- `fnvtool combat survey`: every WEAP in the load order resolved, counts, references
+  that point nowhere, and the combat game settings. Its numbers are in the spec note
+  [observed]. Contract: combat-data.md §4.
 - Unit tests on synthetic records (as in `fnv-sim/tests/synthetic.rs`).
 
 C1 is done when the survey resolves every playable weapon and the spec note documents
