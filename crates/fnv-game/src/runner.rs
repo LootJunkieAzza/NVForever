@@ -211,6 +211,10 @@ pub enum Action {
         #[serde(default)]
         killer: Option<String>,
     },
+    /// An actor (the player by default) consumes an ingestible it carries (the engine's
+    /// use of an aid item): one is removed and its effects start, effect scripts
+    /// included (`Game::consume`); observation `effects`: the effects started.
+    Consume { item: String, #[serde(default)] actor: Option<String>, #[serde(default)] label: Option<String> },
     /// A comment in the input (why the next stand-in is there); no effect, no frames.
     Note { text: String },
 }
@@ -875,6 +879,16 @@ fn step(g: &mut Game, a: &Action) -> Result<Observed, String> {
                 None => vec![],
             };
             call(g, 0x108B, Some(a), args);
+        }
+        Action::Consume { item, actor, label: l } => {
+            let who = match actor {
+                Some(a) => resolve(g, a)?,
+                None => FormId::PLAYER_REF,
+            };
+            let it = resolve(g, item)?;
+            let ids = g.consume(who, it)?;
+            obs.insert("effects".into(), json!(ids.len()));
+            lab = l.clone();
         }
     }
     Ok(lab.map(|l| (l, obs)))

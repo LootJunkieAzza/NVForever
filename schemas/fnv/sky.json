@@ -1275,6 +1275,37 @@
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas REGN record"
     },
+    "WNAM": {
+     "name": "Worldspace",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas REGN record (WNAM, WRLD)"
+    },
+    "RPLI": {
+     "name": "Edge Fall-off",
+     "type": "u32",
+     "confidence": "observed",
+     "note": "Starts each region area, before its RPLD points (xEdit wbRegionAreas, not read here). Observed: u32 1024 in VMapGoodspringsRegion; the name is xEdit's [hypothesis: not checked against the source]"
+    },
+    "RPLD": {
+     "name": "Region Points",
+     "type": {
+      "array": {
+       "struct": [
+        {
+         "name": "x",
+         "type": "f32"
+        },
+        {
+         "name": "y",
+         "type": "f32"
+        }
+       ]
+      }
+     },
+     "confidence": "observed",
+     "note": "One area's polygon in worldspace units: x, y pairs [documented: xEdit wbRPLDAfterLoad reads each entry's two elements as numbers; observed: VMapGoodspringsRegion's six points span x -76216..-67372, y -6064..10250, around Goodsprings]"
+    },
     "RDAT": {
      "name": "Data Header",
      "type": "RegionDataHeader",

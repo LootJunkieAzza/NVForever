@@ -6,6 +6,7 @@
 use crate::cond::{self, Condition, ParamTypes};
 use crate::quest::{Objective, QuestDef, StageEntry, Target};
 use fnv_esm::decode::{decode_sub, DecodeCtx};
+use fnv_esm::schema::TypeDef;
 use fnv_esm::{LoadOrder, Record, Schema};
 use fnv_script::unit::{read_record, ReadIssues, ScriptUnit, UnitOwner, VarType};
 use fnv_script::{decode, FunctionTable, Program};
@@ -13,7 +14,7 @@ use fnv_sim::extract::Issues;
 use fnv_sim::{FormId, RefTable};
 use rayon::prelude::*;
 use serde_json::Value as Json;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// A unit with its decoded program.
 #[derive(Debug, Clone)]
@@ -86,6 +87,69 @@ pub struct ActorDef {
     /// (ACBS template flag "AI Packages") [documented: xEdit; schema `gameplay.json`].
     pub template: Option<FormId>,
     pub template_packages: bool,
+    /// CREA DATA creature type code (0 Animal … 7 Giant) [documented: xEdit
+    /// wbCreatureTypeEnum; schema `gameplay.json`].
+    pub creature_type: Option<i64>,
+}
+
+/// A region's areas (REGN WNAM, RPLI/RPLD): each area a polygon of worldspace x, y
+/// points (schema `sky.json`).
+#[derive(Debug, Clone, Default)]
+pub struct RegionDef {
+    pub world: Option<FormId>,
+    pub areas: Vec<Vec<[f32; 2]>>,
+}
+
+impl RegionDef {
+    /// Whether a worldspace point lies inside one of the areas (even-odd rule)
+    /// [hypothesis: an area is the plain polygon of its points; the edge fall-off
+    /// (RPLI) is ignored].
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        self.areas.iter().any(|pts| {
+            let mut inside = false;
+            let n = pts.len();
+            for i in 0..n {
+                let [xi, yi] = pts[i];
+                let [xj, yj] = pts[(i + n - 1) % n];
+                if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
+                    inside = !inside;
+                }
+            }
+            inside
+        })
+    }
+}
+
+/// A base effect (MGEF DATA) [documented: xEdit MGEF; schema `gameplay.json`].
+#[derive(Debug, Clone, Default)]
+pub struct MagicEffectDef {
+    pub flags: u32,
+    pub archetype: i64,
+    /// The associated script when the archetype is 1 (Script).
+    pub script: Option<FormId>,
+}
+
+/// MGEF archetype "Script" [documented: xEdit wbArchtypeEnum].
+pub const ARCHETYPE_SCRIPT: i64 = 1;
+
+/// One effect of a magic item (EFID + EFIT + its CTDA) on ALCH, SPEL, ENCH and INGR
+/// [documented: xEdit wbEffects; schema `common.json`].
+#[derive(Debug, Clone)]
+pub struct EffectItem {
+    pub effect: FormId,
+    pub magnitude: u32,
+    pub area: u32,
+    /// Seconds.
+    pub duration: u32,
+    pub conditions: Vec<Condition>,
+}
+
+/// Destructible object data (DEST, then DSTD per stage) [documented: xEdit wbDEST].
+#[derive(Debug, Clone, Default)]
+pub struct DestructionDef {
+    pub health: i32,
+    /// (health percent, stage index, flags: 1 cap damage, 2 disable, 4 destroy).
+    pub stages: Vec<(u8, u8, u8)>,
 }
 
 /// An AI package's conditions (`PACK` CTDA before the begin/end/change sections)
@@ -119,6 +183,22 @@ pub struct GameData {
     pub sigs: HashMap<FormId, [u8; 4]>,
     /// Placed references whose base runs a script, by cell, in FormID order.
     pub scripted_by_cell: BTreeMap<FormId, Vec<FormId>>,
+    /// REPU DATA: the reputation's scale (maximum fame or infamy).
+    pub reputations: HashMap<FormId, f32>,
+    /// CHAL DATA flags (1 Start Disabled, 2 Recurring, 4 Show Zero Progress).
+    pub challenges: HashMap<FormId, u32>,
+    pub regions: HashMap<FormId, RegionDef>,
+    pub magic_effects: HashMap<FormId, MagicEffectDef>,
+    /// The effects of every ALCH, SPEL, ENCH and INGR, in record order.
+    pub effect_items: HashMap<FormId, Vec<EffectItem>>,
+    /// Races with the Child flag (RACE DATA).
+    pub child_races: HashSet<FormId>,
+    /// FACT XNAM: (other faction, group combat reaction 0 neutral, 1 enemy, 2 ally,
+    /// 3 friend).
+    pub faction_reactions: HashMap<FormId, Vec<(FormId, i64)>>,
+    pub destructibles: HashMap<FormId, DestructionDef>,
+    /// WEAP DNAM skill (actor value code).
+    pub weapon_skills: HashMap<FormId, i64>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
 }
@@ -150,6 +230,15 @@ struct Read {
     form_list: Option<Vec<FormId>>,
     actor: Option<ActorDef>,
     package: Option<PackageDef>,
+    reputation: Option<f32>,
+    challenge: Option<u32>,
+    region: Option<RegionDef>,
+    magic_effect: Option<MagicEffectDef>,
+    effects: Option<Vec<EffectItem>>,
+    child_race: bool,
+    faction: Option<Vec<(FormId, i64)>>,
+    destruction: Option<DestructionDef>,
+    weapon_skill: Option<i64>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -192,6 +281,15 @@ impl GameData {
             edid_of: HashMap::new(),
             sigs: HashMap::new(),
             scripted_by_cell: BTreeMap::new(),
+            reputations: HashMap::new(),
+            challenges: HashMap::new(),
+            regions: HashMap::new(),
+            magic_effects: HashMap::new(),
+            effect_items: HashMap::new(),
+            child_races: HashSet::new(),
+            faction_reactions: HashMap::new(),
+            destructibles: HashMap::new(),
+            weapon_skills: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };
@@ -281,6 +379,33 @@ impl GameData {
             if let Some(p) = r.package {
                 d.package_defs.insert(id, p);
             }
+            if let Some(v) = r.reputation {
+                d.reputations.insert(id, v);
+            }
+            if let Some(v) = r.challenge {
+                d.challenges.insert(id, v);
+            }
+            if let Some(v) = r.region {
+                d.regions.insert(id, v);
+            }
+            if let Some(v) = r.magic_effect {
+                d.magic_effects.insert(id, v);
+            }
+            if let Some(v) = r.effects {
+                d.effect_items.insert(id, v);
+            }
+            if r.child_race {
+                d.child_races.insert(id);
+            }
+            if let Some(v) = r.faction {
+                d.faction_reactions.insert(id, v);
+            }
+            if let Some(v) = r.destruction {
+                d.destructibles.insert(id, v);
+            }
+            if let Some(v) = r.weapon_skill {
+                d.weapon_skills.insert(id, v);
+            }
         }
         for (id, p) in &refs.refs {
             if let (Some(cell), Some(_)) = (p.cell, d.script_of_base(p.base)) {
@@ -337,7 +462,27 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     let map = |l: u32| lo.to_global(pi, l);
     let mut ctx = DecodeCtx { schema, on_formid: None };
     let mut val = |s: &fnv_esm::Subrecord| decode_sub(&sig, s, &mut ctx).value;
-    let wanted = matches!(&sig, b"QUST" | b"INFO" | b"MESG" | b"FLST" | b"NPC_" | b"CREA" | b"PACK");
+    let wanted = matches!(
+        &sig,
+        b"QUST"
+            | b"INFO"
+            | b"MESG"
+            | b"FLST"
+            | b"NPC_"
+            | b"CREA"
+            | b"PACK"
+            | b"REPU"
+            | b"CHAL"
+            | b"REGN"
+            | b"MGEF"
+            | b"ALCH"
+            | b"SPEL"
+            | b"ENCH"
+            | b"INGR"
+            | b"RACE"
+            | b"FACT"
+            | b"WEAP"
+    ) || subs.iter().any(|s| &s.sig == b"DEST");
     for s in &subs {
         match &s.sig {
             b"EDID" if out.edid.is_none() => out.edid = val(s).and_then(|v| v.as_str().map(str::to_string)),
@@ -354,6 +499,15 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         return out;
     }
     let decoded: Vec<(&[u8; 4], Option<Json>)> = subs.iter().map(|s| (&s.sig, val(s))).collect();
+    if let Some((_, Some(h))) = decoded.iter().find(|(s, _)| *s == b"DEST") {
+        let mut dd = DestructionDef { health: h.get("health").and_then(Json::as_i64).unwrap_or(0) as i32, stages: Vec::new() };
+        for (_, v) in decoded.iter().filter(|(s, _)| *s == b"DSTD") {
+            let Some(v) = v else { continue };
+            let n = |k: &str| v.get(k).and_then(Json::as_u64).unwrap_or(0) as u8;
+            dd.stages.push((n("health_percent"), n("index"), flag_bits(v.get("flags")) as u8));
+        }
+        out.destruction = Some(dd);
+    }
     let fid = |v: &Option<Json>| v.as_ref().and_then(hexid).and_then(map).map(FormId);
     let cond = |v: &Option<Json>, issues: &mut Issues| -> Option<Condition> {
         match v.as_ref().map(|v| cond::parse(v, types, &map)) {
@@ -509,6 +663,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"TPLT" => a.template = fid(v),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
                     b"CNAM" if &sig == b"NPC_" => a.class = fid(v),
+                    b"DATA" if &sig == b"CREA" => {
+                        a.creature_type =
+                            v.as_ref().and_then(|v| v.get("type")).and_then(|t| field_code(schema, &sig, b"DATA", Some("type"), t));
+                    }
                     b"ACBS" => {
                         let f = v.as_ref().and_then(|v| v.get("flags"));
                         a.female = has_flag(f, "Female");
@@ -533,7 +691,127 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             }
             out.package = Some(p);
         }
+        b"REPU" => {
+            out.reputation = decoded.iter().find(|(s, _)| *s == b"DATA").and_then(|(_, v)| v.as_ref()?.as_f64()).map(|x| x as f32);
+        }
+        b"CHAL" => {
+            out.challenge = decoded.iter().find(|(s, _)| *s == b"DATA").and_then(|(_, v)| v.as_ref()).map(|v| flag_bits(v.get("flags")));
+        }
+        b"REGN" => {
+            let mut rg = RegionDef::default();
+            for (s, v) in &decoded {
+                match *s {
+                    b"WNAM" => rg.world = fid(v),
+                    b"RPLI" => rg.areas.push(Vec::new()),
+                    b"RPLD" => {
+                        let pts: Vec<[f32; 2]> = v
+                            .as_ref()
+                            .and_then(Json::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|p| Some([p.get("x")?.as_f64()? as f32, p.get("y")?.as_f64()? as f32]))
+                            .collect();
+                        match rg.areas.last_mut() {
+                            Some(a) if a.is_empty() => *a = pts,
+                            _ => rg.areas.push(pts),
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            rg.areas.retain(|a| a.len() >= 3);
+            out.region = Some(rg);
+        }
+        b"MGEF" => {
+            if let Some((_, Some(v))) = decoded.iter().find(|(s, _)| *s == b"DATA") {
+                let archetype = v.get("archetype").and_then(|t| field_code(schema, &sig, b"DATA", Some("archetype"), t)).unwrap_or(-1);
+                let item = v.get("associated_item").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId);
+                out.magic_effect = Some(MagicEffectDef {
+                    flags: flag_bits(v.get("flags")),
+                    archetype,
+                    script: item.filter(|_| archetype == ARCHETYPE_SCRIPT),
+                });
+            }
+        }
+        b"ALCH" | b"SPEL" | b"ENCH" | b"INGR" => {
+            let mut list: Vec<EffectItem> = Vec::new();
+            for (s, v) in &decoded {
+                match *s {
+                    b"EFID" => list.extend(fid(v).map(|effect| EffectItem { effect, magnitude: 0, area: 0, duration: 0, conditions: Vec::new() })),
+                    b"EFIT" => {
+                        if let (Some(e), Some(v)) = (list.last_mut(), v.as_ref()) {
+                            let n = |k: &str| v.get(k).and_then(Json::as_u64).unwrap_or(0) as u32;
+                            e.magnitude = n("magnitude");
+                            e.area = n("area");
+                            e.duration = n("duration");
+                        }
+                    }
+                    b"CTDA" => {
+                        if let Some(c) = cond(v, &mut out.issues) {
+                            if let Some(e) = list.last_mut() {
+                                e.conditions.push(c);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            out.effects = Some(list);
+        }
+        b"RACE" => {
+            out.child_race = decoded
+                .iter()
+                .find(|(s, _)| *s == b"DATA")
+                .is_some_and(|(_, v)| has_flag(v.as_ref().and_then(|v| v.get("flags")), "Child"));
+        }
+        b"FACT" => {
+            out.faction = Some(
+                decoded
+                    .iter()
+                    .filter(|(s, _)| *s == b"XNAM")
+                    .filter_map(|(_, v)| {
+                        let v = v.as_ref()?;
+                        let f = v.get("faction").and_then(hexid).and_then(map)?;
+                        let r = field_code(schema, &sig, b"XNAM", Some("group_combat_reaction"), v.get("group_combat_reaction")?)?;
+                        Some((FormId(f), r))
+                    })
+                    .collect(),
+            );
+        }
+        b"WEAP" => {
+            out.weapon_skill = decoded
+                .iter()
+                .find(|(s, _)| *s == b"DNAM")
+                .and_then(|(_, v)| v.as_ref()?.get("skill").and_then(|t| field_code(schema, &sig, b"DNAM", Some("skill"), t)));
+        }
         _ => {}
     }
     out
+}
+
+fn resolve<'s>(schema: &'s Schema, t: &'s TypeDef) -> &'s TypeDef {
+    match t {
+        TypeDef::Named(n) => schema.types.get(n).map(|t| resolve(schema, t)).unwrap_or(t),
+        _ => t,
+    }
+}
+
+/// The integer code of a decoded enumeration value (the decoder gives the value's
+/// name, or the number when the schema has no name for it), from the schema layout of
+/// `sig`/`sub` (and the struct field `field`).
+fn field_code(schema: &Schema, sig: &[u8; 4], sub: &[u8; 4], field: Option<&str>, v: &Json) -> Option<i64> {
+    if let Some(n) = v.as_i64() {
+        return Some(n);
+    }
+    let name = v.as_str()?;
+    let def = schema.records.get(sig).and_then(|r| r.subrecords.get(sub)).or_else(|| schema.common.get(sub))?;
+    let mut t = resolve(schema, &def.ty);
+    if let Some(f) = field {
+        let TypeDef::Struct(fields) = t else { return None };
+        t = resolve(schema, &fields.iter().find(|x| x.name == f)?.ty);
+    }
+    match t {
+        TypeDef::Enum { values, .. } => values.iter().find(|(_, n)| n == name).map(|(k, _)| *k),
+        _ => None,
+    }
 }

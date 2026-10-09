@@ -100,6 +100,30 @@ pub fn abs(_g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     Ok(Value::Num(a.num(0)?.abs()))
 }
 
+/// The day of the week, 0 Sunday … 6 Saturday [documented: GECK wiki GetDayOfWeek],
+/// as the Gregorian weekday of the GameYear / GameMonth (from 0) / GameDay globals
+/// [hypothesis: the game counts weekdays on that calendar].
+pub fn get_day_of_week(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let c = g.world.calendar().map_err(|e| e.to_string())?;
+    Ok(Value::Num(weekday(c.year as i64, c.month as i64 + 1, c.day as i64) as f64))
+}
+
+/// Sunday = 0 (Sakamoto's method).
+pub fn weekday(year: i64, month: i64, day: i64) -> i64 {
+    const T: [i64; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let y = if month < 3 { year - 1 } else { year };
+    (y + y.div_euclid(4) - y.div_euclid(100) + y.div_euclid(400) + T[((month - 1).clamp(0, 11)) as usize] + day).rem_euclid(7)
+}
+
+pub fn sqrt(_g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    Ok(Value::Num(a.num(0)?.max(0.0).sqrt()))
+}
+
+/// 1: the PC version [decision, as IsXBox and IsPS3 read 0].
+pub fn one(_g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    Ok(Value::Num(1.0))
+}
+
 /// A Layer 6 state with no Layer 6 yet: always 0 (not in combat, not talking).
 pub fn zero(_g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     none()

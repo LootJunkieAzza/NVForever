@@ -699,28 +699,63 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   GetSecondsPassed, GetGlobalValue, GetCurrentTime, GetGameSetting, Abs); and four Layer 6
   states that read "no" without Layer 6 (IsInCombat, IsTalking) or the PC platform
   (IsXBox, IsPS3) [decision].
-- **Layer 6 stubs (60)**, traced as `stub` with their arguments and no effect: AI
-  packages (ResetAI, GetCurrentAIPackage, GetCurrentAIProcedure, SetAlert, GetFurnitureMarkerID, IsCurrentFurnitureRef), dialogue
-  (SayTo, Say, StartConversation, GetTalkedToPC, SetDisposition), combat (StartCombat,
-  StopCombat, SetEnemy, SetAlly, GetHitLocation, SetIgnoreFriendlyHits, GetShouldAttack,
-  IsWeaponOut, GetWeaponAnimType, GetVATSValue), crime (SendTrespassAlarm, IgnoreCrime),
-  animation (PlayGroup, PlayIdle, Look, StopLook), appearance (AgeRace), sound and video
-  (PlaySound, PlaySound3D, PlayMusic, PlayBink), image space (Apply/RemoveImageSpaceModifier,
-  IsImageSpaceActive, Trigger/ClearScreenSplatter, SetScreenSplatterFade), weather
-  (ForceWeather, ReleaseWeatherOverride), SetGlobalTimeMultiplier, rendering (SetScale,
-  SwapTexture, SetActorAlpha, PlayMagicShaderVisuals), magic (CastImmediateOnSelf,
-  RemoveSpell), HUD and Pip-Boy (AutoDisplayObjectives, ForceActiveQuest,
-  ResetPipboyManager, ForceRadioStationUpdate), menus (GetPlayerName, ShowRaceMenu,
-  SetTagSkills, ShowTraitMenu, ShowLoveTesterMenuParams, ShowBarterMenu), Autosave,
-  IncrementScriptedChallenge, IsSneaking. AddScriptPackage and RemoveScriptPackage keep
-  the actor's package list and also trace a stub.
-- **Unhandled**: everything else; the first call per opcode and unit is traced, all are
-  counted in `final.unhandled`, the value is 0. The largest by use: GetReputationThreshold
-  (1,786 uses: needs the reputation tiers), AddReputation (504: needs the fame/infamy
-  amount per deed size), PlaceAtMe (468) and RemoveAllTypedItems (295) (they need
-  references created from any base form, and item form types, from `fnv-sim`), IsChild
-  (203: race flag not read), AddItemHealthPercent, SetOwnership, IsAnimPlaying,
-  CompleteAllObjectives, GetSitting.
+- **Added in round 3 (92, 2026-10-09; rules in §7.6)**: reputations
+  (GetReputationThreshold, Add/RemoveReputation, AddReputationExact, GetReputationPct);
+  objects (PlaceAtMe, PlaceLeveledActorAtMe, DropMe, Drop, Set/ClearOwnership, IsOwner,
+  SetCellOwnership, SetCellPublicFlag, DamageObject, GetDestructionStage,
+  ClearDestruction, IsPlayerInRegion, PlayerInRegion, GetHeadingAngle, HasLoaded3D,
+  Get/SetScale, GetLockLevel, GetInCellParam, GetContainer, SetMinimalUse,
+  Set/IsInCriticalStage, Set/GetBroadcastState, SetTalkingActivatorActor); inventories
+  (RemoveAllTypedItems, AddItemHealthPercent, Mod/SetWeaponHealthPerc, IsWeaponInList,
+  IsWeaponSkillType, ResetInventory, GetContainerInventoryCount, SetItemValue,
+  SetQuestObject); magic (AddSpell, RemoveSpell, CastImmediateOnSelf, Dispel,
+  DispelAllSpells, IsSpellTarget, HasMagicEffect, ScriptEffectElapsedSeconds); actors
+  and factions (IsChild, GetIsCreatureType, SetEssential, SetActorRefEssential,
+  IsEssential, IsActorRefEssential, SetActorFullName, IsKiller, GetFactionRelation,
+  GetFactionCombatReaction, SetEnemy, SetAlly, RemoveFromAllFactions,
+  GetFactionRankDifference, Set/GetPCEnemyOfFaction, ClearFactionPlayerEnemyFlag,
+  GetActorFactionPlayerEnemy, IgnoreCrime, GetIgnoreCrime, Set/GetIgnoreFriendlyHits,
+  GetIsGhost, SetLevel, GetPlayerTeammateCount); the player (EnableFastTravel,
+  UnlockChallenge, GetChallengeCompleted, RemoveRecurringFromChallenge,
+  Set/GetInCharGen, GetCasinoWinningsLevel, GetCasinoWinningStage,
+  SetPCCanUsePowerArmor, AddTopic, IsAlwaysHardcore); quests (CompleteAllObjectives,
+  ResetQuest); GetDayOfWeek, Sqrt, IsWin32 (1, the PC version) and IsGoreDisabled (0,
+  the default) [decision]. Seven of them were stubs before (SetEnemy, SetAlly,
+  IgnoreCrime, SetIgnoreFriendlyHits, SetScale, CastImmediateOnSelf, RemoveSpell).
+- **Layer 6 stubs (170)**, traced as `stub` with
+  their arguments and no effect; `functions::registry()` names each one's system. From
+  round 2: AI packages (ResetAI, GetCurrentAIPackage, GetCurrentAIProcedure, SetAlert,
+  GetFurnitureMarkerID, IsCurrentFurnitureRef), dialogue (SayTo, Say,
+  StartConversation, GetTalkedToPC, SetDisposition), combat (StartCombat, StopCombat,
+  GetHitLocation, GetShouldAttack, IsWeaponOut, GetWeaponAnimType, GetVATSValue), crime
+  (SendTrespassAlarm), animation (PlayGroup, PlayIdle, Look, StopLook), appearance
+  (AgeRace), sound and video, image space, weather, SetGlobalTimeMultiplier, rendering
+  (SwapTexture, SetActorAlpha, PlayMagicShaderVisuals), HUD and Pip-Boy, menus,
+  Autosave, IncrementScriptedChallenge, IsSneaking. Round 3 adds 117: animation
+  (IsAnimPlaying, GetAnimAction, IsIdlePlaying, PickIdle, IsLeftUp, IsFacingUp,
+  Rotate), AI (GetSitting, IsCurrentFurnitureObj, GetSleeping, GetIsAlerted, ForceFlee,
+  SetPackDuration, the used-item checks, the Cannibal and Mister Sandman perk checks),
+  combat (StopCombatAlarmOnActor, SetCombatStyle, group counts, GetCombatTarget,
+  FireWeapon, UseWeapon, GetKnockedState, IsLimbGone, VATS, explosives), detection
+  (GetDetected, GetLineOfSight, SetAllVisible, CreateDetectionEvent), crime
+  (SendAssaultAlarm, GetTrespassWarningLevel, IsTrespassing, GetAlarmed,
+  GetMajorCrimeCount, GetOwnerLastTarget), dialogue (IsActorTalkingThroughActivator,
+  GetDialogueEmotion, GetDisposition, Exists), movement (IsMoving, IsTurning,
+  IsRunning, IsSwimming, SetForceSneak), physics (PushActorAway, IsPlayerGrabbedRef,
+  trapUpdate), navigation, rendering and image space (StopMagicShaderVisuals,
+  SetSecuritronExpression, Reset3DState, AttachAshPile, SetCellImageSpace), weather
+  (SetWeather, IsRaining, GetIsCurrentWeather), GetRadiationLevel, radio, menus
+  (ForceTerminalBack, ShowCaravanMenu, OpenTeammateContainer, Add/SetSPECIALPoints,
+  AddTagSkills, the repair, recipe, casino, barber, surgeon, tutorial, sleep and loading
+  menus), ShowAllMapMarkers (map markers are not read), sleeping, GetIsLockBroken
+  (lockpicking), saving, ExitGame. AddScriptPackage and RemoveScriptPackage keep the
+  actor's package list and also trace a stub.
+- **Unhandled (5 used opcodes, 35 uses)**: AddItemToLeveledList (20: run-time leveled
+  list additions belong in `fnv-sim`'s leveled resolution, Layer 4), IsDLCInstalled (8:
+  no wiki page, behaviour undocumented), GetIsAlignment (3: NPC alignment is not read),
+  GetXPForNextLevel (3: the experience settings page is not in the dump) and
+  GetIsObjectType (1: form type names). The first call per opcode and unit is traced, all
+  are counted in `final.unhandled`, the value is 0.
 
 Defaults where nothing is read yet [hypothesis]: actor values other than S.P.E.C.I.A.L.
 start at 0, except body-part conditions (codes 25–31) at 100; a living actor is at full
@@ -729,19 +764,116 @@ CGTutorial script read a new character as hurt, crippled and with a broken weapo
 first run (its stages 200, 210 and 218), which the capture saves never show
 (layer5-captures.md §2: only stage 2 done).
 
-### 7.4 Coverage (`fnvtool script coverage`, 2026-10-09, after round 2)
+### 7.4 Coverage (`fnvtool script coverage`, 2026-10-09, after round 3)
 
 `implemented` and `stub` are filled per opcode. Over the ten masters (401 opcodes called
 or used by conditions; shares by the catalogue's `script_calls` + `condition_uses`):
 
 | | Opcodes | Calls + condition uses | With stubs |
 |---|---|---|---|
-| all | 133 implemented, 60 stubs | 88.1% | 95.0% |
-| top 40 by use | 35 implemented, 4 stubs (SayTo, StartCombat, PlayGroup, ResetAI), 1 unhandled (GetReputationThreshold) | 78.4% of all uses are in these 40 | |
-| intro chain (295 units, 248 conditions; `fnv_game::intro`) | 68 of 110 implemented, 40 stubs | 82.5% (all 248 conditions) | 99.8% |
+| all, round 2 | 133 implemented, 60 stubs | 88.1% | 95.0% |
+| all, round 3 | 225 implemented, 170 stubs, 5 unhandled (+ the unknown 0x127C) | 92.6% | 99.98% |
+| top 40 by use | 36 implemented, 4 stubs (SayTo, StartCombat, PlayGroup, ResetAI) | 78.4% of all uses are in these 40 | |
+| intro chain (295 units, 248 conditions; `fnv_game::intro`) | 72 of 110 implemented, 38 stubs | 83.2% (all 248 conditions) | 100% |
 
-The intro chain's two unhandled functions are SetLevel and SetSPECIALPoints (one call
-each, character creation).
+The intro chain has no unhandled function left: SetLevel is implemented and
+SetSPECIALPoints is a menu stub (character creation).
+
+### 7.6 Round 3 state and rules (2026-10-09)
+
+Where the state lives: `PlayerState` (reputation, challenges, fast travel, crime-enemy
+factions, chargen, casino levels, power armor, topics, level, `hardcore_was_off`),
+`RefExtra` per reference (essential, killer, object damage, added spells, broadcast
+state, crime and friendly-hit flags, talking actor, critical stage, scale, level,
+minimal use), `Game::forms` (`FormChanges`: faction reactions, base essential flags,
+names, quest items, cell owners, public cells, item values), `Game::effects` (active magic
+effects). All are in `fnv.game.state/1` snapshots (new fields default when absent).
+Records read (schema layouts added in this round where marked): REPU DATA (new), CHAL
+DATA (new), REGN WNAM/RPLI/RPLD (new), MGEF DATA (new), the EFID/EFIT/CTDA effects of
+ALCH, SPEL, ENCH, INGR, RACE DATA flags, FACT XNAM, WEAP DNAM skill, CREA DATA type,
+DEST/DSTD on any record.
+
+**Reputations.** Infamy (axis 0) and fame (axis 1) per REPU [documented: GECK wiki
+GetReputation]. A REPU's `DATA` is its scale: GetReputationPct is the value over it
+[documented: GECK wiki GetReputationPct; observed: scales 10–100 in FalloutNV.esm,
+Goodsprings 15, NCR 80, Legion 100]. AddReputation / RemoveReputation size 1–5 add or
+take the points of fReputationBumpVeryMinor … VeryMajor, defaults 1, 2, 4, 7, 12
+[documented: GECK wiki AddReputation; observed: no master defines these settings];
+values do not go below 0 [hypothesis]. GetReputationThreshold [documented: GECK wiki:
+0–6, all axes 1 with no fame or infamy, one axis non-zero at a time, the tier names per
+axis] is computed from a fame level and an infamy level (0–3: the share of the scale
+reaching 0.25, 0.5, 0.75) [hypothesis: the boundaries are not documented] placed on the
+4×4 grid of `reputation::tiers` [hypothesis: the grid that fills the wiki's three axes
+exactly — fame only Accepted/Liked/Idolized, infamy only Shunned/Hated/Vilified, equal
+levels Mixed/Unpredictable/Wild Child, fame over infamy 1 Smiling Troublemaker/Good
+Natured Rascal, infamy over fame 1 Sneering Punk/Merciful Thug, 3 against 2 Dark Hero /
+Soft Hearted Devil]. Trace event `reputation_changed`.
+
+**Effect scripts.** `Game::apply_magic_item(target, item, caster, permanent)`: each
+effect of the item (EFID/EFIT) whose conditions pass on the target becomes an
+`ActiveEffect` with the EFIT duration; when its MGEF's archetype is 1 (Script)
+[documented: xEdit wbArchtypeEnum, wbMGEFFAssocItemDecider] its associated script runs
+in an instance of its own (`InstKey::Effect`, `effect:<id>`) on the target:
+ScriptEffectStart at once inside the call; ScriptEffectUpdate every game-time frame with
+ScriptEffectElapsedSeconds = the frame time [documented: GECK wiki
+ScriptEffectElapsedSeconds, non-zero only in the update block]; ScriptEffectFinish on the
+frame the duration is reached, then the instance is dropped; a zero-duration effect
+finishes right after its start [hypothesis, all timing: not captured]. Menus and loading
+screens stop the effect clock, as for GetSecondsPassed [hypothesis]. Effect conditions are
+tested once, at the start [hypothesis]. The engine API is `Game::consume(actor, item)`:
+one ingestible leaves the inventory and its effects start (the player using an aid
+item); EquipItem of an aid item does the same; the runner op `consume` stands in for it.
+AddSpell applies a spell permanently (no duration; abilities and addictions in the
+masters), RemoveSpell removes it, CastImmediateOnSelf applies a spell with durations,
+Dispel / DispelAllSpells end effects with their finish blocks, except an effect whose
+own script is running: that script stops like a return and its finish block does not
+run [documented: catalogue notes of Dispel]. IsSpellTarget and HasMagicEffect read the
+active effects. What effects do besides their scripts (actor value changes, shaders) is
+Layer 6. In the intro walk-through the concussion spell (PlayerConcussed, cast by
+CastImmediateOnSelf) now starts its Concussion effect; its second effect's condition
+(PerceptionCondition ≤ 0) fails, so it does not start.
+
+**Objects.** PlaceAtMe creates references with fnv-sim's `World::place` at the caller's
+cell and position with its angles [documented: catalogue notes; the distance and
+direction arguments do nothing, documented bug]: an inventory item as one reference
+holding the count, other forms one reference per count, the last one returned
+[hypothesis]; a leveled actor list is placed as the list (Layer 6 resolves it). A
+created reference with a script runs it like a placed one from the next frame (OnLoad
+then, in a loaded cell) [hypothesis]; trace event `placed`. DropMe and Drop use fnv-sim's
+drop rule; DropMe acts as a return and neither runs OnDrop [documented: catalogue notes].
+Ownership lives in the reference's Layer 4 extra data; SetOwnership with no owner gives
+the player's base (0x7) [documented]. Destruction: the stage is the highest DSTD index
+whose health percent the remaining health (DEST health − damage) has fallen to, 0 when
+damaged above every stage, −1 without data or damage [documented −1: GECK wiki
+GetDestructionStage; the rest hypothesis]; a stage with the Destroy flag sets the
+destroyed state, one with Disable disables the reference, a stage change runs
+OnDestructionStageChange [hypothesis from the flag names]. Regions: the player is in a
+region when in an exterior cell of the region's worldspace and inside one of its area
+polygons (even-odd rule; the RPLI edge fall-off is ignored) [documented: never in an
+interior, nested regions both true; hypothesis: the polygon test]. GetHeadingAngle
+measures clockwise from the caller's facing in (−180, 180], 0 for a caller that is not
+an actor [documented]. RemoveAllTypedItems type codes: 40 weapons [documented: GECK wiki
+example]; 24 armor, 25 books, 29 ingredients, 30 lights, 31 misc, 41 ammo, 46 keys,
+47 aid, 49 notes [hypothesis: the form type numbering published by the script extender
+community; the masters pass 24, 26, 31, 40, 41, 47 together, observed].
+
+**Actors and factions.** IsChild reads the race's Child flag; GetIsCreatureType the
+CREA DATA type [documented]. Essential = the base flag (ACBS, or SetEssential) or the
+reference flag (SetActorRefEssential), which cannot clear the base's [documented].
+KillActor records its killer for IsKiller. Faction reactions are FACT XNAM with
+SetEnemy/SetAlly overrides (flag 0 enemy / ally, 1 neutral / friend) [documented].
+GetFactionRelation between two actors: over the caller's and the other's factions,
+enemy if any reaction is enemy, else friend, else ally, else neutral; the player is an
+enemy of a caller in a faction the player is a crime enemy of [hypothesis].
+
+**The player.** EnableFastTravel keeps the travel / wait / keep flags; waiting is
+forced on with travel, and without keep an interior → exterior move allows travel again
+[documented: catalogue notes]. Challenges keep unlocked / completed / not-recurring;
+completion comes from the Layer 6 challenge counters (none yet). Casino winnings levels
+are 0 until the casino games (Layer 6) set them. GetDayOfWeek is the Gregorian weekday of
+the GameYear / GameMonth (from 0) / GameDay globals [hypothesis; 18 October 2281, the
+masters' start date, is a Tuesday]. IsAlwaysHardcore: on now and never switched off
+[hypothesis].
 
 ### 7.5 AI packages (the start of Layer 6, `Game::select_package`)
 
@@ -792,6 +924,7 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `move_player {to}`, `load_cell {cell}` | the player moving (MoveTo) and cells loading (OnLoad) |
 | `get_var {of, var}`, `get_ref {of}` | reads of any script variable, and of a reference's state |
 | `kill {actor, killer?}` | combat ending in a death (KillActor, OnDeath) |
+| `consume {item, actor?, label?}` | the player (or an actor) using an aid item: `Game::consume`, effect scripts start (§7.6); observation `effects` |
 | `note {text}` | a comment; no effect |
 
 Round 2 of the contract (layer5-captures.md §8.2), as the capture issues them:
@@ -869,8 +1002,14 @@ crates/fnv-game/walkthrough/intro.actions.json` (4,430 frames, about 2 s).
 
 What blocks a run without inputs: every stage switch that is a dialogue line, a package
 finishing, a trigger volume, a menu or a combat result is Layer 6 or physics (5D).
-Functions missing for the chain itself: SetLevel and SetSPECIALPoints (character
-creation); the furniture and combat state checks above are stubs.
+No function of the chain is unhandled since round 3 (§7.4); the furniture and combat
+state checks above are stubs. Round 3 changed nothing in the chain's stages,
+objectives or observations (same stages done, same 0 step errors): the quest-by-quest
+results above stand. What changed: 27 of the 29 `unhandled` events are gone (left:
+AddItemToLeveledList and IsDLCInstalled, from scripts outside the chain that the
+walk-through's cells load), the player's Concussion effect starts at frame 303
+(§7.6), and vSafehouse's sleep/sandbox variables differ (its schedule now reads
+GetDayOfWeek).
 
 Differences from the capture saves: VCG02 is running at stage 5 right after VCG01 here;
 in both saves it is not running (an open question in layer5-captures.md §7). One script
@@ -892,3 +1031,9 @@ walk-through does not enter that trigger.
 - AI packages (§7.5): schedules, re-evaluation, and whether list order alone decides.
 - The `given` of `L5.quest.delay_flagged_1s`, `.delay_flagged_short` and `.delay_frame`
   lacks the quests' stages (§8).
+- Round 3 (§7.6), each a capture candidate: GetReputationThreshold's level boundaries
+  and the tier grid (SetReputation to chosen values, read all three axes); effect script
+  timing (Start inside the use, Update per frame, Finish on the frame the duration ends,
+  zero-duration effects, menus); GetDayOfWeek on the start date; GetDestructionStage after
+  DamageObject; PlaceAtMe of a stackable item with a count; GetFactionRelation between
+  members of factions with mixed reactions.
