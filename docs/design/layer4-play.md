@@ -379,6 +379,15 @@ Open:
 - ~~Controller jitter against some rocks reproduces in `fnvtool phys walk`~~ Fixed:
   concave corners stop the character instead of alternating between faces (physics.md
   §6.1); the controller now rests on contact shells like the arrival (§6.2).
-- Interior safety net: a start or walk onto a reference outside an interior's room (the
-  top of Ringo's cash box) stands there until it falls; what the game does with `coc` and
-  with a start over nothing is not captured (proposed capture in physics.md §6.7).
+- ~~Interior safety net: what the game does with `coc` and with a start over nothing~~:
+  captured 2026-10-09 (`pc_coc`, physics.md §6.7): `coc` goes to the cell's
+  COCMarkerHeading, else its XMarker, else a door arrival; a fall is caught within about
+  a second and put there. `nvf-play` follows (interior starts without `--pos`, rescues,
+  a 256-unit fall margin). Standing on top of a reference outside the room (Ringo's cash
+  box) is still allowed until the player walks off it.
+- Crouching: sneaking toggles and slows the player [observed], but the crouched capsule
+  height and eye height are not captured (physics.md §6, capsule height).
+- Captures that leave Doc Mitchell's house through the front door make the game write
+  `autosave.fos` (pc_drop_fall, 2026-10-09: the save guard reported it and kept the
+  previous rolling saves in `C:\fnv-private\capture\saves-backup\1791556049`); the
+  movement jobs of layer4-captures.md §5 all do this. Owner's call whether to restore.

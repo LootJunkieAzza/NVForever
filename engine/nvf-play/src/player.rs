@@ -323,7 +323,14 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
             }
         }
     }
-    commands.insert_resource(Player { heading: d.heading_deg.to_radians(), pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet });
+    let mut heading = d.heading_deg.to_radians();
+    // An interior start with no position asked for: where `coc` puts the player (physics.md
+    // §6.7).
+    if let Some(spot) = d.interior.filter(|_| d.start_at_cell_spot && near.target.is_none()).and_then(|c| safe::cell_spot(sim.refs, c)) {
+        info!("interior start at the cell's own spot ({:?}): ({:.1}, {:.1}, {:.1}), heading {:.0}°", spot.source, spot.feet[0], spot.feet[1], spot.feet[2], spot.heading.to_degrees());
+        (feet, heading) = (spot.feet, spot.heading);
+    }
+    commands.insert_resource(Player { heading, pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet });
     let settings = MoveSpeeds::from_settings(sim.forms.setting_f32("fMoveBaseSpeed"), sim.forms.setting_f32("fMoveRunMult"));
     let speeds = MoveSpeeds::OBSERVED;
     info!(
@@ -502,7 +509,10 @@ struct Net {
 /// offers none; the character stays where it is.
 fn rescue(phys: &mut PhysState, sim: &SimState, cell: u32, from: [f32; 3], why: &str) -> Option<(safe::Spot, [f32; 3])> {
     let spots = safe::door_arrivals(sim.refs, cell);
-    let Some((spot, _)) = safe::choose(&spots, from, |s| safe::stand(phys, s.feet, None)) else {
+    // The cell's own spot first (the game put a player who fell out of the gas station
+    // there [observed: pc_coc]), else the nearest door arrival with footing.
+    let own = safe::cell_spot(sim.refs, cell).and_then(|s| safe::stand(phys, s.feet, None).map(|f| (s, f)));
+    let Some((spot, _)) = own.or_else(|| safe::choose(&spots, from, |s| safe::stand(phys, s.feet, None))) else {
         warn!(
             "{why} at ({:.0}, {:.0}, {:.0}) in interior {cell:08X}, and none of its {} door arrivals has footing: left there",
             from[0],
@@ -514,9 +524,12 @@ fn rescue(phys: &mut PhysState, sim: &SimState, cell: u32, from: [f32; 3], why: 
     };
     // The arrival rule (physics.md §6.2) settles the feet, as a door would.
     let a = phys.arrive_player(spot.feet);
-    let safe::Source::DoorArrival { from: door_from, door } = spot.source;
+    let to = match spot.source {
+        safe::Source::DoorArrival { from, door } => format!("the arrival of door {from:08X} (beside {door:08X})"),
+        safe::Source::Marker(m) => format!("the cell's marker {m:08X}"),
+    };
     warn!(
-        "{why} at ({:.0}, {:.0}, {:.0}) in interior {cell:08X}: moved to the arrival of door {door_from:08X} (beside {door:08X}), feet ({:.0}, {:.0}, {:.1}), heading {:.0}°",
+        "{why} at ({:.0}, {:.0}, {:.0}) in interior {cell:08X}: moved to {to}, feet ({:.0}, {:.0}, {:.1}), heading {:.0}°",
         from[0],
         from[1],
         from[2],
