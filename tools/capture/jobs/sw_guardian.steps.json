@@ -1,0 +1,388 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "sw_guardian",
+ "title": "Placed water drops: swim_guardian_drops (no input needed)",
+ "start": "nvfdoc (Doc Mitchell's house); coc CampGuardianCaves before each drop (god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "console": "coc CampGuardianCaves"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1301859\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "in_deep menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "in_deep before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -4900\nplayer.SetPos Y -8450\nplayer.SetPos Z 6533\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_guardian_drops in_deep",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops in_deep",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops in_deep",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc CampGuardianCaves"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1301859\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "in_edge menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "in_edge before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -4800\nplayer.SetPos Y -8650\nplayer.SetPos Z 6533\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_guardian_drops in_edge",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops in_edge",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops in_edge",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc CampGuardianCaves"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1301859\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "in_north menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "in_north before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -5250\nplayer.SetPos Y -7800\nplayer.SetPos Z 6533\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_guardian_drops in_north",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops in_north",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops in_north",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc CampGuardianCaves"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1301859\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "out_near menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "out_near before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -4800\nplayer.SetPos Y -8760\nplayer.SetPos Z 6533\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_guardian_drops out_near",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops out_near",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops out_near",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc CampGuardianCaves"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1301859\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "out_mid menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "out_mid before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -4800\nplayer.SetPos Y -8800\nplayer.SetPos Z 6533\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_guardian_drops out_mid",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops out_mid",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops out_mid",
+   "field": "feet_later"
+  },
+  {
+   "console": "coc CampGuardianCaves"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1301859\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "out_far menumode",
+   "field": "value"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "out_far before",
+   "field": "z"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -4850\nplayer.SetPos Y -8850\nplayer.SetPos Z 6533\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 6532\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "swim_guardian_drops out_far",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops out_far",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "swim_guardian_drops out_far",
+   "field": "feet_later"
+  }
+ ]
+}
