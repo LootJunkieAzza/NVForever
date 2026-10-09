@@ -196,6 +196,12 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    swim_lake_shore retired 2026-10-09 and replaced by swim_cove_stroke 8/8 and
    swim_lake_exit 10/10 (held out, below); banks of 12–58° (`sw_banks*`) agree while swimming and on leaving
    the water [observed 2026-10-08].
+   **Accepted residuals (owner decision 2026-10-09):** the three physics rows still missing
+   — `L4.phys.drops.b11_goodsprings` 17/20 (the Havok trees against the fence edge),
+   `L4.phys.walk.portal_wall` 5/6 (the steep downhill row) and
+   `L4.phys.drops.swim_h2o_fresh` 8/9 (a stair edge) — were worked on repeatedly without
+   gain and are accepted as known differences. They stay failing as the honest record
+   (scenarios, goldens and tolerances unchanged); no further tuning is planned.
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
    Status 2026-10-08 (`engine/nvf-play`, docs/design/layer4-play.md §6): walking with
@@ -206,8 +212,20 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    DLC worldspaces) switch physics and rendering to the destination worldspace; items
    dropped from the inventory are drawn, collide, fall and settle, survive cell unloads
    and worldspace changes and are taken back with E (whether the game's dropped items
-   fall is open, simulation.md §5). Open: play by hand, scripted doors (the Strip gate),
-   dialogue and barter.
+   fall is open, simulation.md §5). Scripted doors (the Strip gate) open through their own
+   scripts since Layer 5 (layer5-play.md §6). Dialogue and barter are Layer 6.
+   **Played by hand (2026-10-09, coordinator)** [observed]: `nvforever --play --cell
+   Goodsprings` on `main` 9be35d7, driven with real OS keyboard and mouse input (Windows
+   `SendInput`, the same path as a person's keys) for about six minutes: mouse look, WASD
+   (2.5 s of W covered about 845 units, the run speed), Space jump (+51 units at 0.25 s),
+   the start-up message boxes dismissed with their number key, Tab inventory (arrow keys,
+   Enter, mouse click to select and equip, the Close button), the Prospector Saloon door's
+   prompt and E into the interior, a container opened with E and emptied with R (carry
+   weight 89.5 → 95.5), Esc/Tab/E closing menus. Found, and fixed in #97 (Esc now opens a
+   Resume / Quit pause menu): the help line listed the free-fly keys in play mode; Esc in the world quit
+   at once (the game opens a pause menu); message-box buttons ignored mouse clicks;
+   equipping ammunition reported a raw FormID; lock prompts showed "level 0" instead of
+   the game's level names.
 
 ## 5. Open questions and verification steps for the owner
 
