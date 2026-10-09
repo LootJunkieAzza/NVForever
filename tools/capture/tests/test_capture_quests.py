@@ -524,6 +524,94 @@ class Round3(unittest.TestCase):
         self.assertIn("error", obs)
 
 
+ROUND4 = {
+    "format": cq.ACTIONS_FORMAT, "title": "round 4",
+    "given": [{"kind": "menu", "menu": 1001, "open": True}],
+    "actions": [
+        {"op": "set_quest_var", "quest": "TestQuest", "var": "fTimer", "value": 3, "stopwatch": True},
+        {"op": "dismiss_message_boxes", "max": 2, "wait_frames": 50, "label": "boxes"},
+        {"op": "dismiss_message_boxes", "max": 1, "wait_frames": 50},
+        {"op": "wait_quest", "quest": "TestQuest", "field": "done.95", "value": True, "max_frames": 100,
+         "stopwatch": True, "label": "95"},
+        {"op": "wait_quest", "quest": "TestQuest", "field": "var.bDone", "value": 2, "max_frames": 10, "label": "var"},
+        {"op": "wait_menu", "menu": 1051, "max_frames": 10, "label": "name menu"},
+        {"op": "start_stopwatch"},
+        {"op": "close_menus"},
+        {"op": "get_menus", "menus": [1001, 1036], "label": "menus"},
+        {"op": "get_tag_skills", "skills": ["Guns", "Sneak"], "label": "tags"},
+        {"op": "get_ref", "ref": "0x00103E61", "fields": ["destroyed"], "label": "door"},
+    ]}
+
+
+class Round4(unittest.TestCase):
+    def steps(self):
+        return cq.actions_job(ROUND4, "q5d_t", "nvfnew", EDIDS)["steps"][len(cs.MASTERS):]
+
+    def test_steps(self):
+        steps = self.steps()
+        self.assertEqual(steps[0]["label"], "__given__:0")
+        self.assertIn("if MenuMode 1001", steps[0]["query"])
+        # The variable and the stopwatch in one script.
+        self.assertIn('SetVariable "fTimer" 3 rF1', steps[1]["script"])
+        self.assertIn('rF2.SetVariable "timer" 100000', steps[1]["script"])
+        self.assertIn("BuildRef fM1 1068048", steps[1]["script"])  # the skull, 0x00104C10
+        boxes = [s for s in steps if s.get("label", "").startswith("box:")]
+        self.assertEqual([s["field"] for s in boxes], ["0", "1"])
+        self.assertEqual(sum(1 for s in steps if s.get("console") == "CloseAllMenus"), 4)
+        until = [s for s in steps if "until" in s]
+        self.assertEqual([u["max_frames"] for u in until], [50, 50, 50, 100, 10, 10])
+        self.assertIn("if GetStageDone rF1 95 == 1", until[3]["until"])
+        self.assertIn('if GetVariable "bDone" rF1 == 2', until[4]["until"])
+        self.assertIn("if MenuMode 1051", until[5]["until"])
+        by = {s["label"]: s for s in steps if "query" in s}
+        self.assertEqual(by["wait:95"]["field"], "found|seconds")
+        self.assertIn('100000 - rF2.GetVariable "timer"', by["wait:95"]["query"])
+        self.assertEqual(by["wait:var"]["field"], "found")
+        self.assertIn('SetVariable "timer" 100000', next(s["script"] for s in steps[steps.index(by["wait:name menu"]):]
+                                                       if "script" in s))
+        self.assertIn("IsPlayerTagSkill Sneak", [s for s in steps if s.get("label") == "tags"][1]["query"])
+        self.assertIn("rF1.GetDestroyed", by["door"]["query"])
+
+    def test_bad(self):
+        for a in ({"op": "dismiss_message_boxes", "max": 0, "wait_frames": 5},
+                  {"op": "wait_quest", "quest": "TestQuest", "field": "done.5", "max_frames": 0, "label": "x"},
+                  {"op": "wait_quest", "quest": "TestQuest", "field": "nope", "max_frames": 5, "label": "x"},
+                  {"op": "get_menus", "menus": [], "label": "x"},
+                  {"op": "get_tag_skills", "skills": [], "label": "x"}):
+            with self.assertRaises(cq.InputError, msg=a):
+                cq.actions_job({"format": cq.ACTIONS_FORMAT, "actions": [a]}, "x", "y", EDIDS)
+
+    def test_golden(self):
+        rs = [{"label": "__given__:0", "field": "open", "value": 1.0},
+              {"label": "box:boxes", "field": "0", "value": 1.0},
+              {"label": "box:boxes", "field": "1", "value": 0.0},
+              {"label": "wait:95", "field": "found|seconds", "value": "1|3.03125"},
+              {"label": "wait:var", "field": "found", "value": "0"},
+              {"label": "wait:name menu", "field": "found", "value": "1"},
+              {"label": "menus", "field": "menu.1001", "value": 0.0},
+              {"label": "menus", "field": "menu.1036", "value": 1.0},
+              {"label": "tags", "field": "tag.Guns", "value": 1.0},
+              {"label": "tags", "field": "tag.Sneak", "value": 0.0},
+              {"label": "door", "field": "destroyed", "value": 1.0}]
+        mods, results = cs.read_output(output_lines(rs))
+        doc, problems = cq.golden_document(ROUND4, mods, results)
+        self.assertEqual(problems, [])
+        obs = {o["label"]: o for o in doc["observations"]}
+        self.assertEqual(obs["boxes"], {"label": "boxes", "step": 1, "closed": 1})
+        self.assertEqual(obs["95"], {"label": "95", "step": 3, "found": True, "seconds": 3.03125})
+        self.assertEqual(obs["var"], {"label": "var", "step": 4, "found": False})
+        self.assertEqual(obs["name menu"], {"label": "name menu", "step": 5, "found": True})
+        self.assertEqual(obs["menus"], {"label": "menus", "step": 8, "menu.1001": False, "menu.1036": True})
+        self.assertEqual(obs["tags"], {"label": "tags", "step": 9, "tag.Guns": True, "tag.Sneak": False})
+        self.assertEqual(obs["door"], {"label": "door", "step": 10, "destroyed": True})
+        self.assertEqual(len(doc["observations"]), 7)
+
+    def test_given_menu_closed_is_a_mismatch(self):
+        mods, results = cs.read_output(output_lines([{"label": "__given__:0", "field": "open", "value": 0.0}]))
+        _, problems = cq.golden_document(ROUND4, mods, results)
+        self.assertEqual(len(problems), 1)
+
+
 class Inputs(unittest.TestCase):
     """The committed scenario inputs convert to jobs (no game data needed: quests are
     named by Editor ID, forms by FormID)."""
