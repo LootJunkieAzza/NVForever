@@ -19,6 +19,7 @@ pub mod data;
 pub mod functions;
 pub mod game;
 pub mod quest;
+pub mod runner;
 pub mod trace;
 
 pub use data::GameData;

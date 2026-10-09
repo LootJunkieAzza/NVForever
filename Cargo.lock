@@ -557,6 +557,7 @@ dependencies = [
  "fnv-collide",
  "fnv-dds",
  "fnv-esm",
+ "fnv-game",
  "fnv-inflate",
  "fnv-install",
  "fnv-nif",

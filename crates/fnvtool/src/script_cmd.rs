@@ -44,6 +44,16 @@ pub enum ScriptCmd {
         #[command(flatten)]
         a: ScriptArgs,
     },
+    /// Run scripts headless from the new-game state through a fnv.script.actions/1 file
+    /// and print the trace (fnv.script.trace/1; docs/spec-notes/layer5-captures.md §4,
+    /// scripts.md §8).
+    Run {
+        #[command(flatten)]
+        a: ScriptArgs,
+        /// Actions file (JSON, fnv.script.actions/1).
+        #[arg(long)]
+        actions: PathBuf,
+    },
 }
 
 #[derive(Args)]
@@ -100,6 +110,7 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             decompile_all(l, &names, &sel)
         }),
         ScriptCmd::Coverage { a } => with_load_order(&a, |l, _, _| Ok(coverage(l))),
+        ScriptCmd::Run { a, actions } => run_actions(&a, &actions),
     }
 }
 
@@ -510,4 +521,22 @@ fn coverage(l: &Loaded) -> Value {
         },
         "opcodes": rows.into_iter().map(|r| r.1).collect::<Vec<_>>(),
     })
+}
+
+/// `script run`: build the Layer 4 world and the Layer 5 data, run the actions.
+fn run_actions(a: &ScriptArgs, actions: &std::path::Path) -> anyhow::Result<Value> {
+    let text = std::fs::read_to_string(actions).with_context(|| actions.display().to_string())?;
+    let input: fnv_game::runner::Input =
+        serde_json::from_str(&text).with_context(|| format!("{}: not a fnv.script.actions/1 document", actions.display()))?;
+    let tp = table_path(a);
+    let ftext = std::fs::read_to_string(&tp).with_context(|| tp.display().to_string())?;
+    let fjson: Value = serde_json::from_str(&ftext).with_context(|| tp.display().to_string())?;
+    let table = FunctionTable::load(&tp).with_context(|| tp.display().to_string())?;
+    let plugins = open_load_order(&a.lo)?;
+    let lo = LoadOrder::new(&plugins)?;
+    let schema = Schema::load_dir(&a.schema)?;
+    let forms = fnv_sim::FormStore::build(&lo, &schema);
+    let refs = fnv_sim::RefTable::build(&lo, &schema);
+    let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
+    fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)
 }
