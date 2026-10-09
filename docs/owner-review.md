@@ -301,6 +301,23 @@ sessions. You already had it from an earlier playthrough.
     - AddReputationExact clamping wasn't captured;
     - the engine now advances the game clock before each frame's scripts (#76) [hypothesis].
 
+24. **Your GECK wiki export (2026-10-09) is used.** It is in `C:\fnv-private\geckwiki`;
+    the four `GECK-2026100909*.xml` files are identical, so three can go.
+    `docs/spec-notes/quests-dialogue.md` is our own summary of its 19 pages, checked for
+    copied wording (no 8-word run in common).
+    - **Agrees with the captures:** AND/OR precedence, all passing stage items run,
+      repeated stages, completed ≠ stopped, and SetStage starting a quest.
+    - **New documented rules:** SetObjectiveDisplayed starts a quest; quest variables
+      live on while it is stopped; condition Run On meanings; "Run on Target" is invalid
+      on stages and targets; Next quest becomes the active quest.
+    - **Dialogue groundwork for Layer 6:** begin/end result scripts, Say Once, Goodbye,
+      Random stacks, speech challenges.
+    - **One disagreement:** the wiki says the "Default" delay flag means 5 s, but the
+      captures show the record's delay is used whenever it is non-zero. The runtime
+      follows the captures.
+
+    The runtime session was given these rules to check against.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
