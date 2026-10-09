@@ -495,6 +495,27 @@ python tools/capture/capture_moves.py job parity-lab/inputs/layer4/b11_goodsprin
 python tools/capture/capture_moves.py golden C:/fnv-private/capture/out/<job>.<time>.jsonl <the same input> -o C:/fnv-private/goldens/phys/<name>.json
 ```
 
+**Quest captures** (`capture_quests.py`, Layer 5, workstream 5C): quest state of a save and
+quest-script behaviour. Definitions (stage indices, entries, objectives, script variables
+by name and index) come from the repository's own `fnvtool esm decode`; the scenario jobs
+are made from the candidate's inputs (`fnv.script.actions/1`,
+parity-lab/inputs/layer5/, written by `make_inputs.py` there), whose `given` preconditions
+are checked against the save when the golden is built. Method, contract and results:
+docs/spec-notes/layer5-captures.md.
+```
+python tools/capture/capture_quests.py defs --fnvtool <abs path>/target/release/fnvtool.exe --data "<Data>" --schema schemas/fnv --quest VCG01 --quest VCG02 ... -o C:/fnv-private/capture/quest/defs.json
+python tools/capture/capture_quests.py state-job --defs C:/fnv-private/capture/quest/defs.json --name q5_state_nvftest -o <job>.steps.json
+python tools/capture/capture_quests.py state C:/fnv-private/capture/out/q5_state_nvftest.<time>.jsonl --defs <defs> -o C:/fnv-private/goldens/quest/state.nvftest.json
+python tools/capture/capture_quests.py diff <state a> <state b>
+python tools/capture/capture_quests.py job parity-lab/inputs/layer5/quest_stage_order.actions.json --name q5_quest_stage_order --start nvftest --defs <defs> --data "<Data>" -o <job>.steps.json
+python tools/capture/capture_quests.py golden C:/fnv-private/capture/out/q5_quest_stage_order.<time>.jsonl --actions <the same input> -o C:/fnv-private/goldens/quest/quest_stage_order.trace.json
+```
+Run each scenario job in its own `capture_run.py` session (they change quest state, and
+jobs in one session share it). Job scripts cannot name a quest by Editor ID (neither can
+console lines in these sessions), so quests are built with `BuildRef` and their variables
+read and written with xNVSE's `GetVariable` / `SetVariable`; `job` resolves quest Editor
+IDs through `--defs` or `--data`.
+
 ## Tests
 
 ```
