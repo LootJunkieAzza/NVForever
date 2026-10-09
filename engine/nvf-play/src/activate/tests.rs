@@ -97,7 +97,7 @@ fn index() -> &'static WorldIndex {
 fn play_data(index: &'static WorldIndex) -> PlayData {
     let lo: &'static fnv_esm::LoadOrder<'static> = Box::leak(Box::new(fnv_esm::LoadOrder::new(&[]).expect("empty load order")));
     let schema: &'static fnv_esm::Schema = Box::leak(Box::default());
-    PlayData { lo, schema, index, world: WORLD, interior: None, eye: [0.0; 3], heading_deg: 0.0, pitch_deg: 0.0, auto_walk: 0.0 }
+    PlayData { lo, schema, index, world: WORLD, interior: None, eye: [0.0; 3], heading_deg: 0.0, pitch_deg: 0.0, auto_walk: 0.0, start_at_cell_spot: false }
 }
 
 fn boxed(half: f32) -> CollisionObject {
@@ -242,7 +242,7 @@ fn a_door_sends_travel_and_a_locked_chest_a_message() {
     let mut app = scene(&[(SAFE_REF, 50.0)]);
     press_e(&mut app);
     assert!(drain::<OpenContainer>(&mut app).is_empty());
-    assert_eq!(app.world().resource::<HudMessage>().text, "Chest is locked (level 50)");
+    assert_eq!(app.world().resource::<HudMessage>().text, "Chest is locked (Average)");
 }
 
 #[test]

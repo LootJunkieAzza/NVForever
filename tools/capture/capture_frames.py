@@ -28,7 +28,8 @@ Cameras (`fnv.capture.cameras/1`; positions are coordinates we choose, not game 
      "heading": 45, "pitch": 0, "hour": 12, "weather": "NVWastelandClear", "fov": 75}
   ]
 }
-pos is the player's feet [x, y] or [x, y, z]; heading is GetAngle Z (degrees, 0 = north,
+pos is the player's feet [x, y] or [x, y, z]; "cell" (optional) names an interior cell by
+Editor ID: the job travels there with `coc` (needs --data) and pos must have a z. heading is GetAngle Z (degrees, 0 = north,
 clockwise), pitch GetAngle X (positive looks down). weather (optional) is an Editor ID
 (needs --data) or a FormID "0x...". console_first (optional) runs once before the first
 camera: the trial's lake camera without `tgm` showed the player killed by a creature
@@ -178,6 +179,11 @@ def camera_steps(cam, edids, terrain):
     if not isinstance(pos, list) or len(pos) not in (2, 3):
         raise InputError(f"camera {cid}: pos must be [x, y] or [x, y, z]")
     x, y = float(pos[0]), float(pos[1])
+    cell = cam.get("cell")
+    if cell is not None:
+        cs.plain_name(cell, f"camera {cid}: cell")
+        if len(pos) != 3:
+            raise InputError(f"camera {cid}: an interior camera needs pos [x, y, z]")
     if len(pos) == 3:
         z = float(pos[2])
     elif terrain is not None:
@@ -186,10 +192,18 @@ def camera_steps(cam, edids, terrain):
     else:
         raise InputError(f"camera {cid}: pos has no z; give one or --data to use the terrain height")
     heading, pitch = float(cam.get("heading", 0.0)), float(cam.get("pitch", 0.0))
-    gx, gy = math.floor(x / CELL), math.floor(y / CELL)
-    steps = [{"console": f"cow {world} {gx} {gy}"}, {"until": in_square_until(gx, gy), "max_frames": cs.DOOR_LOOPS},
-             {"frames": cs.AFTER_DOOR_FRAMES}, {"console": "CloseAllMenus"}, {"frames": PLACE_FRAMES},
-             script(FIRST_PERSON), place(x, y, z, heading, pitch)]
+    if cell is not None:
+        # Interior: coc to the cell, wait until the player is in it, then a short SetPos
+        # inside it.
+        if edids is None:
+            raise InputError(f"camera {cid}: an interior cell needs --data (its FormID for the wait)")
+        travel = cs.go_to_cell_steps(cell, (cs.MASTERS, edids))
+    else:
+        gx, gy = math.floor(x / CELL), math.floor(y / CELL)
+        travel = [{"console": f"cow {world} {gx} {gy}"}, {"until": in_square_until(gx, gy), "max_frames": cs.DOOR_LOOPS},
+                  {"frames": cs.AFTER_DOOR_FRAMES}]
+    steps = travel + [{"console": "CloseAllMenus"}, {"frames": PLACE_FRAMES}, script(FIRST_PERSON),
+                      place(x, y, z, heading, pitch)]
     if cam.get("hour") is not None:
         # GameHour is set at the save's TimeScale; only moving the clock at a low TimeScale
         # crashed the game (xnvse-capture.md section 5).
@@ -286,6 +300,10 @@ def merge_manifest(manifest, cameras, frames):
         e.update({"id": cid, "image": f"{cid}.png", "player_pos": [fr["x"], fr["y"], fr["z"]],
                   "heading": fr["heading"], "pitch": fr["pitch"], "hour": round(fr["hour"], 4),
                   "world": cam.get("world", "WastelandNV"), "fov": cam.get("fov", 75)})
+        if cam.get("cell"):
+            e["cell"] = cam["cell"]
+        else:
+            e.pop("cell", None)
         if cam.get("weather"):
             e["weather"] = cam["weather"]
         else:
