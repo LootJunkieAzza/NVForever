@@ -757,6 +757,66 @@ impl<'a> World<'a> {
         })
     }
 
+    /// Create a reference of any base form at run time (the script function PlaceAtMe,
+    /// Layer 5): enabled, at `pos`/`rot` in `cell`, with a fresh inventory for a
+    /// container or actor base. Returns its FormID (the next dynamic one, as drops).
+    /// Where the game puts it exactly is the caller's choice [hypothesis].
+    pub fn place(&mut self, base: FormId, cell: Option<FormId>, pos: [f32; 3], rot: [f32; 3], count: i32) -> Result<FormId, SimError> {
+        if self.forms.sig(base).is_none() {
+            return Err(SimError::UnknownForm(base));
+        }
+        let inventory = self.roll_inventory(base)?;
+        let id = FormId(self.next_dynamic);
+        self.next_dynamic += 1;
+        self.refs.insert(
+            id,
+            RefState {
+                base,
+                cell,
+                pos,
+                rot,
+                enabled: true,
+                deleted: false,
+                count: count.max(1),
+                inventory,
+                lock: None,
+                open: false,
+                extra: Extra::default(),
+                actor_values: BTreeMap::new(),
+                last_restock: None,
+            },
+        );
+        Ok(id)
+    }
+
+    /// The inventory of a reference, for callers that change extra data in place
+    /// (Layer 5 functions such as ModWeaponHealthPerc).
+    pub fn inventory_mut(&mut self, id: FormId) -> Result<&mut Inventory, SimError> {
+        self.inventory(id)
+    }
+
+    /// Add `count` of an item (not a leveled list) with the given extra data.
+    pub fn add_item_extra(&mut self, to: FormId, item: FormId, count: i32, extra: Extra) -> Result<i32, SimError> {
+        if count <= 0 {
+            return Err(SimError::BadCount(count));
+        }
+        self.check_item(item)?;
+        Ok(self.inventory(to)?.add_extra(item, count, extra))
+    }
+
+    /// A fresh roll of the base's carried items replaces the reference's inventory
+    /// (ResetInventory, Layer 5). `false` when the base carries no items.
+    pub fn reset_inventory(&mut self, id: FormId) -> Result<bool, SimError> {
+        let base = self.get(id)?.base;
+        let inv = self.roll_inventory(base)?;
+        let s = self.get(id)?;
+        let had = inv.is_some();
+        if had {
+            s.inventory = inv;
+        }
+        Ok(had)
+    }
+
     /// References created at run time (drops), in FormID order, taken ones included
     /// (`RefState::deleted`).
     pub fn created(&self) -> impl Iterator<Item = (FormId, &RefState)> {
