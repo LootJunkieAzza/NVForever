@@ -53,8 +53,10 @@ in `lod.rs`.
   bilinearly interpolated VNML normals. BC1, linear, with mips. Shaded the same way as
   game chunks (up normal + east tangent per vertex, lod.rs).
 
-Near the camera generated chunks replace the game's (`--lodgen-radius` chunks, default
-4 = 16 cells); farther chunks stay the game's own, where their resolution is fine for the
+Near the camera generated chunks replace the game's level-4 chunks (`--lodgen-radius`
+chunks, default 4 = 16 cells, and only where the distance rules choose level 4, i.e.
+within about `--lod-near-distance` = 50,000 units, layer3.md "Distant LOD"; only those
+are baked); farther chunks stay the game's own (levels 4 to 32), where their resolution is fine for the
 screen size. `--lodgen-res` (default 1024) and `--lodgen-step` (default 2) set the texture
 resolution and mesh step; `--no-lodgen` turns generation off.
 
