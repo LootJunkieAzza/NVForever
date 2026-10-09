@@ -260,6 +260,12 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   slightly better (3.0°); the residuals (model about 4° high around 17:30–
   18:20, 3° low around noon) suggest the real motion is not uniform, which these
   frames cannot settle. Sunrise was not seen directly (hills to the east).
+  Below the horizon theta runs on from 180° to 360° at the night's own constant rate
+  (the Mojave: 10 hours), so the path closes at sunrise begin and the moon, drawn
+  opposite the sun, rises at sunset end and peaks at 01:00 [hypothesis; the night
+  sky was not measured]. Running the day's rate on through the night instead made
+  theta jump 51° at midnight, which flipped the moonlight's shadows east to west in
+  the time-lapse [observed in nvforever].
   **No sun shadows from the world** [observed]: the reference frame goodsprings_dusk
   (19:06, looking north-east) shows the crate's front, the boulder's west flank and the
   ground around them lit warm by the sun, and no long shadows east of the boulder or
