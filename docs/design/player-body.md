@@ -1,84 +1,116 @@
-# The player's body (`--play`): animated locomotion, weapons and a head-tied camera
+# The player's body (`--play`): animated locomotion, weapons, first- and third-person views
 
-Status 2026-10-09: first version merged for review on `claude/player-body`. Owner request
-2026-10-09: using the NPC assembly and animation playback (docs/design/static-actors.md
-parts B, C, E), put together a player character model that moves with the animations,
-with the camera tied to the head; full locomotion forwards, backwards and sideways;
-crouching, and moving while crouched; drawing and holstering weapons.
+Status 2026-10-09: on `claude/player-body` for review. Owner requests 2026-10-09:
+
+1. Using the NPC assembly and animation playback (docs/design/static-actors.md parts B,
+   C, E), a player character that moves with the animations, with the camera tied to the
+   head; locomotion forwards, backwards and sideways; crouching, and moving while
+   crouched; drawing and holstering weapons.
+2. Then (owner decisions on the first version's questions): **match all the New Vegas
+   controls**; **use the game's separate first-person arms model** ("with armours in
+   first person, if the nif is not called arms it's not rendered"); **holding the middle
+   mouse button circles the camera around the player** without turning them.
 
 Where it sits: the player's own body is Layer 4 play (`nvf-play` owns the controls and
 the camera) drawn with the Layer 3 actor assembly (`nvforever`); choosing clips for an
-actor under direct control is the small, player-only part of Layer 6 animation selection
-that this needs. NPC animation stays as it was (one idle clip, actors.md §7). Facts and
-readings of the clips: docs/spec-notes/animation.md §8.
+actor under direct control is the small, player-only part of Layer 6 animation
+selection that this needs. NPC animation stays as it was (one idle clip, actors.md §7).
+Facts: docs/spec-notes/animation.md §8 (clips, first-person rig), docs/spec-notes/
+controls.md (bindings).
 
 ## 1. What the player sees
 
-- **Body**: the player's NPC_ (FormID 7, `fnv_sim::FormId::PLAYER_BASE`) resolved like a
-  placed actor (`fnv_actor::Resolver::resolve_wearing`): race body, head and FaceGen
-  face, hair, eyes, wearing the armour the simulation has equipped on the player (not the
-  NPC_'s carried items). An outfit change in the inventory menu rebuilds the body. It
-  stands at the character's feet (interpolated like the camera), faces the view's
-  heading, and carries no `RefVisual` (the crosshair never targets it).
-- **Moving**: W/S/A/D play the forward, backward, left and right clips, walking with
-  Shift held and running otherwise; diagonals blend the two clips by the keys' shares.
-  The clips play at the speed the character actually moves (sliding along a wall slows
-  the legs). Standing still and turning plays the turn clips. In the air the jump loop
-  plays, and a fall of 0.35 s or more ends with a landing clip.
-- **Crouching**: Left Ctrl toggles sneaking: the crouched idle and crouched movement
-  clips, at `fMoveSneakMult` (0.57) of the speed — 196 units/s running, against 197.7
-  measured in game (physics.md §6.3). The eye drops from 117.7 to about 64 units above
-  the feet.
-- **Swimming**: the swimming clips, by the same direction rule.
-- **Weapons**: R toggles the weapon out or away. The equipped weapon's DNAM animation
-  type selects the clip set (`1hp`, `2hr`, … ; fists `h2h` with no weapon). Drawing plays
-  the equip clip; at its `Attach` key the weapon model moves from its holster to the
-  right hand; then the Aim pose is held over whatever the legs do, bent up and down with
-  the view's pitch. Holstering plays the unequip clip and the weapon returns at `Detach`:
-  pistols to the right hip, rifles across the back (the holster clip's `prn:` bone).
-  The right mouse button aims down the sights (`AimIS` clips) for weapon types that have
-  them. Crouched, the crouched variants of every weapon clip are used where they exist.
-- **Camera**: F toggles first and third person.
-  - First person: the camera is at the head's eye — the centre of the race's eye parts,
-    measured from their meshes, carried by the head bone through the animation — so it
-    crouches, bobs and leans with the body. The head, hair and headgear are hidden.
-    Looking down, the eye swings forward about the neck (60% of the pitch while no weapon
-    is held; with a weapon out the aim-up/down clips bend the body instead), so the
-    player sees their chest, legs and feet. Aiming down the sights brings the weapon and
-    hands into view.
-  - Third person: behind the player at a distance set by the mouse wheel (60–450, 170 to
-    start), offset by `fOverShoulderPosX` (40, right) and `fOverShoulderPosZ` (−10, up)
-    from a pivot above the feet at eye height; pulled in front of collision between the
-    pivot and that spot.
-- The crosshair's ray starts at the body's eye (`Player::eye`), so it matches the
-  first-person view; in third person it still starts there, 40 units to the left of the
-  camera's line of sight [engineering choice; the game's third-person pick is not known].
+### 1.1 Two rigs
+
+- **Third person**: the player's NPC_ (FormID 7, `fnv_sim::FormId::PLAYER_BASE`)
+  resolved like a placed actor (`fnv_actor::Resolver::resolve_wearing`) on
+  `characters\_male\skeleton.nif`: race body, head and FaceGen face, hair, eyes, wearing
+  the armour the simulation has equipped on the player. It stands at the character's
+  feet, faces the view's heading, and carries no `RefVisual` (the crosshair never
+  targets it). Shown in third person and while the camera circles the player.
+- **First person**: the game's arms rig, `characters\_1stperson\skeleton.nif`, with its
+  own clips (`characters\_1stperson\`). It draws the hands (their `…1st.nif` meshes) and
+  only the `Arms…` shapes of the upper body and of worn upper-body armour (gloves whole;
+  no head, hair or other armour; `fnv_actor::first_person`), and the weapon's
+  first-person model (WEAP `WNAM`, a STAT). `Bip01 Looking` turns with the view's pitch,
+  so arms and weapon stay in front of the camera, which sits at the rig's `Camera1st`
+  node: 118 units above the feet, 78 crouched. Shown in first person.
+- An outfit change in the inventory menu rebuilds both. Without the first-person
+  skeleton the third-person body stands in (its head's eye gives the view and its head
+  is hidden), as in the first version.
+
+### 1.2 Controls (the game's, docs/spec-notes/controls.md)
+
+| Control | Default | Here |
+|---|---|---|
+| Forward / Back / Slide Left / Slide Right | W S A D | the forward, backward, left and right clips; diagonals blend two clips; clips play at the speed the character actually moves |
+| Run / Always Run | Left Shift / Caps Lock | running is the default (Always Run on); Shift held walks; Caps Lock swaps the default |
+| Auto Move | Q | walks forward until Forward or Back is pressed |
+| Jump | Space | jump loop in the air, landing clip after 0.35 s of falling |
+| Crouch/Sneak | Left Ctrl | crouched idle and movement at `fMoveSneakMult` (0.57) of the speed |
+| Ready Item | R | weapon away: draw it; weapon out: tap = reload (not built), hold 0.5 s = holster |
+| Use | left mouse | weapon away: draws it; attacking is not built |
+| Block | right mouse, Left Alt | held: guns aim down the sights (`AimIS`), fists and melee block (`blockidle`) |
+| Toggle POV | F, middle mouse | tap: first/third person; held while the mouse moves: the camera circles the player (not turning them) and swings back when let go; wheel zooms in third person |
+| Activate | E | as before |
+| Menu Mode | Tab | the inventory (the Pip-Boy is not built) |
+| Rest, Vats, Hotkey 1–8 (2 = Ammo Swap), QuickSave F5, QuickLoad F9, Grab Z | | bound; pressing one shows "… : not available yet" |
+
+Mouse look uses the game's `fMouseSensitivity` (0.002 radians per count) and
+`bInvertYValues` (off). The F9 test aid that opened the nearest container moved to F10
+(F9 is Quick Load).
+
+### 1.3 Animation
+
+Both rigs play layered clips (`nvf_assets::anim_blend`) chosen by
+`fnv_actor::locomotion`, each from its own folder: an idle, movement, sneaking, swimming,
+jumping and landing, turning on the spot, and the weapon drawn (equip clip; at its
+`Attach` key the weapon model moves from its holster to the right hand), held (Aim; in
+third person bent up and down with the pitch by `aimup`/`aimdown`), aimed down the
+sights or blocking, and holstered (unequip clip; at `Detach` it goes back: third person
+to the right hip for pistols and across the back for rifles, first person to
+`Bip01 Translate`, out of view). Crouched, the crouched variants are used where they
+exist. The draw/holster timing follows the clips of the rig in view.
+
+### 1.4 Camera
+
+- First person: at the first-person rig's `Camera1st` node, looking along the view.
+- Third person: behind the player at the wheel's distance (60–450, 170 to start), offset
+  by `fOverShoulderPosX` (40, right) and `fOverShoulderPosZ` (−10, up) from a pivot above
+  the feet at the third-person head's eye height; pulled in front of collision.
+- Circling (Toggle POV held, mouse moving): the third-person camera turned by the
+  circling angles, the shoulder offset fading to the centre as it turns away from
+  behind; from first person the view shows the third-person body meanwhile. Let go, it
+  swings back behind (time constant 0.15 s) and first person returns.
+- The crosshair's ray starts at the eye (`Player::eye`, the `Camera1st` position), so it
+  matches the first-person view; in third person it still starts there [engineering
+  choice; the game's third-person pick is not known].
 
 ## 2. Code
 
 | Item | Where | Notes |
 |---|---|---|
-| Clip choice (headless) | `crates/fnv-actor/src/locomotion.rs` | candidate files per situation in preference order, direction and aim weights, text keys (`ClipKeys`), the draw/holster state machine (`WeaponHands`), WEAP animation type → prefix; unit tests |
-| WEAP model and animation type | `crates/fnv-actor/src/records.rs` (`ActorForms::weapons`) | MODL, DNAM animation type |
+| Clip choice (headless) | `crates/fnv-actor/src/locomotion.rs` | candidate files per situation, covering the third- and first-person folder layouts; direction and aim weights; block clips; text keys (`ClipKeys`); the draw/holster state machine (`WeaponHands`); WEAP animation type → prefix |
+| First-person parts (headless) | `crates/fnv-actor/src/first_person.rs` | which parts show, `…1st.nif` hands, the `Arms` shape rule |
+| WEAP models | `crates/fnv-actor/src/records.rs` (`ActorForms::weapons`) | MODL, DNAM animation type, WNAM and its STAT's MODL |
 | Worn-armour override | `crates/fnv-actor/src/resolve.rs` (`resolve_wearing`) | `resolve` unchanged for NPCs |
-| Layered playback | `engine/nvf-assets/src/anim_blend.rs` (`Animator`) | priority blending per bone, fades, a shared phase for movement clips, once/loop modes, model-space bone transforms; no allocation per frame once clips are bound; unit tests |
-| Clip data | `engine/nvf-assets/src/anim_play.rs` (`Clip`) | now keeps track priorities, text keys, `root_speed()` |
-| Controls and camera | `engine/nvf-play/src/control.rs` | `PlayerControl` (sneak, weapon out, aiming, view, distance), `ControlSettings` (GMSTs), `BodyView` (third-person pivot), `place_camera` |
-| Player interfaces | `engine/nvf-play/src/player.rs` | `Player::body_eye`, `BodySet` (between the character's move and the camera), sneak speed in `step` |
-| Body | `engine/nvforever/src/player_body.rs` (`PlayerBodyPlugin`, added with `--play` when actors are on) | spawn/rebuild, weapon model, clip cache, per-frame clip choice, eye and pivot, first-person hiding |
+| Layered playback | `engine/nvf-assets/src/anim_blend.rs` (`Animator`) | priority blending per bone, fades, a shared phase for movement clips, once/loop modes, model-space bone transforms |
+| Clip data | `engine/nvf-assets/src/anim_play.rs` (`Clip`) | track priorities, text keys, `root_speed()` |
+| Bindings | `engine/nvf-play/src/bindings.rs` | every `[Controls]` control with the game's default key and mouse button; `ControlInput` |
+| Controls and camera | `engine/nvf-play/src/control.rs` | `PlayerControl` (sneak, weapon, Block, Always Run, Auto Move, view, distance, `Orbit`), `ControlSettings` (GMSTs), `BodyView`, `place_camera` |
+| Movement keys, mouse look | `engine/nvf-play/src/player.rs` | movement through the bindings; mouse look turns the orbit while Toggle POV is held; `Player::body_eye`, `BodySet` |
+| Body | `engine/nvforever/src/player_body.rs` (`PlayerBodyPlugin`, with `--play` and actors on) | both rigs, weapon models, clip caches, per-frame clip choice, eye and pivot, which rig is shown |
 | Shared part building | `engine/nvforever/src/actors.rs` (`part_uses`) | NPCs and the player build parts the same way |
-| Test aids | `engine/nvf-play/src/test_aid.rs` | `NVF_PLAY_TEST_EQUIP`, `NVF_PLAY_TEST_MOVE`, `NVF_PLAY_TEST_CONTROL` |
+| Test aids | `engine/nvf-play/src/test_aid.rs` | `NVF_PLAY_TEST_EQUIP`, `NVF_PLAY_TEST_MOVE`, `NVF_PLAY_TEST_CONTROL` (`sneak`, `weapon`, `aim`, `view`, `jump`, `zoom=`, `orbit=<yaw>:<pitch>`, `release`) |
 
-Interface changes in `nvf-play` (coordinator, 2026-10-09): `Player` gained `body_eye`
-(written in `BodySet`; `eye()` returns it when set); `place_camera` moved from
-`player.rs` to `control.rs`; new resources `PlayerControl`, `ControlSettings`,
-`BodyView`; new set `player::BodySet`. Without actors (`--no-actors`) nothing writes
-`body_eye` and the eye stays at `EYE_HEIGHT` above the feet as before.
+Interface changes in `nvf-play` (coordinator, 2026-10-09): `Player::body_eye`
+(`eye()` returns it when set); `place_camera` in `control.rs`; resources `Bindings`,
+`PlayerControl`, `ControlSettings`, `BodyView`; set `player::BodySet`;
+`activate::HudMessage` is public (other systems show lines with it); Activate (E) and
+Menu Mode (Tab) are read through the bindings.
 
 ## 3. Rules and values [hypothesis unless tagged]
 
-- Keys: Left Ctrl sneak, R weapon, right mouse aim, F view, wheel zoom (the game's
-  defaults as far as known; the game holds R to holster where this toggles).
 - Clip choice and fallbacks: animation.md §8 and `locomotion.rs`. Weapon-type movement
   clips are used while the weapon is out and exist for that direction; otherwise the
   unarmed movement clip with the aim pose over it. Female players use
@@ -86,46 +118,42 @@ Interface changes in `nvf-play` (coordinator, 2026-10-09): `Player` gained `body
 - Blending: priority first, then weight (animation.md §8.4); fades from `Blend:N` keys
   (N/30 s), 0.2 s without one, 0.2 s out. The accumulation root is held at the identity:
   root motion is the character controller's.
+- First person: `Bip01 Looking` turned about the actor's right axis by the pitch;
+  no aim up/down blend there.
 - Weapon placement: the `Weapon` node is re-parented to the holster bone or the right
-  hand; the weapon model's shapes hang from it as in a placed reference (the node
-  replaces the model's root).
-- Engineering choices: the eye fallback (9 forward, 7 up from the head bone) when the eye
-  parts cannot be measured; jump loop after 0.15 s in the air, landing after 0.35 s;
-  turn clips above 1 rad/s; the 60% neck share of the pitch; third-person distances and
-  the 8-unit wall margin; aim up/down weights linear to ±90°.
+  hand; the weapon model's shapes hang from it as in a placed reference.
+- Engineering choices: jump loop after 0.15 s in the air, landing after 0.35 s; turn
+  clips above 1 rad/s; third-person distances and the 8-unit wall margin; the orbit's
+  return time and shoulder fade; aim up/down weights linear to ±90°; the 0.5 s holster
+  hold.
 
 ## 4. Validation (2026-10-09, owner's machine, Goodsprings)
 
 Unattended runs with the test aids [observed: logs and screenshots kept privately]:
 
-- The body is built from 12 parts (upper body, hands, head with FaceGen, mouth, teeth,
-  tongue, eyes, eyebrows, hair) on `characters\_male\skeleton.nif`; the eye is 117.7
-  units above the feet standing.
-- `NVF_PLAY_TEST_EQUIP=000E3778` (9mm pistol, `1hp`): R draws (`1hpequip.kf`, weapon to
-  `Bip01 R Hand` at the `Attach` key), running forward lays `1hpfastforward.kf` under
-  `1hpaim.kf` at clip rate 0.97 (343 units/s), walking right `1hpright.kf`, running back
-  `1hpfastbackward.kf` (rate 0.80–0.85 at 258–273 units/s), Ctrl crouches
-  (`sneakmtidle.kf`, `sneak1hpaim.kf`; eye 64 above the feet), crouched running
-  `sneakmtfastforward.kf` at 190–196 units/s, R holsters (`sneak1hpunequip.kf`, weapon
-  back to `Bip01 Pelvis` at `Detach`), the pistol at the right hip.
-- `NVF_PLAY_TEST_EQUIP=0007EA24` (varmint rifle, `2hr`): holstered across the back
-  (`Bip01 Spine2`), drawn with `2hrequip.kf`, `2hraim.kf` standing, `2hraimis.kf` with
-  the right mouse button (rifle and both hands in the first-person view), running
-  `locomotion\2hrfastforward.kf`.
-- Jumping while running: `mtjumploopforward.kf` in the air, `mtjumplandforward.kf` on
-  landing.
-- First person looking down 75°: chest, legs and feet below the view.
+- First version (third-person body as the only rig): pistol (`000E3778`) drawn at the
+  `Attach` key, `1hpfastforward.kf` under `1hpaim.kf` at clip rate 0.97 (343 units/s),
+  strafing, running backwards, crouching (`sneakmtidle.kf`), crouched running at 196
+  units/s (197.7 measured in game), holstered to `Bip01 Pelvis` at `Detach`; varmint
+  rifle (`0007EA24`) holstered across the back (`Bip01 Spine2`); jump loop and landing.
+- Arms rig: built from `upperbody.nif` (`Arms:0`, `Arms:1`), `lefthand1st.nif`,
+  `righthand1st.nif` on the 74-node first-person skeleton; the eye 118.0 above the feet
+  standing and 78.0 crouched; the 9mm pistol (WNAM `1stPerson9mm`) held in the right hand
+  in view, following the view looking down 50°; the varmint rifle held in both hands
+  (`_1stperson\2hraim.kf`) and down the sights (`2hraimis.kf`); the rifle on
+  `Bip01 Translate` while holstered (not in view).
+- Circling: `orbit=150:-10` shows the crouched player from the front-right in third
+  person without turning them; after `release` the camera is back behind.
 - Checks: workspace tests and clippy (root and engine), the Python suites, the
-  moving-camera smoke test (CLAUDE.md) — see the commit message for the run.
+  moving-camera smoke test (CLAUDE.md) — see the commit messages for the runs.
 
 ## 5. Open questions for the owner
 
-1. The keys: Left Ctrl, R (toggle), right mouse, F — as in your game? Should R need a
-   hold to holster, as in the game?
-2. First person: this is a "true first person" view from the body's own head. The game
-   draws first person with a separate arms-only skeleton (`characters\_1stperson`, 442
-   clips). Keep the body view, offer both (a setting), or switch to the game's way?
-3. Third person: the body always faces the view's heading. In the game, does the
-   character turn independently while standing (camera orbiting)?
+1. Are the bindings in docs/spec-notes/controls.md §2 the game's defaults (they are your
+   `FalloutPrefs.ini`'s)? Should NVForever's own config allow rebinding?
+2. Toggle POV held in the game: does the camera stay where it was circled to after
+   letting go? Does holding it in first person zoom out instead?
+3. The Pip-Boy: in first person the game shows `pipboy3000\pipboyarm.nif` on the left
+   arm; the simulation does not equip the Pip-Boy at the start, so it is not drawn yet.
 4. In-game references would settle the hypotheses of animation.md §8 (captures listed
    in its §7): holster positions, aim poses, sneak speeds sideways and backwards.

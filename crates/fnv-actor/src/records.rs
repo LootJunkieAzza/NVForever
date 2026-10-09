@@ -128,6 +128,11 @@ pub struct Weapon {
     /// DNAM "Animation Type" (0–13) [documented: xEdit wbWeaponAnimTypeEnum]; the clip
     /// prefix is `locomotion::weapon_prefix`.
     pub animation_type: Option<u32>,
+    /// WNAM "1st Person Model": a form (a STAT [observed: e.g. the 9mm pistol's]) whose
+    /// model the first-person view shows [documented: xEdit WEAP WNAM].
+    pub first_person: Option<FormId>,
+    /// That form's MODL, relative to `meshes\`.
+    pub first_person_model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -232,6 +237,19 @@ impl ActorForms {
                 Loaded::Other => {}
             }
         }
+        // The forms weapons name as their first-person model (WNAM), read for their MODL
+        // only: they are statics, too many to load as a type.
+        for w in out.weapons.values_mut() {
+            let Some(fp) = w.first_person else { continue };
+            let Some(d) = lo.index.get(&fp.0).and_then(|defs| defs.last()) else { continue };
+            let r = lo.records[d.plugin as usize][d.ordinal as usize];
+            if r.header.flags & 0x20 != 0 {
+                continue;
+            }
+            if let Ok(dec) = extract::decode(r, schema) {
+                w.first_person_model = path(first(&dec, b"MODL"));
+            }
+        }
         out
     }
 
@@ -271,6 +289,8 @@ fn load_one(lo: &LoadOrder, pi: usize, id: FormId, sig: &[u8; 4], d: &[Decoded],
             edid: first(d, b"EDID").and_then(text),
             model: path(first(d, b"MODL")),
             animation_type: first(d, b"DNAM").and_then(|v| weapon_animation_type(v.get("animation_type")?)),
+            first_person: fid(lo, pi, id, "WNAM", first(d, b"WNAM"), issues),
+            first_person_model: None,
         }),
         _ => Loaded::Other,
     }

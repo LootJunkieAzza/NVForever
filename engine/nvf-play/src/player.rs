@@ -18,6 +18,7 @@
 
 pub mod safe;
 
+use crate::bindings::{Bindings, Control, ControlInput};
 use crate::control::{ControlSettings, PlayerControl};
 use crate::phys::cells::Space;
 use crate::phys::PhysState;
@@ -40,8 +41,8 @@ pub const EYE_HEIGHT: f32 = 112.0;
 pub const DEFAULT_MOVE_BASE_SPEED: f32 = 77.0;
 pub const DEFAULT_MOVE_RUN_MULT: f32 = 4.0;
 
-/// Mouse look, radians per mouse count [engineering choice, not a game value].
-pub const LOOK_RADIANS_PER_COUNT: f32 = 0.0025;
+/// Mouse look, radians per mouse count: the game's `fMouseSensitivity` (bindings.rs).
+pub const LOOK_RADIANS_PER_COUNT: f32 = crate::bindings::MOUSE_SENSITIVITY;
 /// Steepest look up or down [engineering choice].
 pub const MAX_PITCH: f32 = 89.0 * std::f32::consts::PI / 180.0;
 
@@ -164,8 +165,15 @@ pub fn swim_velocity(intent: &MoveIntent, heading: f32, pitch: f32, speeds: Move
 
 /// New look angles after a mouse motion (counts; +x right, +y down).
 pub fn look(heading: f32, pitch: f32, delta: Vec2) -> (f32, f32) {
-    let h = (heading + delta.x * LOOK_RADIANS_PER_COUNT).rem_euclid(std::f32::consts::TAU);
-    let p = (pitch - delta.y * LOOK_RADIANS_PER_COUNT).clamp(-MAX_PITCH, MAX_PITCH);
+    look_with(heading, pitch, delta, LOOK_RADIANS_PER_COUNT, false)
+}
+
+/// [`look`] at a sensitivity (radians per count), with the vertical axis inverted or not
+/// (the game's `bInvertYValues`).
+pub fn look_with(heading: f32, pitch: f32, delta: Vec2, sensitivity: f32, invert_y: bool) -> (f32, f32) {
+    let dy = if invert_y { -delta.y } else { delta.y };
+    let h = (heading + delta.x * sensitivity).rem_euclid(std::f32::consts::TAU);
+    let p = (pitch - dy * sensitivity).clamp(-MAX_PITCH, MAX_PITCH);
     (h, p)
 }
 
@@ -222,6 +230,7 @@ impl Plugin for PlayerPlugin {
             .init_resource::<Status>()
             .init_resource::<Net>()
             .init_resource::<PlayerControl>()
+            .init_resource::<Bindings>()
             .init_resource::<crate::control::BodyView>()
             .insert_resource(NearAid::from_env())
             .add_systems(Startup, (init_player, crate::control::init_settings))
@@ -291,32 +300,51 @@ fn grab_cursor(
     }
 }
 
-fn read_input(keys: Res<ButtonInput<KeyCode>>, state: Res<State<PlayState>>, mut intent: ResMut<MoveIntent>) {
+/// The movement controls: Forward, Back, Slide Left and Right; running unless Run is held
+/// while Always Run is on (and the other way round); Auto Move walks forward until
+/// Forward or Back is pressed [hypothesis]; Jump.
+fn read_input(input: ControlInput, state: Res<State<PlayState>>, mut control: ResMut<PlayerControl>, mut intent: ResMut<MoveIntent>) {
     if *state.get() != PlayState::Playing {
         *intent = MoveIntent::default();
         return;
     }
-    let axis = |plus: KeyCode, minus: KeyCode| keys.pressed(plus) as i32 as f32 - keys.pressed(minus) as i32 as f32;
-    intent.forward = axis(KeyCode::KeyW, KeyCode::KeyS);
-    intent.right = axis(KeyCode::KeyD, KeyCode::KeyA);
-    intent.walk = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    if keys.just_pressed(KeyCode::Space) {
+    let axis = |plus: Control, minus: Control| input.pressed(plus) as i32 as f32 - input.pressed(minus) as i32 as f32;
+    if control.auto_move && (input.just_pressed(Control::Forward) || input.just_pressed(Control::Back)) {
+        control.auto_move = false;
+    }
+    intent.forward = if control.auto_move { 1.0 } else { axis(Control::Forward, Control::Back) };
+    intent.right = axis(Control::SlideRight, Control::SlideLeft);
+    intent.walk = control.always_run == input.pressed(Control::Run);
+    if input.just_pressed(Control::Jump) {
         intent.jump = true;
     }
 }
 
-/// Mouse look while the cursor is grabbed.
+/// Mouse look while the cursor is grabbed; while Toggle POV is held it circles the camera
+/// instead (control.rs).
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     state: Res<State<PlayState>>,
+    bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
+    mut control: ResMut<PlayerControl>,
     mut player: ResMut<Player>,
 ) {
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     if !grabbed || *state.get() != PlayState::Playing || motion.delta == Vec2::ZERO {
         return;
     }
-    (player.heading, player.pitch) = look(player.heading, player.pitch, motion.delta);
+    let (s, inv) = (bindings.mouse_sensitivity, bindings.invert_y);
+    if control.orbit.held {
+        let o = &mut control.orbit;
+        let (yaw, pitch) = look_with(o.yaw, o.pitch, motion.delta, s, inv);
+        // Keep the yaw in (−π, π] so the swing back takes the short way.
+        o.yaw = (yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        o.pitch = pitch;
+        o.moved = true;
+        return;
+    }
+    (player.heading, player.pitch) = look_with(player.heading, player.pitch, motion.delta, s, inv);
 }
 
 /// Put the character on the ground under the start position once its cell is loaded: a

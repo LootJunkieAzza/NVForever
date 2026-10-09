@@ -26,7 +26,9 @@
 //!   `<seconds>:0:0` stops.
 //! - `NVF_PLAY_TEST_CONTROL=<seconds>:<what>[,...]` presses a control at each time:
 //!   `sneak` (Left Ctrl), `weapon` (R), `aim` (the right mouse button, pressed or
-//!   released), `view` (F), `jump` (Space), or `zoom=<units>` (the third-person distance).
+//!   released), `view` (F), `jump` (Space), `zoom=<units>` (the third-person distance),
+//!   `orbit=<yaw deg>:<pitch deg>` (Toggle POV held with the camera circled that far
+//!   round the player) or `release` (Toggle POV let go).
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
@@ -106,6 +108,8 @@ enum Press {
     View,
     Jump,
     Zoom(f32),
+    Orbit(f32, f32),
+    Release,
 }
 
 fn press(rest: &str) -> Result<Press, String> {
@@ -115,10 +119,16 @@ fn press(rest: &str) -> Result<Press, String> {
         "aim" => Press::Aim,
         "view" => Press::View,
         "jump" => Press::Jump,
-        _ => match rest.strip_prefix("zoom=").map(|d| d.trim().parse::<f32>()) {
-            Some(Ok(d)) => Press::Zoom(d),
-            _ => return Err(format!("{rest:?}: expected sneak, weapon, aim, view, jump or zoom=<units>")),
-        },
+        "release" => Press::Release,
+        _ => {
+            if let Some(Ok(d)) = rest.strip_prefix("zoom=").map(|d| d.trim().parse::<f32>()) {
+                Press::Zoom(d)
+            } else if let Some(Ok((y, p))) = rest.strip_prefix("orbit=").map(look_angles) {
+                Press::Orbit(y, p)
+            } else {
+                return Err(format!("{rest:?}: expected sneak, weapon, aim, view, jump, zoom=<units>, orbit=<yaw>:<pitch> or release"));
+            }
+        }
     })
 }
 
@@ -176,6 +186,9 @@ struct Aids {
     /// The movement keys held since the last `moves` entry fired.
     held: Option<MoveIntent>,
     presses: Vec<(f32, Press)>,
+    /// Block held by the `aim` press (kept every frame: the real button's state is read
+    /// each frame).
+    aim_held: Option<bool>,
 }
 
 pub(crate) fn setup(app: &mut App) {
@@ -265,19 +278,27 @@ fn keys_and_controls(time: Res<Time>, mut aids: ResMut<Aids>, mut intent: ResMut
     if let Some(m) = aids.held {
         (intent.forward, intent.right, intent.walk) = (m.forward, m.right, m.walk);
     }
-    for p in take_due(&mut aids.presses, now) {
+    let presses = take_due(&mut aids.presses, now);
+    for p in presses {
         match p {
             Press::Sneak => control.sneak = !control.sneak,
             Press::Weapon => control.weapon_out = !control.weapon_out,
-            Press::Aim => control.aiming = !control.aiming,
+            Press::Aim => aids.aim_held = Some(!aids.aim_held.unwrap_or(false)),
             Press::View => control.pov = if control.pov == Pov::First { Pov::Third } else { Pov::First },
             Press::Jump => intent.jump = true,
             Press::Zoom(d) => control.distance = d.clamp(crate::control::MIN_DISTANCE, crate::control::MAX_DISTANCE),
+            Press::Orbit(yaw, pitch) => {
+                control.orbit = crate::control::Orbit { yaw, pitch, held: true, moved: true };
+            }
+            Press::Release => control.orbit.held = false,
         }
         info!(
-            "test aid: control {p:?}: sneak {} weapon out {} aiming {} view {:?} distance {:.0}",
-            control.sneak, control.weapon_out, control.aiming, control.pov, control.distance
+            "test aid: control {p:?}: sneak {} weapon out {} aiming {:?} view {:?} distance {:.0}",
+            control.sneak, control.weapon_out, aids.aim_held, control.pov, control.distance
         );
+    }
+    if let Some(a) = aids.aim_held {
+        control.aiming = a;
     }
 }
 
@@ -385,5 +406,7 @@ mod tests {
         assert_eq!(press("zoom=250").unwrap(), Press::Zoom(250.0));
         assert_eq!(press("weapon").unwrap(), Press::Weapon);
         assert!(press("fire").is_err());
+        assert_eq!(press("orbit=180:0").unwrap(), Press::Orbit(std::f32::consts::PI, 0.0));
+        assert_eq!(press("release").unwrap(), Press::Release);
     }
 }
