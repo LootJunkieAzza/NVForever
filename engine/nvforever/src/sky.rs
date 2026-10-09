@@ -85,7 +85,7 @@ const SKY_SORT_BIAS: f32 = -1.0e6;
 /// inverse of the camera's exposure (Bevy's default, EV100 9.7). The game's lighting is
 /// treated as texture × (ambient + sunlight · N·L) in display units [hypothesis], so the
 /// sun gets π times this (Lambert's 1/π) and ambient light this.
-fn light_unit() -> f32 {
+pub(crate) fn light_unit() -> f32 {
     1.0 / bevy::camera::Exposure::default().exposure()
 }
 
@@ -98,6 +98,8 @@ pub struct SkyState {
     pub fog_override: Option<(f32, f32)>,
     /// Interior mode: the cell's own lighting replaces sky, sun and weather.
     pub interior: Option<fnv_world::lighting::CellLighting>,
+    /// Interior mode: the cell's own image space (CELL XCIM) grades the picture.
+    pub interior_grade: Option<Cinematic>,
     /// Sun shadows reach this far from the camera (game units); 0 = no shadows.
     pub shadow_distance: f32,
     /// Test aid: game hours per real second (0: time stands still).
@@ -180,6 +182,7 @@ impl SkyState {
             hour,
             fog_override: None,
             interior: None,
+            interior_grade: None,
             shadow_distance: 0.0,
             time_scale: 0.0,
             clock_running: false,
@@ -259,7 +262,10 @@ impl SkyState {
     /// The image-space grade now: the base image space with the weather's adapters for
     /// the time of day, blended across a weather fade; none indoors yet [interim].
     pub fn cinematic(&self) -> Cinematic {
-        let Some(base) = self.image_space.filter(|_| self.interior.is_none()) else { return Cinematic::default() };
+        if self.interior.is_some() {
+            return self.interior_grade.unwrap_or_default();
+        }
+        let Some(base) = self.image_space else { return Cinematic::default() };
         let none = [None; 6];
         let at = |w: &Weather| cinematic_at(&base, self.adapters.get(&w.form_id).unwrap_or(&none), &self.climate, self.hour);
         let cur = at(&self.weather);
@@ -290,6 +296,11 @@ impl SkyState {
     /// Recompute sky, light and fog next frame (e.g. after something else changed the fog).
     pub fn refresh(&mut self) {
         self.changed = true;
+    }
+
+    /// The image-space grade of an interior cell (CELL XCIM), if it names one.
+    pub fn cell_grade(lo: &fnv_esm::LoadOrder, schema: &fnv_esm::Schema, cell: u32) -> Option<Cinematic> {
+        fnv_world::lighting::cell_image_space(lo, schema, cell).and_then(|f| fnv_world::imagespace::image_space(lo, schema, f))
     }
 
     /// Switch between interior lighting (`Some`) and the worldspace's sky (`None`).

@@ -26,6 +26,10 @@ pub struct Placement {
     pub enable_parent: Option<(u32, bool)>,
     /// ONAM "Open by Default" (doors) [documented: xEdit wbDefinitionsFNV.pas REFR].
     pub open_by_default: bool,
+    /// XEMI "Emittance": a region (REGN) or light (LIGH) whose colour drives the
+    /// reference's externally emitted light [documented: xEdit wbDefinitionsFNV.pas REFR;
+    /// see crate::lighting::emittance].
+    pub emittance: Option<u32>,
 }
 
 impl Placement {
@@ -56,7 +60,19 @@ pub fn placement(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Placement>
         Some((parent, opposite))
     });
     let open_by_default = f.get(b"ONAM").is_some();
-    Some(Placement { form_id: fid, sig: r.header.sig, flags: r.header.flags, base, position, rotation, scale, enable_parent, open_by_default })
+    let emittance = f.formid(b"XEMI", lo).filter(|&e| e != 0);
+    Some(Placement {
+        form_id: fid,
+        sig: r.header.sig,
+        flags: r.header.flags,
+        base,
+        position,
+        rotation,
+        scale,
+        enable_parent,
+        open_by_default,
+        emittance,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]

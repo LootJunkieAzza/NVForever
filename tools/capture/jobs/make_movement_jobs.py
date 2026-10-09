@@ -119,10 +119,10 @@ def diag_job():
     return cm.make_job([doc], "mv_diag_trees_rocks", START, leave_door=DOC_DOOR, console_first=["tgm", "tdetect"])
 
 
-def lab_job(name, files):
+def lab_job(name, files, repeats=1):
     """A scenario capture: the candidate's own inputs (capture_moves.py)."""
     docs = [cs.load_json(os.path.join(LAB_INPUTS, f)) for f in files]
-    return cm.make_job(docs, name, START, leave_door=DOC_DOOR, console_first=["tgm", "tdetect"])
+    return cm.make_job(docs, name, START, leave_door=DOC_DOOR, console_first=["tgm", "tdetect"], repeats=repeats)
 
 
 BOTTLE = "0x0005B6CE"           # WhiskeyBottle01Empty01 (MISC; collision layer Clutter, dynamic)
@@ -244,6 +244,10 @@ def air():
 def main():
     jobs = [trial(),
             lab_job("mv_b11_drops", ["b11_goodsprings.drops.json"]),
+            # The B11 golden from repeated drops (owner decision 2026-10-08, physics.md 4.2):
+            # five repeats in two game sessions, the median per row.
+            lab_job("mv_b11_drops_rep_a", ["b11_goodsprings.drops.json"], repeats=3),
+            lab_job("mv_b11_drops_rep_b", ["b11_goodsprings.drops.json"], repeats=2),
             lab_job("mv_traces", ["move_fence_slide.walk.json", "move_fence_stop.walk.json",
                                   "move_running_jump.walk.json", "move_porch_steps.walk.json"]),
             clutter(), values(), air(),

@@ -47,16 +47,21 @@ impl WorldData {
         let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).map_err(|e| e.to_string())?));
         let index: &'static WorldIndex = Box::leak(Box::new(WorldIndex::build(lo, schema)));
         let w = index.world_by_name(world).ok_or_else(|| format!("no worldspace {world}"))?;
-        let world_id = w.form_id;
-        let mut persistent_by_grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
-        if let Some(pc) = w.persistent_cell.and_then(|c| index.cells.get(&c)) {
-            for &r in &pc.refs {
-                if let Some(p) = placement(lo, schema, r) {
-                    persistent_by_grid.entry(cell_of(p.position[0], p.position[1])).or_default().push(r);
-                }
+        let mut data = WorldData { lo, schema, index, world: w.form_id, persistent_by_grid: HashMap::new() };
+        data.set_world(w.form_id);
+        Ok(data)
+    }
+
+    /// Draw worldspace `world` (FormID): index its persistent references by grid square.
+    pub fn set_world(&mut self, world: u32) {
+        self.world = world;
+        self.persistent_by_grid.clear();
+        let pc = self.index.worldspaces.get(&world).and_then(|w| w.persistent_cell).and_then(|c| self.index.cells.get(&c));
+        for &r in pc.map_or(&[][..], |c| &c.refs) {
+            if let Some(p) = placement(self.lo, self.schema, r) {
+                self.persistent_by_grid.entry(cell_of(p.position[0], p.position[1])).or_default().push(r);
             }
         }
-        Ok(WorldData { lo, schema, index, world: world_id, persistent_by_grid })
     }
 
     pub fn grid_cell(&self, g: (i32, i32)) -> Option<&fnv_world::Cell> {
@@ -104,7 +109,7 @@ pub struct Streamer {
     pub hide: Vec<String>,
     /// Interior mode: this one cell instead of the exterior grid.
     pub interior: Option<u32>,
-    /// Light intensity (Bevy lumens) per squared game unit of LIGH radius [tuned by eye].
+    /// Multiplier on every LIGH light's brightness (1 = as stored).
     pub light_scale: f32,
     pub stats: StreamStats,
 }
@@ -162,6 +167,7 @@ pub fn stream(
     mut trees: crate::tree::TreeCtx,
     actor_world: Option<Res<crate::actors::ActorWorld>>,
     mut actor_parts: ResMut<ActorParts>,
+    mut emittance: ResMut<crate::emittance::EmittanceState>,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
     let mut actors = actor_world.as_deref().map(|w| (w, &mut *actor_parts));
@@ -169,7 +175,7 @@ pub fn stream(
         if streamer.loaded.is_empty() {
             let t0 = std::time::Instant::now();
             let s = &mut *streamer;
-            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, &mut trees, &mut actors, s);
+            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, &mut trees, &mut actors, &mut emittance, s);
             commands.entity(root).add_child(e);
             streamer.loaded.insert((i32::MIN, i32::MIN), e);
             streamer.stats.cells_loaded += 1;
@@ -201,7 +207,7 @@ pub fn stream(
     for c in missing.into_iter().take(streamer.per_frame) {
         let t0 = std::time::Instant::now();
         let s = &mut *streamer;
-        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, &mut actors, s);
+        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, &mut actors, &mut emittance, s);
         commands.entity(root).add_child(e);
         streamer.loaded.insert(c, e);
         streamer.stats.cells_loaded += 1;
@@ -245,6 +251,7 @@ pub fn travel(
     }
     streamer.interior = t.interior;
     sky.set_interior(t.interior.and_then(|id| fnv_world::lighting::cell_lighting(world.lo, world.schema, id)));
+    sky.interior_grade = t.interior.and_then(|id| crate::sky::SkyState::cell_grade(world.lo, world.schema, id));
     lod.set_enabled(&mut commands, t.interior.is_none() && !args.no_lod);
 }
 
@@ -263,6 +270,7 @@ fn load_cell(
     water: &mut WaterCtx,
     trees: &mut crate::tree::TreeCtx,
     actors: &mut Option<(&crate::actors::ActorWorld, &mut ActorParts)>,
+    emittance: &mut crate::emittance::EmittanceState,
     streamer: &mut Streamer,
 ) -> Entity {
     let (hide, light_scale, stats) = (&streamer.hide, streamer.light_scale, &mut streamer.stats);
@@ -306,7 +314,16 @@ fn load_cell(
             continue;
         };
         if &base.sig == b"LIGH"
-            && spawn_light(commands, cell_e, world, base.form_id, (to_cell * ref_affine(&p)).translation.into(), light_scale)
+            && crate::lights::spawn_light(
+                commands,
+                cell_e,
+                world,
+                base.form_id,
+                (to_cell * ref_affine(&p)).translation.into(),
+                light_scale,
+                p.emittance,
+                emittance,
+            )
         {
             stats.lights += 1;
         }
@@ -361,46 +378,18 @@ fn load_cell(
         }
         for s in &model.shapes {
             let m = Mat4::from(rt * s.transform);
-            commands.entity(cell_e).with_child((
-                Mesh3d(s.mesh.clone()),
-                MeshMaterial3d(s.material.clone()),
-                Transform::from_matrix(m),
-                RefVisual(r),
-            ));
+            // External emittance: the reference's XEMI source drives the colour.
+            let material = p
+                .emittance
+                .filter(|_| s.external_emittance)
+                .and_then(|x| emittance.material(world, &mut models.materials, &s.material, x))
+                .unwrap_or_else(|| s.material.clone());
+            commands.entity(cell_e).with_child((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), Transform::from_matrix(m), RefVisual(r)));
             stats.shapes += 1;
         }
         stats.refs_drawn += 1;
     }
     cell_e
-}
-
-/// A LIGH reference's light: a point light (spot light for spot types) with the light's
-/// colour and radius as range [documented: LIGH DATA]; intensity grows with the radius
-/// squared (scale tuned by eye). Negative and off-by-default lights are not drawn.
-fn spawn_light(commands: &mut Commands, cell_e: Entity, world: &WorldData, ligh: u32, at: Vec3, scale: f32) -> bool {
-    use fnv_world::lighting::{light_data, light_flags};
-    let Some(l) = light_data(world.lo, world.schema, ligh) else { return false };
-    if l.flags & (light_flags::NEGATIVE | light_flags::OFF_BY_DEFAULT) != 0 || l.radius <= 0.0 {
-        return false;
-    }
-    let lin = l.color.map(fnv_world::sky::srgb_to_linear);
-    let color = Color::LinearRgba(LinearRgba::rgb(lin[0], lin[1], lin[2]));
-    let intensity = scale * l.radius * l.radius;
-    let t = Transform::from_translation(at);
-    if l.flags & light_flags::SPOT != 0 {
-        let a = (l.fov.clamp(1.0, 179.0) / 2.0).to_radians();
-        // Spot lights point down their reference's -z [hypothesis].
-        commands.entity(cell_e).with_child((
-            SpotLight { color, intensity, range: l.radius, outer_angle: a, inner_angle: a * 0.8, shadow_maps_enabled: false, ..default() },
-            t.looking_to(-Vec3::Z, Vec3::Y),
-        ));
-    } else {
-        commands.entity(cell_e).with_child((
-            PointLight { color, intensity, range: l.radius, shadow_maps_enabled: false, ..default() },
-            t,
-        ));
-    }
-    true
 }
 
 /// Water surface of a cell: cells flagged "has water" get a plane at XCLW, or at the
