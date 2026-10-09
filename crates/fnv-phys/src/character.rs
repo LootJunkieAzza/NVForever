@@ -21,7 +21,7 @@ use rapier3d::prelude::*;
 pub struct CharacterParams {
     /// Capsule radius, game units [hypothesis].
     pub radius: f32,
-    /// Total capsule height, feet to top of head, game units [hypothesis].
+    /// Total height, feet to top of head, game units ([`HEIGHT`]).
     pub height: f32,
     /// Shape of the bottom: 0 for a capsule's hemisphere; else a cone with its apex at
     /// the feet rising this many units per unit of horizontal distance to the full
@@ -65,13 +65,22 @@ pub struct CharacterParams {
     pub air_control: bool,
 }
 
+/// The player's height, feet to the top of the head [observed: capture pc_head, standing
+/// jumps in Doc Mitchell's house stopped by a level beam (head 130.5 above the feet with
+/// the beam's 0.7 shell) and by a ceiling sloping 20° (130.0 at the axis); with the cone
+/// top this height puts all five apexes within 0.9 units, the beam's 0.9 high and the
+/// slope's 0.8 low (physics.md §6, capsule height); the editor documentation says 128
+/// (level-design.md)]. Crouching keeps it (sneaking
+/// jumped as high; a crouched height is not captured).
+pub const HEIGHT: f32 = 128.9;
+
 impl Default for CharacterParams {
     /// Placeholders sized for a human at 70 units per metre (physics.md §6), except the
     /// jump height, measured in game (§6.3).
     fn default() -> Self {
         CharacterParams {
             radius: 22.0,
-            height: 128.0,
+            height: HEIGHT,
             bottom_slope: 1.58,
             bottom_flat: 3.2,
             step_height: 24.0,
@@ -204,19 +213,22 @@ impl Character {
 }
 
 /// The character's shape around its centre (half the height above the feet): a vertical
-/// capsule, or with `bottom_slope` a cone under a cylinder (convex hull of the apex and two
-/// rings of [`RING_POINTS`] points circumscribing the radius).
+/// capsule, or with `bottom_slope` a cylinder with a cone at each end (convex hull of
+/// rings of [`RING_POINTS`] points circumscribing the radius). The top mirrors the bottom
+/// [hypothesis: capture pc_head (physics.md §6, capsule height) does not separate the top's
+/// shape; a flat top at this height stopped 5-8 units low under the sloping ceiling, the
+/// cone 0.8].
 fn capsule(p: &CharacterParams, k: f32) -> SharedShape {
     let half = p.height / 2.0;
     let flat = p.bottom_flat.clamp(0.0, p.radius);
     let cone = p.bottom_slope * (p.radius - flat);
-    if p.bottom_slope > 0.0 && cone < p.height {
+    if p.bottom_slope > 0.0 && 2.0 * cone < p.height {
         let r = p.radius / (std::f32::consts::PI / RING_POINTS as f32).cos();
         let tip = flat / (std::f32::consts::PI / RING_POINTS as f32).cos();
-        let mut points = vec![Vector::new(0.0, 0.0, -half) * k];
+        let mut points = vec![Vector::new(0.0, 0.0, -half) * k, Vector::new(0.0, 0.0, half) * k];
         for i in 0..RING_POINTS {
             let a = i as f32 / RING_POINTS as f32 * std::f32::consts::TAU;
-            for (rr, z) in [(tip, -half), (r, cone - half), (r, half)] {
+            for (rr, z) in [(tip, -half), (r, cone - half), (r, half - cone), (tip, half)] {
                 points.push(Vector::new(rr * a.cos(), rr * a.sin(), z) * k);
             }
         }

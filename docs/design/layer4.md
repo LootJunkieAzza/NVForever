@@ -162,6 +162,10 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    container with its key, a lock without key, a teleport pair, dropping and re-taking).
    Locks and drops: `L4.sim.trace.goodsprings_locked_safe_key`, `_locked_safe_no_key`
    and `goodsprings_drop_and_retake` (captured 2026-10-08; docs/spec-notes/layer4-captures.md §1).
+   Close-out 2026-10-09: `L4.sim.trace.goodsprings_cell_respawn` (72 h cell respawn of an
+   ordinary Respawns container, 16/16, predicted before the capture) and
+   `L4.sim.trace.nipton_placed_mines` (scripted activation of a placed mine does nothing,
+   7/7 after the fix; 5/7 before).
 4. Leveled lists: distribution scenarios — `L4.sim.leveled.basic` passes against in-game
    samples (7 cases), and `L4.sim.leveled.b8` (10 cases: LVLG globals, all levels between
    entry levels, nesting 3–5 deep; 2026-10-08).
@@ -192,6 +196,12 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    swim_lake_shore retired 2026-10-09 and replaced by swim_cove_stroke 8/8 and
    swim_lake_exit 10/10 (held out, below); banks of 12–58° (`sw_banks*`) agree while swimming and on leaving
    the water [observed 2026-10-08].
+   **Accepted residuals (owner decision 2026-10-09):** the three physics rows still missing
+   — `L4.phys.drops.b11_goodsprings` 17/20 (the Havok trees against the fence edge),
+   `L4.phys.walk.portal_wall` 5/6 (the steep downhill row) and
+   `L4.phys.drops.swim_h2o_fresh` 8/9 (a stair edge) — were worked on repeatedly without
+   gain and are accepted as known differences. They stay failing as the honest record
+   (scenarios, goldens and tolerances unchanged); no further tuning is planned.
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
    Status 2026-10-08 (`engine/nvf-play`, docs/design/layer4-play.md §6): walking with
@@ -202,8 +212,20 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    DLC worldspaces) switch physics and rendering to the destination worldspace; items
    dropped from the inventory are drawn, collide, fall and settle, survive cell unloads
    and worldspace changes and are taken back with E (whether the game's dropped items
-   fall is open, simulation.md §5). Open: play by hand, scripted doors (the Strip gate),
-   dialogue and barter.
+   fall is open, simulation.md §5). Scripted doors (the Strip gate) open through their own
+   scripts since Layer 5 (layer5-play.md §6). Dialogue and barter are Layer 6.
+   **Played by hand (2026-10-09, coordinator)** [observed]: `nvforever --play --cell
+   Goodsprings` on `main` 9be35d7, driven with real OS keyboard and mouse input (Windows
+   `SendInput`, the same path as a person's keys) for about six minutes: mouse look, WASD
+   (2.5 s of W covered about 845 units, the run speed), Space jump (+51 units at 0.25 s),
+   the start-up message boxes dismissed with their number key, Tab inventory (arrow keys,
+   Enter, mouse click to select and equip, the Close button), the Prospector Saloon door's
+   prompt and E into the interior, a container opened with E and emptied with R (carry
+   weight 89.5 → 95.5), Esc/Tab/E closing menus. Found, and fixed in #97 (Esc now opens a
+   Resume / Quit pause menu): the help line listed the free-fly keys in play mode; Esc in the world quit
+   at once (the game opens a pause menu); message-box buttons ignored mouse clicks;
+   equipping ammunition reported a raw FormID; lock prompts showed "level 0" instead of
+   the game's level names.
 
 ## 5. Open questions and verification steps for the owner
 
@@ -223,11 +245,18 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    notes, casino chips and caravan money weigh anything in-game (inventory screen)?
    → Owner 2026-10-08: notes, casino chips, caravan money and caravan cards weigh nothing,
    like caps; the carried weight counts them as 0.
-5. Placed grenades (PGRE, 297 in OldWorldBlues.esm) are not simulated yet: are they
-   live explosives in-game, or decoration?
-6. Cell respawn delay: `iHoursToRespawnCell` is not in any master (an engine default).
-   Please read it in-game with the console: `GetGameSetting iHoursToRespawnCell` (a
-   secondary source suggests 73 hours; unverified).
+5. ~~Placed grenades (PGRE, 297 in OldWorldBlues.esm): live explosives or decoration?~~
+   → Captured 2026-10-09 (`cl_d_mines_live`, unattended): **live**. The 297 PGRE are
+   spread over five masters, not only Old World Blues (simulation.md §1); placed frag
+   mines in Nipton detonate when the player comes within 70 units (not at 237), within
+   1.5 s, damage 80–95, and end disabled. A scripted `Activate` does nothing (scenario
+   `L4.sim.trace.nipton_placed_mines`); the Activate control tapped with a mine in the
+   crosshair did nothing (`cl_d2_mines_disarm`), so disarming by the player is still
+   hypothesis (whether `TapControl 5` activates at all is untested).
+6. ~~Cell respawn delay `iHoursToRespawnCell`~~ → **72** in the running game (three
+   saves; no master defines it); `fnv-sim` uses it (`DEFAULT_RESPAWN_HOURS`). The
+   scenario `L4.sim.trace.goodsprings_cell_respawn` puts the boundary between 71.0 and
+   73.1 hours away from the cell, counted from leaving it (simulation.md §3).
 7. **In-game captures**: log, results and the backlog of captures still to make
    (X-13, a merchant box without the Respawns flag, cell respawn on an ordinary
    container, calendar, encumbrance edges, more leveled lists, PGRE) are in
@@ -236,7 +265,13 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    `goodsprings_doc_mitchell` 5/6 (z waits for the controller); `x13_enable_parents`
    still needs a save inside X-13. Update 2026-10-08: `x13_enable_parents` 13/13;
    merchant restocks follow fixed days (GameDaysPassed 0 or 3 modulo 7, spec note §3),
-   checked by `goodsprings_merchant_midnight_restock` 11/11. `goodsprings_doc_mitchell`
+   checked by `goodsprings_merchant_midnight_restock` 11/11.
+   Close-out 2026-10-09 (unattended, layer4-captures.md §2 `cl_*`): the Pip-Boy Glove and
+   Pip-Boy 3000 are worn in played saves and survive `RemoveAllItems` (the simulation's
+   player now starts wearing them); over-encumbered = whole part of the weight above the
+   capacity (ran at 200.5, walked at 201 with capacity 200); armour on the ground is the
+   world model MOD2 (a fedora, folded outfits; female MOD4 open); Chet's merchant box does
+   not follow Ringo's restock days (open). `goodsprings_doc_mitchell`
    6/6 (2026-10-08): `sim run` settles teleported actors on the destination's contact
    shell (physics.md §6.2), not through the walking controller.
 8. Answered by the owner 2026-10-08 (physics.md §4, §6): disabled references are not
@@ -245,7 +280,13 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    layer matrix — a scripted drop test is proposed as backlog item B11
    (layer4-captures.md); the Havok scale needs no in-game test (collision.md §6).
 
-9. **Movement and collision (workstream 2, 2026-10-08)**. Unattended jobs are ready and
+9. **Movement and collision (workstream 2, 2026-10-08)**. Update 2026-10-09
+   (`claude/l4-play-closeout`): capsule height, push and dropped items are captured
+   unattended (`pc_head`, `pc_push`, `pc_drop_fall`, physics.md §4.3 and §6): the player
+   is about 130 units tall to the ceiling's surface (the character is now 128.9 with a
+   cone top), pushing agrees with push mass 80, dropped items fall; the crouched height and
+   whether running or walking feels right with a real keyboard remain for someone at the
+   game. Unattended jobs are ready and
    need only the game to be free (layer4-captures.md §5): `mv_b11_drops`, `mv_traces`,
    `mv_b11_clutter`, `mv_values`. Questions that need someone at the game:
    - Capsule height: standing, then crouched, under a beam or doorway lintel whose height

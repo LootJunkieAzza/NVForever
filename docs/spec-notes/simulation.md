@@ -40,8 +40,30 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   the chance to set it off are Layer 6]. In game [observed 2026-10-08, `bl_placed_mines`, Nipton house 8,
   god mode on]: the four frag mines stayed enabled and did not move for 600 game loops
   after the player arrived, and a scripted `<mine>.Activate player` changed nothing (no
-  Frag Mine 0x0000433C in the inventory, the mine still enabled, same position). Whether
-  the player's own activation disarms one is not captured (needs someone at the game).
+  Frag Mine 0x0000433C in the inventory, the mine still enabled, same position); the
+  same again as the scenario `L4.sim.trace.nipton_placed_mines` (2026-10-09, mine
+  0x0013A656: no menu, no Frag Mine, GetDisabled 0, position unchanged) [observed]. The
+  simulation's scripted activation of a placed explosive therefore does nothing
+  (`World::activate_scripted`); the player's own activation still disarms [hypothesis].
+  **They are live explosives, not decoration** [observed 2026-10-09, `cl_d_mines_live`,
+  same house, no god mode, Health raised to 5000]: with the player placed 70 units from
+  mine 0x00139551 it went off within 30 game loops (GetDisabled 1 afterwards, the
+  reference keeps its position) and Health fell by 82.5; standing on mine 0x0013A656 it
+  was still enabled after 0.5 s and disabled after 1.5 s, Health −94.5. The player at the
+  arrival point, 237 units from the nearest mine, set none off (`bl_placed_mines`). So a
+  placed frag mine detonates when the player comes within some radius between 70 and
+  237 units, after a delay under 1.5 s, and is disabled by the explosion. Whether the
+  player's own activation disarms one in time is not seen: the Activate control
+  (`TapControl 5`) in `cl_d_mines_live` met a coffee table in front of the mine
+  (`GetCrosshairRef` 0x0013952F); see `cl_d2_mines_disarm` (docs/spec-notes/
+  layer4-captures.md §2). In the follow-up `cl_d2_mines_disarm` the crosshair was on
+  mine 0x0013A655 (`GetCrosshairRef`) from 70 units away and the Activate control was
+  tapped twice: nothing happened in 4 s — no Frag Mine, the mine enabled, Health
+  unchanged [observed]. So this mine did not go off at 70 units (the trigger radius is
+  near 70, or depends on more than distance), and the tapped control did not disarm it;
+  whether `TapControl 5` reaches the game's activation at all is untested, so disarming
+  by the player stays [hypothesis]. Proximity, timer and damage are Layer 6 (combat);
+  the simulation keeps the mine's state only.
 - **Enable parents** (XESP: parent reference, flag bit 0 "Set Enable State to Opposite of
   Parent" [documented: xEdit]): 5,171 references have one, 759 with the opposite flag;
   162 chains are two deep, none deeper; no chain loops or names a missing reference
@@ -69,6 +91,14 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   (docs/design/layer1.md §2.4) [observed]. It is the player's reference, created by the
   engine [hypothesis]. The simulation creates it on first use from the base form, with
   the base form's carried items, in no cell, at the origin.
+- The base form carries the Pip-Boy Glove 0x00025B83 and the Pip-Boy 3000 0x00015038,
+  one each (CNTO) [observed: `fnvtool esm decode`]. In game both are **equipped**
+  (`player.GetEquipped` 1, one of each held) in the saves `nvftest` and `nvfdoc`, made
+  after the intro [observed 2026-10-09, `cl_a_pipboy_*`]; in `nvfnew`, a new game before
+  VCG01 stage 0, the player holds neither (5 stacks, weight 19) [observed]: the intro's
+  scripts hand them over (Layer 5). The simulation's player starts wearing the
+  non-playable armour its base form carries, i.e. both [observed for these two;
+  hypothesis that the rule is "non-playable armour" rather than these two forms].
 
 ## 3. Items, containers, carried items
 
@@ -101,13 +131,31 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   [hypothesis].
 - **CONT DATA**: flags u8 (bit 1 "Respawns"), weight f32 [documented: xEdit]. 3,417
   container bases; 177 respawn; 845 have no CNTO [observed].
-- **Respawn** [hypothesis: cell reset as commonly described for this engine generation]:
-  when a cell is loaded again after staying unloaded for at least the respawn delay, its
-  containers whose base has the Respawns flag return to their authored state (new
-  leveled roll, lock restored, anything left inside lost). No game setting holds the
-  delay in the masters (§5b); the simulation uses 72 game hours by default
-  (`SimConfig.respawn_hours`), a figure to be captured. Other references are not reset
-  yet. The engine reports unloading/loading (`detach_cell` / `attach_cell` ops).
+- **Respawn**: when a cell is loaded again after staying unloaded for at least the
+  respawn delay, its containers whose base has the Respawns flag return to their
+  authored state (new leveled roll, anything left inside lost; lock restored
+  [hypothesis]). No game setting holds the delay in the masters (§5b); the running game
+  answers `GetGameSetting "iHoursToRespawnCell"` with **72** in all three test saves
+  [observed 2026-10-07 `aa_respawn_delay`, again 2026-10-09 `cl_a_pipboy_*`], and the
+  simulation uses that (`SimConfig.respawn_hours`, else the setting if a plugin defines
+  it, else `DEFAULT_RESPAWN_HOURS` = 72). Other references are not reset yet. The engine
+  reports unloading/loading (`detach_cell` / `attach_cell` ops).
+  **Captured as a scenario** [observed 2026-10-09, `L4.sim.trace.goodsprings_cell_respawn`,
+  save `nvftest`, unattended: leaving = the console's `coc` to the gas station, time by
+  GameHour]: the General Store fridge 0x00105824 (Respawns, leveled contents, not a
+  merchant box) and toolbox 0x001057FF (no Respawns), each emptied and given one teddy
+  bear (an item neither leveled list can yield, so its count is exact). After a first
+  74 h absence (which resets whatever the save remembers about the store), the fridge
+  kept its teddy bear after absences of 48 h, of 1 h following 30 h spent inside (79 h
+  after the last reset, 31 h after planting), of 40 h twice in a row (80 h away in
+  total, store visited in between), and of **71 h** — which crossed three midnights —
+  and lost it after **73 h** away (4 new leveled stacks instead); the toolbox kept its
+  teddy bear throughout. With `bl_container_respawn` (70 h no, 74 h yes): the delay is
+  counted from the last time the player **left** the cell, as hours (not calendar days,
+  not time since the last reset, not accumulated absences), with the boundary between
+  71.0 and 73.1 hours — consistent with "at least `iHoursToRespawnCell` = 72"; an item
+  put into a respawning container by script is lost at the reset. The candidate passed
+  16/16 as written before the capture.
   **In game** [observed 2026-10-07, `L4.sim.trace.goodsprings_respawn`, since retired]: Ringo's cash
   container 0x001629C0 (base CaravanCashRingo, Respawns, 200 caps) in GSGasStation, emptied
   with `RemoveAllItems`, held **200 caps again after the player left, waited 24 hours
@@ -189,6 +237,19 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   mean that no such setting exists). The "changed since the last restock" condition and
   the link to `iHoursToRespawnCell` are dropped: the one skipped midnight they rested on
   (day 20) is not a restock day.
+  **A second merchant does not follow that schedule** [observed 2026-10-09, diagnostic
+  fields of `L4.sim.trace.goodsprings_cell_respawn`, save `nvftest`]: Chet's box
+  0x00104C7A (`VendorContainerChet`, Respawns flag, leveled stock, in
+  `NVVendorChestsCell`) was emptied and given one teddy bear at days 15.48, 17.48, 18.78,
+  22.12 and 25.08 and read at each return to the General Store. It was restocked (teddy
+  bear gone, 37–38 stacks) over midnights 16–17 and over 26–28, but **not** over 19–21
+  (read at 20.45 and 22.12, day 21 is 0 mod 7) nor over 23–25 (day 24 is 3 mod 7). Under
+  the rule above both should have restocked. So the schedule is not one global calendar
+  for every merchant: Ringo's box and Chet's differ. What drives Chet's (e.g. a time since
+  his last restock longer than Ringo's 3–4 days, or the merchant's own state) is open; the
+  simulation still applies the Ringo rule to every merchant container
+  (`world::is_merchant_restock_day`) [hypothesis, refuted for Chet], to be revisited
+  with a capture that reads Chet's box daily.
   A merchant box whose base lacks the Respawns flag (Primm, Prospector's Den,
   0x0017409C, base `VLootSackVendorWastelandT2RSPros`; `bl_primm_restock`, both
   substitutes) was emptied and **never refilled in 7 days** of daily reads [observed]; so
@@ -203,16 +264,79 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   empty after 24 h and after 70 h away and held new contents (4–5 stacks) after 74 h away,
   twice; the toolbox 0x001057FF (no Respawns flag) stayed empty throughout [observed]. So
   the 72 h cell respawn (`iHoursToRespawnCell`) applies to containers with the Respawns
-  flag, measured from leaving the cell, between 70 and 74 hours [observed]; the exact
-  boundary and whether a midnight is involved are not settled.
+  flag, measured from leaving the cell, between 70 and 74 hours [observed]. Narrowed by
+  the scenario above (2026-10-09): between 71.0 and 73.1 hours, hours not midnights.
 - **Non-playable items**: ARMO BMDT general flag bit 6 is "Non-Playable" [documented:
   xEdit wbBMDT, `schemas/fnv/objects.json`]. `PipBoy` (Pip-Boy 3000, 0x00015038) and
   `PipBoyGlove` (Pip-Boy Glove, 0x00025B83) carry it [observed: `fnvtool esm decode`].
   The game never shows the glove in the inventory, so it cannot be dropped, and it is
   always equipped [observed by the owner, 2026-10-08]. The engine's menus hide every
-  non-playable item (`fnv_sim::forms::Item::non_playable`); that the Pip-Boy 3000 and
-  other non-playable armour behave like the glove is [hypothesis]; the simulation does
-  not equip them yet.
+  non-playable item (`fnv_sim::forms::Item::non_playable`). Both are equipped in played
+  saves (§2) and **`player.RemoveAllItems` leaves both, still equipped**, and takes
+  everything else (27 stacks → 2, weight 93 → 0; `EquipItem` of the glove afterwards
+  changes nothing) [observed 2026-10-09, `cl_a_pipboy_nvftest`]. The simulation starts the
+  player wearing them and `World::remove_all_items` / `transfer_all` (the same script
+  function with a target) keep non-playable items [observed for the player and these two
+  items; hypothesis for other holders and items]. Both weigh 0 (ARMO DATA) [observed].
+- **Armour models: which one lies on the ground.** ARMO holds up to four model paths:
+  MODL "Male biped model", MOD2 "Male world model", MOD3 "Female biped model", MOD4
+  "Female world model" [documented: xEdit `wbDefinitionsFNV.pas` ARMO]. In the ten
+  masters [observed, 489 winning ARMO]: MODL 478, MOD2 430, MOD3 308, MOD4 126; 414 of
+  the 430 MOD2 paths end in `GO.NIF` ("ground object", e.g. leather armour MODL
+  `Armor\LeatherArmor\M\OutfitM.NIF`, MOD2 `...\M\GO.NIF`), the rest are other
+  ground models (`GOM.NIF`) or the Pip-Boy's; only 1 MODL does; 30 armours have a MOD4
+  that differs from MOD2 (e.g. `GamblerMHat01`: MOD2 a fedora `_GO`, MOD4 a pillbox hat
+  `_GO`); 49 have no MOD2 (36 of them non-playable). In game [observed 2026-10-09,
+  `cl_c_armor_models`, pictures in `C:\fnv-private\capture\shots\cl_c_armor_models.*`,
+  save `nvftest`, male player, armours made with `PlaceAtMe` on open ground in
+  Goodsprings at noon]: the outfits lie as **folded ground objects**, not as the
+  body-shaped biped suits of MODL, and `GamblerMHat01` lies as a **fedora** (its MOD2;
+  MOD4 would be a pillbox). After the console's `sexchange` (GetIsSex Female 1) the same
+  fedora reference still showed a fedora; a second row placed while female showed the
+  folded outfits again, but its hats were hidden by the yard fence, so whether a female
+  player sees MOD4 is **not settled**, nor what an armour without MOD2 shows (Raul's hat
+  was not identifiable). Two armours dropped from the inventory fell out of the picture.
+  Rule for the engine: draw MOD2 for placed and dropped armour [observed for a male
+  player]; MOD4 for a female player [hypothesis, open]; MODL when there is no MOD2
+  [hypothesis].
+- **Quest items**: an item marked as a quest item cannot be dropped from the player's
+  inventory and cannot be sold, and a dead body holding one is not cleaned up until it is
+  taken out [documented: GECK wiki Category:Items and SetQuestObject, owner exports
+  2026-10-09 and 2026-10-07]. The mark is bit 10 (0x400) of the item record's header
+  flags, named "Quest Item" per record type in `schemas/fnv` (`header_flags`; sources and
+  the 339 flagged records of the ten masters in `docs/spec-notes/esm.md`). Scripts set or
+  clear it with `SetQuestObject form flag`, which changes the form's flag [documented:
+  GECK wiki SetQuestObject]. Implemented:
+  - `Item::quest_item` is the record's flag; `World::is_quest_item` is the one answer the
+    engine asks: a script's value (`World::set_quest_object`, kept in `fnv.sim.state/1`
+    snapshots as `quest_objects`) when one was set, else the record's. That a script's
+    value replaces the authored one for every reference of the form is [hypothesis: the
+    flag is the base form's]. fnv-game's SetQuestObject writes there (it used to keep its
+    own map, `FormChanges::quest_items`, now unused).
+  - The player's own drop (`World::player_drop_item`, the inventory menu's drop keys)
+    refuses a quest item with `SimError::QuestItem` and moves nothing [documented].
+  - A **scripted** drop does not: in the game, `player.Drop` from a script removed a quest
+    key and a stimpak made a quest item with `SetQuestObject 1` from the player's
+    inventory like any other item [observed 2026-10-09, save `nvftest`, job
+    `tools/capture/jobs/qi_drop_quest_item.steps.json`, output
+    `C:\fnv-private\capture\out\qi_drop_quest_item.1791540717.jsonl`: Doc Hoff's Supply
+    Key (KEYM 0x00068E8D, header bit 10) read `IsQuestItem` 1 and its count went 1 → 0
+    after `player.Drop`; the stimpak read `IsQuestItem` 0, then 1 after `SetQuestObject`,
+    and its count went 10 → 9 on the drop; after `SetQuestObject 0` it read 0 again and
+    9 → 8]. So `World::drop_item`, which the script functions `Drop` and `DropMe` and the
+    action scripts' `drop_item` use, ignores the flag. The same capture confirms that the
+    game reads header bit 10 as the quest-item flag (`IsQuestItem`) [observed].
+  - Other holders (NPCs, containers) may drop one [hypothesis: the pages name only the
+    player; scripted drops ignore the flag anyway].
+  - Moving a quest item into a container (`World::transfer`) is allowed [hypothesis: the
+    pages say nothing about containers].
+  - Selling: no barter exists yet; when it does, it must refuse quest items the same way
+    [documented].
+  - Corpses: nothing cleans up dead bodies yet, so the "not cleaned up while holding a
+    quest item" rule has nothing to act on [documented, not implemented].
+  - fnv-game's RemoveAllTypedItems leaves the player's quest items (as before, now read
+    from `World::is_quest_item`); its RemoveAllItems does not exempt them yet although
+    the catalogue says it should (`script-functions-catalogue.md`) [open].
 - **Inventory model**: one stack per base item, split into groups of identical extra data
   (condition, owner, equipped). Removing more than is held removes what is there and
   reports that number [hypothesis: GECK `RemoveItem` behaviour as commonly described; to
@@ -238,7 +362,7 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   2026-10-07, `L4.sim.trace.goodsprings_weight_and_time`: GetAV CarryWeight 200 at
   Strength 5 and 160 at Strength 1; GetAV InventoryWeight 18.5 for a 9mm pistol (1.5),
   leather armour (15), brahmin-skin outfit (2) and 100 9mm rounds (0.029 each), unchanged
-  by equipping]. Weights add exactly (199 teddy bears at 1.0 → 199, plus spoons at 0.5 → 200.5, 201) [observed, `bl_encumbrance`]. Over-encumbered when weight exceeds capacity [hypothesis]: neither `IsPlayerOverencumbered` nor `GetIsPlayerOverencumbered` exists in the runtime's script compiler ("unknown variable", with and without `player.`) [observed], so the threshold is not captured yet. Hardcore
+  by equipping]. Weights add exactly (199 teddy bears at 1.0 → 199, plus spoons at 0.5 → 200.5, 201) [observed, `bl_encumbrance`]. Neither `IsPlayerOverencumbered` nor `GetIsPlayerOverencumbered` exists in the runtime's script compiler ("unknown variable", with and without `player.`) [observed], so the threshold was captured through running speed instead [observed 2026-10-09, `cl_b_encumbrance_speed`, `cl_b2_encumbrance_speed`, save `nvftest` in Goodsprings, no god mode, capacity 200, Forward held 90 loops]: the player **ran** (342–343 units/s, `IsRunning` 1) carrying 199.5, 200.0 and **200.5**, and **walked** (84–86 units/s, the walking speed of physics.md §6.3; `IsRunning` 0) carrying **201.0**, 201.5, 202, 203, 205 and 210.5. So the player is over-encumbered when the weight's whole part exceeds the capacity (equivalently, for whole capacities, weight ≥ capacity + 1), not as soon as the weight exceeds it; `World::encumbrance` applies this (which of the two readings holds for a fractional capacity is [hypothesis]). Over-encumbered running is refused; walking speed stays normal [observed]. Hardcore
   ammunition: 100 9mm rounds weigh 0 normally and **2.9 with Hardcore on** (0.029 each, the AMMO DAT2 weight), 0 again when switched off [observed, `bl_encumbrance`, `player.SetHardcore`]; `IsHardcore` read 0 throughout, even while the ammunition weighed 2.9 [observed; unexplained]. Strength comes from NPC_ DATA attributes
   (S.P.E.C.I.A.L. as seven u8 in that order [documented: xEdit]); the player base form
   authors 5 for every attribute [observed]. NPCs that take stats from a template are not
@@ -412,7 +536,11 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
   leaves the reference at count 1; the player's own activation (`World::activate`, the
   engine) still takes the whole stack [hypothesis; not captured]. The simulation places drops at that offset (holder heading from its z
   rotation, §5 crosshair notes) [hypothesis for other actors and items].
-- **After the drop: does a dropped item fall?** Two observations pull different ways:
+- **After the drop: does a dropped item fall?** **Yes** [observed 2026-10-09, capture
+  `pc_drop_fall`: a scripted `Drop`, and a `Drop` with the Pip-Boy open once it closed,
+  fell from the drop point and came to rest lying down within 1 s; the new reference
+  starts with GetAngle Z = the holder's heading; readings in physics.md §4.3]. The
+  earlier readings, kept for the record:
   - The scripted drop above (`ld_drop_refs`, tgm and tdetect on) read `GetPos Z` 8723.86
     right after `player.Drop` and again 600 frames (10 s) later: the drop point, 30 units
     above the feet [observed, `C:\fnv-private\capture\out\ld_drop_refs.*.jsonl`].
@@ -475,8 +603,9 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
   `s` NUL-terminated string [documented: xEdit]. The masters hold 649 settings (459 `f`,
   61 `i`, 130 `s` in FalloutNV.esm alone), all matching the rule [observed]. Examples:
   `fAVDCarryWeightsBase` 150.0, `fAVDCarryWeightMult` 10.0 [observed]. There is no
-  respawn-delay setting in the masters (no `iHoursToRespawnCell`) [observed]; the delay
-  is an engine default [hypothesis].
+  respawn-delay setting in the masters (no `iHoursToRespawnCell`) [observed]; the running
+  game still answers `GetGameSetting "iHoursToRespawnCell"` with 72 [observed, three
+  saves, §3], so the setting and its value are built into the engine.
 - **Time** is kept in globals [observed, FalloutNV.esm]: GameYear 0x35 = 2281, GameMonth
   0x36 = 9, GameDay 0x37 = 18, GameHour 0x38 = 12, GameDaysPassed 0x39 = 5.0, TimeScale
   0x3A = 30. Advancing time [hypothesis]: TimeScale is game seconds per real second;
@@ -739,7 +868,10 @@ Lab comparator: **distribution** over `/cases`, keyed on `label`, `field` `outco
 
 Observational report behind §1–§5 (counts per base type, item value/weight coverage,
 carried-item targets, leveled-list statistics, reference flags, locks, teleport
-reciprocity, loader issues). Not a scenario.
+reciprocity, loader issues). Not a scenario. `quest_items` (2026-10-09): `by_type` and
+`items` (formid, sig, edid, name) of the items the loader reads as quest items, and
+`item_record_header_bits`: per item record type, how many winning records set each
+header flag bit, whatever the schema names (the observation behind §3 "Quest items").
 
 ### `fnvtool sim doors <lo> --schema <dir>` → `fnv.sim.doors/1`
 

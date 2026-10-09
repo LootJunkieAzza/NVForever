@@ -59,11 +59,21 @@ pub struct GameConfig {
     pub trace_locals: bool,
     pub seed: u64,
     pub max_steps: u64,
+    /// A message box is a menu that holds GameMode until the player closes it
+    /// ([`Game::show_box`]) [observed: layer5-captures.md §10.1]. Off: message boxes are
+    /// only traced, as before round 4 (the headless runner for inputs that do not state
+    /// the menus of their save, docs/spec-notes/scripts.md §8).
+    #[serde(default = "yes")]
+    pub modal_message_boxes: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000 }
+        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true }
     }
 }
 
@@ -97,13 +107,13 @@ impl InstKey {
 pub struct Instance {
     pub script: Option<FormId>,
     pub vars: BTreeMap<u16, Value>,
-    /// Game time of the last `GetSecondsPassed` call, and the frame and value of it
-    /// (repeated calls in one frame give the same value [documented: GECK wiki
-    /// GetSecondsPassed]).
+    /// Clock time (1/64 s steps) at which the instance's per-frame block (GameMode,
+    /// ScriptEffectUpdate) last started to run, and the start of the run before it:
+    /// GetSecondsPassed is the difference (docs/spec-notes/scripts.md §5).
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsp_last: Option<f64>,
+    pub run_last: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub gsp_frame: Option<(u64, f64)>,
+    pub run_prev: Option<f64>,
 }
 
 /// Per-reference state the Layer 4 world does not keep.
@@ -347,6 +357,41 @@ impl MessageBox {
     }
 }
 
+/// Menu codes (`MenuMode <code>`) of the menus scripts open [observed: each code was
+/// open right after the stage whose result script calls the function, save `nvfnew`,
+/// docs/spec-notes/layer5-captures.md §10.4].
+pub mod menus {
+    /// A message box (ShowMessage of a message with the Message Box flag).
+    pub const MESSAGE: u16 = 1001;
+    /// The race menu (ShowRaceMenu).
+    pub const RACE: u16 = 1036;
+    /// The tag-skill menu (SetTagSkills).
+    pub const TAG_SKILLS: u16 = 1048;
+    /// The name menu (GetPlayerName).
+    pub const NAME: u16 = 1051;
+    /// The Vigor Tester's SPECIAL menu (ShowLoveTesterMenuParams).
+    pub const LOVE_TESTER: u16 = 1074;
+    /// The trait menu (ShowTraitMenu).
+    pub const TRAITS: u16 = 1084;
+}
+
+/// A dialogue line being said (SayTo, Say): docs/spec-notes/scripts.md §7.7.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Speech {
+    pub speaker: FormId,
+    /// The listener (SayTo's target; none for Say).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<FormId>,
+    pub topic: FormId,
+    pub info: FormId,
+    /// Seconds of game time left until the line ends.
+    pub remaining: f64,
+    /// Said by SayTo (else by Say). The speaker's SayToDone blocks run when either ends
+    /// [documented: level-design.md §11.2 D1].
+    #[serde(default)]
+    pub say_to: bool,
+}
+
 pub struct Game<'a> {
     pub data: &'a GameData,
     pub world: World<'a>,
@@ -370,6 +415,15 @@ pub struct Game<'a> {
     /// layer5-captures.md §8.3 e]. Part of the engine API, scripts.md §7.2.
     pub loading: bool,
     pub message_box: Option<MessageBox>,
+    /// Message boxes shown and not yet closed, in the order they were shown; the first
+    /// is on screen (menu [`menus::MESSAGE`]), the others wait for it to close
+    /// [hypothesis: one box at a time, the next when the open one closes]. `FormId(0)`:
+    /// a box whose message is not known (a scenario's `given`).
+    pub boxes: Vec<FormId>,
+    /// Dialogue lines being said (SayTo, Say), one per speaker.
+    pub speech: Vec<Speech>,
+    /// (speaker, line) pairs of the Say Once lines already said.
+    pub said: BTreeSet<(FormId, FormId)>,
     pub frame: u64,
     /// Game time in seconds: the frame steps that were not in a menu or a loading
     /// screen. GetSecondsPassed reads it.
@@ -414,6 +468,12 @@ pub struct GameSnapshot {
     #[serde(default)]
     pub loading: bool,
     pub message_box: Option<MessageBox>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub boxes: Vec<FormId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub speech: Vec<Speech>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub said: BTreeSet<(FormId, FormId)>,
     pub frame: u64,
     pub time: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -479,6 +539,9 @@ impl<'a> Game<'a> {
             menu: None,
             loading: false,
             message_box: None,
+            boxes: Vec::new(),
+            speech: Vec::new(),
+            said: BTreeSet::new(),
             frame: 0,
             time: 0.0,
             pending_onload: Vec::new(),
@@ -699,10 +762,12 @@ impl<'a> Game<'a> {
         RunOpts { strict: self.cfg.strict, max_steps: self.cfg.max_steps }
     }
 
-    fn exec(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx) {
+    /// Run statements; returns whether the run ended with `Return` (or a function that
+    /// acts as one).
+    fn exec(&mut self, unit: &'a Compiled, stmts: &'a [Stmt], locals: Locals, ctx: RunCtx) -> bool {
         if self.depth >= MAX_DEPTH {
             self.emit(EventKind::ScriptError { unit: unit.key(), error: format!("nesting deeper than {MAX_DEPTH}") });
-            return;
+            return false;
         }
         self.depth += 1;
         let opts = self.opts();
@@ -711,8 +776,12 @@ impl<'a> Game<'a> {
         let mut ex = Exec { game: self, unit, locals, ctx };
         let r = Vm::new(table, &mut ex, opts).run(stmts);
         self.depth -= 1;
-        if let Err(e) = r {
-            self.emit(EventKind::ScriptError { unit: unit.key(), error: e.to_string() });
+        match r {
+            Ok(exit) => exit == fnv_script::vm::Exit::Returned,
+            Err(e) => {
+                self.emit(EventKind::ScriptError { unit: unit.key(), error: e.to_string() });
+                false
+            }
         }
     }
 
@@ -760,7 +829,12 @@ impl<'a> Game<'a> {
             }
             self.instance(key, Some(script));
             ran = true;
-            self.exec(unit, &b.body, Locals::Instance(key), ctx);
+            // Return ends the script for this run, not just its block: a later block
+            // of the same event does not run [documented: GECK wiki Adding an Options
+            // Menu, owner export; docs/spec-notes/script-language.md §7.3 row 2].
+            if self.exec(unit, &b.body, Locals::Instance(key), ctx) {
+                break;
+            }
         }
         ran
     }
@@ -798,19 +872,28 @@ impl<'a> Game<'a> {
     /// the OnLoad blocks of references enabled since the last frame; quest scripts whose
     /// delay has passed; the object scripts of enabled references in loaded cells; the
     /// scripts of the items the player carries. Each runs GameMode, or MenuMode while a
-    /// menu is open ([`Game::menu`]).
+    /// menu is open ([`Game::menu`]). Then active magic effects and the dialogue lines
+    /// being said ([`Game::speech`]) advance.
     ///
     /// Game time ([`Game::time`]) and the quest delay of GameMode advance only outside
     /// menus and loading screens [observed: GetSecondsPassed after a 900-frame container
     /// menu was one ordinary frame for an every-frame quest and the quest's own 0.5 s
-    /// delay for VMQ03aTimer, `L5.quest.seconds_after_menu`; layer5-captures.md §8.3 e].
-    /// MenuMode keeps its own delay counter, which advances only in menus [hypothesis].
+    /// delay for VMQ03aTimer, `L5.quest.seconds_after_menu`; layer5-captures.md §8.3 e;
+    /// a quest timer and an object script's stopwatch stood still in the name menu,
+    /// §10.1]. MenuMode keeps its own delay counter, which advances only in menus
+    /// [hypothesis].
     /// Order: quest scripts before the object scripts of references [observed for one
     /// pair: BeatrixFX's GameMode moved GameHour on and two Goodsprings windows
     /// (WastelandWindowScript, copying GetCurrentTime every frame) saw the new hour in
     /// the same frame, `L5.quest.script_order`, layer5-captures.md §9.3 c; hypothesis
     /// for every other pair], each in FormID order [hypothesis], then the items the
-    /// player carries, then active magic effects [hypothesis].
+    /// player carries, then active magic effects, then dialogue [hypothesis].
+    ///
+    /// A menu opened by a GameMode script (a message box, the name menu…) holds the
+    /// GameMode scripts that have not run yet in this frame: they run, quests on their
+    /// due delay, once the menu is closed [hypothesis, generalised from the four pack
+    /// plugins' message boxes, which opened one at a time as their start-game quests
+    /// ran, each after the previous one was closed, layer5-captures.md §10.1–10.2].
     pub fn tick(&mut self) {
         self.frame += 1;
         if self.loading {
@@ -839,37 +922,73 @@ impl<'a> Game<'a> {
                 let counter = if in_menu { &mut s.since_menu_run } else { &mut s.since_run };
                 *counter += dt;
                 let delay = s.delay.unwrap_or_else(|| def.script_delay());
-                if *counter + 1e-9 >= delay {
-                    *counter = 0.0;
-                    Some((*q, script))
-                } else {
-                    None
-                }
+                (*counter + 1e-9 >= delay).then_some((*q, script))
             })
             .collect();
+        // A menu opened during this frame's GameMode holds the rest of it.
+        let held = |g: &Game| !in_menu && g.menu.is_some();
         for (q, script) in due {
-            // A quest stopped by an earlier script this frame does not run.
-            if self.quests.get(&q).is_some_and(|s| s.running) {
-                self.run_event(InstKey::Quest { quest: q }, script, ev, subject, RunCtx { quest: Some(q), ..Default::default() });
+            if held(self) {
+                break;
             }
+            // A quest stopped by an earlier script this frame does not run.
+            let Some(s) = self.quests.get_mut(&q).filter(|s| s.running) else { continue };
+            if in_menu {
+                s.since_menu_run = 0.0;
+            } else {
+                s.since_run = 0.0;
+            }
+            let key = InstKey::Quest { quest: q };
+            if !in_menu {
+                self.mark_run(key, Some(script));
+            }
+            self.run_event(key, script, ev, subject, RunCtx { quest: Some(q), ..Default::default() });
         }
         for r in self.active_refs() {
+            if held(self) {
+                break;
+            }
             let Some(script) = self.ref_script(r) else { continue };
             if self.data.script(script).is_some_and(|u| u.has_block(ev)) {
-                self.run_event(InstKey::Ref { reference: r }, script, ev, subject, RunCtx { self_ref: Some(r), ..Default::default() });
+                let key = InstKey::Ref { reference: r };
+                if !in_menu {
+                    self.mark_run(key, Some(script));
+                }
+                self.run_event(key, script, ev, subject, RunCtx { self_ref: Some(r), ..Default::default() });
             }
         }
         let holder = FormId::PLAYER_REF;
         for (item, script) in self.carried_scripts(holder, ev) {
+            if held(self) {
+                break;
+            }
             // An earlier item's script may have removed this one.
             if self.world.item_count(holder, item).unwrap_or(0) > 0 {
                 let key = InstKey::Item { holder, item };
+                if !in_menu {
+                    self.mark_run(key, Some(script));
+                }
                 self.run_event(key, script, ev, subject, RunCtx { self_ref: None, action_ref: Some(holder), quest: None });
             }
         }
         if !in_menu {
             self.update_effects(dt);
+            self.update_speech(dt);
         }
+    }
+
+    /// An instance's per-frame block is about to run: GetSecondsPassed in this run
+    /// returns the clock time since the previous run started [observed: quest timers
+    /// counted down by GetSecondsPassed came 0.95–1.0 × their fTimer after the stage
+    /// that set it, also when the script had not called GetSecondsPassed since an
+    /// earlier countdown ran out (VCG01 7 at 3.22 s of 3.25, 70 at 0.96 s of 1.0,
+    /// layer5-captures.md §10.7); the drops of the delay captures are the quest delay,
+    /// §5.4; the rule layer5.md §3.4 planned].
+    pub fn mark_run(&mut self, key: InstKey, script: Option<FormId>) {
+        let now = functions::clock_now(self.time);
+        let inst = self.instance(key, script);
+        inst.run_prev = inst.run_last;
+        inst.run_last = Some(now);
     }
 
     /// The scripted items `holder` carries whose script has a block for `ev`, in FormID
@@ -895,6 +1014,189 @@ impl<'a> Game<'a> {
     /// A function asks the running script to stop as `Return` does (RemoveMe).
     pub fn request_return(&mut self) {
         self.stop_run = true;
+    }
+
+    // ---- menus and message boxes (docs/spec-notes/scripts.md §7.7) ----------------
+
+    /// A script opens a menu (the name, race, tag-skill, trait or SPECIAL menu, a message
+    /// box): it is the open menu from now on [observed: each menu was open on the frame
+    /// after the stage whose result script opens it, layer5-captures.md §10.2–10.3;
+    /// hypothesis: a second menu replaces the first].
+    pub fn open_menu(&mut self, code: u16) {
+        if self.menu != Some(code) {
+            self.menu = Some(code);
+            self.emit(EventKind::MenuOpened { menu: code });
+        }
+    }
+
+    /// `ShowMessage` of a message box: it opens at once when no menu is open, otherwise
+    /// it waits until the open menu and the boxes shown before it are closed
+    /// [hypothesis]. While it is open, game time stops and MenuMode 1001 runs [observed:
+    /// the pack plugins' boxes held GameMode, VCG00's countdown and the world clock,
+    /// layer5-captures.md §10.1].
+    pub fn show_box(&mut self, message: FormId) {
+        if !self.cfg.modal_message_boxes {
+            return;
+        }
+        self.boxes.push(message);
+        if self.menu.is_none() {
+            self.open_menu(menus::MESSAGE);
+        }
+    }
+
+    /// The player closes the open menu with OK / Done (the console's CloseAllMenus closes
+    /// it the same way [observed: layer5-captures.md §10.1, §10.3]; the name menu keeps
+    /// the name it has). A message box waiting for a button gets button 0 (OK). The next
+    /// waiting message box then opens [hypothesis]. Returns the menu closed.
+    pub fn close_menu(&mut self) -> Option<u16> {
+        let m = self.menu.take()?;
+        if m == menus::MESSAGE && !self.boxes.is_empty() {
+            let b = self.boxes.remove(0);
+            if let Some(mb) = self.message_box.as_mut().filter(|mb| mb.message == b && mb.pressed.is_none()) {
+                mb.pressed = Some(0);
+            }
+        }
+        self.emit(EventKind::MenuClosed { menu: m });
+        if !self.boxes.is_empty() {
+            self.open_menu(menus::MESSAGE);
+        }
+        Some(m)
+    }
+
+    /// The player picks a button of the open message box: GetButtonPressed of the script
+    /// that showed it returns the button once, and the box closes.
+    pub fn press_button(&mut self, button: i32) -> Result<(), String> {
+        let m = self.message_box.as_mut().ok_or("no message box is open")?;
+        m.pressed = Some(button);
+        let message = m.message;
+        if self.menu == Some(menus::MESSAGE) && self.boxes.first() == Some(&message) {
+            self.close_menu();
+        }
+        Ok(())
+    }
+
+    // ---- dialogue lines (docs/spec-notes/scripts.md §7.7) --------------------------
+
+    /// `speaker.SayTo target topic` (`say_to`) or `speaker.Say topic`: the speaker says the
+    /// first line of the topic it can say, and the line's begin result script runs at
+    /// once; the end result script runs when the line ends ([`Game::tick`])
+    /// [documented: GECK wiki Category:Dialogue, owner export 2026-10-09: the begin
+    /// script runs when the actor starts the line, the end script when the actor finishes
+    /// it].
+    ///
+    /// A line can be said when its quest is running and the quest's conditions pass
+    /// [documented: GECK wiki Quest Data Tab: quest conditions apply to all of the quest's
+    /// dialogue, checked first; hypothesis: a stopped quest's lines are not said], its
+    /// own conditions pass (subject the speaker, target the listener, the player for
+    /// Say) and, with Say Once, the speaker has not said it before [documented: Category:
+    /// Dialogue]. Lines of higher-priority quests come first [documented: Quest Data
+    /// Tab], then topic order [hypothesis] [observed: Doc Mitchell's SayTo VCG01Intro
+    /// took the next unsaid line each time, also the first line of the topic when it had
+    /// never been said (stage 60 without 55), layer5-captures.md §10.3]. Random lines
+    /// are not picked at random here [hypothesis: first passing line]. A speaker already
+    /// saying a line stops it (its end script does not run) [hypothesis].
+    pub fn say(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, say_to: bool) -> Option<FormId> {
+        let data = self.data;
+        let mut lines: Vec<FormId> = data.topics.get(&topic).cloned().unwrap_or_default();
+        let priority = |i: &FormId| {
+            data.infos.get(i).and_then(|d| d.quest).and_then(|q| data.quests.get(&q)).map_or(0, |q| q.priority)
+        };
+        lines.sort_by_key(|i| std::cmp::Reverse(priority(i)));
+        let listener = target.or(Some(FormId::PLAYER_REF));
+        let speaker_base = functions::base_of(self, speaker);
+        let mut chosen = None;
+        for i in lines {
+            let Some(def) = data.infos.get(&i) else { continue };
+            if def.say_once && self.said.contains(&(speaker, i)) {
+                continue;
+            }
+            if def.speaker.is_some_and(|s| s != speaker && Some(s) != speaker_base) {
+                continue;
+            }
+            if let Some(q) = def.quest {
+                if !self.quests.get(&q).is_some_and(|s| s.running) {
+                    continue;
+                }
+                let qc = data.quests.get(&q).map(|d| &d.conditions);
+                if let Some(c) = qc.filter(|c| !c.is_empty()) {
+                    if !self.conditions_pass(c, Some(speaker), listener, &format!("QUST {q} dialogue")) {
+                        continue;
+                    }
+                }
+            }
+            if self.conditions_pass(&def.conditions, Some(speaker), listener, &format!("INFO {i}")) {
+                chosen = Some(i);
+                break;
+            }
+        }
+        let Some(info) = chosen else {
+            self.emit(EventKind::NoLine { speaker, topic });
+            return None;
+        };
+        self.cut_line(speaker);
+        let def = &data.infos[&info];
+        if def.say_once {
+            self.said.insert((speaker, info));
+        }
+        let seconds = line_seconds(&def.response_chars);
+        self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to });
+        if let Some(u) = def.begin {
+            self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
+            self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
+        }
+        Some(info)
+    }
+
+    /// Stop the line a speaker is saying, without its end script.
+    fn cut_line(&mut self, speaker: FormId) {
+        if let Some(k) = self.speech.iter().position(|s| s.speaker == speaker) {
+            let s = self.speech.remove(k);
+            self.emit(EventKind::LineEnded { speaker, info: s.info, cut: true });
+        }
+    }
+
+    /// Whether an actor is saying a line (IsTalking).
+    pub fn is_talking(&self, actor: FormId) -> bool {
+        self.speech.iter().any(|s| s.speaker == actor)
+    }
+
+    /// One frame of dialogue (game time only, like script time [hypothesis: a line does
+    /// not advance while a menu is open; observed: Doc's line started at stage 60 while
+    /// a message box was open ended after the boxes, layer5-captures.md §10.3]): lines
+    /// whose time is up end, in the order they started; each line's end result script
+    /// runs on its speaker, then the speaker's SayToDone blocks (after Say too, D1). A speaker
+    /// that was disabled, deleted or died stops its line [hypothesis].
+    fn update_speech(&mut self, dt: f64) {
+        let mut ended = Vec::new();
+        let mut cut = Vec::new();
+        for s in &mut self.speech {
+            s.remaining -= dt;
+            let here = self.world.peek(s.speaker).is_none_or(|w| !w.deleted) && self.world.is_enabled(s.speaker).unwrap_or(false);
+            if !here || self.extra.get(&s.speaker).is_some_and(|e| e.dead) {
+                cut.push(s.speaker);
+            } else if s.remaining <= 1e-9 {
+                ended.push((s.speaker, s.info));
+            }
+        }
+        for sp in cut {
+            self.cut_line(sp);
+        }
+        let data = self.data;
+        for (speaker, info) in ended {
+            let Some(k) = self.speech.iter().position(|s| s.speaker == speaker && s.info == info) else { continue };
+            let s = self.speech.remove(k);
+            self.emit(EventKind::LineEnded { speaker, info, cut: false });
+            if let Some(def) = data.infos.get(&info) {
+                if let Some(u) = def.end {
+                    self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
+                    self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
+                }
+            }
+            // SayToDone follows a line said by Say as well as by SayTo [documented: GECK
+            // tutorials, docs/spec-notes/level-design.md §11.2 D1].
+            self.ref_event(speaker, event::SAY_TO_DONE, Some(Value::Ref(s.topic.0)), None);
+        }
     }
 
     /// `r` was enabled: when it is in a loaded cell and its script has an OnLoad block,
@@ -927,8 +1229,11 @@ impl<'a> Game<'a> {
         self.world.peek(r).is_none_or(|s| !s.deleted) && self.world.is_enabled(r).unwrap_or(false)
     }
 
-    /// Scripted references that run per-frame blocks now: enabled, in a loaded cell
-    /// [hypothesis: disabled references do not run their scripts].
+    /// Scripted references that run per-frame blocks now: in a loaded cell and not
+    /// deleted, disabled ones included [documented: GECK wiki Object scripts, owner
+    /// export: object scripts run even for disabled references]. OnLoad at a cell load
+    /// still needs the reference enabled (a disabled reference has no 3D to load)
+    /// [hypothesis].
     fn active_refs(&self) -> Vec<FormId> {
         let mut out: BTreeSet<FormId> = BTreeSet::new();
         for c in &self.loaded_cells {
@@ -938,7 +1243,7 @@ impl<'a> Game<'a> {
         }
         out.extend(self.moved.iter().copied());
         out.into_iter()
-            .filter(|&r| self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) && self.present(r))
+            .filter(|&r| self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) && self.world.peek(r).is_none_or(|s| !s.deleted))
             .collect()
     }
 
@@ -1068,6 +1373,9 @@ impl<'a> Game<'a> {
         if !pass && !force {
             let why = self.explain_conditions(&def.conditions, speaker, Some(FormId::PLAYER_REF));
             return Err(format!("the conditions of {info} do not pass: {}", why.join("; ")));
+        }
+        if let (true, Some(sp)) = (def.say_once, speaker) {
+            self.said.insert((sp, info));
         }
         for u in [def.begin, def.end].into_iter().flatten() {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: speaker });
@@ -1244,6 +1552,9 @@ impl<'a> Game<'a> {
             return;
         }
         let before = std::mem::replace(&mut self.effect_elapsed, elapsed);
+        if ev == event::SCRIPT_EFFECT_UPDATE {
+            self.mark_run(InstKey::Effect { id }, Some(script));
+        }
         self.run_event(InstKey::Effect { id }, script, ev, None, RunCtx { self_ref: Some(target), action_ref: caster, quest: None });
         self.effect_elapsed = before;
     }
@@ -1427,6 +1738,9 @@ impl<'a> Game<'a> {
             menu: self.menu,
             loading: self.loading,
             message_box: self.message_box.clone(),
+            boxes: self.boxes.clone(),
+            speech: self.speech.clone(),
+            said: self.said.clone(),
             frame: self.frame,
             time: self.time,
             pending_onload: self.pending_onload.clone(),
@@ -1452,6 +1766,9 @@ impl<'a> Game<'a> {
         g.menu = s.menu;
         g.loading = s.loading;
         g.message_box = s.message_box.clone();
+        g.boxes = s.boxes.clone();
+        g.speech = s.speech.clone();
+        g.said = s.said.clone();
         g.frame = s.frame;
         g.time = s.time;
         g.pending_onload = s.pending_onload.clone();
@@ -1462,6 +1779,23 @@ impl<'a> Game<'a> {
         g.rng.set_word_pos(pos);
         Ok(g)
     }
+}
+
+/// Seconds of a line per response without its voice file: a base plus a time per
+/// character of the response text. The game takes the length from the voice file; these
+/// two numbers are fitted to the observed spans of Doc Mitchell's lines [hypothesis:
+/// one line of 29 characters took 2.9 s, three of 193 characters 15.4 s and two of 129
+/// characters 10 s from the stage before them to the stage their end script set,
+/// layer5-captures.md §10.2–10.3; the fit gives 2.9, 15.4 and 10.3 s].
+pub const LINE_BASE_SECONDS: f64 = 1.1;
+pub const LINE_SECONDS_PER_CHAR: f64 = 1.0 / 16.0;
+
+/// How long a line lasts ([`LINE_BASE_SECONDS`], [`LINE_SECONDS_PER_CHAR`]).
+pub fn line_seconds(response_chars: &[usize]) -> f64 {
+    if response_chars.is_empty() {
+        return LINE_BASE_SECONDS;
+    }
+    response_chars.iter().map(|&c| LINE_BASE_SECONDS + c as f64 * LINE_SECONDS_PER_CHAR).sum()
 }
 
 /// An argument as trace JSON (forms by FormID, with the Editor ID when known).
@@ -1587,8 +1921,11 @@ impl Host for Exec<'_, '_> {
             Some(v) => match v.as_form() {
                 Some(f) => Some(FormId(f)),
                 None => {
-                    // A call on an empty reference variable: the engine cannot run it
-                    // [hypothesis: skipped with an error report].
+                    // A call on an empty reference variable stops the script silently
+                    // for this run [documented: GECK wiki Ref Variable, Eval and Let
+                    // pages, owner export; docs/spec-notes/script-language.md §7.3 row
+                    // 1]; traced as `call_failed`.
+                    self.game.stop_run = true;
                     let name = self.game.data.table.get(opcode).map(|f| f.name.clone()).unwrap_or_default();
                     let unit = self.unit.key();
                     self.game.emit(EventKind::CallFailed {

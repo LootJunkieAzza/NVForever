@@ -53,7 +53,7 @@ cell entity), and `RefChanged` is sent by the inventory menu for each dropped re
 | Item | Kind | Written by | Read by |
 |---|---|---|---|
 | `PlayData`, `PlayWorld` | plugin input / resource: `'static` load order, schema, `WorldIndex`, the worldspace the game starts in, start pose, test aids | nvforever | all |
-| `Location` | resource: the worldspace and the interior (if any) the player is in now; from `PlayData` at the start, changed when physics applies a `Travel` | P | U (F9 aid), any part that needs the current worldspace |
+| `Location` | resource: the worldspace and the interior (if any) the player is in now; from `PlayData` at the start, changed when physics applies a `Travel` | P | U (F10 aid), any part that needs the current worldspace |
 | `SimState` | resource: `fnv_sim::world::World<'static>` + forms + refs; clock advanced in real time | sim.rs | A, U |
 | `PlayState` | Bevy state `Playing` / `Menu` | U (enter/leave menus) | P (no movement/look in menus), A |
 | `PlaySet` | system sets, chained in `Update`: `Input` → `Physics` → `Activation` → `Ui` → `Sync` | lib.rs | all |
@@ -65,6 +65,18 @@ cell entity), and `RefChanged` is sent by the inventory menu for each dropped re
 | `Travel { world, interior, feet, heading_deg }` | message: into an interior (`interior: Some`, `world: None`) or out into worldspace `world` (the current one or another); `Travel::destination(from)` gives the new `Location` | A | nvforever (render, worldspace switch), P |
 | `OpenContainer { container }` | message | A | U |
 | `RefChanged { form_id }` | message: the sim changed a reference's presence (taken, dropped, enabled, disabled), placed or created | A, U (one per dropped reference) | A (visual sync), P (collision; created references load with their physics cell) |
+
+Coordinator change 2026-10-09 (player body, branch `claude/player-body`,
+docs/design/player-body.md): `Player` gained `body_eye` (the eye of the drawn body, which
+`Player::eye` returns when set); new resources `PlayerControl` (sneak, weapon out, aiming,
+first/third person), `ControlSettings`, `BodyView`, and the set `player::BodySet` in
+`PlaySet::Physics` between the character's move and the camera; the camera system moved
+to `control.rs` (`place_camera`: first person at the eye, third person behind the
+shoulder). Sneaking scales walking and running by `fMoveSneakMult`. Same day, second
+change: every control is read through `bindings::Bindings` (the game's default keys and
+mouse buttons, docs/spec-notes/controls.md), including Activate and Menu Mode;
+`activate::HudMessage` is public; the nearest-container aid moved from F9 (the game's
+Quick Load) to F10.
 
 Coordinator change 2026-10-08 (worldspace travel, branch `claude/layer4-play-worldspace`):
 `Travel` gained `world`; `Location` was added; `PlayData::world` is only the start.
@@ -120,7 +132,11 @@ worldspace asks for it: world.md §6).
   `World::encumbrance`. Non-playable items (ARMO BMDT "Non-Playable", e.g. the Pip-Boy
   Glove) are not listed in either menu, so they cannot be stored, equipped or dropped
   [observed by the owner: the game never shows the glove and it stays equipped]; Take
-  All leaves them in the container [hypothesis].
+  All leaves them in the container [hypothesis]. Quest items (`World::is_quest_item`)
+  are listed with a "Q" mark; dropping one is refused by the simulation and the status
+  line says "<name> is a quest item and can't be dropped" [documented: GECK wiki
+  Category:Items; the wording is ours]; storing one in a container is allowed
+  [hypothesis] (2026-10-09, simulation.md §3 "Quest items").
 - Dropped items (`dropped.rs` and `phys.rs`; added 2026-10-08): created
   references are drawn from their base form's model at the simulation's pose as children
   of their `RenderCell` (so render streaming and door travel unload and reload them);
@@ -314,8 +330,46 @@ gate (rests 4350.47, unloaded in Freeside, back at 4350.46), CampGuardianCaves (
 (59500, 38500), walks out at (55599, 38457, 2634.1)); parity-lab 336/351, every result
 identical to main's `fnvtool`.
 
+Input audit (2026-10-09, `claude/l4-play-closeout`; reading the code against the
+original's control map, plus the coordinator's first hands-on run with real OS input on
+main 9be35d7). The original's bindings [observed: the owner's `FalloutPrefs.ini`
+[Controls], read-only; each value's second byte is a DirectInput scan code]: Forward W,
+Back S, Slide Left A, Slide Right D, Activate E, Crouch/Sneak left Ctrl, Run left Shift,
+Always Run Caps Lock, Auto Move Q, Jump Space, Menu Mode (Pip-Boy) Tab, Ready Item R,
+Grab Z, Toggle POV F, VATS V, Rest T, QuickSave F5, QuickLoad F9, Use left mouse, Block
+right mouse; `bAlwaysRunByDefault=1`, `bInvertYValues=0`, `fMouseSensitivity=0.0020`.
+Bevy's `KeyCode` names physical keys, as scan codes do, so layouts other than QWERTY
+keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
+- Caps Lock toggles Always Run (Shift then runs instead of walking); Ctrl toggles
+  sneaking (the original's control toggles [observed: `IsSneaking` after `TapControl 8`,
+  mv_values]), at 197.7/344 of the speed [observed running; walking hypothesis]; Q
+  toggles Auto Move, cancelled by Forward or Back [hypothesis]. Before, none of the three
+  existed.
+- Esc in the world opened nothing and quit the program at once (nvforever `keys`). It now
+  opens a pause menu (`pause.rs`: Resume / Quit, keys and clickable buttons; a
+  `PlayState::Menu`, so time, physics and mouse look stop and the cursor is free); Esc in
+  a menu still closes it. Without `--play` Esc still quits. `--run-seconds` and the test
+  aids are unaffected.
+- The status overlay's help line showed the fly camera's keys in `--play`; it now shows
+  `nvf_play::HELP` (the play controls).
+- Message-box buttons can be clicked (the original's can [observed by the coordinator]):
+  each is a button (`script_hud.rs` `BoxButton`), and the cursor is released while a box
+  is on screen.
+- Menu errors name items in words ("Cannot equip or use 10mm Round") instead of
+  "Cannot: 0x00004241 cannot be equipped" (`menu/model.rs` `plain_error`).
+- Lock prompts name the level: Very Easy, Easy, Average, Hard, Very Hard, Requires Key
+  for 0/25/50/75/100/255 [documented: GECK "Non-NPC population", level-design.md §7;
+  255 = Requires Key hypothesis], other levels as numbers.
+Kept, with the reason: mouse look stays 0.0025 rad per count (what the original's
+`fMouseSensitivity` 0.002 measures is not known) and is not inverted (the original's
+default); F9 stays the test aid that opens the nearest container (in the original it is
+QuickLoad; there is no saving yet); the right Shift also walks (unbound in the original).
+Not built: Ready Item, Grab, Toggle POV, VATS, Rest/Wait, hotkeys, saving.
+
 Open:
-- Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
+- Real keys and mouse: first hands-on run by the coordinator 2026-10-09 (mouse look,
+  WASD, jump, inventory and container menus by keys and mouse, doors, message boxes);
+  its findings are fixed above. Crouching and Auto Move by hand are not tried yet.
 - Dialogue and barter are not built.
 - ~~Locked doors that scripts open in the game stay locked~~: with Layer 5 scripts in
   `--play` (docs/design/layer5-play.md) the Freeside → Strip gate 0x00116425's own
@@ -323,22 +377,33 @@ Open:
   dialogue, Layer 6; a test aid stands in), and its OnActivate takes the player through.
 - Renderer, seen in the worldspace tests and the same with a direct start (not the
   switch): NVUrbanClear (Freeside) is overexposed and Big MT's sky is white at noon.
-- Starting the game in an interior leaves generated distant terrain off for the start
-  worldspace after going out (main.rs builds the job only for an exterior start); a
-  worldspace switch builds it for the new worldspace.
+- ~~Starting the game in an interior leaves generated distant terrain off for the start
+  worldspace after going out~~ Fixed (2026-10-09): main.rs builds the generated-terrain
+  job for interior starts too; LOD stays off inside and starts with it at the door out.
 - Armour placed in the world or dropped is drawn with its base form's MODL; which of
   ARMO's models (MODL, MOD2–MOD4) is the one lying on the ground is not in the spec notes.
   (The first drop test dropped the Pip-Boy Glove, which the game never lets the player
   drop: since 2026-10-08 the menus hide non-playable items, see Part U.)
 - The player's non-playable items (Pip-Boy 3000, Pip-Boy Glove) start unequipped in the
   simulation; in game the glove is always equipped [observed by the owner].
-- Whether dropped items fall in the game (the scripted capture says no, the engine says
-  yes [hypothesis]; capture written, simulation.md §5). Placed dynamic clutter that
-  physics moves (pushed, knocked down) is not written back to the simulation; only
-  created references are.
+- ~~Whether dropped items fall in the game~~: they do [observed 2026-10-09, `pc_drop_fall`,
+  physics.md §4.3]; a drop now starts turned to the player's heading and clutter rests on
+  the terrain's 3.5 shell, as in the game. ~~Placed dynamic clutter that physics moves is
+  not written back~~: since 2026-10-09 it is (`PhysState::settle_placed`, drawn there by
+  `moved.rs`, collision rebuilt there on reload; physics.md §4.3). Whether the original
+  keeps pushed clutter where it rests across a cell reload is not captured [hypothesis].
 - ~~Controller jitter against some rocks reproduces in `fnvtool phys walk`~~ Fixed:
   concave corners stop the character instead of alternating between faces (physics.md
   §6.1); the controller now rests on contact shells like the arrival (§6.2).
-- Interior safety net: a start or walk onto a reference outside an interior's room (the
-  top of Ringo's cash box) stands there until it falls; what the game does with `coc` and
-  with a start over nothing is not captured (proposed capture in physics.md §6.7).
+- ~~Interior safety net: what the game does with `coc` and with a start over nothing~~:
+  captured 2026-10-09 (`pc_coc`, physics.md §6.7): `coc` goes to the cell's
+  COCMarkerHeading, else its XMarker, else a door arrival; a fall is caught within about
+  a second and put there. `nvf-play` follows (interior starts without `--pos`, rescues,
+  a 256-unit fall margin). Standing on top of a reference outside the room (Ringo's cash
+  box) is still allowed until the player walks off it.
+- Crouching: sneaking toggles and slows the player [observed], but the crouched capsule
+  height and eye height are not captured (physics.md §6, capsule height).
+- Captures that leave Doc Mitchell's house through the front door make the game write
+  `autosave.fos` (pc_drop_fall, 2026-10-09: the save guard reported it and kept the
+  previous rolling saves in `C:\fnv-private\capture\saves-backup\1791556049`); the
+  movement jobs of layer4-captures.md §5 all do this. Owner's call whether to restore.

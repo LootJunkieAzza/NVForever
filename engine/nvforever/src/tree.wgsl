@@ -7,6 +7,11 @@
 // in the plane of the view, so it always faces the camera (and, in the shadow pass, the
 // light).
 //
+// Distant tree billboards (TREE_BILLBOARD, treelod.rs): every vertex of a card sits at
+// the tree's foot; UV_1 holds the corner's offset (x right, y up, game units). The card
+// stands upright and turns about the vertical towards the camera (the view position, so
+// each tree faces it on its own). The wind uniform is zero for them.
+//
 // Wind: the whole tree rocks along the wind, more the higher a point is; leaf cards also
 // rustle (flutter and tilt), each with its own phase. Speeds come from the TREE record's
 // rock and rustle speeds and strength from the weather's wind speed; amplitudes and the
@@ -67,6 +72,21 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     let base = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0)).xyz;
     var world = base + rock(world_from_local, vertex.position);
+
+#ifdef TREE_BILLBOARD
+#ifdef VERTEX_UVS_B
+    // Bevy space: y is up. Right = up x (towards the camera, flattened).
+    let to_cam = view.world_position.xyz - base;
+    var flat = vec2<f32>(to_cam.x, to_cam.z);
+    var right = vec3<f32>(1.0, 0.0, 0.0);
+    if (dot(flat, flat) > 1e-6) {
+        flat = normalize(flat);
+        right = vec3<f32>(flat.y, 0.0, -flat.x);
+    }
+    world += right * vertex.uv_b.x + vec3<f32>(0.0, vertex.uv_b.y, 0.0);
+    out.uv_b = vertex.uv_b;
+#endif
+#endif
 
 #ifdef TREE_LEAVES
 #ifdef VERTEX_UVS_B

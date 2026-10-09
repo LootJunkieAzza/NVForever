@@ -355,6 +355,25 @@ sequences and skeleton bindings, IDLE records per animation group with the `.kf`
 name, creature KFFZ/NIFZ lookups) is defined in docs/spec-notes/animation.md §6 together
 with the animation data notes.
 
+# Locomotion clips (workstream 5, part G)
+
+`fnvtool actor locomotion` (`fnv.actor.locomotion/1`: the locomotion clips of a skeleton
+folder per body and stance prefix, and each clip's root motion: accumulation-root
+translation and turn per cycle, ground speed, text keys) is defined in
+docs/spec-notes/actors.md §8.5 together with the locomotion notes.
+
+# Placed creatures (workstream 5, part D)
+
+`fnvtool actor creatures` (`fnv.actor.creatures/1`: every placed creature after leveled
+and template resolution — skeleton, NIFZ body models, base scale, KFFZ names — and with
+`--check-meshes` how each model joins its skeleton) is defined in
+docs/spec-notes/actors.md §10.4 together with the creature notes.
+# Weapon stance clips (workstream 5, part H)
+
+`fnvtool actor weapons` (`fnv.actor.weapons/1`: per stance prefix the holster, equip, aim
+and unequip clips with their `prn:` keys and track priorities, and the weapon each placed
+NPC draws) is defined in docs/spec-notes/actors.md §9.5 together with the weapon notes.
+
 # Navigation (navmeshes)
 
 `fnvtool nav survey` (`fnv.nav.survey/1`), `nav graph` (`fnv.nav.graph/1`), `nav near`

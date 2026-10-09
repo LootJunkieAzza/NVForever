@@ -260,6 +260,12 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   slightly better (3.0°); the residuals (model about 4° high around 17:30–
   18:20, 3° low around noon) suggest the real motion is not uniform, which these
   frames cannot settle. Sunrise was not seen directly (hills to the east).
+  Below the horizon theta runs on from 180° to 360° at the night's own constant rate
+  (the Mojave: 10 hours), so the path closes at sunrise begin and the moon, drawn
+  opposite the sun, rises at sunset end and peaks at 01:00 [hypothesis; the night
+  sky was not measured]. Running the day's rate on through the night instead made
+  theta jump 51° at midnight, which flipped the moonlight's shadows east to west in
+  the time-lapse [observed in nvforever].
   **No sun shadows from the world** [observed]: the reference frame goodsprings_dusk
   (19:06, looking north-east) shows the crate's front, the boulder's west flank and the
   ground around them lit warm by the sun, and no long shadows east of the boulder or
@@ -412,14 +418,14 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   → `Set VNight to 1`, else 0 [observed: script source (SCTX) in FalloutNV.esm]. Until
   scripts run (Layer 5) the renderer evaluates that condition itself and fades between
   the weathers over half a game hour [placeholder; WTHR DATA "trans delta" not
-  understood]. NVWastelandClearNight has no clouds (`skylpha.dds` on layers 1-3) and a
+  understood]. NVWastelandClearNight has no clouds (`sky\alpha.dds` on layers 1-3) and a
   darker night ambient (121, 128, 213) than NVWastelandClear (172, 170, 215).
 - **Star texture alpha** [observed]: `SkyStars.dds` (512², DXT5) has colour in 6,225
   texels but non-zero alpha in only ~430, and its shader property sets the
   alpha-texture flag. The owner's in-game night shots show sparse, faint stars, so the
   renderer weights star colour by texture alpha (additive) [hypothesis].
 - **Image space** [documented: xEdit wbDefinitionsFNV.pas IMGS, IMAD, WTHR, WRLD]: WRLD
-  `INAM` names the worldspace's image space (IMGS); WTHR ` IAD`..`IAD` name one
+  `INAM` names the worldspace's image space (IMGS); WTHR `\x00IAD`..`\x05IAD` name one
   image space adapter (IMAD) per time of day (sunrise, day, sunset, night, high noon,
   midnight). IMGS `DNAM` holds HDR, bloom, get-hit, night-eye and cinematic values
   (saturation, contrast average luminance, contrast, brightness, tint colour and value);
@@ -431,7 +437,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   100, e.g. ShackInteriorWaste01 gets saturation 0.07, the Prospector Saloon turned
   grey) [observed]. The renderers take byte 100 for a 152-byte DNAM and 96 otherwise
   [hypothesis: the skin dimmer arrives with the 152-byte layout].
-  IMAD keeps multiply/add key lists (time, value) per parameter (`IAD`..`IAD`
+  IMAD keeps multiply/add key lists (time, value) per parameter (`\x11IAD`..`\x14IAD`
   multiply and `QIAD`..`TIAD` add for the cinematic ones) and a tint colour key list
   (TNAM: time, RGBA). WastelandNV → NVDefaultExterior: saturation 1.1, contrast 1.1 around
   luminance 0.2, brightness 1.0, tint (0.98, 0.57, 0.00) at 0.33 [observed]. NVWastelandClear
@@ -449,7 +455,7 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   [hypothesis]. The IMGS flags byte (saturation, contrast, tint, brightness) is 0 in
   NVDefaultExterior; its role is unknown. HDR eye adaptation is not applied.
 - **IMAD cinematic track order** [documented: xEdit wbDefinitionsFNV.pas IMAD names
-  `IAD`..`IAD` saturation, contrast, contrast avg lum, brightness; IMGS DNAM
+  `\x11IAD`..`\x14IAD` saturation, contrast, contrast avg lum, brightness; IMGS DNAM
   stores saturation, contrast avg lum, contrast, brightness]. The data fits the IMGS order
   better, 0x12 = contrast avg lum and 0x13 = contrast [hypothesis], and the renderers
   read it so. Evidence [observed, `crates/fnv-world/examples/weather_dump.rs --imad` over
@@ -484,6 +490,71 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   hypothesis: Freeside's noon hazy and slightly washed out, never clipped white; Big MT's
   sky blue-grey with clouds; the Goodsprings sunset slightly flatter than a high-contrast
   grade.
+- **Lighting and sky captures, 2026-10-09 afternoon** [observed: 66 screenshots of the
+  original game by `tools/capture/capture_frames.py` (plugin v7, save `nvftest`,
+  NVWastelandClear forced unless named, 1280 × 720, FOV 75), private under
+  `C:\fnv-private\l3sky\`; renders of the same cameras by `nvforever`]. Cameras: four views
+  at Goodsprings ((−70500, 1200) headings 45 and 225; (−69500, 2500) headings 90 and 270)
+  at 07:36, 09:06, 12:06, 15:06, 17:36, 19:06, 20:06, 22:06 and 02:06; the sky cameras of
+  `C:\fnv-private\sky\cap\cameras.json` plus the sun at 09:06 and 18:06 and the west sky at
+  20:06 and 20:36; Primm and Lake Mead (17:36); Freeside at 12:06. Big MT failed (the
+  plugin's BitBlt failed there).
+  - *No view-dependent eye adaptation*: with NVWastelandClearNight (no clouds) at 12:06,
+    the same sky direction has the same colour in frames pitched 0°, 30°, 60° and 89°
+    (25° up: (116, 117, 132) / (119, 119, 133); 45°: (108, 106, 118) / (109, 106, 118);
+    75°: (162, 146, 127) twice), although the frames range from mostly ground to all sky
+    and sun glow. So the dark noon sky is not exposure following the view; the HDR
+    setting (`bDoHighDynamicRange=1` in the owner's FalloutPrefs.ini) does not change the
+    exposure with what is in view, or not measurably [observed].
+  - *Cloud placement follows the time since the save was loaded*, not the game hour:
+    today's trial at 12:06 (22 s after loading) has the same clouds as the reference frame
+    goodsprings_noon taken in another session 22 s after loading (mean difference 0.14
+    grey levels over the sky), and so does the 07:36 frame taken 22 s after loading
+    (correlation 0.89), while the 12:06 frame of the same camera taken 171 s after loading
+    differs (−0.13). Between goodsprings_noon (22 s) and goodsprings_dusk (41 s) the
+    pattern moves about 70 px right and 26 px down at the top of the 1280 × 720 frame
+    (camera heading 45°). The reference frames were taken 22, 41, 59 and 79 s after
+    loading (noon, dusk, hill, lake). So the game's cloud pattern in a frame is
+    reproducible only with that time, which the scenarios do not carry; the renderer
+    scrolls from its own start [observed; matching it needs a "seconds since load" input
+    per frame and the game's scroll direction and rate in texture space, not done].
+  - *Sun glow*: ring medians around the sun (degrees from its centre): 12:06 looking up
+    without clouds (ClearNight) (233, 209, 184) at 6-8°, (190, 170, 155) at 12-16°,
+    (141, 130, 124) at 20-26°; with clouds (Clear) white to 8°, (241, 220, 182) at
+    12-16°, (168, 153, 134) at 20-26°; 09:06 (sun 36° up) with clouds white to 16°,
+    (235, 222, 195) at 20-26°, (180, 169, 158) at 32-40°; 18:06 (sun 20° up) white to
+    12°. The larger glow comes with clouds near the sun and grows as the sun gets lower
+    [observed]; the mechanism is not known.
+  - *West sky at dusk*: at 20:06 looking west the sky 15-35° up is about (60, 52, 62);
+    at 20:36 it is (3..10, 4..12, 11..19). With the earlier dusk series (green channel of
+    the upper-right region 97 at 19:12, 75 at 19:36, 49 at 20:06, 15 at 20:36), the sky
+    fades from sunset to night roughly linearly in display values from about 19:05 to
+    20:35 [observed], later than the renderer's night key at sunset end (20:00). Not
+    changed: moving the night key or blending in display values changes every weather
+    colour and needs its own check.
+  - *Light on surfaces* [observed, offline fit: game frames with the grade undone (the
+    renderer's grade at that hour) against ambient-only and sun-only renders without
+    tonemapper, grade or shadows, 160 × 90, 28 frames 07:36-20:06]: a lighting sum in
+    display values, texture × (a·ambient + b·sunlight + c·sunlight·N·L), fits every frame
+    better than the same sum in linear light (mean error 0.03-0.06 against 0.04-0.12 per
+    frame). Within the renderer's linear model the ambient as now (Bevy's 0.452 included)
+    is about right overall and the sun is too strong: the best constant factor on the
+    sunlight is 0.6-0.66 (mean error 0.0601 → 0.0547), best per hour about 0.5 at 09:06,
+    15:06 and 17:36 but 0.9-1.2 at 07:36, 12:06 and 19:06, so a constant is a compromise
+    [hypothesis to test]. 0.66 equals (1 / 1.21)^2.2, the day image space's Sunlight
+    Dimmer (NVDefaultExterior HDR 1.1 × NVWastelandIS 0x0B multiplier 1.1) as a divisor of
+    display values; the same reading at sunrise (×1.5) and sunset (+0.2,
+    NVWastelandSunsetIS `KIAD`) made those frames worse. Faces turned away from the sun
+    (boulder at 15:06-17:36, crate at 12:06) get an effective ambient of about (96..107,
+    100..110, 106..114) in display values where the weather gives (87, 105, 138): nearly
+    neutral. The clearest case is Primm at 12:06: a north-facing wall (sun 78° up in the
+    south-east) is brightly and warmly lit in the game and nearly black-blue in the
+    renderer, so the game lights faces turned away from a high sun much more than
+    texture × ambient (two-sided or wrapped sunlight are candidates). Not changed in the
+    renderer yet (no validated change).
+  - *Freeside at 12:06* (NVUrbanClear, HeavyHaze adapter): the game's picture is normal,
+    slightly hazy, never clipped white; the renderer's (IMGS-order reading of 0x12/0x13)
+    is close in tone (frame SSIM 0.575). This confirms the PR #43 reading [observed].
 - **Water**: a cell with DATA bit 1 ("has water") has a water surface at XCLW, or at
   the worldspace's default water height (WRLD DNAM) when XCLW is the 3.4e38 sentinel
   [hypothesis]; its type is CELL `XCWT`, else WRLD `NAM2`. Lake Mead cells store 2600
@@ -586,12 +657,69 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   plus 6 `.high.` variants), merged geometry of distant buildings and landmarks over the
   same 4 × 4-cell squares, textured from one atlas `...\blocks\<world>.buildings.dds`
   (+ `_n`). Separately, 692 `*_lod.nif` meshes sit next to their full models.
+  Block geometry [observed: blocks x−16.y0, x−12.y0, x−16.y−4]: one BSSegmentedTriShape
+  with vertex normals, tangents and bitangents, translated to the square's south-west
+  corner (the root node is not), clamp mode 0; its segments split the triangle list by
+  cell, segment i holding cell (i / 4, i mod 4) of the square (x-major): in 39 of the 40
+  non-empty segments that cell holds most of the segment's triangle centres, 83% of all
+  triangles (the rest belong to objects reaching into the next cell). A block has up to
+  16 segments (x−12.y0: 14, 8 of them empty). That the game hides a loaded cell's
+  segment is [hypothesis]; the renderer splits blocks by triangle centre instead (lod.rs).
 - **Settings**: `lodsettings\<world>.dlodsettings`, 24 bytes. For WastelandNV:
   u32 4, u32 32, u32 128, i16 −64, i16 −64, i16 63, i16 63, u32 4 [observed], read as
   smallest and largest level, grid size in cells, south-west and north-east cells, and
   object LOD level [hypothesis: matches the files present].
-- How the engine hides LOD under loaded cells, and when it switches levels, is not known
-  [hypothesis in the renderer: level 4 only; layer3.md].
+- **Coarser levels** [observed: level4.x12.y8, level8.x8.y8, level16.x0.y0,
+  level32.x0.y0 and level32.x−32.y−32 decoded]: every level is laid out like level 4 —
+  the root translated to the chunk's south-west corner (level32.x−32.y−32 → −131,072,
+  −131,072), one textured NiTriShape, UVs u = 1 − x / side, v = y / side for every
+  vertex, the extra f32 per vertex equal to its z for every vertex in all five, and the
+  untextured shape at water heights. The textured shape keeps about the same size at
+  every level (level 4: 1,299 vertices / 4,198 triangles; 8: 1,110 / 4,116; 16:
+  1,112 / 4,155; 32: 1,074 / 3,971 and 1,083 / 4,144), so the detail per cell drops
+  fourfold per level step; the vertices are irregular (235 distinct x values at
+  level 8), an adaptive triangulation. All 1,360 diffuse and 1,360 normal textures are
+  256 × 256 DXT1 with 9 mips at every level [observed: `fnvtool dds list`], so a
+  level-L texel spans 16 × L units.
+- **Chunk edges** [observed]: neighbouring chunks do not share their edge vertices.
+  Along x = 49,152, level4.x8.y8 has 16 edge positions and level4.x12.y8 52, 14 of them
+  in common (heights equal there); level8.x0.y8 / level8.x8.y8 along x = 32,768: 23 and
+  18, 6 in common; level4.x8.y8 against level8.x8.y8 along the same line: 12 and 18,
+  8 in common. Side by side they leave T-junction cracks, at the same level and across
+  levels; the renderer hangs skirts from every chunk's open edges (layer3.md).
+- **No tree LOD** [observed]: the archives (base game and Update.bsa) hold no tree LOD
+  meshes, lists or atlases; the only per-tree distant data are the billboards
+  (`textures\trees\billboards\`, §2).
+- **Load distances** in the INI files [observed: the owner's `FalloutPrefs.ini`; the
+  game folder's `Fallout_default.ini` and the Launcher presets `low.ini`, `medium.ini`,
+  `high.ini`, `VeryHigh.ini`; both are only read]. Section `[TerrainManager]` also sets
+  `bUseNewTerrainSystem=1`, `bUseDistantObjectBlocks=1`, `fBlockMorphDistanceMult=0.70`,
+  `fHighBlockLoadDistanceLow=20000` (all presets).
+
+  | Setting | Owner | Low / Medium / High / Very High |
+  |---|---|---|
+  | `[General] uGridsToLoad` | 5 | — |
+  | `[General] uExterior Cell Buffer` | 36 | — |
+  | `[General] uGridDistantCount`, `uGridDistantTreeRange` | 20, 5 | — |
+  | `[TerrainManager] fBlockLoadDistance` | 125,000 | 125,000 in all |
+  | `[TerrainManager] fBlockLoadDistanceLow` | 50,000 | 25,000 / 50,000 / 50,000 / 50,000 |
+  | `[TerrainManager] fSplitDistanceMult` | 1.5 | 0.75 / 1.0 / 1.0 / 1.5 |
+  | `[TerrainManager] fTreeLoadDistance` | 40,000 | 0 / 25,000 / 26,000 / 40,000 |
+  | `[LOD] fLODFadeOutMultObjects` | 15 (`Fallout.ini`: 5) | 2.5 / 2.5 / 7.5 / 15 |
+  | `[LOD] fLODMultObjects`, `fLODMultTrees`, `fLODFadeOutPercent` | 5, 0.5, 0.6 | — |
+  | `[Grass] fGrassStartFadeDistance` | 7,000 | 0 / 3,000 / 5,000 / 7,000 |
+
+  Readings [hypothesis]: fBlockLoadDistance is how far terrain chunks and object
+  blocks are drawn, fBlockLoadDistanceLow how far the finest (level 4) chunks reach,
+  fSplitDistanceMult scales the distances at which coarser chunks give way to finer
+  ones (at Very High and Low, fSplitDistanceMult × 8 cells × 4,096 = 49,152 and 24,576
+  lands within 2% of fBlockLoadDistanceLow; at Medium and High it does not), and
+  fTreeLoadDistance how far distant trees are drawn (0 at Low: none). uGridDistantCount
+  and uGridDistantTreeRange look like the older distant-land settings (cell counts) that
+  the new terrain system replaces. Which INI file wins when both set a value is not
+  known. What NVForever does with each: layer3.md "Distant LOD".
+- How the game hides LOD under loaded cells, and exactly when it switches levels, is not
+  known; the renderer's rules are [hypothesis] (layer3.md, `engine/nvforever/src/lod.rs`).
 
 ## 8. Interior lighting and lights
 
@@ -617,6 +745,20 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   lights, is not used]. With Bevy's physically based inverse-square falloff instead, the
   porch lamp lit a small hot spot and left the door and wall dark, where in game they are
   lit warm [observed, owner's screenshots].
+- **Placed light radius**: a placed light's `XRDS` "Radius" [documented: xEdit] is an
+  offset added to its base's DATA radius [observed, below]. Interior LIGH references:
+  10,087 in the ten masters, 8,524 with `XRDS` (`crates/fnv-world/examples/light_survey.rs
+  --xrds`); `XRDS` / base radius runs from -0.893 to 73.2 (median 0.21), and base +
+  `XRDS` is positive for every one, while 2,142 values in FalloutNV.esm alone are
+  negative, so `XRDS` cannot be an absolute radius. Whole interiors are built from lights
+  whose base radius is useless alone: every light of the REPCONN basement
+  (RocketLabBasement) has base radius 16 or 20 and `XRDS` 134 to 1,171. Against the
+  in-game frames (tools/capture/README.md section 7, `tools/capture/frames/interiors.json`,
+  2026-10-09), adding `XRDS` raised SSIM on all seven interior frames: Doc Mitchell's
+  house 0.588 -> 0.697, 0.421 -> 0.683, 0.594 -> 0.762, 0.589 -> 0.703 and the Prospector
+  Saloon 0.750 -> 0.806, 0.721 -> 0.742, 0.701 -> 0.721; in the living-room frame the base
+  radius left the left wall dark where the game lights it [observed]. The renderer's range
+  is max(0, base + `XRDS`) (`fnv_world::lighting::placed_light_radius`).
 - **External emittance**: a placed reference's `XEMI` names a region (REGN) or a light
   (LIGH) as its "Emittance" [documented: xEdit wbDefinitionsFNV.pas REFR], and
   BSShaderFlags bit 29 is "External_Emittance" [documented: nif.xml]. REGN `RDAT` heads
@@ -635,11 +777,30 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
     by day.
 
   The renderer resolves XEMI to the region's highest-chance weather or the light's
-  colour and scales by its sunlight colour at the current hour (the light colour for a
-  LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,
+  colour times its fade (the GECK tutorials: emittance takes the light's colour and
+  brightness, level-design.md section 2) and scales by its sunlight colour at the current
+  hour (that colour times fade for a LIGH): the surface colour of unlit shapes with bit 29, the emitted light of lit ones,
   and the colour of LIGH references [hypothesis]. Shapes on references without XEMI are
   unchanged. Before this the beam drew at full strength day and night and the rays were
   white.
+  XEMI on light references [observed, `light_survey --xemi`]: 2,508 of 10,087 interior
+  lights carry one (1,497 name a LIGH, 1,011 a REGN such as NVInteriorRegion or
+  NewVegasRegion); outdoors 304 of 1,070 (246 REGN, mostly InvertedDaylightRegion). In
+  Doc Mitchell's house most lights name another light (e.g. OfficeLightKeyNeutral names
+  DLC01FXLightMillSmoke, colour (255, 162, 85)). Which rule the game applies to a light
+  named by a light is not settled: against the four Doc Mitchell frames, scaling the
+  light's colour by the target's colour times fade (kept), by its colour alone, replacing
+  the colour, or ignoring LIGH targets all score within 0.03 SSIM of each other; ignoring
+  them gives a lower mean colour error (0.008-0.028 against 0.033-0.049), but the near
+  walls of the entry frame are warm in game, as with scaling [observed].
+- **Interior reference frames** (2026-10-09, plugin v7, save nvfdoc, 1280 x 720,
+  `fDefaultFOV=75`) [observed]: `capture_frames.py` cameras with a `cell` travel by `coc`.
+  Seven frames exist (Doc Mitchell's house x 4, Prospector Saloon x 3). The Vault 21 and
+  REPCONN basement cameras reached their poses (recorded position and angles match) but
+  the plugin's screenshot step failed there in both runs ("BitBlt failed"), only in those
+  two cells; why is not known. Remaining differences: the game's lamp bulbs and sunlit
+  windows glow with a halo (bloom) the renderer lacks, and Doc Mitchell's house is a
+  little warmer and brighter in game.
 - **Interior image space**: CELL `XCIM` names the cell's image space [documented:
   xEdit]. In interiors the renderer grades with it instead of the worldspace's; e.g. the
   Prospector Saloon's ShackInteriorWaste01 (saturation 0.82, tint (1.0, 0.71, 0.27) at
@@ -657,7 +818,9 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
    layer units; to settle with in-game captures at Lake Mead at several heights and
    distances from the shore.
 4. Weather selection rule and the meaning of WLST globals (see §6).
-5. Light brightness and falloff (LIGH radius, falloff exponent) and the XCLL rotation
-   angles; to calibrate against in-game interior screenshots.
+5. Light brightness and falloff shape (the falloff exponent), the XCLL rotation angles,
+   fog power and clip distance, and the rule for a light whose XEMI names a light (section
+   8). The radius is settled (section 8, "Placed light radius"). Interior frames of Vault
+   21 and the REPCONN basement are still to capture (section 8).
 6. The engine's handling of SCOL references: whether it draws the combined mesh (assumed)
    or the parts.
