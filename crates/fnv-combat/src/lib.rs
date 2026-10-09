@@ -15,6 +15,7 @@ pub mod attack;
 pub mod damage;
 pub mod data;
 pub mod projectile;
+pub mod rng;
 pub mod shot;
 pub mod spread;
 pub mod tuning;
