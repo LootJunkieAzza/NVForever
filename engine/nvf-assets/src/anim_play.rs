@@ -88,6 +88,11 @@ pub struct Playing {
     pub tracks: Vec<(Entity, Arc<TransformTrack>)>,
     /// Tracks whose target node was not found.
     pub unmatched: usize,
+    /// Play in place: the index in `tracks` of the accumulation root's track and the
+    /// root's translation over one cycle, removed in proportion to the cycle phase (the
+    /// rule of [`BlendPlayer`], docs/spec-notes/actors.md §8.2). Set by
+    /// [`Playing::in_place`]; world objects leave it unset.
+    pub root_motion: Option<(usize, Vec3)>,
 }
 
 impl Playing {
@@ -111,7 +116,28 @@ impl Playing {
             time: clip.start,
             tracks,
             unmatched,
+            root_motion: None,
         }
+    }
+
+    /// Remove the travel of `clip`'s accumulation root, if a track drives it (walk and
+    /// run clips), so the clip plays in place; `node` is the binding given to [`Self::new`].
+    pub fn in_place(mut self, clip: &Clip, node: impl Fn(&str) -> Option<Entity>) -> Playing {
+        let root = clip.accum_root.as_deref().and_then(&node);
+        let track = clip.accum_track();
+        if let (Some(root), Some(track)) = (root, track) {
+            let at = |t: f32| track.translation.sample(t).map_or(Vec3::ZERO, Vec3::from_array);
+            if let Some(k) = self.tracks.iter().position(|(e, _)| *e == root) {
+                self.root_motion = Some((k, at(clip.stop) - at(clip.start)));
+            }
+        }
+        self
+    }
+
+    /// Start at `phase` (0–1) of the cycle instead of the clip's start.
+    pub fn at_phase(mut self, phase: f32) -> Playing {
+        self.time = self.start + phase.clamp(0.0, 1.0) * (self.stop - self.start);
+        self
     }
 
     /// The time within the sequence after the cycle rule.
@@ -125,10 +151,14 @@ impl Playing {
             self.time += dt * self.frequency;
         }
         let t = self.sequence_time();
-        for (e, track) in &self.tracks {
+        let phase = if self.stop > self.start { (t - self.start) / (self.stop - self.start) } else { 0.0 };
+        for (k, (e, track)) in self.tracks.iter().enumerate() {
             let Ok(mut tr) = transforms.get_mut(*e) else { continue };
             if let Some(v) = track.translation.sample(t) {
                 tr.translation = Vec3::from_array(v);
+                if let Some((_, per_cycle)) = self.root_motion.filter(|r| r.0 == k) {
+                    tr.translation -= per_cycle * phase;
+                }
             }
             if let Some([w, x, y, z]) = track.rotation_at(t) {
                 tr.rotation = Quat::from_xyzw(x, y, z, w).normalize();
@@ -399,7 +429,8 @@ impl AnimState {
     pub fn start(&mut self, index: usize, nodes: &HashMap<String, Entity>, bind: &HashMap<Entity, Transform>) {
         let Some((source, seq)) = self.available.get(index) else { return };
         let clip = Clip::from_sequence(seq);
-        let playing = Playing::new(source, &clip, |n| nodes.get(n).copied());
+        // Walk and run clips play in place, as on actors (docs/spec-notes/actors.md §8.2).
+        let playing = Playing::new(source, &clip, |n| nodes.get(n).copied()).in_place(&clip, |n| nodes.get(n).copied());
         let hold = clip.undriven_accum_root().and_then(|r| nodes.get(r)).copied();
         self.current = Some(index);
         self.playing = Some(playing);
@@ -584,6 +615,37 @@ mod tests {
         // A track whose node the skeleton lacks is dropped; the idle drives no root.
         assert_eq!((idle.tracks.len(), idle.root, idle.root_track), (1, Some(1), None));
         assert_eq!(walk.time_at(0.25), 0.25);
+    }
+
+    #[test]
+    fn single_clip_player_plays_walks_in_place() {
+        // nvf-viewer's player: the walk clip's Bip01 travel is removed, its sway kept.
+        let (_, ix) = player();
+        let (walk, _) = walk_and_idle(&ix);
+        let mut app = App::new();
+        let root = app.world_mut().spawn(Transform::IDENTITY).id();
+        let other = app.world_mut().spawn(Transform::IDENTITY).id();
+        let node = |n: &str| match n {
+            "Bip01" => Some(root),
+            "Other" => Some(other),
+            _ => None,
+        };
+        let playing = Playing::new("walk", &walk.clip, node).in_place(&walk.clip, node).at_phase(0.5);
+        assert_eq!(playing.root_motion, Some((0, Vec3::new(0.0, 100.0, 0.0))));
+        app.world_mut().spawn(playing);
+        app.add_systems(Update, |mut q: Query<&mut Playing>, mut t: Query<&mut Transform>| {
+            for mut p in &mut q {
+                p.step(0.0, true, &mut t);
+            }
+        });
+        app.update();
+        // Half way: 52 units travelled, 50 removed.
+        let y = app.world().get::<Transform>(root).unwrap().translation.y;
+        assert!((y - 2.0).abs() < 1e-4, "{y}");
+        assert_eq!(app.world().get::<Transform>(other).unwrap().translation.x, 9.0);
+        // Without in_place the travel stays (world objects).
+        let p = Playing::new("walk", &walk.clip, node);
+        assert_eq!(p.root_motion, None);
     }
 
     #[test]

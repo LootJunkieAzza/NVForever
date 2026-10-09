@@ -2,15 +2,23 @@
 //! docs/design/static-actors.md): `fnv-actor` decides the parts, `nvf_assets::actor`
 //! assembles them on one skeleton, playing its locomotion clips with `--actor-pose idle`
 //! (the default; docs/spec-notes/actors.md §7–8, `locomotion.rs`) or frozen in the bind
-//! pose; FaceGen shapes the faces (`facegen.rs`).
+//! pose; FaceGen shapes the faces (`facegen.rs`). Placed creatures (part D, actors.md
+//! §10) are assembled the same way from their skeleton and NIFZ models and play their
+//! skeleton's idle.
+//!
+//! References not enabled at the start of a game (initially disabled, or behind a
+//! disabled enable parent) are spawned hidden ([`SpawnedDisabled`]), so a script's
+//! Enable can show them through `RefVisual` sync (docs/design/layer5-play.md §4).
 
+use bevy::ecs::lifecycle::HookContext;
+use bevy::ecs::world::DeferredWorld;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use fnv_actor::locomotion::{Blend, Body, Move};
-use fnv_actor::{ActorForms, Appearance, Resolver};
+use fnv_actor::{ActorForms, Appearance, CreatureAppearance, Resolver};
 use fnv_esm::{LoadOrder, Schema};
 use fnv_sim::{FormId, FormStore};
-use nvf_assets::actor::{blend_player, spawn_actor, ActorCtx, PartUse};
+use nvf_assets::actor::{blend_player, spawn_actor, ActorCtx, PartUse, PreparedSkeleton};
 use nvf_play::RefVisual;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -43,7 +51,7 @@ pub struct WalkTestArgs {
 
 /// Where in its clip an actor starts (0–1): spread by reference FormID so neighbours do
 /// not move in step [engine choice, not a game rule].
-fn clip_phase(reference: u32) -> f32 {
+pub fn clip_phase(reference: u32) -> f32 {
     (reference.wrapping_mul(2_654_435_761) >> 8) as f32 / (1u32 << 24) as f32
 }
 
@@ -93,6 +101,49 @@ impl ActorWorld {
     pub fn resolve(&self, base: u32, reference: u32) -> Result<Appearance, String> {
         Resolver { actors: &self.actors, forms: &self.forms }.resolve(FormId(base), FormId(reference)).map_err(|e| e.to_string())
     }
+
+    pub fn resolve_creature(&self, base: u32, reference: u32) -> Result<CreatureAppearance, String> {
+        Resolver { actors: &self.actors, forms: &self.forms }.resolve_creature(FormId(base), FormId(reference)).map_err(|e| e.to_string())
+    }
+
+    /// The locomotion clip set of a skeleton and body (loaded once), if it has an idle.
+    fn clip_set(&self, ctx: &mut ActorCtx, skeleton: &str, skel: &PreparedSkeleton, body: Body) -> Option<Arc<ClipSet>> {
+        let key = (fnv_vfs::normalize(skeleton), body);
+        self.sets
+            .lock()
+            .expect("clip sets")
+            .entry(key)
+            .or_insert_with(|| {
+                let (set, line) = ClipSet::load(ctx, skeleton, skel, body);
+                info!("actor locomotion: {line}");
+                set.clips.contains_key(&Move::Idle).then(|| Arc::new(set))
+            })
+            .clone()
+    }
+}
+
+/// Marks the root of an actor, or the light source of a light, spawned hidden because its
+/// reference is not enabled at the start of a game (world.rs `WorldData::enabled`).
+/// `RefVisual` sync shows it when a script enables it; if the simulation already has it
+/// enabled when its cell loads (enabled while the cell was away), it is shown at once
+/// (component hook, so no system needs registering).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[component(on_add = show_if_present)]
+pub struct SpawnedDisabled(pub u32);
+
+fn show_if_present(mut world: DeferredWorld, ctx: HookContext) {
+    let Some(r) = world.get::<SpawnedDisabled>(ctx.entity).map(|s| s.0) else { return };
+    let present = world.get_resource::<nvf_play::sim::SimState>().is_some_and(|s| s.present(r));
+    if present {
+        if let Some(mut v) = world.get_mut::<Visibility>(ctx.entity) {
+            *v = Visibility::Inherited;
+        }
+    }
+}
+
+/// Hide `root` (spawned for `reference`) until a script enables it ([`SpawnedDisabled`]).
+pub fn spawn_hidden(commands: &mut Commands, root: Entity, reference: u32) {
+    commands.entity(root).insert((Visibility::Hidden, SpawnedDisabled(reference)));
 }
 
 #[derive(Debug, Default, Clone)]
@@ -107,6 +158,15 @@ pub struct ActorStats {
     pub animated: usize,
     pub clip_missing: usize,
     pub walking: usize,
+    /// NPC bodies whose skin texture was tinted with the race's body `.egt`.
+    pub skins_tinted: usize,
+    /// Placed creatures drawn, unresolved, playing their idle, without an idle.
+    pub creatures: usize,
+    pub creatures_unresolved: usize,
+    pub creatures_animated: usize,
+    pub creature_clip_missing: usize,
+    /// Actors and creatures spawned hidden (not enabled at the start).
+    pub spawned_hidden: usize,
     /// Actors holding a weapon, and those whose weapon model or stance clips are missing.
     pub armed: usize,
     pub weapon_missing: usize,
@@ -126,6 +186,7 @@ pub fn spawn(
     world: &ActorWorld,
     ctx: &mut ActorCtx,
     stats: &mut ActorStats,
+    hidden: bool,
 ) -> bool {
     let a = match world.resolve(base, reference) {
         Ok(a) => a,
@@ -140,6 +201,9 @@ pub fn spawn(
         return false;
     };
     let mut uses = Vec::with_capacity(a.parts.len());
+    // The body skin, tinted once per actor with the race's body `.egt` (actors.md §4.1).
+    let mut skin: Option<Option<Handle<Image>>> = None;
+    let skin_texture = a.body_texture.as_deref().map(fnv_vfs::texture_path);
     for p in &a.parts {
         let Some(part) = ctx.part(&p.model) else {
             stats.parts_missing += 1;
@@ -172,6 +236,30 @@ pub fn spawn(
                 }
             }
         }
+        // Body skin: every shape whose diffuse is the race's upper body texture (the race
+        // body, and skin inside outfits) gets the tinted copy [hypothesis, actors.md §4.1].
+        if let (Some(egt), Some(fg), Some(want)) = (a.body_egt.as_deref(), a.facegen.as_ref().filter(|_| world.facegen_enabled), skin_texture.as_deref()) {
+            for (i, s) in part.shapes.iter().enumerate() {
+                let tex = if s.cap { None } else { p.texture.as_deref().or_else(|| s.base_texture()) };
+                if !tex.is_some_and(|t| fnv_vfs::texture_path(t) == want) {
+                    continue;
+                }
+                let img = skin
+                    .get_or_insert_with(|| {
+                        let mut cache = world.facegen.lock().expect("facegen cache");
+                        let img = cache.skin_texture(ctx, egt, want, fg);
+                        stats.skins_tinted += usize::from(img.is_some());
+                        img
+                    })
+                    .clone();
+                if let Some(img) = img {
+                    if let Some(mut m) = ctx.models.materials.get(&materials[i]).cloned() {
+                        m.base.base_color_texture = Some(img);
+                        materials[i] = ctx.models.materials.add(m);
+                    }
+                }
+            }
+        }
         // Hair colour: the texture times HCLR, doubled, in gamma space [hypothesis,
         // actors.md §3: the hair textures are close to grey; a plain multiply leaves
         // Sunny Smiles' hair dark brown where the owner's screenshot shows auburn].
@@ -193,7 +281,7 @@ pub fn spawn(
         }
         // The hair model holds a `NoHat` and a `Hat` shape (actors.md §2.4).
         let hidden_shapes = if p.role == "hair" { vec![if a.hat { "NoHat" } else { "Hat" }.to_string()] } else { Vec::new() };
-        uses.push(PartUse { meshes, part, materials, hidden_shapes });
+        uses.push(PartUse { meshes, part, materials, hidden_shapes, by_ancestor: false });
     }
     // The race's height scales the actor [hypothesis, actors.md §3].
     let rt = rt * Affine3A::from_scale(Vec3::splat(a.race_height as f32));
@@ -202,21 +290,13 @@ pub fn spawn(
     for e in &spawned.drawn {
         commands.entity(*e).insert(RefVisual(reference));
     }
+    if hidden {
+        spawn_hidden(commands, spawned.root, reference);
+        stats.spawned_hidden += 1;
+    }
     if world.pose == ActorPose::Idle {
         let body = if a.female { Body::Female } else { Body::Male };
-        let key = (fnv_vfs::normalize(&a.skeleton), body);
-        let set = world
-            .sets
-            .lock()
-            .expect("clip sets")
-            .entry(key)
-            .or_insert_with(|| {
-                let (set, line) = ClipSet::load(ctx, &a.skeleton, &skel, body);
-                info!("actor locomotion: {line}");
-                set.clips.contains_key(&Move::Idle).then(|| Arc::new(set))
-            })
-            .clone();
-        match set {
+        match world.clip_set(ctx, &a.skeleton, &skel, body) {
             Some(set) => {
                 let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
                 let walk = world.walk_test.filter(|w| w.radius <= 0.0 || at.distance(w.center) <= w.radius);
@@ -254,6 +334,77 @@ pub fn spawn(
     }
     stats.unbound_shapes += spawned.unbound;
     stats.drawn += 1;
+    true
+}
+
+/// Spawn the creature placed by `reference` (ACRE) under `parent` (actors.md §10): its
+/// skeleton with the NIFZ models, scaled by the reference's and the creature's base
+/// scale, playing the skeleton's idle with `--actor-pose idle`. `rt` is the reference
+/// transform (parent space). Returns whether anything was drawn.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_creature(
+    commands: &mut Commands,
+    parent: Entity,
+    rt: Affine3A,
+    reference: u32,
+    base: u32,
+    world: &ActorWorld,
+    ctx: &mut ActorCtx,
+    stats: &mut ActorStats,
+    hidden: bool,
+) -> bool {
+    let c = match world.resolve_creature(base, reference) {
+        Ok(c) => c,
+        Err(e) => {
+            stats.creatures_unresolved += 1;
+            debug!("creature {reference:08X}: {e}");
+            return false;
+        }
+    };
+    let Some(skel) = ctx.skeleton(&c.skeleton) else {
+        stats.creatures_unresolved += 1;
+        return false;
+    };
+    let mut uses = Vec::with_capacity(c.parts.len());
+    for p in &c.parts {
+        let Some(part) = ctx.part(&p.model) else {
+            stats.parts_missing += 1;
+            continue;
+        };
+        let materials = part.shapes.iter().map(|s| s.material.clone()).collect();
+        let meshes = vec![None; part.shapes.len()];
+        uses.push(PartUse { meshes, part, materials, hidden_shapes: Vec::new(), by_ancestor: true });
+    }
+    // The creature's base scale (BNAM) on top of the reference's [hypothesis, §10.1].
+    let rt = rt * Affine3A::from_scale(Vec3::splat(c.base_scale as f32));
+    let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
+    commands.entity(spawned.root).insert((Name::new(format!("Creature {reference:08X} {}", c.edid.as_deref().unwrap_or(""))), RefVisual(reference)));
+    for e in &spawned.drawn {
+        commands.entity(*e).insert(RefVisual(reference));
+    }
+    if hidden {
+        spawn_hidden(commands, spawned.root, reference);
+        stats.spawned_hidden += 1;
+    }
+    if world.pose == ActorPose::Idle {
+        match world.clip_set(ctx, &c.skeleton, &skel, Body::Male) {
+            Some(set) => {
+                let mut lo = Locomotion::new(set.clone(), clip_phase(reference));
+                if let Some(t) = world.pose_time {
+                    let len = set.info(Move::Idle).map_or(1.0, |c| c.duration).max(f32::EPSILON);
+                    lo.blend = Blend::new(Move::Idle, t / len);
+                    lo.hold = true;
+                }
+                let mut player = blend_player(&spawned, &skel);
+                lo.layers(&mut player);
+                commands.entity(spawned.root).insert((lo, player));
+                stats.creatures_animated += 1;
+            }
+            None => stats.creature_clip_missing += 1,
+        }
+    }
+    stats.unbound_shapes += spawned.unbound;
+    stats.creatures += 1;
     true
 }
 
