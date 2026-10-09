@@ -441,6 +441,32 @@ impl PhysWorld {
         self.dirty = true;
     }
 
+    /// Push dynamic bodies within `radius` of `center` away from it (an explosion's force,
+    /// combat C7) [design: the EXPL force read as a speed change in game units per second
+    /// at the centre, falling linearly to 0 at the radius]. Returns how many moved.
+    pub fn push_dynamic(&mut self, center: [f32; 3], radius: f32, speed: f32) -> usize {
+        let k = self.k;
+        let c = vec3(center) * k;
+        let r = (radius * k).max(1e-4);
+        let mut n = 0;
+        for (_, b) in self.w.bodies.iter_mut() {
+            if !b.is_dynamic() {
+                continue;
+            }
+            let d = b.position().translation - c;
+            let dist = d.length();
+            if dist > r {
+                continue;
+            }
+            let dir = if dist > 1e-4 { d / dist } else { Vector::Z };
+            let dv = speed * k * (1.0 - dist / r);
+            let m = b.mass();
+            b.apply_impulse(dir * (dv * m), true);
+            n += 1;
+        }
+        n
+    }
+
     /// Current state of each body of a reference, in object order.
     pub fn ref_bodies(&self, form_id: u32) -> Vec<BodyState> {
         self.refs.get(&form_id).into_iter().flatten().map(|&b| body_state(&self.w.bodies[b], self.k)).collect()

@@ -31,7 +31,8 @@
 //!   round the player) or `release` (Toggle POV let go); for combat (step C4): `fire`
 //!   (Use pressed, or let go if held), `reload` (a Ready Item tap with the weapon out),
 //!   `swap` (Ammo Swap), `aimactor` (turn the view to the middle of the nearest
-//!   actor's hit volume) and `aimnpc` (the same, NPCs only).
+//!   actor's hit volume), `aimnpc` (the same, NPCs only) and `equip=<FormID hex>` (give
+//!   one unless carried and equip it, as `NVF_PLAY_TEST_EQUIP`).
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
@@ -118,6 +119,7 @@ enum Press {
     Swap,
     AimActor,
     AimNpc,
+    Equip(FormId),
 }
 
 fn press(rest: &str) -> Result<Press, String> {
@@ -134,7 +136,9 @@ fn press(rest: &str) -> Result<Press, String> {
         "aimactor" => Press::AimActor,
         "aimnpc" => Press::AimNpc,
         _ => {
-            if let Some(Ok(d)) = rest.strip_prefix("zoom=").map(|d| d.trim().parse::<f32>()) {
+            if let Some(Ok(id)) = rest.strip_prefix("equip=").map(|h| u32::from_str_radix(h.trim().trim_start_matches("0x"), 16)) {
+                Press::Equip(FormId(id))
+            } else if let Some(Ok(d)) = rest.strip_prefix("zoom=").map(|d| d.trim().parse::<f32>()) {
                 Press::Zoom(d)
             } else if let Some(Ok((y, p))) = rest.strip_prefix("orbit=").map(look_angles) {
                 Press::Orbit(y, p)
@@ -284,6 +288,7 @@ pub(crate) fn setup(app: &mut App) {
 }
 
 /// `NVF_PLAY_TEST_MOVE` and `NVF_PLAY_TEST_CONTROL`, after the real keys were read.
+#[allow(clippy::too_many_arguments)]
 fn keys_and_controls(
     time: Res<Time>,
     mut aids: ResMut<Aids>,
@@ -292,6 +297,7 @@ fn keys_and_controls(
     phys: Res<PhysState>,
     mut player: ResMut<Player>,
     play: Res<crate::PlayWorld>,
+    mut sim: ResMut<SimState>,
 ) {
     let now = time.elapsed_secs();
     for m in take_due(&mut aids.moves, now) {
@@ -319,6 +325,15 @@ fn keys_and_controls(
             Press::Swap => control.ammo_swap = true,
             Press::AimActor => aim_at_nearest_actor(&phys, &mut player, |_| true),
             Press::AimNpc => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR")),
+            Press::Equip(item) => {
+                let w = &mut sim.world;
+                let carried = w.item_count(FormId::PLAYER_REF, item).unwrap_or(0) > 0;
+                let r = if carried { Ok(Vec::new()) } else { w.add_item(FormId::PLAYER_REF, item, 1) };
+                match r.and_then(|_| w.equip(FormId::PLAYER_REF, item)) {
+                    Ok(_) => info!("test aid: the player equips {item}"),
+                    Err(e) => warn!("test aid: equip {item}: {e}"),
+                }
+            }
         }
         info!(
             "test aid: control {p:?}: sneak {} weapon out {} aiming {:?} view {:?} distance {:.0}",
