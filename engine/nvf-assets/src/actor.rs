@@ -18,6 +18,10 @@
 //!   hypothesis: an intact actor shows no cap].
 //! - Pose: the skeleton's bind pose, frozen (owner decision 2026-10-08), by default; a
 //!   KF clips can play on the skeleton's bones instead ([`blend_player`], actors.md §7–8).
+//! - Creatures (actors.md §9.2) use the same assembly with one difference for unskinned
+//!   shapes ([`PartUse::by_ancestor`]): such a shape hangs from its nearest ancestor in
+//!   the part file whose name is a node of the skeleton, keeping the transforms below
+//!   that ancestor; else from the part's `Prn`; else from the skeleton's root.
 
 use crate::anim_play::{BlendPlayer, BoundClip, Clip};
 use crate::data::GameData;
@@ -67,6 +71,11 @@ pub struct PartShape {
     pub transform: Affine3A,
     /// A dismemberment cap (not drawn on an intact actor).
     pub cap: bool,
+    /// The shape's ancestors in the part file, from its parent up to (not including) the
+    /// root: node name and local transform (NIF space). `transform` is their product
+    /// (outermost first) times the shape's own transform, `own`.
+    pub ancestors: Vec<(Option<String>, Affine3A)>,
+    pub own: Affine3A,
 }
 
 impl PartShape {
@@ -119,6 +128,9 @@ pub struct PartUse {
     pub meshes: Vec<Option<Handle<Mesh>>>,
     /// Shape names not to draw (e.g. the hair's `Hat` shape when no headgear is worn).
     pub hidden_shapes: Vec<String>,
+    /// Attach unskinned shapes by their ancestors' names (creatures) instead of the
+    /// part's `Prn` (NPCs).
+    pub by_ancestor: bool,
 }
 
 fn decode(data: &GameData, path: &str) -> Result<(NifFile, Vec<u8>, Decoded), String> {
@@ -270,7 +282,9 @@ impl ActorCtx<'_, '_> {
         }
         for o in objects.iter().filter(|o| !o.is_node) {
             // Below the root; the root's own transform is `out.root` (see `rigid_local`).
-            let mut t = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
+            let own = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
+            let mut t = own;
+            let mut ancestors = Vec::new();
             let mut hidden = hidden_self(o.block);
             let mut cur = o.parent;
             let mut depth = 0;
@@ -278,6 +292,7 @@ impl ActorCtx<'_, '_> {
                 let Some(po) = by_block.get(&p) else { break };
                 if po.parent.is_some() {
                     t = affine(&po.transform) * t;
+                    ancestors.push((po.name.clone(), affine(&po.transform)));
                 }
                 hidden |= hidden_self(p);
                 cur = po.parent;
@@ -330,6 +345,8 @@ impl ActorCtx<'_, '_> {
                 skin,
                 transform: t,
                 cap,
+                ancestors,
+                own,
             });
         }
         Ok(out)
@@ -376,6 +393,24 @@ pub fn rigid_local(skel: &PreparedSkeleton, b: usize, root: &Affine3A, shape: &A
         *root * *shape
     } else {
         Affine3A::from_mat3(inv) * *root * *shape
+    }
+}
+
+/// Where an unskinned creature shape hangs (actors.md §9.2): the skeleton node of its
+/// nearest ancestor whose name the skeleton has, with the transforms below that
+/// ancestor; else the part's `Prn` bone (as for NPC parts, [`rigid_local`]); else the
+/// skeleton's root with the whole transform below the part's root.
+pub fn creature_rigid_attach(skel: &PreparedSkeleton, part: &PreparedPart, s: &PartShape) -> (usize, Affine3A) {
+    let mut below = s.own;
+    for (name, t) in &s.ancestors {
+        if let Some(&b) = name.as_ref().and_then(|n| skel.by_name.get(n)) {
+            return (b, below);
+        }
+        below = *t * below;
+    }
+    match part.prn.as_ref().and_then(|n| skel.by_name.get(n)) {
+        Some(&b) => (b, rigid_local(skel, b, &part.root, &s.transform)),
+        None => (0, s.transform),
     }
 }
 
@@ -440,6 +475,10 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
                 }
                 (None, _) => {
                     let (at, local) = match bone {
+                        _ if u.by_ancestor => {
+                            let (b, local) = creature_rigid_attach(skel, &u.part, s);
+                            (nodes[b], local)
+                        }
                         Some(b) => (nodes[b], rigid_local(skel, b, &u.part.root, &s.transform)),
                         None => (nodes[0], s.transform),
                     };
@@ -482,6 +521,42 @@ pub fn blend_player(actor: &SpawnedActor, skel: &PreparedSkeleton) -> BlendPlaye
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creature_rigid_shapes_hang_from_their_nearest_skeleton_ancestor() {
+        let skel = PreparedSkeleton {
+            by_name: HashMap::from([("Bip01 Head".to_string(), 3)]),
+            bind_world: vec![Affine3A::IDENTITY; 4],
+            ..Default::default()
+        };
+        let screen = Affine3A::from_translation(Vec3::new(0.0, 5.0, 0.0));
+        let head_copy = Affine3A::from_translation(Vec3::new(0.0, 0.0, 100.0));
+        let own = Affine3A::from_translation(Vec3::new(1.0, 0.0, 0.0));
+        let s = |ancestors: Vec<(Option<String>, Affine3A)>| PartShape {
+            name: None,
+            mesh: Handle::default(),
+            material: Handle::default(),
+            props: Props::default(),
+            cpu: Arc::new(Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)),
+            skin: None,
+            transform: ancestors.iter().rev().fold(Affine3A::IDENTITY, |acc, a| acc * a.1) * own,
+            cap: false,
+            ancestors,
+            own,
+        };
+        let part = PreparedPart::default();
+        // Screen01 (not a bone) under the part's copy of Bip01 Head: hangs from the head
+        // with Screen01's transform kept.
+        let shape = s(vec![(Some("Screen01".into()), screen), (Some("Bip01 Head".into()), head_copy)]);
+        let (b, local) = creature_rigid_attach(&skel, &part, &shape);
+        assert_eq!(b, 3);
+        assert!((Vec3::from(local.translation) - Vec3::new(1.0, 5.0, 0.0)).length() < 1e-5);
+        // No ancestor the skeleton has, no Prn: the root, with the whole transform.
+        let shape = s(vec![(Some("Screen01".into()), screen)]);
+        let (b, local) = creature_rigid_attach(&skel, &part, &shape);
+        assert_eq!(b, 0);
+        assert!((Vec3::from(local.translation) - Vec3::new(1.0, 5.0, 0.0)).length() < 1e-5);
+    }
 
     #[test]
     fn rigid_parts_keep_skeleton_axes() {

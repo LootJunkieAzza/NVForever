@@ -113,6 +113,35 @@ pub enum ActorCmd {
         #[arg(long)]
         schema: PathBuf,
     },
+    /// Placed creatures (ACRE): skeleton, NIFZ body models, base scale and KFFZ list
+    /// after leveled and template resolution (fnv.actor.creatures/1); with
+    /// `--check-meshes`, whether each model joins its skeleton.
+    #[command(group(clap::ArgGroup::new("which").required(true).args(["reference", "cell", "all"])))]
+    Creatures {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// One placed creature (ACRE FormID).
+        #[arg(long = "ref", value_parser = parse_formid)]
+        reference: Option<u32>,
+        /// Every ACRE in a cell (Editor ID or FormID).
+        #[arg(long)]
+        cell: Option<String>,
+        /// Every ACRE in the load order.
+        #[arg(long)]
+        all: bool,
+        /// Only creatures whose resolution involves no random leveled choice.
+        #[arg(long)]
+        deterministic: bool,
+        /// Also load every (skeleton, model) pair and report skin bones and parent
+        /// bones the skeleton lacks, and missing files (adds `meshes`).
+        #[arg(long)]
+        check_meshes: bool,
+        /// NIF schema directory for --check-meshes (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+    },
     /// For every placed NPC: do its part meshes join its skeleton (skin bones and `Prn`
     /// bones present), and do its models and textures exist (fnv.actor.meshes/1)?
     Meshes {

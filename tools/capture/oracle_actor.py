@@ -13,6 +13,9 @@ group membership) from oracle_world.py, which must sit in the same folder.
 usage: oracle_actor.py appearance <data_dir> <plugin>... [--all | --ref <formid>]
                                   [--deterministic] [--schema DIR] [-o out.json]
        -> fnv.actor.appearance/1
+       oracle_actor.py creatures <data_dir> <plugin>... [--all | --ref <formid>]
+                                 [--deterministic] [--schema DIR] [-o out.json]
+       -> fnv.actor.creatures/1 (actors.md §9.1 and §9.4; no --check-meshes part)
 `--schema` is accepted for command-line compatibility with fnvtool and ignored; without
 `--ref` every ACHR of the load order is listed (`--all` is the default).
 Exit codes: 0 ok, 1 input unreadable, 2 usage error.
@@ -343,9 +346,49 @@ def parse_glob(forms, gid, plugin, subs):
     return {"value": _F32.unpack_from(fltv, 0)[0] if fltv is not None and len(fltv) >= 4 else 0.0}
 
 
+def zstring_list(raw):
+    """NIFZ / KFFZ (actors.md §9.1): NUL-separated names; each trimmed, empty ones left
+    out (the list ends with an extra NUL)."""
+    if raw is None:
+        return []
+    out = []
+    for piece in bytes(raw).split(b"\0"):
+        name = oracle_esm.decode_cp1252(piece).strip(_WHITESPACE)
+        if name:
+            out.append(name)
+    return out
+
+
+# CREA DATA type byte (actors.md §9.1) [documented: xEdit via the schema].
+CREATURE_KINDS = ("Animal", "Mutated Animal", "Mutated Insect", "Abomination", "Super Mutant",
+                  "Feral Ghoul", "Robot", "Giant")
+
+
+def parse_crea(forms, gid, plugin, subs):
+    first = _first(subs)
+    acbs = first.get(b"ACBS")
+    tflags = struct.unpack_from("<H", acbs, 22)[0] if acbs is not None and len(acbs) >= 24 else 0
+    bnam = first.get(b"BNAM")
+    data = first.get(b"DATA")
+    edid = first.get(b"EDID")
+    kind = None
+    if data is not None and len(data) >= 1 and data[0] < len(CREATURE_KINDS):
+        kind = CREATURE_KINDS[data[0]]
+    return {
+        "edid": None if edid is None else oracle_esm.zstring(edid),
+        "tflags": tflags,
+        "tplt": forms.map(plugin, first.get(b"TPLT"), gid, "TPLT"),
+        "modl_raw": first.get(b"MODL"),
+        "nifz": zstring_list(first.get(b"NIFZ")),
+        "kffz": zstring_list(first.get(b"KFFZ")),
+        "bnam": _F32.unpack_from(bnam, 0)[0] if bnam is not None and len(bnam) >= 4 else None,
+        "kind": kind,
+    }
+
+
 PARSERS = {b"NPC_": parse_npc, b"RACE": parse_race, b"HAIR": parse_simple, b"EYES": parse_simple,
            b"HDPT": parse_hdpt, b"ARMO": parse_armo, b"LVLI": parse_leveled, b"LVLN": parse_leveled,
-           b"GLOB": parse_glob}
+           b"GLOB": parse_glob, b"CREA": parse_crea, b"LVLC": parse_leveled}
 
 
 # --------------------------------------------------------------------------- leveled lists
@@ -645,6 +688,143 @@ class ActorResolver:
         return actor
 
 
+# --------------------------------------------------------------------------- creatures
+
+TPL_STATS = 1 << 1
+CREATURES_SCHEMA = "fnv.actor.creatures/1"
+
+
+def _lower_path(name: str) -> str:
+    return name.translate(_ASCII_LOWER).replace("/", "\\")
+
+
+class CreatureResolver:
+    """actors.md §9.1, written from the spec note."""
+
+    def __init__(self, forms: Forms):
+        self.forms = forms
+
+    def pick(self, gid, state, depth=0):
+        """A CREA for `gid` (CREA or LVLC), picking each LVLC once per creature."""
+        if depth > MAX_DEPTH:
+            raise ActorError("leveled_creature_too_deep", f"leveled creature nesting deeper than {MAX_DEPTH}")
+        sig = self.forms.sig(gid)
+        if sig == b"CREA":
+            return gid
+        if sig in (b"NPC_", b"LVLN"):
+            raise ActorError("not_a_creature", f"{fid_text(gid)} is not a creature base")
+        if sig != b"LVLC":
+            raise ActorError("not_an_actor", f"{fid_text(gid)} is "
+                             + ("undefined" if sig is None else oracle_esm.signature_text(sig))
+                             + ", not CREA or LVLC")
+        picks = state["picks"]
+        if gid in picks:
+            return picks[gid]
+        lst = self.forms.get(gid, b"LVLC")
+        candidates = pool(lst)
+        if not candidates:
+            raise ActorError("leveled_creature_empty", f"LVLC {fid_text(gid)} has no entry at level {DISPLAY_LEVEL}")
+        if len({ref for _, ref, _ in candidates}) > 1:
+            state["random"] = True
+        choice = candidates[state["rng"].randrange(len(candidates))][1] if len(candidates) > 1 else candidates[0][1]
+        picks[gid] = None  # guards against an LVLC that contains itself
+        result = self.pick(choice, state, depth + 1)
+        picks[gid] = result
+        return result
+
+    def source(self, crea, bit, state):
+        """First CREA along the TPLT chain whose template flag `bit` is clear (§9.1); a
+        flag without a TPLT ends the chain."""
+        seen = set()
+        cur = crea
+        while True:
+            rec = self.forms.get(cur, b"CREA")
+            if not rec["tflags"] & bit or rec["tplt"] is None:
+                return cur, rec
+            if cur in seen:
+                raise ActorError("template_loop", f"template chain loops at {fid_text(cur)}")
+            seen.add(cur)
+            cur = self.pick(rec["tplt"], state)
+
+    def resolve(self, ref_gid: int, base: int) -> dict:
+        state = {"picks": {}, "random": False, "rng": _random.Random(ref_gid)}
+        crea = self.pick(base, state)
+        crea_rec = self.forms.get(crea, b"CREA")
+        model_id, model = self.source(crea, TPL_MODEL, state)
+        _, stats = self.source(crea, TPL_STATS, state)
+        skeleton = archive_path(model["modl_raw"], "meshes\\")
+        if skeleton is None or skeleton.rsplit("\\", 1)[-1].startswith("marker"):
+            raise ActorError("no_skeleton", f"creature {fid_text(model_id)} names no skeleton")
+        folder = skeleton.rsplit("\\", 1)[0]
+        parts = [{"role": "body", "form": fid_text(model_id), "model": folder + "\\" + _lower_path(n).lstrip("\\")}
+                 for n in model["nifz"]]
+        out = {"reference": fid_text(ref_gid), "base": fid_text(base), "creature": fid_text(crea),
+               "edid": crea_rec["edid"]}
+        if model["kind"] is not None:
+            out["kind"] = model["kind"]
+        out["skeleton"] = skeleton
+        out["base_scale"] = stats["bnam"] if stats["bnam"] is not None else 1.0
+        out["parts"] = parts
+        out["anims"] = [_lower_path(n) for n in model["kffz"]]
+        out["random"] = state["random"]
+        return out
+
+
+def placed_creatures(index: oracle_world.WorldIndex):
+    """Global FormIDs of the winning ACRE records inside cell-children groups."""
+    return sorted(gid for gid, (_, _, sig, ctx) in index.winners.items() if sig == b"ACRE" and ctx is not None)
+
+
+def creatures_document(index, diag, load_order, deterministic: bool, only=None) -> dict:
+    """fnv.actor.creatures/1 (actors.md §9.4), without the --check-meshes part."""
+    forms = Forms(index, diag)
+    resolver = CreatureResolver(forms)
+    outcomes = {}
+    base_kinds = {}
+    creatures = []
+
+    def count(table, key):
+        table[key] = table.get(key, 0) + 1
+
+    refs = placed_creatures(index) if only is None else [only]
+    for gid in refs:
+        if forms.sig(gid) is None:
+            count(outcomes, "deleted")
+            continue
+        plugin, subs = forms.subrecords(gid)
+        first = _first(subs)
+        base = forms.map(plugin, first.get(b"NAME"), gid, "NAME")
+        if base is None:
+            count(outcomes, "error: no_base")
+            creatures.append({"reference": fid_text(gid), "base": None, "error": "the reference has no NAME base"})
+            continue
+        base_sig = forms.sig(base)
+        count(base_kinds, "missing" if base_sig is None else oracle_esm.signature_text(base_sig))
+        try:
+            c = resolver.resolve(gid, base)
+        except ActorError as exc:
+            count(outcomes, "error: " + exc.kind)
+            creatures.append({"reference": fid_text(gid), "base": fid_text(base), "error": exc.text})
+            continue
+        xscl = first.get(b"XSCL")
+        c["scale"] = _F32.unpack_from(xscl, 0)[0] if xscl is not None and len(xscl) >= 4 else 1.0
+        count(outcomes, "resolved random" if c["random"] else "resolved deterministic")
+        if deterministic and c["random"]:
+            continue
+        creatures.append(c)
+    issues = []
+    for code in sorted(diag.counts):
+        for detail in diag.examples.get(code, []):
+            issues.append({"code": code, "detail": detail})
+    return {
+        "schema": CREATURES_SCHEMA,
+        "summary": {"outcomes": dict(sorted(outcomes.items())), "base_kinds": dict(sorted(base_kinds.items()))},
+        "issues": issues,
+        "creatures": creatures,
+        "load_order": list(load_order),
+    }
+
+
 # --------------------------------------------------------------------------- document
 
 def placed_actors(index: oracle_world.WorldIndex):
@@ -738,7 +918,18 @@ def main(argv=None) -> int:
     p.add_argument("--deterministic", action="store_true", help="leave out actors whose `random` is true")
     p.add_argument("--schema", help="accepted for fnvtool compatibility; ignored")
     p.add_argument("-o", "--output", help="write JSON here instead of stdout")
+    c = sub.add_parser("creatures", help=f"emit {CREATURES_SCHEMA}")
+    c.add_argument("data_dir")
+    c.add_argument("plugins", nargs="+", metavar="plugin")
+    csel = c.add_mutually_exclusive_group()
+    csel.add_argument("--all", action="store_true", help="every ACRE of the load order (default)")
+    csel.add_argument("--ref", help="one reference by global FormID (0x...)")
+    c.add_argument("--deterministic", action="store_true", help="leave out creatures whose `random` is true")
+    c.add_argument("--schema", help="accepted for fnvtool compatibility; ignored")
+    c.add_argument("-o", "--output", help="write JSON here instead of stdout")
     args = parser.parse_args(argv)
+    creatures = args.command == "creatures"
+    placed_sig = b"ACRE" if creatures else b"ACHR"
 
     lowered = [name.lower() for name in args.plugins]
     if len(set(lowered)) != len(lowered) or len(args.plugins) > 255:
@@ -762,13 +953,16 @@ def main(argv=None) -> int:
     try:
         if only is not None:
             w = index.winners.get(only)
-            if w is None or w[2] != b"ACHR":
-                print(f"oracle_actor: --ref {args.ref}: no ACHR with that FormID", file=sys.stderr)
+            if w is None or w[2] != placed_sig:
+                print(f"oracle_actor: --ref {args.ref}: no {placed_sig.decode()} with that FormID", file=sys.stderr)
                 return 1
-        doc = appearance_document(index, diag, args.plugins, args.deterministic, only)
+        if creatures:
+            doc = creatures_document(index, diag, args.plugins, args.deterministic, only)
+        else:
+            doc = appearance_document(index, diag, args.plugins, args.deterministic, only)
     finally:
         index.close()
-    text = render(doc, "actors")
+    text = render(doc, "creatures" if creatures else "actors")
     if args.output:
         with open(args.output, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
