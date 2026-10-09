@@ -73,7 +73,7 @@ impl WorldData {
     /// Whether a reference is enabled at the start of a game: not initially disabled,
     /// and its enable parent (if any) in the required state [documented: XESP; the
     /// parent chain is followed, cycles count as disabled].
-    fn enabled(&self, p: &Placement, depth: usize) -> bool {
+    pub fn enabled(&self, p: &Placement, depth: usize) -> bool {
         if p.deleted() || p.initially_disabled() {
             return false;
         }
