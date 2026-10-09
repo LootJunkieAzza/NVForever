@@ -12,6 +12,8 @@
 pub mod activate;
 pub mod dropped;
 pub mod menu;
+pub mod moved;
+pub mod pause;
 pub mod phys;
 pub mod player;
 pub mod script;
@@ -48,6 +50,10 @@ pub struct PlayData {
     /// Test aid: walk forward at this speed (game units per second); 0 = off.
     pub auto_walk: f32,
 }
+
+/// The controls in `--play`, for nvforever's help line.
+pub const HELP: &str =
+    "WASD move  Shift walk  Caps Lock always run  Ctrl sneak  Q auto move  Space jump  mouse look  E use  Tab inventory  Esc pause  [ ] hour  F12 screenshot";
 
 /// [`PlayData`] as a resource, for systems that read the plugins.
 #[derive(Resource, Clone, Copy, Deref)]
@@ -175,7 +181,7 @@ impl Plugin for PlayPlugin {
             .add_message::<RefChanged>()
             .add_message::<ItemUsed>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
-            .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin))
+            .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin))
             .add_plugins(script::ScriptPlugin);
         test_aid::setup(app);
     }
