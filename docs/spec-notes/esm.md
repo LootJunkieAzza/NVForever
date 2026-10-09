@@ -21,6 +21,39 @@ form version u16, version-control u16. The data that follows is `data size` byte
 - Flag 0x00040000: the data is a u32 uncompressed size followed by a zlib stream
   [documented][observed: 33,179 compressed records in FalloutNV.esm].
 - Flag 0x1 on the first record (TES4) marks a master file [documented][observed].
+- Flag 0x20 marks a deleted record [documented: xEdit wbFlagsList names bit 5 "Deleted"
+  for every record type].
+
+**Record header flags per record type.** The other bits of the flags field mean
+different things per record type. xEdit gives each record type its own list of named
+bits (`wbRecord(<sig>, …, wbFlags(wbFlagsList([bit, name, …])))`, bit numbers counted
+from 0 [documented: wbDefinitionsFNV.pas and wbInterface.pas `wbFlagsList`, dev-4.1.6]);
+the GECK wiki's GetFormFlag/SetFormFlag pages print one merged table of all of them
+[documented: GECK wiki GetFormFlag, owner export 2026-10-07]. NVForever keeps these
+names as data: a record entry in `schemas/fnv` may carry `header_flags` (format in
+`schemas/README.md`), read through `Schema::header_flag` and printed by `fnvtool esm
+decode` as `flag_names`. The container-level bits the reader itself needs (master,
+deleted, compressed) stay in code (`raw::record_flags`).
+
+- **Quest Item, bit 10 (0x400)** on item records [documented: xEdit flag lists of WEAP,
+  ARMO, ALCH, BOOK, KEYM, MISC and LIGH; the GECK wiki IsQuestItem and SetQuestObject
+  pages list Ammo and Weapon Mod among the form types that can be quest items, and
+  GetFormFlag names bit 10 "Quest item", so AMMO and IMOD carry the same name in the
+  schema, although xEdit gives those two types no flag list]. The same bit means
+  "Persistent" on placed references (REFR/ACHR/ACRE) [documented: GECK wiki GetFormFlag;
+  `fnv_sim::refs::FLAG_PERSISTENT`]. NOTE, CHIP, CCRD and CMNY have no quest flag in
+  either source; non-item records with the bit (ACTI, CONT, DOOR, NPC_, CREA, …) are not
+  named in the schema yet.
+- In the ten masters, bit 10 is set on 339 winning item records: MISC 244, KEYM 68, WEAP
+  12, ARMO 10, ALCH 4, BOOK 1; on no AMMO, IMOD, LIGH, NOTE, CHIP, CCRD or CMNY record
+  [observed: `fnvtool sim forms`, `quest_items`, 2026-10-09]. Examples: The Platinum Chip
+  (MISC 0x001164FB), Doc Hoff's Supply Key (KEYM 0x00068E8D), the snow globes, Boone's
+  Beret (ARMO 0x000B7F53), the Dead Money collar (ARMO 0x01006E8F). The Pip-Boy 3000 and
+  Pip-Boy Glove do not carry it (they are hidden by the ARMO "Non-Playable" flag
+  instead). Other bits set on item records: ALCH bit 29 (15), ARMO bit 19 (2, "Has
+  Platform Specific Textures"), LIGH bit 16 (9, "Random Anim Start"), WEAP bits 27 (9)
+  and 29 (23) [observed]; xEdit calls ALCH 29 and WEAP 27/29 "Unknown", so the schema
+  leaves them unnamed.
 
 **Group header, 24 bytes** [documented][observed]: `GRUP`, total size u32 (including
 this header), label (4 bytes), group type i32, then four u16s (stamp, unknown,
