@@ -197,6 +197,15 @@ pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
+/// `actor.DetonatePlacedExplosives`: the actor's placed explosives that detonate (C-4)
+/// go off [documented: GECK wiki Projectile, "Detonates"]. The projectiles are the
+/// engine's: the request waits in `Game::combat_requests`.
+pub fn detonate_placed_explosives(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.on.or(ctx.self_ref).unwrap_or(FormId::PLAYER_REF);
+    g.combat_requests.push(crate::combat::CombatRequest::Detonate(r));
+    none()
+}
+
 /// The body location of the actor's last hit, −1 for none [documented: catalogue notes;
 /// explosions give −1].
 pub fn get_hit_location(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {

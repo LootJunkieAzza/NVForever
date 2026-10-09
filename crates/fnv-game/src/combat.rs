@@ -42,6 +42,28 @@ use serde::Serialize;
 /// Health's actor value code.
 pub const HEALTH: u16 = 16;
 
+/// What scripts ask of the engine's combat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum CombatRequest {
+    /// Set off the placed explosives of this actor that detonate
+    /// (`DetonatePlacedExplosives`).
+    Detonate(FormId),
+}
+
+/// What damage did to a destructible reference (step C7).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct DestructionChange {
+    pub before: i32,
+    pub after: i32,
+    /// Explosions of the stages reached, in order.
+    pub explosions: Vec<FormId>,
+    pub destroyed: bool,
+    pub disabled: bool,
+    /// The last stage's replacement model and model damage stage, when it has them.
+    pub model: Option<String>,
+    pub damage_stage: Option<u8>,
+}
+
 /// What a hit did.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct HitResult {
@@ -202,6 +224,102 @@ impl Game<'_> {
             }
         }
         out
+    }
+
+    /// Whether the reference's base has destruction data.
+    pub fn is_destructible(&self, r: FormId) -> bool {
+        base_of(self, r).is_some_and(|b| self.data.destructibles.contains_key(&b))
+    }
+
+    /// Object damage on a destructible reference (as `DamageObject`, step C7)
+    /// [documented: GECK wiki Destructible Object Stage]:
+    /// - damage adds up to the object's health; each stage applies once its health
+    ///   percentage is reached;
+    /// - a stage with Cap Damage stops one hit from going past it;
+    /// - Destroy marks the object destroyed (it takes no more damage but its own
+    ///   self-damage), Disable disables it;
+    /// - the stage's self-damage per second keeps damaging it ([`Game::destruction_tick`]);
+    /// - each stage reached runs OnDestructionStageChange [hypothesis: once per change]
+    ///   and its explosion is returned for the engine to set off.
+    ///
+    /// `None` when the reference has no destruction data or nothing changed hands.
+    pub fn damage_object(&mut self, r: FormId, amount: f64) -> Option<DestructionChange> {
+        let def = base_of(self, r).and_then(|b| self.data.destructibles.get(&b)).cloned()?;
+        let e = self.extra.get(&r);
+        if e.is_some_and(|e| e.destroyed) && e.and_then(|e| e.burning).is_none() {
+            return None;
+        }
+        let before = crate::functions::objects_destruction_stage(self, r);
+        let health = def.health.max(0) as f64;
+        let had = e.and_then(|e| e.damage).unwrap_or(0.0);
+        let mut total = had + amount.max(0.0);
+        if health > 0.0 {
+            total = total.min(health);
+            // Cap Damage: a stage newly reached stops the hit at its threshold.
+            let mut by_pct: Vec<&crate::data::DestructionStage> = def.stages.iter().collect();
+            by_pct.sort_by_key(|s| std::cmp::Reverse(s.health_percent));
+            let pct_after = 100.0 * (health - total) / health;
+            let pct_before = 100.0 * (health - had) / health;
+            for s in by_pct {
+                let p = s.health_percent as f64;
+                if s.flags & crate::data::DestructionStage::CAP_DAMAGE != 0 && pct_after <= p && pct_before > p {
+                    total = total.min(health * (1.0 - p / 100.0));
+                    break;
+                }
+            }
+        }
+        self.extra.entry(r).or_default().damage = Some(total);
+        let after = crate::functions::objects_destruction_stage(self, r);
+        let mut out = DestructionChange { before, after, ..DestructionChange::default() };
+        if after == before {
+            return Some(out);
+        }
+        for s in def.stages.iter().filter(|s| s.index as i32 > before && s.index as i32 <= after) {
+            if s.flags & crate::data::DestructionStage::DESTROY != 0 {
+                self.extra.entry(r).or_default().destroyed = true;
+                out.destroyed = true;
+            }
+            if s.flags & crate::data::DestructionStage::DISABLE != 0 {
+                crate::functions::objects_disable(self, r);
+                out.disabled = true;
+            }
+            out.explosions.extend(s.explosion);
+            if s.model.is_some() {
+                out.model = s.model.clone();
+            }
+            if s.damage_stage > 0 {
+                out.damage_stage = Some(s.damage_stage);
+            }
+            let dps = s.self_damage_per_second;
+            self.extra.entry(r).or_default().burning = (dps > 0).then_some(dps as f64);
+        }
+        if health > 0.0 && total >= health {
+            self.extra.entry(r).or_default().burning = None;
+        }
+        self.ref_event(r, event::ON_DESTRUCTION_STAGE_CHANGE, None, None);
+        Some(out)
+    }
+
+    /// Advance burning objects (a stage's self-damage per second) by `dt` seconds; the
+    /// changes that reached new stages, with their references.
+    pub fn destruction_tick(&mut self, dt: f64) -> Vec<(FormId, DestructionChange)> {
+        let burning: Vec<(FormId, f64)> = self.extra.iter().filter_map(|(r, e)| e.burning.map(|d| (*r, d))).collect();
+        let mut out = Vec::new();
+        for (r, dps) in burning {
+            if let Some(c) = self.damage_object(r, dps * dt) {
+                if c.after != c.before {
+                    out.push((r, c));
+                }
+            }
+        }
+        out
+    }
+
+    /// Run the OnFire blocks of the weapon `actor` fired (its object script)
+    /// [documented: block name; observed: the detonator's script, `DetonatorOnFire`, is
+    /// an OnFire block].
+    pub fn weapon_fired(&mut self, actor: FormId, weapon: FormId) -> bool {
+        self.item_event(actor, weapon, event::ON_FIRE, None)
     }
 
     /// The XP the player earns for killing `target` (see the module notes).

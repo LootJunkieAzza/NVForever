@@ -382,7 +382,61 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   - **Fists:** three taps, one pressed during a swing, gave three hits of 0.2 (Unarmed
     damage 1.25 against DT 2, the 20 % floor).
 
-## 11. Open points
+## 11. Explosives and destructible objects (step C7)
+
+- **Thrown weapons and mines.** They are their own ammo (`self_ammo`): a shot spends one
+  and throws its PROJ along the view. Each projectile type behaves as §5 describes:
+  - grenades are lobbers on a fuse (Alt. Trigger timer);
+  - mines land, arm after their timer and go off when an actor other than the thrower
+    comes within their proximity radius;
+  - C-4 (Explosion + Detonates, no Alt. Trigger) lands and waits. It no longer explodes
+    on impact [documented: GECK wiki Projectile, Detonates].
+- **OnFire and detonation.** Every shot runs the weapon's OnFire blocks
+  (`Game::weapon_fired`, block 0x24).
+  - The detonator's script, `DetonatorOnFire`, calls `player.DetonatePlacedExplosives`
+    and has main-quest hooks: the Hoover Dam generators (`vHDGenerator0N.do 50000`) and
+    VMQ03b [observed: its SCTX].
+  - `DetonatePlacedExplosives` is implemented: it asks the engine
+    (`Game::combat_requests`), which sets off that actor's detonating projectiles.
+  - Ranged weapons without a projectile (the detonator, binoculars) cycle without ammo.
+- **Explosions** (`fly`). A queue of up to 64 per frame takes impacts, detonations and
+  destruction stages [design]. Each explosion:
+  - damages actors in its radius, with line of sight and armour;
+  - rolls knockdown: always with "Knock Down - Always", by the documented formula with
+    "By Formula". A knockdown is counted and logged; it is not animated yet;
+  - damages destructible objects whose collision overlaps its radius;
+  - pushes dynamic bodies with its force (`PhysWorld::push_dynamic`: a speed change of
+    the EXPL force in units/s at the centre, falling to 0 at the radius [design]).
+  - Radiation, the enchantment and the placed impact object are logged and not built.
+- **Destructible objects** (`Game::damage_object`, now also behind `DamageObject` /
+  `do`, so scripts and combat share it) [documented: GECK wiki Destructible Object
+  Stage]:
+  - damage adds up to the object's health; each stage applies once its health
+    percentage is reached;
+  - Cap Damage stops one hit at its stage;
+  - Destroy marks the object destroyed, Disable disables it;
+  - a stage's self-damage per second burns it down (`Game::destruction_tick`);
+  - OnDestructionStageChange runs;
+  - the stages' explosions go off 40 units above the object [design] and can damage
+    other objects.
+
+  Bullets damage the destructible they hit with the hit's damage (no armour). The
+  stages' damaged models and `BSDamageStage` nodes are not drawn yet; they are logged.
+- **Test aids:** `equip=<FormID>` switches weapons during a run.
+- **Checked** [observed 2026-10-09, `nvforever --play`, exit 0, "run finished"]:
+  - **Truck02** (0x000E7F40, 450 health, 6 stages): one missile's blast took it to stage
+    4 (destroyed). Its stage explosions went off (SmallNukeExplosion 0x1CA88 and
+    GrenadeFragExplosion), and it then burned down to the last stage on its own. The
+    first run also showed stages without an explosion (FormID 0) counted as explosions;
+    they now read as none.
+  - **Frag grenade** near the Goodsprings Settler: it exploded on its fuse.
+  - **C-4:** thrown, it landed and waited. Switching to the detonator and firing ran
+    `DetonatorOnFire`, and `DetonatePlacedExplosives` set off the one placed charge
+    (C4Explosion). Both explosions went off away from actors: the grenade bounced far
+    before its fuse ran out. Throw arcs and bounce are part of the planned projectile
+    captures.
+
+## 12. Open points
 
 - Every [design] number is a first guess for the owner to tune in play.
 - Projectile gravity units and speeds: the owner's projectile capture round.

@@ -1043,3 +1043,20 @@ fn placed_water_survives_adding_the_same_refs_bodies() {
     assert!(w.remove_ref(11));
     assert!(!w.remove_ref(11));
 }
+
+#[test]
+fn explosions_push_dynamic_bodies_away() {
+    let mut w = ground();
+    w.add_ref(&at(1, [60.0, 0.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
+    w.add_ref(&at(2, [600.0, 0.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
+    for _ in 0..30 {
+        w.step();
+    }
+    let (near, far) = (w.ref_bodies(1)[0].translation, w.ref_bodies(2)[0].translation);
+    assert_eq!(w.push_dynamic([0.0, 0.0, 6.0], 300.0, 400.0), 1);
+    for _ in 0..30 {
+        w.step();
+    }
+    assert!(w.ref_bodies(1)[0].translation[0] > near[0] + 20.0, "{:?}", w.ref_bodies(1));
+    assert!((w.ref_bodies(2)[0].translation[0] - far[0]).abs() < 0.01);
+}
