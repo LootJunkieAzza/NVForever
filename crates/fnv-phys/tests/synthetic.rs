@@ -968,6 +968,11 @@ fn placed_water_survives_adding_the_same_refs_bodies() {
     w.add_ref(&pose, &[object(boxed([20.0, 20.0, 20.0]), Motion::Static)]);
     assert_eq!(w.ref_bodies(9).len(), 1);
     assert_eq!(w.water_surface_at(1000.0, 0.0), Some(300.0));
+    // The loader's path (prepared off the main thread, then inserted) keeps it too.
+    let prepared = PreparedRef::new(&w.params, &pose, &[object(boxed([20.0, 20.0, 20.0]), Motion::Static)]);
+    w.insert_ref(prepared);
+    assert_eq!(w.ref_bodies(9).len(), 1);
+    assert_eq!(w.water_surface_at(1000.0, 0.0), Some(300.0));
     // The other order works too.
     let other = RefPose { form_id: 10, position: [-1000.0, 0.0, 300.0], ..pose };
     w.add_ref(&other, &[object(boxed([20.0, 20.0, 20.0]), Motion::Static)]);

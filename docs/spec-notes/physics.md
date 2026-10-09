@@ -494,6 +494,16 @@ are fixed, but how many run per frame depends on frame times).
 - Bodies are created in call order, and rapier's results depend on it [hypothesis, as for
   any solver]; the tools add terrain by grid and references by FormID. Queries that
   return several colliders sort them.
+- **Building off the world**: `add_ref` and `add_terrain` are `PreparedRef::new` /
+  `PreparedTerrain::new` (pure: shapes, poses, no world) followed by `insert_ref` /
+  `insert_terrain`, so the shapes can be built on another thread; the two halves give the
+  same bodies in the same order as the one call [observed: parity-lab L4 results
+  identical to the code before the split]. The game prepares cells on a loader thread and
+  inserts them in the order it asked for them, a cell's references by FormID, whatever
+  order the thread finishes in; its tests find the world bit-identical (state digest,
+  loaded cells, stats) whether the loader finishes cells forwards or backwards, to loading
+  every cell on the main thread, and between two runs [observed: tests in
+  `engine/nvf-play/src/phys/tests.rs`] (docs/design/layer4-play.md §6).
 - **Snapshots**: `PhysWorld::snapshot` copies the whole world (bodies, colliders, contact
   graph, islands, broad phase); stepping the copy and the original with the same inputs
   stays bit-identical, a character included [observed: test
