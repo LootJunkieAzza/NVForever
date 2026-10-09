@@ -317,9 +317,10 @@ identical to main's `fnvtool`.
 Open:
 - Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
 - Dialogue and barter are not built.
-- Locked doors that scripts open in the game stay locked: the Freeside → Strip gate
-  0x00116425 is level 255 with key 0x00119875 (the Securitron's check opens it; scripts
-  are Layer 5).
+- ~~Locked doors that scripts open in the game stay locked~~: with Layer 5 scripts in
+  `--play` (docs/design/layer5-play.md) the Freeside → Strip gate 0x00116425's own
+  GameMode unlocks it once `VFreeformFreeside.PlayerPassport` is set (the Securitron's
+  dialogue, Layer 6; a test aid stands in), and its OnActivate takes the player through.
 - Renderer, seen in the worldspace tests and the same with a direct start (not the
   switch): NVUrbanClear (Freeside) is overexposed and Big MT's sky is white at noon.
 - Starting the game in an interior leaves generated distant terrain off for the start
