@@ -53,7 +53,7 @@ cell entity), and `RefChanged` is sent by the inventory menu for each dropped re
 | Item | Kind | Written by | Read by |
 |---|---|---|---|
 | `PlayData`, `PlayWorld` | plugin input / resource: `'static` load order, schema, `WorldIndex`, the worldspace the game starts in, start pose, test aids | nvforever | all |
-| `Location` | resource: the worldspace and the interior (if any) the player is in now; from `PlayData` at the start, changed when physics applies a `Travel` | P | U (F9 aid), any part that needs the current worldspace |
+| `Location` | resource: the worldspace and the interior (if any) the player is in now; from `PlayData` at the start, changed when physics applies a `Travel` | P | U (F10 aid), any part that needs the current worldspace |
 | `SimState` | resource: `fnv_sim::world::World<'static>` + forms + refs; clock advanced in real time | sim.rs | A, U |
 | `PlayState` | Bevy state `Playing` / `Menu` | U (enter/leave menus) | P (no movement/look in menus), A |
 | `PlaySet` | system sets, chained in `Update`: `Input` → `Physics` → `Activation` → `Ui` → `Sync` | lib.rs | all |
@@ -65,6 +65,18 @@ cell entity), and `RefChanged` is sent by the inventory menu for each dropped re
 | `Travel { world, interior, feet, heading_deg }` | message: into an interior (`interior: Some`, `world: None`) or out into worldspace `world` (the current one or another); `Travel::destination(from)` gives the new `Location` | A | nvforever (render, worldspace switch), P |
 | `OpenContainer { container }` | message | A | U |
 | `RefChanged { form_id }` | message: the sim changed a reference's presence (taken, dropped, enabled, disabled), placed or created | A, U (one per dropped reference) | A (visual sync), P (collision; created references load with their physics cell) |
+
+Coordinator change 2026-10-09 (player body, branch `claude/player-body`,
+docs/design/player-body.md): `Player` gained `body_eye` (the eye of the drawn body, which
+`Player::eye` returns when set); new resources `PlayerControl` (sneak, weapon out, aiming,
+first/third person), `ControlSettings`, `BodyView`, and the set `player::BodySet` in
+`PlaySet::Physics` between the character's move and the camera; the camera system moved
+to `control.rs` (`place_camera`: first person at the eye, third person behind the
+shoulder). Sneaking scales walking and running by `fMoveSneakMult`. Same day, second
+change: every control is read through `bindings::Bindings` (the game's default keys and
+mouse buttons, docs/spec-notes/controls.md), including Activate and Menu Mode;
+`activate::HudMessage` is public; the nearest-container aid moved from F9 (the game's
+Quick Load) to F10.
 
 Coordinator change 2026-10-08 (worldspace travel, branch `claude/layer4-play-worldspace`):
 `Travel` gained `world`; `Location` was added; `PlayData::world` is only the start.

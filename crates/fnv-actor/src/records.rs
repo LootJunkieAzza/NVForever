@@ -134,6 +134,14 @@ pub struct Weapon {
     /// DNAM flags: "Embedded Weapon" (part of a creature body), "Non-Playable".
     pub embedded: bool,
     pub non_playable: bool,
+    /// WNAM "1st Person Model": a form (a STAT [observed: the 9mm pistol's,
+    /// `1stPerson9mm`]) whose model the first-person view shows [documented: xEdit WEAP
+    /// WNAM]. Not part of any report.
+    #[serde(skip)]
+    pub first_person: Option<FormId>,
+    /// That form's MODL, relative to `meshes\`.
+    #[serde(skip)]
+    pub first_person_model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -271,6 +279,19 @@ impl ActorForms {
                 Loaded::Other => {}
             }
         }
+        // The forms weapons name as their first-person model (WNAM), read for their MODL
+        // only: they are statics, too many to load as a type.
+        for w in out.weapons.values_mut() {
+            let Some(fp) = w.first_person else { continue };
+            let Some(d) = lo.index.get(&fp.0).and_then(|defs| defs.last()) else { continue };
+            let r = lo.records[d.plugin as usize][d.ordinal as usize];
+            if r.header.flags & 0x20 != 0 {
+                continue;
+            }
+            if let Ok(dec) = extract::decode(r, schema) {
+                w.first_person_model = path(first(&dec, b"MODL"));
+            }
+        }
         out
     }
 
@@ -305,7 +326,7 @@ fn load_one(lo: &LoadOrder, pi: usize, id: FormId, sig: &[u8; 4], d: &[Decoded],
             extra: all(d, b"HNAM").filter_map(|v| fid(lo, pi, id, "HNAM", Some(v), issues)).collect(),
         }),
         b"ARMO" => Loaded::Armor(armor(d)),
-        b"WEAP" => Loaded::Weapon(weapon(d)),
+        b"WEAP" => Loaded::Weapon(weapon(lo, pi, id, d, issues)),
         b"LVLN" => Loaded::Leveled(leveled_npc(lo, pi, id, d, issues)),
         b"CREA" => Loaded::Creature(Box::new(creature(lo, pi, id, d, issues))),
         b"LVLC" => Loaded::LeveledCreature(leveled_npc(lo, pi, id, d, issues)),
@@ -458,7 +479,7 @@ fn armor(d: &[Decoded]) -> Armor {
     }
 }
 
-fn weapon(d: &[Decoded]) -> Weapon {
+fn weapon(lo: &LoadOrder, pi: usize, id: FormId, d: &[Decoded], issues: &mut Issues) -> Weapon {
     let dnam = first(d, b"DNAM");
     let flags = dnam.and_then(|v| v.get("flags1"));
     Weapon {
@@ -468,6 +489,8 @@ fn weapon(d: &[Decoded]) -> Weapon {
         damage: first(d, b"DATA").and_then(|v| int(v, "base_damage")).unwrap_or(0) as i32,
         embedded: flags.is_some_and(|f| has_flag(f, "Embedded Weapon")),
         non_playable: flags.is_some_and(|f| has_flag(f, "Non-Playable")),
+        first_person: fid(lo, pi, id, "WNAM", first(d, b"WNAM"), issues),
+        first_person_model: None,
     }
 }
 
