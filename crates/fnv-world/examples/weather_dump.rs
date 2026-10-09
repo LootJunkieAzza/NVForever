@@ -5,8 +5,10 @@
 //! often the high-noon and midnight colours equal the day and night ones, or are black.
 //! With `--fog`: every weather's FNAM fog distances, flagging zero or empty (far <= near)
 //! ranges, and which climates list each such weather.
+//! With `--imad`: every image space adapter's cinematic tracks (IAD 0x11-0x14 multiply
+//! and 0x51-0x54 add) as (time, value) keys, and every image space's cinematic values.
 //!
-//! cargo run --release -p fnv-world --example weather_dump -- <Data dir> <esm schema dir> [climate EDID | --survey | --fog]
+//! cargo run --release -p fnv-world --example weather_dump -- <Data dir> <esm schema dir> [climate EDID | --survey | --fog | --imad]
 
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_world::fields::Fields;
@@ -31,6 +33,10 @@ fn main() {
     }
     if want == "--fog" {
         fog_survey(&lo, &schema);
+        return;
+    }
+    if want == "--imad" {
+        imad_survey(&lo, &schema);
         return;
     }
     let mut clim_id = None;
@@ -169,5 +175,38 @@ fn dump_floats(lo: &LoadOrder, schema: &Schema, id: u32) {
     for s in f.subs.iter().filter(|s| &s.sig != b"EDID" && !s.data.is_empty()) {
         let v: Vec<String> = s.data.as_chunks::<4>().0.iter().map(|c| format!("{:.4}", f32::from_le_bytes(*c))).collect();
         println!("      {:?} [{}]", String::from_utf8_lossy(&s.sig), v.join(", "));
+    }
+}
+
+/// Cinematic tracks of every IMAD and cinematic values of every IMGS (raw keys, no
+/// interpretation beyond xEdit's layout [documented: wbDefinitionsFNV.pas IMAD, IMGS]).
+fn imad_survey(lo: &LoadOrder, schema: &Schema) {
+    let floats = |d: &[u8]| d.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect::<Vec<_>>();
+    for (pi, recs) in lo.records.iter().enumerate() {
+        for r in recs.iter().filter(|r| &r.header.sig == b"IMGS") {
+            let Ok(f) = Fields::new(r, pi, schema) else { continue };
+            let Some(d) = f.raw(b"DNAM") else { continue };
+            let base = if d.data.len() >= 152 { 100 } else { 96 };
+            let v = floats(d.data.get(base..base + 32).unwrap_or_default());
+            println!("IMGS {:18} {:40} sat/avglum/contrast/bright/tint/amount {:?}", MASTERS[pi], f.string(b"EDID").unwrap_or_default(), v);
+        }
+    }
+    for (pi, recs) in lo.records.iter().enumerate() {
+        for r in recs.iter().filter(|r| &r.header.sig == b"IMAD") {
+            let Ok(f) = Fields::new(r, pi, schema) else { continue };
+            let track = |i: u8| {
+                f.subs
+                    .iter()
+                    .find(|s| s.sig == [i, b'I', b'A', b'D'])
+                    .map(|s| floats(&s.data).chunks(2).map(|k| format!("{}:{}", k[0], k.get(1).copied().unwrap_or(f32::NAN))).collect::<Vec<_>>().join(" "))
+                    .unwrap_or_default()
+            };
+            println!(
+                "IMAD {:18} {:40} 11[{}]+[{}] 12[{}]+[{}] 13[{}]+[{}] 14[{}]+[{}]",
+                MASTERS[pi],
+                f.string(b"EDID").unwrap_or_default(),
+                track(0x11), track(0x51), track(0x12), track(0x52), track(0x13), track(0x53), track(0x14), track(0x54)
+            );
+        }
     }
 }

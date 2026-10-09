@@ -1,0 +1,248 @@
+{
+ "schema": "fnv.phys.drops/1",
+ "name": "diag_fence_low",
+ "description": "Diagnostic (no scenario), after diag_fence_edge: the same offsets across the Doc Mitchell yard fence (top 8422.4, centre x -72458.75) dropped from 10 and 50 units above the top instead of 200, two 200-unit repeats, and three B11 tree a points dropped from 12 and 50 above where the game's player rested after a 200-unit drop. Tests whether the depth the player sinks at an edge grows with the speed of the fall (physics.md 6.4.1).",
+ "seconds": 10,
+ "drops": [
+  {
+   "label": "fence_h10_+0",
+   "at": [
+    -72458.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h10_+8",
+   "at": [
+    -72450.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h10_-8",
+   "at": [
+    -72466.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h10_+12",
+   "at": [
+    -72446.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h10_-12",
+   "at": [
+    -72470.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h10_+16",
+   "at": [
+    -72442.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h10_-16",
+   "at": [
+    -72474.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h10_+20",
+   "at": [
+    -72438.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h10_-20",
+   "at": [
+    -72478.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h10_+24",
+   "at": [
+    -72434.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h10_-24",
+   "at": [
+    -72482.75,
+    4100.0,
+    8432.4
+   ]
+  },
+  {
+   "label": "fence_h50_+0",
+   "at": [
+    -72458.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h50_+8",
+   "at": [
+    -72450.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h50_-8",
+   "at": [
+    -72466.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h50_+12",
+   "at": [
+    -72446.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h50_-12",
+   "at": [
+    -72470.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h50_+16",
+   "at": [
+    -72442.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h50_-16",
+   "at": [
+    -72474.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h50_+20",
+   "at": [
+    -72438.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h50_-20",
+   "at": [
+    -72478.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h50_+24",
+   "at": [
+    -72434.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h50_-24",
+   "at": [
+    -72482.75,
+    4100.0,
+    8472.4
+   ]
+  },
+  {
+   "label": "fence_h200_+12",
+   "at": [
+    -72446.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "fence_h200_+20",
+   "at": [
+    -72438.75,
+    4100.0,
+    8622.4
+   ]
+  },
+  {
+   "label": "tree_a_+0_+0_h12",
+   "at": [
+    -74300.2,
+    -1166.8,
+    8650.53
+   ]
+  },
+  {
+   "label": "tree_a_+0_+0_h50",
+   "at": [
+    -74300.2,
+    -1166.8,
+    8688.53
+   ]
+  },
+  {
+   "label": "tree_a_-30_+0_h12",
+   "at": [
+    -74330.2,
+    -1166.8,
+    8637.73
+   ]
+  },
+  {
+   "label": "tree_a_-30_+0_h50",
+   "at": [
+    -74330.2,
+    -1166.8,
+    8675.73
+   ]
+  },
+  {
+   "label": "tree_a_+30_-30_h12",
+   "at": [
+    -74270.2,
+    -1196.8,
+    8709.56
+   ]
+  },
+  {
+   "label": "tree_a_+30_-30_h50",
+   "at": [
+    -74270.2,
+    -1196.8,
+    8747.56
+   ]
+  }
+ ]
+}

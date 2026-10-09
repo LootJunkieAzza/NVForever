@@ -12,7 +12,7 @@ use fnv_world::{cell_of, WorldIndex, CELL_SIZE};
 use nvf_assets::actor::{ActorCtx, ActorParts};
 use nvf_assets::model::ModelCtx;
 use nvf_assets::{nif_material, NifMaterial};
-use nvf_play::RefVisual;
+use nvf_play::{RefVisual, RenderCell};
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
@@ -281,6 +281,12 @@ fn load_cell(
         CellKey::Interior(id) => (Vec3::ZERO, world.index.cells.get(&id), format!("Interior {id:08X}")),
     };
     let cell_e = commands.spawn((Name::new(name), CellEntity, Transform::from_translation(origin), Visibility::default())).id();
+    // Hook for nvf-play: it draws the references the simulation created (dropped items)
+    // in this cell as children of this entity.
+    commands.entity(cell_e).insert(match key {
+        CellKey::Exterior((x, y)) => RenderCell::Exterior { world: world.world, x, y },
+        CellKey::Interior(id) => RenderCell::Interior(id),
+    });
     let mut refs: Vec<u32> = cell.map(|c| c.refs.clone()).unwrap_or_default();
     if let CellKey::Exterior(g) = key {
         if let Some(land) = cell.and_then(|c| c.land) {

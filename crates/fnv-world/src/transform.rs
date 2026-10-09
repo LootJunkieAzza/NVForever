@@ -82,6 +82,24 @@ pub fn ref_rotation(angles: [f32; 3]) -> Mat3 {
     Euler::ENGINE.matrix(angles)
 }
 
+/// Angles (x, y, z, radians) that [`ref_rotation`] turns into `m`, for writing a pose
+/// computed at run time (a dropped item that came to rest) back as a reference's
+/// rotation. `m` must be a rotation. `M = Rx(a) Ry(b) Rz(c)` with `(a, b, c) = -(x, y, z)`
+/// gives `m[2] = sin b`, `m[5] = -sin a cos b`, `m[1] = -cos b sin c`; at `cos b = 0`
+/// only `a + c` (or `a - c`) is defined and z is set to 0. Angles come out in [-π, π]
+/// (y in [-π/2, π/2]), so they need not equal the stored ones, only give the same matrix.
+pub fn ref_angles(m: &Mat3) -> [f32; 3] {
+    let sb = m[2].clamp(-1.0, 1.0);
+    let b = sb.asin();
+    let (a, c) = if sb.abs() < 1.0 - 1e-6 {
+        ((-m[5]).atan2(m[8]), (-m[1]).atan2(m[0]))
+    } else {
+        // cos b = 0: m[7] = sin(a ± c), m[4] = cos(a ± c); take c = 0.
+        (m[7].atan2(m[4]), 0.0)
+    };
+    [-a, -b, -c]
+}
+
 /// Largest absolute element difference.
 pub fn max_diff(a: &Mat3, b: &Mat3) -> f32 {
     a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0, f32::max)
@@ -118,6 +136,18 @@ mod tests {
         let a = [0.4, -1.2, 2.9];
         let zyx = Euler { order: [2, 1, 0], clockwise: false }.matrix(a);
         assert!(max_diff(&ref_rotation(a), &transpose(&zyx)) < 1e-6);
+    }
+
+    #[test]
+    fn angles_give_back_the_rotation() {
+        let h = std::f32::consts::FRAC_PI_2;
+        for a in [[0.0, 0.0, 0.0], [0.4, -1.2, 2.9], [-3.0, 0.2, -0.1], [0.3, h, 1.0], [0.3, -h, -2.0], [0.0, 0.0, 1.3]] {
+            let m = ref_rotation(a);
+            let back = ref_angles(&m);
+            assert!(max_diff(&ref_rotation(back), &m) < 1e-5, "{a:?} -> {back:?}");
+        }
+        // A pure heading comes back unchanged.
+        assert!((ref_angles(&ref_rotation([0.0, 0.0, 1.3]))[2] - 1.3).abs() < 1e-6);
     }
 
     #[test]
