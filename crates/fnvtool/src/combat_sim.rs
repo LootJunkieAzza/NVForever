@@ -67,7 +67,7 @@ pub fn damage_report(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &
     let rules = Rules::from_forms(c);
     let t = CombatTuning::default();
     let eff = ammo_effects(c, &ch.ammo_effects);
-    let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head } };
+    let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head }, power: 1.0 };
     let normal = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, 0.999_999);
     let crit = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, 0.0);
     let per_shot = normal.dealt * ch.projectiles_per_shot.max(1) as f32;
@@ -230,7 +230,7 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
                 continue;
             }
             hits += 1;
-            let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head } };
+            let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head }, power: 1.0 };
             let d = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, rng.next_f32());
             if d.critical {
                 crits += 1;

@@ -37,7 +37,7 @@ fn skilled() -> Attacker {
 
 /// One hit with no perks and a crit roll that never crits unless forced.
 fn hit(w: &WeaponStats, projectiles: u32, a: &Attacker, t: &Target, effects: &[&AmmoEffect], part: HitPart, roll: f32) -> damage::Damage {
-    let h = HitInput { weapon: w, projectiles, condition: 1.0, ammo_effects: effects, part };
+    let h = HitInput { weapon: w, projectiles, condition: 1.0, ammo_effects: effects, part, power: 1.0 };
     damage::hit(&Rules::defaults(), &CombatTuning::default(), &h, a, t, &NoPerks, &NoPerks, roll)
 }
 
@@ -118,7 +118,7 @@ fn ammo_effects_child_miss_armour_flag() {
     let piercing = WeaponStats { flags: vec!["Ignores Normal Weapon Resistance".into()], ..gun(20) };
     assert!(close(hit(&piercing, 1, &skilled(), &Target { dt: 15.0, ..Target::default() }, &[], HitPart::default(), 0.99).dealt, 20.0));
     // Condition 0 halves the damage [design].
-    let h = HitInput { weapon: &w, projectiles: 1, condition: 0.0, ammo_effects: &[], part: HitPart::default() };
+    let h = HitInput { weapon: &w, projectiles: 1, condition: 0.0, ammo_effects: &[], part: HitPart::default(), power: 1.0 };
     let d = damage::hit(&Rules::defaults(), &CombatTuning::default(), &h, &skilled(), &Target::default(), &NoPerks, &NoPerks, 0.99);
     assert!(close(d.dealt, 10.0));
 }
@@ -368,4 +368,25 @@ fn melee_swing_and_blast() {
     assert!(blast(&walled, &t, &e, [0.0, 0.0, 30.0]).is_empty());
     let ignore = ExplosionStats { flags: vec!["Ignore LOS Check".into()], ..e };
     assert_eq!(blast(&walled, &t, &ignore, [0.0, 0.0, 30.0]).len(), 1);
+}
+
+#[test]
+fn melee_reach_power_and_block() {
+    let r = Rules::defaults();
+    let t = CombatTuning::default();
+    let knife = WeaponStats { anim_type: Some("Melee (1 Hand)".into()), reach: 0.5, ..gun(10) };
+    let fists = WeaponStats { anim_type: Some("Hand to Hand".into()), reach: 0.0, ..gun(0) };
+    assert!(close(damage::melee_reach(&r, &knife, 1.0), 0.5 * r.combat_distance));
+    // A reach of 0 (the Fists) counts as 1.
+    assert!(close(damage::melee_reach(&r, &fists, 1.0), r.combat_distance));
+    // A power attack multiplies the base before armour.
+    let a = Attacker { strength: 10.0, ..skilled() };
+    let h = HitInput { weapon: &knife, projectiles: 1, condition: 1.0, ammo_effects: &[], part: HitPart::default(), power: t.power_damage };
+    let d = damage::hit(&r, &t, &h, &a, &Target::default(), &NoPerks, &NoPerks, 0.99);
+    assert!(close(d.dealt, (10.0 + 5.0) * t.power_damage), "{d:?}");
+    // Fists do the UnarmedDamage actor value; it is no miss.
+    let h = HitInput { weapon: &fists, projectiles: 1, condition: 1.0, ammo_effects: &[], part: HitPart::default(), power: 1.0 };
+    let d = damage::hit(&r, &t, &h, &Attacker { unarmed_skill: 40.0, ..Attacker::default() }, &Target::default(), &NoPerks, &NoPerks, 0.99);
+    assert!(!d.miss && close(d.dealt, 0.5 + 0.05 * 40.0));
+    assert!(close(damage::blocked(&t, 10.0), 10.0 * (1.0 - t.block)));
 }
