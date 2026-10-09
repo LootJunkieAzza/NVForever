@@ -209,6 +209,7 @@ macro_rules! flag {
 flag!(set_ghost, get_ghost, ghost);
 flag!(set_restrained, get_restrained, restrained);
 flag!(set_unconscious, get_unconscious, unconscious);
+flag!(set_player_teammate, get_player_teammate, teammate);
 
 /// Health back to its base: the stored Health (code 16) change is dropped.
 pub fn reset_health(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {

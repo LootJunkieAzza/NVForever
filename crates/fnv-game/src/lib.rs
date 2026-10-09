@@ -10,6 +10,7 @@
 //! - [`game`]: the game state, instances, dispatch, SetStage, activation, snapshots
 //! - [`functions`]: function implementations by opcode
 //! - [`trace`]: trace events
+//! - [`intro`]: the intro chain's units (coverage)
 //! - [`runner`]: `fnv.script.actions/1` → `fnv.script.trace/1`
 //!
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
@@ -18,6 +19,7 @@ pub mod cond;
 pub mod data;
 pub mod functions;
 pub mod game;
+pub mod intro;
 pub mod quest;
 pub mod runner;
 pub mod trace;
