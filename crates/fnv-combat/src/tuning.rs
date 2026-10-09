@@ -33,7 +33,8 @@ pub struct Rules {
     // Armor
     pub max_armor_rating: f32,
     /// Melee reach base (× actor scale × weapon reach). The wiki gives no default and the
-    /// masters lack the setting: 100 units is a placeholder [hypothesis].
+    /// masters lack the setting: 150 units is a placeholder [hypothesis: chosen so a
+    /// knife (reach 0.5) reaches 75 units and a sledgehammer (0.75) 112; tunable].
     pub combat_distance: f32,
     // Gun Spread Formula (New Vegas)
     pub spread_unaimed: f32,
@@ -91,7 +92,7 @@ const SETTINGS: &[(&str, f32)] = &[
     ("fAVDCritLuckMult", 1.0),
     ("fVATSCriticalChanceBonus", 15.0),
     ("fMaxArmorRating", 85.0),
-    ("fCombatDistance", 100.0),
+    ("fCombatDistance", 150.0),
     ("fUnaimedSpreadPenalty", 0.2),
     ("fWalkingSpreadPenalty", 0.1),
     ("fRunningSpreadPenalty", 0.2),
@@ -235,6 +236,13 @@ pub struct CombatTuning {
     pub auto_reload: bool,
     /// Reload time when no reload clip length is known, seconds.
     pub fallback_reload: f32,
+    /// Melee (step C6): holding Use this long starts a power attack; a power attack does
+    /// this much more damage and takes this much longer.
+    pub power_hold: f32,
+    pub power_damage: f32,
+    pub power_time: f32,
+    /// Share of a melee hit a block stops.
+    pub block: f32,
 }
 
 impl Default for CombatTuning {
@@ -258,6 +266,10 @@ impl Default for CombatTuning {
             default_bounce: 0.3,
             auto_reload: true,
             fallback_reload: 2.0,
+            power_hold: 0.4,
+            power_damage: 1.5,
+            power_time: 1.3,
+            block: 0.6,
         }
     }
 }
