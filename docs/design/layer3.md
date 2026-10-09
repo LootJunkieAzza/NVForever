@@ -272,13 +272,20 @@ owner once the first comparisons exist; they are then frozen like any other tole
 
 ## 5. Open questions and verification steps for the owner
 
-1. **Reference screenshots** (needed for work items 3–9). Procedure, to be refined:
-   a fixed resolution, HUD hidden (`tm`), time and weather pinned (`set gamehour to 12`,
-   `fw <weather FormID>`), timescale frozen (`set timescale to 0`), camera placed with
-   `coc` / `setpos` / `setangle` or `tfc`, then the game's screenshot key. Record the
-   values in a small JSON file next to each image.
-2. **INI values**: `uGridsToLoad`, `uExterior Cell Buffer`, fog and LOD distances from
-   your `Fallout.ini` / `FalloutPrefs.ini` (we read them; NVForever never writes there).
+1. ~~**Reference screenshots** (needed for work items 3–9).~~ → Done without the owner
+   at the game since 2026-10-09: `tools/capture/capture_frames.py` places the camera through
+   the `nvf_capture` plugin and saves the game's own frame (plugin v7 screenshot step);
+   `parity-lab/tools/gen_layer3_frames.py` turns the manifest into `L3.frame.*` image
+   scenarios (tools/capture/README.md §7). The owner reviews the frames for lighting and
+   the world's look; actors in shot need no masks.
+2. ~~**INI values**~~ → read from the owner's `FalloutPrefs.ini` (read-only, 2026-10-09)
+   [observed]: `uGridsToLoad=5`, `uExterior Cell Buffer=36`, `uGridDistantCount=20`,
+   `uGridDistantTreeRange=5`, `fBlockLoadDistance=125000`, `fBlockLoadDistanceLow=50000`,
+   `fTreeLoadDistance=40000`, `fLODMultObjects=5`, `fLODMultTrees=0.5`,
+   `fLODFadeOutMultObjects/Items/Actors=15`, `fLODFadeOutPercent=0.6`,
+   `fGrassStartFadeDistance=7000`, `fDefaultFOV=75`, `fDefault1stPersonFOV=55`.
+   `Fallout.ini` has the same grid values but smaller fade multipliers (Items 3, Objects 5,
+   Actors 6); the game reads `FalloutPrefs.ini` for these display settings [hypothesis].
 3. A first look: `cargo run --release --bin nvforever -- --data <Data> --cell Goodsprings`
    (from `engine/`) and fly around; anything that looks wrong compared with the game is
    useful (missing or extra objects, wrong terrain textures).
