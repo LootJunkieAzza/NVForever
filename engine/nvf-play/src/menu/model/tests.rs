@@ -328,3 +328,27 @@ fn nearest_container_in_an_interior() {
     assert_eq!(nearest_container(&w, &f.refs, Some(FormId(CELL)), FormId(0), [0.0; 3]), None);
     assert_eq!(nearest_container(&w, &f.refs, None, FormId(0x400), [0.0; 3]), None);
 }
+
+#[test]
+fn non_playable_items_are_not_listed_and_stay_in_containers() {
+    let mut f = fixture();
+    // The anvil stands in for a non-playable item (like the Pip-Boy Glove).
+    match f.forms.bases.get_mut(&FormId(ANVIL)).map(|b| &mut b.data) {
+        Some(BaseData::Item(i)) => i.non_playable = true,
+        other => panic!("anvil: {other:?}"),
+    }
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut m = MenuModel::open_container(&mut w, FormId(BOX_REF)).unwrap();
+    assert!(m.list(Side::Container).rows.iter().all(|r| r.item != FormId(ANVIL)));
+    m.apply(&mut w, Command::TakeAll);
+    assert_eq!(m.status.as_deref(), Some("Took everything (203 items)"));
+    assert!(m.list(Side::Container).rows.is_empty(), "nothing visible is left");
+    assert_eq!(count(&mut w, BOX_REF, ANVIL), 1, "the hidden item stays");
+    assert_eq!(count(&mut w, 0x14, ANVIL), 0);
+    // Carried, it is still not listed, so it cannot be dropped from the inventory.
+    w.add_item(FormId::PLAYER_REF, FormId(ANVIL), 1).unwrap();
+    let mut inv = MenuModel::open_inventory(&mut w).unwrap();
+    assert!(inv.list(Side::Player).rows.iter().all(|r| r.item != FormId(ANVIL)));
+    inv.apply(&mut w, Command::DropStack);
+    assert_eq!(count(&mut w, 0x14, ANVIL), 1);
+}
