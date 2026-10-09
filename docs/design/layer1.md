@@ -79,7 +79,10 @@ per-plugin master-index → load-index maps, and indexes every record by global 
 102,646 null; 893,586 resolve; 6,074 point into the engine built-in range below 0x800
 (4,566 of them 0x14 [hypothesis: the player reference]); **1 dangling**; **1** with an
 invalid master index (the GRA REFR). So every FormID the schema can see resolves, except
-those two irregularities.
+those two irregularities. (2026-10-09, with the larger schema: 1,012,805 fields, 898,714 resolve, 107,918 null;
+19 with a master index beyond the master list: the GRA REFR's base plus 18 FalloutNV.esm
+ANIO DATA with a stale index 01; dangling: the DM INFO plus 6 REGN / 7 WTHR fields,
+esm.md Unknowns 7.)
 
 ### 2.5 Schema-as-data strategy
 
@@ -206,9 +209,16 @@ Still open:
    `50991d36804b7d1e70df1afd7471b72f0e29d1b456ee2516a9717c002564e7c1`, the copy in which
    LAND 0x00150FC0's bad Adler-32 was found. A Steam "Verify integrity of game files"
    (owner-only) or another copy would tell a shipped defect from local damage.
-3. **In-game behaviour checks**: what the engine does with the out-of-range FormID
-   0x02000801 in GRA (a test placement in the test cell `TestMentats`, esm.md) and with
-   the dangling DM INFO reference. Status: ITEM4_STATUS
+3. **In-game behaviour checks**: the out-of-range FormID is **settled** by an
+   unattended capture (2026-10-09, job `l1_oob_formid`): the game places GRA's REFR
+   0x02000801 in `TestMentats` as GRA's own 0x..000801 with GRA's own base 0x..000800,
+   exactly as xEdit displays it. **Owner decision**: make `LoadOrder::to_global` read an
+   out-of-range index as the plugin's own (tried; it fails the two `L3.world.*.interiors`
+   scenarios by exactly this reference because `oracle_world.py` and its golden follow the
+   old rule, so oracle and golden would be updated with it; esm.md). Still open:
+   whether the dangling DM INFO "Previous INFO" link (0x01011B23 → 0x010108DD) changes
+   the order of `NVDLC01RadioElijahEnd`'s lines; the capture needs a save at the end of
+   Dead Money (owner), plan in esm.md Unknowns 4.
 4. **Licence**: the owner's decision (GPL-3.0-or-later assumed as placeholder).
 
 ## 6. Updated spec notes
