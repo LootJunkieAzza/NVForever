@@ -292,7 +292,74 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   to 19:12 in linear light 1, 0.54, 0.20, 0.02. The renderer's keys (sunset colours at
   19:00, night at 20:00) give 1, 0.53, 0.05, 0.05; night at 20:30 instead gives 1, 0.72,
   0.35, 0.05. Neither fits clearly better and the dusk reference frame is the same with
-  both, so the keys are unchanged.
+  both, so the keys are unchanged. Still open after the sky changes below: at 20:00
+  looking west the game's sky at 20-45° is (48, 43, 53) and the renderer's (9, 10, 18)
+  [observed, diag frame `diag_west_200`]; the renderer is at full night colours there.
+- **Sky colours** [observed 2026-10-09: the four reference frames (tools/capture README
+  section 7) and 30 diagnostic screenshots of the original game at Goodsprings
+  (07:00-20:30, NVWastelandClear, private), compared region by region with nvforever
+  renders of the same cameras; "dark 10%" is the mean of the darkest tenth of a region,
+  which picks the gaps between clouds]. The game's sky at noon is a dark, nearly neutral
+  slate with bright, warm clouds and a warm, bright band along the horizon: looking
+  north-east at 12:06 the gaps are (114, 115, 130) at 29° elevation, (140, 138, 142) at
+  20°, (172, 166, 169) at 12° and (195, 184, 165) at 7°; the brightest tenth of the
+  clouds is (250, 239, 186). Near the zenith, away from the sun, the gaps are (80, 79,
+  96). The renderer drew (197, 203, 208) at 29° and (223, 227, 218) at 7°, nearly white,
+  with clouds barely visible. Causes and the renderer's model:
+  - The horizon colour reached too high. Undoing the image-space grade (as the renderer
+    applies it) on the dusk reference frame (19:06, looking away from the sun) and
+    solving gap colour = w·horizon + blue·sky-upper per elevation, with the weather's
+    sunset colours, gives w = 0.94 at 4°, 0.86 at 7°, 0.74 at 9.5°, 0.64 at 12°, 0.55 at
+    15°, 0.45 at 20° and 0.28-0.32 from 22° to 29° (residuals within 16 per channel);
+    the vertex green is a flat 0.55-0.64 from 4° to 17°, and mixing linear light
+    weights a bright colour more still. The renderer mixes the colours as display (sRGB)
+    values with sky-upper × the vertex blue and horizon × w(e) = 0.72·exp(−(e/14°)²) +
+    0.28·exp(−(e/60°)²), turning to sky-lower by 10° below the horizon [hypothesis,
+    fitted]. At night the same reading keeps 30-45° nearly black, as in the game at
+    20:36 (0-6 per channel).
+  - The sky went through the renderer's tonemapper and then the grade. The game's sky
+    colours behave like display values that the grade changes directly (the dusk fit
+    above needs no other factor). The tonemapper (Bevy's Tony McMapface) maps linear
+    0.1 to display 89, 0.5 to 163, 1.0 to 195, 2.2 to 224, 5 to 241 and 100 to 253
+    [observed, renders of a flat grey sky without the grade]; sky parts now pass their
+    colour through the inverse of that response (sky.wgsl) [chosen: lit surfaces keep
+    the tonemapper, so noon ground brightness is unchanged].
+  - By day the game's sky is darker and warmer than this model through the grade: the
+    noon gaps fit about 0.63 × (the dusk-fitted mix of day colours) plus 0.1 × the
+    sunlight colour, in display values, at every elevation from 7° to 29° and near the
+    zenith; at dusk and at night no such change is needed. The renderer scales sky and
+    cloud colours by 1 − 0.6·d in linear light and adds 0.05·d × the sunlight colour,
+    d rising from 0 at sun elevation 0° to 1 at 40° (`SkyLight`) [hypothesis, fitted;
+    the game's mechanism is unknown: eye adaptation (a brighter noon picture exposed
+    darker) and bloom would both look like this, and would also brighten the dusk ground,
+    which the renderer draws darker than the game]. Replacing the grade's tint amount by
+    the adapter's tint alpha (0.39 by day) explains the noon sky's hue but not the dusk
+    and night frames (it needs a blue dusk sky and an orange night sky before the
+    grade) and makes the noon ground too yellow, so the grade is unchanged.
+  - The clouds: `NVCloudlight.dds` (1024², DXT5) has light blue-grey colour (166-234)
+    and a mean alpha of 0.23 (41% of texels below 0.12) [observed]. Over the darker sky
+    they now stand out as in the game. The game's noon cloud highlights are warmer than
+    the PNAM colour × texture, about by the sunlight colour's hue; the renderer moves the
+    cloud colour half way to that hue in full daylight (`cloud_tint`) [hypothesis,
+    fitted]. The cloud pattern's offset differs from the game's (scrolling starts at
+    program start), so cloud structure lowers SSIM even where colours match.
+- **Sun and glare** [observed, same screenshots]: CLMT FNAM `Sky\Sun.dds` (512², DXT5)
+  is one colour (230, 218, 189) with an alpha of 0.6 at the centre falling roughly
+  linearly to 0 at 0.9 of the half-width; GNAM `sky\NV_sunglare.dds` (512², DXT5) is
+  white, alpha 1 at the centre, 0.5 at half the half-width, 0 from 0.85 [observed,
+  decoded]. In the game the sun is a white disc saturated out to about 2° from its
+  centre, with a glow: looking up at 12:00 the ring medians are (249, 225, 191) at 4-6°,
+  (222, 201, 171) at 8-12°, (187, 170, 156) at 16-20°, (162, 149, 132) at 32-36° and
+  about (134, 129, 129) beyond 44°. The renderer drew a faint 4° disc and no glare. It
+  now draws the sun texture over a 20° square around the sun at 1.8 × the weather's sun
+  colour (into the dome, behind the clouds) and the glare texture over a 130° square at
+  0.12 × the sun colour (into the dome and the clouds), both as colour × alpha, fading
+  out as the sun goes from 3° to −2° [hypothesis, fitted to the ring profile above:
+  from 8° outwards the renderer's ring medians are within about 20 per channel of the
+  game's (bluer channel lower); its saturated core reaches about 4° and is slightly
+  yellow where the game's is white].
+  With the sun at 37° (09:00) and 25° (18:00) the game's glow is much larger and also
+  washes over the terrain near the sun; the renderer's is not [open: bloom?].
 - **High-noon and midnight colours look unset** [observed,
   `crates/fnv-world/examples/weather_dump.rs --survey`]: of the 90 six-time weathers, 67
   have a black midnight ambient (64 of them with a non-black night ambient, among them
@@ -306,7 +373,13 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   ~503, z −164..250) with a SkyShaderProperty (sky object type 2) and vertex colours that
   act as blend weights: red is 1 below the horizon and fades out by z ≈ 137, green peaks
   around z 50..140 (just above the horizon), blue rises to ~0.5-0.7 towards the zenith.
-  Read as red·sky-lower + green·horizon + blue·sky-upper [hypothesis]. `clouds.nif` holds four shapes,
+  By elevation seen from the centre [observed, `fnvtool nif decode`]: red 1.0 at −10°
+  and below, 0.69 at 0°, 0.46 at 5°, 0.26 at 10°, 0.11 at 15°, 0 from 20°; green 0.35 at
+  0°, 0.59 at 5°, 0.64 at 10°, 0.63 at 15°, 0.57 at 20°, 0.45 at 25°, 0.35 at 35°, 0.21
+  at 45°, 0.08 at 55°, 0 at 90°; blue 0.04 at 5°, 0.30 at 10°, 0.53 at 20°, 0.66 at 25°,
+  0.70 at 45°, 0.55 at 70°, 0.51 at 90°. Read at first as red·sky-lower + green·horizon
+  + blue·sky-upper; the renderer now uses blue·sky-upper with a horizon weight fitted to
+  the original game (next items). `clouds.nif` holds four shapes,
   in order `CloudDome` (z 0..250), `HorizonLayerClear`, `HorizonLayerOvercast` and
   `LowerLayer` (z −38..100), each with a default cloud texture, vertex colour (1, 0, 0)
   and an alpha that fades the layer out towards the horizon. `stars.nif` is a small
