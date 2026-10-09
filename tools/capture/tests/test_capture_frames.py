@@ -68,6 +68,25 @@ class JobTests(unittest.TestCase):
             cf.frames_job({"cameras": [{"id": "a", "pos": [0, 0, 0], "weather": "Clear"}]}, "fr")  # edid without --data
         self.assertEqual(cf.weather_formid("0xffc88", None), "000FFC88")
 
+    def test_interior_camera_travels_by_coc(self):
+        cams = {"cameras": [{"id": "doc", "cell": "GSDocMitchellHouse", "pos": [2300, 1600, 7365], "heading": 270}]}
+        job = cf.frames_job(cams, "fr", {"gsdocmitchellhouse": 0x00103DF9})
+        steps = job["steps"][len(cs.MASTERS):]
+        consoles = [s["console"] for s in steps if "console" in s]
+        self.assertEqual(consoles[0], "coc GSDocMitchellHouse")
+        self.assertFalse(any(c.startswith("cow ") for c in consoles))
+        text = json.dumps(steps)
+        self.assertIn("GetParentCell", text, "waits until the player is in the cell")
+        self.assertIn(f"BuildRef fM1 {0x103DF9}", text)
+        self.assertLess(text.index("GetParentCell"), text.index("player.SetPos X 2300"))
+        with self.assertRaises(cf.InputError):
+            cf.frames_job({"cameras": [{"id": "a", "cell": "GSDocMitchellHouse", "pos": [0, 0]}]}, "fr", {})  # no z
+        with self.assertRaises(cf.InputError):
+            cf.frames_job(cams, "fr")  # the cell's FormID needs --data
+        man, _ = cf.merge_manifest(None, cams, {"doc": {"x": 1.0, "y": 2.0, "z": 3.0, "heading": 270.0, "pitch": 0.0,
+                                                         "hour": 12.0, "first_person": 1, "foreground": True, "mean": 0.3}})
+        self.assertEqual(man["frames"][0]["cell"], "GSDocMitchellHouse")
+
     def test_missing_z_comes_from_the_terrain(self):
         class Flat:
             def height(self, world, x, y):

@@ -126,6 +126,25 @@ pub struct Job {
     pub refs: Vec<u32>,
     /// The cell's LAND record (exterior squares with terrain).
     pub land: Option<u32>,
+    /// References the simulation holds at another pose than their placement (position,
+    /// Euler angles; `SimState::moved_pose`), by FormID: their collision is built there.
+    pub poses: Vec<(u32, [f32; 3], [f32; 3])>,
+}
+
+impl Job {
+    /// The simulation's pose of `r`, when it overrides the placement.
+    pub(crate) fn pose_of(&self, r: u32) -> Option<([f32; 3], [f32; 3])> {
+        self.poses.binary_search_by_key(&r, |p| p.0).ok().map(|i| (self.poses[i].1, self.poses[i].2))
+    }
+}
+
+/// A placement at the simulation's pose `pose` (position, Euler angles), when given.
+pub fn at_pose(mut pl: Placement, pose: Option<([f32; 3], [f32; 3])>) -> Placement {
+    if let Some((position, rotation)) = pose {
+        pl.position = position;
+        pl.rotation = rotation;
+    }
+    pl
 }
 
 /// A reference's collision, prepared.
@@ -136,6 +155,10 @@ pub struct RefShapes {
     pub water: Vec<CollisionObject>,
     /// The shapes, when the reference has collision objects.
     pub prepared: Option<PreparedRef>,
+    /// The collision object's node and body transforms, when the model has exactly one
+    /// object and it is dynamic: physics can move the reference, and the body's pose
+    /// gives the reference's (`crate::dropped::ref_pose_from_body`).
+    pub dynamic_local: Option<fnv_collide::Iso>,
 }
 
 /// A reference of a prepared cell.
@@ -175,7 +198,7 @@ pub fn cell(src: &Source, job: &Job) -> Prepared {
     }
     for &r in &job.refs {
         let t = Instant::now();
-        let pl = placement(d.lo, d.schema, r);
+        let pl = placement(d.lo, d.schema, r).map(|pl| at_pose(pl, job.pose_of(r)));
         times.records += ms_since(t);
         let shapes = pl.as_ref().map(|pl| reference(src, pl, &mut times));
         out.refs.push(Entry { form_id: r, placement: pl, shapes });
@@ -206,5 +229,9 @@ pub fn reference(src: &Source, pl: &Placement, times: &mut LoadTimes) -> RefShap
         times.shapes += ms_since(t);
         p
     });
-    RefShapes { tallies, water: rc.water, prepared }
+    let dynamic_local = match rc.objects.as_slice() {
+        [o] if o.motion == fnv_collide::Motion::Dynamic => Some(o.node_transform.compose(&o.body_transform)),
+        _ => None,
+    };
+    RefShapes { tallies, water: rc.water, prepared, dynamic_local }
 }
