@@ -1,5 +1,5 @@
 //! `fnvtool actor …`: actor appearance (workstream 5, crate `fnv-actor`). Contract:
-//! docs/spec-notes/actors.md §5.
+//! docs/spec-notes/actors.md §5; `actor anims` (module `actor_anims`): docs/spec-notes/animation.md §6.
 
 use crate::esm_cmd::open_load_order;
 use crate::ActorCmd;
@@ -53,6 +53,22 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
             let forms = FormStore::build(&lo, &schema);
             let refs: Vec<u32> = ix.refs.iter().filter(|(_, e)| &e.sig == b"ACHR").map(|(&r, _)| r).collect();
             meshes(&lo, &schema, &actors, &forms, &vfs, &nif, refs)
+        }
+        ActorCmd::Anims { lo: lo_args, schema: schema_dir, nif_schema, functions, summary_only } => {
+            let schema = Schema::load_dir(&schema_dir).with_context(|| schema_dir.display().to_string())?;
+            let parent = schema_dir.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+            let nif_dir = nif_schema.unwrap_or_else(|| parent.join("nif"));
+            let nif = fnv_nif::Schema::load_dir(&nif_dir).with_context(|| nif_dir.display().to_string())?;
+            let fn_path = functions.unwrap_or_else(|| parent.join("script").join("functions.json"));
+            let fn_names = crate::actor_anims::condition_function_names(&fn_path)?;
+            let vfs = fnv_vfs::Vfs::open_default(&lo_args.data_dir).with_context(|| lo_args.data_dir.display().to_string())?;
+            let plugins = open_load_order(&lo_args)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let mut v = crate::actor_anims::report(&lo, &schema, &vfs, &nif, &fn_names, summary_only);
+            v["load_order"] = json!(plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
+            v["archives"] = json!(vfs.archives().collect::<Vec<_>>());
+            v["condition_function_names"] = json!(fn_names.len());
+            Ok(v)
         }
     }
 }
