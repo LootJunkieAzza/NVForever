@@ -81,7 +81,18 @@ pub struct Item {
     /// 2026-10-08]. Not part of `fnv.sim.items/1`.
     #[serde(skip)]
     pub non_playable: bool,
+    /// The record header's "Quest Item" flag, as `schemas/fnv` names it per record type
+    /// (`header_flags`; bit 10 [documented: xEdit wbDefinitionsFNV.pas for WEAP, ARMO,
+    /// ALCH, BOOK, KEYM, MISC, LIGH; GECK wiki IsQuestItem and GetFormFlag for AMMO and
+    /// IMOD]). The player cannot drop or sell such an item [documented: GECK wiki
+    /// Category:Items, SetQuestObject]; scripts can override it at run time
+    /// (`World::set_quest_object`). Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub quest_item: bool,
 }
+
+/// The name `schemas/fnv` gives the quest-item bit in `header_flags`.
+pub const QUEST_ITEM_FLAG: &str = "Quest Item";
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Entry {
@@ -262,6 +273,12 @@ impl FormStore {
         }
     }
 
+    /// Whether the item's record carries the "Quest Item" header flag (the authored
+    /// value; `World::is_quest_item` adds scripts' overrides).
+    pub fn is_quest_item(&self, id: FormId) -> bool {
+        self.item(id).is_some_and(|i| i.quest_item)
+    }
+
     pub fn leveled(&self, id: FormId) -> Option<&LeveledList> {
         match &self.bases.get(&id)?.data {
             BaseData::LeveledItem(l) => Some(l),
@@ -345,7 +362,16 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     edid: None,
                     name: None,
                     script: None,
-                    data: BaseData::Item(Item { kind, value: None, weight: None, slots: None, projectile: None, health: None, non_playable: false }),
+                    data: BaseData::Item(Item {
+                        kind,
+                        value: None,
+                        weight: None,
+                        slots: None,
+                        projectile: None,
+                        health: None,
+                        non_playable: false,
+                        quest_item: quest_flag(schema, r),
+                    }),
                 })),
                 None => Loaded::Skip,
             };
@@ -389,6 +415,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
     let data = if let Some(kind) = ItemKind::from_sig(&sig) {
         match item(kind, &d) {
             Some(mut i) => {
+                i.quest_item = quest_flag(schema, r);
                 if (i.value.is_none() || i.weight.is_none()) && kind_has_value_weight(kind) {
                     issues.note(&format!("{sig_s}: value/weight not decoded"), || format!("{id}"));
                 }
@@ -429,6 +456,12 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
         }
     };
     Loaded::Base(Box::new(BaseForm { id, sig, edid, name, script, data }))
+}
+
+/// Whether the record's header carries the flag the schema names "Quest Item" for its
+/// type (false when the schema names no such bit for the type).
+fn quest_flag(schema: &Schema, r: &Record) -> bool {
+    schema.header_flag(&r.header.sig, QUEST_ITEM_FLAG).is_some_and(|m| r.header.flags & m != 0)
 }
 
 /// Item types whose records have both a value and a weight field [documented: xEdit].
@@ -475,6 +508,7 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
     Some(Item {
         kind,
         non_playable,
+        quest_item: false, // from the record header, set by the caller
         value: value.map(|v| v as i32),
         weight: weight.map(|w| w as f32).filter(|w| w.is_finite()),
         slots: slots.map(|s| s as u32),
