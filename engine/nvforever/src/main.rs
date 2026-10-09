@@ -8,6 +8,7 @@
 //! and Esc in a menu closes the menu.
 
 mod emittance;
+mod fade;
 mod fly;
 mod lights;
 mod lod;
@@ -96,6 +97,10 @@ struct Args {
     /// Do not draw distant LOD.
     #[arg(long)]
     no_lod: bool,
+    /// Seconds a streamed cell takes to fade in or out against the distant LOD; 0 swaps
+    /// at once (fade.rs).
+    #[arg(long, default_value_t = 1.0)]
+    cell_fade: f32,
     /// Do not generate distant terrain from the landscape records; draw only the game's
     /// LOD chunks (docs/design/generated-lod.md).
     #[arg(long)]
@@ -348,6 +353,9 @@ fn main() -> AppExit {
     .insert_resource(Streamer {
         radius: args.radius,
         loaded: Default::default(),
+        fades: Default::default(),
+        fade_secs: args.cell_fade.max(0.0),
+        settled: false,
         per_frame: 1,
         hide: args.hide.iter().map(|h| h.to_ascii_lowercase()).collect(),
         interior,
@@ -366,7 +374,7 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, world::face_billboards, lod::update_lod, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, overlay, keys).chain())
     .add_systems(Update, nvf_assets::anim_play::advance_instances)
     .add_systems(Update, timelapse.after(sky::update_sky));
     if let Some(data) = play {
