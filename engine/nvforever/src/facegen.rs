@@ -27,6 +27,8 @@ pub struct FaceGenCache {
     base: HashMap<String, Option<Arc<Rgba>>>,
     pub morphed_shapes: usize,
     pub faces_textured: usize,
+    /// Body skin textures tinted with the race's body `.egt`.
+    pub skins_textured: usize,
     /// EGMs whose vertex count does not cover the shape they sit beside.
     pub mismatched: usize,
 }
@@ -91,6 +93,44 @@ impl FaceGenCache {
         self.faces_textured += 1;
         Some(ctx.models.images.add(image_with_mips(w, h, rgba)))
     }
+
+    /// An NPC's body skin texture: `texture` plus the race's "Upper Body Texture" `.egt`
+    /// (`egt`, archive path) for its FGTS coefficients, combined as for the face
+    /// [hypothesis, actors.md §4.1]. The result is halved until at most
+    /// [`SKIN_MAX`] wide (the body texture is 1024² [observed], the EGT 32×32), so one
+    /// per actor stays small.
+    pub fn skin_texture(&mut self, ctx: &mut ActorCtx, egt: &str, texture: &str, fg: &FaceGen) -> Option<Handle<Image>> {
+        let egt = self.egt(&ctx.models.data, egt)?;
+        let base = self.base(&ctx.models.data, &fnv_vfs::texture_path(texture))?;
+        let (mut w, mut h, ref px) = *base;
+        let mut rgba = px.clone();
+        let offset = egt.offset(&fg.fgts, &[]);
+        add_offset(&mut rgba, w, h, &offset, egt.rows, egt.columns);
+        while w > SKIN_MAX && h > 1 {
+            (w, h, rgba) = halve(w, h, &rgba);
+        }
+        self.skins_textured += 1;
+        Some(ctx.models.images.add(image_with_mips(w, h, rgba)))
+    }
+}
+
+/// Widest body skin texture made per actor ([`FaceGenCache::skin_texture`]).
+pub const SKIN_MAX: usize = 512;
+
+/// Box-filter an RGBA8 image to half size.
+fn halve(w: usize, h: usize, px: &[u8]) -> (usize, usize, Vec<u8>) {
+    let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+    let mut next = vec![0u8; nw * nh * 4];
+    for y in 0..nh {
+        for x in 0..nw {
+            for k in 0..4 {
+                let at = |xx: usize, yy: usize| u32::from(px[(yy.min(h - 1) * w + xx.min(w - 1)) * 4 + k]);
+                let sum = at(2 * x, 2 * y) + at(2 * x + 1, 2 * y) + at(2 * x, 2 * y + 1) + at(2 * x + 1, 2 * y + 1);
+                next[(y * nw + x) * 4 + k] = ((sum + 2) / 4) as u8;
+            }
+        }
+    }
+    (nw, nh, next)
 }
 
 /// Decode the top mip of a DDS texture to RGBA8.
@@ -156,6 +196,14 @@ mod tests {
     fn siblings() {
         assert_eq!(sibling(r"meshes\characters\head\headhuman.nif", "egm"), r"meshes\characters\head\headhuman.egm");
         assert_eq!(sibling("x", "egt"), "x.egt");
+    }
+
+    #[test]
+    fn halving_averages_blocks() {
+        let px: Vec<u8> = [0u8, 0, 0, 255, 100, 100, 100, 255].repeat(4);
+        let (w, h, out) = halve(4, 2, &px);
+        assert_eq!((w, h), (2, 1));
+        assert_eq!(&out[..4], &[50, 50, 50, 255]);
     }
 
     #[test]

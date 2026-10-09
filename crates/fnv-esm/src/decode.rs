@@ -111,6 +111,15 @@ pub fn decode_type(t: &TypeDef, c: &mut Cursor, ctx: &mut DecodeCtx) -> Result<V
     match schema.resolve(t) {
         TypeDef::Prim(p) => read_prim(*p, c, ctx),
         TypeDef::Named(_) => Err("unresolved type".into()),
+        TypeDef::Union(variants) => {
+            let left = c.remaining();
+            let chosen = variants
+                .iter()
+                .find(|(n, _)| *n == Some(left))
+                .or_else(|| variants.iter().find(|(n, _)| n.is_none()))
+                .ok_or_else(|| format!("no union variant for {left} bytes"))?;
+            decode_type(&chosen.1, c, ctx)
+        }
         TypeDef::Struct(fields) => {
             let mut obj = Map::new();
             for f in fields {
