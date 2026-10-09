@@ -155,6 +155,28 @@ These change the design in three places: the base damage is split across project
 (§5.3), the ammo's projectile wins (§4.3), and the spread cone starts from Min Spread
 (§5.1).
 
+A second export, Category:Actor Data (`C:\fnv-private\geckwiki\Actor-Data.xml`,
+2026-10-09, 15 pages), adds [documented: GECK wiki, page named]:
+
+- **ActorValue.** A value is its base (or a SetAV override) plus three pools:
+  temporary (effects with Recover, such as chems and armour enchantments), permanent
+  (ModAV, skill books, and some player abilities) and damage (DamageAV/RestoreAV,
+  which only lowers the value). The combat system puts Health damage into the damage
+  pool. `fnv-game` already models the permanent and damage parts (actor.rs). The
+  temporary pool is missing, and C5 adds it when effects need it.
+- **Body Part / BodyPartData.** Each part names its bone, a VATS target bone, a damage
+  multiplier, a health percentage, a VATS hit chance, the actor value that drops when
+  the part is reduced to zero (the limb condition), and flags for IK, head and head
+  tracking. The part is crippled at that percentage of the actor's total health. A part
+  can also be severable or explodable, with an explosion, debris, an impact data set,
+  a replacement limb model and a gore position. This is the content behind §5.2's
+  body-part hit volumes and limb damage.
+- **Race.** The Child flag makes an actor of that race take no damage and impossible to
+  kill, even by script.
+- **Perk.** Perks change values through entry points with ranks and priorities. The
+  Entry Point page itself is not in the export.
+- Ragdoll is a stub page with nothing usable.
+
 ### 4.3 The headless model
 
 New crate `crates/fnv-combat` (depends on `fnv-esm`, `fnv-sim`; no engine). Its first
@@ -227,6 +249,8 @@ role; their exact names come from C1.
 - Second version: one capsule per body part (head, torso, arms, legs, as BPTD names the
   parts and their bones), posed from the animated skeleton each frame. The hit part
   gives the damage multiplier (headshots) and the hit location (`GetHitLocation`).
+  Damage to the part also counts toward its limb condition. The limb is crippled below
+  the part's health percentage (§4.2).
 
 ### 5.3 Damage
 
@@ -246,6 +270,12 @@ For each projectile that hits:
 5. **Apply** through the actor-value damage part of Health (as `DamageAV`), fire OnHit
    on the target's scripts, and at zero health mark it dead and fire OnDeath. Limb
    health and crippling come later.
+
+Two content rules hold whatever the tuning: actors of a race with the Child flag take
+no damage and cannot be killed (scripted kills included) [documented: GECK wiki Race].
+Perk entry points that change combat values, such as damage and critical chance, are
+applied on top of these steps once perks are read (a later step). Our multipliers are
+the starting value that the entry points modify.
 
 The weapon's condition goes down per shot (WEAP `DATA` health is its maximum).
 `GetWeaponHealthPerc` reads it.
@@ -344,15 +374,16 @@ Each step is a branch and a PR, reviewed before the next starts.
 | C5 | Damage applied: health, death, script events, death clip, looting the body, HUD | C4 |
 | C6 | Melee and unarmed, block, power attacks | C5 |
 | C7 | Explosions, thrown weapons, mines | C5 |
-| later | body-part hit volumes and limb damage; weapon mods; ammo swap and jamming; impact effects; ragdolls; audio; VATS or a replacement | |
+| later | body-part hit volumes and limb damage; perk entry points; weapon mods; ammo swap and jamming; impact effects; ragdolls; audio; VATS or a replacement | |
 | Layer 6 AI | NPCs fight back: combat AI using the same attack cycle, detection, factions and hostility, combat styles (CSTY) | C5; actor-behaviour.md |
 
 ## 9. Owner questions
 
-1. **Facts for C1**: the owner's `Items.xml` export (§4.2) covers Weapons, Ammo and
-   Armor. Still missing are the GECK wiki pages for Projectile, Explosion, Ammo Effect,
-   Body Part Data and Impact Data Set. Optional, as a balance reference only: Weapon
-   Damage Formula, Gun Spread Formula, Critical Hit Chance Formula.
+1. **Facts for C1**: the owner's `Items.xml` and `Actor-Data.xml` exports (§4.2) cover
+   Weapons, Ammo, Armor, Body Part Data and actor values. Still missing are the GECK
+   wiki pages for Projectile, Explosion, Ammo Effect, Impact Data Set and Entry Point
+   (perks). Optional, as a balance reference only: Weapon Damage Formula, Gun Spread
+   Formula, Critical Hit Chance Formula.
 2. **Feel**: hit markers yes? Floating damage numbers (default off)? Recoil and bloom
    strength like a modern shooter, or subtler?
 3. **VATS**: rebuild it later, replace it (e.g. a slow-motion aim assist), or leave it
