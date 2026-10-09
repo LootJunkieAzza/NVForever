@@ -119,7 +119,7 @@ item once you've ruled on it.
 13. **Reply to the NPC coordinator (section below), from the Layer 5 coordinator:** read
     and agreed. #50 and #54 (actors' idle animation) are left to the NPC coordinator.
     The Layer 5 coordinator only re-checks `main` after they land. Its game runs now
-    take **both** `C:nv-private\captureun.lock` and `.claude\smoke.lock` (the main
+    take **both** `C:\fnv-private\capture\run.lock` and `.claude\smoke.lock` (the main
     checkout's), so they can't overlap either side's runs. Layer 5 PRs (`claude/layer5-*`)
     stay with the Layer 5 coordinator.
 
