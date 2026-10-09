@@ -118,6 +118,22 @@ pub struct Armor {
     pub power_armor: bool,
 }
 
+/// A WEAP record as far as drawing and animating it goes (workstream 5 part H,
+/// docs/spec-notes/actors.md §9) [documented: xEdit WEAP; layouts in `schemas/fnv`].
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Weapon {
+    pub edid: Option<String>,
+    /// `MODL`: the third-person model.
+    pub model: Option<String>,
+    /// DNAM "Animation Type" as the schema names it (e.g. "Pistol - Ballistic (1 Hand)").
+    pub anim_type: Option<String>,
+    /// DATA base damage.
+    pub damage: i32,
+    /// DNAM flags: "Embedded Weapon" (part of a creature body), "Non-Playable".
+    pub embedded: bool,
+    pub non_playable: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LeveledNpc {
     pub chance_none: u8,
@@ -134,6 +150,7 @@ pub struct ActorForms {
     pub eyes: HashMap<FormId, Eyes>,
     pub head_parts: HashMap<FormId, HeadPart>,
     pub armors: HashMap<FormId, Armor>,
+    pub weapons: HashMap<FormId, Weapon>,
     pub leveled: HashMap<FormId, LeveledNpc>,
     /// Signature of the winning record of every actor-related form, for reports.
     pub sigs: HashMap<FormId, [u8; 4]>,
@@ -141,7 +158,7 @@ pub struct ActorForms {
     pub issues: Issues,
 }
 
-const SIGS: &[&[u8; 4]] = &[b"NPC_", b"RACE", b"HAIR", b"EYES", b"HDPT", b"ARMO", b"LVLN", b"CREA", b"LVLC"];
+const SIGS: &[&[u8; 4]] = &[b"NPC_", b"RACE", b"HAIR", b"EYES", b"HDPT", b"ARMO", b"WEAP", b"LVLN", b"CREA", b"LVLC"];
 
 enum Loaded {
     Npc(Box<Npc>),
@@ -150,6 +167,7 @@ enum Loaded {
     Eyes(Eyes),
     HeadPart(HeadPart),
     Armor(Armor),
+    Weapon(Weapon),
     Leveled(LeveledNpc),
     Other,
 }
@@ -209,6 +227,9 @@ impl ActorForms {
                 Loaded::Armor(a) => {
                     out.armors.insert(id, a);
                 }
+                Loaded::Weapon(w) => {
+                    out.weapons.insert(id, w);
+                }
                 Loaded::Leveled(l) => {
                     out.leveled.insert(id, l);
                 }
@@ -249,6 +270,7 @@ fn load_one(lo: &LoadOrder, pi: usize, id: FormId, sig: &[u8; 4], d: &[Decoded],
             extra: all(d, b"HNAM").filter_map(|v| fid(lo, pi, id, "HNAM", Some(v), issues)).collect(),
         }),
         b"ARMO" => Loaded::Armor(armor(d)),
+        b"WEAP" => Loaded::Weapon(weapon(d)),
         b"LVLN" => Loaded::Leveled(leveled_npc(lo, pi, id, d, issues)),
         _ => Loaded::Other,
     }
@@ -375,6 +397,19 @@ fn armor(d: &[Decoded]) -> Armor {
         dt: dnam.and_then(|v| num(v, "dt")).unwrap_or(0.0) as f32,
         dr_raw: dnam.and_then(|v| int(v, "dr")).unwrap_or(0) as i32,
         power_armor,
+    }
+}
+
+fn weapon(d: &[Decoded]) -> Weapon {
+    let dnam = first(d, b"DNAM");
+    let flags = dnam.and_then(|v| v.get("flags1"));
+    Weapon {
+        edid: first(d, b"EDID").and_then(text),
+        model: path(first(d, b"MODL")),
+        anim_type: dnam.and_then(|v| v.get("animation_type")).and_then(text),
+        damage: first(d, b"DATA").and_then(|v| int(v, "base_damage")).unwrap_or(0) as i32,
+        embedded: flags.is_some_and(|f| has_flag(f, "Embedded Weapon")),
+        non_playable: flags.is_some_and(|f| has_flag(f, "Non-Playable")),
     }
 }
 
