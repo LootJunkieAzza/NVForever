@@ -160,6 +160,7 @@ fn find_target(
     play: Res<PlayWorld>,
     visuals: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
     mut target: ResMut<Target>,
+    script: Option<Res<crate::script::ScriptState>>,
 ) {
     let Some(player) = player else { return };
     let (eye, dir) = (player.eye(), player.look_dir());
@@ -169,7 +170,8 @@ fn find_target(
         filter.exclude_layers.insert(layers::TRIGGER);
         let h = p.world.queries().ray(eye, dir, REACH, &filter)?;
         let form_id = match h.owner {
-            Owner::Ref { form_id, .. } => Some(form_id),
+            // An actor's hit volume (combat C3) targets the actor.
+            Owner::Ref { form_id, .. } | Owner::Actor { form_id, .. } => Some(form_id),
             _ => None,
         };
         Some(RayHit { form_id, distance: h.distance })
@@ -186,7 +188,18 @@ fn find_target(
         Some((r.0, pick::ray_box(o, d, &t, c, h)?))
     });
     let mut described: HashMap<u32, Option<(String, Action)>> = HashMap::new();
-    let mut describe_once = |id: u32| described.entry(id).or_insert_with(|| describe(&sim, play.index, id)).clone();
+    // A dead actor is searched rather than talked to (combat C5).
+    let mut describe_once = |id: u32| {
+        described
+            .entry(id)
+            .or_insert_with(|| {
+                describe(&sim, play.index, id).map(|(n, a)| match a {
+                    Action::Talk if crate::combat::is_dead(script.as_deref(), id) => (n, Action::Search),
+                    a => (n, a),
+                })
+            })
+            .clone()
+    };
     let picked = pick::choose(hit, bounds, REACH, |id| describe_once(id).is_some());
     let new = picked.and_then(|Pick { form_id, distance, source }| {
         let (name, action) = describe_once(form_id)?;

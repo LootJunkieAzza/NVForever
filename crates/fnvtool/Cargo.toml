@@ -28,6 +28,7 @@ fnv-script = { path = "../fnv-script" }
 fnv-game = { path = "../fnv-game" }
 fnv-actor = { path = "../fnv-actor" }
 fnv-combat = { path = "../fnv-combat" }
+fnv-nav = { path = "../fnv-nav" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 rayon = "1"
