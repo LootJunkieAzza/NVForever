@@ -11,6 +11,10 @@
 //!
 //! Test aid: `NVF_PLAY_TEST_ACTIVATE=<seconds>[,<seconds>...]` presses E at those times
 //! after start (unattended in-game checks).
+//!
+//! With Layer 5 scripts running, E goes through `script::activate_by_hand`: a target
+//! whose script has an OnActivate block runs it instead of the default action (whose
+//! effects then come from the script's own `Activate`, applied by `script.rs`).
 
 pub mod outcome;
 pub mod pick;
@@ -234,6 +238,7 @@ fn activate(
     mut travel: MessageWriter<Travel>,
     mut open: MessageWriter<OpenContainer>,
     mut changed: MessageWriter<RefChanged>,
+    script: Option<ResMut<crate::script::ScriptState>>,
 ) {
     let fired = match (auto, time) {
         (Some(mut a), Some(t)) => a.fire(t.elapsed_secs()),
@@ -245,8 +250,12 @@ fn activate(
     let Some(t) = target.0.as_ref() else { return };
     // The actor's place before, to put back if a teleport cannot be followed.
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));
-    let a = match sim.world.activate(FormId::PLAYER_REF, FormId(t.form_id)) {
-        Ok(a) => a,
+    let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
+        Ok(crate::script::ByHand::Default(a)) => a,
+        Ok(crate::script::ByHand::Script) => {
+            info!("activate 0x{:08X} {} ({}): its script's OnActivate ran", t.form_id, t.name, t.action.label());
+            return;
+        }
         Err(e) => {
             warn!("activate 0x{:08X} {}: {e}", t.form_id, t.name);
             hud.show(format!("{}: {e}", t.name));
