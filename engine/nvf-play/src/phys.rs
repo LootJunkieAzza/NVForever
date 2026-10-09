@@ -163,6 +163,8 @@ pub struct PosedDoor {
     pub open_by_default: bool,
     /// The sequence (true: "Open") and time its bodies were last posed at.
     pub shown: Option<(bool, f32)>,
+    /// Whether its moving parts were last made solid (not while it swings).
+    pub solid: Option<bool>,
 }
 
 impl PosedDoor {
@@ -527,7 +529,7 @@ impl PhysState {
         if let Some(bodies) = door.filter(|d| !d.objects.is_empty()) {
             *counts.entry("animated_doors").or_default() += 1;
             let pose = RefPose::from_placement(&pl);
-            self.doors.insert(pl.form_id, PosedDoor { pose, bodies, open_by_default: pl.open_by_default, shown: None });
+            self.doors.insert(pl.form_id, PosedDoor { pose, bodies, open_by_default: pl.open_by_default, shown: None, solid: None });
         }
         rep.bodies > 0
     }
@@ -1019,7 +1021,8 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
 }
 
 /// Move the keyframed bodies of the loaded doors to their animation's pose
-/// (`crate::doors`), registering doors the renderer has not drawn yet.
+/// (`crate::doors`), not solid while the door swings, registering doors the renderer has
+/// not drawn yet.
 fn pose_doors(sim: Res<SimState>, mut doors: ResMut<crate::doors::Doors>, mut phys: ResMut<PhysState>) {
     let phys = &mut *phys;
     for (&id, d) in phys.doors.iter_mut() {
@@ -1030,5 +1033,11 @@ fn pose_doors(sim: Res<SimState>, mut doors: ResMut<crate::doors::Doors>, mut ph
         let Some(door) = doors.get(id) else { continue };
         let (open, time) = door.motion.pose();
         d.pose(&mut phys.world, open, time);
+        // The moving parts are not solid while the door swings (`DoorMotion::swinging`).
+        let solid = !door.motion.swinging();
+        if d.solid != Some(solid) {
+            phys.world.set_ref_keyframed_solid(id, solid);
+            d.solid = Some(solid);
+        }
     }
 }

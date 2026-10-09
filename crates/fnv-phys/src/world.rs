@@ -471,6 +471,32 @@ impl PhysWorld {
         true
     }
 
+    /// Make a reference's keyframed bodies solid or not: when not, their colliders take
+    /// no part in contacts, the character controller or queries. For a door while it
+    /// swings, so its moving leaf cannot hit or push an actor (`fnv_collide::anim`).
+    /// Returns how many colliders changed.
+    pub fn set_ref_keyframed_solid(&mut self, form_id: u32, solid: bool) -> usize {
+        let Some(bodies) = self.refs.get(&form_id) else { return 0 };
+        let mut n = 0;
+        for &b in bodies {
+            let body = &self.w.bodies[b];
+            if !body.is_kinematic() {
+                continue;
+            }
+            for &c in body.colliders() {
+                let col = &mut self.w.colliders[c];
+                if col.is_enabled() != solid {
+                    col.set_enabled(solid);
+                    n += 1;
+                }
+            }
+        }
+        if n > 0 {
+            self.dirty = true;
+        }
+        n
+    }
+
     /// Push dynamic bodies within `radius` of `center` away from it (an explosion's force,
     /// combat C7) [design: the EXPL force read as a speed change in game units per second
     /// at the centre, falling linearly to 0 at the radius]. Returns how many moved.
