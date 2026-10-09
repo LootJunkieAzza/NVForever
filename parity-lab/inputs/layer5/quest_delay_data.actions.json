@@ -1,0 +1,86 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Quest script delay, flag clear, DATA delay 0.5 s (VMQ03aTimer)",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VMQ03aTimer",
+      "running": false,
+      "vars": {
+        "bRunTimer": 0,
+        "fTimer": 0
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_quest_var",
+      "quest": "VMQ03aTimer",
+      "var": "fTimer",
+      "value": 100000
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMQ03aTimer",
+      "var": "bRunTimer",
+      "value": 1
+    },
+    {
+      "op": "sample_var",
+      "quest": "VMQ03aTimer",
+      "var": "fTimer",
+      "frames": 120,
+      "label": "VMQ03aTimer timer while stopped"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQ03aTimer",
+      "label": "VMQ03aTimer before StartQuest",
+      "fields": [
+        "running",
+        "stage"
+      ]
+    },
+    {
+      "op": "start_quest",
+      "quest": "VMQ03aTimer"
+    },
+    {
+      "op": "sample_var",
+      "quest": "VMQ03aTimer",
+      "var": "fTimer",
+      "frames": 300,
+      "runs": 3,
+      "skip": 1,
+      "label": "VMQ03aTimer timer while running"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMQ03aTimer",
+      "label": "VMQ03aTimer while running",
+      "fields": [
+        "running",
+        "stage"
+      ]
+    },
+    {
+      "op": "stop_quest",
+      "quest": "VMQ03aTimer"
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMQ03aTimer",
+      "var": "bRunTimer",
+      "value": 0
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMQ03aTimer",
+      "var": "fTimer",
+      "value": 0
+    }
+  ]
+}
