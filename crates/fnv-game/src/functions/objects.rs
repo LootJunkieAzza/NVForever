@@ -3,7 +3,7 @@
 //! §7.6.
 
 use super::{base_of, none, yes, Args, Ctx};
-use crate::game::{event, Game, InstKey};
+use crate::game::{Game, InstKey};
 use crate::trace::EventKind;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
@@ -145,10 +145,10 @@ pub fn destruction_stage(g: &Game, r: FormId) -> i32 {
     let Some(def) = base_of(g, r).and_then(|b| g.data.destructibles.get(&b)) else { return -1 };
     let Some(d) = g.extra.get(&r).and_then(|e| e.damage) else { return -1 };
     if def.health <= 0 {
-        return def.stages.iter().map(|s| s.1 as i32).max().unwrap_or(0);
+        return def.stages.iter().map(|s| s.index as i32).max().unwrap_or(0);
     }
     let pct = 100.0 * (def.health as f64 - d).max(0.0) / def.health as f64;
-    def.stages.iter().filter(|s| pct <= s.0 as f64).map(|s| s.1 as i32).max().unwrap_or(0)
+    def.stages.iter().filter(|s| pct <= s.health_percent as f64).map(|s| s.index as i32).max().unwrap_or(0)
 }
 
 /// `ref.DamageObject amount`: object damage on a destructible, not destroyed
@@ -158,29 +158,18 @@ pub fn destruction_stage(g: &Game, r: FormId) -> i32 {
 pub fn damage_object(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let amount = a.num(0)?;
-    let Some(def) = base_of(g, r).and_then(|b| g.data.destructibles.get(&b)).cloned() else {
+    if !g.is_destructible(r) {
         return Err(format!("{} has no destruction data", g.data.name(r)));
-    };
-    if g.extra.get(&r).is_some_and(|e| e.destroyed) {
-        return none();
     }
-    let before = destruction_stage(g, r);
-    let e = g.extra.entry(r).or_default();
-    let cap = def.health.max(0) as f64;
-    e.damage = Some((e.damage.unwrap_or(0.0) + amount).min(if cap > 0.0 { cap } else { f64::MAX }));
-    let after = destruction_stage(g, r);
-    if after != before {
-        for &(_, _, flags) in def.stages.iter().filter(|s| s.1 as i32 > before && s.1 as i32 <= after) {
-            if flags & 4 != 0 {
-                g.extra.entry(r).or_default().destroyed = true;
-            }
-            if flags & 2 != 0 {
-                super::refs::disable(g, &Ctx { on: Some(r), ..ctx.clone() }, &Args(&[]))?;
-            }
-        }
-        g.ref_event(r, event::ON_DESTRUCTION_STAGE_CHANGE, None, None);
-    }
+    // The stage's explosions are the engine's (`Game::destruction_explosions`).
+    g.damage_object(r, amount);
     none()
+}
+
+/// Disable a reference as `Disable` does (a destruction stage's Disable flag).
+pub(crate) fn disable_ref(g: &mut Game, r: FormId) {
+    let ctx = Ctx { unit: "destruction".into(), opcode: 0, on: Some(r), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    let _ = super::refs::disable(g, &ctx, &Args(&[]));
 }
 
 pub fn get_destruction_stage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {

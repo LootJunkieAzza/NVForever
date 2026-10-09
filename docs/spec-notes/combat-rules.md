@@ -196,7 +196,8 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
 ## 7. Hit volumes (step C3)
 
 - **The capsule** (`fnv_phys::actors`, `HitVolume`): one vertical capsule per placed
-  actor in the physics world, kinematic, owner `Owner::Actor { form_id, layer }`.
+  actor in the physics world, kinematic, owner `Owner::Actor { form_id, layer, part }`
+  (part 255 since C8; per-part capsules are §12).
   - Its layer is BIPED while the actor lives and DEAD_BIP once dead. The layers are the
     documented Havok names; using them for actors is our choice.
   - It takes part in no contacts: it pushes no clutter, and the character controller
@@ -273,10 +274,277 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     creature it was aimed at. The explosion caught it for 176 and another creature at
     501 units for 125 (before armour).
 
-## 9. Open points
+## 9. Damage applied (step C5)
+
+- **Health** (`crates/fnv-game/src/combat.rs`). Health's base (actor value 16) is the
+  actor's maximum health whenever no script has set it, so `GetAV Health` and
+  `GetHealthPercentage` see combat.
+  - NPC: Base Health + Endurance × `fAVDNPCHealthEnduranceMult` (5) + level ×
+    `fAVDNPCHealthLevelMult` (5).
+  - Creature: its DATA Health.
+  - Player: `fAVDHealthEnduranceOffset` + Endurance × 20 + (level − 1) × 5 + Base
+    Health.
+  - The forms are hypotheses until captured; the settings' names and values are
+    observed (combat-data.md §3).
+  - Level comes from ACBS, or for "PC Level Mult" the player's level × the multiplier
+    within the calculated bounds [documented: Stats Tab pages].
+  - A template with the "Stats" flag supplies the stats.
+- **A hit** (`Game::hit`):
+  - Health's damage part grows (as `DamageAV`).
+  - The last hit (location, critical, attacker, weapon) is kept for `GetHitLocation`,
+    which is now implemented.
+  - OnHit runs with the attacker, then OnHitWith with the weapon.
+  - Child races and Invulnerable creatures take nothing.
+  - Essential actors (base flag or `SetActorRefEssential`) fall unconscious at 1 health
+    instead of dying [design].
+  - At 0 health the actor dies as with `KillActor`: dead flag, killer, GetDeadCount,
+    OnDeath. `KillActor` now uses the same `Game::kill`.
+- **Kill XP** [documented: Experience Settings]. The target's level picks the class
+  (the first `iXPLevelKill…` threshold at or above it), which gives the reward. There is
+  none when the player did less than `iXPDeathRewardHealthThreshold` % of the damage.
+- **Armour.** The target's armour is what it would wear of what it carries
+  (`CombatForms::worn_armor`, the owner's wearing rule from actors.md §2.3). DT and DR
+  are the sums over the pieces [hypothesis]. The simulation creates an actor's inventory
+  on first touch, so the engine reads it through `World::inventory_mut`.
+- **In play** (`engine/nvf-play/src/combat.rs`). Every projectile hit and blast goes
+  through `Game::hit` inside the script runtime's world swap.
+  - Blasts use location −1 and the same armour rule as bullets.
+  - An `ActorHit` message goes out with each hit.
+  - Without the script runtime, hits are only logged.
+- **On screen** (`engine/nvforever/src/deaths.rs`, `locomotion.rs`):
+  - A living actor flinches with `idleanims\mt_hittorso.kf` over its other clips.
+  - A dead one plays `idleanims\deathpose1.kf` or `deathpose2.kf` (chosen by reference)
+    and holds its last frame.
+  - An actor already dead when drawn goes straight to that end pose.
+  - A skeleton without death poses (creatures) freezes and is laid on its back
+    [design, until ragdolls].
+  - Dead actors' hit volumes move to DEAD_BIP.
+- **Looting.** The crosshair offers **Search** on a dead actor, and activation by hand
+  opens its inventory in the container menu (the dead-actor rule of
+  `Game::default_activation`, now also on the by-hand path).
+- **HUD** [design]:
+  - a hit marker (white, red on a kill);
+  - the last target's name and health bar for 4 s;
+  - the player's health (`HP now/max`);
+  - a line per kill with its XP.
+- **Test aid:** `aimnpc` (aim at the nearest NPC's hit volume).
+- **Checked** [observed 2026-10-09, `nvforever --cell Goodsprings --play`, exit 0, "run
+  finished"; screenshots kept privately]:
+  - **Raven** (creature, 6 health): killed by one 9mm hit, its OnHit script ran, +1 XP
+    (very easy creature). Later hits on the corpse did nothing.
+  - **Goodsprings Settler** (55 health, Field Hand Outfit, DT 2): 7 hits (7.2 each, a
+    23.2 critical) killed it, +10 XP.
+  - **The body:** it lay in the death pose, the crosshair showed "Search", and
+    activating it opened its inventory (5.56mm rounds, Field Hand Outfit, Varmint
+    Rifle).
+  - **HUD:** `HP 200/200` (Endurance 5 × 20 + Base Health 100).
+- **Lab.** `fnvlab run --layer 5` gives 28/32, the same four known failures as main
+  (`L5.script.decode` and three `delay_*`; layer5.md), so the new Health base changed
+  no scenario.
+
+## 10. Melee and unarmed (step C6)
+
+- **Swings** (`engine/nvf-play/src/combat.rs`, `melee`). Melee and unarmed weapons
+  don't use the gun cycle.
+  - A tap of Use swings on release. Holding Use for `power_hold` (0.4 s) starts a power
+    attack: base × `power_damage` (1.5), `power_time` (1.3) × slower. A press made
+    during a swing queues the next one [design].
+  - The swing takes the attack clip's length ÷ (attack × animation multiplier), or
+    1 ÷ "Attack Shots/Sec" without a clip. It strikes once, at the clip's `Hit` key
+    [documented: NiTextKeyExtraData], or at 40 % of the swing without one [design].
+  - The strike is a fan of `melee_rays` rays over ±`melee_arc_deg` from the eye along
+    the view, as long as the reach; each actor is hit once (`projectile::swing`).
+- **Reach** (`damage::melee_reach`) = `fCombatDistance` × scale × the WEAP Reach
+  [documented formula]. The masters lack `fCombatDistance`, and its placeholder is now
+  150 (a knife, reach 0.5, gets 75 units; a sledgehammer, 0.75, 112) [hypothesis,
+  tunable]. A Reach of 0 (the Fists) counts as 1 [hypothesis].
+- **Damage.** The melee and unarmed forms of §2, with the target's worn armour. The
+  attacker's Melee Weapons and Unarmed skills are derived from Strength and Endurance
+  (§8).
+- **Unarmed.** With no weapon equipped the player fights with the `Fists` WEAP
+  [hypothesis: the game's unarmed weapon form]. The Fists do 0 base damage, so a punch is
+  the UnarmedDamage actor value (0.5 + 0.05 × Unarmed) [documented].
+- **Knockback.** The force is computed with the documented Melee Knockback Formula and
+  logged. Actors are not pushed until they move physically (AI and ragdoll work).
+- **Blocking.** `damage::blocked` takes `block` (60 %) off a melee hit taken while
+  blocking [design]. Nothing attacks the player yet; NPC melee (Layer 6 AI) will use it.
+- **The body.** A power attack plays `{prefix}attackpower.kf` (`1hmattackpower.kf`,
+  `h2hattackpower.kf`). Normal swings use the weapon's attack animation, falling back to
+  its `_a` variant (`1hmattackright_a.kf`).
+- **Checked** [observed 2026-10-09, `nvforever --cell Goodsprings --play`, exit 0, "run
+  finished"]:
+  - **Sledgehammer** against the Goodsprings Settler (55 health, DT 2), standing on its
+    open side: three normal hits for 14.3 (24 × the skill bonus at Melee Weapons 15 +
+    MeleeDamage 2.5 − DT 2), then a power attack killed it (+10 XP). Knockback forces
+    were 100 and 143. The screenshot shows the first-person power swing, the target bar
+    at 0/55, the kill line and "Search".
+  - **From the fenced side** the swings missed: a ray along the view hit the fence at
+    71 units, and melee correctly doesn't reach through it.
+  - **Fists:** three taps, one pressed during a swing, gave three hits of 0.2 (Unarmed
+    damage 1.25 against DT 2, the 20 % floor).
+
+## 11. Explosives and destructible objects (step C7)
+
+- **Thrown weapons and mines.** They are their own ammo (`self_ammo`): a shot spends one
+  and throws its PROJ along the view. Each projectile type behaves as §5 describes:
+  - grenades are lobbers on a fuse (Alt. Trigger timer);
+  - mines land, arm after their timer and go off when an actor other than the thrower
+    comes within their proximity radius;
+  - C-4 (Explosion + Detonates, no Alt. Trigger) lands and waits. It no longer explodes
+    on impact [documented: GECK wiki Projectile, Detonates].
+- **OnFire and detonation.** Every shot runs the weapon's OnFire blocks
+  (`Game::weapon_fired`, block 0x24).
+  - The detonator's script, `DetonatorOnFire`, calls `player.DetonatePlacedExplosives`
+    and has main-quest hooks: the Hoover Dam generators (`vHDGenerator0N.do 50000`) and
+    VMQ03b [observed: its SCTX].
+  - `DetonatePlacedExplosives` is implemented: it asks the engine
+    (`Game::combat_requests`), which sets off that actor's detonating projectiles.
+  - Ranged weapons without a projectile (the detonator, binoculars) cycle without ammo.
+- **Explosions** (`fly`). A queue of up to 64 per frame takes impacts, detonations and
+  destruction stages [design]. Each explosion:
+  - damages actors in its radius, with line of sight and armour;
+  - rolls knockdown: always with "Knock Down - Always", by the documented formula with
+    "By Formula". A knockdown is counted and logged; it is not animated yet;
+  - damages destructible objects whose collision overlaps its radius;
+  - pushes dynamic bodies with its force (`PhysWorld::push_dynamic`: a speed change of
+    the EXPL force in units/s at the centre, falling to 0 at the radius [design]).
+  - Radiation, the enchantment and the placed impact object are logged and not built.
+- **Destructible objects** (`Game::damage_object`, now also behind `DamageObject` /
+  `do`, so scripts and combat share it) [documented: GECK wiki Destructible Object
+  Stage]:
+  - damage adds up to the object's health; each stage applies once its health
+    percentage is reached;
+  - Cap Damage stops one hit at its stage;
+  - Destroy marks the object destroyed, Disable disables it;
+  - a stage's self-damage per second burns it down (`Game::destruction_tick`);
+  - OnDestructionStageChange runs;
+  - the stages' explosions go off 40 units above the object [design] and can damage
+    other objects.
+
+  Bullets damage the destructible they hit with the hit's damage (no armour). The
+  stages' damaged models and `BSDamageStage` nodes are not drawn yet; they are logged.
+- **Test aids:** `equip=<FormID>` switches weapons during a run.
+- **Checked** [observed 2026-10-09, `nvforever --play`, exit 0, "run finished"]:
+  - **Truck02** (0x000E7F40, 450 health, 6 stages): one missile's blast took it to stage
+    4 (destroyed). Its stage explosions went off (SmallNukeExplosion 0x1CA88 and
+    GrenadeFragExplosion), and it then burned down to the last stage on its own. The
+    first run also showed stages without an explosion (FormID 0) counted as explosions;
+    they now read as none.
+  - **Frag grenade** near the Goodsprings Settler: it exploded on its fuse.
+  - **C-4:** thrown, it landed and waited. Switching to the detonator and firing ran
+    `DetonatorOnFire`, and `DetonatePlacedExplosives` set off the one placed charge
+    (C4Explosion). Both explosions went off away from actors: the grenade bounced far
+    before its fuse ran out. Throw arcs and bounce are part of the planned projectile
+    captures.
+
+## 12. Limb hits (step C8)
+
+- **Which body part data** (`CombatForms::body_parts_for`):
+  - a creature's own BPTD (CREA `PNAM`) [documented: xEdit];
+  - otherwise the BPTD whose model is the actor's skeleton, which is
+    `DefaultBodyPartData` (0x1D) for `characters\_male\skeleton.nif`. The player's
+    `PlayerBodyPartData` (0x1C) is skipped [hypothesis, combat.md §5.9].
+  - `DefaultBodyPartData` has six parts. The second number is the damage multiplier,
+    the third the share of total health [observed: `fnvtool combat form`]:
+
+    | Part | Bone | Damage | Health | Condition |
+    |---|---|---|---|---|
+    | Head | Bip01 Neck1 | ×2 | 20 % | Perception |
+    | Torso | Bip01 | ×1 | 60 % | Endurance |
+    | Left Arm | Bip01 L UpperArm | ×1 | 25 % | Left Attack |
+    | Left Leg | Bip01 L Thigh | ×1 | 25 % | Left Mobility |
+    | Right Leg | Bip01 R Thigh | ×1 | 25 % | Right Mobility |
+    | Right Arm | Bip01 R UpperArm | ×1 | 25 % | Right Attack |
+- **Part capsules** (`fnv_phys::actors`, `PhysWorld::set_actor_parts`): the actor's
+  kinematic body carries one capsule per bone segment. Each collider's owner is
+  `Owner::Actor { form_id, layer, part }`, where `part` is the index in the BPTD and 255
+  (`actors::WHOLE`) means the single C3 capsule. Shapes are rebuilt only when a size
+  changes, as in C3.
+- **Bones** (`engine/nvforever/src/limbs.rs`) [design]:
+  - A part runs from its bone to an end joint:
+    - when its own bones lead on to other parts, the end is the farthest such
+      connecting bone (the torso runs up to the neck);
+    - otherwise the end is the farthest `Bip01` bone below the part (an arm reaches the
+      fingers, the head the top of the head).
+  - Chains skip the skeleton's root bone and `Bip01 NonAccum`. `Bip01`, the torso's
+    bone, stands at the feet [observed: the posed segments, 2026-10-09]; a torso started
+    there enclosed both legs.
+  - Joints closer than 4 units to the last one kept are merged.
+  - The renderer publishes the posed segments every frame, after transforms propagate
+    (`nvf_play::hitvol::ActorParts`).
+- **Radii** (`hitvol::limb_radius`) [design]: a share of the actor's size (the largest
+  side of its render bounds):
+
+  | Part | Share | At 128 units |
+  |---|---|---|
+  | Head | 0.065 | 8.3 |
+  | Torso | 0.10 | 12.8 |
+  | Arm | 0.042 | 5.4 |
+  | Leg | 0.058 | 7.4 |
+
+  Each part's chain is pulled in by its radius at both ends, so the caps end at the end
+  joints. Without this, the torso's top cap covered the lower head and took head shots
+  [observed]. The torso's lower end is not pulled in: pulled, it left a band at the hips
+  that no capsule covered [observed].
+- **Damage** (`nvf-play` combat; projectiles and melee alike):
+  - The hit's part gives the damage multiplier (`BodyPart::hit_part`; head hits count
+    for the unaware-headshot critical).
+  - The part gives the `GetHitLocation` number (`BodyPart::location`, the BodyLocation
+    enum).
+  - The limb damage is the damage dealt × the WEAP Limb Dmg Mult. A multiplier of 0
+    deals none [hypothesis].
+  - Hits on the single capsule stay location 0 (torso); explosions are −1, with no
+    limb [design].
+- **Limb condition** (`Game::hit`, `Game::damage_limb`):
+  - The part's condition actor value (25–31, starting at 100) loses
+    `limb damage ÷ (max health × health % ÷ 100) × 100`, and stops at 0.
+  - The limb is crippled when it reaches 0 [documented: GECK wiki Body Part Data,
+    crippled after that share of total health; hypothesis: the count-down form].
+  - `HitResult` reports the condition and whether this hit crippled the limb. The log
+    and the HUD name it ("Goodsprings Settler: left leg crippled").
+- **The player's crippled limbs** (`PlayerLimbs`, read every frame):
+  - crippled arms add the documented crippled-arm spread terms (§3) and lower
+    `Attacker::arm_condition` (1, 0.5 with one arm, 0 with both) [design: the share];
+  - crippled legs slow walking and running to 0.7 with one leg, 0.5 with both
+    [design];
+  - the HUD's health line lists crippled limbs.
+
+  Nothing hurts the player yet (no NPC attacks); scripts can (`DamageActorValue`).
+- **Hit reactions:** a living actor plays the hit clip for where it was hit:
+  `mt_hithead`, `mt_hittorso`, `mt_hitarmleft`/`right` or `mt_hitlegleft`/`right`
+  (`idleanims`, the `_male` folder) [observed: the clips exist; design: which location
+  plays which].
+- **Test aids:**
+  - `aimpart=<n>` aims at the nearest NPC's part `n`;
+  - `aimnpc=<share>` aims at a share of its height;
+  - `aimactor` / `aimnpc` now aim at the torso when the actor has parts. The exit
+    probe does the same.
+- **Not built:**
+  - creature parts are not checked in play (no creature in range of the test);
+  - a creature's torso may leave gaps (a tail);
+  - crippled NPCs do not limp or drop weapons (no NPC movement or AI);
+  - the head's screen effect is not shown;
+  - perks (Adjust Limb Damage) are not read;
+  - severing and exploding limbs (gore) are later.
+- **Checked** [observed 2026-10-09, `nvforever --play`, exit 0, "run finished"]:
+  - All 13 actor volumes had body parts. The exit probe at each aim point hit its own
+    actor for 11–12 of 13 (12 of 13 with the single capsule in C3).
+  - The Goodsprings Settler (55 health, DT 2), shot with the 9mm pistol through
+    `aimpart`:
+    - Head shots: 16.4 damage (×2), and one hit crippled the head (pool 11).
+    - Leg shots: 7.2 damage; a second hit crippled the left leg (pool 13.75), and the
+      leg hit reaction played.
+    - Arms and torso were hit as aimed. The torso was crippled after five hits (pool
+      33).
+    - Some shots missed while the settler walked and flinched (a capsule about 15 units
+      across, at 150 units with pistol spread).
+
+## 13. Open points
 
 - Every [design] number is a first guess for the owner to tune in play.
 - Projectile gravity units and speeds: the owner's projectile capture round.
 - `fCombatDistance`, the melee reach base: not in the masters and not documented.
-- Not here yet: weapon mods (Decrease Spread and the like), limb damage and crippling,
-  fatigue, reading perks. All are later steps (combat.md §8).
+- Not here yet: weapon mods (Decrease Spread and the like), fatigue, reading perks,
+  gore. All are later steps (combat.md §8).
+- Limb radii, the crippled-leg speeds and the arm-condition share are [design] (§12).
+  The owner tunes them in play.
