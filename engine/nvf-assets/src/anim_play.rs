@@ -20,6 +20,9 @@ pub struct Clip {
     pub frequency: f32,
     pub cycle_type: i64,
     pub tracks: Vec<(String, Arc<TransformTrack>)>,
+    /// Each track's priority (nif.xml ControlledBlock "Priority"; 0 when absent), in
+    /// `tracks` order.
+    pub priorities: Vec<i32>,
     /// Tracks without a target name or with an interpolator that is not a transform.
     pub skipped: usize,
     /// The sequence's accumulation root (nif.xml NiControllerSequence "Accum Root Name").
@@ -31,10 +34,14 @@ pub struct Clip {
 impl Clip {
     pub fn from_sequence(seq: &Sequence) -> Clip {
         let mut tracks = Vec::new();
+        let mut priorities = Vec::new();
         let mut skipped = 0;
         for t in &seq.tracks {
             match (&t.node_name, &t.data) {
-                (Some(n), TrackData::Transform(tt)) => tracks.push((n.clone(), Arc::new(tt.clone()))),
+                (Some(n), TrackData::Transform(tt)) => {
+                    tracks.push((n.clone(), Arc::new(tt.clone())));
+                    priorities.push(t.priority.unwrap_or(0) as i32);
+                }
                 _ => skipped += 1,
             }
         }
@@ -45,6 +52,7 @@ impl Clip {
             frequency: if seq.frequency > 0.0 { seq.frequency } else { 1.0 },
             cycle_type: seq.cycle_type,
             tracks,
+            priorities,
             skipped,
             accum_root: seq.accum_root_name.clone().filter(|n| !n.is_empty()),
             text_keys: seq.text_keys.clone(),
@@ -137,8 +145,8 @@ impl Playing {
 #[derive(Debug)]
 pub struct BoundClip {
     pub clip: Arc<Clip>,
-    /// (node index, track).
-    pub tracks: Vec<(usize, Arc<TransformTrack>)>,
+    /// (node index, track, priority).
+    pub tracks: Vec<(usize, Arc<TransformTrack>, i32)>,
     /// The accumulation root's node index, if the skeleton has it.
     pub root: Option<usize>,
     /// The index in `tracks` of the root's track, and the root's translation over one
@@ -149,9 +157,14 @@ pub struct BoundClip {
 impl BoundClip {
     /// Bind `clip`'s tracks to node indices by name (`node`).
     pub fn bind(clip: Arc<Clip>, node: impl Fn(&str) -> Option<usize>) -> BoundClip {
-        let tracks: Vec<(usize, Arc<TransformTrack>)> = clip.tracks.iter().filter_map(|(n, t)| Some((node(n)?, t.clone()))).collect();
+        let tracks: Vec<(usize, Arc<TransformTrack>, i32)> = clip
+            .tracks
+            .iter()
+            .enumerate()
+            .filter_map(|(k, (n, t))| Some((node(n)?, t.clone(), clip.priorities.get(k).copied().unwrap_or(0))))
+            .collect();
         let root = clip.accum_root.as_deref().and_then(&node);
-        let root_track = root.and_then(|r| tracks.iter().position(|(i, _)| *i == r)).map(|k| {
+        let root_track = root.and_then(|r| tracks.iter().position(|(i, _, _)| *i == r)).map(|k| {
             let tt = &tracks[k].1;
             let at = |t: f32| tt.translation.sample(t).map_or(Vec3::ZERO, Vec3::from_array);
             (k, at(clip.stop) - at(clip.start))
@@ -174,57 +187,137 @@ pub struct Layer {
     pub weight: f32,
 }
 
-/// Per node: translation, rotation, scale and the weight gathered so far.
+/// How many clips a [`BlendPlayer`] blends at once.
+pub const MAX_LAYERS: usize = 4;
+
+/// The priority of the identity a clip gives an accumulation root it does not drive: below
+/// every track, so any clip that drives the root wins.
+const UNDRIVEN_ROOT_PRIORITY: i32 = i32::MIN;
+
+/// One clip's sample of one node.
 #[derive(Debug, Clone, Copy)]
-struct Acc {
+struct Contrib {
+    t: Vec3,
+    r: Quat,
+    s: f32,
+    w: f32,
+    p: i32,
+}
+
+const CONTRIB_NONE: Contrib = Contrib { t: Vec3::ZERO, r: Quat::IDENTITY, s: 1.0, w: 0.0, p: 0 };
+
+/// A running weighted average of transforms (rotations nlerped along the shorter arc).
+#[derive(Debug, Clone, Copy)]
+struct Mix {
     t: Vec3,
     r: Quat,
     s: f32,
     w: f32,
 }
 
-const ACC_NONE: Acc = Acc { t: Vec3::ZERO, r: Quat::IDENTITY, s: 1.0, w: 0.0 };
+impl Mix {
+    const EMPTY: Mix = Mix { t: Vec3::ZERO, r: Quat::IDENTITY, s: 1.0, w: 0.0 };
 
-/// Poses a skeleton from up to two weighted clips (docs/spec-notes/actors.md §8.3): per
-/// node, translations and scales are lerped and rotations nlerped along the shorter arc
-/// by weight; where the weights of the clips that drive a node add up to less than 1, the
-/// rest goes to the node's bind transform. The accumulation root plays in place: a clip
-/// that drives it has its per-cycle travel removed, and one that does not holds it at the
-/// identity. Buffers are allocated once, so posing allocates nothing.
+    fn add(&mut self, t: Vec3, r: Quat, s: f32, w: f32) {
+        if w <= 0.0 {
+            return;
+        }
+        if self.w == 0.0 {
+            *self = Mix { t, r, s, w };
+            return;
+        }
+        let f = w / (self.w + w);
+        let r = if self.r.dot(r) < 0.0 { -r } else { r };
+        self.t = self.t.lerp(t, f);
+        self.r = Quat::from_vec4(Vec4::from(self.r).lerp(Vec4::from(r), f));
+        self.s += (s - self.s) * f;
+        self.w += w;
+    }
+}
+
+/// Blend one node's samples by priority (docs/spec-notes/actors.md §9.4): from the highest
+/// priority down, each priority group takes its summed weight, at most what is left of 1,
+/// shared by weight within the group; the rest goes to `bind`.
+fn blend_by_priority(c: &mut [Contrib], bind: Transform) -> Transform {
+    // Highest priority first (insertion sort: at most MAX_LAYERS entries).
+    for i in 1..c.len() {
+        let mut j = i;
+        while j > 0 && c[j - 1].p < c[j].p {
+            c.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+    let mut mix = Mix::EMPTY;
+    let mut left = 1.0f32;
+    let mut k = 0;
+    while k < c.len() && left > 1e-6 {
+        let end = (k..c.len()).find(|&e| c[e].p != c[k].p).unwrap_or(c.len());
+        let group: f32 = c[k..end].iter().map(|x| x.w).sum();
+        if group > 0.0 {
+            let share = group.min(left);
+            for x in &c[k..end] {
+                mix.add(x.t, x.r, x.s, x.w / group * share);
+            }
+            left -= share;
+        }
+        k = end;
+    }
+    if left > 1e-3 {
+        mix.add(bind.translation, bind.rotation, bind.scale.x, left);
+    }
+    Transform { translation: mix.t, rotation: mix.r.normalize(), scale: Vec3::splat(mix.s) }
+}
+
+/// Poses a skeleton from up to [`MAX_LAYERS`] weighted clips (docs/spec-notes/actors.md
+/// §8.3 and §9.4): per node, the clips that drive it are blended by track priority and
+/// weight (translations and scales lerped, rotations nlerped along the shorter arc), with
+/// any weight left over going to the node's bind transform; a node no clip drives any
+/// more returns to its bind transform. The accumulation root plays in place: a clip that
+/// drives it has its per-cycle travel removed, and one that does not holds it at the
+/// identity (below every priority). Buffers are allocated once, so posing allocates
+/// nothing.
 #[derive(Component, Debug)]
 pub struct BlendPlayer {
     /// The skeleton's node entities, by node index.
     pub nodes: Vec<Entity>,
     /// The nodes' local bind transforms.
     pub bind: Arc<Vec<Transform>>,
-    pub layers: [Option<Layer>; 2],
-    acc: Vec<Acc>,
+    pub layers: [Option<Layer>; MAX_LAYERS],
+    contribs: Vec<([Contrib; MAX_LAYERS], u8)>,
     touched: Vec<usize>,
+    /// Nodes posed in the previous call, and a per-node flag for this call's.
+    posed: Vec<usize>,
+    driven: Vec<bool>,
 }
 
 impl BlendPlayer {
     pub fn new(nodes: Vec<Entity>, bind: Arc<Vec<Transform>>) -> BlendPlayer {
         let n = nodes.len();
-        BlendPlayer { nodes, bind, layers: [None, None], acc: vec![ACC_NONE; n], touched: Vec::with_capacity(n) }
-    }
-
-    fn add(&mut self, i: usize, t: Vec3, r: Quat, s: f32, w: f32) {
-        let Some(a) = self.acc.get_mut(i) else { return };
-        if a.w == 0.0 {
-            *a = Acc { t, r, s, w };
-            self.touched.push(i);
-            return;
+        BlendPlayer {
+            nodes,
+            bind,
+            layers: Default::default(),
+            contribs: vec![([CONTRIB_NONE; MAX_LAYERS], 0); n],
+            touched: Vec::with_capacity(n),
+            posed: Vec::with_capacity(n),
+            driven: vec![false; n],
         }
-        let f = w / (a.w + w);
-        let r = if a.r.dot(r) < 0.0 { -r } else { r };
-        a.t = a.t.lerp(t, f);
-        a.r = Quat::from_vec4(Vec4::from(a.r).lerp(Vec4::from(r), f));
-        a.s += (s - a.s) * f;
-        a.w += w;
     }
 
-    /// The blended local transforms (node index, transform) of every node a layer drives;
-    /// returns the number of tracks sampled. `out` is cleared first.
+    fn add(&mut self, i: usize, c: Contrib) {
+        let Some((slots, n)) = self.contribs.get_mut(i) else { return };
+        if *n == 0 {
+            self.touched.push(i);
+        }
+        if (*n as usize) < MAX_LAYERS {
+            slots[*n as usize] = c;
+            *n += 1;
+        }
+    }
+
+    /// The blended local transforms (node index, transform) of every node a layer drives,
+    /// and the bind transforms of the nodes the layers stopped driving; returns the number
+    /// of tracks sampled. `out` is cleared first.
     pub fn sample(&mut self, out: &mut Vec<(usize, Transform)>) -> usize {
         out.clear();
         let mut sampled = 0;
@@ -233,7 +326,7 @@ impl BlendPlayer {
             let (bc, w) = (&layer.clip, layer.weight);
             let time = cycle_time(bc.time_at(layer.phase), bc.clip.start, bc.clip.stop, bc.clip.cycle_type);
             let phase = if bc.clip.stop > bc.clip.start { (time - bc.clip.start) / (bc.clip.stop - bc.clip.start) } else { 0.0 };
-            for (j, (i, track)) in bc.tracks.iter().enumerate() {
+            for (j, (i, track, p)) in bc.tracks.iter().enumerate() {
                 let b = self.bind.get(*i).copied().unwrap_or_default();
                 let mut t = track.translation.sample(time).map_or(b.translation, Vec3::from_array);
                 if let Some((rj, per_cycle)) = bc.root_track {
@@ -243,25 +336,31 @@ impl BlendPlayer {
                 }
                 let r = track.rotation_at(time).map_or(b.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w).normalize());
                 let s = track.scale.sample(time).map_or(b.scale.x, |[s]| s);
-                self.add(*i, t, r, s, w);
+                self.add(*i, Contrib { t, r, s, w, p: *p });
                 sampled += 1;
             }
             if let (Some(root), None) = (bc.root, bc.root_track) {
-                self.add(root, Vec3::ZERO, Quat::IDENTITY, 1.0, w);
+                self.add(root, Contrib { t: Vec3::ZERO, r: Quat::IDENTITY, s: 1.0, w, p: UNDRIVEN_ROOT_PRIORITY });
             }
         }
         self.layers = layers;
         for &i in &self.touched {
-            let a = self.acc[i];
-            let mut tr = Transform { translation: a.t, rotation: a.r.normalize(), scale: Vec3::splat(a.s) };
-            if a.w < 0.999 {
-                let b = self.bind.get(i).copied().unwrap_or_default();
-                tr.translation = b.translation.lerp(tr.translation, a.w);
-                tr.rotation = b.rotation.slerp(tr.rotation, a.w);
-                tr.scale = b.scale.lerp(tr.scale, a.w);
+            let (slots, n) = &mut self.contribs[i];
+            let bind = self.bind.get(i).copied().unwrap_or_default();
+            out.push((i, blend_by_priority(&mut slots[..*n as usize], bind)));
+            *n = 0;
+            self.driven[i] = true;
+        }
+        // Nodes posed last time that no clip drives now go back to their bind transform.
+        for &i in &self.posed {
+            if !self.driven[i] {
+                out.push((i, self.bind.get(i).copied().unwrap_or_default()));
             }
-            out.push((i, tr));
-            self.acc[i] = ACC_NONE;
+        }
+        self.posed.clear();
+        for &i in &self.touched {
+            self.driven[i] = false;
+            self.posed.push(i);
         }
         self.touched.clear();
         sampled
@@ -430,13 +529,18 @@ mod tests {
     }
 
     fn clip(len: f32, tracks: Vec<(&str, Arc<TransformTrack>)>) -> Arc<Clip> {
+        prio_clip(len, tracks.into_iter().map(|(n, t)| (n, t, 30)).collect())
+    }
+
+    fn prio_clip(len: f32, tracks: Vec<(&str, Arc<TransformTrack>, i32)>) -> Arc<Clip> {
         Arc::new(Clip {
             name: String::new(),
             start: 0.0,
             stop: len,
             frequency: 1.0,
             cycle_type: 0,
-            tracks: tracks.into_iter().map(|(n, t)| (n.to_string(), t)).collect(),
+            priorities: tracks.iter().map(|t| t.2).collect(),
+            tracks: tracks.into_iter().map(|(n, t, _)| (n.to_string(), t)).collect(),
             skipped: 0,
             accum_root: Some("Bip01".into()),
             text_keys: Vec::new(),
@@ -500,7 +604,9 @@ mod tests {
         p.layers[0] = Some(Layer { clip: idle, phase: 0.0, weight: 1.0 });
         p.sample(&mut out);
         assert_eq!(get(&out, 1), Transform::IDENTITY);
-        assert_eq!(out.len(), 2);
+        // `Other`, which only the walk drove, is back at its bind transform.
+        assert_eq!(out.len(), 3);
+        assert_eq!(get(&out, 3), Transform::from_xyz(5.0, 0.0, 0.0));
     }
 
     #[test]
@@ -508,7 +614,7 @@ mod tests {
         let (mut p, ix) = player();
         let (walk, idle) = walk_and_idle(&ix);
         let mut out = Vec::new();
-        p.layers = [Some(Layer { clip: idle, phase: 0.0, weight: 0.75 }), Some(Layer { clip: walk, phase: 0.0, weight: 0.25 })];
+        p.layers = [Some(Layer { clip: idle, phase: 0.0, weight: 0.75 }), Some(Layer { clip: walk, phase: 0.0, weight: 0.25 }), None, None];
         p.sample(&mut out);
         let get = |i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1;
         assert_eq!(get(1), Transform::IDENTITY);
@@ -524,8 +630,52 @@ mod tests {
         p.layers[1] = None;
         p.layers[0].as_mut().unwrap().weight = 1.0;
         p.sample(&mut out);
-        assert_eq!(out.len(), 2);
+        assert_eq!(out.len(), 3);
         assert!((out.iter().find(|(j, _)| *j == 2).unwrap().1.translation.z - 61.0).abs() < 1e-5);
+        assert_eq!(out.iter().find(|(j, _)| *j == 3).unwrap().1, Transform::from_xyz(5.0, 0.0, 0.0));
+    }
+
+    fn pose(t: [f32; 3]) -> Arc<TransformTrack> {
+        track(Channel::Static(Some(t)), Channel::Static(Some([1.0, 0.0, 0.0, 0.0])))
+    }
+
+    #[test]
+    fn priority_decides_per_node() {
+        let (mut p, ix) = player();
+        // Legs (`Other`) at 30 in a walk, 26 in an equip clip; the arm (`Bip01 NonAccum`
+        // here) at 55 in the equip clip only.
+        let walk = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([1.0, 0.0, 0.0]), 30)]), &ix));
+        let equip = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([2.0, 0.0, 0.0]), 26), ("Bip01 NonAccum", pose([0.0, 0.0, 7.0]), 55)]), &ix));
+        let idle = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([3.0, 0.0, 0.0]), 10), ("Bip01 NonAccum", pose([0.0, 0.0, 1.0]), 10)]), &ix));
+        let mut out = Vec::new();
+        let get = |out: &Vec<(usize, Transform)>, i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1.translation;
+        let layer = |c: &Arc<BoundClip>, weight: f32| Some(Layer { clip: c.clone(), phase: 0.0, weight });
+        // Walking legs (30) beat the equip clip's (26); its upper body (55) wins.
+        p.layers = [layer(&walk, 1.0), layer(&equip, 1.0), None, None];
+        p.sample(&mut out);
+        assert_eq!(get(&out, 3).x, 1.0);
+        assert_eq!(get(&out, 2).z, 7.0);
+        // Standing, the equip clip's legs (26) beat the idle's (10).
+        p.layers = [layer(&idle, 1.0), layer(&equip, 1.0), None, None];
+        p.sample(&mut out);
+        assert_eq!(get(&out, 3).x, 2.0);
+        // A higher priority fading in (0.25) leaves the rest to the lower one.
+        p.layers = [layer(&idle, 1.0), layer(&equip, 0.25), None, None];
+        p.sample(&mut out);
+        assert!((get(&out, 2).z - (0.25 * 7.0 + 0.75 * 1.0)).abs() < 1e-5);
+        // Equal priorities share by weight even when they add up to more than 1.
+        let walk2 = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([5.0, 0.0, 0.0]), 30)]), &ix));
+        p.layers = [layer(&walk, 1.0), layer(&walk2, 1.0), None, None];
+        p.sample(&mut out);
+        assert!((get(&out, 3).x - 3.0).abs() < 1e-5);
+        // A node no clip drives any more goes back to its bind transform (5, 0, 0).
+        p.layers = [layer(&walk, 1.0), None, None, None];
+        p.sample(&mut out);
+        p.layers = [layer(&equip, 1.0), None, None, None];
+        p.sample(&mut out);
+        p.layers = [layer(&walk, 1.0), None, None, None];
+        p.sample(&mut out);
+        assert_eq!(get(&out, 2), Vec3::ZERO);
     }
 
     #[test]

@@ -9,7 +9,11 @@ plays `mtidle.kf` on each actor's skeleton, all 60 transform tracks binding to
 the desktop coordinator, reversible), and `--actor-pose bind` keeps the frozen bind pose.
 Part G (locomotion playback) done 2026-10-09: idle, walk, run and turn clips chosen from
 each actor's velocity and turn rate, two-clip cross-fades, rate and phase matched to the
-clips' root motion; the test aid `--actor-walk-test` moves actors (actors.md §8). Part A: schema
+clips' root motion; the test aid `--actor-walk-test` moves actors (actors.md §8).
+Part H (weapons) done 2026-10-09: armed NPCs show their weapon holstered (at the hip or on
+the back) by default and draw and holster it with the game's equip clips, layered over
+locomotion by track priority; `--actor-weapons none|holstered|drawn`,
+`--actor-weapon-test` (actors.md §9). Part A: schema
 layouts, `fnv-actor` resolution, `fnvtool actor forms | appearance | meshes`, the
 independent oracle `tools/capture/oracle_actor.py` and `L3.actors.appearance` (all 1,149
 deterministic actors equal). Part B: `nvf_assets::actor` assembles each placed NPC on
@@ -182,6 +186,7 @@ Done when 1–5 hold for humanoids with FaceGen faces (parts A, B and C).
 | D — creatures | CREA (`MODL` skeleton + `NIFZ` model list), ACRE placement | B |
 | E — animation playback | `--actor-pose idle` (the default since 2026-10-09): a looping KF idle on each actor's skeleton by bone name (anim_play), accumulation root held at the identity, no per-frame allocation; findings in actors.md §7. Choosing clips by situation stays Layer 6 | B |
 | F — animation data (headless) | IDLE schema and reader (`fnv_actor::idle`), `.kf` catalogue by skeleton folder (`fnvtool actor anims`), spec note docs/spec-notes/animation.md; groundwork for Layer 6 animation selection | A |
+| H — weapons: holster and draw | the weapon an NPC carries drawn as a model on the skeleton's `Weapon` node, holstered by default; the stance's holster, equip, aim and unequip clips layered over locomotion by track priority; `prn:` keys move the weapon between holster bone and hand; test aid `--actor-weapon-test`; `fnvtool actor weapons`; actors.md §9; plan in §7 below | G |
 | G — locomotion playback | idle, walk, run and turn clips chosen from velocity and turn rate, cross-faded (two-clip weighted blend), playback rate synced to ground speed from the clips' root motion; test aid `--actor-walk-test`; `fnvtool actor locomotion`; actors.md §8; plan in §6 below | E, F |
 
 A and B can run in parallel once the `ActorAppearance` struct is committed as a stub.
@@ -244,4 +249,40 @@ only by translation (forward walk 85.3 units/s, run 353.9), idle and turns not a
 way with the feet on the floor (§8.7). Cost: 6–25 µs per one-clip pose and 21–27 µs per
 two-clip pose; in the engine 37–41 µs per actor and frame, the same range as part E
 (§8.6).
+
+## 7. Part H — weapons: holster and draw (plan, 2026-10-09)
+
+Owner request 2026-10-09: start on weapon equipping animations for NPCs. Facts and rules:
+docs/spec-notes/actors.md §9 (survey §9.1–9.3, engine §9.4).
+
+1. **Survey** (done before code): `fnvtool actor anims` lists the stance clips; the new
+   `fnvtool actor weapons` (`fnv.actor.weapons/1`) reports each stance's clips (`prn:`
+   keys, track priorities, holster and hand bones) and the weapon each placed NPC draws.
+2. **Headless** (`crates/fnv-actor`): WEAP in `records` (model, animation type, damage,
+   embedded); `Appearance::weapon` from the carried items (not serialised, so
+   `L3.actors.appearance` is unaffected); `weapon` module: type → stance prefix, clip
+   paths, `prn:` parsing, holster/hand bones, the draw-cycle state machine. Unit tests.
+3. **Engine sampling** (`nvf-assets`): `BlendPlayer` takes up to four clips and blends by
+   per-track priority (actors.md §9.4); a node no clip drives any more returns to its
+   bind transform.
+4. **Engine control** (`nvforever`): a `WeaponHold` component per armed actor (its stance
+   clips bound to the skeleton, the draw cycle, the holster and hand bones); the weapon
+   model spawned under the `Weapon` node and re-parented when the cycle passes a `prn:`
+   key; `--actor-weapons none|holstered|drawn`, `--actor-weapon-test <s>`.
+5. **Checks**: unit tests (stance mapping, weapon choice, `prn:` parsing, draw cycle,
+   priority blending); screenshots of armed NPCs holstered, drawing and drawn (kept
+   privately); the moving-camera smoke test with weapons and with the test aid; cost per
+   actor and frame against part G (§8.6).
+
+Out of scope: when to draw (Layer 6: combat, packages, the player's presence), attacks,
+reloads and firing, the `##` weapon-part tracks, stance-specific walk clips
+(`1hpforward.kf`, …), power-armour and sneak variants, creatures' weapons.
+
+Results (2026-10-09): 1–5 done. 3,139 of 3,942 placed NPCs carry a drawable weapon
+(actors.md §9.3); every stance's clips load and give a holster and a hand bone (§9.1).
+Screenshots show a revolver at the hip and a rifle on the back, both drawn into the hands,
+and a rifle held at the ready while walking (§9.6). Holstered weapons cost about 2 µs per
+actor and frame, drawing while walking about 18 µs more (§9.7). Open for the owner: the
+exact holster placement against in-game screenshots, and the default (`holstered`; set
+`--actor-weapons none` for the part G look).
 
