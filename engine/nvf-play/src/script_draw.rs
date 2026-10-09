@@ -1,0 +1,188 @@
+//! References a script enables that render streaming never drew.
+//!
+//! Render streaming (`engine/nvforever/src/world.rs`) skips references that are not
+//! enabled at the start of a game (initially disabled, or following a disabled enable
+//! parent), so `RefVisual` sync can hide what scripts disable but has nothing to show for
+//! what they enable (VCG01's Rorschach cards in Doc Mitchell's house, enabled by Doc's
+//! lines). While scripts run, this module draws those references itself when the
+//! simulation says they are present, the way `dropped.rs` draws created references: the
+//! base form's model at the reference's pose (the simulation's, if a script moved it),
+//! as children of the cell's `RenderCell` entity, with `RefVisual` on each mesh entity
+//! (crosshair bounds and visual sync see them like any other). Collision follows from
+//! `RefChanged` (`phys.rs` restores a reference's collision when it becomes present).
+//!
+//! Not drawn here: actors (ACHR/ACRE; `actors.rs` builds them), SpeedTrees, markers, and
+//! lights' light sources (only a light's model). The enabled-at-start rule is a copy of
+//! world.rs's (`WorldData::enabled`) [coordination: one shared function would keep the
+//! two from drifting; docs/design/layer5-play.md].
+
+use crate::script::ScriptState;
+use crate::sim::SimState;
+use crate::{PlaySet, PlayWorld, RefVisual, RenderCell};
+use bevy::math::Affine3A;
+use bevy::prelude::*;
+use fnv_sim::FormId;
+use fnv_world::placed::{base_object, placement, Placement};
+use fnv_world::transform::ref_rotation;
+use nvf_assets::model::ModelCtx;
+use std::collections::{BTreeMap, HashMap};
+
+/// Base types render streaming draws (world.rs `DRAWN`), without TREE (SpeedTree).
+const DRAWN: [&[u8; 4]; 19] = [
+    b"STAT", b"SCOL", b"MSTT", b"FURN", b"DOOR", b"CONT", b"ACTI", b"TACT", b"TERM", b"LIGH", b"MISC", b"WEAP", b"AMMO", b"ARMO",
+    b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT",
+];
+
+/// A reference render streaming leaves out at the start but this module can draw.
+#[derive(Debug, Clone)]
+struct Dormant {
+    placement: Placement,
+    path: String,
+}
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ScriptDrawnRoot(pub u32);
+
+#[derive(Resource, Default)]
+pub struct ScriptDrawn {
+    /// Dormant references per render cell, read when the cell first loads.
+    cells: HashMap<RenderCell, Vec<Dormant>>,
+    /// Drawn: reference → (root, the cell entity it hangs under).
+    pub drawn: BTreeMap<u32, (Entity, Entity)>,
+}
+
+pub struct ScriptDrawPlugin;
+
+impl Plugin for ScriptDrawPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<ScriptDrawn>().add_systems(Update, sync.in_set(PlaySet::Sync));
+    }
+}
+
+/// Whether render streaming draws a reference at the start of a game (world.rs's rule):
+/// not deleted or initially disabled, and its enable parent in the required state.
+fn enabled_at_start(play: &PlayWorld, p: &Placement, depth: usize) -> bool {
+    if p.deleted() || p.initially_disabled() {
+        return false;
+    }
+    match p.enable_parent {
+        None => true,
+        Some(_) if depth > 16 => false,
+        Some((parent, opposite)) => match placement(play.lo, play.schema, parent) {
+            Some(pp) => enabled_at_start(play, &pp, depth + 1) != opposite,
+            None => !opposite,
+        },
+    }
+}
+
+fn is_marker(path: &str) -> bool {
+    let file = path.rsplit('\\').next().unwrap_or(path);
+    file.starts_with("marker") || path.contains("\\markers\\")
+}
+
+/// The dormant references of a render cell.
+fn dormant_in(play: &PlayWorld, sim: &SimState, cell: RenderCell) -> Vec<Dormant> {
+    let ids: Vec<FormId> = match cell {
+        RenderCell::Interior(id) => sim.refs.by_cell.get(&FormId(id)).cloned().unwrap_or_default(),
+        RenderCell::Exterior { world, x, y } => sim
+            .refs
+            .world_grid
+            .get(&FormId(world))
+            .and_then(|g| g.get(&(x, y)))
+            .and_then(|c| sim.refs.by_cell.get(c))
+            .cloned()
+            .unwrap_or_default(),
+    };
+    ids.into_iter()
+        .filter_map(|r| {
+            let p = placement(play.lo, play.schema, r.0)?;
+            if &p.sig != b"REFR" || p.deleted() || enabled_at_start(play, &p, 0) {
+                return None;
+            }
+            let b = base_object(play.lo, play.schema, p.base?)?;
+            if !DRAWN.contains(&&b.sig) || b.is_speedtree() {
+                return None;
+            }
+            let path = b.model_path().filter(|m| !is_marker(m) && !m.ends_with(".spt"))?;
+            Some(Dormant { placement: p, path })
+        })
+        .collect()
+}
+
+/// Reference pose in game space (the simulation's position and rotation once it holds
+/// state for the reference).
+fn pose(sim: &SimState, p: &Placement) -> Affine3A {
+    let (pos, rot) = sim.world.peek(FormId(p.form_id)).map_or((p.position, p.rotation), |s| (s.pos, s.rot));
+    let m = Mat3::from_cols_array(&ref_rotation(rot)).transpose(); // row-major
+    Affine3A::from_mat3_translation(m * p.scale, Vec3::from_array(pos))
+}
+
+type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transform), Without<ScriptDrawnRoot>>;
+
+
+#[allow(clippy::too_many_arguments)]
+fn sync(
+    mut commands: Commands,
+    play: Res<PlayWorld>,
+    sim: Res<SimState>,
+    script: Res<ScriptState>,
+    cells: Cells,
+    roots: Query<(), With<ScriptDrawnRoot>>,
+    mut state: ResMut<ScriptDrawn>,
+    mut models: ModelCtx,
+) {
+    if script.rt.is_none() {
+        return;
+    }
+    let st = &mut *state;
+    let loaded: HashMap<RenderCell, (Entity, Vec3)> = cells.iter().map(|(e, c, t)| (*c, (e, t.translation))).collect();
+    // Drawn under a cell entity that went (render streaming, travel): gone with it.
+    st.drawn.retain(|_, (root, cell_e)| roots.contains(*root) && loaded.values().any(|(e, _)| e == cell_e));
+    for (&cell, &(cell_e, origin)) in &loaded {
+        let dormant = st.cells.entry(cell).or_insert_with(|| dormant_in(&play, &sim, cell));
+        for d in dormant.iter() {
+            let id = d.placement.form_id;
+            let want = sim.present(id);
+            match st.drawn.get(&id) {
+                Some(&(root, e)) if !want || e != cell_e => {
+                    commands.entity(root).try_despawn();
+                    st.drawn.remove(&id);
+                    info!("reference 0x{id:08X} no longer drawn by scripts (disabled or moved cell)");
+                }
+                Some(_) => {}
+                None if want => {
+                    let Some(model) = models.model(&d.path) else {
+                        warn_once!("reference 0x{id:08X}: model {} could not be loaded", d.path);
+                        continue;
+                    };
+                    let t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-origin) * pose(&sim, &d.placement)));
+                    let root = commands.spawn((Name::new(format!("Enabled {id:08X}")), ScriptDrawnRoot(id), t, Visibility::default(), ChildOf(cell_e))).id();
+                    let shapes = match &model.rig {
+                        Some(rig) => {
+                            let (r, drawn) = rig.spawn(&mut commands, root, Transform::IDENTITY, &d.path);
+                            commands.entity(r).insert(RefVisual(id));
+                            for e in &drawn {
+                                commands.entity(*e).insert(RefVisual(id));
+                            }
+                            drawn.len()
+                        }
+                        None => {
+                            for s in &model.shapes {
+                                commands.entity(root).with_child((
+                                    Mesh3d(s.mesh.clone()),
+                                    MeshMaterial3d(s.material.clone()),
+                                    Transform::from_matrix(Mat4::from(s.transform)),
+                                    RefVisual(id),
+                                ));
+                            }
+                            model.shapes.len()
+                        }
+                    };
+                    info!("reference 0x{id:08X} drawn (enabled at run time): {}, {shapes} shapes, in {cell:?}", d.path);
+                    st.drawn.insert(id, (root, cell_e));
+                }
+                None => {}
+            }
+        }
+    }
+}
