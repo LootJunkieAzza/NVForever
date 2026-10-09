@@ -287,21 +287,31 @@ line 0x00105570 (the line the walk-through's `say_first` picked); 2 s after 110 
 into the exit trigger (`scripted:0x0010722F`); after 115 Doc's two farewell lines
 0x001057E8 and 0x001057E7. Everything else is the game's own: the timers, Doc's SayTo
 lines (`Game::say`, timed by `Game::speech`, shown as subtitles), the boxes and menus
-the scripts open.
+the scripts open. The aids as given (one line):
 
-**Result**: exit 0. The chain reaches **VCG01 200** (completed, stopped), VMQ01 10,
-VCG02 5, CGTutorial 2, with VCG00 stages 0, 90, 95, 100 and VCG01 stages 0, 1, 3, 5, 7,
-8, 10, 15, 25, 30, 35, 36, 40, 45, 50, 55, 60, 65, 70, 75, 76, 79, 80, 85, 90, 95, 98,
-100, 102, 105, 110, 115, 200: the walk-through's set and both capture saves' (scripts.md
-§9). Both opening triggers fired from the player's capsule (`OnTriggerEnter` of
-0x00104C16 → 60, of 0x00107236 → 115; leaving the first one ran its OnTriggerLeave
-tutorial lines); no NPC fired a trigger in the house (Doc stands outside them). Four pack
-boxes, menus 1051, 1036, 1074, 1048, 1084 and the hardcore box opened and were answered;
-23 subtitle changes. Script time per frame as in round 1.
+```
+NVF_PLAY_TEST_SCRIPT=2@VCG01=55:walk:scripted:0x00104C02,12@VCG01=60:activate:VCG01VigorTesterREF,
+1@VCG01=80:var:VCG01:bBeganTest:1,1@VCG01=80:objective_done:VCG01:40,1@VCG01=80:var:VCG01Test:nSneak:2,
+1@VCG01=80:var:VCG01Test:nScience:3,1@VCG01=80:var:VCG01Test:nSpeech:1,1@VCG01=80:var:VCG01Test:nSmallGuns:2,
+1@VCG01=80:var:VCG01Test:nMedicine:1,1@VCG01=80:var:VCG01Test:nSurvival:1,
+1.5@VCG01=80:var:VCG01Test:bDoFinalCalculation:1,3@VCG01=80:info:0x00105570:DocMitchellREF,
+2@VCG01=110:walk:scripted:0x0010722F,2@VCG01=115:info:0x001057E8:DocMitchellREF,
+3@VCG01=115:info:0x001057E7:DocMitchellREF
+```
 
-**Timeline** (game seconds, `gt` in the trace, each step from the one before; two runs:
-one at 47 frames per second up to stage 25, one at 8.7 frames per second (the machine was
-busy) to the end, where a frame is 0.1–0.25 s and steps read up to one frame long;
+**Result** (after merging main, 59 frames per second): exit 0. The chain reaches
+**VCG01 200** (completed, stopped), VMQ01 10, VCG02 5, CGTutorial 2, with VCG00 stages
+0, 90, 95, 100 and VCG01 stages 0, 1, 3, 5, 7, 8, 10, 15, 25, 30, 35, 36, 40, 45, 50, 55,
+60, 65, 70, 75, 76, 79, 80, 85, 90, 95, 98, 100, 102, 105, 110, 115, 200: the
+walk-through's set and both capture saves' (scripts.md §9). Both opening triggers fired
+from the player's capsule (`OnTriggerEnter` of 0x00104C16 → 60, of 0x00107236 → 115;
+leaving the first ran its OnTriggerLeave tutorial lines); no NPC fired a trigger in the
+house (Doc stands outside them). Four pack boxes, menus 1051, 1036, 1074, 1048, 1084 and
+the hardcore box opened and were answered; Doc's lines showed as subtitles. An earlier
+run at 8.7 frames per second (the machine was busy) reached the same end with steps up
+to one frame (0.1–0.25 s) longer.
+
+**Timeline** (game seconds, `gt` in the trace, each step from the one before;
 walk-through and capture from scripts.md §9 and layer5-captures.md §10.2, §10.3, §10.7):
 
 | Stage | `--play` | Walk-through | Capture |
@@ -309,34 +319,59 @@ walk-through and capture from scripts.md §9 and layer5-captures.md §10.2, §10
 | VCG00 0 → 90 | the first script frame | given (save) | in the save |
 | VCG00 95 / 100 / VCG01 0 | 3.03 / +1 frame / same frame | 3.03 / +1 frame / same | 3.03 / +1 sample / same |
 | pack boxes | 5.0 (between 1 and 3), one at a time, the next on the frame after a close; game time stood still | 5.0, as here | one open in the save before VCG00 ran; the next 0.45–1.4 s after each close |
-| VCG01 1, 3 | +0.21, +2.84 | +0.22, +2.93 | +0.2, +2.8 |
-| 5 (Doc's first line) | +2.90 | +2.90 | +2.9 |
-| 7, 8 | +3.29, +1 frame | +3.27, +1 frame | +3.22, +1 sample |
-| 10 (three lines), name menu | +15.37, 1051 | +15.37, 1051 | +15.4, 1051 |
+| VCG01 1, 3 | +0.19, +2.83 | +0.22, +2.93 | +0.2, +2.8 |
+| 5 (Doc's first line) | +2.91 | +2.90 | +2.9 |
+| 7, 8 | +3.27, +1 frame | +3.27, +1 frame | +3.22, +1 sample |
+| 10 (three lines), name menu | +15.36, 1051 | +15.37, 1051 | +15.4, 1051 |
 | 15 after the name menu | 1.02 | 1.05 | 0.95–0.97 |
-| 25, 30 (lines) | +10.52, +14.93 | +10.50, +14.77 | lines |
-| 35, 36, race menu, 40 | +3.34, +1.75, 1036, 40 inside it | +3.02, +1.78, 1036, 40 inside | +2.97, a line, 1036, 40 inside |
-| 45 (lines), 50 | +11.09, +3.07 | +11.15, +3.02 | lines, +2.98 |
-| 55 (two lines) | +10.26 | +10.20 | about 10 s |
+| 25, 30 (lines) | +10.52, +14.77 | +10.50, +14.77 | lines |
+| 35, 36, race menu, 40 | +3.01, +1.78, 1036, 40 inside it | +3.02, +1.78, 1036, 40 inside | +2.97, a line, 1036, 40 inside |
+| 45 (lines), 50 | +11.08, +3.01 | +11.15, +3.02 | lines, +2.98 |
+| 55 (two lines) | +10.20 | +10.20 | about 10 s |
 | 60 | the trigger, on the frame of the walk | by input | by the job |
 | 65, menu 1074 | inside the activation | inside | inside |
-| 70 | 1.08 after the menu | 1.02 | 0.96 |
-| 75, 76, 79 | one frame, +7.53 after 70 | one frame, +7.47 | one frame |
-| 80 (psych intro lines) | +18.14 | +18.07 | about 13 s |
-| 85 → 90, menu 1048 | 85 by the verdict line, 90 +0.99 | +1.02 | 1 s |
-| 95 | 1.09 after the menu | 1.02 | 0.96 |
-| 98, 100, 102, menu 1084 | +18.06, +1.11, next frame | +17.93, +1.02, next frame | lines, 0.98, next frame |
-| 105 | 1.05 after the menu | 1.02 | 0.97 |
+| 70 | 1.02 after the menu | 1.02 | 0.96 |
+| 75, 76, 79 | one frame, +7.47 after 70 | one frame, +7.47 | one frame |
+| 80 (psych intro lines) | +18.06 | +18.07 | about 13 s |
+| 85 → 90, menu 1048 | 85 by the verdict line, 90 +1.00 | +1.02 | 1 s |
+| 95 | 1.02 after the menu | 1.02 | 0.96 |
+| 98, 100, 102, menu 1084 | +17.95, +1.01, next frame | +17.93, +1.02, next frame | lines, 0.98, next frame |
+| 105 | 1.02 after the menu | 1.02 | 0.97 |
 | 110 (lines) | +3.47 | +3.47 | lines |
-| 115, 200 | the exit trigger on the walk's frame; 200 0.75 after the hardcore box was answered | by input; 200 0.38 after the box | by the job; event 3 |
+| 115, 200 | the exit trigger on the walk's frame; 200 0.34 after the hardcore box was answered | by input; 200 0.38 after the box | by the job; event 3 |
 
 Differences: (1) the pack boxes come 5 s into the game (the pack quests' first run),
 after VCG00's countdown, as in the walk-through; in the capture's save one box was
 already open and held the countdown (§7); (2) every span of Doc's lines uses the
 runtime's fitted line length (80: 18.1 s against about 13 s), as in the walk-through;
-(3) timer steps read a frame later at low frame rates (35: 3.34 at 0.2 s frames). Which
+(3) at low frame rates timer steps read up to a frame later. Which
 stage follows which, by what, and which menu each opens match the walk-through and the
 capture.
+
+### 6.3 Round 2 checks (2026-10-09, after merging main)
+
+All windowed runs exit 0 with "run finished":
+- **Freeside → Strip gate** (round 1's command, 24 s): unattended, so the pack and
+  add-on boxes (12) were answered after 0.25 s each; E at 9 s says "Gate is locked", the
+  passport aid unlocks it, E at 15 s travels to TheStripWorldNew (feet on the floor at
+  1017.68), as in round 1. On the way NPCs fired triggers too: the Freeside Securitrons
+  entered VFSSecuritronWarningActivatorREF, whose script (SCPT 0x0011CB52) has a
+  `Begin OnTriggerEnter player` block and a parameterless one that reads
+  `GetActionRef` and checks its faction [observed in the masters], the case T1
+  describes; Strip NPCs entered their triggers. Two Securitrons stand inside
+  VFSVegasAnnihilationVolumeREF, whose parameterless `Begin OnTrigger` (SCPT 0x00119786)
+  ran every frame for them (1,630 runs in 24 s); its faction checks on `GetActionRef`
+  sort Securitrons from intruders [observed in the masters], so it did nothing visible
+  here. Whether the game runs it for actors standing in a volume from the start is part
+  of the T1 capture question (§7).
+- **Goodsprings**, 40 s without aids: the first pack box stays open (attended runs do not
+  answer boxes), the player is held and script time stops, as in the capture's save;
+  45 s with `--auto-walk 300`: every box answered after 0.25 s, the walk goes on.
+- The moving-camera smoke test (215 cells) and the time-lapse (30 hourly lines).
+- Workspace and engine tests and clippy, both Python suites. Parity lab with this
+  branch's `fnvtool`: 365/384 (11 fail, 8 error), L5 28/32, as on main (the four known
+  fails); the headless walk-through gives the same observations and events with and
+  without the SayToDone change (D1).
 
 ## 7. Open
 
