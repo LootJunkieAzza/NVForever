@@ -327,3 +327,16 @@ collision notes.
 (`fnv.sim.actions/1` → `fnv.sim.trace/1`), `fnvtool sim forms` (`fnv.sim.forms/1`) and
 `fnvtool sim doors` (`fnv.sim.doors/1`) are defined in docs/spec-notes/simulation.md §7
 together with the simulation notes.
+
+# Actor appearance (workstream 5)
+
+`fnvtool actor forms` (`fnv.actor.forms/1`), `fnvtool actor appearance`
+(`fnv.actor.appearance/1`) and `fnvtool actor meshes` (`fnv.actor.meshes/1`) are defined in
+docs/spec-notes/actors.md §5 together with the actor appearance notes.
+
+# Animation data (workstream 5, part F)
+
+`fnvtool actor anims` (`fnv.actor.anims/1`: every `.kf` grouped by skeleton folder with its
+sequences and skeleton bindings, IDLE records per animation group with the `.kf` they
+name, creature KFFZ/NIFZ lookups) is defined in docs/spec-notes/animation.md §6 together
+with the animation data notes.

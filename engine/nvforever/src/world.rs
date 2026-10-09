@@ -9,6 +9,7 @@ use fnv_esm::{LoadOrder, Plugin as EsmPlugin, Schema as EsmSchema};
 use fnv_world::placed::{base_object, placement, BaseObject, Placement};
 use fnv_world::transform::ref_rotation;
 use fnv_world::{cell_of, WorldIndex, CELL_SIZE};
+use nvf_assets::actor::{ActorCtx, ActorParts};
 use nvf_assets::model::ModelCtx;
 use nvf_assets::{nif_material, NifMaterial};
 use nvf_play::{RefVisual, RenderCell};
@@ -16,8 +17,8 @@ use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
 
-/// Base object types drawn as static models. Actors (NPC_, CREA) need Layer 4 records;
-/// sounds and idle markers have no model.
+/// Base object types drawn as static models. NPCs are assembled from parts (`actors.rs`);
+/// creatures are not drawn yet; sounds and idle markers have no model.
 const DRAWN: [&[u8; 4]; 20] = [
     b"STAT", b"SCOL", b"MSTT", b"TREE", b"FURN", b"DOOR", b"CONT", b"ACTI", b"TACT", b"TERM", b"LIGH", b"MISC",
     b"WEAP", b"AMMO", b"ARMO", b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT",
@@ -133,6 +134,7 @@ pub struct StreamStats {
     pub refs_animated: usize,
     pub water_planes: usize,
     pub lights: usize,
+    pub actors: crate::actors::ActorStats,
     pub shapes: usize,
     pub load_ms: f64,
     pub skipped_types: HashMap<String, usize>,
@@ -164,13 +166,16 @@ pub fn stream(
     mut water: WaterCtx,
     mut trees: crate::tree::TreeCtx,
     mut emittance: ResMut<crate::emittance::EmittanceState>,
+    actor_world: Option<Res<crate::actors::ActorWorld>>,
+    mut actor_parts: ResMut<ActorParts>,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
+    let mut actors = actor_world.as_deref().map(|w| (w, &mut *actor_parts));
     if let Some(id) = streamer.interior {
         if streamer.loaded.is_empty() {
             let t0 = std::time::Instant::now();
             let s = &mut *streamer;
-            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, s);
+            let e = load_cell(&mut commands, &world, CellKey::Interior(id), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, &mut actors, s);
             commands.entity(root).add_child(e);
             streamer.loaded.insert((i32::MIN, i32::MIN), e);
             streamer.stats.cells_loaded += 1;
@@ -202,7 +207,7 @@ pub fn stream(
     for c in missing.into_iter().take(streamer.per_frame) {
         let t0 = std::time::Instant::now();
         let s = &mut *streamer;
-        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, s);
+        let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, &mut actors, s);
         commands.entity(root).add_child(e);
         streamer.loaded.insert(c, e);
         streamer.stats.cells_loaded += 1;
@@ -265,6 +270,7 @@ fn load_cell(
     water: &mut WaterCtx,
     trees: &mut crate::tree::TreeCtx,
     emittance: &mut crate::emittance::EmittanceState,
+    actors: &mut Option<(&crate::actors::ActorWorld, &mut ActorParts)>,
     streamer: &mut Streamer,
 ) -> Entity {
     let (hide, light_scale, stats) = (&streamer.hide, streamer.light_scale, &mut streamer.stats);
@@ -301,6 +307,12 @@ fn load_cell(
             continue;
         }
         let base: Option<BaseObject> = p.base.and_then(|b| base_object(world.lo, world.schema, b));
+        if let (Some((aw, parts)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| &b.sig == b"NPC_")) {
+            let mut ctx = ActorCtx { cache: parts, models };
+            if crate::actors::spawn(commands, cell_e, to_cell * ref_affine(&p), r, b.form_id, aw, &mut ctx, &mut stats.actors) {
+                continue;
+            }
+        }
         let Some(base) = base.filter(|b| DRAWN.contains(&&b.sig)) else {
             stats.refs_skipped_type += 1;
             let t = base_type_name(p.base.and_then(|b| base_object(world.lo, world.schema, b)).as_ref());
