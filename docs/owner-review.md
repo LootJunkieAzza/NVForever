@@ -166,6 +166,28 @@ item once you've ruled on it.
     The stages done match your two saves exactly. Every real progression step waits on a
     Layer 6 system (dialogue, AI packages, combat, menus).
 
+18. **Capture round 2 (PR #61, merged).** Five of six runtime questions are settled in
+    game (layer5-captures.md §8):
+    - all passing stage entries run, in order;
+    - OR binds tighter than AND;
+    - a stray ElseIf still tests and runs;
+    - OnActivate runs inside Activate, and a scripted `Activate` without the flag
+      does not run it;
+    - GetSecondsPassed excludes menu and loading time.
+
+    The last two overturn assumptions in 5B's runtime. A follow-up
+    (`claude/layer5-runtime-2`) is fixing them, without access to any holdout. Two new
+    holdouts exist (`L5.quest.r2_holdout_a`/`_b`), made by a session that never saw the
+    runtime code. Decisions for you:
+    - (a) demote the two exposed round-1 holdouts;
+    - (b) `L5.quest.condition_groups` observes the AND/OR rule through which AI package
+      an NPC picks. That leans into Layer 6, but it is the only dialogue-free way to see
+      the grouping;
+    - (c) xnvse-capture.md §5 says the clock runs in menus, but it stopped in the
+      container menu. The doc was left unchanged for you to rule on.
+    Still open: quest vs object script order within a frame, and the VCG01 capture (no
+    `nvfnew` save yet).
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
