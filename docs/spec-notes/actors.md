@@ -341,7 +341,8 @@ per situation (AI, packages, movement) is Layer 6 and not done here.
 - Clip choice: `locomotion\mtidle.kf` in the skeleton's folder [observed for
   `characters\_male\skeleton.nif`; hypothesis: the same rule for other skeletons]. Every
   human actor, female ones included (they use the same skeleton, §1.1), plays it
-  [hypothesis: the game may pick other idles per sex, package or furniture].
+  [hypothesis: the game may pick other idles per sex, package or furniture]. Since part
+  G the idle comes from the actor's locomotion clip set (§8.3), found by the same rule.
 - Tracks drive the skeleton's bone entities by node name, except the actor's root, whose
   transform is the placement. Skinned shapes are bound to those bones and rigid parts are
   their children (§3), so one player moves every part.
@@ -389,3 +390,222 @@ The CLAUDE.md moving-camera smoke test (`--cell Goodsprings --auto-fly 4000
 - Sampling the 60 tracks of `mtidle.kf` alone takes 20.2 µs per pose (`kf_bind_check`
   with `KF_BENCH=1`, 20,000 poses).
 - No per-frame allocation in sampling (§7.3).
+
+## 8. Locomotion playback (part G)
+
+`nvforever` plays an actor's idle, walk, run and turn clips according to its velocity and
+turn rate, with a short cross-fade between clips and a playback rate matched to ground
+speed. There is no AI yet (Layer 6): only the test aid `--actor-walk-test <speed>` moves
+actors (§8.4). `--actor-pose bind|idle` keep their meaning: `idle` is the same selector
+with every actor standing still. Plan and status: docs/design/static-actors.md part G.
+
+### 8.1 Clips of `characters\_male` (survey)
+
+`fnvtool actor anims` and `fnvtool actor locomotion` (§8.5) on the owner's install,
+2026-10-09 [observed]. `characters\_male\locomotion\` holds 125 `.kf` files (133
+sequences): 70 directly in it, 9 in `male\`, 9 in `female\`, 8 in `child\` and 29 in
+`hurt\`. Every sequence loops (cycle type 0) and names `Bip01` as its accumulation root.
+
+- **Stance prefixes** (file stem minus the sequence name): `mt` (no weapon), `pamt`
+  (power armour: only `pamtidle.kf` and `male|female\pamtforward.kf`), and the weapon
+  prefixes `h2h`, `1hm`, `1hp`, `2ha`, `2hh`, `2hl`, `2hm`, `2hr`, `1gt`, `1lm`, `1md`
+  (animation.md §3.2 for their reading).
+- **Unarmed set** (the one the engine plays; sequence name = move):
+
+| Move | File (below `characters\_male\locomotion\`) | Length (s) | Root motion per cycle (x, y) | Speed (units/s) |
+|---|---|---|---|---|
+| Idle | `mtidle.kf` | 4.000 | none (no `Bip01` track) | 0 |
+| Forward | `male\mtforward.kf` | 1.200 | (0, +102.31) | 85.26 |
+| Backward | `male\mtbackward.kf` | 1.133 | (0, −76.43) | 67.44 |
+| Left | `male\mtleft.kf` | 1.200 | (−103.84, 0) | 86.53 |
+| Right | `male\mtright.kf` | 1.200 | (+102.82, 0) | 85.68 |
+| FastForward | `male\mtfastforward.kf` | 0.800 | (0, +283.11) | 353.88 |
+| FastBackward | `male\mtfastbackward.kf` | 0.800 | (0, −226.00) | 282.49 |
+| FastLeft | `male\mtfastleft.kf` | 0.800 | (−283.00, 0) | 353.75 |
+| FastRight | `male\mtfastright.kf` | 0.800 | (+283.00, 0) | 353.75 |
+| TurnLeft | `mtturnleft.kf` | 1.000 | none (no `Bip01` track) | 0 |
+| TurnRight | `mtturnright.kf` | 1.000 | none (no `Bip01` track) | 0 |
+
+  `female\` has the same eight walk and run files with the same lengths and nearly the
+  same root motion (Forward 102.08). `child\` too, except Left and Right (±81, 67.5
+  units/s) and FastLeft and FastRight (0.867 s, ±306.70, 353.88 units/s). Idle and
+  turns exist once, in `locomotion\`.
+- **Weapon stances** in `locomotion\`: `h2h`, `1hm`, `1hp`, `2hh`, `2hl` have all eight
+  walk and run moves; `2ha`, `2hr` have Forward and the four fast moves; `2hm` and `1gt`
+  only the four fast moves; `1gt`, `1lm`, `1md`, `2hh` have TurnLeft and TurnRight.
+  Weapon turns of `1hm`, `1hp`, `h2h` and weapon idles (`1hmidle.kf`, `h2hidle.kf`:
+  0.333 s, 3–7 tracks) sit directly in `characters\_male\`, beside jumps, block idles
+  and the `sneak*` (all moves, 0.867–1.733 s) and `swim*` sets. Several weapon walks have
+  46 tracks against 60 in `mt` (`1hm`, `h2h`), and weapon turns 11–16 [hypothesis:
+  weapon clips are partial and layered over the `mt` clips by priority; Layer 6].
+- Eight `*fastbackward.kf` files (`1gt`, `1hm`, `1hp`, `2ha`, `2hh`, `2hl`, `2hr`,
+  `h2h`) hold a second sequence `FastRight` (0.733 s) after `FastBackward`; the engine
+  takes the first sequence of a file.
+- `hurt\` holds `mt`, `1hm`, `1hp` and `h2h` walk and run variants with a trailing `_`
+  (e.g. `mtforward_.kf`), plus `mtidle`, `pamtidle` and the `mt` turns [hypothesis:
+  crippled-leg locomotion; not used].
+
+### 8.2 Root motion
+
+- 121 of the 133 sequences drive `Bip01`; in all 121 its track has a translation channel
+  (B-spline or keys), a **static identity rotation and scale 1** [observed]. The 12 that
+  do not drive it are the four idles (`mtidle`, `pamtidle` and their `hurt\` copies) and
+  the turns of `mt`, `1gt`, `1lm` and `1md` [observed].
+- `Bip01`'s translation runs from (0, 0, 0) at the start to the per-cycle offset at the
+  stop, with z = 0 throughout; forward moves go along +y, backward along −y, Left along −x,
+  Right along +x. The pace is close to even (Forward: 12.2 units in the first 0.15 s,
+  14.5 in the next) and strafes sway up to ±1.5 units across the line (`mtleft` y)
+  [observed: `--samples 9`].
+- **Actor axes**: +y is the actor's forward, +x its right, z up [hypothesis, from the
+  direction of each move's root motion].
+- The pelvis height lives on `Bip01 NonAccum` in every clip: 59–66 units up, bobbing by
+  2–7 units per step, and turned about 90° about z (as in `mtidle.kf`, §7.2) [observed].
+- Turn clips carry no root rotation, so their turn speed is not in the clip [observed:
+  no `Bip01` track, or a static one in `2hhturn*`; hypothesis: the game sets it].
+- **Playback**: the engine extracts the root motion and moves the actor itself. While a
+  clip with a `Bip01` track plays, `Bip01` takes the sampled translation minus the
+  linear accumulation `(t − start) / length × per-cycle offset`, which keeps the small
+  in-cycle deviations and removes the travel [engine rule; hypothesis that the game
+  moves the actor at the clip's average speed]. A clip without a `Bip01` track holds it
+  at the identity (§7.2), so all locomotion clips blend on the same root.
+
+### 8.3 Selection, blending, phase and speed (engine)
+
+All rules here are engine choices unless tagged otherwise. Layer 6 replaces the inputs
+(AI packages, paths) and should keep the playback.
+
+- **Inputs** per actor and frame: velocity in the actor's axes (§8.2) and turn rate
+  (radians per second, positive = to the left).
+- **Choice** (`fnv_actor::locomotion::choose`):
+  - ground speed below 5 units/s: standing. Turning faster than 15°/s → TurnLeft or
+    TurnRight by sign; else Idle.
+  - otherwise the direction by the velocity's angle from forward: within 45° Forward,
+    beyond 135° Backward, else Left or Right.
+  - walk or run: run when the speed is above the geometric mean of the direction's walk
+    and run clip speeds (Forward: √(85.26 × 353.88) ≈ 173.7 units/s).
+  - playback rate = ground speed ÷ the clip's root-motion speed, clamped to 0.4–2.5
+    (outside that range the feet slide); idle and turns play at rate 1 (§8.2).
+- **Cross-fade**: when the choice changes, the new clip fades in over its blend time while
+  the old one fades out (weights sum to 1, smoothstep). Blend time = the `Blend: N` text
+  key of the incoming clip read as N frames at 30 per second (`Blend: 6` → 0.2 s,
+  `Blend: 9` → 0.3 s, `Blend: 3` → 0.1 s, `Blend: 15` → 0.5 s), else 0.2 s [hypothesis:
+  N counts 30 fps frames; every text key time in these files is a multiple of 1/30 s;
+  `mtidle.kf` has no such key]. A change requested during a fade waits for the fade to
+  end, so weights never jump.
+- **Pose blend**: per skeleton node, translation and scale are lerped and rotations
+  nlerped along the shorter arc by weight; a node that only one clip drives blends
+  towards its bind pose by the missing weight.
+- **Phase sync**: between two walk/run clips, the incoming clip starts at the same
+  footfall phase as the outgoing one, using the time of each clip's first `Enum: Left`
+  text key as its left-footfall mark [hypothesis: `Enum: Left`/`Enum: Right` are footstep
+  sound events; the `m:L`/`m:R` keys of some files do not agree with them
+  (`male\mtfastforward.kf` puts `m:R` at 0.40 s, between `Enum: Left` at 0.17 s and
+  `Enum: Right` at 0.57 s), so they are not used]. During such a fade both clips advance
+  at the weight-blended cycle rate so the feet stay in step. Idle and turns start at
+  phase 0, except an actor's first idle, which starts at its spread phase (§7.3).
+- **Body**: female actors use `locomotion\female\`, others `locomotion\male\`
+  (`fnv_actor::locomotion::clip_candidates`; a missing file falls back to `male\`).
+  Children (`child\`) need the race's child flag, which the records reader does not take
+  yet [open].
+
+### 8.4 Test aid `--actor-walk-test <speed>`
+
+Every actor within `--actor-walk-test-radius` (default: unlimited) of the start position
+walks a fixed, repeating script along its own forward axis, in the plane of its placement
+(it does not follow the ground, so on slopes it floats or sinks): forward 300 units at
+`<speed>`, stand 1 s, turn left 180° at 90°/s, forward back to the start, stand 1 s,
+turn right 180°, forward out again, stand 1 s, walk back **backward** at 0.75 ×
+`<speed>`, stand 1 s; repeat. Each actor starts at a spread offset in the script (the
+§7.3 phase). At 85 units/s the forward legs play at rate 1.0; at 350 they run. With
+`--actor-pose-time t`, every walking actor instead runs the script and its blend from the
+start to `t` in 1/60 s steps and holds there, so screenshots repeat exactly. Speeds and
+the line length are in the actor's own units (its scale applies on top).
+
+### 8.5 CLI contract
+
+`fnvtool actor locomotion <Data> --nif-schema <dir> [--folder <vfs folder>]
+[--samples N]` → `fnv.actor.locomotion/1`. `--folder` defaults to
+`meshes\characters\_male`. Top level: `schema`, `folder`, `files`, `prefixes` (stance
+prefixes of the stems in `<folder>\locomotion\…`), `sets`, `archives`.
+
+- `files[]`, by path, for every `.kf` below `<folder>\locomotion\`: {`path`, `sequences`
+  [{`name`, `start_time`, `stop_time`, `cycle_type`, `frequency`, `accum_root`,
+  `root_driven`, `root_translation` [x, y, z] (per cycle), `root_yaw_deg` (summed over 64
+  steps), `speed` (units/s, horizontal), `turn_deg_per_s`, `text_keys` [[time, text]],
+  `root_channels`? {`translation`, `rotation`, `scale`: `none` | `static` | `keys` |
+  `bspline` | `euler`}, `root_start`? {`translation`, `rotation` (w, x, y, z), `scale`},
+  `samples`? {node: [{`t`, `translation`, `yaw_deg`}]} (with `--samples N` ≥ 2: the
+  accumulation root and `Bip01 NonAccum` at N even times)}]} or {`path`, `error`}.
+- `sets[]`: for each body (`Male`, `Female`, `Child`) and prefix: {`body`, `prefix`,
+  `clips` {move: path}, `missing` [move]}, by the lookup of §8.3.
+
+Library: `fnv_actor::locomotion` (`Move`, `Body`, `clip_candidates`, `LocomotionSet`,
+`RootMotion`, `root_motion`, `foot_phase`, `blend_time`, `choose`, `Blend`).
+
+### 8.6 Performance
+
+Owner's machine, 2026-10-09, release build [observed].
+
+- **Per pose** (`nvf-assets` example `blend_bench`: `BlendPlayer::sample` over 20,000
+  poses, no Bevy transform writes; three runs):
+
+| Pose | Tracks | µs per pose |
+|---|---|---|
+| Idle (`mtidle.kf`), one clip | 60 | 18.8–25.4 |
+| Walk (`male\mtforward.kf`), one clip | 59 | 6.0–7.1 |
+| Idle → walk, two clips | 119 | 25.6–26.9 |
+| Walk → run (`male\mtfastforward.kf`), two clips | 117 | 21.1–21.9 |
+
+  A blended pose costs about the sum of its two clips: rotation channels set the price.
+  `mtforward.kf` has 56 keyed rotation channels (3 static), `mtidle.kf` 51 B-spline and
+  `mtfastforward.kf` 52 B-spline [observed: `kf_bind_check`]. Part E measured 20.2 µs per
+  idle pose with `kf_bind_check` (§7.5).
+- **In the engine** (the `actor animation` line of the `--run-seconds` summary: choosing,
+  blending, sampling and writing the bones' local transforms; not Bevy's transform
+  propagation or skin upload):
+
+| Run (40 s, `--cell Goodsprings`) | Exit, "run finished" | Actors (walking) | µs per actor and frame | Clips per actor and frame | Frames blending two | fps |
+|---|---|---|---|---|---|---|
+| `--auto-fly 4000` (all standing) | 0, yes | 34 (0) | 37.1 | 1.00 | 0 % | 25.5 |
+| `--auto-fly 4000 --actor-walk-test 120` | 0, yes | 33 (33) | 37.8 | 1.12 | 12.5 % | 25.9 |
+| fixed camera at the saloon, `--actor-walk-test 120` | 0, yes | 3 (3) | 41.1 | 1.12 | 11.9 % | 19.5 |
+
+  Part E's figure (§7.5) was 41.6 µs, later 29.3 µs, per clip and frame for the single
+  idle clip; part G stays in that range with blending on (up to 17 actors posed at once,
+  0.17 ms per frame). The frame rate is set by other work.
+
+### 8.7 Visual check
+
+Screenshots held at fixed script times (`--actor-walk-test 85 --actor-pose-time t`, and
+`350` for the run), kept privately (`C:\fnv-private\references\partg\`), Easy Pete on
+the Prospector Saloon porch, Goodsprings [observed]:
+
+- Walking out (0.3 s, 0.9 s): side view, facing the way he moves, legs at different
+  points of the stride, feet on the porch boards.
+- Walking back (8.0 s): facing west, mid-stride. Walking backward (19.5 s): facing east
+  and moving west with a backward stride. Turning (5.3 s): turned away from the camera,
+  part way through the left turn from east to north.
+- Running (350 units/s, 0.3 s): a running stride with arms bent.
+- Doc Mitchell in his house (1.5 s): walking away from the camera, back turned, so the
+  clips' forward (+y) is the way an actor faces [observed; confirms §8.2's axes].
+- Not checked yet: foot sliding over time (needs video or a sequence of frames per step),
+  and how the game itself blends and phases these clips (an in-game capture of an NPC
+  walking, stopping and turning would settle §8.3's hypotheses).
+
+### 8.8 Notes for later work
+
+- **Layer 6**: AI sets `Locomotion::velocity` and `turn` (`engine/nvforever/src/locomotion.rs`)
+  instead of the walk test. Weapon stances need a second, partial layer over the `mt`
+  clips (weapon walks have 46 of 60 tracks; priorities are in the controlled blocks,
+  `fnv_nif::anim::Track::priority`) and a stance prefix per equipped weapon type
+  (animation.md §3.2). Sneak and swim sets sit directly in `characters\_male\`
+  (`sneakmt*`, `swimmt*`) and would need `clip_candidates` to look there too.
+- **Turn speed**: turn clips carry no root rotation (§8.2); the game's turn speed and
+  whether it scales the turn clip's rate are open. The walk test turns at 90°/s.
+- **Ground following**: the walk test moves in the placement's plane; a real mover needs
+  the ground height (Layer 4 physics) per step.
+- **`nvf-viewer --anim`**: `anim_play::BoundClip` and `BlendPlayer` could replace the
+  viewer's single-clip player, so walk clips play in place there too (today the viewer
+  holds only an undriven root; a walking clip's `Bip01` travel shows as drift).
+- **Creatures (part D)**: the same selector should work with a creature skeleton's own
+  `locomotion\` folder, but creature clips use other names and prefixes (not surveyed).

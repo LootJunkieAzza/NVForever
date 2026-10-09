@@ -3,6 +3,7 @@
 //! Exit codes: 0 success, 1 the input could not be processed, 2 usage error.
 
 mod actor_anims;
+mod actor_locomotion;
 mod actor_cmd;
 mod bsa_cmd;
 mod collide_cmd;
@@ -142,6 +143,23 @@ pub enum ActorCmd {
         /// Leave out the per-file and per-IDLE lists (summary and groups only).
         #[arg(long)]
         summary_only: bool,
+    },
+    /// Locomotion clips of a skeleton folder (idle, walk, run, turn per body and stance)
+    /// and the root motion of each: accumulation-root translation and turn per cycle,
+    /// ground speed (fnv.actor.locomotion/1).
+    Locomotion {
+        /// The game's Data folder (archives are read from it).
+        data_dir: PathBuf,
+        /// NIF schema directory.
+        #[arg(long)]
+        nif_schema: PathBuf,
+        /// Skeleton folder (VFS path).
+        #[arg(long, default_value = r"meshes\characters\_male")]
+        folder: String,
+        /// Also sample the accumulation root and `Bip01 NonAccum` at this many points per
+        /// clip.
+        #[arg(long, default_value_t = 0)]
+        samples: usize,
     },
 }
 
