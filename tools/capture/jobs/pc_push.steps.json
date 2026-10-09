@@ -1,8 +1,8 @@
 {
  "format": "fnv.capture.steps/1",
  "name": "pc_push",
- "title": "Push: the player runs or walks into a tin can, a bottle and a stimpak, 8 trials (about 2 min, no input)",
- "start": "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
+ "title": "Push: the player runs or walks into a tin can, a bottle and a stimpak in Doc Mitchell's house, 8 trials (about 2 min, no input)",
+ "start": "nvfdoc (Doc Mitchell's house); stays inside (god mode, AI detection off).",
  "steps": [
   {
    "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
@@ -61,23 +61,13 @@
    "console": "tdetect"
   },
   {
-   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
-  },
-  {
-   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
-   "max_frames": 3600
-  },
-  {
-   "frames": 300
-  },
-  {
-   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 3800\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1060\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 120
   },
   {
-   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X -72400\nrR.SetPos Y 4250\nrR.SetPos Z 8372\nSetFunctionValue 1\nEnd\n"
+   "script": "float fM1\nref rF1\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rR := player.PlaceAtMe rF1 1\nrR.SetPos X 1536\nrR.SetPos Y 1250\nrR.SetPos Z 7380\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 240
@@ -88,7 +78,7 @@
    "field": "pose"
   },
   {
-   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1100\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
   },
   {
    "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
@@ -324,6 +314,9 @@
    "field": "sample"
   },
   {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "can run 1 s043",
    "field": "sample"
@@ -422,9 +415,6 @@
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "can run 1 s062",
    "field": "sample"
-  },
-  {
-   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
   },
   {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
@@ -927,106 +917,6 @@
    "field": "sample"
   },
   {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s163",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s164",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s165",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s166",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s167",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s168",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s169",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s170",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s171",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s172",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s173",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s174",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s175",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s176",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s177",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s178",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s179",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s180",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s181",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 1 s182",
-   "field": "sample"
-  },
-  {
    "frames": 120
   },
   {
@@ -1041,7 +931,13 @@
    "frames": 10
   },
   {
-   "script": "float fM1\nref rF1\nref rF2\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rR := player.PlaceAtMe rF2 1\nrR.SetPos X -72400\nrR.SetPos Y 4250\nrR.SetPos Z 8372\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1060\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rR := player.PlaceAtMe rF2 1\nrR.SetPos X 1536\nrR.SetPos Y 1250\nrR.SetPos Z 7380\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 240
@@ -1052,7 +948,7 @@
    "field": "pose"
   },
   {
-   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1100\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
   },
   {
    "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
@@ -1288,6 +1184,9 @@
    "field": "sample"
   },
   {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "can run 2 s043",
    "field": "sample"
@@ -1386,9 +1285,6 @@
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "can run 2 s062",
    "field": "sample"
-  },
-  {
-   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
   },
   {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
@@ -1891,106 +1787,6 @@
    "field": "sample"
   },
   {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s163",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s164",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s165",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s166",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s167",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s168",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s169",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s170",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s171",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s172",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s173",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s174",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s175",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s176",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s177",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s178",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s179",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s180",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s181",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 2 s182",
-   "field": "sample"
-  },
-  {
    "frames": 120
   },
   {
@@ -2005,7 +1801,13 @@
    "frames": 10
   },
   {
-   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rR := player.PlaceAtMe rF3 1\nrR.SetPos X -72400\nrR.SetPos Y 4250\nrR.SetPos Z 8372\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1060\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rR := player.PlaceAtMe rF3 1\nrR.SetPos X 1536\nrR.SetPos Y 1250\nrR.SetPos Z 7380\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 240
@@ -2016,7 +1818,7 @@
    "field": "pose"
   },
   {
-   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1100\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
   },
   {
    "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
@@ -2252,6 +2054,9 @@
    "field": "sample"
   },
   {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "can run 3 s043",
    "field": "sample"
@@ -2350,9 +2155,6 @@
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "can run 3 s062",
    "field": "sample"
-  },
-  {
-   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
   },
   {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
@@ -2855,106 +2657,6 @@
    "field": "sample"
   },
   {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s163",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s164",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s165",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s166",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s167",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s168",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s169",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s170",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s171",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s172",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s173",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s174",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s175",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s176",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s177",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s178",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s179",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s180",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s181",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "can run 3 s182",
-   "field": "sample"
-  },
-  {
    "frames": 120
   },
   {
@@ -2969,7 +2671,13 @@
    "frames": 10
   },
   {
-   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rF4 := BuildRef fM1 139524\nlet rR := player.PlaceAtMe rF4 1\nrR.SetPos X -72400\nrR.SetPos Y 4200\nrR.SetPos Z 8372\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1060\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rF4 := BuildRef fM1 139524\nlet rR := player.PlaceAtMe rF4 1\nrR.SetPos X 1536\nrR.SetPos Y 1250\nrR.SetPos Z 7380\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 240
@@ -2980,7 +2688,7 @@
    "field": "pose"
   },
   {
-   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1150\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
   },
   {
    "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
@@ -4389,7 +4097,13 @@
    "frames": 10
   },
   {
-   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nref rF5\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rF4 := BuildRef fM1 139524\nlet rF5 := BuildRef fM1 139524\nlet rR := player.PlaceAtMe rF5 1\nrR.SetPos X -72400\nrR.SetPos Y 4200\nrR.SetPos Z 8372\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1060\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nref rF5\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rF4 := BuildRef fM1 139524\nlet rF5 := BuildRef fM1 139524\nlet rR := player.PlaceAtMe rF5 1\nrR.SetPos X 1536\nrR.SetPos Y 1250\nrR.SetPos Z 7380\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 240
@@ -4400,7 +4114,7 @@
    "field": "pose"
   },
   {
-   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1150\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
   },
   {
    "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
@@ -5809,7 +5523,13 @@
    "frames": 10
   },
   {
-   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nref rF5\nref rF6\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rF4 := BuildRef fM1 139524\nlet rF5 := BuildRef fM1 139524\nlet rF6 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF6 1\nrR.SetPos X -72400\nrR.SetPos Y 4250\nrR.SetPos Z 8372\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1060\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nref rF5\nref rF6\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rF4 := BuildRef fM1 139524\nlet rF5 := BuildRef fM1 139524\nlet rF6 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF6 1\nrR.SetPos X 1536\nrR.SetPos Y 1250\nrR.SetPos Z 7380\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 240
@@ -5820,7 +5540,7 @@
    "field": "pose"
   },
   {
-   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1100\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
   },
   {
    "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
@@ -6056,6 +5776,9 @@
    "field": "sample"
   },
   {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "bottle run 1 s043",
    "field": "sample"
@@ -6154,9 +5877,6 @@
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "bottle run 1 s062",
    "field": "sample"
-  },
-  {
-   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
   },
   {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
@@ -6659,106 +6379,6 @@
    "field": "sample"
   },
   {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s163",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s164",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s165",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s166",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s167",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s168",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s169",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s170",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s171",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s172",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s173",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s174",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s175",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s176",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s177",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s178",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s179",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s180",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s181",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 1 s182",
-   "field": "sample"
-  },
-  {
    "frames": 120
   },
   {
@@ -6773,7 +6393,13 @@
    "frames": 10
   },
   {
-   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nref rF5\nref rF6\nref rF7\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rF4 := BuildRef fM1 139524\nlet rF5 := BuildRef fM1 139524\nlet rF6 := BuildRef fM1 374478\nlet rF7 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF7 1\nrR.SetPos X -72400\nrR.SetPos Y 4250\nrR.SetPos Z 8372\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1060\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nref rF5\nref rF6\nref rF7\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rF4 := BuildRef fM1 139524\nlet rF5 := BuildRef fM1 139524\nlet rF6 := BuildRef fM1 374478\nlet rF7 := BuildRef fM1 374478\nlet rR := player.PlaceAtMe rF7 1\nrR.SetPos X 1536\nrR.SetPos Y 1250\nrR.SetPos Z 7380\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 240
@@ -6784,7 +6410,7 @@
    "field": "pose"
   },
   {
-   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1100\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
   },
   {
    "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
@@ -7020,6 +6646,9 @@
    "field": "sample"
   },
   {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "bottle run 2 s043",
    "field": "sample"
@@ -7118,9 +6747,6 @@
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "bottle run 2 s062",
    "field": "sample"
-  },
-  {
-   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
   },
   {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
@@ -7623,106 +7249,6 @@
    "field": "sample"
   },
   {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s163",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s164",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s165",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s166",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s167",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s168",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s169",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s170",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s171",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s172",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s173",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s174",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s175",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s176",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s177",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s178",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s179",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s180",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s181",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 374478\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "bottle run 2 s182",
-   "field": "sample"
-  },
-  {
    "frames": 120
   },
   {
@@ -7737,7 +7263,13 @@
    "frames": 10
   },
   {
-   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nref rF5\nref rF6\nref rF7\nref rF8\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rF4 := BuildRef fM1 139524\nlet rF5 := BuildRef fM1 139524\nlet rF6 := BuildRef fM1 374478\nlet rF7 := BuildRef fM1 374478\nlet rF8 := BuildRef fM1 86377\nlet rR := player.PlaceAtMe rF8 1\nrR.SetPos X -72400\nrR.SetPos Y 4250\nrR.SetPos Z 8372\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1060\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nref rF2\nref rF3\nref rF4\nref rF5\nref rF6\nref rF7\nref rF8\nref rR\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 139524\nlet rF2 := BuildRef fM1 139524\nlet rF3 := BuildRef fM1 139524\nlet rF4 := BuildRef fM1 139524\nlet rF5 := BuildRef fM1 139524\nlet rF6 := BuildRef fM1 374478\nlet rF7 := BuildRef fM1 374478\nlet rF8 := BuildRef fM1 86377\nlet rR := player.PlaceAtMe rF8 1\nrR.SetPos X 1536\nrR.SetPos Y 1250\nrR.SetPos Z 7380\nSetFunctionValue 1\nEnd\n"
   },
   {
    "frames": 240
@@ -7748,7 +7280,7 @@
    "field": "pose"
   },
   {
-   "script": "Begin Function { }\nplayer.SetPos X -72400\nplayer.SetPos Y 4100\nplayer.SetPos Z 8356\nSetFunctionValue 1\nEnd\n"
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1100\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
   },
   {
    "script": "Begin Function { }\nplayer.SetAngle Z 0\nSetFunctionValue 1\nEnd\n"
@@ -7984,6 +7516,9 @@
    "field": "sample"
   },
   {
+   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
+  },
+  {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "stimpak run 1 s043",
    "field": "sample"
@@ -8082,9 +7617,6 @@
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
    "label": "stimpak run 1 s062",
    "field": "sample"
-  },
-  {
-   "script": "int iK\nBegin Function { }\nlet iK := GetControl 0\nReleaseKey iK\nSetFunctionValue 1\nEnd\n"
   },
   {
    "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
@@ -8587,106 +8119,6 @@
    "field": "sample"
   },
   {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s163",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s164",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s165",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s166",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s167",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s168",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s169",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s170",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s171",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s172",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s173",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s174",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s175",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s176",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s177",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s178",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s179",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s180",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s181",
-   "field": "sample"
-  },
-  {
-   "query": "float fM1\nref rF1\nref rH\nref rScan\nref rScanBase\nfloat fX\nfloat fY\nfloat fZ\nfloat fI\nfloat fJ\nfloat fK\nfloat fT\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 86377\nlet rScan := GetFirstRef 201 2 0\nwhile rScan != 0\n  let rScanBase := rScan.GetBaseObject\n  if rScanBase == rF1\n    if rScan.GetSourceModIndex == 255\n      if rScan.GetDisabled == 0\n        let rH := rScan\n      endif\n    endif\n  endif\n  let rScan := GetNextRef\nloop\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nif rH\n  let fI := rH.GetPos X\n  let fJ := rH.GetPos Y\n  let fK := rH.GetPos Z\nendif\nlet fT := (GetCurrentTime - %{t0}) * 120000\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ) + \" \" + ($ fI) + \" \" + ($ fJ) + \" \" + ($ fK) + \" \" + ($ fT))\nEnd\n",
-   "label": "stimpak run 1 s182",
-   "field": "sample"
-  },
-  {
    "frames": 120
   },
   {
@@ -8699,6 +8131,12 @@
   },
   {
    "frames": 10
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X 1536\nplayer.SetPos Y 1060\nplayer.SetPos Z 7364\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
   }
  ]
 }

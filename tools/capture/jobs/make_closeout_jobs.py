@@ -12,9 +12,9 @@ script text, FormIDs and positions chosen with `fnvtool phys cell --ray` /
   open (the nearest unattended stand-in for the inventory menu), `PlaceAtMe`, a dropped
   tin can, and the player walking into a dropped stimpak (simulation.md 5 "After the
   drop").
-- `pc_push` (save nvfdoc; leaves through the front door): the player runs or walks into
-  a tin can, a whiskey bottle or a stimpak standing on flat open ground, forward held;
-  player and item sampled every loop (physics.md 6, push mass).
+- `pc_push` (save nvfdoc; stays inside Doc Mitchell's house): the player runs or walks
+  into a tin can, a whiskey bottle or a stimpak lying on the floor, forward held; player
+  and item sampled every loop (physics.md 6, push mass).
 - `pc_head` (save nvfdoc; stays inside Doc Mitchell's house): standing jumps under a
   ceiling 256 above the floor (control), under a doorway beam 176 above it and under a
   sloping ceiling 162-186 above it, standing and sneaking; samples every loop give the
@@ -163,26 +163,30 @@ def push_sample(base, label):
 
 # Trials: (label, item, controls held, start distance south of the item, loops held).
 PUSH_TRIALS = [
-    ("can run 1", TIN_CAN, [0], 150, 60), ("can run 2", TIN_CAN, [0], 150, 60), ("can run 3", TIN_CAN, [0], 150, 60),
+    ("can run 1", TIN_CAN, [0], 150, 40), ("can run 2", TIN_CAN, [0], 150, 40), ("can run 3", TIN_CAN, [0], 150, 40),
     ("can walk 1", TIN_CAN, [9, 0], 100, 150), ("can walk 2", TIN_CAN, [9, 0], 100, 150),
-    ("bottle run 1", BOTTLE, [0], 150, 60), ("bottle run 2", BOTTLE, [0], 150, 60),
-    ("stimpak run 1", STIMPAK, [0], 150, 60),
+    ("bottle run 1", BOTTLE, [0], 150, 40), ("bottle run 2", BOTTLE, [0], 150, 40),
+    ("stimpak run 1", STIMPAK, [0], 150, 40),
 ]
+# A lane in Doc Mitchell's house: flat floor at 7360 and nothing up to the ceiling for
+# x 1488-1584, y 1040-1440 [observed: fnvtool phys cell --ray, 182 vertical rays]; the
+# wall is at about y 1450. Inside, so no load door is used: leaving through the front
+# door made the game write autosave.fos (pc_drop_fall, 2026-10-09).
+LANE_X, ITEM_Y = 1536.0, 1250.0
 
 
 def push():
-    x, y = mm.RUN_START
-    z = mm.GROUND_Z
-    steps = list(mm.PROTECT) + mm.leave_doc_house() + [mm.setpos(x, y - 300, z + 4), {"frames": 120}]
+    x, z = LANE_X, 7360.0
+    steps = list(mm.PROTECT) + [mm.setpos(x, 1060.0, z + 4), {"frames": 120}]
     n = cs.Names(cs.MASTERS, None)
     for label, item, controls, dist, held in PUSH_TRIALS:
         b = n.operand(item)
-        # The item 20 units above the ground straight north of the start; it falls and settles.
+        # The item 20 units above the floor straight north of the start; it falls and settles.
         steps += [{"script": cs.function(n.decls + ["ref rR"], n.setup + [
-            f"let rR := player.PlaceAtMe {b} 1", f"rR.SetPos X {cs.number(x)}", f"rR.SetPos Y {cs.number(y + dist)}",
+            f"let rR := player.PlaceAtMe {b} 1", f"rR.SetPos X {cs.number(x)}", f"rR.SetPos Y {cs.number(ITEM_Y)}",
             f"rR.SetPos Z {cs.number(z + 20)}"], returns_value=False)}, {"frames": 240}]
         steps += [item_pose(item, f"{label} settled")]
-        steps += [mm.setpos(x, y, z + 4), mm.script("player.SetAngle Z 0"), {"frames": 120}]
+        steps += [mm.setpos(x, ITEM_Y - dist, z + 4), mm.script("player.SetAngle Z 0"), {"frames": 120}]
         steps += [item_pose(item, f"{label} before")]
         steps += [mm.remember_t0()] + [push_sample(item, f"{label} s{i:03d}") for i in range(3)]
         steps += [mm.hold(c) for c in controls]
@@ -191,8 +195,9 @@ def push():
         steps += [push_sample(item, f"{label} s{i:03d}") for i in range(3 + held, 3 + held + 120)]
         steps += [{"frames": 120}, item_pose(item, f"{label} after")]
         steps += remove_item(item)
-    j = cs.job("pc_push", START_DOC, steps, cs.MASTERS)
-    j["title"] = "Push: the player runs or walks into a tin can, a bottle and a stimpak, 8 trials (about 2 min, no input)"
+        steps += [mm.setpos(x, 1060.0, z + 4), {"frames": 30}]
+    j = cs.job("pc_push", START_DOC_INSIDE, steps, cs.MASTERS)
+    j["title"] = "Push: the player runs or walks into a tin can, a bottle and a stimpak in Doc Mitchell's house, 8 trials (about 2 min, no input)"
     return j
 
 
