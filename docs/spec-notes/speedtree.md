@@ -181,6 +181,18 @@ along the wind with its own phase. Rock and rustle speeds map to angular speeds
 and rustles about once a second. The same motion runs in the shadow and depth passes.
 The `.spt` wind section (16000-16014, per level) is not used: its meaning is unknown.
 
+### Distant trees
+
+The archives hold no tree LOD (no meshes, lists or atlases for trees; world.md §7)
+[observed]. The Launcher presets set `fTreeLoadDistance` (section `[TerrainManager]`) to
+0 / 25,000 / 26,000 / 40,000 from Low to Very High; the owner's value is 40,000
+[observed]. The renderer draws every TREE reference outside the loaded cells and within
+that distance as its billboard (BNAM width × height × the reference's scale, foot at the
+reference's position, upright, turned towards the camera) [hypothesis: what the game
+draws for distant trees; to compare with the long-view reference frames]. The game's
+`[SpeedTree] fLODTreeMipMapLODBias=-0.75` (owner's INI) suggests sharper mip levels for
+distant tree pictures; not applied.
+
 ## 7. Open questions
 
 - Meanings of 2001/2003/2006/2007; the remaining curves (6001-6003, 6017).
