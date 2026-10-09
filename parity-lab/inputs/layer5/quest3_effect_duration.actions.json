@@ -1,0 +1,127 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Effect script duration: Cateye's ScriptEffectFinish after 120 s, with a container menu held open, and with a second Cateye taken while the first is active",
+  "save": "nvfdoc",
+  "given": [
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x0007EA1B",
+      "count": 0
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Nighteye",
+      "value": 0
+    }
+  ],
+  "actions": [
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "0x0007EA1B",
+      "count": 4
+    },
+    {
+      "op": "use_item",
+      "actor": "player",
+      "item": "0x0007EA1B",
+      "read": [
+        {
+          "av": "Nighteye"
+        }
+      ],
+      "stopwatch": true,
+      "label": "Cateye 1 used"
+    },
+    {
+      "op": "wait_av",
+      "of": "player",
+      "av": "Nighteye",
+      "value": 0,
+      "max_frames": 20000,
+      "label": "Cateye 1: ScriptEffectFinish"
+    },
+    {
+      "op": "use_item",
+      "actor": "player",
+      "item": "0x0007EA1B",
+      "read": [
+        {
+          "av": "Nighteye"
+        }
+      ],
+      "stopwatch": true,
+      "label": "Cateye 2 used"
+    },
+    {
+      "op": "wait_frames",
+      "frames": 300
+    },
+    {
+      "op": "hold_menu",
+      "via": "0x00103E37",
+      "frames": 900
+    },
+    {
+      "op": "wait_av",
+      "of": "player",
+      "av": "Nighteye",
+      "value": 0,
+      "max_frames": 20000,
+      "label": "Cateye 2 (container menu open for 900 frames): ScriptEffectFinish"
+    },
+    {
+      "op": "use_item",
+      "actor": "player",
+      "item": "0x0007EA1B",
+      "read": [
+        {
+          "av": "Nighteye"
+        }
+      ],
+      "stopwatch": true,
+      "label": "Cateye 3 used"
+    },
+    {
+      "op": "wait_frames",
+      "frames": 600
+    },
+    {
+      "op": "use_item",
+      "actor": "player",
+      "item": "0x0007EA1B",
+      "read": [
+        {
+          "av": "Nighteye"
+        }
+      ],
+      "label": "Cateye 4 used while 3 is active"
+    },
+    {
+      "op": "wait_av",
+      "of": "player",
+      "av": "Nighteye",
+      "value": 0,
+      "max_frames": 20000,
+      "label": "Cateye 3 and 4: first ScriptEffectFinish"
+    },
+    {
+      "op": "set_av",
+      "of": "player",
+      "name": "Nighteye",
+      "value": 1
+    },
+    {
+      "op": "wait_av",
+      "of": "player",
+      "av": "Nighteye",
+      "value": 0,
+      "max_frames": 3000,
+      "label": "Cateye 3 and 4: a second ScriptEffectFinish"
+    }
+  ]
+}

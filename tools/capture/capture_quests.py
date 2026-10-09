@@ -199,7 +199,7 @@ def typed(field, v):
     head = field.split(".")[0]
     if field in BOOL_FIELDS or head == "done" or (head == "objective" and field.count(".") == 2):
         return bool(v)
-    if field in ("stage", "count", "frames", "locked"):
+    if field in ("stage", "count", "frames", "locked") or head in ("threshold", "count"):
         return int(round(v))
     return v
 
@@ -314,7 +314,7 @@ def _script(quest, ctx, lines, settle=cs.SETTLE_FRAMES):
 
 
 SIM_OPS = {"add_item", "remove_item", "remove_all_items", "enable", "disable", "set_global", "activate",
-           "get_item_count", "get_disabled", "get_global"}
+           "get_item_count", "get_disabled", "get_global", "get_av", "set_av"}
 LOCAL_TYPES = ("short", "int", "long", "float")
 
 # Round 2 additions (docs/spec-notes/layer5-captures.md section 8.2).
@@ -465,6 +465,244 @@ def round2_steps(i, a, ctx):
     return None
 
 
+# Round 3 additions (docs/spec-notes/layer5-captures.md section 9).
+CLOCK_PREFIX = "clock"
+# The second argument of the reputation functions: 1 fame, 0 infamy [documented: GECK
+# wiki AddReputation, GetReputation; observed: trial q5c_trial_rep].
+REP_AXES = {"fame": 1, "infamy": 0}
+# GetReputationThreshold's second argument [documented: GECK wiki GetReputationThreshold].
+REP_THRESHOLDS = {"mixed": 0, "good": 1, "bad": 2}
+# The stopwatch: VCG00 (FalloutNV 0x00102037), whose GameMode counts fTimer down by
+# GetSecondsPassed every frame while bRunTimer is 1 (delay 0.01; section 5.4). The job
+# starts it with fTimer 100000 before the first action; no observation reads VCG00.
+STOPWATCH_QUEST = "0x00102037"
+STOPWATCH_START = 100000
+SETTLE_MENU_CLOSE = 5
+
+
+def rep_field_expr(r, field):
+    """The script expression that reads one reputation field of the REPU in ref variable
+    `r`: fame, infamy (GetReputation), pct.fame, pct.infamy (GetReputationPct),
+    threshold.mixed / .good / .bad (GetReputationThreshold)."""
+    parts = field.split(".")
+    if len(parts) == 1 and field in REP_AXES:
+        return f"GetReputation {r} {REP_AXES[field]}"
+    if len(parts) == 2 and parts[0] == "pct" and parts[1] in REP_AXES:
+        return f"GetReputationPct {r} {REP_AXES[parts[1]]}"
+    if len(parts) == 2 and parts[0] == "threshold" and parts[1] in REP_THRESHOLDS:
+        return f"GetReputationThreshold {r} {REP_THRESHOLDS[parts[1]]}"
+    raise InputError(f"unknown reputation field {field!r}")
+
+
+def _axis(a, i):
+    axis = a.get("axis")
+    if axis not in REP_AXES:
+        raise InputError(f"action {i}: 'axis' must be 'fame' or 'infamy'")
+    return REP_AXES[axis]
+
+
+def _size(a, i):
+    size = a.get("size")
+    if not isinstance(size, int) or isinstance(size, bool):
+        raise InputError(f"action {i}: 'size' must be an integer (the deed size)")
+    return size
+
+
+def joined(exprs):
+    """'<v>|<v>|...' of the expressions, as text ($ gives six significant digits)."""
+    return ' + "|" + '.join(f"($ ({e}))" for e in exprs)
+
+
+def item_reads(i, reads, slot0):
+    """(names, fields, expressions) for the `read` list of use_item: {"av": name} (the
+    actor's actor value, field `av.<name>`) or {"item": form} (its item count, field
+    `count.<form>`); the actor is ref slot {0}, items from slot0 on."""
+    if not isinstance(reads, list) or not reads:
+        raise InputError(f"action {i}: needs a non-empty 'read' list")
+    names, fields, exprs = [], [], []
+    for r in reads:
+        if isinstance(r, dict) and "av" in r and len(r) == 1:
+            av = cs.plain_name(r["av"], f"action {i}: the actor value")
+            fields.append(f"av.{av}")
+            exprs.append(f"{{0}}.GetAV {av}")
+        elif isinstance(r, dict) and "item" in r and len(r) == 1:
+            fields.append(f"count.{r['item']}")
+            exprs.append(f"{{0}}.GetItemCount {{{slot0 + len(names)}}}")
+            names.append(r["item"])
+        else:
+            raise InputError(f"action {i}: a read is {{\"av\": name}} or {{\"item\": form}}, got {r!r}")
+    return names, fields, exprs
+
+
+def stopwatch_expr(slot):
+    """Seconds on the stopwatch (VCG00's countdown from STOPWATCH_START, in ref slot)."""
+    return f'{STOPWATCH_START} - (GetVariable "fTimer" {{{slot}}})'
+
+
+def stopwatch_steps(ctx):
+    """Steps that start the stopwatch (before the first action of a job that uses it)."""
+    return [{"script": quest_script(STOPWATCH_QUEST, ctx, [f'SetVariable "fTimer" {STOPWATCH_START} {{q}}',
+                                                          'SetVariable "bRunTimer" 1 {q}', "StartQuest {q}",
+                                                          "SetFunctionValue 1"])},
+            {"frames": cs.SETTLE_FRAMES_LONG}]
+
+
+def uses_stopwatch(doc):
+    return any(a.get("op") in ("wait_av", "sample_av") or (a.get("op") == "use_item" and a.get("stopwatch"))
+               for a in doc.get("actions", []))
+
+
+def round3_steps(i, a, ctx):
+    """Steps for the round 3 operations, or None for any other op."""
+    op = a.get("op")
+    if op == "set_reputation":
+        r = _ref(a, i, "rep")
+        return [{"script": ref_script([r], ctx, [f"SetReputation {{0}} {_axis(a, i)} {literal(a['value'])}",
+                                                 "SetFunctionValue 1"], ())}, {"frames": cs.SETTLE_FRAMES}]
+    if op in ("add_reputation", "remove_reputation"):
+        r, fn = _ref(a, i, "rep"), "AddReputation" if op == "add_reputation" else "RemoveReputation"
+        return [{"script": ref_script([r], ctx, [f"{fn} {{0}} {_axis(a, i)} {_size(a, i)}", "SetFunctionValue 1"], ())},
+                {"frames": cs.SETTLE_FRAMES}]
+    if op == "get_reputation":
+        r, label = _ref(a, i, "rep"), _label(a, i)
+        out = []
+        for f in _fields(a, i):
+            rep_field_expr("r", f)
+            out.append(cs.query(ref_script([r], ctx, [f"let fV := {rep_field_expr('{0}', f)}", "SetFunctionValue fV"]),
+                                label, f))
+        return out
+    if op == "set_reputation_read":
+        # Both axes set and the fields read in one script (one frame, no pause).
+        r, label, fields = _ref(a, i, "rep"), _label(a, i), _fields(a, i)
+        for f in fields:
+            rep_field_expr("r", f)
+        lines = [f"SetReputation {{0}} 1 {literal(a['fame'])}", f"SetReputation {{0}} 0 {literal(a['infamy'])}",
+                 f"SetFunctionValue ({joined(rep_field_expr('{0}', f) for f in fields)})"]
+        return [cs.query(ref_script([r], ctx, lines, ()), label, "|".join(fields))]
+    if op == "use_item":
+        # The actor uses (eats, drinks, injects) an aid item: EquipItem with an
+        # ingestible consumes it [documented: GECK wiki EquipItem]; the reads follow in
+        # the same script. With `stopwatch`, the stopwatch is read there too.
+        actor, item, label = a.get("actor", "player"), _ref(a, i, "item"), _label(a, i)
+        names, fields, exprs = item_reads(i, a.get("read"), 2)
+        if a.get("stopwatch"):
+            exprs = exprs + [stopwatch_expr(2 + len(names))]
+            names = names + [STOPWATCH_QUEST]
+        script_ = ref_script([actor, item] + names, ctx, ["{0}.EquipItem {1} 0 1", f"SetFunctionValue ({joined(exprs)})"], ())
+        return [cs.query(script_, label, "|".join(fields)), {"frames": cs.SETTLE_FRAMES}]
+    if op == "wait_av":
+        # Waits (once per frame, at most max_frames) until the actor value equals
+        # `value`, then reads the stopwatch and the value.
+        of, label = a.get("of", "player"), _label(a, i)
+        av = cs.plain_name(a.get("av"), f"action {i}: the actor value")
+        n = int(a.get("max_frames", 0))
+        if n <= 0:
+            raise InputError(f"action {i}: wait_av needs positive max_frames")
+        until = ref_script([of], ctx, ["let fV := 0", f"if {{0}}.GetAV {av} == {literal(a['value'])}", "  let fV := 1",
+                                       "endif", "SetFunctionValue fV"])
+        return [{"until": until, "max_frames": n},
+                cs.query(ref_script([of, STOPWATCH_QUEST], ctx, [f"SetFunctionValue ({joined([stopwatch_expr(1), f'{{0}}.GetAV {av}'])})"], ()),
+                         f"{CLOCK_PREFIX}:{label}", "seconds|value")]
+    if op == "hold_menu":
+        # The player activates `via` (its container menu opens); the menu stays open for
+        # `frames` frames counting the opening one; the console's CloseAllMenus closes it.
+        via, n = _ref(a, i, "via"), int(a.get("frames", 0))
+        if n <= 0:
+            raise InputError(f"action {i}: hold_menu needs positive frames")
+        return [{"script": ref_script([via], ctx, ["{0}.Activate player", "SetFunctionValue 1"], ())},
+                {"frames": n}, {"console": "CloseAllMenus"}, {"frames": SETTLE_MENU_CLOSE}]
+    if op in ("damage_av", "restore_av"):
+        of = a.get("of", "player")
+        av = cs.plain_name(a.get("av"), f"action {i}: the actor value")
+        fn = "DamageAV" if op == "damage_av" else "RestoreAV"
+        return [{"script": ref_script([of], ctx, [f"{{0}}.{fn} {av} {literal(a['value'])}", "SetFunctionValue 1"], ())},
+                {"frames": cs.SETTLE_FRAMES}]
+    if op in ("add_spell", "remove_spell"):
+        of, spell = a.get("of", "player"), _ref(a, i, "spell")
+        fn = "AddSpell" if op == "add_spell" else "RemoveSpell"
+        return [{"script": ref_script([of, spell], ctx, [f"{{0}}.{fn} {{1}}", "SetFunctionValue 1"], ())},
+                {"frames": cs.SETTLE_FRAMES}]
+    if op == "sample_av_damage":
+        # Once per frame: the actor value is read, then damaged by `damage`; shows in
+        # which frames something restored it.
+        of, label = a.get("of", "player"), _label(a, i)
+        av = cs.plain_name(a.get("av"), f"action {i}: the actor value")
+        n = int(a.get("frames", 0))
+        if n <= 0:
+            raise InputError(f"action {i}: sample_av_damage needs positive frames")
+        script_ = ref_script([of], ctx, [f"let fV := {{0}}.GetAV {av}", f"{{0}}.DamageAV {av} {literal(a['damage'])}",
+                                         "SetFunctionValue fV"])
+        return [cs.query(script_, f"{SAMPLE_PREFIX}:{label}", str(k)) for k in range(n)]
+    if op == "sample_av":
+        # Once per frame: the actor value and the stopwatch.
+        of, label = a.get("of", "player"), _label(a, i)
+        av = cs.plain_name(a.get("av"), f"action {i}: the actor value")
+        n = int(a.get("frames", 0))
+        if n <= 1:
+            raise InputError(f"action {i}: sample_av needs at least 2 frames")
+        script_ = ref_script([of, STOPWATCH_QUEST], ctx, [f"SetFunctionValue ({joined([f'{{0}}.GetAV {av}', stopwatch_expr(1)])})"], ())
+        return [cs.query(script_, f"{SAMPLE_PREFIX}:{label}", str(k)) for k in range(n)]
+    if op == "go_to_cell":
+        # The console's coc (a teleport to the cell, by its Editor ID), then a pause for
+        # the cell to load.
+        cell = cs.plain_name(a.get("cell"), f"action {i}: the cell (an Editor ID)")
+        return [{"console": f"coc {cell}"}, {"frames": GO_TO_CELL_FRAMES}]
+    if op == "sample_jumps":
+        # Once per frame: every read, as text; the golden keeps in which sample each read
+        # first jumped (changed by at least min_step).
+        label = _label(a, i)
+        names, exprs = [], []
+        for r in a.get("reads") or []:
+            names, e = jump_read(i, r, names)
+            exprs.append(e)
+        n = int(a.get("frames", 0))
+        if len(exprs) < 2 or n <= 1:
+            raise InputError(f"action {i}: sample_jumps needs at least two reads and two frames")
+        float(a["min_step"])
+        script_ = ref_script(names, ctx, [f"SetFunctionValue ({joined(exprs)})"], ())
+        return [cs.query(script_, f"{SAMPLE_PREFIX}:{label}", str(k)) for k in range(n)]
+    return None
+
+
+GO_TO_CELL_FRAMES = 600
+
+
+def jump_read(i, r, names):
+    """(names, expression) for one read of sample_jumps: {"global": name},
+    {"ref": form, "var": name} (an object-script variable) or {"quest": edid, "var":
+    name}; forms are appended to `names` (ref slots in order)."""
+    if not isinstance(r, dict):
+        raise InputError(f"action {i}: a read must be an object, got {r!r}")
+    if set(r) == {"global"}:
+        return names, cs.plain_name(r["global"], f"action {i}: the global")
+    if set(r) == {"ref", "var"}:
+        var = cs.plain_name(r["var"], f"action {i}: the variable")
+        return names + [r["ref"]], f'{{{len(names)}}}.GetVariable "{var}"'
+    if set(r) == {"quest", "var"}:
+        var = cs.plain_name(r["var"], f"action {i}: the variable")
+        q = cs.plain_name(r["quest"], f"action {i}: the quest")
+        return names + [q], f'GetVariable "{var}" {{{len(names)}}}'
+    raise InputError(f"action {i}: a read is {{global}}, {{ref, var}} or {{quest, var}}, got {r!r}")
+
+
+def jumps_observation(a, rows):
+    """What a sample_jumps action observed: `lags`, for each read after the first, the
+    sample index of its first jump minus that of the first read (None when either never
+    jumped)."""
+    bad = [r for r in rows if "error" in r]
+    if bad or not rows:
+        return {"error": f"{len(bad)} of {len(rows)} samples failed" + (f": {bad[0]['error']}" if bad else "")}
+    n, step = len(a["reads"]), float(a["min_step"])
+    series = [split_values(r["value"], n) for r in sorted(rows, key=lambda r: int(r["field"]))]
+    first = []
+    for k in range(n):
+        at = next((j for j in range(1, len(series)) if abs(series[j][k] - series[j - 1][k]) >= step), None)
+        first.append(at)
+    if first[0] is None:
+        return {"error": "the first read never jumped"}
+    return {"lags": [None if f is None else f - first[0] for f in first[1:]]}
+
+
 def action_steps(i, a, ctx):
     """In-game steps for one fnv.script.actions/1 action (index i). Everything that names
     a quest runs in a job script with the quest in a ref variable: neither job scripts
@@ -525,6 +763,8 @@ def action_steps(i, a, ctx):
     if op in SIM_OPS and not (op == "activate" and a.get("run_on_activate")):
         return cs.action_steps(i, a, ctx, time_mode="hour")
     steps = round2_steps(i, a, ctx)
+    if steps is None:
+        steps = round3_steps(i, a, ctx)
     if steps is not None:
         return steps
     raise InputError(f"action {i}: unknown op {op!r}")
@@ -550,6 +790,15 @@ def given_steps(i, g, ctx):
             raise InputError(f"given {i}: needs 'ref'")
         return [cs.query(ref_script([r], ctx, [f"let fV := {ref_field_expr('{0}', f)}", "SetFunctionValue fV"]), label, f)
                 for f in given_expected(g)]
+    if kind == "reputation":
+        r = g.get("rep")
+        if not isinstance(r, str) or not r:
+            raise InputError(f"given {i}: needs 'rep'")
+        return [cs.query(ref_script([r], ctx, [f"let fV := {rep_field_expr('{0}', f)}", "SetFunctionValue fV"]), label, f)
+                for f in given_expected(g)]
+    if kind == "actor_value":
+        av = cs.plain_name(g.get("av"), f"given {i}: the actor value")
+        return [cs.query(cs.number_query(f"{{0}}.GetAV {av}", ctx, [g.get("of", "player")]), label, "value")]
     raise InputError(f"given {i}: unknown kind {kind!r}")
 
 
@@ -583,6 +832,10 @@ def given_expected(g):
         out = {f"var.{n}": v for n, v in g.get("vars", {}).items()}
         out.update({f: g[f] for f in REF_FIELDS if f in g})
         return out
+    if kind == "reputation":
+        return {f: g[f] for f in REP_AXES if f in g}
+    if kind == "actor_value":
+        return {"value": g["value"]}
     raise InputError(f"unknown given kind {kind!r}")
 
 
@@ -593,6 +846,8 @@ def actions_job(doc, name, start, edids=None, console_first=()):
     steps = [{"console": line} for line in console_first]
     for i, g in enumerate(doc.get("given", [])):
         steps += given_steps(i, g, ctx)
+    if uses_stopwatch(doc):
+        steps += stopwatch_steps(ctx)
     for i, a in enumerate(doc.get("actions", [])):
         steps += action_steps(i, a, ctx)
     j = cs.job(name, start, steps, cs.MASTERS)
@@ -673,14 +928,39 @@ def menu_gap_observation(a, before, rows):
     return {"error": f"no change in {len(rows)} loops after the menu"}
 
 
+def split_values(text, n):
+    """The numbers of a '<v>|<v>|...' result."""
+    parts = str(text).split("|")
+    if len(parts) != n:
+        raise InputError(f"expected {n} values, got {text!r}")
+    return [float(x) for x in parts]
+
+
+def av_sample_observation(rows):
+    """What a sample_av action observed: `changes` (how many samples differ from the one
+    before) and `per_second` (the change of the value over the sampled span divided by
+    the stopwatch seconds of that span)."""
+    bad = [r for r in rows if "error" in r]
+    if bad or len(rows) < 2:
+        return {"error": f"{len(bad)} of {len(rows)} samples failed" + (f": {bad[0]['error']}" if bad else "")}
+    series = [split_values(r["value"], 2) for r in sorted(rows, key=lambda r: int(r["field"]))]
+    changes = sum(1 for p, q in zip(series, series[1:]) if q[0] != p[0])
+    span = series[-1][1] - series[0][1]
+    if span <= 0:
+        return {"changes": changes, "error": "the stopwatch did not run"}
+    return {"changes": changes, "per_second": (series[-1][0] - series[0][0]) / span}
+
+
 def golden_document(doc, mods, results, source=None):
     """fnv.script.trace/1 golden: one observation per labelled action (fields typed as
     in the trace contract), the given preconditions checked against the save."""
     acts = doc.get("actions", [])
-    by_label, samples, given, menus = {}, {}, {}, {}
+    by_label, samples, given, menus, clocks = {}, {}, {}, {}, {}
     for r in results:
         label = r["label"]
-        if label.startswith(MENU_PREFIX + ":"):
+        if label.startswith(CLOCK_PREFIX + ":"):
+            clocks[label.split(":", 1)[1]] = r
+        elif label.startswith(MENU_PREFIX + ":"):
             menus[label.split(":", 1)[1]] = r
         elif label.startswith(GIVEN_PREFIX + ":"):
             given.setdefault(int(label.split(":", 1)[1]), {})[r["field"]] = r
@@ -699,9 +979,53 @@ def golden_document(doc, mods, results, source=None):
             if got != want:
                 problems.append(f"given {i} {f}: expected {want!r}, the save has {got!r}")
     observations, diagnostics = [], []
+    started = None  # stopwatch seconds at the last use_item with `stopwatch`
     for i, a in enumerate(acts):
         label = a.get("label")
         if not label:
+            continue
+        if a.get("op") == "wait_av":
+            c = clocks.get(label)
+            obs = {"label": label, "step": i}
+            if c is None or "error" in c:
+                obs["error"] = f"not recorded: {c and c.get('error')}"
+            elif started is None:
+                obs["error"] = "no use_item with a stopwatch before it"
+            else:
+                seconds, value = split_values(c["value"], 2)
+                obs["found"] = value == float(a["value"])
+                if obs["found"]:
+                    obs["seconds"] = seconds - started
+            observations.append(obs)
+            continue
+        if a.get("op") == "sample_av_damage":
+            rows = sorted(samples.get(label, []), key=lambda r: int(r["field"]))
+            bad = [r for r in rows if "error" in r]
+            obs = {"label": label, "step": i}
+            if bad or not rows:
+                obs["error"] = f"{len(bad)} of {len(rows)} samples failed"
+            else:
+                obs["values"] = [r["value"] for r in rows]
+            observations.append(obs)
+            continue
+        if a.get("op") == "sample_jumps":
+            observations.append({"label": label, "step": i, **jumps_observation(a, samples.get(label, []))})
+            continue
+        if a.get("op") == "sample_av":
+            observations.append({"label": label, "step": i, **av_sample_observation(samples.get(label, []))})
+            continue
+        if a.get("op") in ("use_item", "set_reputation_read"):
+            rows = by_label.get(label) or []
+            obs = {"label": label, "step": i}
+            if not rows or "error" in rows[0]:
+                obs["error"] = rows[0]["error"] if rows else "not recorded"
+            else:
+                fields = rows[0]["field"].split("|")
+                values = split_values(rows[0]["value"], len(fields) + (1 if a.get("stopwatch") else 0))
+                if a.get("stopwatch"):
+                    started = values.pop()
+                obs.update({f: typed(f, v) for f, v in zip(fields, values)})
+            observations.append(obs)
             continue
         if a.get("op") == "menu_gap":
             observations.append({"label": label, "step": i,
