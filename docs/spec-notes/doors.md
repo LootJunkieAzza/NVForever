@@ -98,3 +98,22 @@ Design: docs/design/navmesh.md §6.1 (doors and actors following paths). Code:
 3. What "Sliding Door" changes, given that hinged-looking doors carry it.
 4. Whether NPCs wait for the open animation to finish in the original game (NVForever's
    followers do, by owner decision 2026-10-09).
+
+## 4. Later: solid again only once the space is clear (not built; to test)
+
+A swinging door's moving parts are not solid (§2), and they become solid again the
+moment the sequence ends. An actor standing where the leaf comes to rest (in the doorway
+when it closes, in the leaf's open position when it opens) is then inside a solid body:
+the character controller may stick or be pushed out. NPCs following a path wait clear of
+the door (docs/design/navmesh.md §6.1), so this concerns the player and NPCs that stand
+in a doorway for other reasons.
+
+Proposed logic (owner request 2026-10-09, for later testing): when a sequence ends, keep
+the moving parts non-solid while any character overlaps them at their rest pose (an
+overlap query per keyframed collider against character capsules, each frame); make them
+solid once none does. The door looks closed (or open) meanwhile. Tests to write: a
+character standing in the doorway while the door closes is not pushed or stuck, and the
+door blocks once the character has stepped out; the same for a character standing where
+the open leaf lands; a door with nobody near is solid on the first frame at rest. Open
+question for captures: what the original game does when a door closes on an actor (stops,
+reopens, pushes, passes through).
