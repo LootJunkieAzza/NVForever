@@ -267,6 +267,17 @@ item once you've ruled on it.
 
     New holdouts: `L5.quest.r3_holdout_a`/`_b`.
 
+23. **Runtime round 3 (#75) and the clock order (#76).** L5 is now 24/28. The four
+    misses are the three `delay_*` inputs (item 15) and `L5.script.decode` (item 7). All
+    six holdouts pass. Lab 361/380 with 0 regressions. Decisions for you:
+    - zero-duration effects run Finish inside the use (the captures can't tell this
+      from "never");
+    - a second dose's Start doesn't re-run, and only the same item merges;
+    - `go_to_cell` puts the player mid-cell (the Goodsprings cell has no COC marker);
+    - GetBaseActorValue includes ModActorValue changes [hypothesis];
+    - AddReputationExact clamping wasn't captured;
+    - the engine now advances the game clock before each frame's scripts (#76) [hypothesis].
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
