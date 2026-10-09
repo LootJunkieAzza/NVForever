@@ -99,3 +99,20 @@ pub fn get_equipped(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> 
     let s = g.world.get(actor).map_err(|e| e.to_string())?;
     yes(s.inventory.as_ref().is_some_and(|i| i.is_equipped(item)))
 }
+
+/// The condition of the equipped weapon in percent [documented: GECK wiki
+/// GetWeaponHealthPerc]: its stack's condition, 100 for an undamaged one or with no
+/// weapon equipped [hypothesis for "no weapon": the capture saves never reached the
+/// tutorial stage that fires below 25 although a new character starts unarmed,
+/// layer5-captures.md §2 (CGTutorial stage 218 not done)].
+pub fn get_weapon_health_perc(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let actor = ctx.subject()?;
+    let forms = g.world.forms;
+    let s = g.world.get(actor).map_err(|e| e.to_string())?;
+    let cond = s.inventory.as_ref().and_then(|inv| {
+        inv.groups()
+            .find(|(item, e, _)| e.equipped && forms.item(*item).is_some_and(|i| i.kind == fnv_sim::forms::ItemKind::Weapon))
+            .map(|(_, e, _)| e.condition.unwrap_or(1.0))
+    });
+    Ok(Value::Num(cond.unwrap_or(1.0) as f64 * 100.0))
+}
