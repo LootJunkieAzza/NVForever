@@ -266,8 +266,9 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   the crate, although from the same spot the sun is already hidden behind the rocks to
   the west (screenshot looking west at 19:12: no sun disc, purple sky). At 17:36 looking
   east down the road at (−69500, 2500), with the sun low behind the camera, the 8–10 m
-  telegraph pole and the trailer cast no shadow on the road. The renderer therefore draws
-  no sun shadows by default (`nvforever --shadow-distance`, default 0). With shadows on
+  telegraph pole and the trailer cast no shadow on the road. The renderer still draws sun
+  shadows by default (owner decision 2026-10-09; `nvforever --shadow-distance 0` turns
+  them off to match the game). With shadows on
   and the corrected sun, the rock formations west of Goodsprings shade the whole town
   from about 18:40 [observed: renderer]. Whether actors cast shadows in the game is not
   known from these frames (nvforever draws no actors yet).

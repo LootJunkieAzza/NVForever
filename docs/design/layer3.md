@@ -103,9 +103,9 @@ What it does now:
   game's texture × (ambient + sunlight · N·L) model [hypothesis]; this replaced levels
   tuned by eye that were about 4× too bright in sunlight. Sun path fitted to the original
   game's sun positions: rises at sunrise begin, sets at sunset end, 9° south of the
-  east-west line (world.md §6). Sun shadows: the original game casts none from the world
-  (world.md §6), so they are off by default; `--shadow-distance <units>` turns on four
-  cascades out to that distance (16,000 was the old default). The directional light
+  east-west line (world.md §6). Sun shadows: four cascades out to `--shadow-distance`
+  (default 16,000 units; 0 turns them off). The original game casts none from the world
+  (world.md §6); they stay on by default by owner decision (2026-10-09). The directional light
   fades out within ~6° of the horizon, where it switches between sun and moon
   [interim]. Observed in the time-lapse: NVWastelandClear's night ambient (luminance
   0.42) is brighter than its day ambient (0.14), so nights look brighter than late
