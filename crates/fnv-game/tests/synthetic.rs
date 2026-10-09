@@ -149,6 +149,7 @@ const PACK_GATED: u32 = 0x910;
 const PACK_IDLE: u32 = 0x911;
 const PACK_SCRIPTED: u32 = 0x912;
 const NPC: u32 = 0x920;
+const NPC_SCRIPT: u32 = 0x921;
 const TOPIC: u32 = 0x930;
 const INFO_A: u32 = 0x931;
 const INFO_B: u32 = 0x932;
@@ -208,7 +209,18 @@ fn plugin_bytes() -> Vec<u8> {
         unit(0, &script(&[(2, Some([le16(1), r(1)].concat()), body)]), &[(1, "nUsed", 1)], &[0x14, QUEST, MESSAGE]),
     ]
     .concat();
-    let scpt = [record(b"SCPT", 0, QUEST_SCRIPT, &qscript), record(b"SCPT", 0, ACT_SCRIPT, &actscript)].concat();
+    // NPC script: nDone (1, short).
+    //   begin SayToDone
+    //     set nDone to nDone + 1
+    //   end
+    let body = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
+    let npcscript = [vec![sub(b"EDID", z("NpcScript"))], unit(0, &script(&[(0x07, None, body)]), &[(1, "nDone", 1)], &[])].concat();
+    let scpt = [
+        record(b"SCPT", 0, QUEST_SCRIPT, &qscript),
+        record(b"SCPT", 0, ACT_SCRIPT, &actscript),
+        record(b"SCPT", 0, NPC_SCRIPT, &npcscript),
+    ]
+    .concat();
     // The quest: start game enabled, delay 0.5 s.
     let mut q = vec![
         sub(b"EDID", z("Q")),
@@ -262,6 +274,7 @@ fn plugin_bytes() -> Vec<u8> {
             sub(b"ACBS", [&0u32.to_le_bytes()[..], &[0; 4], &4u16.to_le_bytes(), &[0; 6], &0f32.to_le_bytes(), &[0; 4]].concat()),
             // DATA: Base Health 30, S.P.E.C.I.A.L. 5 6 6 5 5 5 5 (Endurance 6).
             sub(b"DATA", [&30i32.to_le_bytes()[..], &[5, 6, 6, 5, 5, 5, 5]].concat()),
+            sub(b"SCRI", NPC_SCRIPT.to_le_bytes().to_vec()),
             sub(b"PKID", PACK_GATED.to_le_bytes().to_vec()),
             sub(b"PKID", PACK_IDLE.to_le_bytes().to_vec()),
         ],
@@ -356,7 +369,7 @@ fn data_reads_quest_stages_conditions_and_units() {
     assert_eq!(s.raw, 0);
     assert_eq!(s.var_index("bRun"), Some(2));
     assert_eq!(d.script_of_base(FormId(ACTIVATOR)), Some(FormId(ACT_SCRIPT)));
-    assert_eq!(d.scripted_by_cell[&FormId(CELL)], vec![FormId(ACT_REF)]);
+    assert_eq!(d.scripted_by_cell[&FormId(CELL)], vec![FormId(ACT_REF), FormId(NPC_REF)]);
     assert_eq!(d.messages[&FormId(MESSAGE)].buttons, vec!["Yes", "No"]);
 }
 
@@ -624,6 +637,31 @@ fn say_to_says_the_next_unsaid_line_and_runs_its_end_script_when_it_ends() {
 }
 
 #[test]
+fn say_to_done_follows_say_as_well_as_say_to() {
+    // docs/spec-notes/level-design.md §11.2 D1: SayToDone runs on the speaker after a
+    // line said with Say as well as with SayTo.
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let speaker = FormId(NPC_REF);
+    let done = |g: &Game| g.var(InstKey::Ref { reference: speaker }, 1).num();
+    assert_eq!(g.say(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_A)));
+    g.frames(120);
+    assert!(!g.is_talking(speaker));
+    assert_eq!(done(&g), 1.0);
+    assert_eq!(g.say(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_B)));
+    g.frames(120);
+    assert_eq!(done(&g), 2.0);
+    // A line cut by another does not end: no SayToDone for it.
+    let mut h = game(&f);
+    h.new_game();
+    h.say(speaker, None, FormId(TOPIC), false);
+    h.say(speaker, None, FormId(TOPIC), false);
+    h.frames(120);
+    assert_eq!(done(&h), 1.0);
+}
+
+#[test]
 fn a_message_box_is_a_menu_until_closed_and_holds_the_rest_of_the_frame() {
     use fnv_game::game::menus;
     let f = fixture();
@@ -708,7 +746,7 @@ fn combat_hits_damage_health_kill_and_reward() {
     // Base Health 30 + Endurance 6 × 5 + level 4 × 5 (the settings' defaults).
     assert_eq!(g.actor_level(npc), 4.0);
     assert_eq!(g.max_health(npc), 80.0);
-    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: true };
+    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: true, limb: None };
     let r = g.hit(npc, 30.0, by_player);
     assert_eq!((r.dealt, r.health, r.died), (30.0, 50.0, false));
     assert_eq!(g.extra[&npc].last_hit.map(|h| (h.location, h.critical)), Some((1, true)));
@@ -730,4 +768,28 @@ fn combat_hits_damage_health_kill_and_reward() {
     g.hit(npc, 70.0, HitInfo { attacker: None, ..by_player });
     let r = g.hit(npc, 10.0, by_player);
     assert!(r.died && r.xp == 0.0);
+}
+
+#[test]
+fn limb_hits_lower_conditions_and_cripple() {
+    use fnv_game::combat::{HitInfo, LimbHit};
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    // Maximum health 80; a leg at 25 %: a pool of 20. Left Mobility Condition is code 29.
+    let leg = LimbHit { condition: 29, health_percent: 25.0, damage: 0.0 };
+    let hit = |damage: f64| HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 7, critical: false, limb: Some(LimbHit { damage, ..leg }) };
+    let r = g.hit(npc, 5.0, hit(5.0));
+    assert_eq!((r.limb, r.crippled), (Some((29, 75.0)), false));
+    assert!(!g.is_crippled(npc, 29));
+    // 15 more limb damage (the weapon's limb multiplier is the caller's): crippled.
+    let r = g.hit(npc, 5.0, hit(15.0));
+    assert_eq!((r.limb, r.crippled), (Some((29, 0.0)), true));
+    assert!(g.is_crippled(npc, 29));
+    // It stays at 0 and cripples once.
+    let r = g.hit(npc, 5.0, hit(10.0));
+    assert_eq!((r.limb, r.crippled), (Some((29, 0.0)), false));
+    // Health took only the hits' damage.
+    assert_eq!(r.health, 65.0);
 }

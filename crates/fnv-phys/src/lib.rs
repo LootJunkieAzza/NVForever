@@ -35,7 +35,7 @@ pub mod terrain;
 pub mod water;
 pub mod world;
 
-pub use actors::HitVolume;
+pub use actors::{HitVolume, PartCapsule};
 pub use arrival::Arrival;
 pub use character::{Character, CharacterInput, CharacterParams, CharacterStep};
 pub use convert::ConvertError;
