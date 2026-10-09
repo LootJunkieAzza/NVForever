@@ -1,0 +1,1105 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "q5b_trial_test2",
+ "title": "Layer 5 round 2 trial 2: condition order, OnActivate on dead actors, OnLoad (about 30 s)",
+ "start": "nvftest (changes VCG02, VFreeformGoodsprings, kills two disabled robots, moves the player to the saloon; never saved).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nlet fV := GetQuestRunning rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VCG02 at start",
+   "field": "running"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nlet fV := GetQuestCompleted rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VCG02 at start",
+   "field": "completed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nlet fV := GetStage rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VCG02 at start",
+   "field": "stage"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nlet fV := GetStageDone rF1 5\nSetFunctionValue fV\nEnd\n",
+   "label": "VCG02 at start",
+   "field": "done.5"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nlet fV := GetStageDone rF1 20\nSetFunctionValue fV\nEnd\n",
+   "label": "VCG02 at start",
+   "field": "done.20"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nlet fV := GetObjectiveDisplayed rF1 10\nSetFunctionValue fV\nEnd\n",
+   "label": "VCG02 at start",
+   "field": "objective.10.displayed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nlet fV := GetObjectiveDisplayed rF1 20\nSetFunctionValue fV\nEnd\n",
+   "label": "VCG02 at start",
+   "field": "objective.20.displayed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nlet fV := GetObjectiveDisplayed rF1 70\nSetFunctionValue fV\nEnd\n",
+   "label": "VCG02 at start",
+   "field": "objective.70.displayed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nlet fV := GetObjectiveCompleted rF1 10\nSetFunctionValue fV\nEnd\n",
+   "label": "VCG02 at start",
+   "field": "objective.10.completed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068134\nlet fV := GetVariable \"bMetSunny\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VFreeformGoodsprings at start",
+   "field": "var.bMetSunny"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "Sunny at start",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nref rC\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet rC := rF1.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "Sunny at start",
+   "field": "cell"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068134\nSetVariable \"bMetSunny\" 1 rF1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nrF1.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "Sunny, bMetSunny 1",
+   "field": "package"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nSetStage rF1 20\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nlet fV := GetStage rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "VCG02 after stage 20",
+   "field": "stage"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nrF1.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "Sunny, stage 20",
+   "field": "package"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nSetObjectiveDisplayed rF1 70 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nrF1.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "Sunny, stage 20, objective 70 shown",
+   "field": "package"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nSetObjectiveDisplayed rF1 70 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nrF1.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "Sunny, stage 20, objective 70 hidden",
+   "field": "package"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nSetStage rF1 45\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nrF1.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "Sunny, stage 45",
+   "field": "package"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1090068\nSetObjectiveDisplayed rF1 70 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nrF1.EvaluatePackage\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nref rP\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet rP := rF1.GetCurrentPackage\nSetFunctionValue (GetFormIDString rP)\nEnd\n",
+   "label": "Sunny, stage 45, objective 70 shown",
+   "field": "package"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1405672\nlet fV := GetVariable \"bEDEExamined\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "vDialogueEDE at start",
+   "field": "var.bEDEExamined"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1460026\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "Victor disabled at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1460026\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "Victor disabled at start",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1460026\nrF1.Enable\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1460026\nrF1.Kill\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1460026\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "Victor disabled killed",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1460026\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "Victor disabled activated",
+   "field": "menu.1008"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "Victor disabled activated",
+   "field": "menu.1001"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "Victor disabled activated",
+   "field": "menu.1009"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "Victor disabled activated",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1405672\nlet fV := GetVariable \"bEDEExamined\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "Victor disabled activated",
+   "field": "var.bEDEExamined"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "Victor disabled after CloseAllMenus",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1405670\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "ED-E disabled at start",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1405670\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "ED-E disabled at start",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1405670\nrF1.Enable\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1405670\nrF1.Kill\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1405670\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "ED-E disabled killed",
+   "field": "dead"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1405670\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "ED-E disabled activated",
+   "field": "menu.1008"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "ED-E disabled activated",
+   "field": "menu.1001"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "ED-E disabled activated",
+   "field": "menu.1009"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "ED-E disabled activated",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1405672\nlet fV := GetVariable \"bEDEExamined\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "ED-E disabled activated",
+   "field": "var.bEDEExamined"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "ED-E disabled after CloseAllMenus",
+   "field": "menu.any"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetDead\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage 2 at start",
+   "field": "dead"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"Freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage 2 at start",
+   "field": "ref.Freed"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nrF1.SetVariable \"Freed\" 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nlet fV := rF1.GetVariable \"Freed\"\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage 2 freed",
+   "field": "ref.Freed"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1192348\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1008\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage 2 activated",
+   "field": "menu.1008"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1001\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage 2 activated",
+   "field": "menu.1001"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode 1009\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage 2 activated",
+   "field": "menu.1009"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage 2 activated",
+   "field": "menu.any"
+  },
+  {
+   "console": "CloseAllMenus"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := MenuMode\nSetFunctionValue fV\nEnd\n",
+   "label": "hostage 2 after CloseAllMenus",
+   "field": "menu.any"
+  },
+  {
+   "console": "coc GSProspectorSaloonInterior"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1073541\nlet rP := player.GetParentCell\nif rP == rF1\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nlet fV := rF1.GetVariable \"init\"\nSetFunctionValue fV\nEnd\n",
+   "label": "jukebox after arrival",
+   "field": "ref.init"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nlet fV := rF1.GetDisabled\nSetFunctionValue fV\nEnd\n",
+   "label": "jukebox after arrival",
+   "field": "disabled"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nlet fV := rF1.GetDestroyed\nSetFunctionValue fV\nEnd\n",
+   "label": "radio after arrival",
+   "field": "destroyed"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068134\nlet fV := GetVariable \"bKnowAboutRadio\" rF1\nSetFunctionValue fV\nEnd\n",
+   "label": "radio after arrival",
+   "field": "var.bKnowAboutRadio"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nrF1.SetVariable \"init\" 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 10
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nlet fV := rF1.GetVariable \"init\"\nSetFunctionValue fV\nEnd\n",
+   "label": "jukebox init reset",
+   "field": "ref.init"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nrF1.Disable\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nlet fV := rF1.GetVariable \"init\"\nSetFunctionValue fV\nEnd\n",
+   "label": "jukebox disabled",
+   "field": "ref.init"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nrF1.Enable\nlet fV := rF1.GetVariable \"init\"\nSetFunctionValue fV\nEnd\n",
+   "label": "jukebox enabled",
+   "field": "init in the same script"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "2"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "3"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "4"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "5"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "6"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "7"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "8"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "9"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "11"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "12"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "13"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "14"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "15"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "16"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "17"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "18"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "19"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "20"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "22"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "23"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "24"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "25"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "26"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "27"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "28"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "29"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "30"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "31"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "33"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "34"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "35"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "36"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "37"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "38"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "39"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "40"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "41"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "42"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "44"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "45"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "46"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "47"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "48"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "49"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "50"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "51"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "52"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "53"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "55"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "56"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "57"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "58"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1080691\nSetFunctionValue (($ (rF1.GetVariable \"init\")))\nEnd\n",
+   "label": "sample:jukebox init after Enable",
+   "field": "59"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nrF1.SetDestroyed 0\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nlet fV := rF1.GetDestroyed\nSetFunctionValue fV\nEnd\n",
+   "label": "radio repaired",
+   "field": "destroyed"
+  },
+  {
+   "script": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nrF1.Disable\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 60
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nrF1.Enable\nlet fV := rF1.GetDestroyed\nSetFunctionValue fV\nEnd\n",
+   "label": "radio enabled",
+   "field": "destroyed in the same script"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "0"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "1"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "2"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "3"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "4"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "5"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "6"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "7"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "8"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "9"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "11"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "12"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "13"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "14"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "15"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "16"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "17"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "18"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "19"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "20"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "22"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "23"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "24"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "25"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "26"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "27"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "28"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "29"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "30"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "31"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "33"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "34"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "35"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "36"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "37"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "38"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "39"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "40"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "41"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "42"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "44"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "45"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "46"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "47"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "48"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "49"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "50"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "51"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "52"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "53"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "55"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "56"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "57"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "58"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1085575\nSetFunctionValue (($ (rF1.GetDestroyed)))\nEnd\n",
+   "label": "sample:radio destroyed after Enable",
+   "field": "59"
+  }
+ ]
+}

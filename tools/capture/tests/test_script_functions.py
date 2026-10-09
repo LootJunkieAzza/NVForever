@@ -97,6 +97,17 @@ class WikiParsing(unittest.TestCase):
             self.assertEqual(sf.parse_xedit(p), {1: ("GetDistance", ["ptReference"]),
                                                  5: ("GetLocked", [])})
 
+    def test_xedit_table_from_catalogue(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "functions.json")
+            with open(p, "w") as fh:
+                fh.write('{"functions": [{"name": "GetDistance", "condition_index": 1,'
+                         ' "xedit_param_types": ["ptReference"]},'
+                         ' {"name": "GetLocked", "condition_index": 5},'
+                         ' {"name": "Frob"}]}')
+            self.assertEqual(sf.xedit_from_catalogue(p), {1: ("GetDistance", ["ptReference"]),
+                                                          5: ("GetLocked", [])})
+
 
 class Bytecode(unittest.TestCase):
     def test_statements_with_reference_prefix(self):

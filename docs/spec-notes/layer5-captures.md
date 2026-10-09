@@ -393,3 +393,253 @@ a `given` does not match the save.
 - Not captured: the order of scripts within one frame, whether GameMode runs on the frame
   of an activation, object scripts (OnActivate, OnLoad), conditions (`CTDA`) on stage
   entries (none of the stages used has any). They need further jobs.
+
+## 8. Round 2: stage entries, conditions, object scripts, timing (2026-10-09)
+
+Second capture round (workstream 5C, branch `claude/layer5-captures-2`), made without
+reading the runtime (`crates/fnv-game`, `crates/fnv-script/src/vm*`) or scripts.md §4 and
+later, from the original game's behaviour only. Same install, plugin (v7) and saves as
+§1–6; unattended through `capture_run.py`, one job per game session, nothing saved.
+**No save `nvfnew` exists** (the Saves folder holds `nvftest`, `nvfdoc`, the owner's own
+numbered saves and an autosave), so the intro quest VCG01 could not be captured (§7).
+
+Diagnostic jobs: `tools/capture/jobs/q5b_trial_test{,2,3}.steps.json` (save `nvftest`)
+and `q5b_trial_doc{,2,3}.steps.json` (save `nvfdoc`), written by
+`tools/capture/jobs/make_quest2_jobs.py`. Scenario inputs:
+`parity-lab/inputs/layer5/quest2_*.actions.json` (`make_inputs2.py`), scenarios
+`parity-lab/scenarios/layer5_quests2.json`, goldens `goldens/quest2/` (private).
+Candidates were found by scanning the masters' records and script sources (read-only).
+
+### 8.1 Summary
+
+| Question | Answer | Tag |
+|---|---|---|
+| (a) A stage with several log entries whose conditions all pass | **every entry's result script runs**, in entry order | [observed] |
+| (b) AND/OR grouping in a condition list | **OR binds tighter than AND**: a run of conditions joined by OR flags is one group, the groups are ANDed; not left to right, not AND first | [observed] |
+| (c) Stray ElseIf after its If chain was closed by EndIf | **its condition is tested and its body runs when true**; the stray EndIf after it does nothing visible | [observed] |
+| (d) GameMode on the frame of an activation | runs (no run skipped or doubled); OnActivate itself runs **inside** the Activate call | [observed] |
+| (d) OnAdd / OnLoad against GameMode | an item's GameMode acts on its OnAdd by the next frame; OnLoad after Enable runs by the next frame, not inside Enable | [observed] |
+| (d) Quest scripts against object scripts within one frame | not settled (§8.3 d) | — |
+| (e) GetSecondsPassed after a long menu or a loading screen | **the gap is not counted**: the first value after it is one ordinary frame (or the quest's own delay) | [observed] |
+| (f) Object-script variables of a reference | xNVSE's `ref.GetVariable "name"` / `ref.SetVariable "name" value` read and write them | [observed] |
+| (f) OnActivate of a scripted `Activate` | runs only with Activate's second parameter (run-OnActivate flag) set; without it the default activation happens and the block does not run, also on dead actors | [observed] |
+
+### 8.2 Contract additions (`fnv.script.actions/1`, §4)
+
+Additions only; every existing operation, field and observation is unchanged. Frames
+are counted as in §4.1 unless given here.
+
+| op | fields | what it does | observation |
+|---|---|---|---|
+| `activate` (existing) + `run_on_activate: true` | as in `fnv.sim.actions/1` | `Activate <actor> 1`: the target's OnActivate block runs instead of the default activation ([documented: GECK wiki Activate, RunOnActivateBlockFlag]); 1 + 30 frames | with `label`: `opened` (container menu open, as before) |
+| `set_ref_var` | `ref`, `var`, `value` | sets a variable of the reference's object script (xNVSE `ref.SetVariable`); 1 + 10 | — |
+| `get_ref` | `ref`, `fields`, `label` | reads `var.<name>` (object-script variable), `dead` (GetDead), `disabled`; 1 per field | one key per field (`dead`, `disabled` bool) |
+| `activate_read` | `target`, `actor` (default `player`), optional `run_on_activate`, `read` = `{"ref", "field"}` (a `get_ref` field) or `{"quest", "field"}` (a `get_quest` field), `label` | Activate and the read **in the same script**; 1 + 30 | `{<field>: value}` |
+| `sample_ref_var` | `ref`, `var`, `frames`, optional `runs`, `skip`, `values`, `label` | as `sample_var`, for an object-script variable | as `sample_var` |
+| `sample_var` (existing) + `values: true` | | | adds `values`: the successive distinct values seen |
+| `add_item_read` | `to`, `item`, `count`, `read` (items), `label` | AddItem (silent) and the counts of the `read` items held by `to`, in the same script; 1 frame, no pause | `count.<item>` (int) per item |
+| `sample_items` | `of`, `items`, `frames`, `label` | the counts once per frame | per item: `first.<item>` (first sample), `final.<item>` (last), `settled.<item>` (index of the first sample from which the count stays final) |
+| `menu_gap` | `via` (a container), `frames`, `quest`, `var`, `after`, `label` | the player activates `via` (its container menu opens); the menu stays open `frames` frames counting the opening frame; the quest variable is read in its last frame; the menu closes (console `CloseAllMenus`) and the variable is read once per frame for `after` frames | `drop`: the value read in the menu minus the value at the first change after it |
+| `kill` | `target` | `Kill` (no killer); 1 + 60 | — |
+| `evaluate_package` | `of` | `EvaluatePackage`; 1 + 60 | — |
+| `is_current_package` | `of`, `package`, `label` | whether the actor's current package (xNVSE `GetCurrentPackage`) is `package`; 1 | `current` (bool) |
+
+`given` gains the kind **`ref`**: `{"kind": "ref", "ref": <FormID>, "vars": {...},
+"dead": bool, "disabled": bool}` (any subset), checked like the others.
+
+### 8.3 Findings [observed unless tagged]
+
+**(a) Several log entries in one stage.** ControlRumble (FalloutNV 0x00070EC9, allow
+repeated stages) has five entries in stage 0, none with conditions; entry 0 resets
+`Stage1Fired`…, entry 1 `Stage1FireOnTimerValue`…, entry 2 `stage1RumbleLeft`…, entry 3
+`Stage1Duration`… and sets `timerMaxValue` to 10, entry 4 calls `StopQuest ControlRumble`.
+With the five variables set to 7, `SetStage ControlRumble 0` left all of them 0,
+`timerMaxValue` 10 and the quest stopped (`q5b_trial_test`; scenario
+`L5.quest.multi_entry_stage`, both runs). So every entry whose conditions pass runs its
+result script, in record order (entry 4's StopQuest came last: the quest ended stopped
+although SetStage starts a stopped quest, §5.1). Both saves already show that end state
+(stopped, stage 0 done, `timerMaxValue` 10), consistent with the quest script's own
+`SetStage ControlRumble 0` at game start. No stage in the masters has two entries with
+conditions that can both pass and observable, harmless effects, so an entry whose
+conditions fail is not captured [hypothesis: it is skipped and the others still run].
+
+**(b) AND/OR grouping.** No stage entry or objective in the masters mixes AND and OR in a
+way a job can drive and see, so the check uses AI package conditions, which are evaluated
+without dialogue (`EvaluatePackage`, then xNVSE's `GetCurrentPackage`; `q5b_trial_test`,
+`q5b_trial_test2`, scenario `L5.quest.condition_groups`):
+- GoodspringsFleePackage (0x00107480), the first package of three Goodsprings settlers:
+  `VMS16.bGunFightStart == 1` (OR) / `VMS16b.bPowderGangAttacking == 1` /
+  `VMS16.bTrudyHelp == 0`, i.e. A (OR) B, C. With A = 1, B = 0 and C false (bTrudyHelp 1)
+  the settlers did **not** take it (they took their second packages, which need
+  bGunFightStart 1); with C true they did; with B = 1 instead of A the same. So not
+  `A OR (B AND C)`.
+- SunnySmilesStayAtCurrentLocation (0x0010A21C), Sunny's third package (the two before it
+  fail with `bMetSunny` 1 and VCG02 objective 10 not completed): objective 70 not shown,
+  quest not completed, `GetStage VCG02 == 45` (OR) / `== 40` (OR) / `== 20`. At stage 20
+  (and at 45) it was chosen with objective 70 hidden and **not** chosen with objective 70
+  shown. Left to right (`((D AND Q AND S45) OR S40) OR S20`) would choose it; so not left
+  to right.
+- Together: a condition whose OR flag is set is ORed with the next one; such runs form
+  groups, and the groups are ANDed: `(A OR B) AND C`, `D AND Q AND (S45 OR S40 OR S20)`.
+  This is also how the masters' expression compiler orders `||` and `&&` (scripts.md §3.3).
+  The run-on subject of these conditions is the package's actor; GetQuestVariable,
+  GetStage, GetObjectiveDisplayed and GetQuestCompleted do not depend on it.
+
+**(c) Stray Else/ElseIf/EndIf.** TecMineHostage (FalloutNV SCPT 0x00123191) compiles
+`if GetDead == 0 … endif / elseif GetDead == 1 / activate / endif` in its OnActivate
+block. Its only effect is that `Activate` (the default activation, a dead hostage's loot
+menu), so it can be seen only when the block runs on a dead hostage. A scripted
+`Activate player` never runs the block (finding f), so the first trials (dead hostage →
+loot menu) showed nothing about the marker. With `Activate player 1` (`q5b_trial_test3`,
+scenario `L5.quest.dead_activation`, both runs):
+- a dead actor without an OnActivate block (a Techatticup legionary) → loot menu (default);
+- ED-E's disabled body (dead; its OnActivate sets `vDialogueEDE.bEDEExamined` and shows a
+  message, never calls Activate) → message box, variable 1, **no** loot menu: the block
+  replaces the default on a dead actor too;
+- the dead hostage → **loot menu**: the `activate` after the stray ElseIf ran;
+- the living hostage with `Freed` 1 → nothing opens; with `Freed` 0 → its message box.
+A clearer case is a quest script: BeatrixFX (0x0017BA11, script 0x0017B778, delay 0.1 s)
+counts `timer` up with GetSecondsPassed; after `if timer > 1.5 && bump == 0 … endif` come
+six `elseif timer > T && bump == n … endif` pairs (T = 2, 2.3, 2.5, 3.5, 4.5, 5.5) that set
+`bump` to n + 1. After StartQuest, `bump` went 0 → 1 → 2 → … → 7, each step at the first
+run past its threshold (timer 1.547, 2.062, 2.375, 2.547, 3.562, 4.547, 5.562 s), and at
+9.078 s the closing `if timer > 9` stopped the quest (`q5b_trial_test3`; scenario
+`L5.quest.stray_elseif`, both runs: values 0…7, then not running, `reset` 0, `bump` 7). So
+an ElseIf reached after its chain was closed tests its condition and runs its body when
+true. Whether a branch taken just before it would suppress it is not exercised (no two
+thresholds fell in one run) [hypothesis: the marker acts as a new If].
+
+**(d) Order and event timing.**
+- GameMode on the frame of an activation: VCG01SkullBrahminActivator (Doc Mitchell's
+  house; its GameMode counts `timer` down with GetSecondsPassed while `runTimer` is 1; its
+  OnActivate block is empty), sampled every game loop, changed on every loop before,
+  across and after `Activate player 1` (2–3 ticks of 1/64 s per loop; `q5b_trial_doc2`,
+  `q5b_trial_doc3`): no run is skipped or doubled on the activation frame.
+- OnActivate runs inside the Activate call: the house door's OnActivate
+  (`set DocMitchellREF.PlayerLeft to 1`, then `activate`) had set the variable when it was
+  read on the next line of the script that called `Activate player 1`, and the player was
+  outside afterwards (scenario `L5.quest.ref_activation`, both runs).
+- OnAdd and GameMode of an item: JarPistolPowder (OnAdd Player sets `killme`; GameMode
+  adds 200 PowderPistol and calls RemoveMe). In the script that added the jar: jar 1,
+  powder 0; at the first sample one frame later: jar 0, powder 200 (`q5b_trial_doc`;
+  scenario `L5.quest.onadd_gamemode`, both runs). So an item's GameMode runs while it is
+  in the player's inventory, and its OnAdd had run before that GameMode, at the latest in
+  the same frame.
+- OnLoad: the saloon jukebox (VintageRadioStartOnSCRIPT: OnLoad sets `init` to 1 when it
+  is 0) and the broken radio (GoodspringsRadioScript: OnLoad calls `SetDestroyed 1`),
+  disabled and enabled again while the player was in their cell: neither effect was there
+  on the line after `Enable`; both were there at the first sample (`q5b_trial_test2`). An
+  exterior case (VMS15's rising plane, enabled in its loaded cell) read `bLoaded` 1 already
+  on the line after `Enable`, and its GameMode (`bLoaded` 1 → 2) did not run in 120 loops;
+  not understood, not used.
+- Quest scripts against object scripts within one frame: **not settled**. A job samples
+  between frames, so the order shows only where a quest script and an object script write
+  and read the same variable in one frame. The masters have no such pair that a job can
+  drive without dialogue, message-box buttons or combat (searched: object scripts' GameMode
+  blocks that read or write variables a quest script changes, and the reverse), and job
+  scripts cannot attach scripts. The skull's object timer and VCG00's quest timer (both
+  every frame) always dropped by the same amount in the same loop.
+
+**(e) GetSecondsPassed after a gap.**
+- Container menu: VCG00 (delay 0.01, so every frame; has a MenuMode block), VMQ03aTimer
+  (delay 0.5; GameMode only) and the skull's object script, all counting down with
+  GetSecondsPassed. While Doc's dresser's container menu was open (1,500 loops, 54 s of
+  real time by the screenshot timestamps of `q5b_trial_doc3`) none of them changed; after
+  `CloseAllMenus` the first drop was one ordinary frame for VCG00 and the skull (3/64 s,
+  as before the menu) and 0.516 s for VMQ03aTimer (its normal 0.5 s). Scenario
+  `L5.quest.seconds_after_menu` (900-frame menu): 0.046875 and 0.5. So the menu time is not
+  counted at all (a cap would show as a larger, fixed value).
+- Loading screen (`coc` to the saloon and back): VCG00 did not change for about 22 loops,
+  then dropped by an ordinary frame (`q5b_trial_doc3`).
+- The game clock (`GameDaysPassed`) advanced by 0.000118 days (10 game seconds at
+  TimeScale 30, about 0.3 s of real time) during the 54 s container menu: the world clock
+  stops in that menu too. (xnvse-capture.md §5 says the clock keeps running while the
+  player is in menus; that was seen with the console and the Wait menu, not a container
+  menu.)
+- A Wait-menu gap was not captured (no unattended way to open the Wait menu; the
+  `GameHour` substitute does not stop scripts).
+
+**(f) Object scripts on references.**
+- `rRef.GetVariable "name"` returns a variable of the reference's object script (the
+  skull, Doc Mitchell, the hostages, the jukebox); a name the script does not declare
+  returns 0; `rRef.HasVariable "name"` returns 1. `GetVariable "name" rRef` (the quest
+  spelling of §1) returned 0 for a reference, and `rRef.timer` does not compile
+  (`q5b_trial_doc`). `rRef.SetVariable "name" value` writes it (read back, and the
+  skull's script counted down from the value written).
+- **A scripted `ref.Activate player` does not run the target's OnActivate block**; it
+  performs the default activation (a door moves the player, a corpse opens its loot menu,
+  an activator does nothing). The door's OnActivate did not set `PlayerLeft`, dead ED-E's
+  did not set `bEDEExamined` (`q5b_trial_test2`, `q5b_trial_doc2`; scenarios
+  `L5.quest.dead_activation`, `L5.quest.ref_activation`). `ref.Activate player 1` runs the
+  block instead (and the block's own `Activate` performs the default). This is the GECK
+  wiki's RunOnActivateBlockFlag [documented].
+- An actor's OnActivate block runs on a dead actor when it is run (flag set): ED-E's
+  disabled body showed its message.
+
+Other observations of this round:
+- The game ran at about 25 loops per second in these sessions (the skull's per-loop drops
+  of 2–3/64 s; round 1 saw about 60), so frame counts in jobs are not seconds.
+- `$` of a number gives six significant digits (`99999.5`), not six decimals as §1 says;
+  trial samples therefore encode countdowns as whole 1/64 s ticks.
+- A container menu opened by a scripted Activate is open (`MenuMode 1008`) only one or two
+  frames later; `CloseAllMenus` closes container menus and message boxes.
+
+### 8.4 Predictions (written before each run; plans r2-p1 to r2-p4)
+
+- Pa (all entries of ControlRumble's stage 0 run) — **held**.
+- Pb (OR before AND for the flee package) — **held**; follow-up (not left to right, with
+  Sunny's package) — **held**.
+- Pc (a stray ElseIf reached in sequence is skipped) — **refuted** (BeatrixFX reaches 7;
+  the dead hostage's flagged activation opened the loot menu).
+- Pd (GameMode not skipped around an activation; OnActivate inside Activate; the jar
+  replaced by the next sample) — **held**. OnLoad by the next frame, not inside Enable —
+  **held** for the jukebox and the radio, **refuted** for the rising plane (unexplained).
+- Pe (menu time not counted; made weakly, the alternative being the whole gap) — **held**.
+- Pf (`rRef.GetVariable` works; `rRef.var` does not compile; the door's OnActivate sets
+  PlayerLeft) — the first two **held**; the third **failed** until the run-OnActivate flag
+  was used: a scripted Activate without it skips the block (not predicted).
+- Scenario predictions (r2-p4) for the seven visible scenarios — all **held**.
+
+### 8.5 Scenarios and goldens
+
+`parity-lab/scenarios/layer5_quests2.json`, comparator keyed on `label` over
+`/observations` (exact; `L5.quest.seconds_after_menu` with `abs_tol` 0.05 s); inputs
+`parity-lab/inputs/layer5/quest2_<name>.actions.json`; goldens
+`goldens/quest2/quest2_<name>.trace.json` (private). `L5.quest.multi_entry_stage` uses
+only §4 operations; the others need the §8.2 additions, which the current candidate
+rejects as unknown, so they **error** until 5B adds them (checked 2026-10-09 with this
+branch's fnvtool: `python -m fnvlab run --scenario <id>` for each visible scenario →
+`multi_entry_stage` passes, the six others error; the candidate was not run on the
+holdouts).
+
+| Scenario | Save | Rows | Notes |
+|---|---|---|---|
+| `L5.quest.multi_entry_stage` | nvftest | 2 | (a) |
+| `L5.quest.condition_groups` | nvftest | 20 | (b) |
+| `L5.quest.stray_elseif` | nvftest | 2 | (c) |
+| `L5.quest.dead_activation` | nvftest | 9 | (c), (f) |
+| `L5.quest.ref_activation` | nvfdoc | 5 | (d), (f) |
+| `L5.quest.onadd_gamemode` | nvftest | 2 | (d) |
+| `L5.quest.seconds_after_menu` | nvfdoc | 2 | (e); 0.05 s |
+| `L5.quest.r2_holdout_a` | nvftest | — | **holdout** |
+| `L5.quest.r2_holdout_b` | nvftest | — | **holdout** |
+
+Stability: every scenario job ran twice, in separate game sessions (plans r2-p4 and
+r2-p5). Every `given` matched the save in both runs (`golden` refuses otherwise), and the
+second run scored 1.0 against the first under each scenario's comparator, holdouts
+included. The only difference: VMQ03aTimer's drop after the menu, 0.5 then 0.484375
+(inside the 0.05 s tolerance). The first run's traces are the goldens.
+
+Rebuilding (owner's machine; both run locks first; never save in game): as §6, with
+`make_inputs2.py`, a defs file for the quests the inputs name (ControlRumble, VTechatticup,
+BeatrixFX, vDialogueEDE, VMS16, VMS16b, VFreeformGoodsprings, VCG02, VCG00, VMQ03aTimer)
+and `-o C:/fnv-private/goldens/quest2/quest2_<name>.trace.json`.
+
+### 8.6 Open items
+
+- **VCG01 from a new game** still needs the owner's `nvfnew` save (§7).
+- The order of quest and object scripts within a frame (§8.3 d).
+- The rising plane's OnLoad and GameMode (§8.3 d).
+- `L5.quest.condition_groups` needs AI package choice in the candidate (the conditions are
+  Layer 5's, choosing a package is Layer 6's).
+- A Wait-menu gap for GetSecondsPassed.

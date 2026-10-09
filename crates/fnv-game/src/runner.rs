@@ -1,0 +1,1090 @@
+//! The headless script runner: `fnv.script.actions/1` in, `fnv.script.trace/1` out.
+//!
+//! The contract is docs/spec-notes/layer5-captures.md §4 (written by workstream 5C for
+//! the `L5.quest.*` scenarios): the same operations, the same frames between them, and
+//! observations keyed by `label`. Operations beyond that contract stand in for Layer 6
+//! systems in headless walk-throughs (dialogue lines, package events, menus, message
+//! box buttons) and are listed in docs/spec-notes/scripts.md §8.
+
+use crate::functions::Ctx;
+use crate::game::{event, ActMode, Game, GameConfig, InstKey};
+use crate::trace::EventKind;
+use crate::GameData;
+use fnv_script::vm::{literal, to_int_storage, ArgValue, Value};
+use fnv_sim::world::SimConfig;
+use fnv_sim::{FormId, FormStore, RefTable, World};
+use serde::Deserialize;
+use serde_json::{json, Map, Value as Json};
+use std::collections::BTreeMap;
+
+pub const ACTIONS_FORMAT: &str = "fnv.script.actions/1";
+pub const TRACE_FORMAT: &str = "fnv.script.trace/1";
+
+fn default_frame() -> f64 {
+    1.0 / 60.0
+}
+fn one() -> u16 {
+    1
+}
+fn yes() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Input {
+    pub format: String,
+    #[serde(default)]
+    pub seed: u64,
+    #[serde(default = "default_frame")]
+    pub frame_seconds: f64,
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Informational: the capture save a golden came from.
+    #[serde(default)]
+    pub save: Option<String>,
+    #[serde(default = "one")]
+    pub player_level: u16,
+    #[serde(default)]
+    pub hardcore: bool,
+    /// Start from the new-game state (start-game-enabled quests running). Default true.
+    #[serde(default = "yes")]
+    pub new_game: bool,
+    /// Trace writes to an instance's own locals too.
+    #[serde(default)]
+    pub trace_locals: bool,
+    #[serde(default)]
+    pub given: Vec<Given>,
+    pub actions: Vec<Action>,
+    /// References whose final state is reported.
+    #[serde(default)]
+    pub report: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Given {
+    Quest {
+        quest: String,
+        #[serde(default)]
+        running: Option<bool>,
+        #[serde(default)]
+        completed: Option<bool>,
+        #[serde(default)]
+        stage: Option<i32>,
+        #[serde(default)]
+        done: Vec<i32>,
+        #[serde(default)]
+        not_done: Vec<i32>,
+        #[serde(default)]
+        objectives: Vec<GivenObjective>,
+        #[serde(default)]
+        vars: BTreeMap<String, f64>,
+    },
+    Global { name: String, value: f32 },
+    ItemCount { of: String, item: String, count: i32 },
+    Disabled { of: String, disabled: bool },
+    /// A reference's object-script variables, dead and disabled state (round 2,
+    /// layer5-captures.md §8.2).
+    Ref {
+        #[serde(rename = "ref")]
+        reference: String,
+        #[serde(default)]
+        vars: BTreeMap<String, f64>,
+        #[serde(default)]
+        dead: Option<bool>,
+        #[serde(default)]
+        disabled: Option<bool>,
+    },
+}
+
+/// What `activate_read` reads: a reference's field (`get_ref`) or a quest's
+/// (`get_quest`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadSpec {
+    #[serde(default, rename = "ref")]
+    pub reference: Option<String>,
+    #[serde(default)]
+    pub quest: Option<String>,
+    pub field: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GivenObjective {
+    pub index: i32,
+    #[serde(default)]
+    pub displayed: Option<bool>,
+    #[serde(default)]
+    pub completed: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Action {
+    // ---- the 5C contract ----
+    SetStage { quest: String, stage: i32 },
+    SetStageRead { quest: String, stage: i32, field: String, label: String },
+    StartQuest { quest: String },
+    StopQuest { quest: String },
+    SetQuestVar { quest: String, var: String, value: f64 },
+    SetLocal { #[serde(rename = "type")] ty: String, value: f64, #[serde(default)] label: Option<String> },
+    SetObjective { quest: String, index: i32, #[serde(default)] displayed: Option<bool>, #[serde(default)] completed: Option<bool> },
+    GetQuest { quest: String, fields: Vec<String>, #[serde(default)] label: Option<String> },
+    SampleVar { quest: String, var: String, frames: u64, #[serde(default)] runs: Option<usize>, #[serde(default)] skip: usize, #[serde(default)] values: bool, #[serde(default)] label: Option<String> },
+    WaitFrames { frames: u64 },
+    AddItem { to: String, item: String, count: i32 },
+    RemoveItem { from: String, item: String, count: i32 },
+    RemoveAllItems { from: String, #[serde(default)] to: Option<String> },
+    Enable { target: String },
+    Disable { target: String },
+    SetGlobal { name: String, value: f32 },
+    /// `target.Activate actor [1]`: with `run_on_activate` the OnActivate block runs
+    /// instead of the default action (round 2).
+    Activate { #[serde(default)] actor: Option<String>, target: String, #[serde(default)] run_on_activate: bool, #[serde(default)] label: Option<String> },
+    GetItemCount { of: String, item: String, #[serde(default)] label: Option<String> },
+    GetDisabled { of: String, #[serde(default)] label: Option<String> },
+    GetGlobal { name: String, #[serde(default)] label: Option<String> },
+    // ---- round 2 of the contract (layer5-captures.md §8.2) ----
+    /// A variable of the reference's object script, by name (xNVSE SetVariable).
+    SetRefVar { #[serde(rename = "ref")] reference: String, var: String, value: f64 },
+    /// Activate and one read in the same script.
+    ActivateRead { target: String, #[serde(default)] actor: Option<String>, #[serde(default)] run_on_activate: bool, read: ReadSpec, label: String },
+    /// `sample_var` for an object-script variable of a reference.
+    SampleRefVar { #[serde(rename = "ref")] reference: String, var: String, frames: u64, #[serde(default)] runs: Option<usize>, #[serde(default)] skip: usize, #[serde(default)] values: bool, #[serde(default)] label: Option<String> },
+    /// AddItem (silent) and item counts in the same script.
+    AddItemRead { to: String, item: String, count: i32, read: Vec<String>, label: String },
+    /// Item counts once per frame.
+    SampleItems { of: String, items: Vec<String>, frames: u64, label: String },
+    /// A container menu held open (opened by the player's activation of `via`), then
+    /// closed; the first change of a quest variable after it.
+    MenuGap { via: String, frames: u64, quest: String, var: String, after: u64, label: String },
+    EvaluatePackage { of: String },
+    IsCurrentPackage { of: String, package: String, label: String },
+    // ---- headless stand-ins (scripts.md §8) ----
+    /// Seconds of game loop at the fixed frame step.
+    AdvanceSeconds { seconds: f64 },
+    /// An actor (the player by default) activates by hand: OnActivate instead of the
+    /// default action.
+    PlayerActivate { target: String, #[serde(default)] actor: Option<String> },
+    /// A dialogue line (INFO) is said: its result scripts run on the speaker.
+    SayInfo { info: String, #[serde(default)] speaker: Option<String>, #[serde(default)] force: bool },
+    /// The first of several lines whose conditions pass is said (the speaker picks the
+    /// line that fits, as dialogue does); observation `said`: the INFO, or none.
+    SayFirst { infos: Vec<String>, #[serde(default)] speaker: Option<String>, #[serde(default)] label: Option<String> },
+    /// A package starts, finishes or changes on an actor.
+    Package { actor: String, package: String, event: String },
+    /// A `SayTo` line finished (SayToDone blocks of the speaker).
+    SayToDone { actor: String, #[serde(default)] topic: Option<String> },
+    /// An actor enters a trigger (OnTriggerEnter of the trigger reference), or with
+    /// `event` "inside" / "leave" is in it this frame (OnTrigger) / leaves it
+    /// (OnTriggerLeave).
+    TriggerEnter { trigger: String, #[serde(default)] actor: Option<String>, #[serde(default)] event: Option<String> },
+    /// The player picks a button of the open message box.
+    PressButton { button: i32 },
+    /// A menu opens (MenuMode with its code) or closes (`null`).
+    Menu { menu: Option<u16> },
+    /// The player moves to a reference (and its cells load).
+    MovePlayer { to: String },
+    LoadCell { cell: String },
+    /// A script variable of a quest or reference, by name.
+    GetVar { of: String, var: String, #[serde(default)] label: Option<String> },
+    /// With `fields` (round 2, `ref`): `var.<name>`, `dead`, `disabled`, one frame each.
+    /// Without (stand-in, `of`): enabled state, cell, position and Layer 5 flags.
+    GetRef {
+        #[serde(default)]
+        of: Option<String>,
+        #[serde(default, rename = "ref")]
+        reference: Option<String>,
+        #[serde(default)]
+        fields: Option<Vec<String>>,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// `target.Kill` (round 2) or `actor.KillActor killer` (stand-in).
+    Kill {
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default)]
+        actor: Option<String>,
+        #[serde(default)]
+        killer: Option<String>,
+    },
+    /// An actor (the player by default) consumes an ingestible it carries (the engine's
+    /// use of an aid item): one is removed and its effects start, effect scripts
+    /// included (`Game::consume`); observation `effects`: the effects started.
+    Consume { item: String, #[serde(default)] actor: Option<String>, #[serde(default)] label: Option<String> },
+    /// A comment in the input (why the next stand-in is there); no effect, no frames.
+    Note { text: String },
+}
+
+/// Frames that pass after an action (layer5-captures.md §4.1).
+fn frames_after(a: &Action) -> u64 {
+    match a {
+        Action::SetStage { .. } | Action::SetStageRead { .. } => 31,
+        Action::StartQuest { .. } | Action::StopQuest { .. } | Action::SetQuestVar { .. } | Action::SetObjective { .. } => 11,
+        Action::SetLocal { .. } => 1,
+        Action::Activate { .. } | Action::RemoveAllItems { .. } => 31,
+        Action::AddItem { .. } | Action::RemoveItem { .. } | Action::Enable { .. } | Action::Disable { .. } | Action::SetGlobal { .. } => 11,
+        Action::GetItemCount { .. } | Action::GetDisabled { .. } | Action::GetGlobal { .. } => 11,
+        Action::SetRefVar { .. } => 11,
+        Action::ActivateRead { .. } => 31,
+        Action::Kill { .. } | Action::EvaluatePackage { .. } => 61,
+        Action::AddItemRead { .. } | Action::IsCurrentPackage { .. } => 1,
+        Action::GetRef { fields: Some(_), .. } => 0,
+        Action::GetQuest { .. } | Action::SampleVar { .. } | Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } => 0,
+        Action::SampleRefVar { .. } | Action::SampleItems { .. } | Action::MenuGap { .. } => 0,
+        Action::Note { .. } => 0,
+        // Stand-ins: one frame.
+        _ => 1,
+    }
+}
+
+/// Name resolution: `player`, a hex FormID, or an Editor ID (any record).
+pub fn resolve(g: &Game, s: &str) -> Result<FormId, String> {
+    if s.eq_ignore_ascii_case("player") || s.eq_ignore_ascii_case("playerref") {
+        return Ok(FormId::PLAYER_REF);
+    }
+    if s.starts_with("0x") || s.starts_with("0X") {
+        return s.parse().map_err(|e: fnv_sim::form::BadFormId| e.to_string());
+    }
+    if let Some(script) = s.strip_prefix("scripted:") {
+        // The placed reference whose base form runs this script (the first in FormID
+        // order when several do).
+        // `scripted:<script>#<n>`: the n-th (1-based) of them.
+        let (script, n) = match script.split_once('#') {
+            Some((s, n)) => (s, n.parse::<usize>().map_err(|_| format!("bad index in {s:?}"))?),
+            None => (script, 1),
+        };
+        let sc = resolve(g, script)?;
+        return g
+            .world
+            .placed
+            .refs
+            .values()
+            .filter(|p| g.data.script_of_base(p.base) == Some(sc))
+            .nth(n.saturating_sub(1))
+            .map(|p| p.id)
+            .ok_or_else(|| format!("no placed reference number {n} runs {script}"));
+    }
+    if let Some(base) = s.strip_prefix("placed:") {
+        // The first placed reference (FormID order) of a base form.
+        let b = resolve(g, base)?;
+        return g.world.placed.refs.values().find(|p| p.base == b).map(|p| p.id).ok_or_else(|| format!("no placed reference of {base}"));
+    }
+    if let Some(r) = g.world.placed.by_edid(s) {
+        return Ok(r);
+    }
+    g.data.by_edid(s).or_else(|| g.world.placed.cell_by_edid(s)).ok_or_else(|| format!("no form named {s:?}"))
+}
+
+fn quest(g: &Game, s: &str) -> Result<FormId, String> {
+    let q = resolve(g, s)?;
+    if g.data.is_quest(q) {
+        Ok(q)
+    } else {
+        Err(format!("{s:?} is not a quest"))
+    }
+}
+
+/// A quest variable by name: (instance, index).
+fn quest_var(g: &Game, q: FormId, var: &str) -> Result<(InstKey, u16), String> {
+    let def = &g.data.quests[&q];
+    let script = def.script.and_then(|s| g.data.script(s)).ok_or_else(|| format!("{} has no script", g.data.name(q)))?;
+    let i = script.var_index(var).ok_or_else(|| format!("{} declares no variable {var:?}", g.data.name(q)))?;
+    Ok((InstKey::Quest { quest: q }, i))
+}
+
+fn var_of(g: &Game, of: FormId, var: &str) -> Result<(InstKey, FormId, u16), String> {
+    let (key, script) = g.instance_of(of).ok_or_else(|| format!("{} runs no script", g.data.name(of)))?;
+    let i = g.data.script(script).and_then(|s| s.var_index(var)).ok_or_else(|| format!("no variable {var:?}"))?;
+    Ok((key, script, i))
+}
+
+/// Store a number in a quest variable as given (xNVSE SetVariable in the capture),
+/// with the variable's declared storage.
+fn set_quest_var(g: &mut Game, q: FormId, var: &str, value: f64) -> Result<(), String> {
+    let (key, i) = quest_var(g, q, var)?;
+    let script = g.data.quests[&q].script;
+    g.store(key, script, i, Value::Num(value), "runner", false);
+    Ok(())
+}
+
+/// An object-script variable of a reference by name: (instance, script, index), or
+/// `None` for a name its script does not declare.
+fn ref_var(g: &Game, r: FormId, var: &str) -> Result<(InstKey, FormId, Option<u16>), String> {
+    let (key, script) = g.instance_of(r).ok_or_else(|| format!("{} runs no script", g.data.name(r)))?;
+    Ok((key, script, g.data.script(script).and_then(|s| s.var_index(var))))
+}
+
+/// A field of a reference (`get_ref`, layer5-captures.md §8.2): `dead`, `disabled`, or
+/// `var.<name>`. A name the reference's script does not declare reads 0 [observed:
+/// xNVSE's `ref.GetVariable` of an undeclared name returned 0, §8.3 f].
+fn ref_field(g: &mut Game, r: FormId, f: &str) -> Result<Json, String> {
+    Ok(match f {
+        "dead" => json!(g.extra.get(&r).is_some_and(|e| e.dead)),
+        "disabled" => json!(!g.world.is_enabled(r).map_err(|e| e.to_string())?),
+        _ => match f.strip_prefix("var.") {
+            Some(v) => {
+                let (key, _, i) = ref_var(g, r, v)?;
+                json!(i.map(|i| g.var(key, i).num()).unwrap_or(0.0))
+            }
+            None => return Err(format!("unknown reference field {f:?}")),
+        },
+    })
+}
+
+/// Whether an activation since event `since` opened a container (its menu).
+fn opened_since(g: &Game, since: usize) -> bool {
+    g.events[since..]
+        .iter()
+        .any(|e| matches!(&e.kind, EventKind::Activated { outcome: Some(v), .. } if v["result"] == "opened_container"))
+}
+
+/// The menu code of the container menu [observed: `MenuMode 1008` was true while a
+/// container menu opened by Activate was up, layer5-captures.md §8.3].
+pub const CONTAINER_MENU: u16 = 1008;
+
+fn activation_mode(run_on_activate: bool) -> ActMode {
+    if run_on_activate {
+        ActMode::Block
+    } else {
+        ActMode::Default
+    }
+}
+
+/// A sample series as `sample_var` reports it (layer5-captures.md §4.1, §8.2):
+/// `changes`, or `drops` with `runs`/`skip`; with `values`, the successive distinct
+/// values of the samples.
+fn sample_observation(o: &mut Json, start: f64, samples: &[f64], runs: Option<usize>, skip: usize, values: bool) {
+    let mut prev = start;
+    let mut drops = Vec::new();
+    for &v in samples {
+        if v != prev {
+            drops.push(prev - v);
+            prev = v;
+        }
+    }
+    match runs {
+        Some(n) => o["drops"] = json!(drops.iter().skip(skip).take(n).collect::<Vec<_>>()),
+        None => o["changes"] = json!(drops.len()),
+    }
+    if values {
+        let mut distinct: Vec<f64> = Vec::new();
+        for &v in samples {
+            if distinct.last() != Some(&v) {
+                distinct.push(v);
+            }
+        }
+        o["values"] = json!(distinct);
+    }
+}
+
+fn field(g: &Game, q: FormId, f: &str) -> Result<Json, String> {
+    let s = g.quest_state(q);
+    Ok(match f {
+        "running" => json!(s.running),
+        "completed" => json!(s.completed || s.failed),
+        "stage" => json!(s.stage()),
+        _ => {
+            if let Some(n) = f.strip_prefix("done.") {
+                let n: i32 = n.parse().map_err(|_| format!("bad field {f:?}"))?;
+                json!(s.stages_done.contains(&n))
+            } else if let Some(rest) = f.strip_prefix("objective.") {
+                let (n, which) = rest.split_once('.').ok_or_else(|| format!("bad field {f:?}"))?;
+                let n: i32 = n.parse().map_err(|_| format!("bad field {f:?}"))?;
+                let o = s.objectives.get(&n).copied().unwrap_or_default();
+                match which {
+                    "displayed" => json!(o.displayed),
+                    "completed" => json!(o.completed),
+                    _ => return Err(format!("bad field {f:?}")),
+                }
+            } else if let Some(v) = f.strip_prefix("var.") {
+                let (key, i) = quest_var(g, q, v)?;
+                json!(g.var(key, i).num())
+            } else {
+                return Err(format!("unknown quest field {f:?}"));
+            }
+        }
+    })
+}
+
+/// The literal text the capture writes for a number (layer5-captures.md §4.1): a whole
+/// number without a decimal point, anything else with one.
+fn literal_text(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e18 {
+        format!("{}", v.abs() as u64)
+    } else {
+        let s = format!("{}", v.abs());
+        if s.contains('.') {
+            s
+        } else {
+            format!("{s}.0")
+        }
+    }
+}
+
+/// `set x to <literal>` into a fresh local of the given type, read back (the compiler
+/// writes a negative literal as the positive one and a unary minus, scripts.md §2.3).
+pub fn set_local(ty: &str, value: f64) -> Result<f64, String> {
+    let text = literal_text(value);
+    let mut v = literal(&text, value.abs());
+    if value < 0.0 {
+        v = -v;
+    }
+    match ty {
+        "short" | "long" | "int" => Ok(to_int_storage(v) as f64),
+        "float" | "ref" => Ok(v),
+        _ => Err(format!("unknown variable type {ty:?}")),
+    }
+}
+
+fn label(l: &Option<String>, i: usize) -> String {
+    l.clone().unwrap_or_else(|| format!("step{i}"))
+}
+
+/// Call a script function as a script would (`on.Func args`).
+fn call(g: &mut Game, opcode: u16, on: Option<FormId>, args: Vec<ArgValue>) -> Value {
+    let ctx = Ctx {
+        unit: "runner".into(),
+        opcode,
+        on,
+        self_ref: None,
+        action_ref: None,
+        quest: None,
+        inst: None,
+        in_condition: false,
+    };
+    g.call_function(&ctx, &args)
+}
+
+fn form_arg(f: FormId) -> ArgValue {
+    ArgValue::Value(Value::Ref(f.0))
+}
+fn num_arg(x: f64) -> ArgValue {
+    ArgValue::Value(Value::Num(x))
+}
+
+fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
+    match gv {
+        Given::Quest { quest: name, running, completed, stage, done, not_done, objectives, vars } => {
+            let q = quest(g, name)?;
+            for (k, v) in vars {
+                set_quest_var(g, q, k, *v)?;
+            }
+            let s = g.quest(q);
+            if let Some(r) = running {
+                s.running = *r;
+            }
+            if let Some(c) = completed {
+                s.completed = *c;
+                if !c {
+                    s.failed = false;
+                }
+            }
+            for d in done {
+                s.stages_done.insert(*d);
+            }
+            for d in not_done {
+                s.stages_done.remove(d);
+            }
+            if let Some(st) = stage {
+                if s.stage() != *st {
+                    s.stage_override = Some(*st);
+                }
+            }
+            for o in objectives {
+                let e = s.objectives.entry(o.index).or_default();
+                if let Some(d) = o.displayed {
+                    e.displayed = d;
+                }
+                if let Some(c) = o.completed {
+                    e.completed = c;
+                }
+            }
+        }
+        Given::Global { name, value } => {
+            let id = resolve(g, name)?;
+            g.world.set_global(id, *value).map_err(|e| e.to_string())?;
+        }
+        Given::ItemCount { of, item, count } => {
+            let (of, item) = (resolve(g, of)?, resolve(g, item)?);
+            let have = g.world.item_count(of, item).map_err(|e| e.to_string())?;
+            if have < *count {
+                g.world.add_item(of, item, count - have).map_err(|e| e.to_string())?;
+            } else if have > *count {
+                g.world.remove_item(of, item, have - count).map_err(|e| e.to_string())?;
+            }
+        }
+        Given::Disabled { of, disabled } => {
+            let r = resolve(g, of)?;
+            g.world.set_enabled(r, !disabled).map_err(|e| e.to_string())?;
+        }
+        Given::Ref { reference, vars, dead, disabled } => {
+            let r = resolve(g, reference)?;
+            for (k, v) in vars {
+                let (key, script, i) = ref_var(g, r, k)?;
+                let i = i.ok_or_else(|| format!("the script of {reference} declares no variable {k:?}"))?;
+                g.store(key, Some(script), i, Value::Num(*v), "runner", false);
+            }
+            if let Some(d) = dead {
+                g.extra.entry(r).or_default().dead = *d;
+            }
+            if let Some(d) = disabled {
+                g.world.set_enabled(r, !d).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Run one action; returns its observation fields (for labelled actions).
+/// A labelled observation: label and fields.
+type Observed = Option<(String, Map<String, Json>)>;
+
+fn step(g: &mut Game, a: &Action) -> Result<Observed, String> {
+    let mut obs = Map::new();
+    let mut lab: Option<String> = None;
+    match a {
+        Action::SetStage { quest: q, stage } => {
+            let q = quest(g, q)?;
+            g.set_stage(q, *stage);
+        }
+        Action::SetStageRead { quest: q, stage, field: f, label: l } => {
+            let q = quest(g, q)?;
+            g.set_stage(q, *stage);
+            obs.insert(f.clone(), field(g, q, f)?);
+            lab = Some(l.clone());
+        }
+        Action::StartQuest { quest: q } => {
+            let q = quest(g, q)?;
+            g.start_quest(q);
+        }
+        Action::StopQuest { quest: q } => {
+            let q = quest(g, q)?;
+            g.stop_quest(q);
+        }
+        Action::SetQuestVar { quest: q, var, value } => {
+            let q = quest(g, q)?;
+            set_quest_var(g, q, var, *value)?;
+        }
+        Action::SetLocal { ty, value, label: l } => {
+            obs.insert("value".into(), json!(set_local(ty, *value)?));
+            lab = l.clone();
+        }
+        Action::SetObjective { quest: q, index, displayed, completed } => {
+            let q = quest(g, q)?;
+            g.set_objective(q, *index, *displayed, *completed);
+        }
+        Action::GetQuest { .. } | Action::SampleVar { .. } | Action::SampleRefVar { .. } => unreachable!("handled by the caller"),
+        Action::WaitFrames { .. } | Action::AdvanceSeconds { .. } | Action::Note { .. } => {}
+        Action::AddItem { to, item, count } => {
+            let (to, item) = (resolve(g, to)?, resolve(g, item)?);
+            call(g, 0x1002, Some(to), vec![form_arg(item), num_arg(*count as f64)]);
+        }
+        Action::RemoveItem { from, item, count } => {
+            let (from, item) = (resolve(g, from)?, resolve(g, item)?);
+            call(g, 0x1052, Some(from), vec![form_arg(item), num_arg(*count as f64)]);
+        }
+        Action::RemoveAllItems { from, to } => {
+            let from = resolve(g, from)?;
+            let args = match to {
+                Some(t) => vec![form_arg(resolve(g, t)?)],
+                None => vec![],
+            };
+            call(g, 0x10AD, Some(from), args);
+        }
+        Action::Enable { target } => {
+            let t = resolve(g, target)?;
+            call(g, 0x1021, Some(t), vec![]);
+        }
+        Action::Disable { target } => {
+            let t = resolve(g, target)?;
+            call(g, 0x1022, Some(t), vec![]);
+        }
+        Action::SetGlobal { name, value } => {
+            let id = resolve(g, name)?;
+            g.world.set_global(id, *value).map_err(|e| e.to_string())?;
+            g.emit(crate::trace::EventKind::GlobalSet { global: id, value: *value });
+        }
+        Action::Activate { actor, target, run_on_activate, label: l } => {
+            // `target.Activate actor`: the default action, bypassing OnActivate; with
+            // the flag, the block instead (how the capture issues it; GECK wiki
+            // Activate; layer5-captures.md §8.3 f).
+            let actor = match actor {
+                Some(a) => resolve(g, a)?,
+                None => FormId::PLAYER_REF,
+            };
+            let t = resolve(g, target)?;
+            let since = g.events.len();
+            g.activate(actor, t, activation_mode(*run_on_activate))?;
+            if l.is_some() {
+                obs.insert("opened".into(), json!(opened_since(g, since)));
+                lab = l.clone();
+            }
+        }
+        Action::SetRefVar { reference, var, value } => {
+            let r = resolve(g, reference)?;
+            let (key, script, i) = ref_var(g, r, var)?;
+            let i = i.ok_or_else(|| format!("the script of {reference} declares no variable {var:?}"))?;
+            g.store(key, Some(script), i, Value::Num(*value), "runner", false);
+        }
+        Action::ActivateRead { target, actor, run_on_activate, read, label: l } => {
+            let actor = match actor {
+                Some(a) => resolve(g, a)?,
+                None => FormId::PLAYER_REF,
+            };
+            let t = resolve(g, target)?;
+            g.activate(actor, t, activation_mode(*run_on_activate))?;
+            let v = match (&read.reference, &read.quest) {
+                (Some(r), None) => {
+                    let r = resolve(g, r)?;
+                    ref_field(g, r, &read.field)?
+                }
+                (None, Some(q)) => {
+                    let q = quest(g, q)?;
+                    field(g, q, &read.field)?
+                }
+                _ => return Err("'read' needs one of 'ref' or 'quest'".into()),
+            };
+            obs.insert(read.field.clone(), v);
+            lab = Some(l.clone());
+        }
+        Action::AddItemRead { to, item, count, read, label: l } => {
+            let (to, it) = (resolve(g, to)?, resolve(g, item)?);
+            call(g, 0x1002, Some(to), vec![form_arg(it), num_arg(*count as f64), num_arg(1.0)]);
+            for name in read {
+                let i = resolve(g, name)?;
+                obs.insert(format!("count.{name}"), json!(g.world.item_count(to, i).map_err(|e| e.to_string())?));
+            }
+            lab = Some(l.clone());
+        }
+        Action::SampleItems { of, items, frames, label: l } => {
+            // One sample per frame, the first in the frame after the previous action.
+            let of = resolve(g, of)?;
+            let ids = items.iter().map(|n| resolve(g, n)).collect::<Result<Vec<_>, _>>()?;
+            let mut series: Vec<Vec<i32>> = vec![Vec::new(); ids.len()];
+            for _ in 0..*frames {
+                for (k, &i) in ids.iter().enumerate() {
+                    series[k].push(g.world.item_count(of, i).map_err(|e| e.to_string())?);
+                }
+                g.tick();
+            }
+            for (name, v) in items.iter().zip(&series) {
+                let (Some(&first), Some(&last)) = (v.first(), v.last()) else { continue };
+                let mut settled = v.len() - 1;
+                while settled > 0 && v[settled - 1] == last {
+                    settled -= 1;
+                }
+                obs.insert(format!("first.{name}"), json!(first));
+                obs.insert(format!("final.{name}"), json!(last));
+                obs.insert(format!("settled.{name}"), json!(settled));
+            }
+            lab = Some(l.clone());
+        }
+        Action::MenuGap { via, frames, quest: qn, var, after, label: l } => {
+            lab = Some(l.clone());
+            let via = resolve(g, via)?;
+            let q = quest(g, qn)?;
+            let (key, idx) = quest_var(g, q, var)?;
+            let since = g.events.len();
+            g.activate(FormId::PLAYER_REF, via, ActMode::Default)?;
+            if !opened_since(g, since) {
+                return Err(format!("activating {} opened no container menu", g.data.name(via)));
+            }
+            // The menu is open for `frames` frames counting the opening one; the value
+            // is read in its last frame, then the menu closes (CloseAllMenus).
+            g.menu = Some(CONTAINER_MENU);
+            for _ in 1..*frames {
+                g.tick();
+            }
+            let v0 = g.var(key, idx).num();
+            g.tick();
+            g.menu = None;
+            let mut drop = None;
+            for _ in 0..*after {
+                g.tick();
+                let v = g.var(key, idx).num();
+                if drop.is_none() && v != v0 {
+                    drop = Some(v0 - v);
+                }
+            }
+            match drop {
+                Some(d) => {
+                    obs.insert("drop".into(), json!(d));
+                }
+                None => return Err(format!("no change in {after} frames after the menu")),
+            }
+        }
+        Action::EvaluatePackage { of } => {
+            let a = resolve(g, of)?;
+            call(g, 0x105E, Some(a), vec![]);
+        }
+        Action::IsCurrentPackage { of, package, label: l } => {
+            let (a, p) = (resolve(g, of)?, resolve(g, package)?);
+            obs.insert("current".into(), json!(g.current_package(a) == Some(p)));
+            lab = Some(l.clone());
+        }
+        Action::GetItemCount { of, item, label: l } => {
+            let (of, item) = (resolve(g, of)?, resolve(g, item)?);
+            obs.insert("count".into(), json!(g.world.item_count(of, item).map_err(|e| e.to_string())?));
+            lab = l.clone();
+        }
+        Action::GetDisabled { of, label: l } => {
+            let r = resolve(g, of)?;
+            obs.insert("disabled".into(), json!(!g.world.is_enabled(r).map_err(|e| e.to_string())?));
+            lab = l.clone();
+        }
+        Action::GetGlobal { name, label: l } => {
+            let id = resolve(g, name)?;
+            obs.insert("value".into(), json!(g.world.global(id).map_err(|e| e.to_string())? as f64));
+            lab = l.clone();
+        }
+        Action::PlayerActivate { target, actor } => {
+            let actor = match actor {
+                Some(a) => resolve(g, a)?,
+                None => FormId::PLAYER_REF,
+            };
+            let t = resolve(g, target)?;
+            g.activate(actor, t, ActMode::Hand)?;
+        }
+        Action::SayInfo { info, speaker, force } => {
+            let i = resolve(g, info)?;
+            let s = match speaker {
+                Some(s) => Some(resolve(g, s)?),
+                None => None,
+            };
+            g.run_info(i, s, *force)?;
+        }
+        Action::SayFirst { infos, speaker, label: l } => {
+            let s = match speaker {
+                Some(s) => Some(resolve(g, s)?),
+                None => None,
+            };
+            let mut said = Json::Null;
+            let mut why = Vec::new();
+            for name in infos {
+                let i = resolve(g, name)?;
+                let data = g.data;
+                let def = data.infos.get(&i).ok_or_else(|| format!("{name} is not a dialogue line"))?;
+                let sp = s.or(def.speaker);
+                let pass = g.conditions_pass(&def.conditions, sp, Some(FormId::PLAYER_REF), &format!("INFO {i}"));
+                if pass {
+                    g.run_info(i, s, true)?;
+                    said = json!(i.to_string());
+                    break;
+                }
+                why.push(format!("{i}: {}", g.explain_conditions(&def.conditions, sp, Some(FormId::PLAYER_REF)).join("; ")));
+            }
+            if said.is_null() {
+                return Err(format!("no line's conditions pass ({})", why.join(" | ")));
+            }
+            obs.insert("said".into(), said);
+            lab = l.clone();
+        }
+        Action::Package { actor, package, event: ev } => {
+            let (a, p) = (resolve(g, actor)?, resolve(g, package)?);
+            let which = match ev.as_str() {
+                "start" => 0,
+                "done" | "end" => 1,
+                "change" => 2,
+                _ => return Err(format!("package event {ev:?} is not start, done or change")),
+            };
+            g.package_event(a, p, which);
+        }
+        Action::SayToDone { actor, topic } => {
+            let a = resolve(g, actor)?;
+            let t = match topic {
+                Some(t) => Some(Value::Ref(resolve(g, t)?.0)),
+                None => None,
+            };
+            g.ref_event(a, event::SAY_TO_DONE, t, None);
+        }
+        Action::TriggerEnter { trigger, actor, event: ev } => {
+            let t = resolve(g, trigger)?;
+            let a = match actor {
+                Some(a) => resolve(g, a)?,
+                None => FormId::PLAYER_REF,
+            };
+            let code = match ev.as_deref() {
+                None | Some("enter") => event::ON_TRIGGER_ENTER,
+                Some("inside") => event::ON_TRIGGER,
+                Some("leave") => event::ON_TRIGGER_LEAVE,
+                Some(o) => return Err(format!("trigger event {o:?} is not enter, inside or leave")),
+            };
+            if !g.ref_event(t, code, Some(Value::Ref(a.0)), Some(a)) {
+                return Err(format!("no block of {} accepted the trigger event", g.data.name(t)));
+            }
+        }
+        Action::PressButton { button } => match &mut g.message_box {
+            Some(m) => m.pressed = Some(*button),
+            None => return Err("no message box is open".into()),
+        },
+        Action::Menu { menu } => g.menu = *menu,
+        Action::MovePlayer { to } => {
+            let t = resolve(g, to)?;
+            call(g, 0x109E, Some(FormId::PLAYER_REF), vec![form_arg(t)]);
+        }
+        Action::LoadCell { cell } => {
+            let c = resolve(g, cell)?;
+            let mut cells = g.loaded_cells.clone();
+            cells.extend(g.cells_around(c));
+            g.set_loaded(cells);
+        }
+        Action::GetVar { of, var, label: l } => {
+            let f = resolve(g, of)?;
+            let (key, _, i) = var_of(g, f, var)?;
+            obs.insert("value".into(), json!(g.var(key, i).num()));
+            lab = l.clone();
+        }
+        Action::GetRef { fields: Some(fields), of, reference, label: l } => {
+            // One frame per field, as get_quest.
+            let name = reference.as_ref().or(of.as_ref()).ok_or("get_ref needs 'ref'")?;
+            let r = resolve(g, name)?;
+            let mut errors = Map::new();
+            for f in fields {
+                match ref_field(g, r, f) {
+                    Ok(v) => {
+                        obs.insert(f.clone(), v);
+                    }
+                    Err(e) => {
+                        errors.insert(f.clone(), json!(e));
+                    }
+                }
+                g.tick();
+            }
+            if !errors.is_empty() {
+                obs.insert("errors".into(), Json::Object(errors));
+            }
+            lab = l.clone();
+        }
+        Action::GetRef { fields: None, of, reference, label: l } => {
+            let name = reference.as_ref().or(of.as_ref()).ok_or("get_ref needs 'of'")?;
+            let r = resolve(g, name)?;
+            let enabled = g.world.is_enabled(r).map_err(|e| e.to_string())?;
+            let s = g.world.get(r).map_err(|e| e.to_string())?.clone();
+            obs.insert("disabled".into(), json!(!enabled));
+            obs.insert("cell".into(), json!(s.cell));
+            obs.insert("pos".into(), json!(s.pos));
+            let x = g.extra.get(&r).cloned().unwrap_or_default();
+            obs.insert("dead".into(), json!(x.dead));
+            obs.insert("destroyed".into(), json!(x.destroyed));
+            lab = l.clone();
+        }
+        Action::Kill { target, actor, killer } => {
+            let a = resolve(g, target.as_ref().or(actor.as_ref()).ok_or("kill needs 'target'")?)?;
+            let args = match killer {
+                Some(k) => vec![form_arg(resolve(g, k)?)],
+                None => vec![],
+            };
+            call(g, 0x108B, Some(a), args);
+        }
+        Action::Consume { item, actor, label: l } => {
+            let who = match actor {
+                Some(a) => resolve(g, a)?,
+                None => FormId::PLAYER_REF,
+            };
+            let it = resolve(g, item)?;
+            let ids = g.consume(who, it)?;
+            obs.insert("effects".into(), json!(ids.len()));
+            lab = l.clone();
+        }
+    }
+    Ok(lab.map(|l| (l, obs)))
+}
+
+fn quests_json(g: &Game) -> Json {
+    let mut out = Map::new();
+    for (q, s) in &g.quests {
+        let script = g.data.quests.get(q).and_then(|d| d.script);
+        let vars: Map<String, Json> = g
+            .instances
+            .get(&InstKey::Quest { quest: *q })
+            .map(|i| {
+                i.vars
+                    .iter()
+                    .map(|(k, v)| (g.var_name(script, *k).unwrap_or_else(|| format!("#{k}")), json!(v.num())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let objectives: Map<String, Json> =
+            s.objectives.iter().map(|(k, o)| (k.to_string(), json!({"displayed": o.displayed, "completed": o.completed}))).collect();
+        out.insert(
+            q.to_string(),
+            json!({"edid": g.data.edid_of.get(q), "running": s.running, "completed": s.completed, "failed": s.failed,
+                   "stage": s.stage(), "stages_done": s.stages_done, "objectives": objectives, "vars": vars}),
+        );
+    }
+    Json::Object(out)
+}
+
+/// Run an input document against a fresh world and game state.
+pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -> Result<Json, String> {
+    if input.format != ACTIONS_FORMAT {
+        return Err(format!("unsupported actions format {:?} (expected {ACTIONS_FORMAT})", input.format));
+    }
+    if input.frame_seconds.is_nan() || input.frame_seconds <= 0.0 {
+        return Err("frame_seconds must be positive".into());
+    }
+    let world = World::new(
+        forms,
+        refs,
+        SimConfig { seed: input.seed, player_level: input.player_level, hardcore: input.hardcore, ..SimConfig::default() },
+    );
+    let cfg = GameConfig { frame_seconds: input.frame_seconds, trace_locals: input.trace_locals, seed: input.seed, ..GameConfig::default() };
+    let mut g = Game::new(data, world, cfg);
+    if input.new_game {
+        g.new_game();
+    }
+    let mut given_errors = Vec::new();
+    for (i, gv) in input.given.iter().enumerate() {
+        if let Err(e) = apply_given(&mut g, gv) {
+            given_errors.push(json!({"given": i, "error": e}));
+        }
+    }
+    let mut observations = Vec::new();
+    let mut steps = Vec::new();
+    for (i, a) in input.actions.iter().enumerate() {
+        let start_frame = g.frame;
+        let res = match a {
+            Action::GetQuest { quest: q, fields, label: l } => match quest(&g, q) {
+                Ok(q) => {
+                    let mut o = json!({"label": label(l, i), "step": i});
+                    let mut errors = Map::new();
+                    for f in fields {
+                        match field(&g, q, f) {
+                            Ok(v) => o[f] = v,
+                            Err(e) => {
+                                errors.insert(f.clone(), json!(e));
+                            }
+                        }
+                        g.tick();
+                    }
+                    if !errors.is_empty() {
+                        o["errors"] = Json::Object(errors);
+                    }
+                    observations.push(o);
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            },
+            Action::SampleVar { quest: q, var, frames, runs, skip, values, label: l } => match quest(&g, q).and_then(|q| quest_var(&g, q, var)) {
+                Ok((key, idx)) => {
+                    let start = g.var(key, idx).num();
+                    let mut samples = Vec::with_capacity(*frames as usize);
+                    for _ in 0..*frames {
+                        g.tick();
+                        samples.push(g.var(key, idx).num());
+                    }
+                    let mut o = json!({"label": label(l, i), "step": i});
+                    sample_observation(&mut o, start, &samples, *runs, *skip, *values);
+                    observations.push(o);
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            },
+            Action::SampleRefVar { reference, var, frames, runs, skip, values, label: l } => {
+                match resolve(&g, reference).and_then(|r| ref_var(&g, r, var)) {
+                    Ok((key, _, Some(idx))) => {
+                        let start = g.var(key, idx).num();
+                        let mut samples = Vec::with_capacity(*frames as usize);
+                        for _ in 0..*frames {
+                            g.tick();
+                            samples.push(g.var(key, idx).num());
+                        }
+                        let mut o = json!({"label": label(l, i), "step": i});
+                        sample_observation(&mut o, start, &samples, *runs, *skip, *values);
+                        observations.push(o);
+                        Ok(())
+                    }
+                    Ok((_, _, None)) => Err(format!("the script of {reference} declares no variable {var:?}")),
+                    Err(e) => Err(e),
+                }
+            }
+            _ => match step(&mut g, a) {
+                Ok(Some((l, fields))) => {
+                    let mut o = json!({"label": l, "step": i});
+                    for (k, v) in fields {
+                        o[k] = v;
+                    }
+                    observations.push(o);
+                    Ok(())
+                }
+                Ok(None) => Ok(()),
+                Err(e) => {
+                    // A labelled action that fails still answers, with its error.
+                    if let Some(l) = action_label(a) {
+                        observations.push(json!({"label": l, "step": i, "errors": {"action": e.clone()}}));
+                    }
+                    Err(e)
+                }
+            },
+        };
+        let wait = match a {
+            Action::WaitFrames { frames } => *frames,
+            Action::AdvanceSeconds { seconds } => (seconds / input.frame_seconds).round().max(0.0) as u64,
+            _ => frames_after(a),
+        };
+        g.frames(wait);
+        let mut s = json!({"step": i, "frame": start_frame});
+        if let Err(e) = res {
+            s["error"] = json!(e);
+        }
+        steps.push(s);
+    }
+    let mut report = Map::new();
+    for n in &input.report {
+        let r = resolve(&g, n)?;
+        let st = g.world.get(r).map_err(|e| e.to_string())?.clone();
+        let mut v = serde_json::to_value(&st).map_err(|e| e.to_string())?;
+        if let Some(x) = g.extra.get(&r) {
+            v["layer5"] = serde_json::to_value(x).map_err(|e| e.to_string())?;
+        }
+        report.insert(r.to_string(), v);
+    }
+    let name = |op: &u16| g.data.table.get(*op).map(|f| f.name.clone()).unwrap_or_default();
+    let unhandled: Map<String, Json> =
+        g.unhandled.iter().map(|(op, n)| (format!("0x{op:04X}"), json!({"name": name(op), "calls": n}))).collect();
+    let stubbed: Map<String, Json> =
+        g.stubbed.iter().map(|(op, n)| (format!("0x{op:04X}"), json!({"name": name(op), "calls": n}))).collect();
+    Ok(json!({
+        "format": TRACE_FORMAT,
+        "seed": input.seed,
+        "frame_seconds": input.frame_seconds,
+        "title": input.title,
+        "observations": observations,
+        "steps": steps,
+        "given_errors": given_errors,
+        "events": g.events,
+        "final": {
+            "frames": g.frame,
+            "quests": quests_json(&g),
+            "player": g.player,
+            "references": report,
+            "unhandled": unhandled,
+            "stubbed": stubbed,
+        },
+    }))
+}
+
+fn action_label(a: &Action) -> Option<String> {
+    match a {
+        Action::SetStageRead { label, .. } => Some(label.clone()),
+        Action::SetLocal { label, .. }
+        | Action::Activate { label, .. }
+        | Action::GetItemCount { label, .. }
+        | Action::GetDisabled { label, .. }
+        | Action::GetGlobal { label, .. }
+        | Action::GetVar { label, .. }
+        | Action::GetRef { label, .. }
+        | Action::SampleRefVar { label, .. }
+        | Action::SayFirst { label, .. } => label.clone(),
+        Action::ActivateRead { label, .. }
+        | Action::AddItemRead { label, .. }
+        | Action::SampleItems { label, .. }
+        | Action::MenuGap { label, .. }
+        | Action::IsCurrentPackage { label, .. } => Some(label.clone()),
+        _ => None,
+    }
+}

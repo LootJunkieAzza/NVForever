@@ -174,6 +174,9 @@ pub struct Applied {
     pub changed: bool,
     /// References created by this command (drops).
     pub created: Vec<FormId>,
+    /// An item the player used up (an aid item "equipped" from the inventory): its
+    /// effects (and effect scripts) are the script runtime's (`crate::ItemUsed`).
+    pub used: Option<FormId>,
 }
 
 const PLAYER: FormId = FormId::PLAYER_REF;
@@ -361,6 +364,9 @@ impl MenuModel {
                     return Ok(format!("Unequipped {}", name(&r)));
                 }
                 let e = world.equip(PLAYER, r.item)?;
+                if e.consumed {
+                    out.used = Some(r.item);
+                }
                 let off: Vec<String> = e.unequipped.iter().map(|&i| display_name(forms, i)).collect();
                 Ok(match (e.consumed, off.is_empty()) {
                     (true, _) => format!("Used {}", name(&r)),

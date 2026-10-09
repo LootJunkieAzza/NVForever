@@ -243,8 +243,9 @@ fn inventory_equip_use_drop_and_errors() {
     m.apply(&mut w, Command::Focus(Side::Container));
     assert_eq!(m.focus, Side::Player);
     select(&mut m, Side::Player, "Pistol");
-    m.apply(&mut w, Command::One);
+    let a = m.apply(&mut w, Command::One);
     assert_eq!(m.status.as_deref(), Some("Equipped Pistol"));
+    assert_eq!(a.used, None);
     assert!(m.selected_row(Side::Player).unwrap().equipped);
     m.apply(&mut w, Command::One);
     assert_eq!(m.status.as_deref(), Some("Unequipped Pistol"));
@@ -256,8 +257,10 @@ fn inventory_equip_use_drop_and_errors() {
     assert_eq!(count(&mut w, 0x14, CAPS), 5);
     // Aid is used up.
     select(&mut m, Side::Player, "Aid");
-    m.apply(&mut w, Command::One);
+    let a = m.apply(&mut w, Command::One);
     assert_eq!(m.status.as_deref(), Some("Used Aid"));
+    // Its effects (and effect scripts) go to the script runtime.
+    assert_eq!(a.used, Some(FormId(AID)));
     assert_eq!(count(&mut w, 0x14, AID), 1);
     // Drops create references at the player.
     select(&mut m, Side::Player, "Ammo");
