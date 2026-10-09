@@ -230,12 +230,12 @@ impl CombatWorld for Toy {
         };
         if dir[2] < 0.0 && from[2] >= 0.0 {
             let s = -from[2] / dir[2];
-            take(WorldHit { point: vec::add(from, vec::scale(dir, s)), normal: [0.0, 0.0, 1.0], distance: s, actor: None, small_transparent: false, material: None, object: None });
+            take(WorldHit { point: vec::add(from, vec::scale(dir, s)), normal: [0.0, 0.0, 1.0], distance: s, actor: None, small_transparent: false, material: None, object: None, part: None });
         }
         for (x, small) in [(500.0, true)].into_iter().filter(|_| self.fence).chain(self.wall.map(|w| (w, false))) {
             if dir[0] > 0.0 && from[0] < x {
                 let s = (x - from[0]) / dir[0];
-                take(WorldHit { point: vec::add(from, vec::scale(dir, s)), normal: [-1.0, 0.0, 0.0], distance: s, actor: None, small_transparent: small, material: None, object: None });
+                take(WorldHit { point: vec::add(from, vec::scale(dir, s)), normal: [-1.0, 0.0, 0.0], distance: s, actor: None, small_transparent: small, material: None, object: None, part: None });
             }
         }
         for &(id, c, r) in &self.actors {
@@ -249,7 +249,7 @@ impl CombatWorld for Toy {
             if disc >= 0.0 {
                 let s = -b - disc.sqrt();
                 let p = vec::add(from, vec::scale(dir, s));
-                take(WorldHit { point: p, normal: vec::normalize(vec::sub(p, c)), distance: s, actor: Some(id), small_transparent: false, material: None, object: None });
+                take(WorldHit { point: p, normal: vec::normalize(vec::sub(p, c)), distance: s, actor: Some(id), small_transparent: false, material: None, object: None, part: None });
             }
         }
         best
