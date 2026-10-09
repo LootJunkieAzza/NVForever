@@ -3,6 +3,9 @@
 //! point at a decoding or convention error.
 //!
 //! cargo run --release -p fnv-nif --example kf_bind_check -- <Data dir> <schema dir> <mesh> <kf>
+//!
+//! `KF_VALUES=1` also prints the start values next to the bind values; `KF_BENCH=1` times
+//! sampling every transform track of each sequence (the per-actor cost of one frame).
 
 use fnv_nif::anim::{sequences, Channel, TrackData};
 use fnv_nif::scene::{scene_objects, Decoded};
@@ -46,14 +49,44 @@ fn main() {
     };
     let (mf, md) = load(&a[3]);
     let mdec = Decoded::new(&mf, &md, &schema);
-    let bind: HashMap<String, fnv_nif::scene::Transform> =
-        scene_objects(&mf, &mdec).into_iter().filter_map(|o| Some((o.name?, o.transform))).collect();
+    let objects = scene_objects(&mf, &mdec);
+    let bind: HashMap<String, fnv_nif::scene::Transform> = objects.iter().filter_map(|o| Some((o.name.clone()?, o.transform))).collect();
+    // The chain from the first animated node's parent up to the mesh root, with bind values.
+    let by_block: HashMap<usize, &fnv_nif::scene::SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
     let (kf, kd) = load(&a[4]);
     let kdec = Decoded::new(&kf, &kd, &schema);
+    if std::env::var_os("KF_BENCH").is_some() {
+        for s in sequences(&kf, &kdec) {
+            let tracks: Vec<_> = s.tracks.iter().filter_map(|t| if let TrackData::Transform(tt) = &t.data { Some(tt) } else { None }).collect();
+            let frames = 20_000;
+            let t0 = std::time::Instant::now();
+            let mut sink = 0.0f32;
+            for i in 0..frames {
+                let time = s.start_time + (s.stop_time - s.start_time) * (i as f32 / frames as f32);
+                for tt in &tracks {
+                    sink += tt.translation.sample(time).map_or(0.0, |v| v[0]);
+                    sink += tt.rotation_at(time).map_or(0.0, |q| q[0]);
+                    sink += tt.scale.sample(time).map_or(0.0, |v| v[0]);
+                }
+            }
+            let per = t0.elapsed().as_secs_f64() / frames as f64;
+            println!("bench {:?}: {} transform tracks, {:.2} us per pose ({sink:.0})", s.name, tracks.len(), per * 1e6);
+        }
+    }
     for s in sequences(&kf, &kdec) {
-        println!("sequence {:?} [{}..{}]", s.name, s.start_time, s.stop_time);
+        println!("sequence {:?} [{}..{}] cycle {} frequency {} accum root {:?}", s.name, s.start_time, s.stop_time, s.cycle_type, s.frequency, s.accum_root_name);
+        if let Some(first) = s.tracks.iter().find_map(|t| t.node_name.as_deref()) {
+            let mut cur = objects.iter().find(|o| o.name.as_deref() == Some(first));
+            while let Some(o) = cur {
+                println!("  mesh chain: {:28} bind t {:?} q(wxyz) {:?}", o.name.as_deref().unwrap_or("-"), o.transform.translation, quat_of(&o.transform.rotation));
+                cur = o.parent.and_then(|p| by_block.get(&p).copied());
+            }
+        }
         for t in &s.tracks {
-            let (Some(name), TrackData::Transform(tt)) = (&t.node_name, &t.data) else { continue };
+            let (Some(name), TrackData::Transform(tt)) = (&t.node_name, &t.data) else {
+                println!("{:28} not a transform track: controller {:?}, {:?}", t.node_name.as_deref().unwrap_or("-"), t.controller_type, t.data);
+                continue;
+            };
             let Some(b) = bind.get(name) else {
                 println!("{name:28} not in the mesh");
                 continue;
@@ -69,6 +102,9 @@ fn main() {
             let conj = [q[0], -q[1], -q[2], -q[3]];
             let tr = tt.translation.sample(s.start_time);
             let dt = tr.map(|v| ((v[0] - b.translation[0]).powi(2) + (v[1] - b.translation[1]).powi(2) + (v[2] - b.translation[2]).powi(2)).sqrt());
+            if std::env::var_os("KF_VALUES").is_some() {
+                println!("  {name:28} kf t {:?} q(wxyz) {:?} | bind t {:?} q {:?}", tt.translation.sample(s.start_time), q, b.translation, qb);
+            }
             println!(
                 "{name:28} {kind:7} rot diff as-is {:6.1}°  xyzw {:6.1}°  conj {:6.1}°  trans diff {:?}",
                 angle(q, qb),

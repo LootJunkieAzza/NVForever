@@ -178,6 +178,13 @@ struct Args {
     /// Draw NPCs with the race's base face (no FaceGen morphs or face textures).
     #[arg(long)]
     no_facegen: bool,
+    /// How NPCs are posed: the frozen bind pose, or the skeleton's idle clip in a loop
+    /// (docs/spec-notes/actors.md §7).
+    #[arg(long, value_enum, default_value_t = actors::ActorPose::Bind)]
+    actor_pose: actors::ActorPose,
+    /// Test aid with --actor-pose idle: hold every NPC at this clip time (seconds).
+    #[arg(long)]
+    actor_pose_time: Option<f32>,
     /// Test aid with --play: walk forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0, requires = "play")]
     auto_walk: f32,
@@ -335,6 +342,8 @@ fn main() -> AppExit {
         let t0 = std::time::Instant::now();
         let mut a = actors::ActorWorld::build(world.lo, world.schema);
         a.facegen_enabled = !args.no_facegen;
+        a.pose = args.actor_pose;
+        a.pose_time = args.actor_pose_time;
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
@@ -392,7 +401,8 @@ fn main() -> AppExit {
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, overlay, keys).chain())
-    .add_systems(Update, nvf_assets::anim_play::advance_instances)
+    .init_resource::<AnimCost>()
+    .add_systems(Update, advance_animations)
     .add_systems(Update, timelapse.after(sky::update_sky));
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
@@ -409,7 +419,7 @@ fn main() -> AppExit {
         app.add_systems(Update, screenshot_and_exit);
     }
     if let Some(secs) = args.run_seconds {
-        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, lod: Res<lod::LodState>, actors: Option<Res<actors::ActorWorld>>, mut commands: Commands, mut t: Local<(f32, u32)>| {
+        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, lod: Res<lod::LodState>, actors: Option<Res<actors::ActorWorld>>, anim: Res<AnimCost>, mut commands: Commands, mut t: Local<(f32, u32)>| {
             t.0 += time.delta_secs();
             t.1 += 1;
             if t.0 >= secs {
@@ -417,6 +427,12 @@ fn main() -> AppExit {
                 info!(
                     "run finished after {:.1}s: {} cells loaded in total, {} loaded now, {} frames ({:.1} per second), generated LOD chunks {} baked, {} from the cache, actors {:?}",
                     t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached, streamer.stats.actors
+                );
+                info!(
+                    "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame",
+                    anim.peak,
+                    anim.total.as_secs_f64() * 1e3 / f64::from(anim.frames.max(1)),
+                    anim.total.as_secs_f64() * 1e6 / anim.clip_frames.max(1) as f64
                 );
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
@@ -579,6 +595,32 @@ fn timelapse(
     if let Some(dir) = &args.timelapse {
         commands.spawn(Screenshot::primary_window()).observe(save_to_disk(dir.join(format!("{:02}_{hour:02}h.png", *seen))));
     }
+}
+
+/// Time spent advancing clips (animated models and, with `--actor-pose idle`, actors),
+/// for the `--run-seconds` summary.
+#[derive(Resource, Default)]
+struct AnimCost {
+    total: std::time::Duration,
+    frames: u32,
+    /// Clips advanced, summed over frames, and the most at once.
+    clip_frames: u64,
+    peak: usize,
+}
+
+fn advance_animations(
+    time: Res<Time>,
+    playing: Query<&mut nvf_assets::anim_play::Playing>,
+    transforms: Query<&mut Transform>,
+    mut cost: ResMut<AnimCost>,
+) {
+    let t0 = std::time::Instant::now();
+    let n = playing.iter().len();
+    nvf_assets::anim_play::advance_instances(time, playing, transforms);
+    cost.total += t0.elapsed();
+    cost.frames += 1;
+    cost.clip_frames += n as u64;
+    cost.peak = cost.peak.max(n);
 }
 
 /// --screenshot: wait for the cells around the start and for pipelines and textures, save,
