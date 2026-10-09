@@ -303,17 +303,21 @@ pub fn day_factor(c: &Climate, hour: f32) -> f32 {
     (ramp(c.sunrise.0, c.sunrise.1) - ramp(c.sunset.0, c.sunset.1)).clamp(0.0, 1.0)
 }
 
-/// Unit vector towards the sun in game space (x east, y north, z up) [hypothesis: the
-/// sun rises due east in the middle of sunrise, sets due west in the middle of sunset,
-/// and its path is tilted towards the south by `tilt` radians]. Below the horizon at
-/// night.
-pub fn sun_direction(c: &Climate, hour: f32, tilt: f32) -> [f32; 3] {
-    let sr = (c.sunrise.0 + c.sunrise.1) / 2.0;
-    let ss = (c.sunset.0 + c.sunset.1) / 2.0;
-    let span = (ss - sr).max(1e-3);
-    let theta = std::f32::consts::PI * (hour.rem_euclid(24.0) - sr) / span;
+/// Unit vector towards the sun in game space (x east, y north, z up). The sun rises due
+/// east at sunrise begin and sets due west at sunset end, moving at a constant rate along
+/// a path held `south` radians south of the east-west line: the direction is
+/// normalize(cos θ, −tan(south), sin θ) with θ going from 0 to π over that time. Below the
+/// horizon at night (θ beyond 0..π). [hypothesis fitted to sun positions in screenshots of
+/// the original game at Goodsprings, 08:36-18:21, with south = 9°: 3.6° RMS over 14
+/// positions; docs/spec-notes/world.md §6.]
+pub fn sun_direction(c: &Climate, hour: f32, south: f32) -> [f32; 3] {
+    let (rise, set) = (c.sunrise.0, c.sunset.1);
+    let span = (set - rise).max(1e-3);
+    let theta = std::f32::consts::PI * (hour.rem_euclid(24.0) - rise) / span;
     let (s, co) = theta.sin_cos();
-    [co, -s * tilt.sin(), s * tilt.cos()]
+    let k = -south.tan();
+    let n = (co * co + k * k + s * s).sqrt();
+    [co / n, k / n, s / n]
 }
 
 /// One of the three scrolling noise layers of a water type (WATR DNAM) [documented: field
@@ -483,11 +487,17 @@ mod tests {
     #[test]
     fn sun_path() {
         let c = clim();
-        let rise = sun_direction(&c, 7.0, 0.0);
+        let el = |h: f32| sun_direction(&c, h, 9f32.to_radians())[2].asin().to_degrees();
+        // Rises at sunrise begin, sets at sunset end, highest half way (90° − 9°).
+        let rise = sun_direction(&c, 6.0, 0.0);
         assert!((rise[0] - 1.0).abs() < 1e-5 && rise[2].abs() < 1e-5);
-        let noon = sun_direction(&c, 13.0, 0.5);
-        assert!(noon[2] > 0.8 && noon[1] < 0.0);
-        assert!(sun_direction(&c, 1.0, 0.0)[2] < 0.0);
+        assert!(el(6.0).abs() < 1e-3 && el(20.0).abs() < 1e-3);
+        assert!((el(13.0) - 81.0).abs() < 1e-3);
+        let noon = sun_direction(&c, 13.0, 9f32.to_radians());
+        assert!(noon[1] < 0.0 && (noon.iter().map(|v| v * v).sum::<f32>() - 1.0).abs() < 1e-5);
+        // Still about 12° up at 19:06 (the dusk reference frame), below the horizon at night.
+        assert!((el(19.1) - 11.8).abs() < 0.5);
+        assert!(el(1.0) < 0.0 && el(21.0) < 0.0);
     }
 
     #[test]

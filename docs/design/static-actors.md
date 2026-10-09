@@ -2,7 +2,11 @@
 
 Status 2026-10-08: **parts A, B and C done** (C: geometry and face-texture FaceGen;
 the body's skin `.egt` and the race FaceGen data are not used yet); part D (creatures)
-not started. Part A: schema
+not started; part E (animation playback) done: `nvforever` (default `--actor-pose idle`)
+plays `mtidle.kf` on each actor's skeleton, all 60 transform tracks binding to
+`skeleton.nif`, with skinned, rigid and FaceGen parts following (actors.md §7); since
+2026-10-09 this is the default (owner decision: the owner asked for working NPCs; set by
+the desktop coordinator, reversible), and `--actor-pose bind` keeps the frozen bind pose. Part A: schema
 layouts, `fnv-actor` resolution, `fnvtool actor forms | appearance | meshes`, the
 independent oracle `tools/capture/oracle_actor.py` and `L3.actors.appearance` (all 1,149
 deterministic actors equal). Part B: `nvf_assets::actor` assembles each placed NPC on
@@ -173,6 +177,7 @@ Done when 1–5 hold for humanoids with FaceGen faces (parts A, B and C).
 | B — assembly | one-skeleton spawning in `nvf-assets`, viewer `--npc`, world streaming of actors, frozen bind pose | A's `ActorAppearance` (stub first) |
 | C — FaceGen | spec note for `.egm`/`.egt`/`.tri` from public documentation, head/hair/hat morphs from FGGS/FGGA, skin texture morph from FGTS | B |
 | D — creatures | CREA (`MODL` skeleton + `NIFZ` model list), ACRE placement | B |
+| E — animation playback | `--actor-pose idle` (the default since 2026-10-09): a looping KF idle on each actor's skeleton by bone name (anim_play), accumulation root held at the identity, no per-frame allocation; findings in actors.md §7. Choosing clips by situation stays Layer 6 | B |
 | F — animation data (headless) | IDLE schema and reader (`fnv_actor::idle`), `.kf` catalogue by skeleton folder (`fnvtool actor anims`), spec note docs/spec-notes/animation.md; groundwork for Layer 6 animation selection | A |
 
 A and B can run in parallel once the `ActorAppearance` struct is committed as a stub.
