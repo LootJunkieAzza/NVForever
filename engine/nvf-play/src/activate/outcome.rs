@@ -27,6 +27,8 @@ pub enum Action {
     /// Locked, no key.
     Locked { level: u8 },
     Talk,
+    /// A dead actor: its inventory opens (combat C5).
+    Search,
     /// Activators and furniture: the base form's script would run (Layer 5).
     Activate,
     /// A placed explosive (PGRE).
@@ -61,6 +63,7 @@ impl Action {
             Action::Unlock => "Unlock (key)".into(),
             Action::Locked { level } => format!("Locked ({})", lock_text(*level)),
             Action::Talk => "Talk".into(),
+            Action::Search => "Search".into(),
             Action::Activate => "Activate".into(),
             Action::Disarm => "Disarm".into(),
         }

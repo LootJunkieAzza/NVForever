@@ -1,0 +1,13 @@
+[package]
+name = "fnv-combat"
+description = "Combat for Fallout: New Vegas (headless): weapon, ammo, projectile, explosion and body-part data, and later the damage rules and attack cycle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-esm = { path = "../fnv-esm" }
+fnv-sim = { path = "../fnv-sim" }
+serde.workspace = true
+serde_json.workspace = true
+rayon = "1"
