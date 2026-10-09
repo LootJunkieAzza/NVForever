@@ -460,3 +460,89 @@ coordinators could not message each other, so this section is how they share sta
    - Clips are not chosen by situation (walk, sit, talk); that is Layer 6.
    - `nvf-viewer --anim` needs #54's accumulation-root rule (its follow-up).
    - The body skin `.egt` and race FaceGen data are unused.
+
+## Layers 1–4 close-out (coordinator "Layers 1–4 and housekeeping", 2026-10-09 afternoon)
+
+The owner asked for Layers 1–4 to be worked through and the repository tidied, using the
+in-game comparison tools. Eight workstreams ran in parallel worktrees; their PRs were
+checked and merged by this coordinator (owner approved merging when green): #91, #93,
+#95, #97, #98, #99, #100, #101, #102. Lab on `main` after the merges: **376/402 pass, 0 regressions** (L1 111/115, L2 51/56, L3 99/109, L4 87/90, L5 28/32; the 8 errors are holdouts whose goldens are not on this machine; the 18 fails are the 4 xEdit rows of item 3, 7 exterior frames below `min_ssim` 0.6, the 3 accepted physics residuals and the 4 known Layer 5 rows).
+
+1. **⚠️ Your autosave was rewritten again.** A Layer 4 capture (`pc_drop_fall`) walked
+   out of Doc Mitchell's house through the front door, and the game wrote `autosave.fos`.
+   `capture_run.py` backed up the previous `autosave.fos`, `.bak` and `.nvse` first, to
+   `C:\fnv-private\capture\saves-backup\1791556049`. Copy them back into
+   `Documents\My Games\FalloutNV\Saves` yourself if you want them (the tools never write
+   there). The older movement jobs (layer4-captures.md §5) leave the house the same way,
+   so treat any job that passes a door as one that may autosave.
+2. **Accepted physics residuals (your decision today):** `L4.phys.drops.b11_goodsprings`
+   17/20, `L4.phys.walk.portal_wall` 5/6 and `L4.phys.drops.swim_h2o_fresh` 8/9 stay
+   failing as the honest record; nobody tunes them further (layer4.md §4).
+3. **Layer 1 (#93).** The four failing xEdit scenarios are xEdit normalising the file,
+   not our reader: three missing required EDID/FULL subrecords that xEdit exports as `""`,
+   and GRA's out-of-range master index, which xEdit folds into the plugin's own. Our
+   reader and the independent oracle agree on all four. Decide:
+   - (a) add a "documented differences" list to the scenario format (proposal in
+     layer1.md §5.1), or (b) leave the four failing.
+   - The game does what xEdit does with the out-of-range index (the reference is placed
+     as GRA's own, captured). Following it needs an `oracle_world.py` change and two
+     regenerated L3 interior goldens — your call (golden regeneration).
+   - Record layouts now cover 70 of 107 types, with nothing left undecoded at the end
+     of a record in any master. FalloutNV.esm's SHA-256 is unchanged; a Steam "verify"
+     is still yours if you want the checksum question closed. The licence is still yours.
+4. **Layer 2 (#101).** Archive precedence is settled in game: `Update.bsa` and the DLC
+   `<Plugin> - Main.bsa` archives override the base archives, whatever the file dates.
+   Loose files on top stay a hypothesis (Data has no loose meshes or textures; put one
+   there by hand if you want it confirmed). Five fixed-camera frames were captured for a
+   mesh-by-mesh comparison; no asset bug was found. Their `L2.frame.*` scenarios are not
+   generated yet, and their threshold (provisional `min_ssim` 0.6) needs you.
+5. **Layer 3 (#95, #98, #99, #100).**
+   - **Creatures** are drawn with their idle animation; disabled NPCs, creatures and
+     lights are now spawned hidden, so a script's Enable shows them (item 19 above);
+     "Random Anim Start" objects no longer animate in step. Whether the game adds the
+     race's FaceGen data to an NPC's is open: say if you want the capture (several NPCs
+     of one race).
+   - **Distant land:** terrain LOD levels 4–32, object blocks out to 125,000 units, distant
+     tree billboards to 40,000, distances from your INI; the interior-start bug is fixed;
+     smoke test 47.6 → 54.0 fps. **Question:** the game's view of the hill east of
+     Goodsprings matched ours only at `--radius 4`, not at your `uGridsToLoad=5`
+     (`--radius 2`). Raise the default load radius?
+   - **Interiors:** a placed light's radius is its base radius plus `XRDS` (settled with
+     seven new interior reference frames; SSIM up on all seven, e.g. Doc's living room
+     0.42 → 0.68).
+   - **Sky (docs only):** the new captures settled that the noon darkening is not eye
+     adaptation, that clouds move with seconds since the save loaded (not the game hour),
+     and that sunlight is about 0.6–0.66× too strong while shaded faces should be lit
+     nearly neutral, not blue. Nothing in the renderer changed yet. **Questions:** record
+     seconds-since-load in the frame scenarios so clouds can be matched? And the lab
+     renders frames with sun shadows on (your default) while the game draws none — should
+     the frame scenarios pass `--shadow-distance 0`?
+   - The plugin's screenshot step fails ("BitBlt failed") in Vault 21, REPCONN and Big MT;
+     the three saloon frames crash inside the lab (0xC0000142) but render fine outside it.
+6. **Layer 4 (#97, #102).**
+   - **Played by hand** (M4's last open item) with real OS keyboard and mouse input
+     (layer4.md §4). The five problems found — free-fly help text in play mode, Esc
+     quitting at once, message-box buttons not clickable, a raw FormID in a menu error,
+     "level 0" lock prompts — are fixed: Esc now opens a Resume / Quit pause menu.
+   - **Captured and modelled:** dropped items fall (and face the player's heading); the
+     player is about 130 units tall; pushing matches the game; `coc` and a fall into
+     nothing land on the cell's marker; physics-moved clutter is written back; Caps Lock,
+     Ctrl (sneak) and Q (auto-move) work; `iHoursToRespawnCell` is 72 and a cell resets 72
+     hours after the player leaves it; placed frag mines are live; the Pip-Boy and its
+     glove are worn from the start.
+   - **Still open:** crouched and eye height; player disarming of mines; Chet's restock
+     rule (Ringo's days are not global, but the simulation still applies them to every
+     merchant); armour on the ground should be drawn with MOD2 (male), which the engine
+     does not do yet; Layer 5's `coc_destination` should follow the marker rule.
+7. **Housekeeping.**
+   - The README now describes the project as it is (status table, `--play`, the comparison
+     tools, every crate).
+   - Build folders of 33 merged worktrees were deleted (C: free space 75 → 195 GB); the
+     worktrees themselves were kept. Merged remote branches (78) are untouched; deleting
+     them is still your call. `frosty-nash`'s one useful doc line was taken in; the other
+     unmerged branches add nothing to `main` except `layer5-play-2` (Layer 5, left alone).
+   - **Lock incident:** when all agents stopped at the usage limit, a leftover lock loop
+     of one agent took both game locks and held them with nothing running (about
+     14:22–14:54), which blocked the Layer 5 session's windowed checks; they never ran and
+     need re-running there. All game runs since go through a wrapper that releases both
+     locks in a trap. Keep it that way for loops that wait for the locks.

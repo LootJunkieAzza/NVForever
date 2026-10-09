@@ -1,6 +1,8 @@
 /target/
 /viewer/target/
 /engine/target/
+/engine/target-*/
+/target-*/
 /tools/capture/nvf_capture/target/
 **/runs/
 **/__pycache__/
@@ -27,3 +29,6 @@ baseline.json
 *.fos
 # Built programs copied around for checks (never commit binaries).
 *.exe
+# Screenshots and frames rendered from game data (F12, --screenshot, --timelapse).
+nvforever-*.png
+nvf-screenshot-*.png
