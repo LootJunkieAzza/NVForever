@@ -75,6 +75,12 @@ pub struct Item {
     /// WEAP/ARMO DATA: full health (condition 1.0).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health: Option<i32>,
+    /// ARMO BMDT general flag "Non-Playable" [documented: xEdit wbBMDT]. The Pip-Boy 3000
+    /// and the Pip-Boy Glove carry it [observed: `fnvtool esm decode`]; the game never
+    /// shows the glove in the inventory and it stays equipped [observed by the owner,
+    /// 2026-10-08]. Not part of `fnv.sim.items/1`.
+    #[serde(skip)]
+    pub non_playable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -339,7 +345,7 @@ fn load_one(lo: &LoadOrder, schema: &Schema, id: FormId, pi: usize, r: &Record, 
                     edid: None,
                     name: None,
                     script: None,
-                    data: BaseData::Item(Item { kind, value: None, weight: None, slots: None, projectile: None, health: None }),
+                    data: BaseData::Item(Item { kind, value: None, weight: None, slots: None, projectile: None, health: None, non_playable: false }),
                 })),
                 None => Loaded::Skip,
             };
@@ -464,8 +470,11 @@ fn item(kind: ItemKind, d: &[Decoded]) -> Option<Item> {
         ItemKind::Armor => first(d, b"BMDT").and_then(|v| v.get("biped_flags")).and_then(|f| int(f, "value")),
         _ => None,
     };
+    let non_playable = matches!(kind, ItemKind::Armor)
+        && first(d, b"BMDT").and_then(|v| v.get("general_flags")).is_some_and(|f| has_flag(f, "Non-Playable"));
     Some(Item {
         kind,
+        non_playable,
         value: value.map(|v| v as i32),
         weight: weight.map(|w| w as f32).filter(|w| w.is_finite()),
         slots: slots.map(|s| s as u32),

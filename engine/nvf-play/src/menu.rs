@@ -21,23 +21,26 @@
 //! - The game clock stops while a menu is open (the simulation's clock runs only in
 //!   `PlayState::Playing`, sim.rs). [hypothesis: not captured for the container and
 //!   inventory menus]
-//! - Dropping creates references in the simulation that nothing renders yet (no
-//!   `RefChanged` for them: visuals and collision of created references are not built);
-//!   each drop is logged.
-//! - Transfers between inventories do not change any placed reference's presence, so the
-//!   menus send no `RefChanged`.
+//! - Dropping creates references in the simulation (`World::drop_item`); the menu sends
+//!   `RefChanged` for each, and `crate::dropped` and `crate::phys` give them a model and
+//!   collision. Each drop is logged.
+//! - Transfers between inventories do not change any reference's presence, so they send
+//!   no `RefChanged`.
 //!
 //! Test aids (only with `--play`, since this plugin exists only then):
 //! - F9 while playing opens the container menu on the container reference nearest to
 //!   the camera (in the current interior, or the worldspace), logging which one.
 //! - `NVF_PLAY_TEST_MENU=<container FormID hex | nearest>` runs a scripted check (see
 //!   [`test_aid`]).
+//! - `NVF_PLAY_TEST_DROP=<seconds>:<item FormID hex>[:stack][,...]` drops one unit (or
+//!   the stack) of a carried item through the inventory menu at those times (see
+//!   [`test_aid`]).
 
 pub mod model;
 mod test_aid;
 
 use crate::sim::SimState;
-use crate::{space, OpenContainer, PlaySet, PlayState, PlayWorld, PlayerCamera, Travel};
+use crate::{space, Location, OpenContainer, PlaySet, PlayState, PlayerCamera, RefChanged};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -60,13 +63,6 @@ pub struct OpenInventory;
 #[derive(Message, Clone, Copy, Debug, Default)]
 pub struct OpenNearestContainer;
 
-/// The interior the player is in (`None`: the worldspace), followed through `Travel`;
-/// used by the F9 test aid.
-#[derive(Resource, Default)]
-struct Here {
-    interior: Option<u32>,
-}
-
 #[derive(Component)]
 struct MenuRoot;
 
@@ -83,17 +79,15 @@ pub struct MenuPlugin;
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActiveMenu>()
-            .init_resource::<Here>()
             .add_message::<MenuInput>()
             .add_message::<OpenInventory>()
             .add_message::<OpenNearestContainer>()
-            .add_systems(Startup, |d: Res<PlayWorld>, mut here: ResMut<Here>| here.interior = d.interior)
             .add_systems(
                 Update,
                 (
-                    follow_travel,
                     (tab_opens_inventory, f9_opens_nearest_container).run_if(in_state(PlayState::Playing)),
                     test_aid::run,
+                    test_aid::run_drops,
                     open_menus,
                     (menu_keys, menu_mouse, apply_input, draw).chain().run_if(in_state(PlayState::Menu)),
                 )
@@ -106,12 +100,6 @@ impl Plugin for MenuPlugin {
     }
 }
 
-fn follow_travel(mut travel: MessageReader<Travel>, mut here: ResMut<Here>) {
-    for t in travel.read() {
-        here.interior = t.interior;
-    }
-}
-
 fn tab_opens_inventory(keys: Res<ButtonInput<KeyCode>>, mut out: MessageWriter<OpenInventory>) {
     if keys.just_pressed(KeyCode::Tab) {
         out.write(OpenInventory);
@@ -121,8 +109,7 @@ fn tab_opens_inventory(keys: Res<ButtonInput<KeyCode>>, mut out: MessageWriter<O
 /// Test aid: F9 opens the nearest container.
 fn f9_opens_nearest_container(
     keys: Res<ButtonInput<KeyCode>>,
-    d: Res<PlayWorld>,
-    here: Res<Here>,
+    here: Res<Location>,
     sim: Res<SimState>,
     cam: Query<&GlobalTransform, With<PlayerCamera>>,
     mut requests: MessageReader<OpenNearestContainer>,
@@ -133,7 +120,7 @@ fn f9_opens_nearest_container(
     }
     let Ok(cam) = cam.single() else { return };
     let pos = space::to_game(cam.translation());
-    match model::nearest_container(&sim.world, sim.refs, here.interior.map(FormId), FormId(d.world), pos) {
+    match model::nearest_container(&sim.world, sim.refs, here.interior.map(FormId), FormId(here.world), pos) {
         Some((id, dist)) => {
             let name = sim.base_of(id.0).and_then(|b| sim.name(b)).unwrap_or("?");
             info!("F9: nearest container {id} ({name}) at {dist:.0} units");
@@ -257,6 +244,7 @@ fn apply_input(
     mut active: ResMut<ActiveMenu>,
     mut sim: ResMut<SimState>,
     mut next: ResMut<NextState<PlayState>>,
+    mut changed: MessageWriter<RefChanged>,
 ) {
     for &MenuInput(cmd) in input.read() {
         let Some(m) = active.0.as_mut() else { return };
@@ -268,8 +256,9 @@ fn apply_input(
             }
         }
         for id in &a.created {
-            let at = sim.world.peek(*id).map(|s| s.pos).unwrap_or_default();
-            info!("menu: dropped reference {id} at {at:?} (in the simulation; not rendered yet)");
+            let (at, count) = sim.world.peek(*id).map(|s| (s.pos, s.count)).unwrap_or_default();
+            info!("menu: dropped reference {id} (count {count}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
+            changed.write(RefChanged { form_id: id.0 });
         }
         if a.close {
             info!("menu: close");

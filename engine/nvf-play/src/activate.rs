@@ -255,7 +255,7 @@ fn activate(
     };
     info!("activate 0x{:08X} {} ({}): {:?}", t.form_id, t.name, t.action.label(), a);
     let name_of = |id: FormId| sim.name(id).map_or_else(|| id.to_string(), str::to_string);
-    let effects = outcome::effects(&a, t.form_id, &t.name, play.index, play.world, name_of);
+    let effects = outcome::effects(&a, t.form_id, &t.name, play.index, name_of);
     let travels = effects.iter().any(|e| matches!(e, Effect::Travel { .. }));
     if matches!(a.outcome, Outcome::Teleported { .. }) && !travels {
         if let (Some((cell, pos, rot)), Ok(p)) = (before, sim.world.get(FormId::PLAYER_REF)) {
@@ -267,10 +267,14 @@ fn activate(
             Effect::RefChanged(form_id) => {
                 changed.write(RefChanged { form_id });
             }
-            Effect::Travel { interior, feet, heading_deg } => {
-                let to = interior.map_or_else(|| "the worldspace".to_string(), |c| format!("interior 0x{c:08X}"));
+            Effect::Travel { world, interior, feet, heading_deg } => {
+                let to = match (interior, world) {
+                    (Some(c), _) => format!("interior 0x{c:08X}"),
+                    (None, Some(w)) => format!("worldspace 0x{w:08X}"),
+                    (None, None) => "the worldspace".to_string(),
+                };
                 info!("travel to {to} at {feet:?} heading {heading_deg:.1}");
-                travel.write(Travel { interior, feet, heading_deg });
+                travel.write(Travel { world, interior, feet, heading_deg });
             }
             Effect::OpenContainer(container) => {
                 open.write(OpenContainer { container });

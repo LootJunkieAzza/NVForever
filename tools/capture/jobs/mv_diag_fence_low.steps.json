@@ -1,0 +1,914 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "mv_diag_fence_low",
+ "title": "mv_diag_fence_low: diag_fence_low (no input needed)",
+ "start": "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "console": "tgm"
+  },
+  {
+   "console": "tdetect"
+  },
+  {
+   "script": "float fM1\nref rF1\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nrF1.Activate player\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fM1\nref rF1\nref rP\nref rD\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1064545\nlet rP := player.GetParentCell\nlet rD := rF1.GetParentCell\nif rP == rD\n  let fV := 0\nelse\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 3600
+  },
+  {
+   "frames": 300
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72458.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_+0",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+0",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+0",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72450.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_+8",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+8",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+8",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72466.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_-8",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_-8",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_-8",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72446.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_+12",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+12",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+12",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72470.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_-12",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_-12",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_-12",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72442.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_+16",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+16",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+16",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72474.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_-16",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_-16",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_-16",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72438.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_+20",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+20",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+20",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72478.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_-20",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_-20",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_-20",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72434.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_+24",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+24",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_+24",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72482.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8432.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8431.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h10_-24",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_-24",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h10_-24",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72458.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_+0",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+0",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+0",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72450.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_+8",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+8",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+8",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72466.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_-8",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_-8",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_-8",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72446.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_+12",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+12",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+12",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72470.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_-12",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_-12",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_-12",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72442.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_+16",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+16",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+16",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72474.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_-16",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_-16",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_-16",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72438.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_+20",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+20",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+20",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72478.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_-20",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_-20",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_-20",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72434.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_+24",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+24",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_+24",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72482.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8472.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8471.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h50_-24",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_-24",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h50_-24",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72446.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8622.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8621.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8621.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h200_+12",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h200_+12",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h200_+12",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -72438.75\nplayer.SetPos Y 4100\nplayer.SetPos Z 8622.4\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8621.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8621.4\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low fence_h200_+20",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h200_+20",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low fence_h200_+20",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74300.2\nplayer.SetPos Y -1166.8\nplayer.SetPos Z 8650.53\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8649.53\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8649.53\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low tree_a_+0_+0_h12",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_+0_+0_h12",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_+0_+0_h12",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74300.2\nplayer.SetPos Y -1166.8\nplayer.SetPos Z 8688.53\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8687.53\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8687.53\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low tree_a_+0_+0_h50",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_+0_+0_h50",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_+0_+0_h50",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74330.2\nplayer.SetPos Y -1166.8\nplayer.SetPos Z 8637.73\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8636.73\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8636.73\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low tree_a_-30_+0_h12",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_-30_+0_h12",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_-30_+0_h12",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74330.2\nplayer.SetPos Y -1166.8\nplayer.SetPos Z 8675.73\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8674.73\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8674.73\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low tree_a_-30_+0_h50",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_-30_+0_h50",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_-30_+0_h50",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74270.2\nplayer.SetPos Y -1196.8\nplayer.SetPos Z 8709.56\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8708.56\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8708.56\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low tree_a_+30_-30_h12",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_+30_-30_h12",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_+30_-30_h12",
+   "field": "feet_later"
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetPos X -74270.2\nplayer.SetPos Y -1196.8\nplayer.SetPos Z 8747.56\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "until": "float fV\nBegin Function { }\nif player.GetPos Z < 8746.56\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "max_frames": 1800
+  },
+  {
+   "query": "float fV\nBegin Function { }\nif player.GetPos Z < 8746.56\n  let fV := 1\nendif\nSetFunctionValue fV\nEnd\n",
+   "label": "diag_fence_low tree_a_+30_-30_h50",
+   "field": "fell"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_+30_-30_h50",
+   "field": "feet"
+  },
+  {
+   "frames": 300
+  },
+  {
+   "query": "float fX\nfloat fY\nfloat fZ\nBegin Function { }\nlet fX := player.GetPos X\nlet fY := player.GetPos Y\nlet fZ := player.GetPos Z\nSetFunctionValue (($ fX) + \" \" + ($ fY) + \" \" + ($ fZ))\nEnd\n",
+   "label": "diag_fence_low tree_a_+30_-30_h50",
+   "field": "feet_later"
+  }
+ ]
+}
