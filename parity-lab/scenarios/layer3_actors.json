@@ -1,0 +1,44 @@
+{
+ "scenarios": [
+  {
+   "id": "L3.actors.appearance",
+   "layer": 3,
+   "description": "Parts list of every placed NPC whose appearance involves no random leveled choice (fnv.actor.appearance/1 --deterministic, docs/spec-notes/actors.md sections 2 and 5): skeleton, race and head parts, hair, head parts, worn armour by DT/DR, FaceGen coefficients; base game + DLC + packs, against the independent oracle tools/capture/oracle_actor.py.",
+   "oracle": {
+    "golden": "actor/appearance_deterministic.json"
+   },
+   "candidate": {
+    "argv": [
+     "{candidate}",
+     "actor",
+     "appearance",
+     "{data_dir}",
+     "FalloutNV.esm",
+     "DeadMoney.esm",
+     "HonestHearts.esm",
+     "OldWorldBlues.esm",
+     "LonesomeRoad.esm",
+     "GunRunnersArsenal.esm",
+     "ClassicPack.esm",
+     "MercenaryPack.esm",
+     "TribalPack.esm",
+     "CaravanPack.esm",
+     "--schema",
+     "{schema_dir}",
+     "--all",
+     "--deterministic"
+    ]
+   },
+   "comparator": {
+    "kind": "keyed",
+    "select": "/actors",
+    "key": "reference"
+   },
+   "tags": [
+    "actors",
+    "appearance",
+    "workstream5"
+   ]
+  }
+ ]
+}

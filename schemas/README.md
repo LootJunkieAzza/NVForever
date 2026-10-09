@@ -10,7 +10,7 @@ so a wrong layout is fixed by editing JSON, not code.
 - `common.json` — shared types and subrecords whose layout is identical everywhere
 - `world.json` — CELL, WRLD, LAND, LTEX, REFR, ACHR, ACRE
 - `objects.json` — base objects (STAT, WEAP, ARMO, CONT, …)
-- `gameplay.json` — GLOB, SCPT, QUST, DIAL, INFO, NPC_, CREA, FACT, levelled lists, …
+- `gameplay.json` — GLOB, SCPT, QUST, DIAL, INFO, NPC_, CREA, RACE, HAIR, EYES, HDPT, FACT, levelled lists, …
 
 **Provenance.** Every entry carries `confidence` and a `note` naming its source. The
 current entries are `documented`: layouts were read from the xEdit project's public
