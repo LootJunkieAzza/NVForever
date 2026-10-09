@@ -18,7 +18,8 @@ viewer renders meshes with textures, skinning and animation
 | 2 | NIF, DDS, KF assets, viewer | 160/160 block types, 1,036,695 blocks exact; 56/56 parity scenarios; viewer (owner visual check pending) |
 | 3 | World and rendering | in progress: world data checked on the full load order; free-camera explorer draws terrain and objects (no LOD, sky, water or SpeedTree yet) |
 | 4 | Core simulation | started: headless `fnv-sim` (forms, references, inventories with per-item extra data and equipping, encumbrance, leveled lists, activation, game clock, container respawn, enable parents, placed explosives, delta state, action traces); container contents and item value/weight match an independent oracle; leveled-list distribution and in-game trace scenarios await captures; collision and physics in parallel workstreams ([docs/design/layer4.md](docs/design/layer4.md)) |
-| 5–7 | Scripting, gameplay, UI/audio/saves | not started |
+| 5 | Scripting | planned 2026-10-09: bytecode reader and interpreter, quests, conditions, event dispatch ([docs/design/layer5.md](docs/design/layer5.md)) |
+| 6–7 | Gameplay, UI/audio/saves | not started |
 
 ## Where things go (separate from the game)
 
@@ -71,6 +72,7 @@ crates/
   fnv-vfs       read-only virtual file system (archives in precedence order + loose files)
   fnv-world     worldspaces, cells, references, landscape across a load order
   fnv-sim       Layer 4 core simulation: forms, references, inventories, activation (headless)
+  fnv-script    Layer 5 compiled scripts: script units, bytecode to IR, function table, decompiler
   fnvtool       CLI used by the parity lab (JSON on stdout)
 engine/         Bevy workspace (its own): nvf-assets, nvf-viewer (asset viewer), nvforever (game)
 schemas/fnv/    record layouts as data (fnv.schema/1)

@@ -7,6 +7,7 @@
 //! `nvforever --play` adds [`PlayPlugin`]; without it the binary stays the M3 explorer.
 
 pub mod activate;
+pub mod dropped;
 pub mod menu;
 pub mod phys;
 pub mod player;
@@ -71,10 +72,24 @@ pub enum PlaySet {
 #[derive(Component)]
 pub struct PlayerCamera;
 
-/// Marks a render entity spawned for a placed reference (its FormID), so the game can
-/// hide what the simulation removed.
+/// Marks a render entity spawned for a reference (its FormID): by nvforever for placed
+/// references, by [`dropped`] for references the simulation created (dropped items), so
+/// the game can hide what the simulation removed and the crosshair can find items by
+/// their render bounds.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RefVisual(pub u32);
+
+/// Put by nvforever on the entity of every render cell it streams in (its transform is
+/// the cell's origin in game space, under the world root). [`dropped`] spawns the
+/// references the simulation created in that cell as its children, so they come and go
+/// with render streaming without nvforever knowing them.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RenderCell {
+    /// An exterior grid square of a worldspace (FormID).
+    Exterior { world: u32, x: i32, y: i32 },
+    /// An interior cell (FormID).
+    Interior(u32),
+}
 
 /// Where the player is now: the worldspace, and the interior cell when inside one. Set
 /// from [`PlayData`] at the start; physics changes it when it applies a [`Travel`]
@@ -120,7 +135,9 @@ pub struct OpenContainer {
 }
 
 /// The simulation changed whether a reference is present (taken, dropped, enabled,
-/// disabled): visuals and collision must follow.
+/// disabled): visuals and collision must follow. Sent for placed references and for
+/// references the simulation creates (a drop from the inventory sends one per new
+/// reference; taking a dropped item back sends one for it).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct RefChanged {
     pub form_id: u32,
@@ -139,7 +156,7 @@ impl Plugin for PlayPlugin {
             .add_message::<OpenContainer>()
             .add_message::<RefChanged>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Ui, PlaySet::Sync).chain())
-            .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin));
+            .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin));
         test_aid::setup(app);
     }
 }
