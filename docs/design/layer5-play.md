@@ -219,7 +219,9 @@ actors yet).
 - With the Layer 4 aids (`NVF_PLAY_TEST_NEAR`, `_ACTIVATE`, `_GOTO`, `_LOOK`, `_SHOTS`,
   layer4-play.md §6).
 
-## 6. Checks (2026-10-09)
+## 6. Checks
+
+### 6.1 Round 1 (2026-10-09)
 
 Unattended runs (`RUST_LOG=info`, `NVF_PLAY_SCRIPT_TRACE`), all exit 0 with "run
 finished":
@@ -270,6 +272,71 @@ finished":
   workspace and engine tests and clippy, both Python suites. The parity lab gives
   347/374 (11 fail, 16 error); this branch changes no root crate, so the `fnvtool` is
   `main`'s and so are the results.
+
+### 6.2 Round 2: the new game in `--play` (2026-10-09)
+
+`nvforever --data <Data> --play --new-game --run-seconds 230` with
+`NVF_PLAY_TEST_SCRIPT_MENUS=1` (every box and character-creation menu answered OK /
+Done after 1 s on screen) and these stand-ins for what the player does
+(`NVF_PLAY_TEST_SCRIPT`, each gated on a VCG01 stage; the walk-through's inputs,
+crates/fnv-game/walkthrough/intro.actions.json, scripts.md §9): 2 s after 55 `walk` into
+the Vigor Tester's trigger (`scripted:0x00104C02`, so the real trigger test fires); 12 s
+after 60 `activate` VCG01VigorTesterREF; after 80 the psych test's result scripts (the
+scores, `bBeganTest`, objective 40 completed, `bDoFinalCalculation`) and Doc's verdict
+line 0x00105570 (the line the walk-through's `say_first` picked); 2 s after 110 `walk`
+into the exit trigger (`scripted:0x0010722F`); after 115 Doc's two farewell lines
+0x001057E8 and 0x001057E7. Everything else is the game's own: the timers, Doc's SayTo
+lines (`Game::say`, timed by `Game::speech`, shown as subtitles), the boxes and menus
+the scripts open.
+
+**Result**: exit 0. The chain reaches **VCG01 200** (completed, stopped), VMQ01 10,
+VCG02 5, CGTutorial 2, with VCG00 stages 0, 90, 95, 100 and VCG01 stages 0, 1, 3, 5, 7,
+8, 10, 15, 25, 30, 35, 36, 40, 45, 50, 55, 60, 65, 70, 75, 76, 79, 80, 85, 90, 95, 98,
+100, 102, 105, 110, 115, 200: the walk-through's set and both capture saves' (scripts.md
+§9). Both opening triggers fired from the player's capsule (`OnTriggerEnter` of
+0x00104C16 → 60, of 0x00107236 → 115; leaving the first one ran its OnTriggerLeave
+tutorial lines); no NPC fired a trigger in the house (Doc stands outside them). Four pack
+boxes, menus 1051, 1036, 1074, 1048, 1084 and the hardcore box opened and were answered;
+23 subtitle changes. Script time per frame as in round 1.
+
+**Timeline** (game seconds, `gt` in the trace, each step from the one before; two runs:
+one at 47 frames per second up to stage 25, one at 8.7 frames per second (the machine was
+busy) to the end, where a frame is 0.1–0.25 s and steps read up to one frame long;
+walk-through and capture from scripts.md §9 and layer5-captures.md §10.2, §10.3, §10.7):
+
+| Stage | `--play` | Walk-through | Capture |
+|---|---|---|---|
+| VCG00 0 → 90 | the first script frame | given (save) | in the save |
+| VCG00 95 / 100 / VCG01 0 | 3.03 / +1 frame / same frame | 3.03 / +1 frame / same | 3.03 / +1 sample / same |
+| pack boxes | 5.0 (between 1 and 3), one at a time, the next on the frame after a close; game time stood still | 5.0, as here | one open in the save before VCG00 ran; the next 0.45–1.4 s after each close |
+| VCG01 1, 3 | +0.21, +2.84 | +0.22, +2.93 | +0.2, +2.8 |
+| 5 (Doc's first line) | +2.90 | +2.90 | +2.9 |
+| 7, 8 | +3.29, +1 frame | +3.27, +1 frame | +3.22, +1 sample |
+| 10 (three lines), name menu | +15.37, 1051 | +15.37, 1051 | +15.4, 1051 |
+| 15 after the name menu | 1.02 | 1.05 | 0.95–0.97 |
+| 25, 30 (lines) | +10.52, +14.93 | +10.50, +14.77 | lines |
+| 35, 36, race menu, 40 | +3.34, +1.75, 1036, 40 inside it | +3.02, +1.78, 1036, 40 inside | +2.97, a line, 1036, 40 inside |
+| 45 (lines), 50 | +11.09, +3.07 | +11.15, +3.02 | lines, +2.98 |
+| 55 (two lines) | +10.26 | +10.20 | about 10 s |
+| 60 | the trigger, on the frame of the walk | by input | by the job |
+| 65, menu 1074 | inside the activation | inside | inside |
+| 70 | 1.08 after the menu | 1.02 | 0.96 |
+| 75, 76, 79 | one frame, +7.53 after 70 | one frame, +7.47 | one frame |
+| 80 (psych intro lines) | +18.14 | +18.07 | about 13 s |
+| 85 → 90, menu 1048 | 85 by the verdict line, 90 +0.99 | +1.02 | 1 s |
+| 95 | 1.09 after the menu | 1.02 | 0.96 |
+| 98, 100, 102, menu 1084 | +18.06, +1.11, next frame | +17.93, +1.02, next frame | lines, 0.98, next frame |
+| 105 | 1.05 after the menu | 1.02 | 0.97 |
+| 110 (lines) | +3.47 | +3.47 | lines |
+| 115, 200 | the exit trigger on the walk's frame; 200 0.75 after the hardcore box was answered | by input; 200 0.38 after the box | by the job; event 3 |
+
+Differences: (1) the pack boxes come 5 s into the game (the pack quests' first run),
+after VCG00's countdown, as in the walk-through; in the capture's save one box was
+already open and held the countdown (§7); (2) every span of Doc's lines uses the
+runtime's fitted line length (80: 18.1 s against about 13 s), as in the walk-through;
+(3) timer steps read a frame later at low frame rates (35: 3.34 at 0.2 s frames). Which
+stage follows which, by what, and which menu each opens match the walk-through and the
+capture.
 
 ## 7. Open
 
