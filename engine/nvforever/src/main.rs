@@ -164,6 +164,10 @@ struct Args {
     /// Test aid with --time-scale: also save a screenshot in this folder at every whole hour.
     #[arg(long, requires = "time_scale")]
     timelapse: Option<PathBuf>,
+    /// Test aid with --timelapse: game minutes between saved frames (60: one per hour; a
+    /// few minutes give frames for a video).
+    #[arg(long, default_value_t = 60.0, requires = "timelapse")]
+    timelapse_step: f32,
     /// Test aid: exit with success after this many seconds (smoke tests).
     #[arg(long)]
     run_seconds: Option<f32>,
@@ -563,10 +567,14 @@ fn write_frame_json(out: &std::path::Path, image: &std::path::Path, args: &Args,
 }
 
 /// With --time-scale: the clock starts once the cells around the start are loaded; then
-/// one log line per whole game hour, and a screenshot with --timelapse.
+/// one log line per whole game hour, and with --timelapse a screenshot every
+/// --timelapse-step game minutes.
+#[allow(clippy::too_many_arguments)]
 fn timelapse(
     mut last: Local<Option<i32>>,
     mut seen: Local<u32>,
+    mut last_slot: Local<Option<i64>>,
+    mut frames: Local<u32>,
     mut sky: ResMut<sky::SkyState>,
     streamer: Res<Streamer>,
     args: Res<Args>,
@@ -583,6 +591,21 @@ fn timelapse(
         }
         return;
     }
+    if let Some(dir) = &args.timelapse {
+        // Slots of --timelapse-step minutes from midnight; the hour wraps at 24, so a change
+        // of slot (not an increase) marks a new frame. Waits for the first slot boundary.
+        let step = args.timelapse_step.max(0.5) as f64;
+        let slot = (sky.hour as f64 * 60.0 / step).floor() as i64;
+        if *last_slot != Some(slot) {
+            if last_slot.is_some() {
+                *frames += 1;
+                let minutes = (slot as f64 * step).round() as i64;
+                let name = format!("{:04}_{:02}{:02}.png", *frames, minutes / 60 % 24, minutes % 60);
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(dir.join(name)));
+            }
+            *last_slot = Some(slot);
+        }
+    }
     let hour = sky.hour.floor() as i32;
     if *last == Some(hour) {
         return;
@@ -594,9 +617,6 @@ fn timelapse(
     }
     *seen += 1;
     info!("time-lapse {}  ({} hours passed)", sky.sample(), *seen);
-    if let Some(dir) = &args.timelapse {
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(dir.join(format!("{:02}_{hour:02}h.png", *seen))));
-    }
 }
 
 /// Time spent advancing clips (animated models and, with `--actor-pose idle`, actors),
