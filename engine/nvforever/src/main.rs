@@ -346,6 +346,7 @@ fn main() -> AppExit {
         heading_deg: args.heading,
         pitch_deg: args.pitch,
         auto_walk: args.auto_walk,
+        start_at_cell_spot: args.pos.is_none(),
     });
     let lodgen = if args.no_lod || args.no_lodgen || interior.is_some() {
         None
