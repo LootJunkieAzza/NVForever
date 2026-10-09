@@ -223,6 +223,21 @@ impl Inventory {
         true
     }
 
+    /// Rewrite the extra data of the equipped units of `item` (e.g. their condition).
+    /// Returns false when none is equipped.
+    pub fn map_equipped(&mut self, item: FormId, f: impl Fn(Extra) -> Extra) -> bool {
+        let Some(s) = self.items.get_mut(&item) else { return false };
+        let eq: Vec<(Extra, i32)> = s.groups.iter().copied().filter(|g| g.0.equipped).collect();
+        if eq.is_empty() {
+            return false;
+        }
+        s.groups.retain(|g| !g.0.equipped);
+        for (e, n) in eq {
+            s.add(Extra { equipped: true, ..f(e) }, n);
+        }
+        true
+    }
+
     /// Unequip every equipped unit of `item`. Returns false when none was equipped.
     pub fn clear_equipped(&mut self, item: FormId) -> bool {
         let Some(s) = self.items.get_mut(&item) else { return false };

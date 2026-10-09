@@ -2373,6 +2373,257 @@
      "note": "xEdit wbDefinitionsFNV.pas IDLE record; Flags and the last unused byte optional (SetOptionalFrom(4)); Animation Group Section is a u8 whose low six bits name the section (wbIdleAnam: 0 Idle, 1 Movement, 2 Left Arm, 3 Left Hand, 4 Weapon, 5 Weapon Up, 6 Weapon Down, 7 Special Idle, 20 Whole Body, 21 Upper Body) and whose bits 0x40/0x80 xEdit labels Loose Idle / (clear) Must return a file; kept raw here"
     }
    }
+  },
+  "REPU": {
+   "name": "Reputation",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Value",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas REPU record (wbFloat DATA 'Value'). Meaning: the reputation's scale, the maximum fame or infamy [documented: GECK wiki GetReputationPct divides by the reputation's maximum value, its scale; observed: 10 to 100 in FalloutNV.esm, e.g. RepNVGoodsprings 15, RepNVCaesarsLegion 100]"
+    }
+   }
+  },
+  "CHAL": {
+   "name": "Challenge",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "type",
+        "type": {
+         "enum": "u32",
+         "values": {
+          "0": "Kill from a Form List",
+          "1": "Kill a specific FormID",
+          "2": "Kill any in a category",
+          "3": "Hit an Enemy",
+          "4": "Discover a Map Marker",
+          "5": "Use an Item",
+          "6": "Acquire an Item",
+          "7": "Use a Skill",
+          "8": "Do Damage",
+          "9": "Use an Item from a List",
+          "10": "Acquire an Item from a List",
+          "11": "Miscellaneous Stat",
+          "12": "Craft Using an Item",
+          "13": "Scripted Challenge"
+         }
+        }
+       },
+       {
+        "name": "threshold",
+        "type": "u32"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Start Disabled",
+          "1": "Recurring",
+          "2": "Show Zero Progress"
+         }
+        }
+       },
+       {
+        "name": "interval",
+        "type": "u32"
+       },
+       {
+        "name": "value1",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "value2",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "value3",
+        "type": {
+         "array": "u8",
+         "count": 4
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CHAL record; the three trailing byte groups depend on the type; flag bits are the list positions of xEdit's flag list"
+    },
+    "SNAM": {
+     "name": "Value (depends on type)",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CHAL record"
+    },
+    "XNAM": {
+     "name": "Value (depends on type)",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CHAL record"
+    }
+   }
+  },
+  "MGEF": {
+   "name": "Base Effect",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Hostile",
+          "1": "Recover",
+          "2": "Detrimental",
+          "4": "Self",
+          "5": "Touch",
+          "6": "Target",
+          "7": "No Duration",
+          "8": "No Magnitude",
+          "9": "No Area",
+          "10": "FX Persist",
+          "12": "Gory Visuals",
+          "13": "Display Name Only",
+          "15": "Radio Broadcast ??",
+          "19": "Use skill",
+          "20": "Use attribute",
+          "24": "Painless",
+          "25": "Spray projectile type",
+          "26": "Bolt projectile type",
+          "27": "No Hit Effect",
+          "28": "No Death Dispel",
+          "29": "????"
+         }
+        }
+       },
+       {
+        "name": "base_cost",
+        "type": "f32"
+       },
+       {
+        "name": "associated_item",
+        "type": "formid"
+       },
+       {
+        "name": "magic_school",
+        "type": "i32"
+       },
+       {
+        "name": "resistance_type",
+        "type": "ActorValue"
+       },
+       {
+        "name": "counter_effect_count",
+        "type": "u16"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       },
+       {
+        "name": "light",
+        "type": "formid"
+       },
+       {
+        "name": "projectile_speed",
+        "type": "f32"
+       },
+       {
+        "name": "effect_shader",
+        "type": "formid"
+       },
+       {
+        "name": "object_display_shader",
+        "type": "formid"
+       },
+       {
+        "name": "effect_sound",
+        "type": "formid"
+       },
+       {
+        "name": "bolt_sound",
+        "type": "formid"
+       },
+       {
+        "name": "hit_sound",
+        "type": "formid"
+       },
+       {
+        "name": "area_sound",
+        "type": "formid"
+       },
+       {
+        "name": "constant_effect_enchantment_factor",
+        "type": "f32"
+       },
+       {
+        "name": "constant_effect_barter_factor",
+        "type": "f32"
+       },
+       {
+        "name": "archetype",
+        "type": {
+         "enum": "u32",
+         "values": {
+          "0": "Value Modifier",
+          "1": "Script",
+          "2": "Dispel",
+          "3": "Cure Disease",
+          "11": "Invisibility",
+          "12": "Chameleon",
+          "13": "Light",
+          "16": "Lock",
+          "17": "Open",
+          "18": "Bound Item",
+          "19": "Summon Creature",
+          "24": "Paralysis",
+          "30": "Cure Paralysis",
+          "31": "Cure Addiction",
+          "32": "Cure Poison",
+          "33": "Concussion",
+          "34": "Value And Parts",
+          "35": "Limb Condition",
+          "36": "Turbo"
+         }
+        }
+       },
+       {
+        "name": "actor_value",
+        "type": "ActorValue"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MGEF record (field order and archetype values from wbArchtypeEnum in wbDefinitionsCommon.pas); associated_item is a union chosen by the archetype: 1 Script (SCPT), 18 Bound Item, 19 Summon Creature (wbMGEFFAssocItemDecider); base cost, magic school and the two constant-effect factors are unused in this game [documented]. Observed: 72 bytes; PoisonRemovalEffect (archetype 1) names the effect script SCPT 0x0016198D"
+    },
+    "ESCE": {
+     "name": "Counter Effects",
+     "type": {
+      "array": "formid"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MGEF record"
+    }
+   }
   }
  }
 }
