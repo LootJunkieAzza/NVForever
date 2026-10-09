@@ -1,0 +1,45 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "BeatrixFX: ElseIf markers after their If chain was closed, in a quest script",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "BeatrixFX",
+      "running": false,
+      "completed": false,
+      "stage": 0,
+      "vars": {
+        "reset": 0,
+        "bump": 0,
+        "timer": 0
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "start_quest",
+      "quest": "BeatrixFX"
+    },
+    {
+      "op": "sample_var",
+      "quest": "BeatrixFX",
+      "var": "bump",
+      "frames": 900,
+      "values": true,
+      "label": "BeatrixFX bump while running"
+    },
+    {
+      "op": "get_quest",
+      "quest": "BeatrixFX",
+      "label": "BeatrixFX after it stopped",
+      "fields": [
+        "running",
+        "var.reset",
+        "var.bump"
+      ]
+    }
+  ]
+}

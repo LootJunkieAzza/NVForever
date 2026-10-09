@@ -1,0 +1,85 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Layer 5 round 2 scenario",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VTechatticup",
+      "running": true,
+      "completed": false,
+      "stage": 0,
+      "not_done": [
+        10,
+        20,
+        100,
+        110
+      ],
+      "objectives": [
+        {
+          "index": 10,
+          "displayed": false
+        },
+        {
+          "index": 20,
+          "displayed": false
+        }
+      ],
+      "vars": {
+        "NumHostages": 0,
+        "HostagesFreed": 0,
+        "HostagesDead": 0,
+        "DoOnce": 0
+      }
+    },
+    {
+      "kind": "ref",
+      "ref": "0x00134B9C",
+      "dead": false
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_stage",
+      "quest": "VTechatticup",
+      "stage": 10
+    },
+    {
+      "op": "get_quest",
+      "quest": "VTechatticup",
+      "label": "after the first stage",
+      "fields": [
+        "stage",
+        "objective.10.displayed"
+      ]
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VTechatticup",
+      "var": "NumHostages",
+      "value": 2
+    },
+    {
+      "op": "wait_frames",
+      "frames": 1200
+    },
+    {
+      "op": "get_quest",
+      "quest": "VTechatticup",
+      "label": "after the wait",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.20",
+        "objective.10.completed",
+        "objective.20.displayed",
+        "var.NumHostages",
+        "var.HostagesFreed",
+        "var.DoOnce"
+      ]
+    }
+  ]
+}
