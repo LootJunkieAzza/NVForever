@@ -233,6 +233,8 @@ python parity-lab/tools/gen_layer3_frames.py C:/fnv-private/goldens
 For each camera the job loads its grid square (`cow`), places the player (a camera without
 z stands on the terrain from `--data`), sets the hour and weather, waits, hides the HUD
 (`tm`), takes the screenshot and records the position, angles and hour the game reports;
+a camera with a `"cell"` (an interior Editor ID, e.g. `tools/capture/frames/interiors.json`)
+travels with `coc` instead and needs a z and `--data`;
 the manifest is written from those recorded values, and existing entries keep their
 `masks`, `min_ssim` and `holdout`. The save must be in first person. Look at each picture
 before trusting it: the finisher warns about black pictures and a window that was not in
