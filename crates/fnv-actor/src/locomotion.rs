@@ -112,13 +112,16 @@ impl Body {
 /// `<folder>\locomotion\<body>\<prefix><group>.kf`, then `<folder>\locomotion\<prefix>
 /// <group>.kf`, then (female and child) the male folder [observed: walk and run clips
 /// sit per body in `locomotion\male|female|child`, idle and turns once in
-/// `locomotion\`; hypothesis: a body without its own clip uses the male one].
+/// `locomotion\`; hypothesis: a body without its own clip uses the male one], and last
+/// `<folder>\<prefix><group>.kf` [observed: creature folders keep `mtidle.kf` and the
+/// turns directly in the skeleton's folder, walks in `locomotion\`; actors.md §10.3].
 pub fn clip_candidates(folder: &str, body: Body, prefix: &str, m: Move) -> Vec<String> {
     let stem = format!("{prefix}{}.kf", m.group().to_ascii_lowercase());
     let mut v = vec![format!("{folder}\\locomotion\\{}\\{stem}", body.folder()), format!("{folder}\\locomotion\\{stem}")];
     if body != Body::Male {
         v.push(format!("{folder}\\locomotion\\male\\{stem}"));
     }
+    v.push(format!("{folder}\\{stem}"));
     v
 }
 

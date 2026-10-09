@@ -111,6 +111,15 @@ pub fn decode_type(t: &TypeDef, c: &mut Cursor, ctx: &mut DecodeCtx) -> Result<V
     match schema.resolve(t) {
         TypeDef::Prim(p) => read_prim(*p, c, ctx),
         TypeDef::Named(_) => Err("unresolved type".into()),
+        TypeDef::Union(variants) => {
+            let left = c.remaining();
+            let chosen = variants
+                .iter()
+                .find(|(n, _)| *n == Some(left))
+                .or_else(|| variants.iter().find(|(n, _)| n.is_none()))
+                .ok_or_else(|| format!("no union variant for {left} bytes"))?;
+            decode_type(&chosen.1, c, ctx)
+        }
         TypeDef::Struct(fields) => {
             let mut obj = Map::new();
             for f in fields {
@@ -223,6 +232,11 @@ pub fn decode_record(r: &Record, schema: &Schema) -> Value {
     });
     if let Some(rd) = schema.records.get(&r.header.sig) {
         out["type_name"] = json!(rd.name);
+        // Header flag bits the schema names for this record type (`header_flags`).
+        let named = rd.header_flag_names(r.header.flags);
+        if !named.is_empty() {
+            out["flag_names"] = json!(named);
+        }
     }
     match r.subrecords() {
         Err(e) => {
