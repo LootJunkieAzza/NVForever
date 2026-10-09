@@ -97,4 +97,12 @@ per second against 58.6 with `--no-lodgen` (both at the display's refresh cap).
   DDS writer round-trips through `fnv-dds`; cache key changes with each input.
 - Screenshots against the previous renderer at the same camera (private), and the
   moving-camera smoke test (CLAUDE.md), which exercises chunk swaps while streaming.
-- Open: compare against in-game captures once LOD views are in the capture backlog.
+- In-game captures (2026-10-09, private): four new long-view cameras
+  (`tools/capture/frames/lod_cameras.json`: black_mountain_north, spring_mountains_east,
+  hoover_ridge_lake, goodsprings_east) beside the four existing ones. SSIM (lab
+  comparator, width 192) before → after the level 8-32 / distant-tree change: within
+  ±0.003 on all eight frames (e.g. spring_mountains_east 0.704 → 0.703,
+  hoover_ridge_lake 0.552 → 0.555, black_mountain_north 0.579 → 0.578): the distant
+  terrain is a small part of these pictures at that size; differences that remain are sky,
+  haze and lighting. Moving-camera smoke test: 54.0 fps after against 47.6 before (same
+  base), 136 generated chunks read from the cache.
