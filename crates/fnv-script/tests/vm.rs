@@ -26,6 +26,10 @@ struct TestHost {
     skipped: Vec<String>,
     /// SetStage recurses into the host this many times (to test the budget).
     recurse: bool,
+    /// A call of this opcode ends the run as `Return` does (a call on an empty
+    /// reference in the game host).
+    stops: Option<u16>,
+    stop: bool,
 }
 
 impl Host for TestHost {
@@ -53,6 +57,9 @@ impl Host for TestHost {
     }
     fn call(&mut self, opcode: u16, on: Option<Value>, args: &[ArgValue]) -> Result<Value, String> {
         self.calls.push((opcode, on, args.to_vec()));
+        if self.stops == Some(opcode) {
+            self.stop = true;
+        }
         match opcode {
             GET_STAGE => Ok(Value::Num(7.0)),
             SET_STAGE if self.recurse => Err("recursion".into()),
@@ -61,6 +68,9 @@ impl Host for TestHost {
     }
     fn skipped(&mut self, what: &VmError) {
         self.skipped.push(what.to_string());
+    }
+    fn take_return(&mut self) -> bool {
+        std::mem::take(&mut self.stop)
     }
 }
 
@@ -381,4 +391,17 @@ fn decoded_bytecode_runs() {
     assert!((h.locals[&2].num() - 0.7).abs() < 1e-12);
     assert_eq!(h.calls.len(), 1);
     assert_eq!(h.calls[0].0, DISABLE);
+}
+
+#[test]
+fn a_call_that_stops_the_script_inside_a_set_leaves_the_variable() {
+    // set x to GetStage … with the host ending the run in the call: x keeps its value
+    // and nothing after it runs (docs/spec-notes/scripts.md §4.2).
+    let mut h = TestHost { stops: Some(GET_STAGE), refs: vec![0x100], ..TestHost::default() };
+    h.locals.insert(1, Value::Num(5.0));
+    let c = Token::Call { call: Call { on: None, opcode: GET_STAGE, has_params: true, args: vec![Arg::Ref(RefIndex(1))] } };
+    let exit = run(&[set(float(1), vec![c]), set(float(2), vec![num(1.0)])], &mut h).unwrap();
+    assert_eq!(exit, Exit::Returned);
+    assert_eq!(h.locals[&1], Value::Num(5.0));
+    assert!(!h.locals.contains_key(&2));
 }
