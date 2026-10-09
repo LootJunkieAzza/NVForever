@@ -49,6 +49,9 @@ pub struct PlayData {
     pub pitch_deg: f32,
     /// Test aid: walk forward at this speed (game units per second); 0 = off.
     pub auto_walk: f32,
+    /// No start position was asked for: an interior start goes where the console's `coc`
+    /// puts the player (`player::safe::cell_spot`), facing that way.
+    pub start_at_cell_spot: bool,
 }
 
 /// The controls in `--play`, for nvforever's help line.

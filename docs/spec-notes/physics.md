@@ -572,7 +572,7 @@ means someone at the game.
 | fixed step `dt` | 1/60 s | unknown; the game ran at 60–64 loops per second during captures [observed] |
 | body radius | 22 | **[observed, §6.4.1]** from `mv_diag_fence_edge`: drops rested on the fence edge 22.6 off it (radius + 0.7 shell ≥ 22.6) and fell at 25.7; the game stops 21.45 from the fence face (`move_fence_stop`, face measured to 0.05), which would give 20.75: about 1.2 apart, not explained; the candidate now stops 22.7 from the face (keeping a static shell's 0.7 from walls, no longer the terrain's 3.5) |
 | bottom shape | cone: flat tip of radius 3.2, then rising 1.58 per unit to the radius | **[observed, §6.4.1]** fitted to 26 fence-edge drops from 50 and 200 units (RMS 2.9); the depth depends on the speed of the fall, which the model does not have |
-| capsule height | 128 | [hypothesis]; owner (head against a low ceiling of known height, standing and crouched) |
+| capsule height | 128.9, with a top mirroring the bottom cone | **[observed, capture `pc_head`, 2026-10-09]** see "Capsule height" below; crouched: not captured |
 | step height | 24 | [hypothesis]; `move_porch_steps` exercises steps of Doc Mitchell's porch; the limit needs ledges of graded heights (design open, §6.3) |
 | max slope | 45° | [hypothesis]; an unattended run up steep LAND squares is possible (design open, §6.3) |
 | jump apex | 61.6 | **[observed]** apex 61.6 above the standing feet, §6.3 (`fJumpHeightMin` reads 64) |
@@ -582,9 +582,50 @@ means someone at the game.
 | walk / run speed | `nvf-play` uses 86.8 / 344 | **[observed]**, §6.3 |
 | eye height | 112 (`nvf-play`) | about 123 above the feet if the crosshair pick is a sphere of `fActivatePickSphereRadius` 16 cast from above the feet (both distances agree); a plain ray fits only with the camera 10.6 units behind the feet (110 above them) [observed: `mv_values`, §6.3; the model is hypothesis]; not changed yet |
 | activation reach | 150 (`nvf-play` `pick::REACH`) | `iActivatePickLength` reads 150, `fActivatePickSphereRadius` 16; at 30° down the crosshair found the fence up to a feet-to-face distance of 120 and not from 123 [observed: `mv_values`]: 122–126 along the view with the sphere model, 139–142 for a plain ray; not changed yet |
-| push mass | 80 | [hypothesis]; owner (how far walking pushes a known clutter item) |
+| push mass | 80 | **[observed agreement, capture `pc_push`, 2026-10-09]** see "Pushing clutter" below: unchanged |
 | layers the player passes through | §4 list | B11 job `mv_b11_drops` and scenario `L4.phys.drops.b11_goodsprings`, ready (§4.2) |
 | CollisionMarker bounds | half extents | three CollisionMarker tops in `mv_b11_drops`: read as full extents they would be 6.5, 65 and 34.5 units lower (§4.2) |
+
+**Capsule height** (capture `pc_head`, unattended, save nvfdoc, Doc Mitchell's house,
+`make_closeout_jobs.py`): standing jumps (TapControl 12) after `SetPos` to the floor
+(7360; the player read 7364.0 before jumping, so it hovered as after other `SetPos`
+drops, §6.2) under ceilings whose height `fnvtool phys cell --ray` gives, twice each
+[observed]:
+
+| Spot (x, y) | Ceiling at the axis | Game apex (GetPos z) | Ceiling − apex | NVForever (128.9, cone top) |
+|---|---|---|---|---|
+| open room (1536, 1340) | 7616 | 7425.54 / 7425.37 (rise 61.5) | — | rise 59.2 from 7360.7 (not limited) |
+| doorway beam (1536, 1468) | 7536.1 | 7405.61 / 7405.61 | 130.5 | 7406.48 (+0.87) |
+| sloping ceiling (1864, 2116) | 7534.2 | 7404.20 / 7404.20 | 130.0 | 7403.43 (−0.77) |
+| sloping (1880, 2116) | 7528.4 | 7398.14 / 7398.41 | 130.1 | 7397.61 (−0.69) |
+| sloping (1896, 2116) | 7522.6 | 7392.64 / 7392.66 | 130.0 | 7391.79 (−0.86) |
+
+The head stops 130.0–130.5 below the ceiling (at the axis), whatever the slope: the
+player is about 130 units tall including the ceiling's shell. NVForever's character is
+now 128.9 tall with its top a mirror of the bottom cone (`fnv_phys::character::HEIGHT`);
+the old flat top at 128 overshot the beam by 1.8, a flat top fitted to the beam
+stopped 5–8 units low under the slope. The editor documentation says the player "stands
+128 units tall" [documented: GECK Layout, level-design.md]. A sneaking jump in the open
+rose as high (61.5) [observed]; the crouched height is not captured (the sneak toggle did
+not take before the beam jump), so sneaking keeps the standing shape. Walking under the
+176-unit doorway passes, standing and sneaking; sneaking walk speed 49.5 units/s =
+86.8 × 0.57 [observed: pc_head], the fraction `nvf-play` uses.
+
+**Pushing clutter** (capture `pc_push`, same house, a lane of flat floor at x 1536):
+the player runs (Always Run) or walks into an item lying on the floor 150 / 100 units
+ahead, forward held 40 loops running or 150 walking, positions sampled every loop
+[observed]; NVForever: the same trials in `fnvtool phys walk` with the item as a prop (§7):
+
+| Trial | Game | NVForever (push mass 80) |
+|---|---|---|
+| tin can, running (3 runs) | carried ahead at the player's speed while touching (84, 78, 106 units in the first 0.26 s), then rolls on at about 290 units/s; 372–451 units in all, through the doorway | carried at the player's speed (77 in 0.25 s), then slows from 260 to 160 units/s; stopped at the wall 198 units on |
+| tin can, walking (2 runs) | pushed along at the walking speed: 41 and 30 units | 46 units |
+| stimpak, running | the player runs over it; it moves 12.4 units | 12.1 units |
+| whiskey bottle | rolled away (180 units) while settling, before the player started: no push | (stays) |
+
+The push itself agrees (an item touched by the player moves with it; a flat item is run
+over), so the push mass stays 80. The game's tin can keeps its speed longer after the
+contact (less rolling friction or damping) [observed]; not tuned.
 
 Settings stored in FalloutNV.esm whose names suggest movement or falling (values
 [observed] from the GMST records; meanings [hypothesis] from the names only):
@@ -1673,12 +1714,34 @@ arrival; walking off the box is caught 800 units under the cell's lowest collisi
 (7532) and put at the door arrival (its last footing, the box's edge, no longer passes the
 standing test), from where it walks into the room.
 
-**Capture proposed for the owner** (not run; the game is in use by other sessions):
-`coc GSGasStation`, then read `player.GetPos x|y|z` and `player.GetAngle z` (does `coc`
-put the player at the door arrival (511, −5951, ~7554), at a marker, or elsewhere?);
-then `player.SetPos` to x 682, y −4755, z 7552 (over nothing) and read z every 0.5 s for
-10 s (does the game let the player fall, stop them, or move them?). Either result would
-replace a [hypothesis] above.
+**Captured 2026-10-09** (`pc_coc`, unattended, save nvftest; `make_closeout_jobs.py`)
+[observed]:
+
+| `coc` into | Player (GetPos, GetAngle Z) | What is there |
+|---|---|---|
+| GSDocMitchellHouse | (2351.98, 1603.60, 7360.59), 270° | its COCMarkerHeading 0x00103E68 (2351.98, 1603.60, 7360), z rotation 4.712 rad |
+| GSGasStation | (512.30, −5970.55, 7554.08), 0° | its one XMarker 0x00105D4B (512.3, −5970.55, 7553.5); not the door arrival (511.4, −5950.8) |
+| GSProspectorSaloonInterior | (−3.94, 243.61, 3460.58), 0° | its one XMarker 0x0015F9C3, exactly |
+| GSGeneralStore | (−13.77, 598.76, 544.61), 0° | no marker; the XTEL position of door 0x00106373 into it (−13.77, 598.76, 544.53), whose rotation is −90° |
+
+Over nothing in the gas station (`SetPos` 682, −4755, 7552): the player fell (7422.9
+after 0.59 s, free fall) and by 1.12 s stood at (512.30, −5970.55, 7554.09), the `coc`
+spot, and stayed there for 20 s. No save was written by `coc` (the run's save guard saw no
+change).
+
+So the rules (`nvf_play::player::safe`) are now: **the cell's own spot**
+(`safe::cell_spot`): COCMarkerHeading (its heading), else an XMarker, else the first door
+arrival into the cell (facing 0) [observed for one cell each; which of several XMarkers or
+doors is hypothesis]. An interior start with no `--pos` goes there (`PlayData::
+start_at_cell_spot`), as `coc` does; a start, door destination or fall with nothing
+under it goes there first, else to the nearest door arrival; falls are caught 256 units
+under the cell's lowest collision (`INTERIOR_FELL_THROUGH`, was 800) [engineering choice
+inside the observed window of about 100–410 units]. The last place stood is still tried
+first after a fall [hypothesis; in the capture it was the same spot]. The XMarker and
+door headings of 0 are [observed] for these cells only.
+`fnv-game`'s `coc_destination` (Layer 5, `crates/fnv-game/src/runner.rs`) still takes the
+first placed reference when a cell has no COCMarkerHeading; the XMarker / door-arrival
+rule above would replace it (left to the Layer 5 owner).
 
 ## 7. CLI contract
 
