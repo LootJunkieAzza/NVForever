@@ -120,6 +120,9 @@ pub struct Streamer {
     pub interior: Option<u32>,
     /// Multiplier on every LIGH light's brightness (1 = as stored).
     pub light_scale: f32,
+    /// References another system draws (NPCs travelling on the navmesh, `nav.rs`):
+    /// cells do not spawn them.
+    pub managed: std::collections::HashSet<u32>,
     pub stats: StreamStats,
 }
 
@@ -329,7 +332,7 @@ fn load_cell(
     actors: &mut Option<(&crate::actors::ActorWorld, &mut ActorParts)>,
     streamer: &mut Streamer,
 ) -> Entity {
-    let (hide, light_scale, stats) = (&streamer.hide, streamer.light_scale, &mut streamer.stats);
+    let (hide, light_scale, managed, stats) = (&streamer.hide, streamer.light_scale, &streamer.managed, &mut streamer.stats);
     let (origin, cell, name) = match key {
         CellKey::Exterior(g) => {
             (Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0), world.grid_cell(g), format!("Cell {},{}", g.0, g.1))
@@ -357,6 +360,9 @@ fn load_cell(
     }
     let to_cell = Affine3A::from_translation(-origin);
     for r in refs {
+        if managed.contains(&r) {
+            continue;
+        }
         let Some(p) = placement(world.lo, world.schema, r) else { continue };
         if !world.enabled(&p, 0) {
             stats.refs_skipped_disabled += 1;
@@ -365,7 +371,7 @@ fn load_cell(
         let base: Option<BaseObject> = p.base.and_then(|b| base_object(world.lo, world.schema, b));
         if let (Some((aw, parts)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| &b.sig == b"NPC_")) {
             let mut ctx = ActorCtx { cache: parts, models };
-            if crate::actors::spawn(commands, cell_e, to_cell * ref_affine(&p), r, b.form_id, aw, &mut ctx, &mut stats.actors) {
+            if crate::actors::spawn(commands, cell_e, to_cell * ref_affine(&p), r, b.form_id, aw, &mut ctx, &mut stats.actors).is_some() {
                 continue;
             }
         }

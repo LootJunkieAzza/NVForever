@@ -9,10 +9,10 @@ use bevy::prelude::*;
 use fnv_actor::{ActorForms, Appearance, Resolver};
 use fnv_esm::{LoadOrder, Schema};
 use fnv_sim::{FormId, FormStore};
-use nvf_assets::actor::{clip_binding, play_on_actor, spawn_actor, ActorCtx, PartUse};
+use nvf_assets::actor::{clip_binding, play_on_actor, spawn_actor, ActorCtx, PartUse, PreparedSkeleton, SpawnedActor};
 use nvf_play::RefVisual;
 use std::collections::HashSet;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::facegen::FaceGenCache;
 
@@ -88,8 +88,16 @@ pub struct ActorStats {
     pub clip_missing: usize,
 }
 
+/// What [`spawn`] put together: the actor's entities, its skeleton and appearance (for
+/// changing its clip later, `nav.rs`).
+pub struct Spawned {
+    pub actor: SpawnedActor,
+    pub skeleton: Arc<PreparedSkeleton>,
+    pub appearance: Appearance,
+}
+
 /// Spawn the actor placed by `reference` under `parent` with the reference transform
-/// `rt` (parent space). Returns whether anything was drawn.
+/// `rt` (parent space). `None` when nothing was drawn.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn(
     commands: &mut Commands,
@@ -100,18 +108,18 @@ pub fn spawn(
     world: &ActorWorld,
     ctx: &mut ActorCtx,
     stats: &mut ActorStats,
-) -> bool {
+) -> Option<Spawned> {
     let a = match world.resolve(base, reference) {
         Ok(a) => a,
         Err(e) => {
             stats.unresolved += 1;
             debug!("actor {reference:08X}: {e}");
-            return false;
+            return None;
         }
     };
     let Some(skel) = ctx.skeleton(&a.skeleton) else {
         stats.unresolved += 1;
-        return false;
+        return None;
     };
     let mut uses = Vec::with_capacity(a.parts.len());
     for p in &a.parts {
@@ -209,7 +217,7 @@ pub fn spawn(
     }
     stats.unbound_shapes += spawned.unbound;
     stats.drawn += 1;
-    true
+    Some(Spawned { actor: spawned, skeleton: skel, appearance: a })
 }
 
 #[cfg(test)]
