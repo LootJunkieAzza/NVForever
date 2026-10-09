@@ -164,6 +164,19 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   gives non-unit results where consecutive keys lie in opposite hemispheres (356 of
   1.59 M samples); spherical interpolation along the shorter arc removes all of them
   [observed].
+- Quadratic key tangents: each key stores a value and two tangents, which nif.xml names
+  forward and backward, in that order [documented: nif.xml]. Despite the names, the
+  forward tangent is the one *arriving* at the key and the backward tangent the one
+  *leaving* it, both expressed per key interval (the Hermite basis over u in [0, 1])
+  [observed, `crates/fnv-nif/examples/quad_key_survey.rs` over `Fallout - Meshes.bsa`]:
+  at the 181,454 inner keys of 32,959 quadratic key groups whose neighbouring segments
+  change by clearly different amounts, the forward tangent matches the previous segment's
+  change and the backward tangent the next segment's in 35,664 cases, the opposite in
+  4,553, and 141,237 are within 10% either way. The clearest case is
+  `architecture\ncr\spinningwindmill.nif`: its blades turn 0 → 4π over 7 s in two keys,
+  the first with backward 4π and forward 0, the last with forward 4π and backward 0. Read
+  this way the blades turn at a steady two turns per 7 s; read the other way round both
+  tangents are 0 and they would stop and restart every cycle.
 - B-spline interpolators [documented: nif.xml]: an open uniform B-spline per channel; a
   control-point data block holds float and compact (i16) points; the basis block holds the
   number of control points; each channel has a handle (start index, 0xFFFF = channel not
@@ -238,6 +251,20 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   `Idle` sequence in a loop from load [hypothesis: consistent with waving flags and
   circling vultures in game] and draws skinned shapes without a sequence in their bind
   pose. Morph controllers are not evaluated yet.
+
+  Windmills name their only sequence `SpecialIdle` [observed]:
+  `clutter\farm\windmill*.nif` (looping 17.3 s or 20 s: the blades rock by up to
+  ±0.34 rad about the shaft and the head yaws ±0.054 rad, with `Sound: SFXWindmill`
+  text keys) and `architecture\ncr\spinningwindmill.nif` (STAT `WindmillSpinningNV`,
+  placed in the Goodsprings cell: blades turn two full turns every 7 s, text keys
+  `Sound: SFXWindmillHiSpdCrkNew`). In `Fallout - Meshes.bsa`, 116 meshes have
+  `SpecialIdle` as their only sequence, all looping (bobbleheads 20, `dlc05\...\mz\misc`
+  18, the solar-system orrery 11, ...), and 43 have it next to other sequences (signs,
+  posters, control panels) [observed, same survey]. The world renderer plays `Idle`
+  from load, or `SpecialIdle` when there is no `Idle` [hypothesis: windmills turn in
+  game]. Whether the game also plays it from load for every other `SpecialIdle` mesh
+  (bobbleheads nod in a 1 s loop) or only on a `PlayGroup SpecialIdle` or similar
+  event is open.
 - **Alpha** (NiAlphaProperty flags, layout documented in nif.xml; bits 10-12 hold the
   test function, 4 = GREATER, the nif.xml default). Survey of visible shapes in
   `Fallout - Meshes.bsa` and every `* - Main.bsa` [observed,
