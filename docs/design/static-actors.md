@@ -141,7 +141,7 @@ Rules, all [hypothesis] until captured:
 | Item | Where | Notes |
 |---|---|---|
 | Spec note | `docs/spec-notes/actors.md` | all facts above, tagged; capture procedures |
-| Schema | `schemas/fnv`: HAIR, EYES, HDPT records; RACE `INDX` (done); CREA `NIFZ` (part D) | from xEdit's public definitions, as in Layer 1 |
+| Schema | `schemas/fnv`: HAIR, EYES, HDPT records; RACE `INDX` (done); CREA `NIFZ`, `KFFZ`, IDLE (done, part F) | from xEdit's public definitions, as in Layer 1 |
 | Resolution | `crates/fnv-actor` (new; depends on `fnv-esm`, `fnv-world`, `fnv-sim`) | `resolve`, `ActorAppearance`; unit + synthetic-plugin tests |
 | CLI | `fnvtool actor forms \| appearance \| meshes` | contract in actors.md §5; one pointer paragraph in `docs/cli-contract.md` |
 | Oracle | `tools/capture/oracle_actor.py` (+ test) | written from the spec note only |
@@ -173,6 +173,7 @@ Done when 1–5 hold for humanoids with FaceGen faces (parts A, B and C).
 | B — assembly | one-skeleton spawning in `nvf-assets`, viewer `--npc`, world streaming of actors, frozen bind pose | A's `ActorAppearance` (stub first) |
 | C — FaceGen | spec note for `.egm`/`.egt`/`.tri` from public documentation, head/hair/hat morphs from FGGS/FGGA, skin texture morph from FGTS | B |
 | D — creatures | CREA (`MODL` skeleton + `NIFZ` model list), ACRE placement | B |
+| F — animation data (headless) | IDLE schema and reader (`fnv_actor::idle`), `.kf` catalogue by skeleton folder (`fnvtool actor anims`), spec note docs/spec-notes/animation.md; groundwork for Layer 6 animation selection | A |
 
 A and B can run in parallel once the `ActorAppearance` struct is committed as a stub.
 

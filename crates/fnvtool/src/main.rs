@@ -2,6 +2,7 @@
 //! document on stdout (schemas in docs/cli-contract.md) and diagnostics on stderr.
 //! Exit codes: 0 success, 1 the input could not be processed, 2 usage error.
 
+mod actor_anims;
 mod actor_cmd;
 mod bsa_cmd;
 mod collide_cmd;
@@ -117,6 +118,26 @@ pub enum ActorCmd {
         /// NIF schema directory (default: `nif` next to --schema).
         #[arg(long)]
         nif_schema: Option<PathBuf>,
+    },
+    /// Animation data catalogue: every `.kf` grouped by skeleton folder with its
+    /// sequences and how many tracks bind to that skeleton, IDLE records per animation
+    /// group with the `.kf` they name (found / missing), and creature KFFZ lists
+    /// (fnv.actor.anims/1).
+    Anims {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Script function catalogue for naming condition functions (default:
+        /// `script/functions.json` next to --schema; names are left out if absent).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// Leave out the per-file and per-IDLE lists (summary and groups only).
+        #[arg(long)]
+        summary_only: bool,
     },
 }
 
