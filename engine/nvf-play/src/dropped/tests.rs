@@ -163,6 +163,7 @@ fn world_with(s: RefState) -> World<'static> {
         refs: [(FormId(DROPPED), s)].into_iter().collect(),
         globals: Default::default(),
         detached_cells: Default::default(),
+        quest_objects: Default::default(),
     };
     World::restore(forms, refs, &snap).unwrap()
 }
