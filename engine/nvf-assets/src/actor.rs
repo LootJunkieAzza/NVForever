@@ -17,9 +17,9 @@
 //!   `limbcaps`, `meatneck01`, `meathead01`) all have it clear, its body shapes set it;
 //!   hypothesis: an intact actor shows no cap].
 //! - Pose: the skeleton's bind pose, frozen (owner decision 2026-10-08), by default; a
-//!   KF clip can play on the skeleton's bones instead ([`play_on_actor`], actors.md §7).
+//!   KF clips can play on the skeleton's bones instead ([`blend_player`], actors.md §7–8).
 
-use crate::anim_play::{Clip, Playing};
+use crate::anim_play::{BlendPlayer, BoundClip, Clip};
 use crate::data::GameData;
 use crate::model::ModelCtx;
 use crate::nif_material::NifMaterial;
@@ -466,21 +466,17 @@ pub fn clip_binding<'a>(skel: &PreparedSkeleton, clip: &'a Clip) -> (Vec<&'a str
     clip.tracks.iter().map(|(n, _)| n.as_str()).partition(|n| clip_target(skel, n).is_some())
 }
 
-/// Play `clip` in a loop on a spawned actor's skeleton: tracks drive the bone entities by
-/// node name, so skinned shapes and rigid parts under their bones follow. `phase` (0–1)
-/// is where in the clip the actor starts; `hold` keeps it there (frequency 0). An
-/// accumulation root the clip does not drive is set to the identity
-/// ([`Clip::undriven_accum_root`]).
-pub fn play_on_actor(commands: &mut Commands, actor: &SpawnedActor, skel: &PreparedSkeleton, clip: &Clip, source: &str, phase: f32, hold: bool) {
-    if let Some(i) = clip.undriven_accum_root().and_then(|r| clip_target(skel, r)) {
-        commands.entity(actor.nodes[i]).insert(Transform::IDENTITY);
-    }
-    let mut playing = Playing::new(source, clip, |n| clip_target(skel, n).map(|i| actor.nodes[i]));
-    playing.time = clip.start + phase.clamp(0.0, 1.0) * (clip.stop - clip.start);
-    if hold {
-        playing.frequency = 0.0;
-    }
-    commands.entity(actor.root).insert(playing);
+/// `clip` bound to the nodes of `skel` (the root excluded, [`clip_target`]), to share
+/// between the actors of that skeleton.
+pub fn bind_clip(skel: &PreparedSkeleton, clip: Arc<Clip>) -> BoundClip {
+    BoundClip::bind(clip, |n| clip_target(skel, n))
+}
+
+/// A [`BlendPlayer`] for a spawned actor (no clips yet): tracks drive the bone entities
+/// by node name, so skinned shapes and rigid parts under their bones follow
+/// (docs/spec-notes/actors.md §7 and §8).
+pub fn blend_player(actor: &SpawnedActor, skel: &PreparedSkeleton) -> BlendPlayer {
+    BlendPlayer::new(actor.nodes.clone(), Arc::new(skel.locals.clone()))
 }
 
 #[cfg(test)]
