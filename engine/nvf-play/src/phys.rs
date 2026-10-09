@@ -346,9 +346,9 @@ impl PhysState {
     }
 
     /// What stands under `at`, from `up` above it to `down` below, ignoring the layers
-    /// the character passes through.
+    /// the character passes through and actor hit volumes.
     pub fn ground_below(&mut self, at: [f32; 3], up: f32, down: f32) -> Option<RayHit> {
-        let filter = Filter { exclude_layers: fnv_phys::layers::character_ignores(), ..Default::default() };
+        let filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
         self.ray([at[0], at[1], at[2] + up], [0.0, 0.0, -1.0], up + down, filter)
     }
 
