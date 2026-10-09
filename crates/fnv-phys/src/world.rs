@@ -5,7 +5,9 @@
 //! `enhanced-determinism`; the world advances only in fixed steps of `PhysParams::dt`;
 //! bodies are created in the order the caller adds them, so callers add terrain by grid
 //! and references by FormID (the `fnvtool phys` commands do). Query results that can
-//! list several colliders are sorted.
+//! list several colliders are sorted. Shapes can be built away from the world
+//! ([`PreparedRef`], [`PreparedTerrain`], e.g. on a loader thread) and inserted later;
+//! the order of insertion is what counts.
 
 use crate::convert::{self, arr3, vec3, ConvertError, Leaf};
 use fnv_collide::{CollisionObject, Iso, Motion, Shape};
@@ -157,6 +159,106 @@ pub struct BodyState {
     pub sleeping: bool,
 }
 
+/// A reference's collision objects converted to rapier shapes and placed, but not in a
+/// world yet: built by [`PreparedRef::new`] (pure, so it may run on another thread) and
+/// added by [`PhysWorld::insert_ref`]. Building the shapes (triangle-mesh trees, convex
+/// hulls) is most of the cost of adding a reference; inserting is cheap.
+pub struct PreparedRef {
+    pub form_id: u32,
+    objects: Vec<PreparedObject>,
+    /// Conversion errors, in the order [`PhysWorld::add_ref`] reports them.
+    errors: Vec<ConvertError>,
+}
+
+struct PreparedObject {
+    /// Index in the list given to [`PreparedRef::new`].
+    index: u16,
+    layer: u8,
+    motion: Motion,
+    material: Material,
+    /// Body pose in the world, rapier units.
+    pose: Pose,
+    leaves: Vec<Leaf>,
+    /// Contact shell times the reference's scale, game units.
+    shell: f32,
+}
+
+/// The surface and mass properties of a collision object.
+struct Material {
+    friction: f32,
+    restitution: f32,
+    mass: f32,
+}
+
+impl PreparedRef {
+    /// Convert `objects` placed by `pose` for a world with `params` (see
+    /// [`PhysWorld::add_ref`]). Objects without convertible leaves are left out.
+    pub fn new(params: &PhysParams, pose: &RefPose, objects: &[CollisionObject]) -> PreparedRef {
+        PreparedRef::build(1.0 / params.units_per_metre, pose, objects)
+    }
+
+    /// With `k` metres per game unit.
+    fn build(k: f32, pose: &RefPose, objects: &[CollisionObject]) -> PreparedRef {
+        let mut out = PreparedRef { form_id: pose.form_id, objects: Vec::new(), errors: Vec::new() };
+        let ref_rot = match convert::rotation(&pose.rotation) {
+            Ok(r) => r,
+            Err(e) => {
+                out.errors.push(e);
+                return out;
+            }
+        };
+        let ref_pose = Pose::from_parts(vec3(pose.position) * k, ref_rot);
+        for (i, o) in objects.iter().enumerate() {
+            let local = o.node_transform.compose(&o.body_transform);
+            let body_pose = match convert::pose(&local, pose.scale * k) {
+                Ok(p) => ref_pose * p,
+                Err(e) => {
+                    out.errors.push(e);
+                    continue;
+                }
+            };
+            let mut leaves = Vec::new();
+            convert::leaves(&o.shape, &Iso::IDENTITY, pose.scale * k, &mut leaves, &mut out.errors);
+            if leaves.is_empty() {
+                continue;
+            }
+            out.objects.push(PreparedObject {
+                index: i as u16,
+                layer: o.layer,
+                motion: o.motion,
+                material: Material { friction: o.friction, restitution: o.restitution, mass: o.mass },
+                pose: body_pose,
+                leaves,
+                shell: o.shell * pose.scale,
+            });
+        }
+        out
+    }
+
+    /// Colliders it will add.
+    pub fn colliders(&self) -> usize {
+        self.objects.iter().map(|o| o.leaves.len()).sum()
+    }
+}
+
+/// The terrain collider of an exterior cell, built but not in a world yet (see
+/// [`PreparedRef`]; added by [`PhysWorld::insert_terrain`]).
+pub struct PreparedTerrain {
+    pub grid: (i32, i32),
+    collider: ColliderBuilder,
+}
+
+impl PreparedTerrain {
+    /// The terrain of the cell at `grid` from its LAND heights, for a world with `params`.
+    pub fn new(params: &PhysParams, grid: (i32, i32), heights: &[f32]) -> PreparedTerrain {
+        PreparedTerrain::build(1.0 / params.units_per_metre, grid, heights)
+    }
+
+    fn build(k: f32, grid: (i32, i32), heights: &[f32]) -> PreparedTerrain {
+        PreparedTerrain { grid, collider: crate::terrain::collider(grid, heights, k) }
+    }
+}
+
 pub struct PhysWorld {
     pub params: PhysParams,
     pub(crate) w: PhysicsWorld,
@@ -201,8 +303,15 @@ impl PhysWorld {
 
     /// Add (or replace) the terrain of the exterior cell at `grid` from its LAND heights.
     pub fn add_terrain(&mut self, grid: (i32, i32), heights: &[f32]) {
+        self.insert_terrain(PreparedTerrain::build(self.k, grid, heights));
+    }
+
+    /// Add (or replace) terrain built by [`PreparedTerrain::new`]: the same result as
+    /// [`PhysWorld::add_terrain`] with the same heights.
+    pub fn insert_terrain(&mut self, t: PreparedTerrain) {
+        let grid = t.grid;
         self.remove_terrain(grid);
-        let c = crate::terrain::collider(grid, heights, self.k).user_data(Owner::Terrain { x: grid.0, y: grid.1 }.encode());
+        let c = t.collider.user_data(Owner::Terrain { x: grid.0, y: grid.1 }.encode());
         let h = self.w.insert_collider(c, None);
         self.terrain.insert(grid, h);
         self.dirty = true;
@@ -223,53 +332,40 @@ impl PhysWorld {
     /// water ([`PhysWorld::add_placed_water`]) is kept, so the two can be added in either
     /// order.
     pub fn add_ref(&mut self, pose: &RefPose, objects: &[CollisionObject]) -> AddReport {
-        self.remove_bodies(pose.form_id);
-        let mut report = AddReport::default();
-        let ref_rot = match convert::rotation(&pose.rotation) {
-            Ok(r) => r,
-            Err(e) => {
-                report.errors.push(e);
-                return report;
-            }
-        };
-        let ref_pose = Pose::from_parts(vec3(pose.position) * self.k, ref_rot);
+        self.insert_ref(PreparedRef::build(self.k, pose, objects))
+    }
+
+    /// Add a reference's collision converted by [`PreparedRef::new`]: the same bodies,
+    /// colliders and report, in the same order, as [`PhysWorld::add_ref`] with the same
+    /// pose and objects. Replaces an earlier add of the same reference's bodies; its placed
+    /// water is kept (see [`PhysWorld::add_ref`]).
+    pub fn insert_ref(&mut self, p: PreparedRef) -> AddReport {
+        self.remove_bodies(p.form_id);
+        let mut report = AddReport { errors: p.errors, ..Default::default() };
         let mut handles = Vec::new();
-        for (i, o) in objects.iter().enumerate() {
-            let owner = Owner::Ref { form_id: pose.form_id, object: i as u16, layer: o.layer };
-            let local = o.node_transform.compose(&o.body_transform);
-            let body_pose = match convert::pose(&local, pose.scale * self.k) {
-                Ok(p) => ref_pose * p,
-                Err(e) => {
-                    report.errors.push(e);
-                    continue;
-                }
-            };
-            let mut leaves = Vec::new();
-            convert::leaves(&o.shape, &Iso::IDENTITY, pose.scale * self.k, &mut leaves, &mut report.errors);
-            if leaves.is_empty() {
-                continue;
-            }
+        for o in p.objects {
+            let owner = Owner::Ref { form_id: p.form_id, object: o.index, layer: o.layer };
             let builder = match o.motion {
                 Motion::Static => RigidBodyBuilder::fixed(),
                 Motion::Keyframed => RigidBodyBuilder::kinematic_position_based(),
                 Motion::Dynamic => RigidBodyBuilder::dynamic(),
             };
-            let body = self.insert_body(builder.pose(body_pose).user_data(owner.encode()));
-            report.colliders += self.attach(body, owner, o, leaves, o.shell * pose.scale);
+            let body = self.insert_body(builder.pose(o.pose).user_data(owner.encode()));
+            report.colliders += self.attach(body, owner, &o.material, o.leaves, o.shell);
             if o.motion == Motion::Dynamic {
-                self.set_mass(body, o.mass);
+                self.set_mass(body, o.material.mass);
             }
             handles.push(body);
         }
         report.bodies = handles.len();
         if !handles.is_empty() {
-            self.refs.insert(pose.form_id, handles);
+            self.refs.insert(p.form_id, handles);
             self.dirty = true;
         }
         report
     }
 
-    fn attach(&mut self, body: RigidBodyHandle, owner: Owner, o: &CollisionObject, leaves: Vec<Leaf>, shell: f32) -> usize {
+    fn attach(&mut self, body: RigidBodyHandle, owner: Owner, o: &Material, leaves: Vec<Leaf>, shell: f32) -> usize {
         let n = leaves.len();
         for leaf in leaves {
             let mut c = ColliderBuilder::new(leaf.shape).position(leaf.pose).user_data(owner.encode());
