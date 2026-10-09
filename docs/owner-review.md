@@ -337,6 +337,22 @@ sessions. You already had it from an earlier playthrough.
       script package.
     - Each note ends with capture candidates. Nothing was changed in the runtime.
 
+26. **Your `objects.xml` export (9 pages, mostly category indexes).** Three facts were
+    new; each is handled as below.
+    - **Quest items can't be dropped or sold, and bodies holding one don't despawn until
+      it's taken.** Nothing read a quest-item record flag, so `--play` let you drop
+      anything. A session on `claude/quest-items` is adding the flag (from xEdit's
+      definitions, confirmed in the data) and the rule.
+    - **"Random Anim Start":** world objects with it start their idle animation at a
+      random time, so copies don't animate in step. Nothing reads it yet. **For the
+      NPC/animation coordinator:** this belongs with the placed-model animation of #47
+      (`engine/nvf-assets` model.rs).
+    - **Leveled lists pick by the player's level relative to the encounter zone.**
+      `fnv-sim` uses the player's level only (no ECZN). This matters for leveled actors
+      (Layer 6); noted, not changed.
+
+    The export is kept as `C:\fnv-private\geckwiki\objects.xml`.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
