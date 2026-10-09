@@ -820,9 +820,17 @@ fn walk_cmd(
             bail!("prop {}: {} has no collision", pr.label, pr.model);
         }
         let mass: f32 = objects.iter().map(|o| o.mass).sum();
-        props.push((id, json!({"label": pr.label, "model": pr.model, "formid": fid(id), "bodies": rep.bodies, "havok_mass": mass})));
+        // One object: its body's pose gives the prop's reference pose (what the game's
+        // GetPos reads); otherwise the first body's position is reported.
+        let local = (objects.len() == 1 && rep.bodies == 1).then(|| objects[0].node_transform.compose(&objects[0].body_transform));
+        props.push((id, json!({"label": pr.label, "model": pr.model, "formid": fid(id), "bodies": rep.bodies, "havok_mass": mass}), local));
     }
-    let prop_pos = |w: &fnv_phys::PhysWorld, id: u32| w.ref_bodies(id).first().map(|b| b.translation);
+    let prop_pos = |w: &fnv_phys::PhysWorld, id: u32, local: &Option<fnv_collide::Iso>| {
+        w.ref_bodies(id).first().map(|b| match local {
+            Some(l) => ref_pose_of(b, l).0,
+            None => b.translation,
+        })
+    };
     let [x, y] = script.start;
     let start_z = match script.start_z {
         Some(z) => z,
@@ -883,7 +891,7 @@ fn walk_cmd(
             for (label, _) in script.observe.iter().filter(|(_, at)| *at == step) {
                 let mut o = json!({"label": label, "feet": s.feet, "grounded": s.grounded, "swimming": s.swimming});
                 if !props.is_empty() {
-                    o["props"] = json!(props.iter().map(|(id, _)| prop_pos(world, *id)).collect::<Vec<_>>());
+                    o["props"] = json!(props.iter().map(|(id, _, l)| prop_pos(world, *id, l)).collect::<Vec<_>>());
                 }
                 observations.push(o);
             }
@@ -900,7 +908,7 @@ fn walk_cmd(
                     "touched": s.touched.iter().map(owner_json).collect::<Vec<_>>(),
                 });
                 if !props.is_empty() {
-                    t["props"] = json!(props.iter().map(|(id, _)| prop_pos(world, *id)).collect::<Vec<_>>());
+                    t["props"] = json!(props.iter().map(|(id, _, l)| prop_pos(world, *id, l)).collect::<Vec<_>>());
                 }
                 trace.push(t);
             }
@@ -925,12 +933,17 @@ fn walk_cmd(
     if !props.is_empty() {
         v["props"] = json!(props
             .iter()
-            .map(|(id, p)| {
+            .map(|(id, p, local)| {
                 let mut p = p.clone();
                 let b = b.world.ref_bodies(*id).first().copied();
                 p["end"] = json!(b.map(|b| b.translation));
                 p["end_rotation"] = json!(b.map(|b| b.rotation));
                 p["asleep"] = json!(b.map(|b| b.sleeping));
+                if let (Some(b), Some(l)) = (b, local) {
+                    let (pos, rot) = ref_pose_of(&b, l);
+                    p["end_ref"] = json!(pos);
+                    p["end_ref_angles_deg"] = json!(fnv_world::transform::ref_angles(&rot).map(f32::to_degrees));
+                }
                 p
             })
             .collect::<Vec<_>>());
@@ -939,6 +952,16 @@ fn walk_cmd(
         v["observations"] = json!(observations);
     }
     Ok(v)
+}
+
+/// The reference pose (position, row-major rotation) of a body placed at `ref ∘ local`
+/// (scale 1): `R = R_body R_localᵀ`, `t = t_body − R t_local`.
+fn ref_pose_of(b: &fnv_phys::BodyState, local: &fnv_collide::Iso) -> ([f32; 3], [f32; 9]) {
+    use fnv_world::transform::{mul, transpose};
+    let r = mul(&b.rotation, &transpose(&local.rotation));
+    let t = local.translation;
+    let rt = [0, 3, 6].map(|i| r[i] * t[0] + r[i + 1] * t[1] + r[i + 2] * t[2]);
+    ([b.translation[0] - rt[0], b.translation[1] - rt[1], b.translation[2] - rt[2]], r)
 }
 
 /// Sample points of `phys heights`, in grid steps (128 units) east and north of a cell's

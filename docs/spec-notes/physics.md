@@ -468,10 +468,38 @@ FormID from 0xFF000000) the collision objects of its base form's model through
 physics cell containing it. Dynamic objects fall and settle like placed clutter; while the
 body moves, the reference pose `R = R_body R_localᵀ`, `t = t_body − R t_local` (local = the
 object's node and body transforms) is written back to the simulation, for models with
-exactly one collision object. That a dropped item falls at all is [hypothesis]: a
-scripted `player.Drop` stayed at its drop point for 10 s in game [observed]; the
-evidence, the readings and the capture that would settle it are in simulation.md §5
-"After the drop".
+exactly one collision object. Earlier evidence was mixed (a scripted `player.Drop` read
+the same z for 10 s in `ld_drop_refs`, simulation.md §5 "After the drop"); **settled
+2026-10-09: dropped items fall** [observed, capture `pc_drop_fall` (tools/capture/jobs/
+make_closeout_jobs.py), save nvfdoc, just outside Doc Mitchell's front door, the player's
+feet at 8693.43 on terrain at about 8690, heading 72.8°]:
+
+| Case | Reading (GetPos, GetAngle X Y Z) |
+|---|---|
+| scripted `player.Drop` stimpak | 5 loops after: z 8705.9 (the drop point is 8723.4, 30 above the feet); from 1 s on at rest at (−73109.3, 1334.4, 8696.82), angles (86.7, −17.2, 0.5): on its side, 7.7 units from the drop point |
+| the same, `SetPos Z` +1 and then +40 | stays where it is put (8697.8, then 8737.8, for 3 s each): a resting dropped item is not woken by `SetPos` |
+| `Drop` with the Pip-Boy open (`TapControl 14`, `MenuMode` 1) | in the menu it stays at the drop point (−73115.2, 1327.2, 8723.43), angles (0, 0, 72.81) = the player's heading; after `CloseAllMenus` it falls (8704.9 after 5 loops) and rests at (−73109.6, 1335.1, 8696.93), angles (86.4, −16.3, 0.7) |
+| `PlaceAtMe` stimpak | created at the player's feet, turned at random, rests at 8695.5 |
+| scripted `Drop` of a tin can | falls, rolls 30 units, at rest on its side at (−73102.8, 1296.5, 8696.99), angles (86.4, 31.2, 59.8) |
+| the player runs 40 loops over the resting stimpak | it moves 2.7 units and turns (angle Y −15.7 → 23.0); the player is not stopped (216 units in 0.67 s) |
+
+So a drop starts at its drop point turned as the holder faces (X and Y 0, Z the holder's
+heading), falls under its model's collision when the world runs, and rests lying down.
+`nvf-play` now turns a dropped item to the player's heading (`menu.rs`; `World::drop_item`
+leaves 0). Why `ld_drop_refs` read no fall is not known [hypothesis: its reference scan
+may have read a reference whose 3D was not loaded].
+
+**Clutter rests on the terrain's contact shell** (since 2026-10-09; `PhysWorld::
+insert_terrain` gives the terrain collider a contact skin of `TERRAIN_SHELL`, 3.5): the
+same drops in `fnvtool phys walk` with the item as a prop at the game's drop point and
+heading (§7) rested 4.2 units lower than the game's stimpak and stood the tin can upright
+1.4 units above the terrain; with the skin the stimpak rests at (−73111.2, 1334.7,
+8696.21), angles (86.4, −21.9, 0) against the game's (−73109.3, 1334.4, 8696.82), (86.7,
+−17.2, 0.5), and the can lies on its side at 8697.47 against 8696.99 (it rolls 17 units
+less) [observed; that the excess is the shell the player rests on (§6.2) is the same
+hypothesis]. Statics keep no skin for dynamic bodies (no capture of clutter resting on a
+static yet). Parity-lab L4 results are identical with the skin (the player's controller
+does not use contact skins).
 
 In our engine [observed, `nvforever --play`, 2026-10-08]: a stimpak (one dynamic Clutter
 object) dropped 30 units above Doc Mitchell's floor (z 7360) came to rest on its side at
