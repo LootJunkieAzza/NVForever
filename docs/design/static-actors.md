@@ -6,7 +6,10 @@ not started; part E (animation playback) done: `nvforever` (default `--actor-pos
 plays `mtidle.kf` on each actor's skeleton, all 60 transform tracks binding to
 `skeleton.nif`, with skinned, rigid and FaceGen parts following (actors.md §7); since
 2026-10-09 this is the default (owner decision: the owner asked for working NPCs; set by
-the desktop coordinator, reversible), and `--actor-pose bind` keeps the frozen bind pose. Part A: schema
+the desktop coordinator, reversible), and `--actor-pose bind` keeps the frozen bind pose.
+Part G (locomotion playback) done 2026-10-09: idle, walk, run and turn clips chosen from
+each actor's velocity and turn rate, two-clip cross-fades, rate and phase matched to the
+clips' root motion; the test aid `--actor-walk-test` moves actors (actors.md §8). Part A: schema
 layouts, `fnv-actor` resolution, `fnvtool actor forms | appearance | meshes`, the
 independent oracle `tools/capture/oracle_actor.py` and `L3.actors.appearance` (all 1,149
 deterministic actors equal). Part B: `nvf_assets::actor` assembles each placed NPC on
@@ -179,6 +182,7 @@ Done when 1–5 hold for humanoids with FaceGen faces (parts A, B and C).
 | D — creatures | CREA (`MODL` skeleton + `NIFZ` model list), ACRE placement | B |
 | E — animation playback | `--actor-pose idle` (the default since 2026-10-09): a looping KF idle on each actor's skeleton by bone name (anim_play), accumulation root held at the identity, no per-frame allocation; findings in actors.md §7. Choosing clips by situation stays Layer 6 | B |
 | F — animation data (headless) | IDLE schema and reader (`fnv_actor::idle`), `.kf` catalogue by skeleton folder (`fnvtool actor anims`), spec note docs/spec-notes/animation.md; groundwork for Layer 6 animation selection | A |
+| G — locomotion playback | idle, walk, run and turn clips chosen from velocity and turn rate, cross-faded (two-clip weighted blend), playback rate synced to ground speed from the clips' root motion; test aid `--actor-walk-test`; `fnvtool actor locomotion`; actors.md §8; plan in §6 below | E, F |
 
 A and B can run in parallel once the `ActorAppearance` struct is committed as a stub.
 
@@ -192,3 +196,52 @@ A and B can run in parallel once the `ActorAppearance` struct is committed as a 
 4. ~~Armour choice~~ → Owner 2026-10-08: the best protection by DT and DR (actors.md §2.3).
 </content>
 </invoke>
+
+## 6. Part G — locomotion playback (plan, 2026-10-09)
+
+Goal: actors that move play the game's own locomotion clips with feet that do not slide,
+ready for Layer 6 to drive them. Facts and rules: docs/spec-notes/actors.md §8 (survey
+§8.1, root motion §8.2, engine rules §8.3).
+
+1. **Survey** (done before code): `fnvtool actor anims` lists the clips;
+   `fnvtool actor locomotion` (new, `fnv.actor.locomotion/1`) measures each clip's root
+   motion and lists the clip set per body and stance prefix.
+2. **Headless** (`crates/fnv-actor/src/locomotion.rs`, unit tests on synthetic
+   sequences): moves and clip lookup by skeleton folder, body and prefix
+   (`LocomotionSet::find` over the archive listing, no hard-coded file names beyond the
+   observed naming rule); `root_motion`; `foot_phase` and `blend_time` from text keys;
+   `choose` (velocity and turn rate → move and rate); `Blend` (current and previous
+   clip, weights, phases, phase sync, fade timing).
+3. **Engine sampling** (`engine/nvf-assets/src/anim_play.rs`): a `BlendPlayer` component
+   that poses a skeleton from up to two weighted clips per frame (lerp/nlerp per node,
+   bind pose for missing weight), with the accumulation root rule of actors.md §8.2.
+   Tracks are bound to skeleton node indices once per (skeleton, clip) and shared;
+   scratch buffers are allocated at spawn, so sampling allocates nothing per frame.
+   The single-clip `Playing` stays for animated world objects and the viewer.
+4. **Engine control** (`engine/nvforever/src/actors.rs`): with `--actor-pose idle` (the
+   default) every human actor gets a `Locomotion` component (its clip set, `Blend` state,
+   velocity and turn rate) and a `BlendPlayer`; a system feeds `choose` and `Blend` and
+   writes the layers. A standing actor plays Idle at its spread phase as in part E, and
+   `--actor-pose-time` still holds it. `--actor-pose bind` is unchanged. The hard-coded
+   `idle_clip()` goes; the idle comes from the clip set.
+5. **Test aid**: `--actor-walk-test <speed>` (and `--actor-walk-test-radius`) moves
+   actors along a fixed script (actors.md §8.4) that exercises walk or run, stop, turns
+   both ways and backward walking. The script is a pure function of time with unit
+   tests.
+6. **Checks**: unit tests for clip lookup, root motion, choice, blend weights and phase
+   sync on synthetic clips; screenshots of Doc Mitchell walking at several held times
+   (kept privately); the moving-camera smoke test and a run with the walk test aid;
+   sampling cost per actor and frame against §7.5 (part E).
+
+Out of scope (Layer 6 and part D): AI packages, pathfinding, situation idles from IDLE
+conditions, weapon stances (no weapons drawn yet), creatures, and the `nvf-viewer --anim`
+accumulation-root follow-up. Notes for them: actors.md §8.8.
+
+Results (2026-10-09): all of 1–6 done. The unarmed set of `characters\_male` has every
+move for male, female and child bodies (actors.md §8.1); walk and run clips move `Bip01`
+only by translation (forward walk 85.3 units/s, run 353.9), idle and turns not at all
+(§8.2). Screenshots show walking, turning, walking backward and running facing the right
+way with the feet on the floor (§8.7). Cost: 6–25 µs per one-clip pose and 21–27 µs per
+two-clip pose; in the engine 37–41 µs per actor and frame, the same range as part E
+(§8.6).
+
