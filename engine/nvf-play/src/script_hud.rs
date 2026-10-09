@@ -2,7 +2,8 @@
 //! not a claim about the original's interface).
 //!
 //! - Lines (messages without the message-box flag, objectives shown or completed, quests
-//!   completed, items a script gave or took): top left, the newest last, each for
+//!   completed, items a script gave or took): bottom left (nvforever's status text is top
+//!   left), the newest last, each for
 //!   [`NOTE_SECONDS`].
 //! - Message boxes (`MESG` flagged "Message Box", or with buttons): one at a time in the
 //!   middle of the view, with numbered buttons. Number keys 1–9 pick a button
@@ -30,6 +31,7 @@ pub struct ScriptHud {
 
 impl ScriptHud {
     pub fn notify(&mut self, text: String) {
+        let text = text.trim().to_string();
         info!("on screen: {}", text.replace('\n', " / "));
         self.notes.push_back((text, 0.0));
         while self.notes.len() > MAX_NOTES {
@@ -57,6 +59,11 @@ impl ScriptHud {
             return true;
         }
         false
+    }
+
+    /// Whether a box waiting for a button is queued (it may be behind others).
+    pub fn has_waiting(&self) -> bool {
+        self.boxes.iter().any(BoxMessage::waits)
     }
 
     /// The waiting box got its button.
@@ -92,7 +99,7 @@ struct BoxText;
 fn spawn(mut commands: Commands) {
     let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
     commands.spawn((
-        Node { position_type: PositionType::Absolute, left: Val::Px(16.0), top: Val::Px(16.0), max_width: Val::Percent(45.0), ..default() },
+        Node { position_type: PositionType::Absolute, left: Val::Px(16.0), bottom: Val::Px(48.0), max_width: Val::Percent(45.0), ..default() },
         children![(Text::new(""), font(15.0), TextColor(Color::srgb(0.95, 0.9, 0.7)), NotesText)],
     ));
     commands.spawn((
