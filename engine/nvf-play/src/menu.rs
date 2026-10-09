@@ -138,6 +138,7 @@ fn open_menus(
     mut next: ResMut<NextState<PlayState>>,
     mut active: ResMut<ActiveMenu>,
     mut sim: ResMut<SimState>,
+    script: Option<ResMut<crate::script::ScriptState>>,
 ) {
     let container = containers.read().last().copied();
     let inv = inventory.read().count() > 0;
@@ -155,6 +156,8 @@ fn open_menus(
     match opened {
         Ok(m) => {
             info!("menu: open {:?} \"{}\"", m.mode, m.title);
+            // Scripts run MenuMode 1008 / 1002 from now on (layer5-play.md).
+            crate::script::engine_menu_opened(script.map(|s| s.into_inner()), m.mode);
             active.0 = Some(m);
             next.set(PlayState::Menu);
         }
@@ -169,8 +172,15 @@ fn release_cursor(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>) {
     }
 }
 
-fn close_menu(mut commands: Commands, mut active: ResMut<ActiveMenu>, roots: Query<Entity, With<MenuRoot>>) {
-    active.0 = None;
+fn close_menu(
+    mut commands: Commands,
+    mut active: ResMut<ActiveMenu>,
+    roots: Query<Entity, With<MenuRoot>>,
+    script: Option<ResMut<crate::script::ScriptState>>,
+) {
+    if let Some(m) = active.0.take() {
+        crate::script::engine_menu_closed(script.map(|s| s.into_inner()), m.mode);
+    }
     for e in &roots {
         commands.entity(e).despawn();
     }

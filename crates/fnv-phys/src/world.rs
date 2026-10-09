@@ -62,9 +62,10 @@ pub enum Owner {
     Ref { form_id: u32, object: u16, layer: u8 },
     /// A character added with [`PhysWorld::add_character`].
     Character { id: u32 },
-    /// The hit volume of a placed actor (combat, `crate::actors`), with its Havok layer:
-    /// BIPED alive, DEAD_BIP dead.
-    Actor { form_id: u32, layer: u8 },
+    /// The hit volume of a placed actor (combat, `crate::actors`), with its Havok layer
+    /// (BIPED alive, DEAD_BIP dead) and the body part (`crate::actors::WHOLE` for the
+    /// single capsule).
+    Actor { form_id: u32, layer: u8, part: u8 },
 }
 
 impl Owner {
@@ -73,7 +74,7 @@ impl Owner {
             Owner::Terrain { x, y } => (1u128, x as u32, y as u32, 0u32),
             Owner::Ref { form_id, object, layer } => (2, form_id, object as u32, layer as u32),
             Owner::Character { id } => (3, id, 0, 0),
-            Owner::Actor { form_id, layer } => (4, form_id, 0, layer as u32),
+            Owner::Actor { form_id, layer, part } => (4, form_id, part as u32, layer as u32),
         };
         kind | (a as u128) << 8 | (b as u128) << 40 | (c as u128) << 72
     }
@@ -86,7 +87,7 @@ impl Owner {
             1 => Some(Owner::Terrain { x: a as i32, y: b as i32 }),
             2 => Some(Owner::Ref { form_id: a, object: b as u16, layer: c as u8 }),
             3 => Some(Owner::Character { id: a }),
-            4 => Some(Owner::Actor { form_id: a, layer: c as u8 }),
+            4 => Some(Owner::Actor { form_id: a, layer: c as u8, part: b as u8 }),
             _ => None,
         }
     }
@@ -274,7 +275,7 @@ pub struct PhysWorld {
     terrain: BTreeMap<(i32, i32), ColliderHandle>,
     refs: BTreeMap<u32, Vec<RigidBodyHandle>>,
     /// Actor hit volumes by reference FormID (`crate::actors`).
-    pub(crate) actors: BTreeMap<u32, (RigidBodyHandle, crate::actors::HitVolume)>,
+    pub(crate) actors: BTreeMap<u32, crate::actors::ActorBody>,
     /// Per-triangle material codes of triangle-mesh colliders.
     materials: HashMap<ColliderHandle, Vec<u32>>,
     /// Contact shells (game units) of reference colliders that have one
@@ -439,6 +440,32 @@ impl PhysWorld {
         }
         self.w.remove_body(b);
         self.dirty = true;
+    }
+
+    /// Push dynamic bodies within `radius` of `center` away from it (an explosion's force,
+    /// combat C7) [design: the EXPL force read as a speed change in game units per second
+    /// at the centre, falling linearly to 0 at the radius]. Returns how many moved.
+    pub fn push_dynamic(&mut self, center: [f32; 3], radius: f32, speed: f32) -> usize {
+        let k = self.k;
+        let c = vec3(center) * k;
+        let r = (radius * k).max(1e-4);
+        let mut n = 0;
+        for (_, b) in self.w.bodies.iter_mut() {
+            if !b.is_dynamic() {
+                continue;
+            }
+            let d = b.position().translation - c;
+            let dist = d.length();
+            if dist > r {
+                continue;
+            }
+            let dir = if dist > 1e-4 { d / dist } else { Vector::Z };
+            let dv = speed * k * (1.0 - dist / r);
+            let m = b.mass();
+            b.apply_impulse(dir * (dv * m), true);
+            n += 1;
+        }
+        n
     }
 
     /// Current state of each body of a reference, in object order.
