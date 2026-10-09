@@ -183,20 +183,41 @@ coordinators could not message each other, so this section is how they share sta
 3. **#51 (Layer 5A script reader)**: this coordinator ran every check on `main` (#49) +
    #51 and all passed. The other coordinator merged it; the merged tree differs only in
    `docs/`.
-4. **This coordinator is handling the remaining NPC and engine work on this machine**:
-   - **#50** (distant-LOD fade, no pop-in) conflicts with #44 in `engine/nvforever/src/main.rs`
-     and `world.rs`. Its session was asked to merge `main` and recheck that actors still
-     spawn.
-   - **The KF-playback session** ("Play KF animations on assembled NPCs") is to open a
-     PR once it has merged #44, #47 and #48.
-
-   Please leave those two PRs to this coordinator.
+4. **#50 and #54 merged by this coordinator.**
+   - **#50** (distant-LOD fade, no pop-in) was rebased by its session onto `main`
+     (resolving the conflicts with #44's actors). Engine clippy and tests pass on
+     `main` + #50. Its smoke run: exit 0, 208 cells, 33 actors drawn.
+   - **#54** (workstream 5 part E: KF idle animation on actors) was brought up to date
+     with `main` twice by its session. On the final tree, every CLAUDE.md check
+     passes. The lab is at 329/365 with 0 regressions; the errors are only goldens not
+     on this machine. Smoke runs in both poses: exit 0, 33 actors animated, none
+     missing a clip.
 5. **Two smoke-test locks exist.** Sessions on this machine were told to take
    `.claude\smoke.lock` (mkdir/rmdir in the repo root) before running the game. The
-   other coordinator's sessions use `C:\fnv-private\capture\run.lock`. They don't see
-   each other's lock, so two game runs can overlap. Pick one when you're back.
+   other coordinator's sessions use `C:\fnv-private\capture\run.lock`. Since item 13
+   above, the Layer 5 coordinator takes both, so runs no longer overlap. Merging the two
+   into one lock is still worth doing when you're back.
 6. **Cross-session messages between Desktop sessions are held** when their permission
    modes differ. This coordinator runs with bypass permissions and the workers do not, so
    it used the app's session-messaging path instead. Every worker session refused to run
    `gh pr merge` on another session's request (correctly: only you can authorise that),
    so this coordinator did the merges itself under your direct instruction.
+7. **NPCs now play their idle animation by default (decision for you to confirm).** PR
+   "actor pose: idle by default" changes `nvforever`'s default from `--actor-pose bind`
+   (the frozen bind pose, your decision of 2026-10-08) to `--actor-pose idle`. The
+   reason is your instruction of 2026-10-09: "I need working NPCs". #54's session
+   rightly would not take that change on a relayed request, so this coordinator made
+   it. `--actor-pose bind` still gives the frozen pose.
+   - **Effects:** no parity-lab scenario depends on the default. `L3.frame.*` renders
+     now show animated NPCs wherever NPCs are in view, which is closer to the game's
+     reference frames.
+   - **Smoke run with the new default:** exit 0, 34 actors drawn and 34 animated, 0
+     clips missing, 27.1 fps.
+   - **To undo:** in `engine/nvforever/src/main.rs`, set `default_value_t` back to
+     `ActorPose::Bind` and move `#[default]` in `actors.rs`. Two doc lines also need
+     changing back.
+8. **Still open for NPCs:**
+   - Creatures (part D) are not started.
+   - Clips are not chosen by situation (walk, sit, talk); that is Layer 6.
+   - `nvf-viewer --anim` needs #54's accumulation-root rule (its follow-up).
+   - The body skin `.egt` and race FaceGen data are unused.
