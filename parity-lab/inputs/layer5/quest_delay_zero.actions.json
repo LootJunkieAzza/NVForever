@@ -1,0 +1,86 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Quest script delay, flag clear, DATA delay 0 (VMS40Timer)",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VMS40Timer",
+      "running": false,
+      "vars": {
+        "bRunTimer": 0,
+        "fTimer": 0
+      }
+    }
+  ],
+  "actions": [
+    {
+      "op": "set_quest_var",
+      "quest": "VMS40Timer",
+      "var": "fTimer",
+      "value": 100000
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS40Timer",
+      "var": "bRunTimer",
+      "value": 1
+    },
+    {
+      "op": "sample_var",
+      "quest": "VMS40Timer",
+      "var": "fTimer",
+      "frames": 120,
+      "label": "VMS40Timer timer while stopped"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS40Timer",
+      "label": "VMS40Timer before StartQuest",
+      "fields": [
+        "running",
+        "stage"
+      ]
+    },
+    {
+      "op": "start_quest",
+      "quest": "VMS40Timer"
+    },
+    {
+      "op": "sample_var",
+      "quest": "VMS40Timer",
+      "var": "fTimer",
+      "frames": 1500,
+      "runs": 3,
+      "skip": 1,
+      "label": "VMS40Timer timer while running"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VMS40Timer",
+      "label": "VMS40Timer while running",
+      "fields": [
+        "running",
+        "stage"
+      ]
+    },
+    {
+      "op": "stop_quest",
+      "quest": "VMS40Timer"
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS40Timer",
+      "var": "bRunTimer",
+      "value": 0
+    },
+    {
+      "op": "set_quest_var",
+      "quest": "VMS40Timer",
+      "var": "fTimer",
+      "value": 0
+    }
+  ]
+}
