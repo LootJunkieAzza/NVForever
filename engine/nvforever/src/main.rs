@@ -5,7 +5,7 @@
 //! Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
 //! F12 screenshot, Esc quit. With `--play` the camera is the player instead (Layer 4,
 //! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md),
-//! and Esc in a menu closes the menu.
+//! Esc opens the pause menu (Resume / Quit) and closes the open menu.
 
 mod actors;
 mod emittance;
@@ -23,6 +23,7 @@ mod imagespace;
 mod sky;
 mod terrain;
 mod tree;
+mod treelod;
 mod underwater;
 mod water;
 mod world;
@@ -83,7 +84,8 @@ struct Args {
     /// Pitch in degrees (negative looks down).
     #[arg(long, default_value_t = -10.0, allow_hyphen_values = true)]
     pitch: f32,
-    /// Cells loaded around the camera's cell in each direction.
+    /// Cells loaded around the camera's cell in each direction (2: the 5 x 5 cells of
+    /// the game's uGridsToLoad=5, its default and the owner's INI value).
     #[arg(long, default_value_t = 2)]
     radius: i32,
     /// Time of day in hours (0-24).
@@ -95,9 +97,20 @@ struct Args {
     /// Override the weather's fog distances: "near,far" in game units.
     #[arg(long)]
     fog: Option<String>,
-    /// Distant LOD (terrain chunks, object blocks) within this many 4-cell chunks.
-    #[arg(long, default_value_t = 8)]
-    lod_radius: i32,
+    /// Distant LOD (terrain chunks, object blocks) out to this distance in game units
+    /// (the game's fBlockLoadDistance; default the owner's INI value) [hypothesis: lod.rs].
+    #[arg(long, default_value_t = 125_000.0)]
+    lod_distance: f32,
+    /// Finest terrain LOD (level 4) within this distance (fBlockLoadDistanceLow).
+    #[arg(long, default_value_t = 50_000.0)]
+    lod_near_distance: f32,
+    /// Coarser terrain LOD splits while the camera is nearer than this x its side
+    /// (fSplitDistanceMult).
+    #[arg(long, default_value_t = 1.5)]
+    lod_split: f32,
+    /// Distant trees drawn as billboards out to this distance (fTreeLoadDistance); 0: none.
+    #[arg(long, default_value_t = 40_000.0)]
+    tree_distance: f32,
     /// Do not draw distant LOD.
     #[arg(long)]
     no_lod: bool,
@@ -109,7 +122,7 @@ struct Args {
     /// LOD chunks (docs/design/generated-lod.md).
     #[arg(long)]
     no_lodgen: bool,
-    /// Generated terrain replaces the game's LOD within this many 4-cell chunks.
+    /// Generated terrain replaces the game's level-4 LOD within this many 4-cell chunks.
     #[arg(long, default_value_t = 4)]
     lodgen_radius: i32,
     /// Generated terrain: diffuse texels per chunk side (power of two; normals get half).
@@ -227,6 +240,16 @@ struct Overlay;
 fn parse_vec<const N: usize>(s: &str) -> Option<[f32; N]> {
     let v: Vec<f32> = s.split(',').map(|x| x.trim().parse().ok()).collect::<Option<_>>()?;
     v.try_into().ok()
+}
+
+/// The distant LOD distances from the command line (lod.rs).
+fn lod_settings(args: &Args) -> lod::LodSettings {
+    lod::LodSettings {
+        far: args.lod_distance.max(0.0),
+        near: args.lod_near_distance.max(0.0),
+        split: args.lod_split.max(0.0),
+        trees: args.tree_distance.max(0.0),
+    }
 }
 
 /// The generated-terrain job: parameters, cache folder (NVForever's home, never the game's
@@ -374,12 +397,15 @@ fn main() -> AppExit {
         heading_deg: args.heading,
         pitch_deg: args.pitch,
         auto_walk: args.auto_walk,
+        start_at_cell_spot: args.pos.is_none(),
     });
-    let lodgen = if args.no_lod || args.no_lodgen || interior.is_some() {
+    // Also for an interior start: LOD stays off inside and is switched on at the door out
+    // (world::travel), with generated terrain for the start worldspace.
+    let lodgen = if args.no_lod || args.no_lodgen {
         None
     } else {
         match lodgen_job(&args, &world, &game) {
-            Ok(job) => Some(lod::GenState::new(job, args.lodgen_radius.clamp(0, args.lod_radius))),
+            Ok(job) => Some(lod::GenState::new(job, args.lodgen_radius.max(0))),
             Err(e) => return fail(e),
         }
     };
@@ -424,7 +450,7 @@ fn main() -> AppExit {
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
     .insert_resource(fly::AutoFly(args.auto_fly))
-    .insert_resource(lod::LodState::new(&world, args.lod_radius, !args.no_lod && interior.is_none(), lodgen))
+    .insert_resource(lod::LodState::new(&world, lod_settings(&args), !args.no_lod && interior.is_none(), lodgen))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })
     .init_resource::<TerrainCache>()
     .insert_resource(Streamer {
@@ -451,7 +477,7 @@ fn main() -> AppExit {
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
-    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, overlay, keys).chain())
+    .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
     .init_resource::<locomotion::ActorAnimCost>()
@@ -492,6 +518,7 @@ fn main() -> AppExit {
                     "run finished after {:.1}s: {} cells loaded in total, {} loaded now, {} frames ({:.1} per second), generated LOD chunks {} baked, {} from the cache, actors {:?}",
                     t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached, streamer.stats.actors
                 );
+                info!("distant LOD at the end: {}", lod.describe());
                 info!(
                     "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame",
                     anim.peak,
@@ -588,18 +615,24 @@ fn overlay(
     lod: Res<lod::LodState>,
     cam: Query<&GlobalTransform, With<FlyCam>>,
     mut text: Query<&mut Text, With<Overlay>>,
+    play_state: Option<Res<State<nvf_play::PlayState>>>,
 ) {
     let (Ok(cam), Ok(mut t)) = (cam.single(), text.single_mut()) else { return };
     let g = world::bevy_to_game(cam.translation());
     let c = fnv_world::cell_of(g.x, g.y);
     let s = &streamer.stats;
     t.0 = format!(
-        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {} (animated {})  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  LOD chunks {} generated {} (baking {}) blocks {}  lights {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
+        "pos {:.0}, {:.0}, {:.0}  cell {},{}
+cells {} ({} loads, {:.0} ms total)  refs drawn {} (animated {})  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}
+models {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  {}  lights {}
+{}
+{}",
         g.x, g.y, g.z, c.0, c.1,
         streamer.loaded.len(), s.cells_loaded, s.load_ms,
         s.refs_drawn, s.refs_animated, s.refs_skipped_disabled, s.refs_skipped_type, s.refs_speedtree, s.refs_no_model, s.shapes,
         models.len(), models.failures.len(), textures.failures.len(), terrain.layers, terrain.quadrants_without_base,
-        s.water_planes, lod.chunks, lod.generated, lod.gen_pending(), lod.blocks, s.lights, sky.describe(),
+        s.water_planes, lod.describe(), s.lights, sky.describe(),
+        if play_state.is_some() { nvf_play::HELP } else { "WASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit" },
     );
 }
 
@@ -609,9 +642,9 @@ fn keys(
     mut commands: Commands,
     mut n: Local<u32>,
 ) {
-    // With --play, Esc in a menu closes the menu (nvf-play) instead of quitting.
-    let in_menu = play_state.is_some_and(|s| *s.get() == nvf_play::PlayState::Menu);
-    if input.just_pressed(KeyCode::Escape) && !in_menu {
+    // With --play, Esc is nvf-play's: it opens the pause menu (Resume / Quit) or closes
+    // the open menu, instead of quitting.
+    if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
     if input.just_pressed(KeyCode::F12) {

@@ -262,3 +262,21 @@ kffz_candidates, actor_anim_lists}`.
   idle played (`IsLastIdlePlayed` / the console's `GetCurrentAIProcedure`) over time, to
   check the tree walk of §2.2.
 - `PlayIdle` on a childless `Loose…` root and on an inner node, to see which leaf plays.
+
+## 8. "Random Anim Start" (placed models)
+
+- **Fact** [documented: xEdit wbDefinitionsFNV.pas, record flag lists]: record header
+  flag bit 16 (`0x00010000`) is "Random Anim Start" on ACTI, CONT, DOOR, FURN, LIGH,
+  MSTT, TACT and TERM; on other types bit 16 means something else (REFR: "High Priority
+  LOD") or nothing. The GECK wiki's "World Objects" page (owner's export
+  `objects.xml`) describes it: the object starts its idle animation at a random time, so
+  several copies in one scene do not animate in step.
+- **Data** [observed, ten masters]: 124 base records set it — ACTI 38 of 1,837, CONT 10 of
+  3,417, DOOR 1 of 474, FURN 1 of 256, LIGH 9 of 728, MSTT 65 of 300, TACT 0, TERM 0.
+- **Engine**: a placed model that plays its embedded idle (`nvf_assets::model::Rig`,
+  docs/spec-notes/nif.md §6) starts at a phase spread by the reference FormID when its
+  base has the flag (`Rig::spawn_at_phase`, `fnv_actor::anims::random_anim_start`), the
+  same spread as actors' idles (actors.md §7.3) — repeatable, not the game's random
+  roll. Bases without the flag start at the clip's start, so their copies stay in step
+  [hypothesis: the game starts unflagged objects at time 0]. `StreamStats::
+  refs_random_start` counts them.

@@ -1,6 +1,7 @@
 //! External emittance (docs/spec-notes/world.md §8): references can name an emittance
 //! source (REFR XEMI): a region whose weather's sunlight colour at the current hour, or a
-//! light's colour, drives them [hypothesis]. It scales:
+//! light's colour times its fade (the tutorials: emittance carries the light's colour and
+//! brightness, level-design.md §2), drives them [hypothesis]. It scales:
 //! - shapes whose shader property sets BSShaderFlags bit 29 "External_Emittance": the
 //!   surface colour of unlit shapes (light beams and rays), the emitted light of lit ones
 //!   (glowing windows);
@@ -69,7 +70,10 @@ impl EmittanceState {
             .entry(xemi)
             .or_insert_with(|| match emittance(world.lo, world.schema, xemi)? {
                 Emittance::Weather(w) => weather(world.lo, world.schema, w).map(|w| Source::Weather(Box::new(w))),
-                Emittance::Light(c) => Some(Source::Color(LinearRgba::rgb(srgb_to_linear(c[0]), srgb_to_linear(c[1]), srgb_to_linear(c[2])))),
+                Emittance::Light { color: c, fade } => {
+                    let f = fade.max(0.0);
+                    Some(Source::Color(LinearRgba::rgb(srgb_to_linear(c[0]) * f, srgb_to_linear(c[1]) * f, srgb_to_linear(c[2]) * f)))
+                }
             })
             .is_some()
     }

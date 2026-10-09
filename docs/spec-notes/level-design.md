@@ -105,8 +105,8 @@ work in New Vegas.
   `schemas/fnv/common.json`]. [observed, §11 row L1]: 7,693 REFRs in FalloutNV.esm carry
   `XRDS`. Of its 7,742 interior light references, 6,484 do, with values from −709 to
   +3,821 (median 43; 2,142 negative), and base radius + `XRDS` is positive in every case
-  (`XRDS` / base radius from −0.885 to 73). Reading [hypothesis]: `XRDS` is added to the
-  LIGH `DATA` radius. Example: Doc Mitchell's OfficeLightKeyNeutral 0x00103E6D has base
+  (`XRDS` / base radius from −0.885 to 73). `XRDS` is added to the LIGH `DATA` radius
+  [observed: in-game interior frames, world.md §8 "Placed light radius"]. Example: Doc Mitchell's OfficeLightKeyNeutral 0x00103E6D has base
   radius 200 and `XRDS` 49.0.
 - **Cost model.** Every light that reaches a piece of geometry roughly doubles that
   piece's rendering cost; the light-count debug view colours whole pieces, not polygons
@@ -421,10 +421,10 @@ scripts, so picking one up is detected from a trigger with `GetHasNote`
 | C3 | Multibounds and occlusion planes | per-frame occlusion test of multibounds against plane frusta [Occlusion] | not implemented | engine/nvforever | difference (performance only) |
 | C4 | XPRM bounds | (room edges must meet; portals snap to faces) | physics.md §4.1: half extents [hypothesis] | `crates/fnv-phys/src/primitive.rs`, physics.md §4.1 | **settled by our data**: 1,298 of 1,341 portal centres on a room face as half extents, 0 as full extents (§3.1) |
 | C5 | Object fade by bounds | objects fade in at a distance growing with their bounds [Static Collections] | all objects of loaded cells are drawn at any distance; fades exist only per cell and for LOD | `engine/nvforever/src/fade.rs`, layer3.md §2.2 | difference |
-| L1 | Light radius | radius set per reference [Lighting] | the renderer uses the LIGH base radius; `XRDS` is not read (7,693 REFRs carry it; 6,484 of 7,742 interior light references) | `engine/nvforever/src/lights.rs`, `crates/fnv-world/src/lighting.rs` (`light_data`), world.md §8 | difference (code) |
+| L1 | Light radius | radius set per reference [Lighting] | range = base radius + `XRDS` (`placed_light_radius`); SSIM up on all seven interior frames (world.md §8) | `engine/nvforever/src/lights.rs`, `crates/fnv-world/src/lighting.rs`, world.md §8 | **settled** (2026-10-09) |
 | L2 | Lights per object | cost per piece of geometry per light [Lighting; Static Collections] | per-pixel clustered lights (Bevy) | lights.rs | difference in model; matters if the game caps lights per object (open) |
 | L3 | Lights enabled by scripts | alternative light sets switched by enable state [Lighting] | a light a script enables or disables keeps its streamed state | layer5-play.md §7, `engine/nvf-play/src/script_draw.rs` | difference (already listed as open there) |
-| L4 | Emittance brightness | emittance carries the light's colour *and brightness* [Lighting] | a LIGH emittance source passes its colour only, not its fade | `engine/nvforever/src/emittance.rs` (`Emittance::Light`), `crates/fnv-world/src/lighting.rs` (`emittance`) | difference (code) |
+| L4 | Emittance brightness | emittance carries the light's colour *and brightness* [Lighting] | a LIGH emittance source passes colour × fade; for a light naming a light the rule is open (world.md §8) | `engine/nvforever/src/emittance.rs`, `crates/fnv-world/src/lighting.rs` (`Emittance::Light`) | agrees for shapes; open for lights |
 | P1 | Encounter zones | zone minimum level; level fixed on first entry; modifiers None…Boss [NPC population] | leveled NPCs resolve at a fixed display level 1; no ECZN, no `XLCM` | `crates/fnv-actor/src/resolve.rs` (`DISPLAY_LEVEL`), `crates/fnv-sim` (no ECZN), owner-review.md item 26 | difference (known; the tutorial adds "fixed on first entry" and the modifiers) |
 | P2 | PlaceLeveledActorAtMe | level modifier and zone apply as for placed leveled actors | modifier and zone arguments ignored | `crates/fnv-game/src/functions/objects.rs` `place_leveled_actor_at_me` | difference (already marked Layer 6 there) |
 | P3 | Respawn | not covered | fnv-sim's 72 h cell respawn and merchant restock | simulation.md §3 | nothing to compare |
@@ -449,9 +449,9 @@ scripts, so picking one up is detected from a trigger with `GetHasNote`
    OnTriggerEnter, before or after it?
 3. **Where ActorZone and Projectile are stored** (T5): find a trigger the GECK shows with
    and without ActorZone and compare the records (FNVEdit).
-4. **`XRDS`** (L1): confirm it adds to the base radius. In game, compare a light with
-   `XRDS` 0 and a large `XRDS` (e.g. a RepCon light, base 16, `XRDS` 350) in screenshots;
-   or a GECK reference with its radius shown.
+4. ~~**`XRDS`** (L1): confirm it adds to the base radius.~~ Settled with interior frames
+   (world.md §8); a REPCONN basement frame (base 16, `XRDS` 134–1,171) would make it
+   starker, but its screenshot failed.
 5. **Lights per object** (L2): does the original cap the number of lights on one object?
    An interior with many overlapping lights photographed at known spots would show it.
 6. **Object fade distances** (C5): which setting turns bound size into a fade distance
