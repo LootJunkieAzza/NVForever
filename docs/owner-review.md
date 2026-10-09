@@ -26,6 +26,12 @@ item once you've ruled on it.
    resulting `main` (e5db7eb) as a whole. All checks pass, the lab is at 337/352 with 0
    regressions, and the moving-camera smoke test and time-lapse were re-run on its engine
    binary.
+2b. **Later merges by their own sessions (not the coordinator):** #49 (Hor+ field of view,
+   `--fov 75` = 91.3° at 16:9; frame SSIM 0.18–0.24 → 0.39–0.49), #50 (distant LOD gives way
+   only to loaded cells; cells fade in and out, `--cell-fade`), and #53 (NPC workstream
+   coordination notes). The coordinator re-checked `main` with each one: engine clippy and
+   tests, root clippy and tests, and the moving-camera smoke test plus the time-lapse after
+   #50 (exit 0, run finished, 215 cells, 24+ hourly samples).
 3. **Stale branches left alone.** `claude/layer4-b11-rocks-maize` is superseded by #39
    (same commits, its PR #38 was closed). `layer4-phys-wt` is an early copy of the physics
    workstream from 2026-10-07, superseded by `claude/layer4-phys`. Neither was merged or
