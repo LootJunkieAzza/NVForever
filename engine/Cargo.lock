@@ -2804,6 +2804,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-nav"
+version = "0.1.0"
+dependencies = [
+ "fnv-esm",
+ "fnv-world",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "fnv-nif"
 version = "0.1.0"
 dependencies = [
@@ -4195,6 +4207,7 @@ dependencies = [
  "fnv-dds",
  "fnv-esm",
  "fnv-install",
+ "fnv-nav",
  "fnv-nif",
  "fnv-sim",
  "fnv-spt",
