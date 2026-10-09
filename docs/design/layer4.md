@@ -177,6 +177,21 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    5/6 (goldens rebuilt with the corrected onset on the owner's decision, no longer
    held-out evidence; the steep downhill row is open; physics.md §4.2, §6.3, §6.4,
    layer4-captures.md §1).
+   Status 2026-10-08 (late) [observed]: air control (gain 0.30 = `fJumpMoveMult`, full
+   target when a key is down at take-off) and the landing speed profiles are modelled from
+   the `mv_air` / `mv_air2` calibrations: running_jump 6/6. The body is now a radius-22
+   cylinder on a cone bottom fitted to fence-edge drops, and a falling body no longer
+   slides off steep contacts: B11 17/20 against the median golden (rock a now passes);
+   the Havok tree rows are still 14 and 10 low, against a contradiction between the tree and the fence edge that
+   is open (physics.md §6.4.1). The sinking on edges depends on the fall speed, which is
+   not modelled.
+   Swimming (physics.md §6.6):
+   swim_dam_forward 10/10, swim_bay_back 8/8; placed water modelled (Water-layer
+   phantoms), held-out swim_guardian 6/6 and swim_h2o_fresh 8/9 (replacing swim_h2o, retired
+   2026-10-09; shallow_a is the stair edge of §6.4.1); swim_cove_dive and
+   swim_lake_shore retired 2026-10-09 and replaced by swim_cove_stroke 8/8 and
+   swim_lake_exit 10/10 (held out, below); banks of 12–58° (`sw_banks*`) agree while swimming and on leaving
+   the water [observed 2026-10-08].
 6. M4 done when the player can walk the Mojave (Layer 3 world) with collision, open
    doors and containers, and take items, with the scenarios above passing.
    Status 2026-10-08 (`engine/nvf-play`, docs/design/layer4-play.md §6): walking with
@@ -184,9 +199,11 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    Mitchell's house and the gas station; interior starts and door destinations over
    nothing move to a door arrival, and falls out of an interior are caught (physics.md
    §6.7); the 106 doors into another worldspace (Mojave ↔ Freeside, Freeside ↔ Strip,
-   DLC worldspaces) switch physics and rendering to the destination worldspace. Open:
-   play by hand, scripted doors (the Strip gate), dialogue and barter, dropped items in
-   the world.
+   DLC worldspaces) switch physics and rendering to the destination worldspace; items
+   dropped from the inventory are drawn, collide, fall and settle, survive cell unloads
+   and worldspace changes and are taken back with E (whether the game's dropped items
+   fall is open, simulation.md §5). Open: play by hand, scripted doors (the Strip gate),
+   dialogue and barter.
 
 ## 5. Open questions and verification steps for the owner
 
@@ -270,6 +287,17 @@ Retired scenario (owner decision 2026-10-07): `L4.sim.trace.goodsprings_respawn`
 save state), and it exercised a merchant box rather than the 72 h cell respawn it was
 meant for; replaced by `L4.sim.trace.goodsprings_merchant_restock`. A cell-respawn
 scenario on a non-merchant Respawns container is still to be designed.
+
+Retired scenarios (owner decision 2026-10-09): `L4.phys.walk.swim_cove_dive` and
+`L4.phys.walk.swim_lake_shore` — their inputs swim at a constant 348 units/s, which the
+game never does (the speed follows a stroke cycle averaging 339), and the shore's bank rows
+were captured with the cell not loaded (travel by a long SetPos); replaced by
+`L4.phys.walk.swim_cove_stroke` and `.swim_lake_exit` at new places, captured with the cell
+loaded by `cow` (physics.md §6.6).
+Also retired (owner decision 2026-10-09): `L4.phys.drops.swim_h2o` — its capture placed
+the player while it still swam from the previous drop, which fresh probes cannot reproduce;
+replaced by `L4.phys.drops.swim_h2o_fresh` (a fresh `coc` before each drop, four new points
+around the swimming depth).
 
 Workstream 3 runs as two sessions since 2026-10-07 (owner's split by agreement between
 them): **3-core** (`claude/layer4-sim-core`: `crates/fnv-sim`, `crates/fnvtool/src/sim_cmd.rs`)

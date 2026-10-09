@@ -217,7 +217,8 @@ def breath():
 def scenarios():
     """Held-out swim scenarios (L4.phys.walk.swim_*): the candidate's own inputs; each
     starts on land near its water (`reset_at`), so the player is not swimming when placed
-    at the surface."""
+    at the surface. Historical: both scenarios were retired by the owner on 2026-10-09
+    and their inputs removed (physics.md 6.6); `sw_scenarios.steps.json` stays as run."""
     lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
     docs = [cs.load_json(os.path.join(lab, f)) for f in ("swim_cove_dive.walk.json", "swim_lake_shore.walk.json")]
     return cm.make_job(docs, "sw_scenarios", "nvfdoc (Doc Mitchell's house); leaves through the front door (god mode, AI detection off).",
@@ -238,7 +239,9 @@ def heldout2():
 
 
 def h2o():
-    """Interior water (held out): drops in NVDLC03SLH2OINT after coc there."""
+    """Interior water (held out): drops in NVDLC03SLH2OINT after coc there. Historical:
+    the scenario was retired by the owner on 2026-10-09 (the drops carried the swimming
+    state from one to the next) and its input removed; `sw_h2o.steps.json` stays as run."""
     lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
     doc = cs.load_json(os.path.join(lab, "swim_h2o_drops.drops.json"))
     steps = list(PROTECT) + [{"console": f"coc {H2O_CELL}"}, {"until": cs.in_cell_until(H2O_CELL_ID, CTX), "max_frames": cs.DOOR_LOOPS},
@@ -247,6 +250,137 @@ def h2o():
     steps += cm.drop_steps(doc)
     j = cs.job("sw_h2o", "nvfdoc (Doc Mitchell's house); coc NVDLC03SLH2OINT (god mode, AI detection off).", steps, cs.MASTERS)
     j["title"] = "Interior water drops: swim_h2o_drops (no input needed)"
+    return j
+
+
+# Banks of graded slope (physics.md 6.6, leaving the water): straight runs of terrain only
+# (no reference within 30 units of the line for 700 units either side of where the LAND
+# reaches the floating height, rays with and without meshes agreeing), found from the LAND
+# heights of the cells with their own water (2026-10-08). Per bank: name, surface, the
+# slope (degrees) and heading (compass, uphill) where the bed meets the floating height,
+# the start 450 units out over deep water, and a reset spot on land 700 units up the bank
+# (12 above the LAND) where the player stands before each entry, so that it enters by
+# falling as in the scenarios.
+BANKS = [
+    ("lm_12", 2600.0, 12.5, 225.0, (53310, 41534), (52497, 40721, 2790)),
+    ("lm_16", 2600.0, 16.4, 212.0, (52974, 41854), (52365, 40878, 2773)),
+    ("lm_25", 2600.0, 25.3, 180.0, (127744, 31682), (127744, 30532, 2814)),
+    ("lm_30", 2600.0, 30.4, 235.5, (126579, 96767), (125631, 96115, 2974)),
+    ("lm_41", 2600.0, 41.5, 186.1, (148528, 30399), (148405, 29256, 3079)),
+    ("lm_45", 2600.0, 45.1, 58.0, (72834, 42770), (73810, 43379, 3968)),
+    ("lm_49", 2600.0, 49.3, 246.4, (126876, 101812), (125823, 101351, 3157)),
+    ("lm_58", 2600.0, 58.3, 32.8, (78604, 37510), (79227, 38477, 3730)),
+    ("llv_14", 3000.0, 14.3, 246.0, (29339, 59063), (28288, 58596, 3098)),
+    ("llv_25", 3000.0, 24.7, 98.1, (31810, 59455), (32949, 59293, 3076)),
+]
+# Repeats of what was seen: the swim_lake_shore line at Lake Las Vegas (its own start and
+# reset) running and walking, and Boulder Beach's run-out line run from the floating height
+# (sw_trial ran it while still sinking and walked it from the floating height).
+LLV_LINE = ("llv_line", 3000.0, 27.3, 270.0, (25784, 55100), (24700, 54400, 3092))
+BB_LINE = ("bb_line", 2600.0, 28.1, 270.0, (57700, 37536), (55500, 37536, 2964))
+
+
+def in_square_until(gx, gy):
+    """Until the player stands in the exterior grid square (gx, gy)."""
+    x0, y0 = gx * 4096, gy * 4096
+    return cs.function(["float fV"], [f"if player.GetPos X >= {x0}", f"  if player.GetPos X < {x0 + 4096}",
+                                      f"    if player.GetPos Y >= {y0}", f"      if player.GetPos Y < {y0 + 4096}",
+                                      "        let fV := 1", "      endif", "    endif", "  endif", "endif",
+                                      "SetFunctionValue fV"])
+
+
+def bank_trial(bank, controls=(0,), n=240, tag=""):
+    """Load the bank's own cell with the console's `cow` (CenterOnWorld), as `coc` loads
+    Boulder Beach, stand on land, SetPos to the surface over deep water (enter by falling),
+    float, then hold the keys towards the bank, one sample per loop. A long SetPos alone
+    left the land drawn as distant LOD with the player passing through it and the world
+    sometimes frozen (sw_banks first run, the owner's screenshot; physics.md 6.6)."""
+    name, surface, _slope, heading, (sx, sy), reset = bank
+    label = name + tag
+    gx, gy = int(sx // 4096), int(sy // 4096)
+    travel = [{"console": f"cow WastelandNV {gx} {gy}"}, {"until": in_square_until(gx, gy), "max_frames": cs.DOOR_LOOPS},
+              {"frames": cs.AFTER_DOOR_FRAMES}, {"console": "CloseAllMenus"}, {"frames": 60},
+              num("MenuMode", f"{label} menumode", "value")]
+    return travel + [setpos(*reset), {"console": "CloseAllMenus"}, {"frames": 180}, num("player.GetPos Z", f"{label} reset", "z"),
+            setpos(sx, sy, surface), angles(heading), {"console": "CloseAllMenus"}, remember_t0()] + \
+        samples(f"{label} settle", 30) + [{"frames": 270}, {"console": "CloseAllMenus"}, {"frames": 30},
+                                          num("MenuMode", f"{label} keys menumode", "value")] +         move(label, list(controls), n=n, after=30)
+
+
+def banks():
+    """Leaving the water up banks of graded slope, and the two shore lines again."""
+    steps = list(PROTECT) + go_there()
+    steps += bank_trial(LLV_LINE) + bank_trial(LLV_LINE, controls=(9, 0), n=480, tag=" walk") + bank_trial(BB_LINE)
+    for b in BANKS:
+        steps += bank_trial(b)
+    j = cs.job("sw_banks", START, steps, cs.MASTERS)
+    j["title"] = "Swimming: out of the water up banks of 12 to 58 degrees, and the Lake Las Vegas and Boulder Beach lines again (about 4 min, no input)"
+    return j
+
+
+GUARDIAN_CELL = "CampGuardianCaves"   # interior with placed water (z 6528) and XCLW 6712
+GUARDIAN_CELL_ID = "0x0013DD63"
+
+
+def fresh_drops(job, cell, cell_id, input_name, title):
+    """Drops in an interior, each after a fresh coc (so the player is not swimming when
+    placed; sw_h2o carried the swimming state from one drop to the next, physics.md 6.6)."""
+    lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
+    doc = cs.load_json(os.path.join(lab, input_name))
+    steps = list(PROTECT)
+    for d in doc["drops"]:
+        steps += [{"console": f"coc {cell}"}, {"until": cs.in_cell_until(cell_id, CTX), "max_frames": cs.DOOR_LOOPS},
+                  {"frames": cs.AFTER_DOOR_FRAMES}, {"console": "CloseAllMenus"}, {"frames": 60},
+                  num("MenuMode", f"{d['label']} menumode", "value"), num("player.GetPos Z", f"{d['label']} before", "z")]
+        steps += cm.drop_steps(dict(doc, drops=[d]))
+    j = cs.job(job, f"nvfdoc (Doc Mitchell's house); coc {cell} before each drop (god mode, AI detection off).", steps, cs.MASTERS)
+    j["title"] = title
+    return j
+
+
+def guardian():
+    """Placed water, held out: drops in CampGuardianCaves."""
+    return fresh_drops("sw_guardian", GUARDIAN_CELL, GUARDIAN_CELL_ID, "swim_guardian_drops.drops.json",
+                       "Placed water drops: swim_guardian_drops (no input needed)")
+
+
+def h2o_fresh():
+    """Placed water, held out: swim_h2o_fresh in NVDLC03SLH2OINT (replaces sw_h2o's
+    sequential drops; owner decision 2026-10-09)."""
+    return fresh_drops("sw_h2o_fresh", H2O_CELL, H2O_CELL_ID, "swim_h2o_fresh.drops.json",
+                       "Placed water drops: swim_h2o_fresh (no input needed)")
+
+
+def banks_rest(name="sw_banks_b", which=None):
+    """Banks sw_banks did not capture: its second run hung after lm_12 when the game lost
+    the focus to another program's window (the owner, 2026-10-08); in sw_banks_b the game
+    clock stopped while five trials waited in the water (a menu opened after the travel's
+    CloseAllMenus [hypothesis: a level-up after map markers were discovered]), so the
+    trials now close menus again just before the keys."""
+    steps = list(PROTECT) + go_there()
+    for b in BANKS[1:]:
+        if which is None or b[0] in which:
+            steps += bank_trial(b)
+    j = cs.job(name, START, steps, cs.MASTERS)
+    j["title"] = f"Swimming: out of the water up banks ({name}, the rest of sw_banks; no input)"
+    return j
+
+
+def redesign():
+    """The replacements of the retired swim_cove_dive and swim_lake_shore
+    (L4.phys.walk.swim_cove_stroke, .swim_lake_exit; owner decision 2026-10-09): each
+    loads its start's cell with `cow` before the inputs' own reset and start SetPos moves
+    (a long SetPos alone left cells unloaded, physics.md 6.6)."""
+    lab = os.path.join(HERE, "..", "..", "..", "parity-lab", "inputs", "layer4")
+    steps = list(PROTECT) + go_there()
+    for f in ("swim_cove_stroke.walk.json", "swim_lake_exit.walk.json"):
+        doc = cs.load_json(os.path.join(lab, f))
+        gx, gy = int(doc["start"][0] // 4096), int(doc["start"][1] // 4096)
+        steps += [{"console": f"cow WastelandNV {gx} {gy}"}, {"until": in_square_until(gx, gy), "max_frames": cs.DOOR_LOOPS},
+                  {"frames": cs.AFTER_DOOR_FRAMES}, {"console": "CloseAllMenus"}, {"frames": 60}]
+        steps += cm.walk_steps(doc)
+    j = cs.job("sw_redesign", START, steps, cs.MASTERS)
+    j["title"] = "sw_redesign: swim_cove_stroke, swim_lake_exit (no input needed)"
     return j
 
 
@@ -300,7 +434,8 @@ def diag2():
 
 
 def main():
-    for j in (diag(), diag2(), trial(), fall_breath(), breath(), scenarios(), heldout2(), h2o()):
+    for j in (diag(), diag2(), trial(), fall_breath(), breath(), heldout2(), banks(), banks_rest(),
+              banks_rest("sw_banks_c", {"lm_16", "lm_45", "lm_49", "lm_58", "llv_25"}), guardian(), h2o_fresh(), redesign()):
         path = os.path.join(HERE, j["name"] + ".steps.json")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(j, f, indent=1)

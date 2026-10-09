@@ -32,7 +32,7 @@ fn base(id: u32, name: Option<&str>, data: BaseData) -> BaseForm {
 }
 
 fn item(kind: ItemKind) -> BaseData {
-    BaseData::Item(Item { kind, value: Some(1), weight: Some(0.5), slots: None, projectile: None, health: None })
+    BaseData::Item(Item { kind, value: Some(1), weight: Some(0.5), slots: None, projectile: None, health: None, non_playable: false })
 }
 
 fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
@@ -250,4 +250,40 @@ fn no_target_no_activation() {
     assert_eq!(target(&app), None);
     assert!(drain::<RefChanged>(&mut app).is_empty());
     assert!(app.world().resource::<SimState>().world.peek(FormId::PLAYER_REF).is_none(), "nothing materialised");
+}
+
+#[test]
+fn a_dropped_item_is_targeted_by_its_collision_and_taken_back() {
+    let mut app = scene(&[]);
+    // The player (facing east) carries 3 stimpaks and drops 2: one created reference.
+    let dropped = {
+        let mut sim = app.world_mut().resource_mut::<SimState>();
+        let p = FormId::PLAYER_REF;
+        sim.world.add_item(p, FormId(STIMPAK), 3).unwrap();
+        sim.world.get(p).unwrap().rot[2] = std::f32::consts::FRAC_PI_2;
+        let refs = sim.world.drop_item(p, FormId(STIMPAK), 2).unwrap();
+        assert_eq!(refs.len(), 1);
+        // Where it came to rest: in front of the eye.
+        sim.world.get(refs[0]).unwrap().pos = [60.0, 0.0, 100.0];
+        refs[0].0
+    };
+    {
+        let mut phys = app.world_mut().resource_mut::<PhysState>();
+        let pose = RefPose { form_id: dropped, position: [60.0, 0.0, 100.0], rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], scale: 1.0 };
+        phys.world.add_ref(&pose, &[boxed(5.0)]);
+    }
+    app.update();
+    assert_eq!(target(&app), Some((dropped, Source::Collision)));
+    assert_eq!(app.world().resource::<Target>().0.as_ref().unwrap().action, Action::Take { count: 2 });
+    press_e(&mut app);
+    assert_eq!(drain::<RefChanged>(&mut app).iter().map(|m| m.form_id).collect::<Vec<_>>(), vec![dropped]);
+    let d = play_data(index());
+    let mut phys = app.world_mut().remove_resource::<PhysState>().unwrap();
+    let sim = app.world().resource::<SimState>();
+    // The player's own activation takes the whole stack back [hypothesis, World::activate].
+    assert_eq!(sim.world.peek(FormId::PLAYER_REF).unwrap().inventory.as_ref().unwrap().count(FormId(STIMPAK)), 3);
+    assert!(!sim.present(dropped));
+    // RefChanged removes its collision (Part P's handler).
+    phys.sync_ref(&crate::phys::LoadCtx { d: &d, sim, data: None }, dropped);
+    assert!(!phys.has_collision(dropped));
 }
