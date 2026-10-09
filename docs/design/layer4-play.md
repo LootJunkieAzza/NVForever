@@ -370,10 +370,12 @@ Open:
   drop: since 2026-10-08 the menus hide non-playable items, see Part U.)
 - The player's non-playable items (Pip-Boy 3000, Pip-Boy Glove) start unequipped in the
   simulation; in game the glove is always equipped [observed by the owner].
-- Whether dropped items fall in the game (the scripted capture says no, the engine says
-  yes [hypothesis]; capture written, simulation.md §5). Placed dynamic clutter that
-  physics moves (pushed, knocked down) is not written back to the simulation; only
-  created references are.
+- ~~Whether dropped items fall in the game~~: they do [observed 2026-10-09, `pc_drop_fall`,
+  physics.md §4.3]; a drop now starts turned to the player's heading and clutter rests on
+  the terrain's 3.5 shell, as in the game. ~~Placed dynamic clutter that physics moves is
+  not written back~~: since 2026-10-09 it is (`PhysState::settle_placed`, drawn there by
+  `moved.rs`, collision rebuilt there on reload; physics.md §4.3). Whether the original
+  keeps pushed clutter where it rests across a cell reload is not captured [hypothesis].
 - ~~Controller jitter against some rocks reproduces in `fnvtool phys walk`~~ Fixed:
   concave corners stop the character instead of alternating between faces (physics.md
   §6.1); the controller now rests on contact shells like the arrival (§6.2).
