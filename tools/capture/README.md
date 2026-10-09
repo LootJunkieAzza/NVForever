@@ -246,9 +246,12 @@ First results (2026-10-09, plugin v7, save `nvftest`, the four starter cameras, 
 aligned with `nvforever`'s render of the recorded pose, except that the game's view is
 wider. Rendering `goodsprings_noon` with `--fov 91.3` instead of 75 lines the two up
 (SSIM 0.18 → 0.42); 91.3° is the horizontal angle at 16:9 of a 75° horizontal FOV defined
-at 4:3 ("Hor+") [hypothesis for the game's rule; one camera measured]. The remaining
+at 4:3 ("Hor+") [hypothesis for the game's rule; one camera measured]. All four cameras
+then confirmed it, and `nvforever --fov` now applies the rule itself, so the scenarios
+keep passing the game's setting (75) (`docs/spec-notes/camera.md` §2). The remaining
 differences are rendering (sky colour and clouds, missing grass, tone). The lake camera
-has a creature in the bottom-left corner that needs a mask.
+has a creature in the bottom-left corner; no mask is needed (owner decision 2026-10-09:
+the frames judge lighting and the world's look, and actors in shot don't matter).
 
 **Setup (once).** Pick how to save screenshots: the game's own key needs
 `bAllowScreenShot=1` in the `[Display]` section of your `Fallout.ini` (you edit it
