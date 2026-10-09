@@ -134,6 +134,38 @@ item once you've ruled on it.
     checkout's), so they can't overlap either side's runs. Layer 5 PRs (`claude/layer5-*`)
     stay with the Layer 5 coordinator.
 
+14. **Holdouts compromised (5B, PR #59).** The runtime agent read every quest golden,
+    including the two holdouts (`L5.quest.result_additem`, `L5.quest.delay_flagged_zero`),
+    before the coordinator's message naming them reached it. It reported this itself, and
+    nothing in the code is special-cased (one comment citing a holdout was removed). Both
+    now pass, but they are no longer blind. Recommendation: capture two fresh holdout
+    scenarios in a session that never sees the runtime code, and demote these two to
+    ordinary scenarios. The coordinator has not changed their holdout flags (lab rules).
+15. **Three quest scenarios fail on a missing fact in their inputs.** `L5.quest.delay_flagged_1s`,
+    `delay_flagged_short` and `delay_frame` measure their timers correctly. Their `given`
+    block doesn't state the quest's stage in the save (CGTutorial 2, VCG01 200, VCG00 100),
+    so the runner, which starts from a new game, reads GetStage 0. Fixing this means
+    editing scenario inputs, which the lab rules leave to you. The facts are in 5C's
+    capture of the saves (layer5-captures.md §2).
+16. **5B runtime decisions to confirm** (scripts.md §4–10):
+    - New-character defaults: limb conditions start at 100, a living actor has full
+      health, no weapon reads 100% condition.
+    - "New game" means the start-game-enabled quests are running; VCG00 is started by an
+      input.
+    - SetStage runs every stage entry whose conditions pass (the wiki's wording), not
+      only the first. Stage conditions run on the player.
+    - OR binds tighter than AND in condition lists.
+    - IsInCombat and IsTalking read 0 until Layer 6; IsXBox and IsPS3 read 0.
+    - Stray Else/ElseIf/EndIf markers: one capture of SCPT 0x00123191 would settle the
+      rule.
+    - GetSecondsPassed after a long gap returns the whole gap, so timers can expire at
+      once after a pause.
+17. **Where M5 stands (headless).** With scripted stand-ins for dialogue lines, packages,
+    triggers, menus and combat, VCG00 and VCG01 complete. VCG01 then starts VMQ01 and
+    VCG04 and sets VCG02 stage 5. VCG02 reaches stage 50 and VCG03 its objectives 10–40.
+    The stages done match your two saves exactly. Every real progression step waits on a
+    Layer 6 system (dialogue, AI packages, combat, menus).
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
