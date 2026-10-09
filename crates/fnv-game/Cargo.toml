@@ -1,0 +1,19 @@
+[package]
+name = "fnv-game"
+description = "Layer 5 game rules: script instances, quests, conditions, event dispatch and script functions over the Layer 4 world"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-esm = { path = "../fnv-esm" }
+fnv-sim = { path = "../fnv-sim" }
+fnv-script = { path = "../fnv-script" }
+fnv-util = { path = "../fnv-util" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+rand_core = "0.9"
+rand_chacha = "0.9"
+rayon = "1"
+tracing = "0.1"
