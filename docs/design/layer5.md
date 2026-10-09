@@ -12,8 +12,8 @@ Status 2026-10-09 (evening): **5A, 5B, 5C and 5D merged**, with follow-ups.
   explained (docs/spec-notes/scripts.md §3.4).
 - **Runtime** (#59, #63): the VM plus `fnv-game` (quests, conditions, instances,
   events, 130 functions plus 62 Layer 6 stubs, 86% of calls and condition uses).
-  `fnvtool script run` passes 18 of 22 `L5.*` scenarios. Both rounds of in-game captures
-  are included (#55, #61). The three `delay_*` misses come from inputs that lack a quest
+  `fnvtool script run` passes 24 of 28 `L5.*` scenarios. Three rounds of in-game
+  captures are included (#55, #61, #73), and #66 brings uses handled to 99.98%. The three `delay_*` misses come from inputs that lack a quest
   stage (an owner decision), and the fourth is `L5.script.decode`.
 - **Headless intro chain:** VCG00 and VCG01 complete, VCG02 reaches stage 50 and VCG03
   its objectives 10–40, all with scripted stand-ins for dialogue, packages and combat.
