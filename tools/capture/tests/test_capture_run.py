@@ -43,6 +43,7 @@ class FakeGame:
         self.launched = self.killed = False
         self.auto = None
         self.ticks = 0
+        self.saves = None
 
     def check(self):
         return None
@@ -93,7 +94,14 @@ class FakeGame:
                     self.alive = False
                     return
                 os.replace(os.path.join(self.dir, "jobs", f), os.path.join(self.dir, "jobs", "done-" + f))
-        if self.ticks == 3 and self.behaviour in ("ok", "old_plugin"):
+        if self.ticks == 2 and self.behaviour == "autosave" and self.saves:
+            # A quest script's Autosave: the game rotates and rewrites the rolling save.
+            old = os.path.join(self.saves, "autosave.fos")
+            if os.path.exists(old):
+                os.replace(old, old + ".bak")
+            with open(old, "w", encoding="utf-8") as f:
+                f.write("new autosave")
+        if self.ticks == 3 and self.behaviour in ("ok", "old_plugin", "autosave"):
             self.alive = False
 
 
@@ -258,3 +266,52 @@ class TestInput(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSavesGuard(Base):
+    """The game can write to the Saves folder by itself (a scripted autosave): the run backs
+    up the rolling saves first, reports every change and fails, and never writes there."""
+
+    def setUp(self):
+        super().setUp()
+        self.saves = os.path.join(self.root, "Saves")
+        os.makedirs(self.saves)
+        for name, text in (("nvftest.fos", "test"), ("autosave.fos", "owner autosave"), ("Save 3.fos", "owner")):
+            with open(os.path.join(self.saves, name), "w", encoding="utf-8") as f:
+                f.write(text)
+
+    def run_with(self, behaviour):
+        game = FakeGame(self.cap, self.clock, behaviour)
+        game.saves = self.saves
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cr.main(["--game", self.root, "--save", "nvftest", "--capture-dir", self.cap,
+                            "--saves-dir", self.saves, "--timeout", "600", self.write_job("a1")],
+                           game=game, clock=self.clock, sleep=game.sleep)
+        return code, json.loads(out.getvalue())
+
+    def test_untouched_saves_pass_and_rolling_saves_are_backed_up(self):
+        code, report = self.run_with("ok")
+        self.assertEqual(code, 0)
+        self.assertNotIn("saves_changed", report)
+        backups = os.listdir(os.path.join(self.cap, "saves-backup"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(os.listdir(os.path.join(self.cap, "saves-backup", backups[0])), ["autosave.fos"])
+
+    def test_a_scripted_autosave_fails_the_run_and_keeps_the_owner_copy(self):
+        code, report = self.run_with("autosave")
+        self.assertEqual(code, 3)
+        self.assertEqual(report["saves_changed"], ["changed autosave.fos", "added autosave.fos.bak"])
+        self.assertTrue(any("wrote to the Saves folder" in p for p in report["problems"]))
+        backup = os.path.join(self.cap, "saves-backup", os.listdir(os.path.join(self.cap, "saves-backup"))[0])
+        with open(os.path.join(backup, "autosave.fos"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "owner autosave")
+        # Nothing was restored into the Saves folder.
+        with open(os.path.join(self.saves, "autosave.fos"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "new autosave")
+
+    def test_listing_helpers(self):
+        self.assertIsNone(cr.saves_listing(""))
+        self.assertEqual(cr.saves_changes({"a": [1, 1]}, {"a": [1, 2], "b": [1, 1]}), ["changed a", "added b"])
+        self.assertEqual(cr.saves_changes({"a": [1, 1]}, {}), ["removed a"])
+        self.assertEqual(cr.saves_changes(None, {"a": [1, 1]}), [])
