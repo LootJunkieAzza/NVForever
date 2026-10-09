@@ -220,7 +220,7 @@ fn plugin_bytes() -> Vec<u8> {
     let door = record(b"DOOR", 0, DOOR, &[sub(b"EDID", z("TestDoor")), sub(b"FNAM", vec![0])]);
     // S.P.E.C.I.A.L. 5,6,7,4,3,2,1 after base health.
     let npc_data = cat(&[&100i32.to_le_bytes(), &[5u8, 6, 7, 4, 3, 2, 1]]);
-    let npc = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), cnto(CAPS, 5), sub(b"DATA", npc_data)]);
+    let npc = record(b"NPC_", 0, 0x7, &[sub(b"EDID", z("Player")), cnto(CAPS, 5), cnto(GLOVE, 1), sub(b"DATA", npc_data)]);
     let mut dnam = vec![0u8; 120]; // required part of WEAP DNAM; projectile at +36
     dnam[36..40].copy_from_slice(&MINE_PROJ.to_le_bytes());
     let mine = {
@@ -785,7 +785,8 @@ fn equipping_follows_slots() {
     // The helmet covers Head and Hair: it replaces the hat, not the suit.
     assert_eq!(w.equip(p, id(HELMET)).unwrap().unequipped, vec![id(HAT)]);
     let inv = w.peek(p).unwrap().inventory.clone().unwrap();
-    assert_eq!(inv.equipped(), vec![id(RIFLE), id(HELMET), id(SUIT)]);
+    // The player's glove (non-playable, worn from the start) stays on.
+    assert_eq!(inv.equipped(), vec![id(RIFLE), id(HELMET), id(SUIT), id(GLOVE)]);
     // Aid items are consumed; other items cannot be equipped.
     assert!(w.equip(p, id(AID)).unwrap().consumed);
     assert_eq!(w.item_count(p, id(AID)).unwrap(), 0);
@@ -811,7 +812,15 @@ fn encumbrance_uses_strength_and_settings() {
     let e = w.encumbrance(p).unwrap();
     // 150 + 10 x 5; suit 15; ammo weightless outside Hardcore; caps weigh 0.
     assert_eq!((e.capacity, e.weight, e.over), (200.0, 15.0, false));
-    w.add_item(p, id(RIFLE), 24).unwrap();
+    // 15 + 23 x 8 + 1 = 200: at capacity, not over; one more unit is over.
+    w.add_item(p, id(RIFLE), 23).unwrap();
+    w.add_item(p, id(HAT), 1).unwrap();
+    assert_eq!(w.encumbrance(p).unwrap().weight, 200.0);
+    assert!(!w.encumbrance(p).unwrap().over);
+    w.add_item(p, id(HAT), 1).unwrap();
+    assert!(w.encumbrance(p).unwrap().over);
+    w.remove_item(p, id(HAT), 2).unwrap();
+    w.add_item(p, id(RIFLE), 1).unwrap();
     assert!(w.encumbrance(p).unwrap().over);
     w.set_actor_value(p, "strength", 10.0).unwrap();
     assert!(!w.encumbrance(p).unwrap().over);
@@ -844,6 +853,20 @@ fn placed_mines_disarm_into_their_weapon() {
     assert_eq!(w.activate(p, id(MINE_REF)).unwrap().outcome, Outcome::Disarmed { item: id(MINE) });
     assert_eq!(w.item_count(p, id(MINE)).unwrap(), 1);
     assert_eq!(w.activate(p, id(MINE_REF)).unwrap().outcome, Outcome::Disabled);
+}
+
+#[test]
+fn scripted_activation_leaves_placed_mines_alone() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    for _ in 0..2 {
+        assert_eq!(w.activate_scripted(p, id(MINE_REF)).unwrap().outcome, Outcome::NoDefault { sig: "PROJ".into() });
+    }
+    assert_eq!(w.item_count(p, id(MINE)).unwrap(), 0);
+    assert!(w.is_enabled(id(MINE_REF)).unwrap());
+    // The player's own activation still disarms it afterwards.
+    assert_eq!(w.activate(p, id(MINE_REF)).unwrap().outcome, Outcome::Disarmed { item: id(MINE) });
 }
 
 #[test]
@@ -1206,6 +1229,24 @@ fn non_playable_armour_is_flagged() {
     assert!(f.forms.item(id(GLOVE)).unwrap().non_playable);
     assert!(!f.forms.item(id(SUIT)).unwrap().non_playable);
     assert!(!f.forms.item(id(PISTOL)).unwrap().non_playable);
+}
+
+#[test]
+fn the_player_starts_wearing_non_playable_armour_and_keeps_it() {
+    let f = fixture();
+    let mut w = World::new(&f.forms, &f.refs, SimConfig::default());
+    let p = FormId::PLAYER_REF;
+    assert!(w.inventory_mut(p).unwrap().is_equipped(id(GLOVE)));
+    assert!(!w.inventory_mut(p).unwrap().is_equipped(id(CAPS)));
+    // RemoveAllItems takes everything else and leaves the glove worn.
+    w.add_item(p, id(SUIT), 1).unwrap();
+    w.equip(p, id(SUIT)).unwrap();
+    let removed = w.remove_all_items(p).unwrap();
+    assert!(removed.iter().all(|&(i, _)| i != id(GLOVE)));
+    assert_eq!(w.item_count(p, id(GLOVE)).unwrap(), 1);
+    assert_eq!(w.item_count(p, id(SUIT)).unwrap(), 0);
+    assert_eq!(w.item_count(p, id(CAPS)).unwrap(), 0);
+    assert!(w.inventory_mut(p).unwrap().is_equipped(id(GLOVE)));
 }
 
 // ---- quest items ----------------------------------------------------------------

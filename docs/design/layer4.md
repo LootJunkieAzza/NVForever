@@ -162,6 +162,10 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    container with its key, a lock without key, a teleport pair, dropping and re-taking).
    Locks and drops: `L4.sim.trace.goodsprings_locked_safe_key`, `_locked_safe_no_key`
    and `goodsprings_drop_and_retake` (captured 2026-10-08; docs/spec-notes/layer4-captures.md §1).
+   Close-out 2026-10-09: `L4.sim.trace.goodsprings_cell_respawn` (72 h cell respawn of an
+   ordinary Respawns container, 16/16, predicted before the capture) and
+   `L4.sim.trace.nipton_placed_mines` (scripted activation of a placed mine does nothing,
+   7/7 after the fix; 5/7 before).
 4. Leveled lists: distribution scenarios — `L4.sim.leveled.basic` passes against in-game
    samples (7 cases), and `L4.sim.leveled.b8` (10 cases: LVLG globals, all levels between
    entry levels, nesting 3–5 deep; 2026-10-08).
@@ -223,11 +227,18 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    notes, casino chips and caravan money weigh anything in-game (inventory screen)?
    → Owner 2026-10-08: notes, casino chips, caravan money and caravan cards weigh nothing,
    like caps; the carried weight counts them as 0.
-5. Placed grenades (PGRE, 297 in OldWorldBlues.esm) are not simulated yet: are they
-   live explosives in-game, or decoration?
-6. Cell respawn delay: `iHoursToRespawnCell` is not in any master (an engine default).
-   Please read it in-game with the console: `GetGameSetting iHoursToRespawnCell` (a
-   secondary source suggests 73 hours; unverified).
+5. ~~Placed grenades (PGRE, 297 in OldWorldBlues.esm): live explosives or decoration?~~
+   → Captured 2026-10-09 (`cl_d_mines_live`, unattended): **live**. The 297 PGRE are
+   spread over five masters, not only Old World Blues (simulation.md §1); placed frag
+   mines in Nipton detonate when the player comes within 70 units (not at 237), within
+   1.5 s, damage 80–95, and end disabled. A scripted `Activate` does nothing (scenario
+   `L4.sim.trace.nipton_placed_mines`); the Activate control tapped with a mine in the
+   crosshair did nothing (`cl_d2_mines_disarm`), so disarming by the player is still
+   hypothesis (whether `TapControl 5` activates at all is untested).
+6. ~~Cell respawn delay `iHoursToRespawnCell`~~ → **72** in the running game (three
+   saves; no master defines it); `fnv-sim` uses it (`DEFAULT_RESPAWN_HOURS`). The
+   scenario `L4.sim.trace.goodsprings_cell_respawn` puts the boundary between 71.0 and
+   73.1 hours away from the cell, counted from leaving it (simulation.md §3).
 7. **In-game captures**: log, results and the backlog of captures still to make
    (X-13, a merchant box without the Respawns flag, cell respawn on an ordinary
    container, calendar, encumbrance edges, more leveled lists, PGRE) are in
@@ -236,7 +247,13 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    `goodsprings_doc_mitchell` 5/6 (z waits for the controller); `x13_enable_parents`
    still needs a save inside X-13. Update 2026-10-08: `x13_enable_parents` 13/13;
    merchant restocks follow fixed days (GameDaysPassed 0 or 3 modulo 7, spec note §3),
-   checked by `goodsprings_merchant_midnight_restock` 11/11. `goodsprings_doc_mitchell`
+   checked by `goodsprings_merchant_midnight_restock` 11/11.
+   Close-out 2026-10-09 (unattended, layer4-captures.md §2 `cl_*`): the Pip-Boy Glove and
+   Pip-Boy 3000 are worn in played saves and survive `RemoveAllItems` (the simulation's
+   player now starts wearing them); over-encumbered = whole part of the weight above the
+   capacity (ran at 200.5, walked at 201 with capacity 200); armour on the ground is the
+   world model MOD2 (a fedora, folded outfits; female MOD4 open); Chet's merchant box does
+   not follow Ringo's restock days (open). `goodsprings_doc_mitchell`
    6/6 (2026-10-08): `sim run` settles teleported actors on the destination's contact
    shell (physics.md §6.2), not through the walking controller.
 8. Answered by the owner 2026-10-08 (physics.md §4, §6): disabled references are not
