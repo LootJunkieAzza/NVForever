@@ -8,10 +8,15 @@
 //! - [`resolve`]: placed actor → [`resolve::Appearance`] (parts list, worn armour)
 //! - [`facegen`]: `.egm`/`.egt` FaceGen morphs and applying coefficients to them
 //! - [`mesh`]: how a part mesh joins the skeleton (skinned by bone name, rigid by `Prn`)
+//! - [`idle`]: IDLE records (idle animations) as data: model, links, group, raw conditions
+//! - [`anims`]: where `.kf` files sit relative to skeletons, and what their tracks bind to
 //!
-//! Facts and rules with confidence tags: docs/spec-notes/actors.md.
+//! Facts and rules with confidence tags: docs/spec-notes/actors.md and (animation data)
+//! docs/spec-notes/animation.md.
 
+pub mod anims;
 pub mod facegen;
+pub mod idle;
 pub mod mesh;
 pub mod records;
 pub mod resolve;

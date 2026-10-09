@@ -1588,6 +1588,12 @@
      "type": "f32",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas NPC_ record"
+    },
+    "KFFZ": {
+     "name": "Animations",
+     "type": "zstring_array",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas NPC_ record; wbArrayS(KFFZ, 'Animations', wbStringLC('Animation')): .kf file names, each NUL-terminated; the list ends with one extra NUL [observed]"
     }
    }
   },
@@ -1903,6 +1909,18 @@
      "type": "formid",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas CREA record"
+    },
+    "KFFZ": {
+     "name": "Animations",
+     "type": "zstring_array",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record; wbArrayS(KFFZ, 'Animations', wbStringLC('Animation')): .kf file names, each NUL-terminated; the list ends with one extra NUL [observed]"
+    },
+    "NIFZ": {
+     "name": "Model List",
+     "type": "zstring_array",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas CREA record; wbArrayS(NIFZ, 'Model List', wbStringLC('Model')): .nif file names, each NUL-terminated; the list ends with one extra NUL [observed]"
     }
    }
   },
@@ -2286,6 +2304,73 @@
      "type": "Empty",
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas PERK record"
+    }
+   }
+  },
+  "IDLE": {
+   "name": "Idle Animation",
+   "confidence": "documented",
+   "subrecords": {
+    "ANAM": {
+     "name": "Animations",
+     "type": {
+      "struct": [
+       {
+        "name": "parent",
+        "type": "formid"
+       },
+       {
+        "name": "previous",
+        "type": "formid"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IDLE record; Parent and Previous, each an IDLE or NULL"
+    },
+    "DATA": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "animation_group_section",
+        "type": "u8"
+       },
+       {
+        "name": "loop_min",
+        "type": "u8"
+       },
+       {
+        "name": "loop_max",
+        "type": "u8"
+       },
+       {
+        "name": "unused",
+        "type": "u8"
+       },
+       {
+        "name": "replay_delay",
+        "type": "i16"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u8",
+         "bits": {
+          "0": "No attacking"
+         }
+        },
+        "optional": true
+       },
+       {
+        "name": "unused2",
+        "type": "u8",
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IDLE record; Flags and the last unused byte optional (SetOptionalFrom(4)); Animation Group Section is a u8 whose low six bits name the section (wbIdleAnam: 0 Idle, 1 Movement, 2 Left Arm, 3 Left Hand, 4 Weapon, 5 Weapon Up, 6 Weapon Down, 7 Special Idle, 20 Whole Body, 21 Upper Body) and whose bits 0x40/0x80 xEdit labels Loose Idle / (clear) Must return a file; kept raw here"
     }
    }
   }
