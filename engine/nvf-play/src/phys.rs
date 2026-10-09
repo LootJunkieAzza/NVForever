@@ -26,7 +26,9 @@
 //! collision at the simulation's pose (`prepare::Job::poses`), `crate::moved` draws them
 //! there, and snapshots keep it. They stay in their placed cell (the cell lists come from
 //! the plugins) [engineering choice]. That the game keeps a pushed item where it came to
-//! rest is [hypothesis].
+//! rest is [hypothesis]. Some clutter settles by more than those thresholds (mostly
+//! turning) when its cell loads (54 references in a Goodsprings walk); it is written back
+//! too, so it is drawn where its collision rests (`debug` log).
 
 pub mod cells;
 mod loader;
@@ -703,7 +705,7 @@ impl PhysState {
                     continue;
                 }
                 p.moved = true;
-                info!("placed {id:08X} moved by physics: at ({:.1}, {:.1}, {:.1}), {dist:.1} from where it was added", pos[0], pos[1], pos[2]);
+                debug!("placed {id:08X} moved by physics: at ({:.1}, {:.1}, {:.1}), {dist:.1} from where it was added", pos[0], pos[1], pos[2]);
             }
             let Ok(s) = sim.get(FormId(id)) else { continue };
             let dist = (0..3).map(|i| (pos[i] - s.pos[i]).powi(2)).sum::<f32>().sqrt();
