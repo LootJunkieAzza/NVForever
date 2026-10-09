@@ -204,6 +204,19 @@ impl RefTable {
         self.world_grid.get(world)?.get(&(gx, gy)).copied()
     }
 
+    /// The worldspace a cell belongs to (`None`: an interior, or a cell not indexed).
+    pub fn world_of(&self, cell: FormId) -> Option<FormId> {
+        self.cell_world.get(&cell).copied()
+    }
+
+    /// The cell a teleport to a placed door lands in: the destination door's cell, or in
+    /// a worldspace the exterior cell containing the destination position (as
+    /// `World::activate` moves the actor). `None` when the door is not placed.
+    pub fn teleport_cell(&self, tp: &Teleport) -> Option<FormId> {
+        let c = self.get(tp.door)?.cell?;
+        Some(self.exterior_cell_at(c, tp.pos).unwrap_or(c))
+    }
+
     /// Whether `id` holds a merchant's stock (an actor reference names it in XMRC).
     /// [documented: xEdit "Merchant Container" on ACHR/ACRE; observed in game: such a
     /// container restocks on fixed days, not by the 72 h cell respawn — see

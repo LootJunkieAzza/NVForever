@@ -11,7 +11,7 @@ use fnv_world::transform::ref_rotation;
 use fnv_world::{cell_of, WorldIndex, CELL_SIZE};
 use nvf_assets::model::ModelCtx;
 use nvf_assets::{nif_material, NifMaterial};
-use nvf_play::RefVisual;
+use nvf_play::{RefVisual, RenderCell};
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
@@ -46,16 +46,21 @@ impl WorldData {
         let lo: &'static LoadOrder<'static> = Box::leak(Box::new(LoadOrder::new(plugins).map_err(|e| e.to_string())?));
         let index: &'static WorldIndex = Box::leak(Box::new(WorldIndex::build(lo, schema)));
         let w = index.world_by_name(world).ok_or_else(|| format!("no worldspace {world}"))?;
-        let world_id = w.form_id;
-        let mut persistent_by_grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
-        if let Some(pc) = w.persistent_cell.and_then(|c| index.cells.get(&c)) {
-            for &r in &pc.refs {
-                if let Some(p) = placement(lo, schema, r) {
-                    persistent_by_grid.entry(cell_of(p.position[0], p.position[1])).or_default().push(r);
-                }
+        let mut data = WorldData { lo, schema, index, world: w.form_id, persistent_by_grid: HashMap::new() };
+        data.set_world(w.form_id);
+        Ok(data)
+    }
+
+    /// Draw worldspace `world` (FormID): index its persistent references by grid square.
+    pub fn set_world(&mut self, world: u32) {
+        self.world = world;
+        self.persistent_by_grid.clear();
+        let pc = self.index.worldspaces.get(&world).and_then(|w| w.persistent_cell).and_then(|c| self.index.cells.get(&c));
+        for &r in pc.map_or(&[][..], |c| &c.refs) {
+            if let Some(p) = placement(self.lo, self.schema, r) {
+                self.persistent_by_grid.entry(cell_of(p.position[0], p.position[1])).or_default().push(r);
             }
         }
-        Ok(WorldData { lo, schema, index, world: world_id, persistent_by_grid })
     }
 
     pub fn grid_cell(&self, g: (i32, i32)) -> Option<&fnv_world::Cell> {
@@ -270,6 +275,12 @@ fn load_cell(
         CellKey::Interior(id) => (Vec3::ZERO, world.index.cells.get(&id), format!("Interior {id:08X}")),
     };
     let cell_e = commands.spawn((Name::new(name), CellEntity, Transform::from_translation(origin), Visibility::default())).id();
+    // Hook for nvf-play: it draws the references the simulation created (dropped items)
+    // in this cell as children of this entity.
+    commands.entity(cell_e).insert(match key {
+        CellKey::Exterior((x, y)) => RenderCell::Exterior { world: world.world, x, y },
+        CellKey::Interior(id) => RenderCell::Interior(id),
+    });
     let mut refs: Vec<u32> = cell.map(|c| c.refs.clone()).unwrap_or_default();
     if let CellKey::Exterior(g) = key {
         if let Some(land) = cell.and_then(|c| c.land) {

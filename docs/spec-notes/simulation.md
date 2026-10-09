@@ -205,6 +205,14 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   the 72 h cell respawn (`iHoursToRespawnCell`) applies to containers with the Respawns
   flag, measured from leaving the cell, between 70 and 74 hours [observed]; the exact
   boundary and whether a midnight is involved are not settled.
+- **Non-playable items**: ARMO BMDT general flag bit 6 is "Non-Playable" [documented:
+  xEdit wbBMDT, `schemas/fnv/objects.json`]. `PipBoy` (Pip-Boy 3000, 0x00015038) and
+  `PipBoyGlove` (Pip-Boy Glove, 0x00025B83) carry it [observed: `fnvtool esm decode`].
+  The game never shows the glove in the inventory, so it cannot be dropped, and it is
+  always equipped [observed by the owner, 2026-10-08]. The engine's menus hide every
+  non-playable item (`fnv_sim::forms::Item::non_playable`); that the Pip-Boy 3000 and
+  other non-playable armour behave like the glove is [hypothesis]; the simulation does
+  not equip them yet.
 - **Inventory model**: one stack per base item, split into groups of identical extra data
   (condition, owner, equipped). Removing more than is held removes what is there and
   reports that number [hypothesis: GECK `RemoveItem` behaviour as commonly described; to
@@ -307,7 +315,18 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
   xEdit]. 1,378 references have XTEL; 1,376 pairs are reciprocal (the destination door's
   XTEL points back); 0x00087A6B → 0x000827BA and 0x000CAEB5 → 0x000CAFA5 point at doors
   that teleport elsewhere [observed]. Every destination exists and is a DOOR reference
-  [observed].
+  [observed]. By where they lead (`fnvtool sim doors`, §7; the destination cell as
+  `activate` resolves it, below): 274 interior → interior, 488 interior → worldspace,
+  488 worldspace → interior, 22 within one worldspace and **106 into another
+  worldspace**, between 22 worldspaces in 18 pairs, all 106 reciprocal [observed, ten
+  masters]. Examples: the Mojave's north and east gates ↔ FreesideNorthWorld
+  (0x00116420 ↔ 0x00116424, 0x0011641F ↔ 0x00116423), FreesideWorld ↔ TheStripWorldNew
+  (0x00116425 ↔ 0x0013BB0D), FreesideWorld ↔ FreesideNorthWorld (bus and side doors),
+  22 doors each way Mojave ↔ GreenhouseWorld01, 11 Mojave ↔ WastelandNVmini, the Dead
+  Money districts, Big MT ↔ Higgs Village (0x0300BF95 ↔ 0x0300BEBB) and Lonesome Road's
+  worldspaces. 6 of the 106 are locked, among them the Freeside → Strip gate 0x00116425
+  (level 255, key 0x00119875) [observed]; there is no Mojave ↔ FreesideWorld door
+  (FreesideWorld is reached through FreesideNorthWorld or the Strip) [observed].
 - **Default activation by base type** [hypothesis, GECK wiki's description of object
   types; to be captured]: item → the activator picks up the stack (XCNT count, default 1)
   and the reference leaves the world; container → opens its inventory; door → teleports
@@ -393,6 +412,37 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
   leaves the reference at count 1; the player's own activation (`World::activate`, the
   engine) still takes the whole stack [hypothesis; not captured]. The simulation places drops at that offset (holder heading from its z
   rotation, §5 crosshair notes) [hypothesis for other actors and items].
+- **After the drop: does a dropped item fall?** Two observations pull different ways:
+  - The scripted drop above (`ld_drop_refs`, tgm and tdetect on) read `GetPos Z` 8723.86
+    right after `player.Drop` and again 600 frames (10 s) later: the drop point, 30 units
+    above the feet [observed, `C:\fnv-private\capture\out\ld_drop_refs.*.jsonl`].
+  - Clutter does fall under Havok, and `GetPos` follows it: a whiskey bottle placed with
+    `PlaceAtMe` and moved by `SetPos` bounced or rolled 50–300 units (B11 clutter row,
+    physics.md §4.2) [observed].
+  - Possible readings, none tested: a scripted `Drop` creates the item's Havok body at
+    rest (asleep until something touches it), while `SetPos` wakes a body; or the
+    dropped stimpak was held by something we do not model [hypothesis]. A drop from the
+    inventory menu (what the engine offers) is not captured at all.
+  - **What the engine does** [hypothesis] (`engine/nvf-play/src/dropped.rs`,
+    `phys.rs`): an item dropped from the inventory menu gets its model's collision; when
+    the model says dynamic it falls under gravity and settles. The stimpak's model
+    (`meshes\clutter\health\stimpak01.nif`) has one dynamic object on the Clutter layer
+    [observed: `fnvtool phys cell --cell GSDocMitchellHouse --list-refs`, 0x00105BF3]. A
+    drop starts with rotation 0 (`World::drop_item`) [hypothesis]. While it moves, its
+    pose (and, outdoors, the grid cell containing it) is written back to the reference, so
+    reloads and snapshots find it at rest. `fnvtool sim run` applies no physics to created
+    references, so scripted traces keep a drop at the drop point, as the capture did.
+  - **Capture for the owner** (not run: other sessions are using the game; about 2 min,
+    the last part needs a person). From `nvfdoc`, outside the front door, tgm:
+    (1) `player.Drop` a stimpak, find the new reference with the `GetFirstRef 201 0 0`
+    scan (as `ld_drop_refs` does) and read `GetPos X/Y/Z` and `GetAngle X/Y/Z` after 0,
+    1, 3 and 10 s; (2) `<ref>.SetPos Z (<ref>.GetPos Z + 1)` and read the position again
+    after 3 s: if it now falls, scripted drops start at rest; (3) by hand: Pip-Boy →
+    drop one stimpak → close, wait 10 s, then in the console `prid <ref>` and
+    `getpos z`, `getangle x`, `getangle y`: whether a menu drop falls, where it rests
+    (above the porch floor or the terrain, x/y spread from the drop point) and whether
+    it lies on its side. If (3) stays put, `crate::phys::PhysState::add_created` should
+    add created references' dynamic objects at rest (or as keyframed) instead.
 - **Crosshair activation in the game** (`engine/nvf-play/src/activate.rs`; values and
   rules to be captured, none observed yet):
   - **Reach**: 150 game units from the eye [hypothesis: placeholder, about two metres at
@@ -690,3 +740,19 @@ Lab comparator: **distribution** over `/cases`, keyed on `label`, `field` `outco
 Observational report behind §1–§5 (counts per base type, item value/weight coverage,
 carried-item targets, leveled-list statistics, reference flags, locks, teleport
 reciprocity, loader issues). Not a scenario.
+
+### `fnvtool sim doors <lo> --schema <dir>` → `fnv.sim.doors/1`
+
+Every teleport door (XTEL) by where it leads, behind the counts in §5. The destination
+cell is the one `World::activate` moves the actor into (`RefTable::teleport_cell`: the
+destination door's cell, or in a worldspace the exterior cell containing the XTEL
+position); a cell's worldspace is `RefTable::world_of`. Not a scenario.
+
+- `teleport_doors`: count; `by_kind`: counts of `interior_to_interior`,
+  `interior_to_world`, `world_to_interior`, `same_world`, `cross_world`, `unresolved`
+  (destination door not placed).
+- `cross_world_by_pair`: `"<from WRLD EDID> -> <to WRLD EDID>"` → count.
+- `cross_world`: one object per door into another worldspace: `door`, `edid`,
+  `from_world`, `from_cell`, `from_cell_name` (EDID, else `"x,y"`), `pos`, `to_door`,
+  `to_world`, `to_cell`, `to_cell_name`, `to_pos`, `to_rot` (XTEL), `back` (the
+  destination door's XTEL points back), `lock` (`{level, key}` or null).
