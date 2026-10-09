@@ -46,9 +46,9 @@ where the runtime hooks in (`lib.rs`: modules, `PlaySet::Scripts`, the plugin;
    - **The player's cell** (`RefState::cell`, kept by `player.rs`): when it changes,
      `Game::player_entered` loads it (the 5×5 grid outdoors [hypothesis, scripts.md
      §7.2]) and newly loaded cells' scripted references get OnLoad.
-   - **OnLoad after Enable**: references a script enabled last frame whose script has
-     OnLoad get it now (their 3D loads) [observed: layer5-captures.md §8.3 d, "by the
-     next frame, not inside Enable"]; fnv-game runs OnLoad only when cells load.
+   - **OnLoad after Enable** is fnv-game's own since #63 (`Game::note_enabled` queues it
+     for the start of the next tick) [observed: layer5-captures.md §8.3 d, "by the next
+     frame, not inside Enable"]; nvf-play no longer tracks it.
    - **Test aids** due now (§5).
    - **Triggers** (§3).
    - **The menu mode**: MenuMode 1001 while a message box waits for a button and on the
@@ -57,12 +57,14 @@ where the runtime hooks in (`lib.rs`: modules, `PlaySet::Scripts`, the plugin;
    - **`Game::tick`** with the frame's real time (`Time::delta_secs_f64`): running quest
      scripts whose delay has passed, then GameMode/MenuMode of the enabled scripted
      references in loaded cells (fnv-game's order, scripts.md §7.2). `GetSecondsPassed`
-     and quest delays see real time, except that menu and loading time does not count:
-     frames in a menu, under a waiting message box and the two frames after the player's
-     place changed (a door's destination loads in one of them) tick with zero time
-     [observed for a container menu and a loading screen: layer5-captures.md §8.3 e,
-     where the game clock also stopped in the menu, as `sim.rs` already does;
-     hypothesis for the message box].
+     and quest delays see real time, except that menu and loading time does not count.
+     Since #63 the runtime does that itself (scripts.md §7.2): `game.menu` is set in a
+     menu or under a waiting message box (MenuMode runs, game time stops), and
+     `game.loading` for the two frames after the player's place changed (a door's
+     destination loads in one of them; no script runs). `frame_seconds` is always the
+     real frame time [observed for a container menu and a loading screen:
+     layer5-captures.md §8.3 e, where the game clock also stopped in the menu, as
+     `sim.rs` already does; hypothesis for the message box].
 3. **Effects** of the frame's trace events (§4), the trace log (§5), log lines.
 
 Activation by hand (`activate.rs`, `PlaySet::Activation`, before this) calls
