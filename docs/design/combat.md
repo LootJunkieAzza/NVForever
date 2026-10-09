@@ -486,7 +486,9 @@ engine:
   Use is held. Which is which comes from the WEAP flags.
 - Ammo comes from the inventory (`fnv-sim`); a magazine holds the clip size. Reloading
   takes the reload clip's length; a reload cancelled partway keeps the old magazine.
-- Ammo swap (hotkey 2) and jamming come later.
+- The loaded ammo is the first of the weapon's acceptable ammo list the actor carries
+  (combat-data.md §2). Ammo Swap (hotkey 2) steps down the list to the next carried
+  type. Jamming comes later.
 - `fnv_actor::player_clips` gains attack, reload and hit-reaction clips. The text keys
   time them as documented (§4.2): `Hit` fires the shot, or ends a looping reload;
   `Fire`/`Loop` run an automatic weapon's loop; `Eject` throws a shell (speed and
