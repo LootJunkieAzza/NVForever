@@ -1,9 +1,10 @@
 # Combat design: weapons, projectiles, damage, melee
 
-Status 2026-10-09: **design for review; steps C1 (data), C2 (rules), C3 (hit volumes), C4
-(the player shooting), C5 (damage applied) and C6 (melee) built** on `claude/combat-data`,
-`-rules`, `-hitvol`, `-shoot`, `-damage` and `-melee` (docs/spec-notes/combat-data.md,
-docs/spec-notes/combat-rules.md §7–10). Limb hits are planned as step C8 (§5.9). Owner requests 2026-10-09:
+Status 2026-10-09: **design for review; steps C1–C7 built**: data, rules, hit volumes, the
+player shooting, damage applied, melee, explosives and destructibles (branches
+`claude/combat-data`, `-rules`, `-hitvol`, `-shoot`, `-damage`, `-melee`, `-explosives`;
+docs/spec-notes/combat-data.md, docs/spec-notes/combat-rules.md §7–11). Limb hits are
+planned as step C8 (§5.9). Owner requests 2026-10-09:
 
 1. On top of the player body (docs/design/player-body.md: controls, equipping, drawing and
    holstering), "the actual damage/projectile systems in place for shooting and melee

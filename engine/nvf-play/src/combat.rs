@@ -30,6 +30,14 @@
 //!   scripts see what combat did. Explosions hit with location −1. Each hit sends an
 //!   [`ActorHit`] (nvforever plays a flinch or the death pose). Without the script runtime
 //!   (`NVF_PLAY_SCRIPTS=0`) hits are only logged.
+//! - **Explosives and destructibles** (step C7): grenades and other thrown weapons are
+//!   lobbed projectiles; mines arm and wait for an actor; C-4 waits for
+//!   `DetonatePlacedExplosives`, which the detonator's OnFire script calls (weapons' OnFire
+//!   blocks run on each shot). Explosions hurt actors (armour, knockdown by the EXPL flags
+//!   and the documented formula, logged), damage destructible objects in their radius and
+//!   push loose objects. Bullets damage destructibles they hit. Destruction stages
+//!   (`Game::damage_object`, as `DamageObject`) disable, destroy, burn down by their
+//!   self-damage and set off their explosions, which can set off others.
 //! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
 //!   tracers at the projectile's tracer chance, an ammo counter, a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
@@ -50,7 +58,7 @@ use fnv_sim::FormId;
 use crate::activate::HudMessage;
 use crate::control::PlayerControl;
 use crate::script::{with_world, ScriptState};
-use fnv_game::combat::{HitInfo, HitResult};
+use fnv_game::combat::{CombatRequest, DestructionChange, HitInfo, HitResult};
 use crate::phys::PhysState;
 use crate::player::{Player, MAX_PITCH};
 use crate::sim::SimState;
@@ -101,6 +109,9 @@ pub struct HitFeedback {
     pub target: Option<(String, f32, f32, f32)>,
 }
 
+/// Height above a destructible's position its stage explosions go off [design].
+const DESTRUCTION_BLAST_HEIGHT: f32 = 40.0;
+
 /// Seconds the hit marker and the target's health stay up [design].
 const MARKER_SECONDS: f32 = 0.18;
 const TARGET_SECONDS: f32 = 4.0;
@@ -121,6 +132,7 @@ pub struct CombatStats {
     pub swings: u32,
     pub power_attacks: u32,
     pub melee_hits: u32,
+    pub knockdowns: u32,
 }
 
 /// A melee swing in progress (step C6).
@@ -144,6 +156,8 @@ struct Flying {
 struct Pending {
     due: f32,
     actor: Option<ActorId>,
+    /// The placed reference hit, for destructible objects.
+    object: Option<u64>,
     point: V3,
     projectiles: u32,
 }
@@ -177,6 +191,8 @@ pub struct Combat {
     /// How long Use has been held for the next melee attack.
     held: Option<f32>,
     swing: Option<Swing>,
+    /// Explosions to set off this frame (impacts, detonations, destruction stages).
+    boom: Vec<(FormId, V3)>,
     /// Use was pressed during a swing: the next swing starts when it ends [design].
     queued: bool,
     /// The trigger last frame (for presses during a swing).
@@ -228,6 +244,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         swing: None,
         queued: false,
         was_trigger: false,
+        boom: Vec::new(),
         cycle: None,
         kick: Kick::default(),
         flying: Vec::new(),
@@ -274,7 +291,8 @@ fn equip_sync(mut c: ResMut<Combat>, sim: Res<SimState>, mut anim: ResMut<Weapon
     c.ammo = chain.ammo;
     let carried = player_count(&sim, c.ammo);
     let timing = Timing::of(w, &anim.timing, &c.tuning);
-    let no_ammo = melee || c.self_ammo;
+    // Ranged weapons without a projectile (the detonator, binoculars) use no ammo.
+    let no_ammo = melee || c.self_ammo || (chain.projectile.is_none() && chain.ammo_choices.is_empty());
     c.cycle = Some(Cycle::new(w, timing, no_ammo, carried));
     anim.attack = w.attack_anim.clone();
     anim.reload = w.reload_anim.clone();
@@ -318,6 +336,10 @@ impl CombatWorld for PhysView<'_> {
             },
             small_transparent: matches!(h.owner, Owner::Ref { layer, .. } if layer == layers::TRANSPARENT_SMALL || layer == layers::TRANSPARENT_SMALL_ANIM),
             material: h.material,
+            object: match h.owner {
+                Owner::Ref { form_id, .. } => Some(form_id as u64),
+                _ => None,
+            },
         })
     }
 
@@ -353,6 +375,7 @@ fn fire(
     mut control: ResMut<PlayerControl>,
     mut anim: ResMut<WeaponAnim>,
     mut stats: ResMut<CombatStats>,
+    mut script: Option<ResMut<ScriptState>>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -401,8 +424,14 @@ fn fire(
                 if c.self_ammo {
                     let _ = sim.world.remove_item(FormId::PLAYER_REF, id, 1);
                 }
+                // The weapon's OnFire blocks (the detonator's DetonatePlacedExplosives).
+                if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+                    if with_world(rt, &mut sim, |rt| rt.game.weapon_fired(FormId::PLAYER_REF, id)) {
+                        info!("combat: OnFire of {} ran", w.edid.as_deref().unwrap_or("?"));
+                    }
+                }
                 if chain.projectile.is_none() {
-                    debug!("combat: {} attacks (melee and unarmed hits are step C6)", w.edid.as_deref().unwrap_or("?"));
+                    debug!("combat: {} fires no projectile", w.edid.as_deref().unwrap_or("?"));
                     continue;
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
@@ -605,7 +634,67 @@ fn melee(
     }
 }
 
-/// Fly the projectiles, deliver hits when due, set off explosions.
+/// Explosions set off per frame at most (chains of destructibles) [design].
+const MAX_EXPLOSIONS_PER_FRAME: u32 = 64;
+
+/// Where a reference stands (its simulation state, else its placement).
+fn ref_pos(sim: &SimState, r: FormId) -> Option<V3> {
+    sim.world.peek(r).map(|s| s.pos).or_else(|| sim.refs.get(r).map(|p| p.pos))
+}
+
+/// Queue what a destruction change sets off and report the rest (step C7).
+fn queue_destruction(c: &mut Combat, sim: &SimState, r: FormId, ch: &DestructionChange) {
+    if ch.after == ch.before {
+        return;
+    }
+    let at = ref_pos(sim, r).map(|p| [p[0], p[1], p[2] + DESTRUCTION_BLAST_HEIGHT]);
+    info!(
+        "combat: {r} destruction stage {} -> {}{}{}{}",
+        ch.before,
+        ch.after,
+        if ch.destroyed { ", destroyed" } else { "" },
+        if ch.disabled { ", disabled" } else { "" },
+        if ch.explosions.is_empty() { String::new() } else { format!(", {} explosion(s)", ch.explosions.len()) }
+    );
+    if ch.model.is_some() || ch.damage_stage.is_some() {
+        debug!("combat: {r} model {:?} damage stage {:?}: not drawn yet", ch.model, ch.damage_stage);
+    }
+    if let Some(at) = at {
+        c.boom.extend(ch.explosions.iter().map(|&e| (e, at)));
+    }
+}
+
+/// Object damage to a destructible reference through the script runtime.
+fn damage_destructible(c: &mut Combat, sim: &mut SimState, script: Option<&mut ScriptState>, r: FormId, amount: f32) {
+    let Some(rt) = script.and_then(|s| s.rt.as_mut()) else { return };
+    let ch = with_world(rt, sim, |rt| rt.game.damage_object(r, amount as f64));
+    if let Some(ch) = ch {
+        queue_destruction(c, sim, r, &ch);
+    }
+}
+
+/// Destructible references whose collision overlaps a sphere, with their distance.
+fn destructibles_near(phys: &mut PhysState, sim: &SimState, script: Option<&ScriptState>, at: V3, radius: f32) -> Vec<(FormId, f32)> {
+    let Some(rt) = script.and_then(|s| s.rt.as_ref()) else { return Vec::new() };
+    phys.world.update_queries();
+    let shape = fnv_collide::Shape::Sphere { radius };
+    let pose = fnv_collide::Iso { translation: at, ..fnv_collide::Iso::IDENTITY };
+    let owners = phys.world.queries().overlap(&shape, &pose, &Filter::default()).unwrap_or_default();
+    let mut out: Vec<(FormId, f32)> = Vec::new();
+    for o in owners {
+        let Owner::Ref { form_id, .. } = o else { continue };
+        let r = FormId(form_id);
+        if out.iter().any(|x| x.0 == r) || !rt.game.is_destructible(r) {
+            continue;
+        }
+        let d = ref_pos(sim, r).map_or(radius, |p| vec::len(vec::sub(p, at)).min(radius));
+        out.push((r, d));
+    }
+    out
+}
+
+/// Fly the projectiles, deliver hits when due, set off explosions (and what they set
+/// off: destruction stages, detonations).
 #[allow(clippy::too_many_arguments)]
 fn fly(
     time: Res<Time>,
@@ -620,25 +709,43 @@ fn fly(
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
-    if c.flying.is_empty() && c.pending.is_empty() {
+    // What scripts asked (DetonatePlacedExplosives) and what burns down (self-damage).
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        let (requests, burning) = with_world(rt, &mut sim, |rt| (std::mem::take(&mut rt.game.combat_requests), rt.game.destruction_tick(dt as f64)));
+        for req in requests {
+            let CombatRequest::Detonate(actor) = req;
+            let shooter = if actor == FormId::PLAYER_REF { Some(PLAYER) } else { Some(actor.0 as ActorId) };
+            let mut n = 0;
+            for f in c.flying.iter_mut().filter(|f| f.p.shooter == shooter) {
+                if let Some(ProjEvent::Explode { explosion, point }) = f.p.detonate() {
+                    c.boom.push((explosion, point));
+                    n += 1;
+                }
+            }
+            c.flying.retain(|f| f.p.alive);
+            info!("combat: {actor} detonates placed explosives: {n}");
+        }
+        for (r, ch) in burning {
+            queue_destruction(c, &sim, r, &ch);
+        }
+    }
+    if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() {
         return;
     }
-    let mut explode: Vec<(FormId, V3)> = Vec::new();
-    let mut blasted: Vec<(FormId, f32)> = Vec::new();
     {
         let world = view(&mut phys);
         for f in &mut c.flying {
             let before = f.p.pos;
             for e in f.p.step(&world, dt) {
                 match e {
-                    ProjEvent::Hit { actor, point, delay, .. } => {
-                        c.pending.push(Pending { due: c.time + delay, actor, point, projectiles: f.projectiles_per_shot });
+                    ProjEvent::Hit { actor, object, point, delay, .. } => {
+                        c.pending.push(Pending { due: c.time + delay, actor, object, point, projectiles: f.projectiles_per_shot });
                         if f.tracer {
                             let from = if f.p.hitscan { f.origin } else { before };
                             c.marks.push(Mark { from, to: point, age: 0.0, life: 0.08, impact: false });
                         }
                     }
-                    ProjEvent::Explode { explosion, point } => explode.push((explosion, point)),
+                    ProjEvent::Explode { explosion, point } => c.boom.push((explosion, point)),
                     ProjEvent::Expired { .. } => {}
                 }
             }
@@ -647,16 +754,71 @@ fn fly(
             }
         }
         c.flying.retain(|f| f.p.alive);
-        for (id, at) in explode {
-            stats.explosions += 1;
-            let Some(x) = c.forms.explosions.get(&id) else { continue };
-            for b in blast(&world, &c.tuning, x, at) {
-                info!("combat: blast {} hits {:08X} at {:.0} for {:.1} (before armour)", x.edid.as_deref().unwrap_or("?"), b.actor, b.distance, b.damage);
-                blasted.push((FormId(b.actor as u32), b.damage));
-            }
-            c.marks.push(Mark { from: at, to: at, age: 0.0, life: 0.6, impact: true });
-            info!("combat: explosion {} at ({:.0}, {:.0}, {:.0})", x.edid.as_deref().unwrap_or("?"), at[0], at[1], at[2]);
+    }
+    let weapon = c.weapon;
+    // Explosions, with those they set off, a bounded number per frame.
+    let mut n = 0;
+    while let Some((id, at)) = c.boom.pop() {
+        n += 1;
+        if n > MAX_EXPLOSIONS_PER_FRAME {
+            warn!("combat: more than {MAX_EXPLOSIONS_PER_FRAME} explosions in one frame; {} left for the next", c.boom.len() + 1);
+            c.boom.push((id, at));
+            break;
         }
+        stats.explosions += 1;
+        let Some(x) = c.forms.explosions.get(&id).cloned() else { continue };
+        let hits = {
+            let world = view(&mut phys);
+            blast(&world, &c.tuning, &x, at)
+        };
+        let always = x.flags.iter().any(|f| f == "Knock Down - Always");
+        let by_formula = x.flags.iter().any(|f| f == "Knock Down - By Formula");
+        for b in hits {
+            let target = FormId(b.actor as u32);
+            let (dt_v, dr) = target_armor(c, &mut sim, target);
+            let dealt = (b.damage - dt_v).max(b.damage * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
+            let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: -1, critical: false };
+            if let Some(r) = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
+                // Knockdown [documented: the EXPL flags; Explosion Knockdown Formula].
+                let agility = sim.world.actor_value(target, "Agility").unwrap_or(5.0);
+                let chance = if r.died || r.immune {
+                    0.0
+                } else if always {
+                    1.0
+                } else if by_formula {
+                    damage::knockdown_chance(&c.rules, r.dealt as f32, agility, (r.health + r.dealt) as f32, r.max_health as f32)
+                } else {
+                    0.0
+                };
+                let down = chance > 0.0 && c.rng.next_f32() < chance;
+                if down {
+                    stats.knockdowns += 1;
+                }
+                info!(
+                    "combat: blast {} on {target} at {:.0}: {:.1} health damage, health {:.0}/{:.0}{}",
+                    x.edid.as_deref().unwrap_or("?"),
+                    b.distance,
+                    r.dealt,
+                    r.health,
+                    r.max_health,
+                    if down { ", knocked down (not animated yet)" } else { "" }
+                );
+            }
+        }
+        for (r, d) in destructibles_near(&mut phys, &sim, script.as_deref(), at, x.radius) {
+            let dmg = damage::explosion_damage(&c.tuning, x.damage, x.radius, d);
+            damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg);
+        }
+        let pushed = phys.world.push_dynamic(at, x.radius, x.force);
+        c.marks.push(Mark { from: at, to: at, age: 0.0, life: 0.6, impact: true });
+        info!(
+            "combat: explosion {} at ({:.0}, {:.0}, {:.0}), {pushed} loose object(s) pushed{}",
+            x.edid.as_deref().unwrap_or("?"),
+            at[0],
+            at[1],
+            at[2],
+            if x.radiation_level > 0.0 || x.enchantment.is_some() || x.placed_object.is_some() { " (radiation, effect and placed object not built yet)" } else { "" }
+        );
     }
     let now = c.time;
     let due: Vec<Pending> = {
@@ -664,31 +826,26 @@ fn fly(
         c.pending = keep;
         d
     };
-    let weapon = c.weapon;
-    // Blasts: the damage against the target's armour (the DT floor and DR, §5.3).
-    for (target, raw) in blasted {
-        let (dt_v, dr) = target_armor(c, &mut sim, target);
-        let dealt = (raw - dt_v).max(raw * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
-        let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: -1, critical: false };
-        if let Some(r) = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
-            info!("combat: blast on {target}: {:.1} health damage, health {:.0}/{:.0}", r.dealt, r.health, r.max_health);
-        }
-    }
     let Some(id) = weapon else { return };
     let w = c.forms.weapons[&id].clone();
     let chain = c.forms.chain(id, c.ammo);
     let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
     for p in due {
         c.marks.push(Mark { from: p.point, to: p.point, age: 0.0, life: 0.3, impact: true });
-        let Some(actor) = p.actor else {
-            stats.world_hits += 1;
-            continue;
-        };
-        stats.actor_hits += 1;
         let effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let a = attacker(&mut sim, w.skill.as_deref(), false);
         let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: 1.0, ammo_effects: &effects, part: HitPart::default(), power: 1.0 };
         let roll = c.rng.next_f32();
+        let Some(actor) = p.actor else {
+            stats.world_hits += 1;
+            // A destructible object takes the hit's damage (no armour) (step C7).
+            if let Some(obj) = p.object {
+                let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
+                damage_destructible(c, &mut sim, script.as_deref_mut(), FormId(obj as u32), d.dealt);
+            }
+            continue;
+        };
+        stats.actor_hits += 1;
         let target = FormId(actor as u32);
         let (dt_v, dr) = target_armor(c, &mut sim, target);
         let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
@@ -766,8 +923,8 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
     if exit.read().last().is_some() {
         let s = &*stats;
         info!(
-            "combat: {} shots, {} projectiles, {} actor hits, {} world hits, {} explosions, {} swings ({} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
-            s.shots, s.projectiles, s.actor_hits, s.world_hits, s.explosions, s.swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
+            "combat: {} shots, {} projectiles, {} actor hits, {} world hits, {} explosions ({} knockdowns), {} swings ({} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
+            s.shots, s.projectiles, s.actor_hits, s.world_hits, s.explosions, s.knockdowns, s.swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
         );
     }
 }

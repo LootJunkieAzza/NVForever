@@ -54,6 +54,7 @@ pub mod event {
     pub const SCRIPT_EFFECT_FINISH: u16 = 0x12;
     pub const SCRIPT_EFFECT_UPDATE: u16 = 0x13;
     pub const ON_DESTRUCTION_STAGE_CHANGE: u16 = 0x23;
+    pub const ON_FIRE: u16 = 0x24;
     pub const ON_TRIGGER: u16 = 0x18;
     pub const ON_TRIGGER_ENTER: u16 = 0x1A;
     pub const ON_TRIGGER_LEAVE: u16 = 0x1B;
@@ -185,6 +186,9 @@ pub struct RefExtra {
     /// Object damage taken (DamageObject), for the destruction stage.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub damage: Option<f64>,
+    /// Self-damage per second of the destruction stage reached (burning down).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub burning: Option<f64>,
     /// Spells added with AddSpell, in order.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub spells: Vec<FormId>,
@@ -418,6 +422,9 @@ pub struct Speech {
 
 pub struct Game<'a> {
     pub data: &'a GameData,
+    /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
+    /// the engine to take.
+    pub combat_requests: Vec<crate::combat::CombatRequest>,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -551,6 +558,7 @@ impl<'a> Game<'a> {
     pub fn new(data: &'a GameData, world: World<'a>, cfg: GameConfig) -> Game<'a> {
         Game {
             data,
+            combat_requests: Vec::new(),
             world,
             cfg,
             quests: BTreeMap::new(),
