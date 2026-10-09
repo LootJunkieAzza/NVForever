@@ -346,7 +346,8 @@ and reports the intro chain's coverage (scripts.md §7).
 
 `fnvtool combat weapon` (`fnv.combat.weapon/1`), `fnvtool combat form`
 (`fnv.combat.form/1`) and `fnvtool combat survey` (`fnv.combat.survey/1`) are defined in
-docs/spec-notes/combat-data.md §4.
+docs/spec-notes/combat-data.md §4; `fnvtool combat damage` (`fnv.combat.damage/1`) and
+`fnvtool combat sim` (`fnv.combat.sim/1`) in docs/spec-notes/combat-rules.md §6.
 
 # Actor appearance (workstream 5)
 

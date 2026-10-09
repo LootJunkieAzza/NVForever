@@ -83,7 +83,7 @@ pub struct WeaponMod {
 }
 
 /// WEAP: `DATA`, `DNAM`, `CRDT` and the forms the weapon names.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct WeaponStats {
     pub edid: Option<String>,
     pub name: Option<String>,
@@ -159,7 +159,7 @@ pub struct WeaponStats {
 }
 
 /// AMMO.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct AmmoStats {
     pub edid: Option<String>,
     pub name: Option<String>,
@@ -180,7 +180,7 @@ pub struct AmmoStats {
 }
 
 /// AMEF.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct AmmoEffect {
     pub edid: Option<String>,
     pub name: Option<String>,
@@ -192,7 +192,7 @@ pub struct AmmoEffect {
 }
 
 /// PROJ.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ProjectileStats {
     pub edid: Option<String>,
     pub name: Option<String>,
@@ -230,7 +230,7 @@ impl ProjectileStats {
 }
 
 /// EXPL.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ExplosionStats {
     pub edid: Option<String>,
     pub name: Option<String>,

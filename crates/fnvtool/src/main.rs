@@ -9,6 +9,7 @@ mod actor_cmd;
 mod bsa_cmd;
 mod collide_cmd;
 mod combat_cmd;
+mod combat_sim;
 mod dds_cmd;
 mod spt_cmd;
 mod esm_cmd;
