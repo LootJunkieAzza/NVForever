@@ -236,8 +236,63 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
 - **Time-of-day blending** [hypothesis, `fnv_world::sky::time_keys`]: piecewise linear
   between keys at 0 h (midnight), sunrise begin (night), mid-sunrise (sunrise), sunrise end
   (day), 12 h (high noon), sunset begin (day), mid-sunset (sunset), sunset end (night),
-  24 h (midnight). Sun: rises due east at mid-sunrise, sets due west at mid-sunset, path
-  tilted south. Verify against in-game screenshots at several hours.
+  24 h (midnight). The sun's path: next item. Verify against in-game screenshots at
+  several hours.
+- **Sun path and shadows** [observed 2026-10-09: screenshots of the original game by the
+  capture plugin (tools/capture README section 7), private, at the player position
+  (−70500, 1200, 8347) in Goodsprings, NVWastelandClear forced, FOV 75 read as Hor+
+  (vertical 59.6° at 16:9), camera pitch −15 to −60; the sun's centre located as
+  the centroid of the saturated disc]. Sun elevation and azimuth (compass, 90 = east):
+  08:36 26.8 / 102; 09:06 36.4 / 102; 11:06 67.6 / 115; 12:06 78.3 / 135; 13:06 82.6 /
+  186; 14:06 76.6 / 231; 15:06 65.0 / 248; 16:06 50.4 / 254; 16:36 42.5 / 256; 17:06
+  about 35 / 258; 17:36 25.8 / 258; 17:51 23.7 / 259; 18:06 20.0 / 260; 18:21 17.3 / 261;
+  from 18:36 the sun is behind the hills west of that spot (about 15° high there).
+  So the sun passes about 7° south of the zenith shortly after 13:00 and stays about
+  10° south of due east / west when low, and it is still well up at 19:00, the
+  middle of the climate's sunset (the old model, rising and setting at mid-sunrise /
+  mid-sunset on a path tilted 26° south, put it below the horizon at 19:00 and
+  missed these positions by 12.9° RMS). The renderer's model [hypothesis, fitted
+  to the 14 positions above, 3.6° RMS]: the sun rises due east at sunrise begin
+  and sets due west at sunset end (the Mojave: 6:00 and 20:00), moving at a constant rate
+  in angle theta from 0 to 180°, in the direction normalize(cos theta,
+  −tan 9°, sin theta) (x east, y north, z up): highest 81° at 13:00, about
+  12° up at 19:06. Letting it rise and set 15 minutes later / earlier fits
+  slightly better (3.0°); the residuals (model about 4° high around 17:30–
+  18:20, 3° low around noon) suggest the real motion is not uniform, which these
+  frames cannot settle. Sunrise was not seen directly (hills to the east).
+  **No sun shadows from the world** [observed]: the reference frame goodsprings_dusk
+  (19:06, looking north-east) shows the crate's front, the boulder's west flank and the
+  ground around them lit warm by the sun, and no long shadows east of the boulder or
+  the crate, although from the same spot the sun is already hidden behind the rocks to
+  the west (screenshot looking west at 19:12: no sun disc, purple sky). At 17:36 looking
+  east down the road at (−69500, 2500), with the sun low behind the camera, the 8–10 m
+  telegraph pole and the trailer cast no shadow on the road. The renderer therefore draws
+  no sun shadows by default (`nvforever --shadow-distance`, default 0). With shadows on
+  and the corrected sun, the rock formations west of Goodsprings shade the whole town
+  from about 18:40 [observed: renderer]. Whether actors cast shadows in the game is not
+  known from these frames (nvforever draws no actors yet).
+- **Light on surfaces facing away from the sun** [observed, same screenshots; open]: a
+  boulder face lit only by ambient light shows (35..45, 27..36, 24..28) in the game
+  between 17:06 and 19:12, warm, and (24, 23, 29) at 20:36; the renderer shows (17..23,
+  16..19, 20..25), bluish, and (35, 39, 48) at 20:36. Part of the gap is Bevy's: its
+  diffuse ambient is EnvBRDFApprox(diffuse, F_AB(1, NdotV)) = diffuse × 0.452 − 0.002
+  [documented: bevy_pbr 0.19.1 pbr_ambient.wgsl], so the ambient colour reaches surfaces
+  at 45% of the texture × ambient model. Compensating it (× 2.21) matched the brightness
+  by day and at dusk and raised the SSIM of all four reference frames slightly, but kept
+  the bluish tint (the weather's ambient colours are all bluish: sunset (183, 183, 242))
+  and made 20:36 twice as bright as the game. So the game's light on those faces is
+  warmer than the ambient colour by day and dimmer at night; how is not known (a wrapped
+  or bounced share of the sunlight, or an ambient scaled by time of day, are candidates
+  to test). Not changed yet. Eye adaptation is an unlikely cause: NVDefaultExterior's HDR
+  luminance ramp min and max are both 1.0 [observed: `fnvtool esm decode`], which would
+  hold the adaptation fixed if they bound it [hypothesis].
+- **Dusk sky timing** [observed, same screenshots looking west; open]: the mean colour of
+  the upper-right sky (clouds and sky) is (126, 122, 122) at 18:06, (123, 97, 104) at
+  19:12, (92, 75, 84) at 19:36, (56, 49, 58) at 20:06 and (13, 15, 23) at 20:36; relative
+  to 19:12 in linear light 1, 0.54, 0.20, 0.02. The renderer's keys (sunset colours at
+  19:00, night at 20:00) give 1, 0.53, 0.05, 0.05; night at 20:30 instead gives 1, 0.72,
+  0.35, 0.05. Neither fits clearly better and the dusk reference frame is the same with
+  both, so the keys are unchanged.
 - **High-noon and midnight colours look unset** [observed,
   `crates/fnv-world/examples/weather_dump.rs --survey`]: of the 90 six-time weathers, 67
   have a black midnight ambient (64 of them with a non-black night ambient, among them
