@@ -40,7 +40,7 @@ pub mod model;
 mod test_aid;
 
 use crate::sim::SimState;
-use crate::{space, Location, OpenContainer, PlaySet, PlayState, PlayerCamera, RefChanged};
+use crate::{space, ItemUsed, Location, OpenContainer, PlaySet, PlayState, PlayerCamera, RefChanged};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -245,6 +245,7 @@ fn apply_input(
     mut sim: ResMut<SimState>,
     mut next: ResMut<NextState<PlayState>>,
     mut changed: MessageWriter<RefChanged>,
+    mut used: MessageWriter<ItemUsed>,
 ) {
     for &MenuInput(cmd) in input.read() {
         let Some(m) = active.0.as_mut() else { return };
@@ -254,6 +255,9 @@ fn apply_input(
             if let Some(s) = m.status.as_deref().filter(|s| !s.is_empty()) {
                 info!("menu: {cmd:?}: {s}");
             }
+        }
+        if let Some(item) = a.used {
+            used.write(ItemUsed { item: item.0 });
         }
         for id in &a.created {
             let (at, count) = sim.world.peek(*id).map(|s| (s.pos, s.count)).unwrap_or_default();
