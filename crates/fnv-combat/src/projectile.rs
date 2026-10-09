@@ -29,6 +29,11 @@ pub struct WorldHit {
     pub distance: f32,
     /// The actor hit, if the ray hit an actor's hit volume.
     pub actor: Option<ActorId>,
+    /// The body part hit (its index in the actor's body part data), when the actor has
+    /// part volumes (step C8).
+    pub part: Option<u8>,
+    /// The placed reference hit (its FormID), for destructible objects (step C7).
+    pub object: Option<u64>,
     /// The collider is on the small-transparent layer (chain-link fences, …).
     pub small_transparent: bool,
     /// Havok material code, for impact effects.
@@ -54,7 +59,7 @@ pub enum Motion {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ProjEvent {
     /// A hit to apply after `delay` seconds (hitscan: distance ÷ speed).
-    Hit { actor: Option<ActorId>, point: V3, normal: V3, material: Option<u32>, delay: f32 },
+    Hit { actor: Option<ActorId>, part: Option<u8>, object: Option<u64>, point: V3, normal: V3, material: Option<u32>, delay: f32 },
     /// The projectile's explosion goes off here.
     Explode { explosion: FormId, point: V3 },
     /// Out of range or out of time without a hit.
@@ -155,9 +160,10 @@ impl Projectile {
         None
     }
 
-    /// The explosion if it goes off on impact.
+    /// The explosion if it goes off on impact: not with Alt. Trigger (timer, proximity)
+    /// nor Detonates (it waits for `detonate`) [documented: GECK wiki Projectile].
     fn impact_explosion(&self) -> Option<FormId> {
-        self.explosion.filter(|_| !self.alt_trigger)
+        self.explosion.filter(|_| !self.alt_trigger && !self.detonates)
     }
 
     /// Advance by `dt` seconds.
@@ -177,7 +183,7 @@ impl Projectile {
             match self.trace(world, self.pos, end) {
                 Some(h) => {
                     let delay = if self.motion == Motion::Beam || self.speed <= 0.0 { 0.0 } else { h.distance / self.speed };
-                    out.push(ProjEvent::Hit { actor: h.actor, point: h.point, normal: h.normal, material: h.material, delay });
+                    out.push(ProjEvent::Hit { actor: h.actor, part: h.part, object: h.object, point: h.point, normal: h.normal, material: h.material, delay });
                     if let Some(e) = self.impact_explosion() {
                         out.push(ProjEvent::Explode { explosion: e, point: h.point });
                     }
@@ -229,11 +235,11 @@ impl Projectile {
                 // A flame goes on through actors, hitting each once.
                 (Motion::Flame, Some(a)) => {
                     self.hit_actors.push(a);
-                    out.push(ProjEvent::Hit { actor: Some(a), point: h.point, normal: h.normal, material: h.material, delay: 0.0 });
+                    out.push(ProjEvent::Hit { actor: Some(a), part: h.part, object: None, point: h.point, normal: h.normal, material: h.material, delay: 0.0 });
                     from = h.point;
                     continue;
                 }
-                (Motion::Lobber, _) if self.alt_trigger => {
+                (Motion::Lobber, _) if self.alt_trigger || self.detonates => {
                     // Bounce off whatever it met; settle when slow.
                     let n = h.normal;
                     let v = self.vel;
@@ -251,7 +257,7 @@ impl Projectile {
                     self.alive = false;
                     self.travelled += h.distance;
                     self.pos = h.point;
-                    out.push(ProjEvent::Hit { actor: h.actor, point: h.point, normal: h.normal, material: h.material, delay: 0.0 });
+                    out.push(ProjEvent::Hit { actor: h.actor, part: h.part, object: h.object, point: h.point, normal: h.normal, material: h.material, delay: 0.0 });
                     if let Some(e) = self.impact_explosion() {
                         out.push(ProjEvent::Explode { explosion: e, point: h.point });
                     }

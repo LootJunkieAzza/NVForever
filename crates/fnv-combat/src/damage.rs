@@ -144,6 +144,9 @@ pub struct HitInput<'a> {
     pub condition: f32,
     pub ammo_effects: &'a [&'a AmmoEffect],
     pub part: HitPart,
+    /// Extra multiplier on the base: power attacks ([`CombatTuning::power_damage`]), 1
+    /// otherwise [design].
+    pub power: f32,
 }
 
 /// The breakdown of one hit.
@@ -233,7 +236,7 @@ pub fn hit(
         AttackKind::Melee => weapon_base * cond * skill_bonus(r, a.skill) + melee_damage_av(r, a.strength) + a.melee_damage_bonus + arm,
         AttackKind::Unarmed => weapon_base * cond + unarmed_damage_av(r, a.unarmed_skill) + a.unarmed_damage_bonus + arm,
     };
-    let base = base.max(0.0);
+    let base = (base * h.power.max(0.0)).max(0.0);
     let miss = base <= 0.0;
     let modified = attacker_perks.weapon_damage(apply_effects(base, h.ammo_effects, "Damage Mod")).max(0.0);
     let sneak_mult = match (a.sneaking, kind) {
@@ -263,6 +266,19 @@ pub fn hit(
     let after_dt = (raw - dt).max(raw * t.dt_floor);
     let dealt = if target.child || miss { 0.0 } else { after_dt * (1.0 - dr / 100.0) };
     Damage { kind, base, modified, sneak_mult, part_mult, crit_chance, critical, crit_bonus, raw, dt, dr, dealt, miss }
+}
+
+/// Melee reach in game units: `fCombatDistance` × the actor's scale × the weapon's Reach
+/// [documented: GECK wiki Weapons]; a Reach of 0 (the Fists) counts as 1 [hypothesis].
+pub fn melee_reach(r: &Rules, w: &WeaponStats, scale: f32) -> f32 {
+    let reach = if w.reach > 0.0 { w.reach } else { 1.0 };
+    r.combat_distance * scale * reach
+}
+
+/// Health damage left of a melee or unarmed hit taken while blocking [design: the
+/// blocked share is CombatTuning::block; no page documents the original's rule].
+pub fn blocked(t: &CombatTuning, dealt: f32) -> f32 {
+    dealt * (1.0 - t.block.clamp(0.0, 1.0))
 }
 
 /// Condition points the weapon loses for one attack [design: tuning × the weapon's
@@ -302,4 +318,24 @@ pub fn explosion_damage(t: &CombatTuning, damage: f32, radius: f32, distance: f3
     }
     let k = (distance / radius).clamp(0.0, 1.0);
     damage * (1.0 - k * (1.0 - t.explosion_edge))
+}
+
+/// The S.P.E.C.I.A.L. attribute behind a combat skill, as the ActorValue names them
+/// [hypothesis: the base game's pairing; the owner's GECK exports do not list it].
+pub fn governing_special(skill: &str) -> Option<&'static str> {
+    Some(match skill {
+        "Guns" => "Agility",
+        "Energy Weapons" | "Explosives" => "Perception",
+        "Melee Weapons" => "Strength",
+        "Unarmed" | "Big Guns" | "Survival" => "Endurance",
+        _ => return None,
+    })
+}
+
+/// A skill derived from its attribute and Luck before any points are spent:
+/// `fAVDSkill<Name>Base` (2) + attribute × `fAVDSkillPrimaryBonusMult` (2) +
+/// ⌈Luck × `fAVDSkillLuckBonusMult` (0.5)⌉ [documented: GECK wiki Derived Skill Settings,
+/// defaults; tag skills add 15].
+pub fn derived_skill(attribute: f32, luck: f32, tagged: bool) -> f32 {
+    (2.0 + attribute * 2.0 + (luck * 0.5).ceil() + if tagged { 15.0 } else { 0.0 }).clamp(0.0, 100.0)
 }

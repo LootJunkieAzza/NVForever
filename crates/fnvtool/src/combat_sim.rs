@@ -67,7 +67,7 @@ pub fn damage_report(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &
     let rules = Rules::from_forms(c);
     let t = CombatTuning::default();
     let eff = ammo_effects(c, &ch.ammo_effects);
-    let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head } };
+    let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head }, power: 1.0 };
     let normal = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, 0.999_999);
     let crit = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, 0.0);
     let per_shot = normal.dealt * ch.projectiles_per_shot.max(1) as f32;
@@ -103,14 +103,14 @@ impl CombatWorld for Range {
                 let s = -b - disc.sqrt();
                 if (0.0..=len).contains(&s) {
                     let p = vec::add(from, vec::scale(dir, s));
-                    best = Some(WorldHit { point: p, normal: vec::normalize(vec::sub(p, self.target)), distance: s, actor: Some(TARGET), small_transparent: false, material: None });
+                    best = Some(WorldHit { point: p, normal: vec::normalize(vec::sub(p, self.target)), distance: s, actor: Some(TARGET), small_transparent: false, material: None, object: None, part: None });
                 }
             }
         }
         if dir[2] < 0.0 && from[2] >= 0.0 {
             let s = -from[2] / dir[2];
             if s <= len && best.as_ref().is_none_or(|b| s < b.distance) {
-                best = Some(WorldHit { point: vec::add(from, vec::scale(dir, s)), normal: [0.0, 0.0, 1.0], distance: s, actor: None, small_transparent: false, material: None });
+                best = Some(WorldHit { point: vec::add(from, vec::scale(dir, s)), normal: [0.0, 0.0, 1.0], distance: s, actor: None, small_transparent: false, material: None, object: None, part: None });
             }
         }
         best
@@ -125,19 +125,6 @@ impl CombatWorld for Range {
     }
 }
 
-/// splitmix64: a small seeded generator so runs repeat exactly.
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> f32 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^= z >> 31;
-        (z >> 40) as f32 / (1u64 << 24) as f32
-    }
-}
 
 #[derive(Args, Clone)]
 pub struct Shooting {
@@ -181,7 +168,7 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
     let eye = [0.0, 0.0, 100.0];
     let world = Range { target: [r.distance, 0.0, 100.0], radius: r.radius };
     let g = 9.81 * 70.0;
-    let mut rng = Rng(r.seed);
+    let mut rng = fnv_combat::rng::SplitMix(r.seed);
     let timing = Timing::of(w, &ClipTiming::default(), &t);
     let mut cycle = Cycle::new(w, timing, false, w.clip_size);
     let mut kick = Kick::default();
@@ -206,7 +193,7 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
                     let cone = spread::cone_deg(actor_spread, kick.bloom, w, &eff);
                     let pitch = kick.recoil_deg.to_radians();
                     let aim = [pitch.cos(), 0.0, pitch.sin()];
-                    let mut rnd = || rng.next();
+                    let mut rnd = || rng.next_f32();
                     flying.extend(shot::fire(c, &ch, eye, aim, cone, Some(SHOOTER), g, &t, &mut rnd));
                     kick.shot(&t, w.min_spread, w.base_damage as f32);
                 }
@@ -243,8 +230,8 @@ pub fn sim(c: &CombatForms, weapon: FormId, ammo: Option<FormId>, f: &Fight, r: 
                 continue;
             }
             hits += 1;
-            let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head } };
-            let d = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, rng.next());
+            let h = HitInput { weapon: w, projectiles: ch.projectiles_per_shot, condition: f.condition, ammo_effects: &eff, part: HitPart { damage_mult: f.part_mult, head: f.head }, power: 1.0 };
+            let d = damage::hit(&rules, &t, &h, &attacker(f), &target(f), &NoPerks, &NoPerks, rng.next_f32());
             if d.critical {
                 crits += 1;
             }
