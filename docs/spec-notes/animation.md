@@ -278,5 +278,5 @@ kffz_candidates, actor_anim_lists}`.
   base has the flag (`Rig::spawn_at_phase`, `fnv_actor::anims::random_anim_start`), the
   same spread as actors' idles (actors.md §7.3) — repeatable, not the game's random
   roll. Bases without the flag start at the clip's start, so their copies stay in step
-  [hypothesis: the game starts unflagged objects at time 0]. The run summary counts
-  `refs_random_start`.
+  [hypothesis: the game starts unflagged objects at time 0]. `StreamStats::
+  refs_random_start` counts them.

@@ -936,6 +936,31 @@ Each creature, ordered by reference FormID: {`reference`, `base`, `scale` (XSCL,
 widened), `parts` [{`role`, `form`, `model`}], `anims` [name], `random`}; or
 {`reference`, `base`, `error`}. FormIDs print as `0x%08X`.
 
+### 10.5 Checks against the game and cost
+
+- **Reference frames** (2026-10-09, `tools/capture/frames/creatures_cameras.json`, save
+  `nvftest`, noon, clear weather; screenshots kept privately in
+  `C:\fnv-private\references\partd\`) against `nvforever` at the recorded poses
+  (`--fov 75`, eye height 120) [observed]:
+  - Goodsprings bighorner pen: the young bighorners stand on the ground with the game's
+    shape, horns and fur colour and about the same size (XSCL 0.7–1.0 × BNAM 1.5); the
+    game's had walked together, ours stand at their placements. SSIM 0.39 (160 px
+    wide; sky, grass and lighting dominate as for the frames of Layer 3).
+  - Coyotes east of Goodsprings: feet on the slope, size and coat match the game's
+    coyote by eye; SSIM 0.43.
+  - Victor's shack: the game's Victor had moved away; ours stands at his placement with
+    body, wheel and screen frame in place (the screen face, an animated texture, shows
+    blank). SSIM 0.36.
+- **Moving-camera smoke test** (`--cell Goodsprings --auto-fly 4000 --run-seconds 40`,
+  after merging main with part H weapons): exit 0, "run finished", 50.0 fps; 115
+  creatures drawn and animated, none unresolved or without an idle; 47 NPCs drawn and
+  animated (39 armed); 31 actors and creatures spawned hidden; 26 bodies skin-tinted;
+  posing 16.3 µs per actor and frame (up to 79 posed at once, 0.41 ms per frame).
+  Creature clip sets loaded: `nvraven`, `nvbighorner`, `dog`, `radscorpion`,
+  `nvsecuritron`, `blowfly`, `nvvoid`, `nvcazadores`, `nvmantis`, each with its idle
+  (1.7–16.7 s) and every idle track bound except two Securitron prop nodes
+  (`Screen01`, `##VoiceBox_talk`).
+
 ## 11. Actors not enabled at the start
 
 A placed NPC or creature whose reference is not enabled at the start of a game
@@ -950,4 +975,9 @@ when its cell loads (enabled while the cell was away), a component hook on
 `SpawnedDisabled` shows it at once. Without `--play` such actors stay hidden. Light
 sources of such references (LIGH) are spawned the same way under a hidden `RefVisual`
 holder; their models stay with nvf-play's `script_draw.rs` [engine rules]. The run
-summary counts them (`spawned_hidden`, `lights_hidden`).
+summary's `ActorStats` counts hidden actors (`spawned_hidden`); `StreamStats::
+lights_hidden` the lights.
+
+Observed (`--cell Goodsprings --auto-fly 4000`, 40 s, 2026-10-09): 31 actors and
+creatures spawned hidden. Not yet checked in a `--play` run that enables one (the
+showing goes through the existing `RefVisual` sync).
