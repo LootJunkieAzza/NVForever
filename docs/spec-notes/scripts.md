@@ -490,16 +490,24 @@ function does. Tests run the VM in strict mode; the game runs it in lenient mode
   integers, 0 for a zero divisor [hypothesis, all of this line].
 - `If`/`ElseIf`/`Else`: the first true arm runs, else the `Else` body.
 - `Return` ends the whole run (block or result script), from any depth.
-- **Stray markers** (§2.6) [hypothesis: the engine follows skip counts, and running into
-  a branch marker means "the branch before me was taken, jump to the end of the
-  chain"]: an `EndIf` with nothing open does nothing; an `Else` or `ElseIf` reached in
-  normal flow skips the following statements of its list up to and including the next
-  stray `EndIf` there; with none, the list ends and the enclosing `If` is left. The same
-  rule covers the continuation markers kept inside an `Else` body (a later `ElseIf` of
-  the same chain): reaching one ends the chain. Under this reading, the 16 stray
-  `ElseIf` after a closed chain never run their bodies: e.g. FalloutNV SCPT 0x00123191's
-  `elseif GetDead == 1 / Activate` after the hostage's `OnActivate` chain is dead code.
-  Capturing one of these units in game would settle it.
+- **Stray markers** (§2.6). An `EndIf` with nothing open does nothing [observed]. An
+  `ElseIf` reached after its chain was closed **tests its condition and runs its body
+  when true**, as a new `If` would: the statements up to the next stray marker of the
+  list are its body, a following stray `ElseIf`/`Else` continues that chain and the next
+  stray `EndIf` closes it [observed: BeatrixFX's quest script (FalloutNV SCPT
+  0x0017B778) stepped `bump` 0 → 7 through its six stray ElseIf branches,
+  `L5.quest.stray_elseif`; the dead Techatticup hostage (SCPT 0x00123191) activated
+  with the run-OnActivate flag opened its loot menu through `elseif GetDead == 1 /
+  Activate`, `L5.quest.dead_activation`; layer5-captures.md §8.3 c]. Whether a branch
+  taken just before the marker suppresses it was not exercised [hypothesis: it does
+  not, the chain starts fresh]. A stray `Else` (FalloutNV 0x000EAB00) is read the same
+  way: a chain whose only branch runs [hypothesis]. A marker inside an `Else` body (a
+  later `ElseIf`/`Else` of the same chain, §2.6) ends the chain when reached: one branch
+  of the chain has run [hypothesis: the engine keeps a "branch taken" state per open
+  chain that `Else` sets and `EndIf` clears, which also explains the observed stray
+  ElseIf].
+- **Functions that end the script**: `RemoveMe` "acts like a return" [documented:
+  catalogue notes]; the host asks the VM to stop after the call (`Host::take_return`).
 - **Off-by-one skip counts** (§2.6, six units): the structured reading runs, which per
   §2.6 runs the same statements as a jump by the stored count [hypothesis, from 5A].
 - Calls: the explicit reference (`Ref.Func`, the `0x001C` prefix or `r` before `X`) is
@@ -542,8 +550,12 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   repeated stages" (VMS16 and VCG03 did not rerun their scripts; Generic did); starts a
   stopped quest; marks the stage done; then runs the result script of **every entry
   whose conditions pass**, immediately, nested in the caller (the job script read the
-  result script's variable on the next line) [documented: GECK wiki SetStage]. The
-  entry's Complete / Fail flag is applied after its script [hypothesis on the order].
+  result script's variable on the next line) [documented: GECK wiki SetStage]. **All
+  passing entries run, in record order** [observed: the five entries of ControlRumble's
+  stage 0 all ran, the last one's StopQuest last, `L5.quest.multi_entry_stage`,
+  layer5-captures.md §8.3 a]; every entry's conditions are evaluated before the first
+  script runs [hypothesis; no stage in the masters can tell]. The entry's Complete /
+  Fail flag is applied after its script [hypothesis on the order].
 - **Complete and Fail Quest flags both set completed** (GetQuestCompleted 1) and do not
   stop the quest; only a script's StopQuest does (VMS22, VMS16 stage 110).
 - **SetObjectiveDisplayed 1 clears the objective's completed flag; SetObjectiveCompleted
@@ -555,13 +567,19 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
   [also documented: GECK wiki SetQuestDelay]. A stopped quest's script does not run.
   The first run after StartQuest is not modelled (it was irregular in game; the
   scenarios skip it): the counter starts at 0 on StartQuest.
-- **GetSecondsPassed** returns the time since the same instance last called it, read
-  from a clock with 1/64 s resolution [observed: every drop is a multiple of 0.015625 s;
-  hypothesis that the clock, not the frame, is quantised], 0 on the first call, and the
-  same value for every call in one frame [documented: GECK wiki GetSecondsPassed].
-  Consequence in the walk-through (§9): VCG01's timer between stages 85 and 90 expired
-  at once, because the quest script had not called GetSecondsPassed since stage 70;
-  whether the game behaves so after a long gap is to be captured.
+- **GetSecondsPassed** returns the game time since the same instance last called it,
+  read from a clock with 1/64 s resolution [observed: every drop is a multiple of
+  0.015625 s; hypothesis that the clock, not the frame, is quantised], 0 on the first
+  call, and the same value for every call in one frame [documented: GECK wiki
+  GetSecondsPassed]. **Menus and loading screens do not count**: the game time
+  (`Game::time`) and the GameMode quest delay stop while a menu is open or a loading
+  screen is up [observed: after a 900-frame container menu the first drop was one frame
+  for VCG00 and VMQ03aTimer's own 0.5 s, `L5.quest.seconds_after_menu`; a `coc` loading
+  screen was not counted either; layer5-captures.md §8.3 e]. A gap in game mode (the
+  quest script not calling it for a while) is counted whole: VCG01's timer between
+  stages 85 and 90 in the walk-through (§9) expired at once because the quest script had
+  not called GetSecondsPassed since stage 70 [hypothesis that the game does the same;
+  a Wait-menu gap is not captured].
 - **New game**: every quest flagged "Start game enabled" runs, with no stage set
   [hypothesis from the flag's name]; VCG00 is the quest the New Game menu starts
   [documented: GECK wiki SetStage notes]; the runner starts it as an input.
@@ -581,10 +599,13 @@ in the 5C captures (layer5-captures.md §5) unless tagged:
 - Run on: Subject, Target, Reference (the stored reference), Combat Target (none until
   Layer 6), Linked Reference (the subject's `XLKR`) [documented: xEdit].
 - Chaining: a condition with the OR flag joins the next; the OR groups are joined with
-  AND, so OR binds tighter [hypothesis: the commonly described rule; matches `||` binding
-  tighter than `&&` in compiled expressions, §3.3].
+  AND, so **OR binds tighter than AND** [observed: GoodspringsFleePackage's `A OR B, C`
+  and SunnySmilesStayAtCurrentLocation's `D, Q, S45 OR S40 OR S20` chose as `(A OR B)
+  AND C` and `D AND Q AND (S45 OR S40 OR S20)`, neither left to right nor AND first,
+  `L5.quest.condition_groups`, layer5-captures.md §8.3 b]; it matches `||` binding
+  tighter than `&&` in compiled expressions (§3.3).
 - Subjects: quest stage conditions run on the player [hypothesis]; a dialogue line's on
-  its speaker, with the player as target.
+  its speaker, with the player as target; an AI package's on its actor (§7.5).
 - Evaluation calls the same implementations as scripts (index = opcode − 0x1000). Every
   condition function the intro chain's quests and dialogue use (248 conditions) is
   implemented. An unhandled one reads 0.
@@ -608,13 +629,44 @@ the original (test `snapshots_round_trip`).
 
 | Event | When (here) | Tag |
 |---|---|---|
-| GameMode | every frame: first running quests whose delay has passed (FormID order), then enabled scripted references in loaded cells (FormID order) | order [hypothesis]; delays [observed] |
-| MenuMode | instead of GameMode while a menu is open (runner input); a block's menu code must match | [hypothesis] |
-| OnActivate | an activation by hand runs the block *instead of* the default action; the default runs only if the block calls `Activate`; `Activate` with flag 0 runs the default bypassing the block, flag 1 the block (nothing without one); a block parameter (`OnActivate player`) must match the activator | [documented: GECK wiki Activate; OnActivate as in layer5.md §3.4] |
-| OnLoad | scripted references in a cell when it becomes loaded (the player's cell, plus the 5×5 grid outdoors) | [hypothesis] |
-| OnAdd / OnEquip / OnUnequip | AddItem (each item of a form list), pick-up, EquipItem / UnequipItem, on the item's script | [documented: AddItem's OnAdd; per call, not per item, hypothesis] |
+| GameMode | every frame: the OnLoad blocks due (below), then running quests whose delay has passed (FormID order), then enabled scripted references in loaded cells (FormID order), then the scripted items the player carries (FormID order) | order [hypothesis]; delays [observed]; carried items [observed: JarPistolPowder, `L5.quest.onadd_gamemode`; other holders not modelled, hypothesis] |
+| MenuMode | instead of GameMode while a menu is open (`Game::menu`); a block's menu code must match; quests run it on their delay, counted in menu time only | [hypothesis] |
+| OnActivate | an activation by hand runs the block *instead of* the default action, inside the activation; the default runs only if the block calls `Activate`; a scripted `Activate` (flag 0) runs the default and never the block; with flag 1 the block runs instead, or the default when the target has no block; the block runs on dead actors too; a block parameter (`OnActivate player`) must match the activator | [observed: `L5.quest.ref_activation`, `.dead_activation`, layer5-captures.md §8.3 d, f; documented: GECK wiki Activate] |
+| OnLoad | scripted references in a cell when it becomes loaded (the player's cell, plus the 5×5 grid outdoors), at once; a reference enabled in a loaded cell at the start of the next frame, not inside Enable | cell load [hypothesis]; after Enable [observed: jukebox and broken radio, layer5-captures.md §8.3 d] |
+| OnAdd / OnEquip / OnUnequip | AddItem (each item of a form list), pick-up, EquipItem / UnequipItem, on the item's script, inside the call; the item's GameMode follows by the next frame | [documented: AddItem's OnAdd; per call, not per item, hypothesis; observed: OnAdd then GameMode by the next frame, `L5.quest.onadd_gamemode`] |
 | OnDeath | KillActor | [hypothesis: at once] |
 | OnTriggerEnter / OnTrigger / OnTriggerLeave, SayToDone, OnPackageStart/Done/Change | runner inputs until physics sensors (5D) and Layer 6 | — |
+
+A dead actor's default activation opens its inventory (the loot menu) [observed:
+`L5.quest.dead_activation`]. A scripted item's instance is per holder and item;
+`RemoveMe` drops it when the holder has none left.
+
+**Engine API (workstream 5D).** The engine drives `fnv_game::Game` with three pieces of
+state and one call per frame:
+- `game.menu = Some(code)` while a menu is open (`None` when closed). MenuMode runs
+  instead of GameMode, and game time stops for scripts: `Game::time`, GetSecondsPassed
+  and the GameMode quest delay do not advance (a message box counts as a menu).
+- `game.loading = true` while a loading screen is up (a door to another cell, `coc`).
+  `Game::tick` then only counts the frame: no script runs and game time stops.
+  `Game::paused()` is true in either case.
+- `game.cfg.frame_seconds = dt; game.tick()` once per frame.
+- `Game::note_enabled(r)` is called by Enable itself; OnLoad of a reference enabled in a
+  loaded cell runs at the start of the next tick (`Game::pending_onload`), so the engine
+  needs no OnLoad handling of its own for Enable.
+- `game.message_box.pressed = Some(button)` when the player picks a button. Only the
+  script that showed the box (`MessageBox::owner`: its instance, or the unit of a result
+  script) receives it from GetButtonPressed; every other script reads −1 and the box
+  stays [hypothesis, from the GECK wiki's ShowMessage and GetButtonPressed pages; with a
+  global button the `--play` integration saw Doc Mitchell's chemistry set take every
+  box's button].
+These replace the engine-side handling `nvf-play` (PR #62) has for "no script time in
+menus, message boxes and the frames after a door load" and "OnLoad the frame after
+Enable". Until it switches: an OnLoad the engine runs itself (`ref_event(r, ON_LOAD)`)
+clears the one Enable queued, so OnLoad never runs twice; and setting `frame_seconds`
+to 0 in menus still stops game time, but also stops MenuMode's quest delay counter, so
+quest MenuMode blocks with a delay never run (keeping `dt` and setting `menu` avoids
+that). The frames right after a door's cell load are the engine's to mark with
+`loading` (the captures saw about 22 frames without script runs after a `coc`).
 
 Disabled and deleted references do not run their scripts [hypothesis].
 
@@ -623,7 +675,7 @@ Disabled and deleted references do not run their scripts [hypothesis].
 `fnv_game::functions::registry()` lists every handled opcode with its catalogue name (a
 test checks the name against `functions.json`). Dispatch is by opcode only.
 
-- **Implemented (130)**: quests (SetStage, GetStage, GetStageDone, Start/StopQuest,
+- **Implemented (133)**: quests (SetStage, GetStage, GetStageDone, Start/StopQuest,
   GetQuestRunning, GetQuestCompleted, CompleteQuest, Set/GetObjectiveDisplayed,
   Set/GetObjectiveCompleted, GetQuestVariable, GetScriptVariable, SetQuestDelay);
   references (Enable, Disable, GetDisabled, MoveTo, MoveToMarkerWithFade, GetSelf,
@@ -632,7 +684,8 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   Set/GetDestroyed, Lock, Unlock, GetLocked, Activate, GetActionRef, IsActionRef, IsActor,
   GetIsCreature, IsInList, AddFormToFormList, Set/GetOpenState, EnterTrigger); items
   (AddItem, RemoveItem, GetItemCount, RemoveAllItems, EquipItem, UnequipItem,
-  GetEquipped, GetWeaponHealthPerc); actors (Get/Set/Mod/Force/Damage/RestoreActorValue,
+  GetEquipped, GetWeaponHealthPerc, RemoveMe); AI packages (EvaluatePackage,
+  GetIsCurrentPackage, §7.5); actors (Get/Set/Mod/Force/Damage/RestoreActorValue,
   GetBaseActorValue, GetPermanentActorValue, GetDead, KillActor, ResurrectActor,
   GetDeadCount, GetInFaction, AddToFaction, RemoveFromFaction, Get/SetFactionRank,
   GetIsVoiceType, GetIsSex, GetPCIsSex, SexChange, GetIsRace, GetIsClass, SetGhost,
@@ -646,9 +699,8 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   GetSecondsPassed, GetGlobalValue, GetCurrentTime, GetGameSetting, Abs); and four Layer 6
   states that read "no" without Layer 6 (IsInCombat, IsTalking) or the PC platform
   (IsXBox, IsPS3) [decision].
-- **Layer 6 stubs (62)**, traced as `stub` with their arguments and no effect: AI
-  packages (EvaluatePackage, ResetAI, GetCurrentAIPackage, GetCurrentAIProcedure,
-  GetIsCurrentPackage, SetAlert, GetFurnitureMarkerID, IsCurrentFurnitureRef), dialogue
+- **Layer 6 stubs (60)**, traced as `stub` with their arguments and no effect: AI
+  packages (ResetAI, GetCurrentAIPackage, GetCurrentAIProcedure, SetAlert, GetFurnitureMarkerID, IsCurrentFurnitureRef), dialogue
   (SayTo, Say, StartConversation, GetTalkedToPC, SetDisposition), combat (StartCombat,
   StopCombat, SetEnemy, SetAlly, GetHitLocation, SetIgnoreFriendlyHits, GetShouldAttack,
   IsWeaponOut, GetWeaponAnimType, GetVATSValue), crime (SendTrespassAlarm, IgnoreCrime),
@@ -667,7 +719,7 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   (1,786 uses: needs the reputation tiers), AddReputation (504: needs the fame/infamy
   amount per deed size), PlaceAtMe (468) and RemoveAllTypedItems (295) (they need
   references created from any base form, and item form types, from `fnv-sim`), IsChild
-  (203: race flag not read), AddItemHealthPercent, SetOwnership, IsAnimPlaying, RemoveMe,
+  (203: race flag not read), AddItemHealthPercent, SetOwnership, IsAnimPlaying,
   CompleteAllObjectives, GetSitting.
 
 Defaults where nothing is read yet [hypothesis]: actor values other than S.P.E.C.I.A.L.
@@ -677,19 +729,42 @@ CGTutorial script read a new character as hurt, crippled and with a broken weapo
 first run (its stages 200, 210 and 218), which the capture saves never show
 (layer5-captures.md §2: only stage 2 done).
 
-### 7.4 Coverage (`fnvtool script coverage`, 2026-10-09)
+### 7.4 Coverage (`fnvtool script coverage`, 2026-10-09, after round 2)
 
 `implemented` and `stub` are filled per opcode. Over the ten masters (401 opcodes called
 or used by conditions; shares by the catalogue's `script_calls` + `condition_uses`):
 
 | | Opcodes | Calls + condition uses | With stubs |
 |---|---|---|---|
-| all | 130 implemented, 62 stubs | 86.4% | 95.0% |
-| top 40 by use | 34 implemented, 5 stubs (EvaluatePackage, SayTo, StartCombat, PlayGroup, ResetAI), 1 unhandled (GetReputationThreshold) | 78.4% of all uses are in these 40 | |
-| intro chain (295 units, 248 conditions; `fnv_game::intro`) | 67 of 110 implemented, 41 stubs | 80.6% (all 248 conditions) | 99.8% |
+| all | 133 implemented, 60 stubs | 88.1% | 95.0% |
+| top 40 by use | 35 implemented, 4 stubs (SayTo, StartCombat, PlayGroup, ResetAI), 1 unhandled (GetReputationThreshold) | 78.4% of all uses are in these 40 | |
+| intro chain (295 units, 248 conditions; `fnv_game::intro`) | 68 of 110 implemented, 40 stubs | 82.5% (all 248 conditions) | 99.8% |
 
 The intro chain's two unhandled functions are SetLevel and SetSPECIALPoints (one call
 each, character creation).
+
+### 7.5 AI packages (the start of Layer 6, `Game::select_package`)
+
+Read: every `PACK`'s conditions (the `CTDA` before its begin/end/change sections) and
+every actor base's package list (`PKID`, in order), through the template (`TPLT`) when
+its template flags include "AI Packages" [documented: xEdit PACK and NPC_ layouts].
+
+- An actor's package is the **first package of its list whose conditions pass**, with
+  the actor as the subject [observed: the three Goodsprings settlers took
+  GoodspringsFleePackage, their first, exactly when its conditions held and the next one
+  otherwise; Sunny Smiles took her third package when the two before it failed;
+  `L5.quest.condition_groups`; hypothesis: list order decides, as these cases show
+  without proving it in general].
+- A script package (AddScriptPackage) overrides the list until RemoveScriptPackage
+  [documented: catalogue summary].
+- `EvaluatePackage` chooses again and keeps the choice as the current package (trace
+  `package_chosen`); `GetIsCurrentPackage` compares with it, choosing first if the
+  actor never chose (an actor in the world always runs a package [hypothesis]). The
+  runner's `package` input with `start`/`change` also makes its package current.
+- Not modelled yet (Layer 6): schedules (`PSDT` is not decoded by the schema yet), the
+  package's procedure, locations and targets, starting a package (its begin result
+  script and OnPackageStart run only through the runner's `package` input), must-complete
+  flags, and when the game re-evaluates on its own.
 
 ## 8. The runner (`fnvtool script run`, `fnv_game::runner`)
 
@@ -719,6 +794,22 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `kill {actor, killer?}` | combat ending in a death (KillActor, OnDeath) |
 | `note {text}` | a comment; no effect |
 
+Round 2 of the contract (layer5-captures.md §8.2), as the capture issues them:
+
+| op | runner |
+|---|---|
+| `activate` + `run_on_activate` | `ActMode::Block`; `opened` is whether any activation during the call opened a container (a nested default activation included) |
+| `set_ref_var`, `get_ref {ref, fields}` | the reference's object-script variables by name; `get_ref` also reads `dead` and `disabled`, one frame per field; an undeclared name reads 0 |
+| `activate_read` | activation and the read with no frame between |
+| `sample_ref_var`, `sample_var` + `values` | as `sample_var`; `values` lists the successive distinct sampled values |
+| `add_item_read` | AddItem (silent) and the counts (`count.<item>`), then one frame |
+| `sample_items` | one sample per frame, read before the frame runs: `first.`, `final.`, `settled.` per item |
+| `menu_gap` | the player's default activation of `via` must open a container; `menu` is 1008 for `frames` frames (the opening frame counted), the variable is read in the last, then `after` frames; `drop` is the first change |
+| `kill {target}` | KillActor without a killer, 1 + 60 frames (`actor`/`killer` remain for the walk-through) |
+| `evaluate_package`, `is_current_package` | §7.5; `current` |
+
+`given` kind `ref` sets object-script variables, `dead` and `disabled`.
+
 Names: `player`, a hex FormID, an Editor ID of any record, `scripted:<SCPT>[#n]` (the
 n-th placed reference whose base runs that script) and `placed:<base>` (the first placed
 reference of a base form).
@@ -734,18 +825,19 @@ once per unit), `unhandled`, `call_failed`, `script_error`, `skipped`,
 named variables, the player state, reported references, unhandled and stubbed call
 counts).
 
-**`L5.quest.*` (2026-10-09): 9 of 12 pass** (both holdouts pass). The three that fail
-compare GetStage of a quest whose `given` names no stage: CGTutorial (save 2, new game
-0), VCG01 (save 200, new game 0), VCG00 (save 100, new game 0). The candidate starts from
-the new-game state (§4.1 of the contract), so these rows need `"stage"` (or `"done"`) in
-the input's `given`; the delays and drops of the same scenarios match.
+**`L5.quest.*` (2026-10-09, round 2): 18 of 21 pass**, holdouts included (both
+rounds' holdouts pass). The three that fail compare GetStage of a quest whose `given`
+names no stage: CGTutorial (save 2, new game 0), VCG01 (save 200, new game 0), VCG00
+(save 100, new game 0). The candidate starts from the new-game state (§4.1 of the
+contract), so these rows need `"stage"` (or `"done"`) in the input's `given`; the delays
+and drops of the same scenarios match. (`L5.script.decode` is 5A's.)
 
 ## 9. Headless intro chain (`crates/fnv-game/walkthrough/intro.actions.json`)
 
 From the new-game state, with dialogue lines, packages, trigger volumes, menus, combat
 deaths and crafting given as inputs (each marked with a `note` in the file). Run with
 `fnvtool script run <Data> <ten masters> --schema schemas/fnv --actions
-crates/fnv-game/walkthrough/intro.actions.json` (3,950 frames, about 2 s).
+crates/fnv-game/walkthrough/intro.actions.json` (4,430 frames, about 2 s).
 
 - **VCG00** (opening): start, its MenuMode block sets stage 0, whose result script sets
   90; the timer sets 95 and 100; stage 100 sets VCG01 stage 0 and stops VCG00. Stages
@@ -787,15 +879,16 @@ walk-through does not enter that trigger.
 
 ## 10. Open questions (5B)
 
-- Stray `Else`/`ElseIf` and off-by-one skip counts (§4.2): the skip-count reading is a
-  hypothesis; one capture of FalloutNV SCPT 0x00123191 (a dead hostage activated) would
-  settle the stray `ElseIf`.
-- GetSecondsPassed after a long gap (§5): since the instance's last call, as documented,
-  or capped?
-- Several stage entries passing their conditions: all run (documented wording) — not
-  captured.
-- OR/AND grouping of conditions and the subject of quest stage conditions (§6).
-- Frame order between quest and object scripts, OnLoad timing, OnAdd once per call or per
-  item (§7.2).
+- A stray `ElseIf` right after a chain that took a branch (§4.2): suppressed or tested?
+  No capture had two thresholds in one run.
+- GetSecondsPassed across a Wait-menu gap, and inside a MenuMode block (§5).
+- A stage entry whose conditions fail next to ones that pass (skipped, the others run:
+  hypothesis); whether an entry's conditions see the effects of earlier entries' scripts.
+- Frame order between quest and object scripts (layer5-captures.md §8.3 d: not settled);
+  the rising plane's OnLoad on the line after Enable (§8.3 d, unexplained).
+- Scripted items held by actors other than the player, and by containers: do they run
+  GameMode (§7.2)? OnAdd once per call or once per item.
+- MenuMode quest delays (one counter per mode, §7.2): not captured.
+- AI packages (§7.5): schedules, re-evaluation, and whether list order alone decides.
 - The `given` of `L5.quest.delay_flagged_1s`, `.delay_flagged_short` and `.delay_frame`
   lacks the quests' stages (§8).

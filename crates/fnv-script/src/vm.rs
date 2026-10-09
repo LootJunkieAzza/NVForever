@@ -148,6 +148,12 @@ pub trait Host {
     fn call(&mut self, opcode: u16, on: Option<Value>, args: &[ArgValue]) -> Result<Value, String>;
     /// An opcode that is not in the function table was skipped (non-strict runs).
     fn skipped(&mut self, _what: &VmError) {}
+    /// Whether the last call ended the run the way `Return` does (a function such as
+    /// `RemoveMe`, which "acts like a return" [documented: catalogue notes]). The VM
+    /// asks after every statement; answering true also clears the request.
+    fn take_return(&mut self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,7 +211,7 @@ impl<'t, 'h> Vm<'t, 'h> {
 
     /// Run a statement list (a block body, or the top of a result script).
     pub fn run(&mut self, stmts: &[Stmt]) -> Result<Exit, VmError> {
-        Ok(match self.list(stmts)? {
+        Ok(match self.list(stmts, false)? {
             Flow::Return => Exit::Returned,
             Flow::Normal | Flow::Leave => Exit::Finished,
         })
@@ -258,20 +264,24 @@ impl<'t, 'h> Vm<'t, 'h> {
         Ok(())
     }
 
-    /// Run a statement list.
+    /// Run a statement list. `in_else` is true for the `otherwise` body of an `If`.
     ///
-    /// Stray markers (`Stmt::Unmatched`, docs/spec-notes/scripts.md §2.6 and §4.2)
-    /// [hypothesis: the engine follows skip counts, and a branch marker reached by
-    /// running into it means "the branch before me was taken, jump to the end of the
-    /// chain"]:
-    /// - `EndIf` does nothing;
-    /// - `Else` or `ElseIf` skips the statements after it up to and including the next
-    ///   stray `EndIf` of the same list; with none, the list ends and the enclosing
-    ///   `If` chain is left (its skip count points at the enclosing chain's next marker).
-    ///
-    /// The same rule covers the continuation markers the decoder keeps inside an `Else`
-    /// body: reaching one ends the chain.
-    fn list(&mut self, stmts: &[Stmt]) -> Result<Flow, VmError> {
+    /// Stray markers (`Stmt::Unmatched`, docs/spec-notes/scripts.md §2.6 and §4.2):
+    /// - `EndIf` with nothing open does nothing [observed: the stray EndIf after
+    ///   BeatrixFX's ElseIf branches, `L5.quest.stray_elseif`];
+    /// - an `ElseIf` reached after its chain was closed tests its condition and runs the
+    ///   statements up to the next stray marker of the list when it holds, as a new `If`
+    ///   would; the next stray `ElseIf` or `Else` continues that chain and the next stray
+    ///   `EndIf` closes it [observed: BeatrixFX's six stray ElseIf steps all ran
+    ///   (`L5.quest.stray_elseif`); the dead Techatticup hostage's `elseif GetDead == 1 /
+    ///   activate` opened its loot menu (`L5.quest.dead_activation`); layer5-captures.md
+    ///   §8.3 c]. Whether a branch taken just before the marker would suppress it was not
+    ///   exercised [hypothesis: it does not; the chain starts fresh]. A stray `Else`
+    ///   starts a chain whose only branch runs [hypothesis, by the same reading];
+    /// - inside an `Else` body, a marker continues the closed chain (a later `ElseIf` of
+    ///   the same chain, §2.6): one branch of the chain has run, so reaching it ends the
+    ///   chain, as running into the next marker of an ordinary chain does [hypothesis].
+    fn list(&mut self, stmts: &[Stmt], in_else: bool) -> Result<Flow, VmError> {
         let mut i = 0;
         while i < stmts.len() {
             self.step()?;
@@ -283,14 +293,18 @@ impl<'t, 'h> Vm<'t, 'h> {
                 Stmt::If { arms, otherwise } => {
                     let mut taken = None;
                     for a in arms {
-                        if self.eval(&a.cond)?.truthy() {
-                            taken = Some(&a.body);
+                        let hold = self.eval(&a.cond)?.truthy();
+                        if self.host.take_return() {
+                            return Ok(Flow::Return);
+                        }
+                        if hold {
+                            taken = Some((&a.body, false));
                             break;
                         }
                     }
-                    let body = taken.or(otherwise.as_ref());
-                    if let Some(b) = body {
-                        if self.list(b)? == Flow::Return {
+                    let body = taken.or(otherwise.as_ref().map(|o| (o, true)));
+                    if let Some((b, is_else)) = body {
+                        if self.list(b, is_else)? == Flow::Return {
                             return Ok(Flow::Return);
                         }
                     }
@@ -300,7 +314,7 @@ impl<'t, 'h> Vm<'t, 'h> {
                     self.call(call)?;
                 }
                 Stmt::Unmatched { marker: Marker::EndIf, .. } => {}
-                Stmt::Unmatched { .. } => {
+                Stmt::Unmatched { .. } if in_else => {
                     let end = stmts[i + 1..]
                         .iter()
                         .position(|s| matches!(s, Stmt::Unmatched { marker: Marker::EndIf, .. }));
@@ -308,6 +322,14 @@ impl<'t, 'h> Vm<'t, 'h> {
                         Some(k) => i += k + 1,
                         None => return Ok(Flow::Leave),
                     }
+                }
+                Stmt::Unmatched { .. } => {
+                    let (flow, next) = self.stray_chain(stmts, i)?;
+                    if flow == Flow::Return {
+                        return Ok(Flow::Return);
+                    }
+                    // `next` is the closing stray EndIf (or the end of the list).
+                    i = next;
                 }
                 Stmt::Raw { opcode, .. } => {
                     let e = if *opcode >= crate::decode::op::FIRST_FUNCTION && self.table.get(*opcode).is_none() {
@@ -321,9 +343,52 @@ impl<'t, 'h> Vm<'t, 'h> {
                     self.host.skipped(&e);
                 }
             }
+            if self.host.take_return() {
+                return Ok(Flow::Return);
+            }
             i += 1;
         }
         Ok(Flow::Normal)
+    }
+
+    /// A chain of stray markers starting at `stmts[start]` (an `ElseIf` or `Else` with
+    /// no open chain, see [`Vm::list`]). Returns how it ended and the index of its
+    /// closing stray `EndIf` (the list's length when there is none).
+    fn stray_chain(&mut self, stmts: &[Stmt], start: usize) -> Result<(Flow, usize), VmError> {
+        let next_marker = |from: usize| {
+            stmts[from + 1..].iter().position(|s| matches!(s, Stmt::Unmatched { .. })).map_or(stmts.len(), |k| from + 1 + k)
+        };
+        let mut at = start;
+        loop {
+            let hold = match &stmts[at] {
+                Stmt::Unmatched { marker: Marker::ElseIf, cond: Some(c), .. } => {
+                    let v = self.eval(c)?.truthy();
+                    if self.host.take_return() {
+                        return Ok((Flow::Return, stmts.len()));
+                    }
+                    v
+                }
+                // An ElseIf without a condition cannot be tested (none in the masters).
+                Stmt::Unmatched { marker: Marker::ElseIf, cond: None, .. } => false,
+                Stmt::Unmatched { marker: Marker::Else, .. } => true,
+                _ => return Ok((Flow::Normal, at)),
+            };
+            let next = next_marker(at);
+            if hold {
+                if self.list(&stmts[at + 1..next], false)? == Flow::Return {
+                    return Ok((Flow::Return, stmts.len()));
+                }
+                let close = stmts[next..]
+                    .iter()
+                    .position(|s| matches!(s, Stmt::Unmatched { marker: Marker::EndIf, .. }))
+                    .map_or(stmts.len(), |k| next + k);
+                return Ok((Flow::Normal, close));
+            }
+            if next >= stmts.len() {
+                return Ok((Flow::Normal, stmts.len()));
+            }
+            at = next;
+        }
     }
 
     fn call(&mut self, c: &Call) -> Result<Value, VmError> {

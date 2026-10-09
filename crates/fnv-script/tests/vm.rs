@@ -187,23 +187,61 @@ fn return_ends_the_whole_run_from_any_depth() {
     assert!(!h.locals.contains_key(&1));
 }
 
+fn stray_elseif(cond: Vec<Token>) -> Stmt {
+    Stmt::Unmatched { marker: Marker::ElseIf, skip: Some(0), cond: Some(Expr(cond)) }
+}
+
 #[test]
-fn stray_markers_follow_the_skip_count_reading() {
+fn stray_markers_start_a_new_chain() {
     let mut h = TestHost::default();
     // EndIf with nothing open: no effect.
     run(&[stray(Marker::EndIf), set(short(1), vec![num(1.0)])], &mut h).unwrap();
     assert_eq!(h.locals[&1], Value::Num(1.0));
-    // A stray ElseIf reached by running into it skips to the next stray EndIf.
+    // A stray ElseIf after a closed chain tests its condition and runs its body when
+    // true (observed: BeatrixFX, L5.quest.stray_elseif); the statements after the
+    // closing stray EndIf run either way.
+    let body = |c: f64| {
+        vec![
+            if_(vec![(vec![num(0.0)], vec![set(short(9), vec![num(9.0)])])], None),
+            stray_elseif(vec![num(c)]),
+            set(short(1), vec![num(1.0)]),
+            stray(Marker::EndIf),
+            set(short(2), vec![num(2.0)]),
+        ]
+    };
     let mut h = TestHost::default();
-    let body = vec![
-        stray(Marker::ElseIf),
-        set(short(1), vec![num(1.0)]),
-        stray(Marker::EndIf),
-        set(short(2), vec![num(2.0)]),
-    ];
-    run(&body, &mut h).unwrap();
-    assert!(!h.locals.contains_key(&1));
-    assert_eq!(h.locals[&2], Value::Num(2.0));
+    run(&body(1.0), &mut h).unwrap();
+    assert_eq!(h.locals.get(&1), Some(&Value::Num(1.0)));
+    assert_eq!(h.locals.get(&2), Some(&Value::Num(2.0)));
+    let mut h = TestHost::default();
+    run(&body(0.0), &mut h).unwrap();
+    assert_eq!(h.locals.get(&1), None);
+    assert_eq!(h.locals.get(&2), Some(&Value::Num(2.0)));
+    // Several stray markers form one chain: the first true branch runs, the rest of the
+    // chain is skipped up to its EndIf; a stray Else runs when nothing before it did.
+    let chain = |a: f64, b: f64| {
+        let mut h = TestHost::default();
+        let body = vec![
+            stray_elseif(vec![num(a)]),
+            set(short(1), vec![num(1.0)]),
+            stray_elseif(vec![num(b)]),
+            set(short(2), vec![num(2.0)]),
+            stray(Marker::Else),
+            set(short(3), vec![num(3.0)]),
+            stray(Marker::EndIf),
+            set(short(4), vec![num(4.0)]),
+        ];
+        run(&body, &mut h).unwrap();
+        (1..=4).filter(|i| h.locals.contains_key(i)).collect::<Vec<u16>>()
+    };
+    assert_eq!(chain(1.0, 1.0), vec![1, 4]);
+    assert_eq!(chain(0.0, 1.0), vec![2, 4]);
+    assert_eq!(chain(0.0, 0.0), vec![3, 4]);
+    // A Return inside a stray branch ends the run.
+    let mut h = TestHost::default();
+    let body = vec![stray_elseif(vec![num(1.0)]), Stmt::Return, stray(Marker::EndIf), set(short(1), vec![num(1.0)])];
+    assert_eq!(run(&body, &mut h).unwrap(), Exit::Returned);
+    assert!(h.locals.is_empty());
     // A continuation marker inside an Else body ends the chain: the rest of the Else
     // body does not run, the statement after the If does.
     let mut h = TestHost::default();
@@ -218,6 +256,36 @@ fn stray_markers_follow_the_skip_count_reading() {
     assert_eq!(h.locals.get(&2), Some(&Value::Num(2.0)));
     assert_eq!(h.locals.get(&3), None);
     assert_eq!(h.locals.get(&4), Some(&Value::Num(4.0)));
+}
+
+#[test]
+fn a_host_return_request_ends_the_run() {
+    // RemoveMe "acts like a return": the host asks the VM to stop after the call.
+    struct Stopper(TestHost, bool);
+    impl Host for Stopper {
+        fn get_var(&mut self, var: &VarRef) -> Result<Value, String> {
+            self.0.get_var(var)
+        }
+        fn set_var(&mut self, var: &VarRef, value: Value) -> Result<(), String> {
+            self.0.set_var(var, value)
+        }
+        fn ref_value(&mut self, r: RefIndex) -> Result<Value, String> {
+            self.0.ref_value(r)
+        }
+        fn call(&mut self, opcode: u16, on: Option<Value>, args: &[ArgValue]) -> Result<Value, String> {
+            self.1 = opcode == DISABLE;
+            self.0.call(opcode, on, args)
+        }
+        fn take_return(&mut self) -> bool {
+            std::mem::take(&mut self.1)
+        }
+    }
+    let mut h = Stopper(TestHost::default(), false);
+    let t = table();
+    let body = vec![if_(vec![(vec![num(1.0)], vec![call(DISABLE, vec![])])], None), set(short(1), vec![num(1.0)])];
+    let exit = Vm::new(&t, &mut h, RunOpts { strict: true, max_steps: 1000 }).run(&body).unwrap();
+    assert_eq!(exit, Exit::Returned);
+    assert!(h.0.locals.is_empty());
 }
 
 #[test]

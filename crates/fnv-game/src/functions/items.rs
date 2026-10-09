@@ -2,7 +2,7 @@
 //! events of scripted items.
 
 use super::{none, yes, Args, Ctx};
-use crate::game::{event, Game};
+use crate::game::{event, Game, InstKey};
 use crate::trace::EventKind;
 use fnv_script::vm::Value;
 use fnv_sim::FormId;
@@ -115,4 +115,29 @@ pub fn get_weapon_health_perc(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
             .map(|(_, e, _)| e.condition.unwrap_or(1.0))
     });
     Ok(Value::Num(cond.unwrap_or(1.0) as f64 * 100.0))
+}
+
+/// `RemoveMe [container]`: the calling inventory item leaves the container holding it
+/// (one of the stack); with a container, a copy goes there. It acts like a return
+/// [documented: catalogue summary and notes of RemoveMe]. The item's script instance is
+/// dropped when the holder has none of the item left (a later copy starts fresh
+/// [hypothesis: a copy does not keep the variables, catalogue notes]).
+pub fn remove_me(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let Some(key @ InstKey::Item { holder, item }) = ctx.inst else {
+        return Err("RemoveMe outside the script of an inventory item".into());
+    };
+    let n = g.world.remove_item(holder, item, 1).map_err(|e| e.to_string())?;
+    if n > 0 {
+        g.emit(EventKind::ItemRemoved { from: holder, item, count: n });
+    }
+    if let Some(to) = a.opt_form(0) {
+        for (i, c) in g.world.add_item(to, item, 1).map_err(|e| e.to_string())? {
+            g.emit(EventKind::ItemAdded { to, item: i, count: c });
+        }
+    }
+    if g.world.item_count(holder, item).unwrap_or(0) == 0 {
+        g.instances.remove(&key);
+    }
+    g.request_return();
+    none()
 }
