@@ -307,13 +307,18 @@ pub fn day_factor(c: &Climate, hour: f32) -> f32 {
 /// east at sunrise begin and sets due west at sunset end, moving at a constant rate along
 /// a path held `south` radians south of the east-west line: the direction is
 /// normalize(cos θ, −tan(south), sin θ) with θ going from 0 to π over that time. Below the
-/// horizon at night (θ beyond 0..π). [hypothesis fitted to sun positions in screenshots of
-/// the original game at Goodsprings, 08:36-18:21, with south = 9°: 3.6° RMS over 14
-/// positions; docs/spec-notes/world.md §6.]
+/// horizon at night, where θ goes from π to 2π at the night's own constant rate, so the
+/// path closes at sunrise and the moon drawn opposite peaks halfway through the night
+/// (one rate for the whole day jumped θ by 51° at midnight in the Mojave). [hypothesis
+/// fitted to sun positions in screenshots of the original game at Goodsprings,
+/// 08:36-18:21, with south = 9°: 3.6° RMS over 14 positions; the night half is
+/// unobserved; docs/spec-notes/world.md §6.]
 pub fn sun_direction(c: &Climate, hour: f32, south: f32) -> [f32; 3] {
+    use std::f32::consts::PI;
     let (rise, set) = (c.sunrise.0, c.sunset.1);
-    let span = (set - rise).max(1e-3);
-    let theta = std::f32::consts::PI * (hour.rem_euclid(24.0) - rise) / span;
+    let day = (set - rise).clamp(1e-3, 24.0 - 1e-3);
+    let t = (hour - rise).rem_euclid(24.0);
+    let theta = if t <= day { PI * t / day } else { PI + PI * (t - day) / (24.0 - day) };
     let (s, co) = theta.sin_cos();
     let k = -south.tan();
     let n = (co * co + k * k + s * s).sqrt();
@@ -498,6 +503,16 @@ mod tests {
         // Still about 12° up at 19:06 (the dusk reference frame), below the horizon at night.
         assert!((el(19.1) - 11.8).abs() < 0.5);
         assert!(el(1.0) < 0.0 && el(21.0) < 0.0);
+        // Lowest halfway through the night (01:00), mirroring the noon peak.
+        assert!((el(1.0) + 81.0).abs() < 1e-3);
+        // No jumps anywhere in the day, midnight and sunrise included: the direction
+        // moves less than 0.5° per game minute.
+        let dir = |h: f32| sun_direction(&c, h, 9f32.to_radians());
+        for m in 0..24 * 60 {
+            let (a, b) = (dir(m as f32 / 60.0), dir((m + 1) as f32 / 60.0));
+            let cos = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+            assert!(cos > 0.5f32.to_radians().cos(), "jump at minute {m}");
+        }
     }
 
     #[test]
