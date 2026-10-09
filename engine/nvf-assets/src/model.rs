@@ -98,6 +98,13 @@ impl Rig {
     /// Spawn the rig under `parent` with the root at `transform`, playing the idle clip.
     /// Returns the root entity and the entities that carry meshes.
     pub fn spawn(&self, commands: &mut Commands, parent: Entity, transform: Transform, source: &str) -> (Entity, Vec<Entity>) {
+        self.spawn_at_phase(commands, parent, transform, source, 0.0)
+    }
+
+    /// Like [`Self::spawn`], with the idle clip starting at `phase` (0–1) of its cycle:
+    /// for base objects flagged "Random Anim Start", so copies of one model do not move
+    /// in step (docs/spec-notes/animation.md §8).
+    pub fn spawn_at_phase(&self, commands: &mut Commands, parent: Entity, transform: Transform, source: &str, phase: f32) -> (Entity, Vec<Entity>) {
         let entities: Vec<Entity> = self
             .nodes
             .iter()
@@ -125,7 +132,7 @@ impl Rig {
         }
         let by_name: HashMap<&str, Entity> =
             self.nodes.iter().zip(&entities).filter_map(|(n, e)| Some((n.name.as_deref()?, *e))).collect();
-        let playing = Playing::new(source, &self.idle, |n| by_name.get(n).copied());
+        let playing = Playing::new(source, &self.idle, |n| by_name.get(n).copied()).at_phase(phase);
         commands.entity(entities[0]).insert(playing);
         (entities[0], drawn)
     }

@@ -291,6 +291,51 @@ def check_save(save, saves_dir):
     return None
 
 
+# Files the game itself overwrites during play: a quest script's `Autosave` (VCG01 stage
+# 55 does) or a quicksave replace them even when no job saves [observed 2026-10-09:
+# `autosave.fos` was rewritten during a capture although bAllowScriptedAutosave was 0,
+# docs/spec-notes/layer5-captures.md section 10].
+ROLLING_SAVES = ("autosave", "quicksave")
+
+
+def saves_listing(saves_dir):
+    """{file name: [size, mtime_ns]} of the Saves folder, or None when it is unknown.
+    Only reads."""
+    if not saves_dir or not os.path.isdir(saves_dir):
+        return None
+    out = {}
+    for name in sorted(os.listdir(saves_dir)):
+        path = os.path.join(saves_dir, name)
+        if os.path.isfile(path):
+            st = os.stat(path)
+            out[name] = [st.st_size, st.st_mtime_ns]
+    return out
+
+
+def backup_rolling_saves(saves_dir, listing, dest):
+    """Copy the game's rolling saves (autosave, quicksave and their .bak/.nvse files) to
+    `dest` before a run, so a save the game overwrites can be restored by hand. Reads
+    the Saves folder only; never writes there. Returns the copied names."""
+    names = [n for n in (listing or {}) if n.lower().startswith(ROLLING_SAVES)]
+    if not names:
+        return []
+    os.makedirs(dest, exist_ok=True)
+    for n in names:
+        shutil.copy2(os.path.join(saves_dir, n), os.path.join(dest, n))
+    return names
+
+
+def saves_changes(before, after):
+    """What changed in the Saves folder between two listings ("added x", "changed x",
+    "removed x"), sorted."""
+    if before is None or after is None:
+        return []
+    out = [f"added {n}" for n in after if n not in before]
+    out += [f"changed {n}" for n in after if n in before and after[n] != before[n]]
+    out += [f"removed {n}" for n in before if n not in after]
+    return sorted(out, key=lambda x: x.split(" ", 1)[1])
+
+
 def trace_goldens(report, trace_dir):
     """fnv.sim.trace/1 goldens for the ended jobs; names of the files written."""
     os.makedirs(trace_dir, exist_ok=True)
@@ -313,7 +358,7 @@ def main(argv=None, game=None, clock=time.time, sleep=time.sleep):
     ap.add_argument("--save", required=True, help="save to load from the main menu (file name without .fos)")
     ap.add_argument("--capture-dir", default=DEFAULT_CAPTURE_DIR)
     ap.add_argument("--saves-dir", default=os.path.join(os.path.expanduser("~"), "Documents", "My Games", "FalloutNV", "Saves"),
-                    help="where to check that the save exists (only read)")
+                    help="where to check that the save exists, back up the rolling saves from and watch for changes (only read)")
     ap.add_argument("--timeout", type=int, default=1800, help="seconds for all jobs (default 1800)")
     ap.add_argument("--attended", action="store_true", help="allow jobs with manual steps (End continues them)")
     ap.add_argument("--include-pending", action="store_true", help="also run jobs already pending in jobs/")
@@ -340,14 +385,29 @@ def main(argv=None, game=None, clock=time.time, sleep=time.sleep):
         print(f"capture_run: {e}", file=sys.stderr)
         return 1
     quit_console = [] if args.no_quit else args.quit_console
+    before = saves_listing(args.saves_dir)
+    backup_dir = os.path.join(args.capture_dir, "saves-backup", str(int(clock())))
+    try:
+        backed_up = backup_rolling_saves(args.saves_dir, before, backup_dir)
+    except OSError as e:
+        print(f"capture_run: could not back up the rolling saves: {e}", file=sys.stderr)
+        return 1
     report = run(jobs, names, args.capture_dir, game, args.save, args.timeout, args.menu_console,
                  quit_console, args.kill_on_timeout, clock=clock, sleep=sleep)
+    changed = saves_changes(before, saves_listing(args.saves_dir))
+    if changed:
+        report["saves_changed"] = changed
+        where = f"; the rolling saves from before the run are in {backup_dir}" if backed_up else ""
+        report["problems"].append("the game wrote to the Saves folder (" + ", ".join(changed) + ")" + where
+                                  + ". Nothing was restored: restoring is the owner's (the tools never write there).")
     if args.trace_dir:
         try:
             report["goldens"] = trace_goldens(report, args.trace_dir)
         except (OSError, cs.InputError) as e:
             report["problems"].append(f"trace golden: {e}")
     cs.write(report, args.output)
+    if changed:
+        return 3
     ok = all(s["status"] == "ended" for s in report["jobs"].values())
     return 0 if ok else 2
 

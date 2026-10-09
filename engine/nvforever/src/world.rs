@@ -18,8 +18,8 @@ use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
 
-/// Base object types drawn as static models. NPCs are assembled from parts (`actors.rs`);
-/// creatures are not drawn yet; sounds and idle markers have no model.
+/// Base object types drawn as static models. NPCs and creatures are assembled from parts
+/// (`actors.rs`); sounds and idle markers have no model.
 const DRAWN: [&[u8; 4]; 20] = [
     b"STAT", b"SCOL", b"MSTT", b"TREE", b"FURN", b"DOOR", b"CONT", b"ACTI", b"TACT", b"TERM", b"LIGH", b"MISC",
     b"WEAP", b"AMMO", b"ARMO", b"ALCH", b"BOOK", b"NOTE", b"KEYM", b"PWAT",
@@ -152,8 +152,12 @@ pub struct StreamStats {
     pub refs_speedtree: usize,
     /// References drawn with their own node hierarchy, playing an Idle sequence.
     pub refs_animated: usize,
+    /// Of those, references whose base has "Random Anim Start" (a spread start phase).
+    pub refs_random_start: usize,
     pub water_planes: usize,
     pub lights: usize,
+    /// Light sources of references not enabled at the start, spawned hidden.
+    pub lights_hidden: usize,
     pub actors: crate::actors::ActorStats,
     pub shapes: usize,
     pub load_ms: f64,
@@ -359,13 +363,26 @@ fn load_cell(
     for r in refs {
         let Some(p) = placement(world.lo, world.schema, r) else { continue };
         if !world.enabled(&p, 0) {
+            // Actors, creatures and light sources are spawned hidden, so a script's
+            // Enable can show them (actors.rs `SpawnedDisabled`); other models are
+            // nvf-play's (`script_draw.rs`).
+            if !p.deleted() {
+                spawn_dormant(commands, cell_e, world, &p, r, to_cell, models, actors, light_scale, emittance, stats);
+            }
             stats.refs_skipped_disabled += 1;
             continue;
         }
         let base: Option<BaseObject> = p.base.and_then(|b| base_object(world.lo, world.schema, b));
         if let (Some((aw, parts)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| &b.sig == b"NPC_")) {
             let mut ctx = ActorCtx { cache: parts, models };
-            if crate::actors::spawn(commands, cell_e, to_cell * ref_affine(&p), r, b.form_id, aw, &mut ctx, &mut stats.actors) {
+            if crate::actors::spawn(commands, cell_e, to_cell * ref_affine(&p), Vec3::from_array(p.position), r, b.form_id, aw, &mut ctx, &mut stats.actors, false) {
+                continue;
+            }
+        }
+        // Placed creatures (actors.rs `spawn_creature`, actors.md §10).
+        if let (Some((aw, parts)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| &b.sig == b"CREA")) {
+            let mut ctx = ActorCtx { cache: parts, models };
+            if crate::actors::spawn_creature(commands, cell_e, to_cell * ref_affine(&p), r, b.form_id, aw, &mut ctx, &mut stats.actors, false) {
                 continue;
             }
         }
@@ -428,7 +445,11 @@ fn load_cell(
         let rt = to_cell * ref_affine(&p);
         if let Some(rig) = &model.rig {
             // Animated (Idle sequence): its own node hierarchy per reference.
-            let (root, drawn) = rig.spawn(commands, cell_e, Transform::from_matrix(Mat4::from(rt)), &path);
+            // "Random Anim Start" bases start their idle at a phase spread by reference
+            // (fnv_actor::anims::random_anim_start; animation.md §8).
+            let phase = if random_anim_start(world, base.form_id) { crate::actors::clip_phase(r) } else { 0.0 };
+            stats.refs_random_start += usize::from(phase > 0.0);
+            let (root, drawn) = rig.spawn_at_phase(commands, cell_e, Transform::from_matrix(Mat4::from(rt)), &path, phase);
             commands.entity(root).insert(RefVisual(r));
             for e in &drawn {
                 commands.entity(*e).insert(RefVisual(r));
@@ -452,6 +473,56 @@ fn load_cell(
         stats.refs_drawn += 1;
     }
     cell_e
+}
+
+/// Whether base form `fid` has the "Random Anim Start" record flag (fnv_actor::anims).
+fn random_anim_start(world: &WorldData, fid: u32) -> bool {
+    let Some(d) = world.lo.index.get(&fid).and_then(|d| d.last()) else { return false };
+    let h = &world.lo.records[d.plugin as usize][d.ordinal as usize].header;
+    fnv_actor::anims::random_anim_start(&h.sig, h.flags)
+}
+
+/// A reference not enabled at the start of a game: an NPC or creature is spawned
+/// hidden, and a light's light source hidden under a `RefVisual` holder, so that
+/// `RefVisual` sync shows them when a script enables the reference (actors.rs
+/// `SpawnedDisabled`; docs/design/layer5-play.md §4). The light's model is drawn by
+/// nvf-play's `script_draw.rs` when enabled.
+#[allow(clippy::too_many_arguments)]
+fn spawn_dormant(
+    commands: &mut Commands,
+    cell_e: Entity,
+    world: &WorldData,
+    p: &Placement,
+    r: u32,
+    to_cell: Affine3A,
+    models: &mut ModelCtx,
+    actors: &mut Option<(&crate::actors::ActorWorld, &mut ActorParts)>,
+    light_scale: f32,
+    emittance: &mut crate::emittance::EmittanceState,
+    stats: &mut StreamStats,
+) {
+    let Some(base) = p.base.and_then(|b| base_object(world.lo, world.schema, b)) else { return };
+    let rt = to_cell * ref_affine(p);
+    match (&base.sig, actors.as_mut()) {
+        (b"NPC_", Some((aw, parts))) => {
+            let mut ctx = ActorCtx { cache: parts, models };
+            crate::actors::spawn(commands, cell_e, rt, Vec3::from_array(p.position), r, base.form_id, aw, &mut ctx, &mut stats.actors, true);
+        }
+        (b"CREA", Some((aw, parts))) => {
+            let mut ctx = ActorCtx { cache: parts, models };
+            crate::actors::spawn_creature(commands, cell_e, rt, r, base.form_id, aw, &mut ctx, &mut stats.actors, true);
+        }
+        (b"LIGH", _) => {
+            let holder = commands.spawn((Transform::IDENTITY, Visibility::Inherited, RefVisual(r), ChildOf(cell_e))).id();
+            if crate::lights::spawn_light(commands, holder, world, base.form_id, rt.translation.into(), light_scale, p.emittance, emittance) {
+                crate::actors::spawn_hidden(commands, holder, r);
+                stats.lights_hidden += 1;
+            } else {
+                commands.entity(holder).despawn();
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Water surface of a cell: cells flagged "has water" get a plane at XCLW, or at the

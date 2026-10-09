@@ -288,6 +288,11 @@ impl<'t, 'h> Vm<'t, 'h> {
             match &stmts[i] {
                 Stmt::Set { target, expr } => {
                     let v = self.eval(expr)?;
+                    // A call in the expression that stops the script (a call on an
+                    // empty reference) leaves the variable unchanged.
+                    if self.host.take_return() {
+                        return Ok(Flow::Return);
+                    }
                     self.host.set_var(target, v).map_err(VmError::Host)?;
                 }
                 Stmt::If { arms, otherwise } => {

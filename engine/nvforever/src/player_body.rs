@@ -11,10 +11,10 @@
 //!   view's pitch, so arms and weapon follow the view, and the camera sits at its
 //!   `Camera1st` node (118 units up, 78 crouched) [hypothesis: the node names; observed:
 //!   the nodes, and the first-person sneak clips lower `Bip01 NonAccum` by 40;
-//!   animation.md §8.5].
+//!   animation.md §9.5].
 //!
 //! Both play layered KF clips (`nvf_assets::anim_blend`) from their own folder, chosen by
-//! `fnv_actor::locomotion`: an idle, movement in four directions walking or running,
+//! `fnv_actor::player_clips`: an idle, movement in four directions walking or running,
 //! sneaking, swimming, jumping and landing, turning on the spot, and the weapon drawn,
 //! held (aimed down the sights, or blocking) and holstered, with the weapon moving
 //! between the hand and the holster bone at the clips' `Attach`/`Detach` keys.
@@ -31,10 +31,11 @@ use bevy::math::Affine3A;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use fnv_actor::first_person::{self, is_arms_shape, Show};
-use fnv_actor::locomotion::{
+use fnv_actor::player_clips::{
     aim_clips, aim_weights, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips, move_clips, turn_clips,
-    weapon_prefix, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
+    Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
 };
+use fnv_actor::weapon::AnimType;
 use fnv_actor::Appearance;
 use fnv_sim::FormId;
 use nvf_assets::actor::{rigid_local, spawn_actor, ActorCtx, ActorParts, PartUse, PreparedSkeleton};
@@ -331,7 +332,7 @@ fn ensure_body(
     }
     m.weapon = weapon;
     let w = weapon.and_then(|id| world.actors.weapons.get(&id));
-    m.prefix = w.and_then(|w| w.animation_type).and_then(weapon_prefix).unwrap_or(UNARMED);
+    m.prefix = w.and_then(|w| w.anim_type.as_deref()).and_then(AnimType::from_name).map_or(UNARMED, AnimType::prefix);
     info!("player weapon: {}, animations {}", weapon.map_or("none (fists)".to_string(), |w| w.to_string()), m.prefix);
     for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
         if let Some(e) = rig.weapon_model.take() {
@@ -378,10 +379,10 @@ fn build(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut 
 /// `shows` (first person): per part of `a`, how it shows.
 fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &mut ActorCtx, a: &Appearance, view: View, shows: Option<&[Show]>) -> Result<Rig, String> {
     let skel = ctx.skeleton(&a.skeleton).ok_or_else(|| format!("skeleton {} not loaded", a.skeleton))?;
-    let mut missing = 0;
-    let mut uses = part_uses(a, world, ctx, &mut missing);
-    if missing > 0 {
-        warn!("player {view:?} rig: {missing} parts not loaded");
+    let mut stats = crate::actors::ActorStats::default();
+    let mut uses = part_uses(a, world, ctx, &mut stats);
+    if stats.parts_missing > 0 {
+        warn!("player {view:?} rig: {} parts not loaded", stats.parts_missing);
     }
     if let Some(shows) = shows {
         // Upper-body models show their `Arms` shapes only.
