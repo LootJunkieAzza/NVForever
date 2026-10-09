@@ -124,7 +124,9 @@ item once you've ruled on it.
    `functions.json`, which fits the "schemas as data" rule better. Moving it is cheap;
    say which you prefer.
 
-10. **A save for the intro chain (5C, PR #55): please make one.** Both existing saves
+10. **A save for the intro chain (5C, PR #55): done.** `nvfnew` exists (2026-10-09 09:21)
+    and sits before VCG01 stage 0, VCG00 at stage 90 (layer5-captures.md §2). Original
+    request: Both existing saves
     are past the intro: VCG01 is complete, VMQ01 is running at stage 10. To capture
     VCG01 itself, start a new game. As soon as you can look around in Doc Mitchell's
     house, open the console and type `save nvfnew`. Tell the next session it exists.
