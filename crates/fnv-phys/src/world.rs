@@ -328,16 +328,19 @@ impl PhysWorld {
     /// `pose ∘ node_transform ∘ body_transform`, with the reference's uniform scale baked
     /// into the shapes. Static objects become fixed bodies, keyframed ones
     /// kinematic, dynamic ones dynamic with the object's mass, friction and restitution
-    /// (physics.md §4). Replaces an earlier add of the same reference.
+    /// (physics.md §4). Replaces an earlier add of the same reference's bodies; its placed
+    /// water ([`PhysWorld::add_placed_water`]) is kept, so the two can be added in either
+    /// order.
     pub fn add_ref(&mut self, pose: &RefPose, objects: &[CollisionObject]) -> AddReport {
         self.insert_ref(PreparedRef::build(self.k, pose, objects))
     }
 
     /// Add a reference's collision converted by [`PreparedRef::new`]: the same bodies,
     /// colliders and report, in the same order, as [`PhysWorld::add_ref`] with the same
-    /// pose and objects. Replaces an earlier add of the same reference.
+    /// pose and objects. Replaces an earlier add of the same reference's bodies; its placed
+    /// water is kept (see [`PhysWorld::add_ref`]).
     pub fn insert_ref(&mut self, p: PreparedRef) -> AddReport {
-        self.remove_ref(p.form_id);
+        self.remove_bodies(p.form_id);
         let mut report = AddReport { errors: p.errors, ..Default::default() };
         let mut handles = Vec::new();
         for o in p.objects {
@@ -400,9 +403,15 @@ impl PhysWorld {
         self.w.bodies[body].recompute_mass_properties_from_colliders(&self.w.colliders);
     }
 
+    /// Remove a reference from the world: its bodies and its placed water.
     pub fn remove_ref(&mut self, form_id: u32) -> bool {
         let water = self.water.remove_ref(form_id);
-        let Some(bodies) = self.refs.remove(&form_id) else { return water };
+        self.remove_bodies(form_id) || water
+    }
+
+    /// Remove a reference's bodies only.
+    fn remove_bodies(&mut self, form_id: u32) -> bool {
+        let Some(bodies) = self.refs.remove(&form_id) else { return false };
         for b in bodies {
             self.remove_body(b);
         }
