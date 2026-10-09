@@ -952,3 +952,34 @@ fn walls_keep_a_static_shell_gap_while_on_terrain() {
     let stop = 50.0 - c.params.radius - 0.7;
     assert!((s.feet[1] - stop).abs() < 0.1, "{:?} against {stop}", s.feet);
 }
+
+#[test]
+fn placed_water_survives_adding_the_same_refs_bodies() {
+    // A reference whose model has both water volumes and solid collision: the callers add
+    // the water, then the bodies (no model of the game has both, physics.md §6.6, but the
+    // order must not matter).
+    let mut w = ground();
+    let pose = RefPose { form_id: 9, position: [1000.0, 0.0, 300.0], rotation: ID, scale: 1.0 };
+    assert_eq!(w.add_placed_water(&pose, &[water_box()]), 1);
+    let rep = w.add_ref(&pose, &[object(boxed([20.0, 20.0, 20.0]), Motion::Static)]);
+    assert_eq!(rep.bodies, 1);
+    assert_eq!(w.water_surface_at(1000.0, 0.0), Some(300.0));
+    // Adding the bodies again replaces them and still keeps the water.
+    w.add_ref(&pose, &[object(boxed([20.0, 20.0, 20.0]), Motion::Static)]);
+    assert_eq!(w.ref_bodies(9).len(), 1);
+    assert_eq!(w.water_surface_at(1000.0, 0.0), Some(300.0));
+    // The other order works too.
+    let other = RefPose { form_id: 10, position: [-1000.0, 0.0, 300.0], ..pose };
+    w.add_ref(&other, &[object(boxed([20.0, 20.0, 20.0]), Motion::Static)]);
+    w.add_placed_water(&other, &[water_box()]);
+    assert_eq!(w.water_surface_at(-1000.0, 0.0), Some(300.0));
+    // Removing the reference removes both.
+    assert!(w.remove_ref(9));
+    assert_eq!(w.water_surface_at(1000.0, 0.0), None);
+    assert!(w.ref_bodies(9).is_empty());
+    // A reference with only water is removed too.
+    let water_only = RefPose { form_id: 11, position: [0.0, 1000.0, 300.0], ..pose };
+    w.add_placed_water(&water_only, &[water_box()]);
+    assert!(w.remove_ref(11));
+    assert!(!w.remove_ref(11));
+}
