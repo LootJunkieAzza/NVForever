@@ -85,6 +85,9 @@ pub struct PhysState {
     /// Placed references whose pose [`PhysState::settle_placed`] wrote to the simulation
     /// this frame (for `crate::moved`).
     pub moved_now: Vec<u32>,
+    /// Doors that open in place, in the world now: their keyframed bodies follow
+    /// `crate::doors::Doors` ([`pose_doors`]).
+    pub doors: BTreeMap<u32, PosedDoor>,
     pub stats: PhysStats,
     /// Feet before the last fixed step (the camera interpolates from it).
     pub(crate) prev_feet: [f32; 3],
@@ -112,6 +115,7 @@ impl Default for PhysState {
             created: BTreeMap::new(),
             placed_dynamic: BTreeMap::new(),
             moved_now: Vec::new(),
+            doors: BTreeMap::new(),
             stats: PhysStats::default(),
             prev_feet: [0.0; 3],
             persistent_by_grid: HashMap::new(),
@@ -148,6 +152,42 @@ pub struct CreatedBody {
     pub added_step: u64,
     /// At rest (its body asleep) since it last moved.
     pub settled: bool,
+}
+
+/// A door whose keyframed bodies follow its animation.
+#[derive(Clone)]
+pub struct PosedDoor {
+    pub pose: RefPose,
+    pub bodies: prepare::DoorBodies,
+    /// The ONAM flag of its placement (its state when no simulation knows it).
+    pub open_by_default: bool,
+    /// The sequence (true: "Open") and time its bodies were last posed at.
+    pub shown: Option<(bool, f32)>,
+    /// Whether its moving parts were last made solid (not while it swings).
+    pub solid: Option<bool>,
+}
+
+impl PosedDoor {
+    /// Pose the door's keyframed bodies for `seq` ("Open" when true) at `time` seconds.
+    fn pose(&mut self, world: &mut PhysWorld, open: bool, time: f32) {
+        if self.shown == Some((open, time)) {
+            return;
+        }
+        let anim = &self.bodies.anim;
+        let Some((o, c)) = anim.door() else { return };
+        let seq = if open { o } else { c };
+        for (object, block, body) in &self.bodies.objects {
+            if let Some(node) = anim.node_to_root(Some(seq), time, *block) {
+                world.pose_ref_object(&self.pose, *object, &node.iso, body);
+            }
+        }
+        self.shown = Some((open, time));
+    }
+
+    /// The timing of its sequences, for [`crate::doors::Doors::register`].
+    pub fn timing(&self) -> Option<crate::doors::DoorTiming> {
+        self.bodies.anim.door().map(|(o, c)| crate::doors::DoorTiming::from_sequences(o, c))
+    }
 }
 
 /// A placed reference that physics can move: its collision is one dynamic object.
@@ -466,7 +506,7 @@ impl PhysState {
             *counts.entry("not_present").or_default() += 1;
             return false;
         }
-        let RefShapes { tallies, water, prepared, dynamic_local } = shapes(&pl);
+        let RefShapes { tallies, water, prepared, dynamic_local, door } = shapes(&pl);
         for what in tallies {
             *counts.entry(what).or_default() += 1;
         }
@@ -485,6 +525,11 @@ impl PhysState {
         if let (Some(local), 1) = (dynamic_local, rep.bodies) {
             let added = (pl.position, ref_rotation(pl.rotation));
             self.placed_dynamic.insert(pl.form_id, PlacedDynamic { local, scale: pl.scale, added, moved: false });
+        }
+        if let Some(bodies) = door.filter(|d| !d.objects.is_empty()) {
+            *counts.entry("animated_doors").or_default() += 1;
+            let pose = RefPose::from_placement(&pl);
+            self.doors.insert(pl.form_id, PosedDoor { pose, bodies, open_by_default: pl.open_by_default, shown: None, solid: None });
         }
         rep.bodies > 0
     }
@@ -516,6 +561,7 @@ impl PhysState {
             self.world.remove_ref(r);
             self.created.remove(&r);
             self.placed_dynamic.remove(&r);
+            self.doors.remove(&r);
             if self.ref_cell.get(&r) == Some(&cell) {
                 self.ref_cell.remove(&r);
             }
@@ -532,6 +578,7 @@ impl PhysState {
         }
         if !ctx.sim.present(form_id) {
             self.placed_dynamic.remove(&form_id);
+            self.doors.remove(&form_id);
             if self.world.remove_ref(form_id) {
                 debug!("collision of {form_id:08X} removed");
             }
@@ -833,7 +880,7 @@ impl Plugin for PhysPlugin {
             .init_resource::<FrameTimes>()
             .add_systems(Startup, init_phys)
             .add_systems(Last, (frame_times, report).chain())
-            .add_systems(Update, (travel, ref_changed, stream).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics));
+            .add_systems(Update, (travel, ref_changed, stream, pose_doors).chain().in_set(PhysSystems).in_set(crate::PlaySet::Physics));
     }
 }
 
@@ -971,4 +1018,26 @@ fn report(mut exit: MessageReader<AppExit>, phys: Res<PhysState>, f: Res<FrameTi
         "physics streaming: {} cells loaded in {:.0} ms ({}), {} on the main thread for the player; longest streaming frame while playing {:.1} ms on the main thread; frames while playing {} (longest {:.1} ms, {} over 33 ms)",
         s.cells_loaded, s.load_ms, s.times, s.loaded_inline, s.worst_frame_ms, f.frames, f.worst_ms, f.over_33
     );
+}
+
+/// Move the keyframed bodies of the loaded doors to their animation's pose
+/// (`crate::doors`), not solid while the door swings, registering doors the renderer has
+/// not drawn yet.
+fn pose_doors(sim: Res<SimState>, mut doors: ResMut<crate::doors::Doors>, mut phys: ResMut<PhysState>) {
+    let phys = &mut *phys;
+    for (&id, d) in phys.doors.iter_mut() {
+        if doors.get(id).is_none() {
+            let Some(timing) = d.timing() else { continue };
+            doors.register(id, crate::doors::initial_open(Some(&sim), id, d.open_by_default), timing);
+        }
+        let Some(door) = doors.get(id) else { continue };
+        let (open, time) = door.motion.pose();
+        d.pose(&mut phys.world, open, time);
+        // The moving parts are not solid while the door swings (`DoorMotion::swinging`).
+        let solid = !door.motion.swinging();
+        if d.solid != Some(solid) {
+            phys.world.set_ref_keyframed_solid(id, solid);
+            d.solid = Some(solid);
+        }
+    }
 }

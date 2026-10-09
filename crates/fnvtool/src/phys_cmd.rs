@@ -11,7 +11,7 @@ use fnv_nif::file::NifFile;
 use fnv_nif::scene::Decoded;
 use fnv_phys::terrain::height_at;
 use fnv_phys::{
-    layers, ref_collision, CharacterInput, CharacterParams, Filter, ModelCollision, Owner, PhysParams, PhysWorld, RefPose, Stroke,
+    layers, ref_collision_with, CharacterInput, CharacterParams, Filter, ModelCollision, Owner, PhysParams, PhysWorld, RefCollisionOptions, RefPose, Stroke,
     WaterArea,
 };
 use fnv_world::land::{load_land, LandParts, SIDE, SPACING};
@@ -156,6 +156,9 @@ pub(crate) struct Meshes {
     cache: BTreeMap<String, Result<Arc<Vec<CollisionObject>>, String>>,
     /// Water volumes (Water-layer phantoms) of the models read, by path.
     water: BTreeMap<String, Arc<Vec<CollisionObject>>>,
+    /// Door models' "Open" and "Close" animation (`fnv_collide::anim`), by path, for the
+    /// models read that have both.
+    anims: BTreeMap<String, Arc<fnv_collide::anim::ModelAnim>>,
 }
 
 impl Meshes {
@@ -170,7 +173,14 @@ impl Meshes {
         };
         let schema = fnv_nif::Schema::load_dir(&dir).with_context(|| dir.display().to_string())?;
         let vfs = fnv_vfs::Vfs::open_default(data_dir).with_context(|| data_dir.display().to_string())?;
-        Ok(Some(Meshes { vfs, schema, cache: BTreeMap::new(), water: BTreeMap::new() }))
+        Ok(Some(Meshes { vfs, schema, cache: BTreeMap::new(), water: BTreeMap::new(), anims: BTreeMap::new() }))
+    }
+
+    /// A door model's animation, when it has "Open" and "Close" sequences that move its
+    /// nodes (reads the model if it was not read yet).
+    pub(crate) fn door_anim(&mut self, path: &str) -> Option<Arc<fnv_collide::anim::ModelAnim>> {
+        let _ = self.objects(path);
+        self.anims.get(path).cloned()
     }
 }
 
@@ -189,6 +199,12 @@ impl ModelCollision for Meshes {
                 let water: Vec<CollisionObject> = phantoms.into_iter().filter(|o| o.layer == layers::WATER).collect();
                 if !water.is_empty() {
                     self.water.insert(path.to_string(), Arc::new(water));
+                }
+                if solid.iter().any(|o| o.motion == fnv_collide::Motion::Keyframed) {
+                    let anim = fnv_collide::anim::ModelAnim::new(&file, &dec);
+                    if anim.door().is_some() {
+                        self.anims.insert(path.to_string(), Arc::new(anim));
+                    }
                 }
                 Arc::new(solid)
             }),
@@ -318,8 +334,25 @@ pub(crate) fn build<'a>(
     radius: i32,
     around: &[(f32, f32)],
     params: PhysParams,
+    meshes: Option<&mut Meshes>,
+    in_world: InWorld,
+) -> Built<'a> {
+    build_with(lo, schema, ix, centre, radius, around, params, meshes, in_world, &|_| RefCollisionOptions::default())
+}
+
+/// [`build`] with per-reference collision options (`fnv_phys::ref_collision_with`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_with<'a>(
+    lo: &LoadOrder,
+    schema: &Schema,
+    ix: &'a WorldIndex,
+    centre: &'a Cell,
+    radius: i32,
+    around: &[(f32, f32)],
+    params: PhysParams,
     mut meshes: Option<&mut Meshes>,
     in_world: InWorld,
+    options: &dyn Fn(&fnv_world::placed::Placement) -> RefCollisionOptions,
 ) -> Built<'a> {
     let mut world = PhysWorld::new(params);
     let mut cells: Vec<&Cell> = vec![centre];
@@ -398,7 +431,7 @@ pub(crate) fn build<'a>(
             continue;
         }
         let models = meshes.as_deref_mut().map(|m| m as &mut dyn ModelCollision);
-        let rc = ref_collision(lo, schema, &pl, models, &mut |what| *counts.entry(what).or_default() += 1);
+        let rc = ref_collision_with(lo, schema, &pl, models, &mut |what| *counts.entry(what).or_default() += 1, options(&pl));
         if let Some(sig) = rc.base_sig {
             *by_base.entry(String::from_utf8_lossy(&sig).into_owned()).or_default() += 1;
         }

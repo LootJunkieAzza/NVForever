@@ -3,18 +3,20 @@
 //! docs/spec-notes/navmesh.md §6.
 
 use crate::nav_cmd::fid;
-use crate::phys_cmd::{build, plugin_in_world, Built, Meshes};
+use crate::phys_cmd::{build_with, plugin_in_world, Built, Meshes};
 use anyhow::{anyhow, bail};
 use clap::Args;
 use fnv_esm::{LoadOrder, Schema};
 use fnv_nav::graph::{EdgeKind, NONE};
 use fnv_nav::{Follower, NavGraph, NavRecords, Path, PathParams, Place, Space, Steer};
-use fnv_phys::{layers, CharacterInput, CharacterParams, Filter, Owner, PhysParams};
+use fnv_collide::anim::{DoorMotion, ModelAnim};
+use fnv_phys::{layers, CharacterInput, CharacterParams, Filter, Owner, PhysParams, PhysWorld, RefCollisionOptions, RefPose};
 use fnv_sim::RefTable;
 use fnv_world::{cell_of, WorldIndex};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path as FsPath;
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Where a path starts and ends.
@@ -219,6 +221,7 @@ impl<'a> Nav<'a> {
                     "to_door": fid(d.to_door),
                     "arrival": d.arrival,
                 })),
+                "door_stops": l.door_stops.iter().map(|s| json!({"door": fid(s.door), "at": l.points[s.point]})).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
         })
     }
@@ -321,6 +324,7 @@ pub fn near_cmd(lo: &LoadOrder, schema: &Schema, at: &str, space: &str, radius: 
                     "outline_ends": [g.boundary_vertex[tri.v[e] as usize], g.boundary_vertex[tri.v[(e + 1) % 3] as usize]],
                 })).collect::<Vec<_>>(),
                 "doors": g.doors.get(&t).map(|d| d.iter().map(|d| fid(d.door)).collect::<Vec<_>>()),
+                "in_place_doors": g.door_tris.get(&t).map(|d| d.iter().map(|&d| fid(d)).collect::<Vec<_>>()),
             })
         }).collect::<Vec<_>>(),
     }))
@@ -375,6 +379,52 @@ fn seg_dist(p: [f32; 3], a: [f32; 3], b: [f32; 3]) -> f32 {
     (p[0] - a[0] - t * dx).hypot(p[1] - a[1] - t * dy)
 }
 
+/// A door that opens in place in the walk's physics world: its keyframed bodies follow
+/// its animation clock (`fnv_collide::anim::DoorMotion`, kept across world rebuilds).
+struct WalkDoor {
+    pose: RefPose,
+    anim: Arc<ModelAnim>,
+    /// (object index, node block, body transform) of each keyframed collision object.
+    objects: Vec<(u16, usize, fnv_collide::Iso)>,
+    /// The sequence and time the bodies were last posed at.
+    shown: Option<(bool, f32)>,
+    /// Whether its moving parts were last made solid (not while it swings).
+    solid: Option<bool>,
+}
+
+impl WalkDoor {
+    fn pose(&mut self, world: &mut PhysWorld, m: &DoorMotion) {
+        // Not solid while it swings (`DoorMotion::swinging`): the leaf cannot hit the walker.
+        let solid = !m.swinging();
+        if self.solid != Some(solid) {
+            world.set_ref_keyframed_solid(self.pose.form_id, solid);
+            self.solid = Some(solid);
+        }
+        let want = m.pose();
+        if self.shown == Some(want) {
+            return;
+        }
+        let Some((open, close)) = self.anim.door() else { return };
+        let seq = if want.0 { open } else { close };
+        for (object, block, body) in &self.objects {
+            if let Some(node) = self.anim.node_to_root(Some(seq), want.1, *block) {
+                world.pose_ref_object(&self.pose, *object, &node.iso, body);
+            }
+        }
+        self.shown = Some(want);
+    }
+}
+
+/// Advance the doors' clocks by `dt` and pose their bodies.
+fn advance_doors(world: &mut PhysWorld, doors: &mut HashMap<u32, WalkDoor>, motion: &mut HashMap<u32, DoorMotion>, dt: f32) {
+    for (id, d) in doors.iter_mut() {
+        if let Some(m) = motion.get_mut(id) {
+            m.update(dt);
+            d.pose(world, m);
+        }
+    }
+}
+
 fn owner_json(o: &Owner) -> Value {
     serde_json::to_value(o).unwrap_or(Value::Null)
 }
@@ -410,14 +460,22 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
     let mut touched: BTreeMap<Owner, usize> = BTreeMap::new();
     let mut trace = Vec::new();
     let mut events = Vec::new();
+    // Doors that open in place: their clocks (kept while the walk goes on), those in the
+    // current leg's world, and the openings waited for.
+    let mut door_motion: HashMap<u32, DoorMotion> = HashMap::new();
+    let mut walk_doors: HashMap<u32, WalkDoor> = HashMap::new();
+    let mut doors_opened: Vec<Value> = Vec::new();
+    let mut waiting: Option<(u32, usize)> = None;
     let mut outcome = "timeout";
     let max_steps = (walk.max_seconds / dt) as usize;
     let solid = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
     let plugin_rule = plugin_in_world(nav.lo, nav.schema);
     // Doors that are not teleports (hinged doors, gates inside a cell) are opened by
     // actors walking through them [hypothesis: the game's NPCs open unlocked doors on
-    // their way; the navmesh runs through them]: no collision, unless locked against
-    // the walker.
+    // their way; the navmesh runs through them]. Those whose model has Open and Close
+    // sequences stay in the world and are opened on the way, the walker waiting until
+    // the door has opened (docs/design/navmesh.md §6.1); the others have no collision,
+    // unless locked against the walker.
     let opens = |pl: &fnv_world::Placement| {
         let is_door = pl.base.and_then(|b| fnv_world::placed::base_object(nav.lo, nav.schema, b)).is_some_and(|b| &b.sig == b"DOOR");
         is_door
@@ -451,22 +509,62 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
                     around.push((w[0][0] + (w[1][0] - w[0][0]) * s, w[0][1] + (w[1][1] - w[0][1]) * s));
                 }
             }
+            // Doors of this space that open in place and can animate.
+            let mut animated: HashMap<u32, (fnv_world::Placement, Arc<ModelAnim>)> = HashMap::new();
+            if let Some(ms) = meshes.as_mut() {
+                for d in nav.graph.in_place.values().filter(|d| d.space == space) {
+                    let Some(pl) = fnv_world::placed::placement(nav.lo, nav.schema, d.door) else { continue };
+                    let model = pl.base.and_then(|b| fnv_world::placed::base_object(nav.lo, nav.schema, b)).and_then(|b| b.model_path());
+                    if let Some(anim) = model.and_then(|m| ms.door_anim(&m)) {
+                        animated.insert(d.door, (pl, anim));
+                    }
+                }
+            }
             // The walking actor's own reference (its body collision) is not in the world.
             let in_world = |pl: &fnv_world::Placement| {
                 if Some(pl.form_id) == fr {
                     Err("the walker")
                 } else if !walk.with_actors && matches!(&pl.sig, b"ACHR" | b"ACRE") {
                     Err("actor")
+                } else if animated.contains_key(&pl.form_id) {
+                    plugin_rule(pl)
                 } else if opens(pl) {
                     Err("door opened by the walker")
                 } else {
                     plugin_rule(pl)
                 }
             };
-            let b = build(nav.lo, nav.schema, &nav.ix, centre, 1, &around, phys, meshes.as_mut(), &in_world);
+            let options = |pl: &fnv_world::Placement| RefCollisionOptions { posed_doors: animated.contains_key(&pl.form_id) };
+            let b = build_with(nav.lo, nav.schema, &nav.ix, centre, 1, &around, phys, meshes.as_mut(), &in_world, &options);
             build_ms += ms(t);
             builds += 1;
             let mut lw = LegWorld { space, built: b };
+            // Animated doors in the world: their bodies follow their clocks.
+            walk_doors.clear();
+            let ids: HashSet<u32> = animated.keys().copied().collect();
+            for id in ids {
+                if lw.built.world.ref_bodies(id).is_empty() {
+                    continue;
+                }
+                let (pl, anim) = animated.remove(&id).expect("listed");
+                let models = meshes.as_mut().map(|m| m as &mut dyn fnv_phys::ModelCollision);
+                let rc = fnv_phys::ref_collision_with(nav.lo, nav.schema, &pl, models, &mut |_| {}, RefCollisionOptions { posed_doors: true });
+                let objects: Vec<(u16, usize, fnv_collide::Iso)> = rc
+                    .objects
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, o)| o.motion == fnv_collide::Motion::Keyframed)
+                    .map(|(i, o)| (i as u16, o.node_block, o.body_transform))
+                    .collect();
+                let Some((open, close)) = anim.door() else { continue };
+                let m = *door_motion.entry(id).or_insert_with(|| DoorMotion::new(pl.open_by_default, open.end(), close.end()));
+                let mut wd = WalkDoor { pose: RefPose::from_placement(&pl), anim: anim.clone(), objects, shown: None, solid: None };
+                wd.pose(&mut lw.built.world, &m);
+                walk_doors.insert(id, wd);
+            }
+            if !walk_doors.is_empty() {
+                events.push(json!({"step": steps, "event": "animated_doors", "doors": walk_doors.keys().copied().map(fid).collect::<Vec<_>>()}));
+            }
             // Stand the character on what is under its feet, starting the ray a little above
             // the navmesh surface there (actors are placed on the navmesh; a ray from high
             // up would land on furniture above an actor placed under it).
@@ -491,6 +589,34 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
             Steer::Arrived => {
                 outcome = "arrived";
                 break;
+            }
+            Steer::OpenDoor { door, at } => {
+                if !walk_doors.contains_key(&door) {
+                    // No animation (or not in the world): nothing to wait for.
+                    follower.door_opened();
+                    events.push(json!({"step": steps, "event": "door_passed", "door": fid(door), "at": at}));
+                    continue;
+                }
+                let m = door_motion.get_mut(&door).expect("animated doors have a clock");
+                if m.is_open() {
+                    follower.door_opened();
+                    let waited = waiting.take().filter(|w| w.0 == door).map_or(0.0, |w| (steps - w.1) as f32 * dt);
+                    doors_opened.push(json!({"step": steps, "door": fid(door), "at": at, "feet": feet, "waited": waited}));
+                    unstuck.reset();
+                    continue;
+                }
+                if waiting.is_none_or(|w| w.0 != door) {
+                    m.set_open(true);
+                    waiting = Some((door, steps));
+                    events.push(json!({"step": steps, "event": "door_opening", "door": fid(door), "feet": feet}));
+                }
+                // Stand while it opens.
+                advance_doors(&mut lw.built.world, &mut walk_doors, &mut door_motion, dt);
+                let s = lw.built.world.move_character(ch, CharacterInput::default());
+                lw.built.world.step();
+                steps += 1;
+                feet = s.feet;
+                unstuck.reset();
             }
             Steer::Door(d) => {
                 follower.door_used();
@@ -534,6 +660,7 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
                 let speed = walk.speed.min(remaining / dt);
                 let input = CharacterInput { velocity: [head[0] * speed, head[1] * speed], ..Default::default() };
                 let before = feet;
+                advance_doors(&mut lw.built.world, &mut walk_doors, &mut door_motion, dt);
                 let s = lw.built.world.move_character(ch, input);
                 lw.built.world.step();
                 steps += 1;
@@ -583,6 +710,7 @@ pub fn walk_cmd(lo: &LoadOrder, schema: &Schema, ends: &Ends, opts: &PathOpts, w
             "replans": unstuck.replans,
             "detours": unstuck.detours,
             "doors": doors_used,
+            "doors_opened": doors_opened,
             "max_deviation": max_dev,
             "off_navmesh_checks": off_mesh,
             "navmesh_checks": mesh_checks,

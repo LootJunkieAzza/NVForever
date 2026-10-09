@@ -13,6 +13,7 @@ pub mod activate;
 pub mod bindings;
 pub mod combat;
 pub mod control;
+pub mod doors;
 pub mod dropped;
 pub mod hitvol;
 pub mod menu;

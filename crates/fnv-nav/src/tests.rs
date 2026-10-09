@@ -333,3 +333,208 @@ fn disabled_navmesh_blocks_paths() {
     assert!((p.goal_snap - 150.0).abs() < 0.5, "{}", p.goal_snap);
     assert!(!g.set_enabled(9, false));
 }
+
+/// A door that opens in place across a corridor: 100 wide (its model's x), 8 thick
+/// (y), turned so it spans the corridor (game y) at `x`, from y = `y0` to `y0 + 100`.
+fn hinged(door: u32, x: f32, y0: f32) -> crate::doors::InPlaceDoor {
+    crate::doors::InPlaceDoor {
+        door,
+        space: W,
+        position: [x, y0 + 50.0, 0.0],
+        // Model x along game y, model y along game -x.
+        rotation: [0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+        scale: 1.0,
+        bounds: ([-50.0, -4.0, 0.0], [50.0, 4.0, 200.0]),
+    }
+}
+
+/// A corridor 1,000 long and 100 wide with a door across it at x = 500.
+fn corridor_with_door(lock: Option<crate::graph::DoorLock>) -> NavGraph {
+    let mut g = graph(&[(grid(1, [0.0, 0.0], 10, 1, 100.0, &[], flat), W)]);
+    g.set_in_place_doors(vec![hinged(0xD00, 500.0, 0.0)], |_| lock);
+    g
+}
+
+#[test]
+fn a_path_through_a_door_that_opens_in_place_stops_in_front_of_it() {
+    let g = corridor_with_door(None);
+    assert_eq!(g.stats.in_place_doors, 1);
+    assert!(!g.door_tris.is_empty() && g.door_tris.values().all(|d| d == &vec![0xD00]));
+    let from = Place { space: W, pos: [50.0, 50.0, 0.0] };
+    let to = Place { space: W, pos: [950.0, 50.0, 0.0] };
+    let p = g.find_path(from, to, &PathParams::default()).unwrap();
+    assert_eq!(p.legs.len(), 1);
+    let leg = &p.legs[0];
+    assert_eq!(leg.door_stops.len(), 1);
+    let s = leg.door_stops[0];
+    assert_eq!(s.door, 0xD00);
+    // The clearance (24) and the opening's width (the navmesh along the door's line,
+    // 96-100 at the 4-unit sampling step: as far as a leaf can swing) before the door at
+    // x = 496, in line with the middle of the opening.
+    let at = leg.points[s.point];
+    assert!((at[0] - (496.0 - 122.0)).abs() <= 2.5 && (at[1] - 50.0).abs() < 0.5, "{at:?}");
+    // The polyline is otherwise unchanged: straight along the corridor.
+    assert!(leg.points.iter().all(|q| (q[1] - 50.0).abs() < 0.5));
+
+    // The follower walks to the stop, then holds there until the door has opened.
+    let mut f = crate::Follower::new(p.clone());
+    match f.steer(from.pos) {
+        crate::Steer::Walk { target, .. } => assert_eq!(target, at),
+        s => panic!("{s:?}"),
+    }
+    let near = [at[0] - 10.0, 50.0, 0.0];
+    assert_eq!(f.steer(near), crate::Steer::OpenDoor { door: 0xD00, at });
+    // Still held a moment later, even pushed away from the stop by the opening door.
+    assert_eq!(f.steer(near), crate::Steer::OpenDoor { door: 0xD00, at });
+    assert_eq!(f.steer([at[0] - 60.0, 70.0, 0.0]), crate::Steer::OpenDoor { door: 0xD00, at });
+    f.door_opened();
+    // Straight through the middle of the opening to a clearance (24) and the margin (24)
+    // beyond the door's far face (x = 504), then on.
+    match f.steer(near) {
+        crate::Steer::Walk { target, .. } => assert_eq!(target, [552.0, 50.0, 0.0]),
+        s => panic!("{s:?}"),
+    }
+    match f.steer([552.0, 50.0, 0.0]) {
+        crate::Steer::Walk { target, .. } => assert_eq!(target, [950.0, 50.0, 0.0]),
+        s => panic!("{s:?}"),
+    }
+    assert_eq!(f.steer([950.0, 50.0, 0.0]), crate::Steer::Arrived);
+
+    // An actor that overshoots the stop is held as well.
+    let mut f = crate::Follower::new(p);
+    assert!(matches!(f.steer(from.pos), crate::Steer::Walk { .. }));
+    assert!(matches!(f.steer([at[0] + 20.0, 50.0, 0.0]), crate::Steer::OpenDoor { door: 0xD00, .. }));
+}
+
+#[test]
+fn walker_waits_for_the_door_to_open() {
+    let g = corridor_with_door(None);
+    let mut w = Walker::new(W, [50.0, 50.0, 0.0], 0.0, 100.0);
+    w.go_to(&g, Place { space: W, pos: [950.0, 50.0, 0.0] }, &PathParams::default()).unwrap();
+    // A door that takes 1.67 s to open, started by the first request.
+    let mut opened_at: Option<f32> = None;
+    let mut time = 0.0f32;
+    let dt = 0.1;
+    let mut waiting = Vec::new();
+    let mut asked = Vec::new();
+    for _ in 0..400 {
+        time += dt;
+        let ev = w.update_with(&g, dt, &mut |d| {
+            asked.push(d);
+            let t0 = *opened_at.get_or_insert(time);
+            time - t0 >= 1.67
+        });
+        if let WalkEvent::WaitingForDoor(d) = ev {
+            waiting.push((time, w.feet));
+            assert_eq!(d, 0xD00);
+        }
+        if ev == WalkEvent::Arrived {
+            break;
+        }
+    }
+    assert!(w.follower.is_none(), "arrived");
+    assert!((w.feet[0] - 950.0).abs() < 1.0);
+    assert!(asked.iter().all(|&d| d == 0xD00));
+    // It stood still in front of the door while it opened, then walked on.
+    let (first, last) = (waiting.first().unwrap(), waiting.last().unwrap());
+    assert!(last.0 - first.0 >= 1.5, "waited {:.2} s", last.0 - first.0);
+    assert_eq!(first.1, last.1);
+    assert!((first.1[0] - 372.0).abs() < 17.0, "{:?}", first.1);
+    // A door already open is not waited for.
+    let mut w = Walker::new(W, [50.0, 50.0, 0.0], 0.0, 100.0);
+    w.go_to(&g, Place { space: W, pos: [950.0, 50.0, 0.0] }, &PathParams::default()).unwrap();
+    let mut events = Vec::new();
+    for _ in 0..200 {
+        let ev = w.update_with(&g, dt, &mut |_| true);
+        events.push(ev);
+        if ev == WalkEvent::Arrived {
+            break;
+        }
+    }
+    assert!(events.contains(&WalkEvent::Arrived));
+    assert!(!events.iter().any(|e| matches!(e, WalkEvent::WaitingForDoor(_))));
+}
+
+#[test]
+fn locked_doors_that_open_in_place_close_the_way_without_the_key() {
+    use crate::graph::DoorLock;
+    let mut g = corridor_with_door(Some(DoorLock { level: 50, key: Some(0x4B) }));
+    let from = Place { space: W, pos: [50.0, 50.0, 0.0] };
+    let to = Place { space: W, pos: [950.0, 50.0, 0.0] };
+    assert!(matches!(g.find_path(from, to, &PathParams::default()), Err(PathError::Unreachable { .. })));
+    // Short of the door is still reachable.
+    assert!(g.find_path(from, Place { space: W, pos: [350.0, 50.0, 0.0] }, &PathParams::default()).is_ok());
+    for p in [PathParams { keys: vec![0x4B], ..Default::default() }, PathParams { open_locked: true, ..Default::default() }] {
+        let path = g.find_path(from, to, &p).unwrap();
+        assert_eq!(path.legs[0].door_stops.len(), 1);
+    }
+    // Unlocked at run time.
+    g.set_door_lock(0xD00, None);
+    assert!(g.find_path(from, to, &PathParams::default()).is_ok());
+}
+
+#[test]
+fn a_path_beside_a_door_does_not_stop() {
+    // Three lanes; the door closes only the southern one, at x = 500.
+    let mut g = graph(&[(grid(1, [0.0, 0.0], 10, 3, 100.0, &[], flat), W)]);
+    g.set_in_place_doors(vec![hinged(0xD00, 500.0, 0.0)], |_| None);
+    let north = |x: f32| Place { space: W, pos: [x, 250.0, 0.0] };
+    let south = |x: f32| Place { space: W, pos: [x, 50.0, 0.0] };
+    let p = g.find_path(north(50.0), north(950.0), &PathParams::default()).unwrap();
+    assert!(p.legs[0].door_stops.is_empty());
+    // Through it, it stops.
+    let p = g.find_path(south(50.0), south(950.0), &PathParams::default()).unwrap();
+    assert_eq!(p.legs[0].door_stops.len(), 1);
+    // Locked, the path goes round it through the open lanes.
+    g.set_door_lock(0xD00, Some(crate::graph::DoorLock { level: 1, key: None }));
+    let p = g.find_path(south(50.0), south(950.0), &PathParams::default()).unwrap();
+    assert!(p.legs[0].door_stops.is_empty());
+    assert!(p.legs[0].points.iter().any(|q| q[1] > 100.0), "went round: {:?}", p.legs[0].points);
+}
+
+#[test]
+fn an_actor_starting_at_the_door_backs_off_to_open_it() {
+    let g = corridor_with_door(None);
+    // Starting 20 units in front of the door: it steps back to the stop, clear of the
+    // leaf, before opening it.
+    let from = Place { space: W, pos: [476.0, 50.0, 0.0] };
+    let p = g.find_path(from, Place { space: W, pos: [950.0, 50.0, 0.0] }, &PathParams::default()).unwrap();
+    let leg = &p.legs[0];
+    let stop = leg.points[leg.door_stops[0].point];
+    assert!((stop[0] - 374.0).abs() <= 2.5, "{stop:?}");
+    let mut f = crate::Follower::new(p);
+    match f.steer(from.pos) {
+        crate::Steer::Walk { target, .. } => assert_eq!(target, stop),
+        s => panic!("{s:?}"),
+    }
+    assert!(matches!(f.steer([380.0, 50.0, 0.0]), crate::Steer::OpenDoor { door: 0xD00, .. }));
+    f.door_opened();
+    assert!(matches!(f.steer([380.0, 50.0, 0.0]), crate::Steer::Walk { .. }));
+}
+
+#[test]
+fn a_diagonal_approach_is_squared_up_to_the_middle_of_the_door() {
+    // A room 500 x 400 south of a wall at y = 400 with a doorway 100 wide in it
+    // (x 200..300), a room north of it; the door (100 wide, hinged at an end) closes
+    // the doorway. The path comes from the room's far corner, diagonally.
+    let holes: Vec<(usize, usize)> = (0..10).filter(|&i| !(4..6).contains(&i)).map(|i| (i, 8)).collect();
+    let mut g = graph(&[(grid(1, [0.0, 0.0], 10, 17, 50.0, &holes, flat), W)]);
+    let door = crate::doors::InPlaceDoor {
+        door: 0xD01,
+        space: W,
+        position: [200.0, 425.0, 0.0],
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        scale: 1.0,
+        bounds: ([0.0, -4.0, 0.0], [100.0, 4.0, 200.0]),
+    };
+    g.set_in_place_doors(vec![door], |_| None);
+    let p = g.find_path(Place { space: W, pos: [480.0, 20.0, 0.0] }, Place { space: W, pos: [20.0, 830.0, 0.0] }, &PathParams::default()).unwrap();
+    let leg = &p.legs[0];
+    assert_eq!(leg.door_stops.len(), 1);
+    let i = leg.door_stops[0].point;
+    let (stop, through) = (leg.points[i], leg.points[i + 1]);
+    // In line with the middle of the doorway (x = 250), in front of it and beyond it.
+    assert!((stop[0] - 250.0).abs() < 1.0 && stop[1] < 425.0 - 100.0, "{stop:?}");
+    assert!((through[0] - 250.0).abs() < 1.0 && through[1] > 429.0, "{through:?}");
+    assert!(on_mesh(&g, W, &leg.points, 5.0));
+}

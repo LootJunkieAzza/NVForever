@@ -26,6 +26,9 @@ pub struct Placement {
     pub enable_parent: Option<(u32, bool)>,
     /// ONAM "Open by Default" (doors) [documented: xEdit wbDefinitionsFNV.pas REFR].
     pub open_by_default: bool,
+    /// XTEL present: a door that leads elsewhere (a teleport door) rather than one that
+    /// opens in place [documented: xEdit wbDefinitionsFNV.pas REFR "Teleport Destination"].
+    pub teleport: bool,
     /// XEMI "Emittance": a region (REGN) or light (LIGH) whose colour drives the
     /// reference's externally emitted light [documented: xEdit wbDefinitionsFNV.pas REFR;
     /// see crate::lighting::emittance].
@@ -60,6 +63,7 @@ pub fn placement(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Placement>
         Some((parent, opposite))
     });
     let open_by_default = f.get(b"ONAM").is_some();
+    let teleport = f.raw(b"XTEL").is_some();
     let emittance = f.formid(b"XEMI", lo).filter(|&e| e != 0);
     Some(Placement {
         form_id: fid,
@@ -71,6 +75,7 @@ pub fn placement(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Placement>
         scale,
         enable_parent,
         open_by_default,
+        teleport,
         emittance,
     })
 }
@@ -159,6 +164,46 @@ pub fn tree_record(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<TreeReco
     let dim = |k: &str| cnam.as_ref().and_then(|c| num(c, k)).map(|v| v as f32);
     Some(TreeRecord { model, leaf_texture, size: bnam.or(obnd), leaf_dimming: dim("leaf_dimming"), branch_dimming: dim("branch_dimming"),
         rock_speed: dim("rock_speed"), rustle_speed: dim("rustle_speed") })
+}
+
+/// DOOR FNAM flag bits [documented: xEdit wbDefinitionsFNV.pas DOOR; schemas/fnv
+/// objects.json numbers them from bit 0].
+pub mod door_flags {
+    pub const AUTOMATIC: u8 = 0x02;
+    pub const HIDDEN: u8 = 0x04;
+    pub const MINIMAL_USE: u8 = 0x08;
+    pub const SLIDING: u8 = 0x10;
+}
+
+/// What a DOOR record holds besides its model (docs/spec-notes/doors.md).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DoorRecord {
+    pub model: Option<String>,
+    /// SNAM, ANAM, BNAM: open, close and looping sounds (SOUN).
+    pub open_sound: Option<u32>,
+    pub close_sound: Option<u32>,
+    pub loop_sound: Option<u32>,
+    /// FNAM ([`door_flags`]).
+    pub flags: u8,
+    /// OBND, in the model's space (min, max).
+    pub bounds: Option<([f32; 3], [f32; 3])>,
+}
+
+pub fn door_record(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<DoorRecord> {
+    let (pi, r) = winner(lo, fid)?;
+    if &r.header.sig != b"DOOR" {
+        return None;
+    }
+    let f = Fields::new(r, pi, schema).ok()?;
+    let model = BaseObject { form_id: fid, sig: r.header.sig, edid: None, model: f.string(b"MODL") }.model_path();
+    let sound = |s: &[u8; 4]| f.formid(s, lo).filter(|&v| v != 0);
+    let flags = f.get(b"FNAM").and_then(|v| num(&v, "value")).map_or(0, |v| v as u8);
+    let corner = |v: &serde_json::Value, k: &str| -> Option<[f32; 3]> {
+        let c = v.get(k)?;
+        Some([num(c, "x")? as f32, num(c, "y")? as f32, num(c, "z")? as f32])
+    };
+    let bounds = f.get(b"OBND").and_then(|b| Some((corner(&b, "min")?, corner(&b, "max")?)));
+    Some(DoorRecord { model, open_sound: sound(b"SNAM"), close_sound: sound(b"ANAM"), loop_sound: sound(b"BNAM"), flags, bounds })
 }
 
 #[cfg(test)]
