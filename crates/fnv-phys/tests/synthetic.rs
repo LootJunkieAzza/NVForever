@@ -1002,7 +1002,7 @@ fn keyframed_door_blocks_until_posed_open() {
         ..object(boxed([4.0, 50.0, 100.0]), Motion::Keyframed)
     };
     let pose = at(7, [100.0, 0.0, 0.0]);
-    w.add_ref(&pose, &[panel.clone()]);
+    w.add_ref(&pose, std::slice::from_ref(&panel));
     let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 10.0]);
     settle(&mut w, &mut c, 30);
     walk(&mut w, &mut c, [80.0, 0.0], 150);

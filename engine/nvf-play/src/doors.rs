@@ -155,7 +155,7 @@ fn sync_sim(mut doors: ResMut<Doors>, mut sim: ResMut<SimState>) {
             d.sim_seen = Some(open);
             continue;
         }
-        let Some(open) = sim.world.peek(FormId(id)).map(|s| s.open) else { continue };
+        let open = sim_open(&sim, id);
         match d.sim_seen {
             // First sight: the door is as the simulation says, at rest.
             None => d.motion = DoorMotion::new(open, d.timing.open_end, d.timing.close_end),
@@ -176,10 +176,20 @@ fn advance(time: Res<Time>, mut doors: ResMut<Doors>) {
     }
 }
 
+/// The simulation's open flag of door `id`. The simulation keeps a reference's state only
+/// once something has touched it; until then the door is as placed (ONAM "Open by
+/// Default", fnv-sim's starting state).
+fn sim_open(sim: &SimState, id: u32) -> bool {
+    match sim.world.peek(FormId(id)) {
+        Some(s) => s.open,
+        None => sim.refs.get(FormId(id)).is_some_and(|p| p.open_by_default),
+    }
+}
+
 /// The open state a door should start in when first seen: the simulation's, else its
 /// placement's ONAM "Open by Default".
 pub fn initial_open(sim: Option<&SimState>, id: u32, open_by_default: bool) -> bool {
-    sim.and_then(|s| s.world.peek(FormId(id)).map(|s| s.open)).unwrap_or(open_by_default)
+    sim.map_or(open_by_default, |s| sim_open(s, id))
 }
 
 #[cfg(test)]

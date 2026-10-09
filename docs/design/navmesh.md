@@ -6,11 +6,13 @@ sends it, even through several interior cells and worldspaces. Facts and tags:
 docs/spec-notes/navmesh.md. This is the navigation half of Layer 6 (AI); packages
 themselves (PACK records, schedules, conditions) are not part of it.
 
-Status 2026-10-09: **done in this round**: the NAVM/NAVI reader, the load order's nav
-graph, hierarchical paths across spaces with locks, path following with stuck recovery,
-`fnvtool nav` (survey, graph, near, path, walk), and travelling NPCs in `nvforever`
-(`--npc-travel`, `--follow-npc`, `--show-navmesh`). **Next**: animated in-cell doors
-(§6.1), AI packages driving trips (§6.2), physics for travelling NPCs in the game (§6.3).
+Status 2026-10-09: **done**: the NAVM/NAVI reader, the load order's nav graph,
+hierarchical paths across spaces with locks, path following with stuck recovery,
+`fnvtool nav` (survey, graph, near, path, walk), travelling NPCs in `nvforever`
+(`--npc-travel`, `--follow-npc`, `--show-navmesh`), and **doors that open in place**
+(§6.1: drawn and colliding with their Open/Close animation, toggled by activation, and
+opened by followers, who wait for the animation to end). **Next**: AI packages driving
+trips (§6.2), physics for travelling NPCs in the game (§6.3).
 
 ## 1. Summary and assumptions
 
@@ -32,8 +34,9 @@ Depends on `fnv-esm` and `fnv-world` only.
 | `record` | NAVM and NAVI from subrecord bytes (schema v1 cannot express NVGD's counted arrays or NVMI's union, so this reads bytes directly; the layouts are xEdit's) |
 | `load` | every NAVM/NAVI of the load order, last definition winning (`NavRecords`) |
 | `graph` | `NavGraph`: global triangle array, edges resolved (internal, portal, ledge, outline), outline vertices, a 512-unit bucket index per space, doors (XTEL), door locks (XLOC), walkable areas, the doors leaving each area; point location (`locate`, `nearest`), portals between triangles, `set_enabled` (`EnableNavMesh`/`DisableNavmesh`), `set_door_lock` |
-| `path` | `find_path`, `door_route`, `can_reach`; A*, funnel, shortcut pass, `walkable_line` |
-| `follow` | `Follower` (where to head along a path), `Unstuck` (detours, replans), `Walker` (moves an actor on the navmesh surface without physics) |
+| `doors` | doors that open in place (DOOR references without XTEL): where they stand on the navmesh (`in_place_doors`, `set_in_place_doors`), their footprint, opening and stand-off; locked ones close their triangles |
+| `path` | `find_path`, `door_route`, `can_reach`; A*, funnel, shortcut pass, `walkable_line`; door stops on legs (`door_stops`, `square_approach`) |
+| `follow` | `Follower` (where to head along a path; `Steer::OpenDoor`), `Unstuck` (detours, replans), `Walker` (moves an actor on the navmesh surface without physics; `update_with` waits at doors) |
 
 ## 3. Paths
 
@@ -65,8 +68,12 @@ Depends on `fnv-esm` and `fnv-world` only.
    stays on passable triangles and keeps 3/4 of the clearance from impassable edges
    (`walkable_line`, a navmesh raycast). It straightens what a midpoint corridor bends.
 
+7. **Door stops** (§6.1): each door that opens in place whose bounds the leg's polyline
+   enters gets a stop. The polyline is made to cross the door square through the middle
+   of its opening, from the stop to a point beyond it.
+
 A path is a list of legs, one per space visited, each with its polyline, its corridor of
-triangles and the door that ends it.
+triangles, its door stops and the door that ends it.
 
 ## 4. Following
 
@@ -80,6 +87,11 @@ triangles and the door that ends it.
   of real progress past where the actor got stuck; then replan; give up after 5 replans.
 - `Walker` moves an actor along the path on the navmesh surface (height from the
   triangle under it), turning at up to 720°/s, through doors by teleport to the arrival.
+- At a door stop `Follower` returns `Steer::OpenDoor { door, at }` and keeps returning it,
+  wherever the actor is pushed meanwhile, until the caller calls `door_opened` (§6.1).
+  `Walker::update_with(nav, dt, open)` asks `open(door)` every update until it reports
+  the door fully open, standing meanwhile (`WalkEvent::WaitingForDoor`); `update` passes
+  doors as if open.
 
 ## 5. Tests and tools
 
@@ -88,7 +100,12 @@ triangles and the door that ends it.
   differ, unreachable goals and opt-in ledges, doors between spaces with a walker going
   through, **a chain of interiors into another worldspace behind a locked door** (key,
   runtime unlock), a disabled navmesh, a walker on a slope; funnel, follower, `Unstuck`
-  and turning tests.
+  and turning tests. Doors that open in place: a stop in front of the door and the
+  follower held there until `door_opened` (also when pushed off the stop), a walker
+  standing while a 1.67 s door opens and not waiting at an open one, a locked door
+  closing a corridor (key, `open_locked`, runtime unlock), a path beside a door not
+  stopping and a locked one sending it round, a diagonal approach squared up to the
+  middle of the doorway, an actor starting at the door backing off to open it.
 - `fnvtool nav walk` (headless NPC test): an NPC-sized fnv-phys character walks the path
   in the collision world of the cells along each leg. On the owner's install
   (2026-10-09), all arrived:
@@ -101,11 +118,23 @@ triangles and the door that ends it.
   | SunnyRef → DocMitchellREF | 2 | 8,532 | 8,390 | 101.0 s | 1 |
   | DocMitchellREF → Strip gate 0x0013BB0D (`--keys 0x00119875 --speed 344`) | 7 | 147,625 | 147,825 | 447.9 s | 11 |
 
+  With doors that open in place (§6.1), re-run 2026-10-09; all arrived:
+
+  | Trip | Path | Walked | Time | Detours | Doors opened (wait) |
+  |---|---|---|---|---|---|
+  | EasyPeteRef → TrudyRef | 1,145 | 1,015 | 11.7 s | 0 | none |
+  | GSChetRef → SunnyRef | 2,899 | 2,746 | 33.9 s | 2 | none |
+  | DocMitchellREF → GSChetRef | 7,239 | 7,030 | 82.3 s | 1 | gate 0x0010757E (Open by Default: 0 s) |
+  | SunnyRef → DocMitchellREF | 8,542 | 8,388 | 100.7 s | 1 | gate 0x0010757E (0 s) |
+  | DocMitchellREF → 0x0013BB0D (`--keys 0x00119875 --speed 344`) | 147,684 | 147,498 | 445.7 s | 8 | gate 0x0010757E (0 s), sewer door 0x0012C97C (1.68 s) |
+  | TrudyRef → "-193,600,3456" in GSProspectorSaloonInterior | 968 | 921 | 11.8 s | 0 | saloon door 0x00107C77 (1.02 s) |
+
   Walk-test rules (engine choices for the test world): the walker's own body and other
   placed actors' bodies are left out (in the game they are characters that move and give
-  way; `--with-actors` keeps them), non-teleport doors are left out unless locked against
-  the walker (actors open them; §6.1), and paths keep off triangles steeper than the
-  capsule's 45° limit (`--any-slope` lifts that). What got each of these rules added is
+  way; `--with-actors` keeps them); doors that open in place whose model has Open and
+  Close stay in the world, posed by their animation, and are opened on the way (§6.1),
+  while the others are left out unless locked against the walker; and paths keep off
+  triangles steeper than the capsule's 45° limit (`--any-slope` lifts that). What got each of these rules added is
   in spec-notes §2 and §4: the walker spawning inside its own body, a creature placed in
   a sewer tunnel, a hinged sewer door, 46–49° Mojave slopes.
 - Against the original game: `fnvtool nav observed` on the AI observer captures
@@ -120,14 +149,21 @@ triangles and the door that ends it.
   (`engine/nvforever/src/locomotion.rs`, workstream 5 part G) gets the velocity it
   actually moved at and its turn rate, so the actor's own clip set (walk, turns, idle)
   is chosen and blended as for any actor; cells do not spawn travellers while they
-  travel. Smoke test:
+  travel. A traveller at a door that opens in place opens it through
+  `nvf_play::doors::Doors` (the drawn door and its collision follow) and stands until it
+  is fully open; a door not drawn (its cell not loaded) is passed at once. A traveller in
+  the interior being drawn starts once that cell is in. Door check:
+  `nvforever --data <Data> --cell GSProspectorSaloonInterior --npc-travel
+  "TrudyRef=-193,600,3456" --follow-npc --run-seconds 25` (expect "TrudyRef opens door
+  00107C77 and waits", "walks through door 00107C77 after waiting 1.02s" and "1 of 1
+  travellers arrived"). Smoke test:
   `nvforever --data <Data> --cell Goodsprings --npc-travel DocMitchellREF=GSChetRef
   --npc-travel SunnyRef=EasyPeteRef --follow-npc --run-seconds 105` (expect "nav summary:
   2 of 2 travellers arrived"; Doc arrives after 83–90 s depending on frame rate).
 
 ## 6. Next
 
-### 6.1 Animated in-cell doors (owner request 2026-10-09)
+### 6.1 Animated in-cell doors (owner request 2026-10-09) — done
 
 Doors that are not cell transitions must animate open and closed. What the data holds
 [observed: `UtlDoor01` 0x0003940E, `Dungeons\Utility\Rooms\UtlDoor01.NIF`]: the model has
@@ -152,6 +188,39 @@ locked one is closed to actors without the key, as teleport doors are. Open ques
 whether doors close by themselves behind actors, and whether NPCs open doors from a
 distance or must touch them.
 
+**As built** (facts: docs/spec-notes/doors.md; 263 of 474 DOOR models have Open and
+Close, standing at 1,844 references without XTEL):
+
+- `fnv_collide::anim`: a model's node hierarchy and sequences (`ModelAnim`), node poses
+  in the root's frame under a sequence (`node_to_root`), and `DoorMotion`, the clock of
+  one door (closed, opening, open, closing; finished at the `end` text key; told to turn
+  back mid-way it continues from the same fraction of the other sequence [engine
+  choice]).
+- Renderer (nvforever `doors.rs`, world.rs): a DOOR reference without XTEL whose model
+  has Open and Close is drawn with its node hierarchy (`Rig::door`) and posed from its
+  clock whenever it changes; teleport doors stay static. `--open-doors` (test aid) opens
+  every such door as it is drawn.
+- Physics (`fnv_phys::PhysWorld::pose_ref_object`; nvf-play `phys.rs` `pose_doors`): the
+  door's keyframed bodies are moved to `ref ∘ animated node ∘ body transform` every frame
+  the clock changes. An Open by Default door keeps its moving parts (posed open) through
+  `RefCollisionOptions::posed_doors`; the shared rule `ref_collision` used by the parity
+  lab is unchanged.
+- Simulation and activation (`nvf_play::doors`): `Doors` holds every door's clock,
+  follows the simulation's open flag (activation with E, `SetOpenState`), writes back
+  doors opened by actors, and logs the sequences' sound keys (no sound playback yet).
+  fnv-sim starts a door flagged Open by Default open [hypothesis].
+- Navigation (`fnv_nav::doors`): 1,043 such doors stand on the masters' navmesh. A
+  door's stop is in line with the middle of its opening (the navmesh's walkable stretch
+  along the door's line within its bounds), the opening's width plus the clearance in
+  front of it, and the path then goes straight through to a point a clearance beyond:
+  a hinged leaf swung open lies along that line at the hinge end, half the opening's
+  width to the side, whichever way it opens; where the navmesh is shallower the stop
+  comes closer (down to the clearance and 24 units), and where that cannot be walked the
+  stop goes on the polyline. All engine choices: the first try (a stop 48 units before
+  the door on the polyline) let a door in the Prospector Saloon swing into the waiting
+  actor and leave its open leaf across the diagonal approach, and a stop centred on the
+  bounds missed the sewer doorway, whose bounds are wider than its opening.
+
 ### 6.2 AI packages
 
 Decode PACK (types, locations, targets, schedules, conditions), evaluate the current
@@ -173,5 +242,11 @@ by `Walker` elsewhere (the game's high and low processing levels are the model;
 2. Ledge links unused by default (humans do not take drops of ~300 units).
 3. Locked doors closed to actors without the key; the authored lock is the starting
    state (as fnv-sim assumes).
-4. In the walk test, other actors and hinged doors are left out of the collision world
-   (§5) until actor avoidance and animated doors exist.
+4. In the walk test, other actors are left out of the collision world (§5) until actor
+   avoidance exists; doors that open in place are kept and opened when they can animate,
+   left out otherwise.
+5. Doors that open in place (§6.1): an actor opens one from a stop in line with the
+   middle of the opening, the opening's width plus its clearance in front of it, and
+   waits there until the Open sequence has ended; doors stay open (they do not close by
+   themselves); a door told to close while opening turns back. How the original game does
+   each of these is not known.

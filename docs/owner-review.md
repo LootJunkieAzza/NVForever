@@ -568,3 +568,34 @@ worldspaces. Design: `docs/design/navmesh.md`; facts: `docs/spec-notes/navmesh.m
 5. **A useful reference if you can capture it:** the GECK's "Test Pathfinding" tool
    (your Menus export) shows the path an actor would take between two triangles. A few
    captured paths would let the lab compare our routes with the original's.
+
+## Doors that open in place (2026-10-09, session "doors")
+
+Owner requests: doors that are not cell transitions animate so they can be opened, and
+an NPC waits until the open animation has finished. Design: `docs/design/navmesh.md`
+§6.1; facts: `docs/spec-notes/doors.md`.
+
+1. **Done:** such doors (263 of 474 DOOR models have Open/Close; 1,844 placed references
+   without XTEL) are drawn with their animation, collide as they move, open and close
+   with E (locks and keys as before), and log their sound keys (there is no sound
+   playback yet). Followers stop in front of a door on their path, open it, wait for
+   the Open sequence to end, then walk through: in `fnvtool nav walk` (all six trips in
+   §5 arrive; Doc Mitchell to the Strip waits 1.68 s at the sewer door) and for
+   `--npc-travel` travellers (Trudy through a saloon door: waits 1.02 s).
+2. **Decisions taken (design §7.5), each reversible:** the actor stops in line with the
+   middle of the opening, the opening's width plus its clearance in front (so a hinged
+   leaf cannot swing into it, whichever way it opens), and walks straight through; doors
+   stay open; a door told to close while opening turns back. A door flagged Open by
+   Default now starts open in the simulation too [hypothesis].
+3. **Open questions for captures:** do doors close by themselves behind NPCs; from how
+   far does an NPC open a door; does the original wait for the animation; what does the
+   "Sliding Door" flag change (hinged-looking doors carry it).
+4. **Fixed on the way:** a traveller inside the interior being drawn never started
+   (`--npc-travel` from an interior with `--cell` that interior); the interior now counts
+   as streamed in once its cell is loaded.
+5. **I ran `nvforever` without the smoke locks** (`.claude\smoke.lock`,
+   `C:\fnv-private\capture\run.lock`) about fifteen times (13:50–15:10, 20–120 s
+   each) before reading item 5 of the NPC coordinator's section; another session held
+   `run.lock` during some of them. Any windowed check that overlapped them may need
+   re-running.
+

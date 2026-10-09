@@ -8,7 +8,10 @@
 //!
 //! Travellers are moved on the navmesh surface by `fnv_nav::Walker` (no collision with
 //! the world); walking the same paths with the physics character controller is tested
-//! headlessly by `fnvtool nav walk`. Behaviour (what an actor does on arrival, speeds) is
+//! headlessly by `fnvtool nav walk`. At a door that opens in place, a traveller stops,
+//! opens it (`nvf_play::doors`, which the drawn door and its collision follow) and waits
+//! until its "Open" sequence has ended (docs/design/navmesh.md §6.1); a door that is not
+//! drawn (its cell not loaded) has nothing to wait for. Behaviour (what an actor does on arrival, speeds) is
 //! an engine choice until AI packages exist (Layer 6).
 
 use crate::actors::ActorWorld;
@@ -41,6 +44,10 @@ pub struct Traveller {
     pub arrived: Option<f32>,
     pub failed: Option<String>,
     next_report: f32,
+    /// The door it is waiting at and since when (elapsed seconds).
+    waiting: Option<(u32, f32)>,
+    /// Doors it opened and how long it waited at each (seconds).
+    pub doors_opened: Vec<(u32, f32)>,
 }
 
 #[derive(Resource)]
@@ -163,7 +170,7 @@ impl NavState {
                     started: None,
                     arrived: None,
                     failed,
-                    next_report: 5.0,
+                    next_report: 5.0, waiting: None, doors_opened: Vec::new(),
                 });
             }
         }
@@ -217,6 +224,7 @@ pub fn drive(
     roots: Query<(Entity, &RefVisual, &ChildOf)>,
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>)>,
     mut travel: MessageWriter<nvf_play::Travel>,
+    mut doors: ResMut<nvf_play::doors::Doors>,
 ) {
     let Ok(root) = root.single() else { return };
     let dt = time.delta_secs().min(0.1);
@@ -252,10 +260,31 @@ pub fn drive(
                 }
                 tr.started = Some(now);
             }
-            tr.walker.update(&nav.graph, dt)
+            // A door known here (drawn, with its animation) is opened and waited for.
+            let mut open = |door: u32| {
+                if doors.get(door).is_none() {
+                    return true;
+                }
+                doors.set_open(door, true);
+                doors.is_open(door) == Some(true)
+            };
+            tr.walker.update_with(&nav.graph, dt, &mut open)
         };
         let tr = &mut nav.travellers[i];
         let elapsed = now - tr.started.unwrap_or(now);
+        match (ev, tr.waiting) {
+            (WalkEvent::WaitingForDoor(d), w) if w.is_none_or(|w| w.0 != d) => {
+                info!("nav: {} opens door {d:08X} and waits", tr.label);
+                tr.waiting = Some((d, elapsed));
+            }
+            (WalkEvent::WaitingForDoor(_), _) => {}
+            (_, Some((d, since))) => {
+                info!("nav: {} walks through door {d:08X} after waiting {:.2}s", tr.label, elapsed - since);
+                tr.doors_opened.push((d, elapsed - since));
+                tr.waiting = None;
+            }
+            _ => {}
+        }
         match ev {
             WalkEvent::UsedDoor(d) => {
                 info!("nav: {} used door {:08X} into {} after {elapsed:.1}s", tr.label, d.door, space_name(&world, tr.walker.space));
@@ -434,7 +463,12 @@ pub fn report(mut exit: MessageReader<AppExit>, nav: Res<NavState>) {
             .iter()
             .map(|t| match (&t.failed, t.arrived) {
                 (Some(e), _) => format!("{}: failed ({e})", t.label),
-                (None, Some(s)) => format!("{}: arrived after {s:.1}s", t.label),
+                (None, Some(s)) if t.doors_opened.is_empty() => format!("{}: arrived after {s:.1}s", t.label),
+                (None, Some(s)) => format!(
+                    "{}: arrived after {s:.1}s, opened {}",
+                    t.label,
+                    t.doors_opened.iter().map(|(d, w)| format!("door {d:08X} (waited {w:.2}s)")).collect::<Vec<_>>().join(", ")
+                ),
                 (None, None) => format!("{}: on the way, {:.0} units walked", t.label, t.walker.travelled),
             })
             .collect::<Vec<_>>()

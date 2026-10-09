@@ -67,6 +67,9 @@ Design: docs/design/navmesh.md §6.1 (doors and actors following paths). Code:
 - Activating it (E) toggles it when it is not locked or the actor carries the key; a
   locked door says so [observed for containers, simulation.md; doors per the GECK wiki,
   as fnv-sim already did]. Lock data means locked at the start [hypothesis, fnv-sim].
+  The door's clock follows the simulation's open flag, so a script's `SetOpenState` or
+  `Activate` moves it too (the Novac motel bathroom door 0x000CD3F1 has an OnActivate
+  script, SCPT 0x001777EC, whose `Activate` toggles it [observed in NVForever's runtime]).
 - **A door flagged Open by Default starts open** in the simulation and is drawn and
   collides open [hypothesis from the flag's name; a gate so flagged let the player drop
   through it, physics.md §4]. The shared collision rule `fnv_phys::ref_collision` still
@@ -76,6 +79,9 @@ Design: docs/design/navmesh.md §6.1 (doors and actors following paths). Code:
   of the other sequence [engine choice; not observed].
 - A sequence counts as finished at its `end` text key [engine choice from §1].
 - Sounds: NVForever has no sound playback; the sound keys are logged when passed.
+- Actors on paths: they stop in front of the door, open it and wait until the Open
+  sequence has ended, then walk through square to the door (docs/design/navmesh.md §4,
+  §6.1) [owner decision for the waiting; the rest engine choices].
 - `GetOpenState` still reports only 1 (open) and 3 (closed); the GECK wiki's opening
   and closing codes are not produced yet.
 
