@@ -3,16 +3,21 @@
 //! docs/design/layer3.md).
 //!
 //! The sky is the game's own sky meshes around the camera [observed: `meshes\sky\`]:
-//! - `atmosphere.nif`, a dome whose vertex colours are blend weights: red is 1 below the
-//!   horizon, green peaks just above it, blue dominates towards the zenith [observed]. The
-//!   renderer colours each vertex red·sky-lower + green·horizon + blue·sky-upper
-//!   [hypothesis].
+//! - `atmosphere.nif`, a dome coloured by the weather's sky-upper, horizon and sky-lower
+//!   colours: sky-upper weighted by the vertex colours' blue channel, horizon by a fitted
+//!   function of elevation, mixed as display (sRGB) values (`dome_color`) [hypothesis,
+//!   fitted to screenshots of the original game, docs/spec-notes/world.md §6 "Sky
+//!   colours"; reading the green channel as the horizon weight gave the horizon colour far
+//!   too much of the sky].
 //! - `clouds.nif`, four cloud shapes whose vertex alpha fades them towards the horizon.
 //!   The weather's cloud layers 0-3 (WTHR DNAM, CNAM, ANAM, BNAM textures and PNAM
 //!   colours) go on the four shapes in file order [hypothesis: layer 0 is the top dome,
 //!   which the night weather fills with a starfield; layer 3 the low dome, which the
-//!   clear day weather fills with `NVCloudlight.dds`].
-//!
+//!   clear day weather fills with `NVCloudlight.dds`]. By day they take on part of the
+//!   sunlight's hue (`SkyState::cloud_tint`) [hypothesis, fitted].
+//! - The sun: the climate's sun texture and glare texture spread over angular squares
+//!   around the sun, coloured by the weather's "sun" colour and drawn into the dome (the
+//!   disc, behind the clouds) and the clouds (the glare) by sky.wgsl [hypothesis, fitted].
 //! - The climate's night-sky model (CLMT MODL, `Sky\Stars.nif`, additive, weighted by
 //!   the star texture's alpha),
 //!   coloured by the weather's "stars" colour and faded in as the sun sinks from 0° to
@@ -22,11 +27,16 @@
 //!   `sky\masser_<phase>.dds` by the climate's phase length and the days passed, faded in
 //!   as the sun goes from +5° to −6° [hypothesis].
 //!
-//! Without those meshes the sky falls back to a sphere with the same weights. The sun is
-//! a directional light (colour "sunlight") with cascaded shadow maps plus a textured disc
-//! (the climate's sun texture, colour "sun"). Ambient light uses "ambient", fog "fog"
-//! with the weather's day/night distances; an unset range (far not beyond near) takes the
-//! other one, and a weather with neither has no fog [hypothesis, world.md §6].
+//! Every sky part uses `SkyMaterial` (sky.wgsl): its colour is a display value, mapped
+//! through the inverse of the camera's tonemapper so the image-space grade sees the
+//! weather's colours as the game's grade does; by day the sky is dimmed and warmed
+//! (`SkyLight`) [hypothesis, fitted].
+//!
+//! Without those meshes the sky falls back to a sphere. The sun lights the world as a
+//! directional light (colour "sunlight"), optionally with cascaded shadow maps. Ambient
+//! light uses "ambient", fog "fog" with the weather's day/night distances; an unset range
+//! (far not beyond near) takes the other one, and a weather with neither has no fog
+//! [hypothesis, world.md §6].
 
 use crate::fly::FlyCam;
 use crate::world::{game_to_bevy, WorldData};
@@ -34,7 +44,9 @@ use bevy::asset::RenderAssetUsages;
 use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
 use bevy::math::Affine2;
 use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
-use bevy::pbr::{DistanceFog, FogFalloff};
+use bevy::pbr::{DistanceFog, ExtendedMaterial, FogFalloff, MaterialExtension};
+use bevy::render::render_resource::{AsBindGroup, ShaderType};
+use bevy::shader::ShaderRef;
 use bevy::prelude::*;
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded};
 use fnv_nif::NifFile;
@@ -58,6 +70,14 @@ const SKY_INNER: f32 = 0.5 * DOME_RADIUS;
 /// across].
 const SUN_DISTANCE: f32 = 0.8 * SKY_INNER;
 const SUN_SIZE: f32 = 0.07 * SUN_DISTANCE;
+/// Angular size (full width, degrees) over which the sun texture is spread around the
+/// sun and the factor on its colour, and the same for the glare texture [hypothesis,
+/// fitted to the sun and its glow in screenshots of the original game,
+/// docs/spec-notes/world.md §6 "Sun and glare"].
+const SUN_SIZE_DEG: f32 = 20.0;
+const SUN_STRENGTH: f32 = 1.8;
+const GLARE_SIZE_DEG: f32 = 130.0;
+const GLARE_STRENGTH: f32 = 0.12;
 /// Moon quad size at SUN_DISTANCE; the disc fills about 30% of the masser textures
 /// [observed], so this draws it about 3.6 degrees across [tuned by eye].
 const MOON_SIZE: f32 = 2.4 * SUN_SIZE;
@@ -88,6 +108,79 @@ const SKY_SORT_BIAS: f32 = -1.0e6;
 /// sun gets π times this (Lambert's 1/π) and ambient light this.
 pub(crate) fn light_unit() -> f32 {
     1.0 / bevy::camera::Exposure::default().exposure()
+}
+
+/// Material of every sky part: unlit, with the colour mapped through the inverse of the
+/// camera's tonemapper so the display value reaches the image-space grade (sky.wgsl).
+pub type SkyMaterial = ExtendedMaterial<StandardMaterial, SkyDisplay>;
+
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
+pub struct SkyDisplay {
+    #[uniform(100)]
+    pub light: SkyLight,
+    /// The climate's sun texture (drawn on the dome only, so clouds pass in front).
+    #[texture(101)]
+    #[sampler(102)]
+    pub sun_texture: Option<Handle<Image>>,
+    /// The climate's sun glare texture (dome and clouds).
+    #[texture(103)]
+    #[sampler(104)]
+    pub glare_texture: Option<Handle<Image>>,
+}
+
+/// Daylight on the sky (sky.wgsl). By day the original game's sky and clouds are darker
+/// and warmer than the weather colours through the image-space grade would give, while at
+/// dusk and at night they match [observed: screenshots of the original game,
+/// docs/spec-notes/world.md §6 "Sky colours"]. Modelled as: linear colour × `scale` plus
+/// a share of the sunlight colour, both growing as the sun rises [hypothesis, fitted to
+/// those screenshots; the mechanism in the game is not known (eye adaptation and bloom
+/// are candidates)].
+///
+/// The sun is drawn into the same colours, before the tonemapper inverse: the sun texture
+/// and the glare texture spread over angular squares centred on the sun (SUN_SIZE_DEG,
+/// GLARE_SIZE_DEG), added as colour × alpha (the textures' blend in the sky meshes) times
+/// the weather's sun colour and a strength [hypothesis, fitted]. Adding them as separate
+/// additive quads after the inverse could not reproduce the game's glow over a bright sky.
+#[derive(Clone, Copy, Debug, Default, ShaderType, Reflect)]
+pub struct SkyLight {
+    /// x: scale; z: 1 for parts the light applies to (the dome, clouds and moon), 0 for
+    /// additive ones (stars); w: 2 to draw the sun disc and glare (the dome), 1 the glare
+    /// only (clouds), 0 neither.
+    pub params: Vec4,
+    /// Linear RGB added.
+    pub glow: Vec4,
+    /// xyz: direction to the sun (Bevy world space).
+    pub sun_dir: Vec4,
+    /// rgb: sun colour × strength (linear); w: tan of half the disc's angular size.
+    pub sun: Vec4,
+    /// rgb: sun colour × glare strength (linear); w: tan of half the glare's size.
+    pub glare: Vec4,
+}
+
+impl MaterialExtension for SkyDisplay {
+    fn fragment_shader() -> ShaderRef {
+        "embedded://nvforever/sky.wgsl".into()
+    }
+}
+
+/// Daylight (`SkyLight`) applies to every part but the additive ones; `sun` is the
+/// `SkyLight::params.w` mode.
+fn sky_material(base: StandardMaterial, sun: f32) -> SkyMaterial {
+    let applies = if matches!(base.alpha_mode, AlphaMode::Add) { 0.0 } else { 1.0 };
+    let light = SkyLight { params: Vec4::new(1.0, 0.0, applies, sun), ..default() };
+    ExtendedMaterial {
+        base: StandardMaterial { unlit: true, fog_enabled: false, cull_mode: None, ..base },
+        extension: SkyDisplay { light, ..default() },
+    }
+}
+
+pub struct SkyPlugin;
+
+impl Plugin for SkyPlugin {
+    fn build(&self, app: &mut App) {
+        bevy::asset::embedded_asset!(app, "sky.wgsl");
+        app.add_plugins(MaterialPlugin::<SkyMaterial>::default());
+    }
 }
 
 #[derive(Resource)]
@@ -310,6 +403,44 @@ impl SkyState {
         self.changed = true;
     }
 
+    /// How daylight changes the sky's display colours now (see [`SkyLight`]).
+    pub fn light(&self) -> SkyLight {
+        let day = self.daylight();
+        let sun = self.color(ColorType::Sunlight);
+        let s = Vec3::from_array(sun);
+        // The disc and glare fade out as the sun sets [hypothesis: the game shows no glare
+        // once the sun is down].
+        let fade = if self.interior.is_some() { 0.0 } else { smoothstep(-2.0, 3.0, self.sun_elevation()) };
+        let sun_col = Vec3::from_array(self.color(ColorType::Sun)) * fade;
+        let dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&self.climate, self.hour, SUN_SOUTH));
+        let half_tan = |deg: f32| (deg / 2.0).to_radians().tan();
+        SkyLight {
+            params: Vec4::new(1.0 - SKY_DIM * day, 0.0, 1.0, 0.0),
+            glow: (s * SKY_GLOW * day).extend(0.0),
+            sun_dir: dir.extend(0.0),
+            sun: (sun_col * SUN_STRENGTH).extend(half_tan(SUN_SIZE_DEG)),
+            glare: (sun_col * GLARE_STRENGTH).extend(half_tan(GLARE_SIZE_DEG)),
+        }
+    }
+
+    /// Daylight strength (0..1): grows as the sun rises to `DAYLIGHT_DEG`.
+    pub fn daylight(&self) -> f32 {
+        if self.interior.is_some() {
+            return 0.0;
+        }
+        smoothstep(0.0, DAYLIGHT_DEG, self.sun_elevation())
+    }
+
+    /// A cloud colour lit by the sun: by day the game's clouds are warmer than their
+    /// weather colour, by about the sunlight colour's hue [hypothesis fitted to the noon
+    /// reference frames, world.md §6 "Sky colours"].
+    pub fn cloud_tint(&self, c: [f32; 3]) -> [f32; 3] {
+        let s = self.color(ColorType::Sunlight);
+        let m = s.iter().copied().fold(1e-3f32, f32::max);
+        let k = (self.daylight() * CLOUD_SUN).min(1.0);
+        std::array::from_fn(|i| c[i] * (1.0 + (s[i] / m - 1.0) * k))
+    }
+
     /// Sun elevation above the horizon in degrees.
     pub fn sun_elevation(&self) -> f32 {
         sun_direction(&self.climate, self.hour, SUN_SOUTH)[2].clamp(-1.0, 1.0).asin().to_degrees()
@@ -408,10 +539,10 @@ fn find_weather(world: &WorldData, name: &str) -> Option<u32> {
     })
 }
 
-/// The atmosphere dome, with each vertex's blend weights (sky-lower, horizon, sky-upper,
-/// alpha) kept from creation: the colours are recomputed from these.
+/// The atmosphere dome, with each vertex's elevation (degrees) and sky-upper weight kept
+/// from creation: the colours are recomputed from these.
 #[derive(Component)]
-pub struct SkyDome(Vec<[f32; 4]>);
+pub struct SkyDome(Vec<[f32; 2]>);
 
 /// One of the four cloud layers (WTHR layer index) in one of two sets: the set showing
 /// the current weather and the one fading out the previous weather.
@@ -425,9 +556,6 @@ pub struct CloudLayer {
 
 #[derive(Component)]
 pub struct Sun;
-
-#[derive(Component)]
-pub struct SunDisc;
 
 /// The climate's star model.
 #[derive(Component)]
@@ -533,20 +661,34 @@ fn sky_transform(at: Vec3) -> Transform {
 pub fn setup_sky(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<SkyMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut textures: ResMut<TextureCache>,
     data: Res<GameData>,
     sky: Res<SkyState>,
 ) {
+    let sun_tex = sky.climate.sun_texture.as_deref().and_then(|t| textures.get(t, true, &data, &mut images, None));
+    let glare_tex = sky.climate.sun_glare_texture.as_deref().and_then(|t| textures.get(t, true, &data, &mut images, None));
     let atmosphere = sky_shapes(&data, "meshes\\sky\\atmosphere.nif").into_iter().next().unwrap_or_else(fallback_dome);
     let weights = atmosphere.colors.clone();
+    // Per vertex: elevation (degrees) and the sky-upper weight (blue).
+    let dome: Vec<[f32; 2]> = atmosphere
+        .positions
+        .iter()
+        .zip(&weights)
+        .map(|(p, w)| [p[2].atan2(p[0].hypot(p[1])).to_degrees(), w[2]])
+        .collect();
     commands.spawn((
         Name::new("Sky"),
-        SkyDome(weights.clone()),
+        SkyDome(dome),
         Mesh3d(meshes.add(sky_mesh(&atmosphere, weights))),
         // Opaque, so it is drawn before every transparent part of the world.
-        MeshMaterial3d(materials.add(StandardMaterial { unlit: true, fog_enabled: false, cull_mode: None, ..default() })),
+        MeshMaterial3d(materials.add({
+            let mut m = sky_material(StandardMaterial::default(), 2.0);
+            m.extension.sun_texture = sun_tex;
+            m.extension.glare_texture = glare_tex.clone();
+            m
+        })),
         sky_transform(Vec3::ZERO),
         NotShadowCaster,
         NotShadowReceiver,
@@ -560,13 +702,13 @@ pub fn setup_sky(
                 Name::new(format!("Cloud layer {layer}.{set}")),
                 CloudLayer { layer, set, shows: None },
                 Mesh3d(mesh.clone()),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    unlit: true,
-                    fog_enabled: false,
-                    alpha_mode: AlphaMode::Blend,
-                    cull_mode: None,
-                    depth_bias: SKY_SORT_BIAS + (2 * layer + set) as f32,
-                    ..default()
+                MeshMaterial3d(materials.add({
+                    let mut m = sky_material(
+                        StandardMaterial { alpha_mode: AlphaMode::Blend, depth_bias: SKY_SORT_BIAS + (2 * layer + set) as f32, ..default() },
+                        1.0,
+                    );
+                    m.extension.glare_texture = glare_tex.clone();
+                    m
                 })),
                 sky_transform(Vec3::ZERO),
                 Visibility::Hidden,
@@ -575,30 +717,6 @@ pub fn setup_sky(
             ));
         }
     }
-    let sun_tex = sky
-        .climate
-        .sun_texture
-        .as_deref()
-        .and_then(|t| textures.get(t, true, &data, &mut images, None));
-    let quad = Mesh::from(Rectangle::new(SUN_SIZE, SUN_SIZE));
-    commands.spawn((
-        Name::new("Sun disc"),
-        SunDisc,
-        Mesh3d(meshes.add(quad)),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color_texture: sun_tex,
-            unlit: true,
-            fog_enabled: false,
-            alpha_mode: AlphaMode::Add,
-            cull_mode: None,
-            // Behind the clouds.
-            depth_bias: SKY_SORT_BIAS - 10.0,
-            ..default()
-        })),
-        Transform::IDENTITY,
-        NotShadowCaster,
-        NotShadowReceiver,
-    ));
     // Stars: inside the atmosphere dome, drawn before the moon, sun and clouds.
     if let Some(model) = sky.climate.model.as_deref() {
         let shapes = sky_shapes(&data, &format!("meshes\\{model}"));
@@ -615,20 +733,17 @@ pub fn setup_sky(
                 Name::new("Stars"),
                 Stars,
                 Mesh3d(meshes.add(sky_mesh(shape, vec![[1.0; 4]; shape.positions.len()]))),
-                MeshMaterial3d(materials.add(StandardMaterial {
+                MeshMaterial3d(materials.add(sky_material(StandardMaterial {
                     base_color: Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, 1.0)),
                     base_color_texture: tex,
-                    unlit: true,
-                    fog_enabled: false,
                     // Additive, weighted by the texture's alpha: SkyStars.dds has colour in
                     // 6,225 texels but alpha in only ~430, and the game shows sparse, faint
                     // stars [observed: owner's screenshots; the shader property sets the
                     // alpha-texture flag; hypothesis: the game weights by alpha].
                     alpha_mode: AlphaMode::Add,
-                    cull_mode: None,
                     depth_bias: SKY_SORT_BIAS - 30.0,
                     ..default()
-                })),
+                }, 0.0))),
                 Transform { rotation: game_to_bevy().rotation, scale: Vec3::splat(0.9 * SKY_INNER / radius), ..default() },
                 NotShadowCaster,
                 NotShadowReceiver,
@@ -644,14 +759,11 @@ pub fn setup_sky(
             Name::new("Moon disc"),
             MoonDisc { phases, shown: None },
             Mesh3d(meshes.add(Mesh::from(Rectangle::new(MOON_SIZE, MOON_SIZE)))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                unlit: true,
-                fog_enabled: false,
+            MeshMaterial3d(materials.add(sky_material(StandardMaterial {
                 alpha_mode: AlphaMode::Blend,
-                cull_mode: None,
                 depth_bias: SKY_SORT_BIAS - 20.0,
                 ..default()
-            })),
+            }, 0.0))),
             Transform::from_scale(Vec3::ZERO),
             NotShadowCaster,
             NotShadowReceiver,
@@ -689,9 +801,9 @@ pub fn update_clouds(
     data: Res<GameData>,
     mut textures: ResMut<TextureCache>,
     mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<SkyMaterial>>,
     cam: Query<&Transform, (With<FlyCam>, Without<CloudLayer>)>,
-    mut clouds: Query<(&mut CloudLayer, &MeshMaterial3d<StandardMaterial>, &mut Transform, &mut Visibility), Without<FlyCam>>,
+    mut clouds: Query<(&mut CloudLayer, &MeshMaterial3d<SkyMaterial>, &mut Transform, &mut Visibility), Without<FlyCam>>,
 ) {
     let Ok(cam_t) = cam.single() else { return };
     let secs = time.elapsed_secs();
@@ -712,15 +824,15 @@ pub fn update_clouds(
         };
         let Some(mut mat) = materials.get_mut(&m.0) else { continue };
         if cl.shows != Some(w.form_id) {
-            mat.base_color_texture =
+            mat.base.base_color_texture =
                 w.cloud_textures[cl.layer].as_deref().and_then(|p| textures.get(p, true, &data, &mut images, None));
             cl.shows = Some(w.form_id);
         }
-        *vis = if mat.base_color_texture.is_some() && alpha > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
-        let c = w.cloud_color(&sky.climate, cl.layer, sky.hour);
-        mat.base_color = Color::LinearRgba(LinearRgba::new(c[0], c[1], c[2], alpha));
+        *vis = if mat.base.base_color_texture.is_some() && alpha > 0.0 { Visibility::Inherited } else { Visibility::Hidden };
+        let c = sky.cloud_tint(w.cloud_color(&sky.climate, cl.layer, sky.hour));
+        mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0], c[1], c[2], alpha));
         let speed = w.cloud_speeds[cl.layer] as f32;
-        mat.uv_transform = Affine2::from_translation(Vec2::new((secs * speed * CLOUD_SCROLL).fract(), 0.0));
+        mat.base.uv_transform = Affine2::from_translation(Vec2::new((secs * speed * CLOUD_SCROLL).fract(), 0.0));
     }
 }
 
@@ -730,9 +842,9 @@ pub fn update_clouds(
 pub fn update_night_sky(
     sky: Res<SkyState>,
     cam: Query<&Transform, (With<FlyCam>, Without<Stars>, Without<MoonDisc>)>,
-    mut stars: Query<(&mut Transform, &MeshMaterial3d<StandardMaterial>, &mut Visibility), (With<Stars>, Without<FlyCam>, Without<MoonDisc>)>,
-    mut moon: Query<(&mut Transform, &MeshMaterial3d<StandardMaterial>, &mut MoonDisc), (Without<FlyCam>, Without<Stars>)>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut stars: Query<(&mut Transform, &MeshMaterial3d<SkyMaterial>, &mut Visibility), (With<Stars>, Without<FlyCam>, Without<MoonDisc>)>,
+    mut moon: Query<(&mut Transform, &MeshMaterial3d<SkyMaterial>, &mut MoonDisc), (Without<FlyCam>, Without<Stars>)>,
+    mut materials: ResMut<Assets<SkyMaterial>>,
     mut last: Local<Option<(f32, f32)>>,
 ) {
     let Ok(cam_t) = cam.single() else { return };
@@ -748,7 +860,7 @@ pub fn update_night_sky(
         if refresh {
             if let Some(mut mat) = materials.get_mut(&m.0) {
                 let c = sky.color(ColorType::Stars);
-                mat.base_color = Color::LinearRgba(LinearRgba::new(c[0] * star_vis, c[1] * star_vis, c[2] * star_vis, 1.0));
+                mat.base.base_color = Color::LinearRgba(LinearRgba::new(c[0] * star_vis, c[1] * star_vis, c[2] * star_vis, 1.0));
             }
         }
     }
@@ -764,13 +876,51 @@ pub fn update_night_sky(
         let phase = sky.moon_phase();
         if refresh || disc.shown != Some(phase) {
             if let Some(mut mat) = materials.get_mut(&m.0) {
-                mat.base_color_texture = disc.phases[phase].clone();
-                mat.base_color = Color::LinearRgba(LinearRgba::new(1.0, 1.0, 1.0, moon_vis));
+                mat.base.base_color_texture = disc.phases[phase].clone();
+                mat.base.base_color = Color::LinearRgba(LinearRgba::new(1.0, 1.0, 1.0, moon_vis));
             }
             disc.shown = Some(phase);
         }
     }
 }
+
+/// Colour of an atmosphere vertex at `elevation` (degrees) with sky-upper weight `up_w`
+/// (the vertex colour's blue), linear RGB. Mixed as display (sRGB) values: sky-upper ×
+/// `up_w` plus horizon × `horizon_weight(elevation)`; below the horizon the colour turns to
+/// sky-lower by 10° down [hypothesis fitted to screenshots of the original game,
+/// docs/spec-notes/world.md §6 "Sky colours": the vertex colours' green channel, read as
+/// the horizon weight, peaks 10-15° up and gives the horizon colour far too much sky].
+pub(crate) fn dome_color(elevation: f32, up_w: f32, lower: [f32; 3], horizon: [f32; 3], upper: [f32; 3]) -> [f32; 3] {
+    use crate::lodgen::{linear_to_srgb as d, srgb_to_linear as l};
+    let a = horizon_weight(elevation);
+    let below = smoothstep(0.0, -10.0, elevation);
+    std::array::from_fn(|i| {
+        let above = up_w * d(upper[i]) + a * d(horizon[i]);
+        l(above + (d(lower[i]) - above) * below)
+    })
+}
+
+/// Weight of the horizon colour at `elevation` (degrees): 1 at the horizon, about 0.5 at
+/// 15°, 0.3 at 25° [hypothesis fitted to the dusk reference frame, where the sky colours
+/// are graded without further change; world.md §6].
+pub(crate) fn horizon_weight(elevation: f32) -> f32 {
+    let e = elevation.max(0.0);
+    let (near, far) = (HORIZON_NEAR_DEG, HORIZON_FAR_DEG);
+    let fl = HORIZON_FLOOR;
+    (1.0 - fl) * (-(e / near).powi(2)).exp() + fl * (-(e / far).powi(2)).exp()
+}
+
+const HORIZON_NEAR_DEG: f32 = 14.0;
+const HORIZON_FAR_DEG: f32 = 60.0;
+const HORIZON_FLOOR: f32 = 0.28;
+
+/// Fitted daylight factors (see `SkyLight`).
+const SKY_DIM: f32 = 0.6;
+const SKY_GLOW: f32 = 0.05;
+/// Share of the sunlight hue in the clouds' colour in full daylight (see `cloud_tint`).
+const CLOUD_SUN: f32 = 0.5;
+/// Sun elevation (degrees) at which daylight reaches full strength.
+const DAYLIGHT_DEG: f32 = 40.0;
 
 fn to_color(c: [f32; 3]) -> Color {
     Color::LinearRgba(LinearRgba::rgb(c[0], c[1], c[2]))
@@ -795,11 +945,10 @@ pub fn update_sky(
     mut meshes: ResMut<Assets<Mesh>>,
     mut clear: ResMut<ClearColor>,
     mut ambient: ResMut<GlobalAmbientLight>,
-    cam: Query<(&Transform, &mut DistanceFog), (With<FlyCam>, Without<SkyDome>, Without<Sun>, Without<SunDisc>, Without<CloudLayer>)>,
-    mut dome: Query<(&Mesh3d, &SkyDome, &mut Transform), (Without<FlyCam>, Without<Sun>, Without<SunDisc>, Without<CloudLayer>)>,
-    mut sun: Query<(&mut DirectionalLight, &mut Transform), (With<Sun>, Without<FlyCam>, Without<SkyDome>, Without<SunDisc>, Without<CloudLayer>)>,
-    mut disc: Query<(&mut Transform, &MeshMaterial3d<StandardMaterial>), (With<SunDisc>, Without<FlyCam>, Without<SkyDome>, Without<Sun>, Without<CloudLayer>)>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    cam: Query<(&Transform, &mut DistanceFog), (With<FlyCam>, Without<SkyDome>, Without<Sun>, Without<CloudLayer>)>,
+    mut dome: Query<(&Mesh3d, &SkyDome, &mut Transform), (Without<FlyCam>, Without<Sun>, Without<CloudLayer>)>,
+    mut sun: Query<(&mut DirectionalLight, &mut Transform), (With<Sun>, Without<FlyCam>, Without<SkyDome>, Without<CloudLayer>)>,
+    mut materials: ResMut<Assets<SkyMaterial>>,
 ) {
     let mut cam = cam;
     let Ok((cam_t, mut fog)) = cam.single_mut() else { return };
@@ -822,9 +971,6 @@ pub fn update_sky(
         }
         let c = |v: [u8; 3]| to_color(v.map(fnv_world::sky::srgb_to_linear));
         if let Ok((_, _, mut t)) = dome.single_mut() {
-            t.scale = Vec3::ZERO;
-        }
-        if let Ok((mut t, _)) = disc.single_mut() {
             t.scale = Vec3::ZERO;
         }
         clear.0 = c(l.fog_color);
@@ -853,14 +999,19 @@ pub fn update_sky(
     if let Ok((_, _, mut t)) = dome.single_mut() {
         t.translation = cam_pos;
     }
-    if let Ok((mut t, _)) = disc.single_mut() {
-        t.translation = cam_pos + sun_dir * SUN_DISTANCE;
-        t.look_at(cam_pos, Vec3::Y);
-    }
     if !changed {
         return;
     }
 
+    // Daylight on every sky part that takes it (see SkyLight).
+    let light = sky.light();
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(mut m) = materials.get_mut(id) {
+            let p = m.extension.light.params;
+            m.extension.light = SkyLight { params: light.params.with_z(p.z).with_w(p.w), ..light };
+        }
+    }
     let upper = sky.color(ColorType::SkyUpper);
     let lower = sky.color(ColorType::SkyLower);
     let horizon = sky.color(ColorType::Horizon);
@@ -870,8 +1021,8 @@ pub fn update_sky(
                 .0
                 .iter()
                 .map(|wt| {
-                    let ch = |i: usize| wt[0] * lower[i] + wt[1] * horizon[i] + wt[2] * upper[i];
-                    [ch(0), ch(1), ch(2), 1.0]
+                    let c = dome_color(wt[0], wt[1], lower, horizon, upper);
+                    [c[0], c[1], c[2], 1.0]
                 })
                 .collect();
             mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, cols);
@@ -889,12 +1040,6 @@ pub fn update_sky(
         // Fade out while the sun (or moon) is within HORIZON_FADE of the horizon, so the
         // switch between the two does not flip shadows at full strength [interim].
         light.illuminance = PI * unit * (sun_dir.y.abs() / HORIZON_FADE.sin()).min(1.0);
-    }
-    if let Ok((_, m)) = disc.single() {
-        if let Some(mut mat) = materials.get_mut(&m.0) {
-            let s = sky.color(ColorType::Sun);
-            mat.base_color = if sun_dir.y > -0.05 { to_color(s) } else { Color::BLACK };
-        }
     }
     let amb = sky.color(ColorType::Ambient);
     ambient.color = to_color(amb);
@@ -917,4 +1062,39 @@ pub fn update_sky(
 
 pub fn initial_fog() -> DistanceFog {
     DistanceFog { color: Color::WHITE, falloff: FogFalloff::Linear { start: 8_000.0, end: 20_000.0 }, ..default() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn horizon_weight_falls_with_elevation() {
+        assert!((horizon_weight(0.0) - 1.0).abs() < 1e-6);
+        assert!((horizon_weight(-5.0) - 1.0).abs() < 1e-6);
+        // The dusk fit (world.md §6 "Sky colours"): about 0.86 at 7°, 0.55 at 15°, 0.3 at 25°.
+        assert!((horizon_weight(6.8) - 0.86).abs() < 0.03);
+        assert!((horizon_weight(14.7) - 0.55).abs() < 0.05);
+        assert!((horizon_weight(26.6) - 0.28).abs() < 0.04);
+        let mut last = 2.0;
+        for e in 0..=90 {
+            let w = horizon_weight(e as f32);
+            assert!(w <= last && w >= 0.0);
+            last = w;
+        }
+    }
+
+    #[test]
+    fn dome_mixes_display_values() {
+        let (lower, horizon, upper) = ([0.1, 0.2, 0.3], [0.7, 0.8, 0.9], [0.03, 0.06, 0.25]);
+        // Well below the horizon: sky-lower.
+        let c = dome_color(-20.0, 0.0, lower, horizon, upper);
+        assert!(c.iter().zip(lower).all(|(a, b)| (a - b).abs() < 1e-4));
+        // At the horizon with no upper weight: the horizon colour.
+        let c = dome_color(0.0, 0.0, lower, horizon, upper);
+        assert!(c.iter().zip(horizon).all(|(a, b)| (a - b).abs() < 1e-4));
+        // Half of a colour as display values is darker than half in linear light.
+        let half = dome_color(90.0, 0.5, lower, horizon, upper)[2];
+        assert!(half < 0.5 * upper[2] + 0.5 * horizon_weight(90.0) * horizon[2]);
+    }
 }
