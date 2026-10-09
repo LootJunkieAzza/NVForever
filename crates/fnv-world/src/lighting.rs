@@ -115,15 +115,16 @@ pub enum Emittance {
     /// porch beam that names it is invisible by day in game; NVInteriorRegion's weather
     /// has warm sunlight by day and black at night, the saloon's window rays name it].
     Weather(u32),
-    /// A light's colour.
-    Light([u8; 3]),
+    /// A light: its colour and its fade (brightness) [documented: the GECK tutorials say
+    /// emittance takes the light's colour and brightness, level-design.md §2].
+    Light { color: [u8; 3], fade: f32 },
 }
 
 /// Resolve an XEMI target: a region with a weather, or a light.
 pub fn emittance(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Emittance> {
     let (pi, r) = winner(lo, fid)?;
     match &r.header.sig {
-        b"LIGH" => light_data(lo, schema, fid).map(|l| Emittance::Light(l.color)),
+        b"LIGH" => light_data(lo, schema, fid).map(|l| Emittance::Light { color: l.color, fade: l.fade }),
         b"REGN" => {
             let f = Fields::new(r, pi, schema).ok()?;
             let list = f.get(b"RDWT")?;
@@ -178,6 +179,21 @@ pub fn light_data(lo: &LoadOrder, schema: &Schema, ligh: u32) -> Option<LightDat
     })
 }
 
+/// The radius a placed light reaches: its base's DATA radius plus the reference's `XRDS`
+/// (see [`ref_xrds`]), never below 0 [observed: world.md §8 "Placed light radius"].
+pub fn placed_light_radius(base: f32, xrds: Option<f32>) -> f32 {
+    (base + xrds.unwrap_or(0.0)).max(0.0)
+}
+
+/// A placed reference's `XRDS` "Radius" [documented: xEdit wbDefinitionsFNV.pas placed
+/// refs], when it has one; on a light, an offset to its base radius
+/// ([`placed_light_radius`]).
+pub fn ref_xrds(lo: &LoadOrder, schema: &Schema, refr: u32) -> Option<f32> {
+    let (pi, r) = winner(lo, refr)?;
+    let f = Fields::new(r, pi, schema).ok()?;
+    f.get(b"XRDS").and_then(|v| v.as_f64()).map(|v| v as f32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +207,13 @@ mod tests {
         assert_eq!(m.fog_near, 10.0);
         assert_eq!(m.fog_power, 7.0);
         assert_eq!(merge(own, tpl, 0), own);
+    }
+
+    #[test]
+    fn xrds_adds_to_the_base_radius() {
+        assert_eq!(placed_light_radius(16.0, Some(351.1)), 367.1);
+        assert_eq!(placed_light_radius(200.0, Some(-136.5)), 63.5);
+        assert_eq!(placed_light_radius(200.0, None), 200.0);
+        assert_eq!(placed_light_radius(10.0, Some(-20.0)), 0.0);
     }
 }

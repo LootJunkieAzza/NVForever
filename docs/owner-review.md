@@ -374,6 +374,37 @@ sessions. You already had it from an earlier playthrough.
 
     The full list of differences, by file, is the note's §11.2; capture ideas are its §13.
 
+28. **The intro, headless (#86) and in the game (#96).** The runtime reproduces your
+    `nvfnew` captures: all four `L5.intro.*` pass, holdout included, and L5 is 28/32.
+    `nvforever --play --new-game` runs the opening in Doc Mitchell's house unattended to
+    VCG01 stage 200, with stage timings matching the walk-through and the capture
+    (mostly within a few hundredths of a second). Decisions for you, from #86 and #96:
+    - (a) message boxes hold scripts only in inputs whose `given` includes a menu; the
+      alternative is adding the pack quests' state to the older inputs;
+    - (b) a new game puts the player at `VCG01PlayerStartMarkerREF` and sets VCG00
+      stage 0 directly;
+    - (c) dialogue line length is fitted (1.1 s + 1/16 s per character) until voice
+      files are read; the psych intro runs 18 s against about 13 s in game;
+    - (d) unattended `--play` runs answer script boxes after 0.25 s; attended runs wait
+      for you;
+    - (e) NPC trigger capsules use the player's placeholder size times scale;
+    - (f) `--new-game` lives in `engine/nvforever/src/main.rs`.
+29. **Quest items (#91).** Bit 10 "Quest Item" on WEAP/ARMO/ALCH/BOOK/KEYM/MISC/LIGH
+    [documented: xEdit]. 339 shipped items set it [observed]. The player can't drop them
+    (`--play` says so). A scripted `Drop` still drops them, as tested in game, and
+    storing them in containers is allowed [hypothesis] until checked by hand
+    (layer4-captures.md B14). Record-header flags are now schema data (`header_flags`).
+30. **Lock trouble and a proposal.** Twice today the shared lock folders got stuck:
+    - a session that hit the usage limit died holding them;
+    - at 14:22 an unknown session created both and never used them;
+    - once they vanished while the coordinator held them, cause unknown.
+
+    The coordinator removed stale locks only after checking that no FalloutNV or
+    nvforever process was running. Proposal: one shared helper (e.g.
+    `tools/capture/locks.py`) that writes an owner file (session, PID, time) into each
+    lock, treats a lock as stale when its PID is gone, and is used by every runner. Say
+    if you want it built.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the

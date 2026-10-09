@@ -269,7 +269,14 @@ fn apply_input(
         if let Some(item) = a.used {
             used.write(ItemUsed { item: item.0 });
         }
+        // A dropped item starts turned as its holder faces (GetAngle Z of the new reference
+        // equals the player's, X and Y 0 [observed: capture pc_drop_fall, physics.md
+        // §4.3]); `World::drop_item` leaves the rotation 0.
+        let heading = sim.world.peek(FormId::PLAYER_REF).map_or(0.0, |p| p.rot[2]);
         for id in &a.created {
+            if let Ok(s) = sim.world.get(*id) {
+                s.rot = [0.0, 0.0, heading];
+            }
             let (at, count) = sim.world.peek(*id).map(|s| (s.pos, s.count)).unwrap_or_default();
             info!("menu: dropped reference {id} (count {count}) at ({:.1}, {:.1}, {:.1})", at[0], at[1], at[2]);
             changed.write(RefChanged { form_id: id.0 });

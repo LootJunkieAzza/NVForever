@@ -6,13 +6,16 @@
 //!   is top left), the newest last, each for [`NOTE_SECONDS`].
 //! - **Message boxes**: the runtime's queue (`fnv_game::Game::boxes`, scripts.md §7.7),
 //!   the first one in the middle of the view while the open menu is 1001, with numbered
-//!   buttons. Number keys 1–9 pick a button (`ScriptState` → `Runtime::answer`, which
-//!   ends in `Game::close_menu` after the frame's MenuMode 1001 ran, so a `MenuMode 1001`
-//!   block still reads `GetButtonPressed`); a box without buttons closes with 1, Enter or
-//!   Space (OK). The next queued box then opens (the runtime's rule).
+//!   buttons. Number keys 1–9 or a click pick a button (`ScriptState` →
+//!   `Runtime::answer`, which ends in `Game::close_menu` after the frame's MenuMode 1001
+//!   ran, so a `MenuMode 1001` block still reads `GetButtonPressed`); a box without
+//!   buttons closes with 1, Enter, Space or a click on OK. The buttons are clickable as
+//!   the original's are [observed by the coordinator playing the original, 2026-10-09];
+//!   the cursor is free while a box is open (`PlayState::Menu`). The next queued box then
+//!   opens (the runtime's rule).
 //! - **Menus scripts open** for character creation (name 1051, race 1036, S.P.E.C.I.A.L.
 //!   1074, tag skills 1048, traits 1084): a placeholder panel that names the menu; Enter
-//!   closes it as the player's Done would (`Game::close_menu`). What the player chooses
+//!   or a click on Done closes it as the player's Done would (`Game::close_menu`). What the player chooses
 //!   there is Layer 7; nothing is chosen here.
 //! - While a script's menu or box is open the player cannot move or look
 //!   (`PlayState::Menu`, `script::hold_player`), and script time stops (the runtime's
@@ -43,6 +46,8 @@ pub struct ScriptHud {
     shown: HashMap<u32, BoxMessage>,
     /// The response texts (NAM1) of the dialogue lines said, by INFO.
     lines: HashMap<u32, Vec<String>>,
+    /// The message box on screen (as last drawn).
+    on_screen: Option<BoxMessage>,
     dirty: bool,
 }
 
@@ -76,6 +81,11 @@ impl ScriptHud {
         }
     }
 
+    /// The message box on screen, if any.
+    pub fn front(&self) -> Option<&BoxMessage> {
+        self.on_screen.as_ref()
+    }
+
     pub fn knows_line(&self, info: FormId) -> bool {
         self.lines.contains_key(&info.0)
     }
@@ -97,9 +107,12 @@ pub fn menu_name(code: u16) -> String {
     }
 }
 
-/// The placeholder panel of a menu a script opened.
-pub fn menu_lines(code: u16) -> String {
-    format!("{} menu (menu {code})\n\nCharacter creation is not built yet (Layer 7); nothing is chosen here.\n\nEnter) Done", menu_name(code))
+/// The placeholder panel of a menu a script opened: its text and its one button.
+pub fn menu_panel(code: u16) -> (String, Vec<String>) {
+    (
+        format!("{} menu (menu {code})\n\nCharacter creation is not built yet (Layer 7); nothing is chosen here.", menu_name(code)),
+        vec!["Done (Enter)".into()],
+    )
 }
 
 pub struct ScriptHudPlugin;
@@ -121,6 +134,14 @@ struct BoxText;
 
 #[derive(Component)]
 struct SubtitleText;
+
+/// The row of the front box's buttons.
+#[derive(Component)]
+struct BoxButtons;
+
+/// A clickable button of the panel (0-based).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct BoxButton(pub usize);
 
 fn spawn(mut commands: Commands) {
     let font = |size: f32| TextFont { font_size: FontSize::Px(size), ..default() };
@@ -155,23 +176,33 @@ fn spawn(mut commands: Commands) {
         children![(
             Node { max_width: Val::Px(560.0), padding: UiRect::all(Val::Px(16.0)), margin: UiRect::all(Val::Px(16.0)), ..default() },
             BackgroundColor(Color::srgba(0.05, 0.05, 0.03, 0.88)),
-            children![(Text::new(""), font(16.0), TextColor(Color::srgb(1.0, 0.85, 0.4)), BoxText)],
+            children![(
+                Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(12.0), ..default() },
+                children![
+                    (Text::new(""), font(16.0), TextColor(Color::srgb(1.0, 0.85, 0.4)), BoxText),
+                    (Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(6.0), ..default() }, BoxButtons),
+                ],
+            )],
         )],
     ));
 }
 
+/// The box's numbered buttons ("1) OK" for a box without buttons).
+pub fn box_buttons(b: &BoxMessage) -> Vec<String> {
+    if b.buttons.is_empty() {
+        vec!["1) OK".into()]
+    } else {
+        b.buttons.iter().enumerate().map(|(i, t)| format!("{}) {t}", i + 1)).collect()
+    }
+}
+
 /// The box as text: its message, then its numbered buttons.
 pub fn box_lines(b: &BoxMessage) -> String {
-    let mut s = b.text.trim_end().to_string();
-    s.push_str("\n\n");
-    if b.buttons.is_empty() {
-        s.push_str("1) OK");
-    } else {
-        let buttons: Vec<String> = b.buttons.iter().enumerate().map(|(i, t)| format!("{}) {t}", i + 1)).collect();
-        s.push_str(&buttons.join("\n"));
-    }
-    s
+    format!("{}\n\n{}", b.text.trim_end(), box_buttons(b).join("\n"))
 }
+
+/// What the panel shows: text and button labels.
+type Panel = (String, Vec<String>);
 
 /// Which response of a line is being said, `elapsed` seconds into it: each response
 /// takes its share of the line (`fnv_game::game::line_seconds` of its length).
@@ -186,14 +217,18 @@ pub fn response_at(chars: &[usize], elapsed: f64) -> usize {
     chars.len().saturating_sub(1)
 }
 
-/// What the overlay shows this frame: the panel (a message box or a menu placeholder)
-/// and the subtitles.
-fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<String>, String) {
-    let Some(rt) = script.rt.as_ref() else { return (None, String::new()) };
+/// What the overlay shows this frame: the panel (a message box or a menu placeholder),
+/// the box on screen, and the subtitles.
+fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<Panel>, Option<BoxMessage>, String) {
+    let Some(rt) = script.rt.as_ref() else { return (None, None, String::new()) };
     let g = &rt.game;
+    let front = match g.menu {
+        Some(MENU_MESSAGE) => g.boxes.first().map(|&m| hud.box_view(m, script)),
+        _ => None,
+    };
     let panel = match g.menu {
-        Some(MENU_MESSAGE) => g.boxes.first().map(|&m| box_lines(&hud.box_view(m, script))),
-        Some(code) if crate::script::is_script_menu(code) => Some(menu_lines(code)),
+        Some(MENU_MESSAGE) => front.as_ref().map(|b| (b.text.trim_end().to_string(), box_buttons(b))),
+        Some(code) if crate::script::is_script_menu(code) => Some(menu_panel(code)),
         _ => None,
     };
     let mut subs = Vec::new();
@@ -207,16 +242,18 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<String
         let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
         subs.push(format!("{who}: {}", text.trim()));
     }
-    (panel, subs.join("\n"))
+    (panel, front, subs.join("\n"))
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(
+    mut commands: Commands,
+    rows: Query<Entity, With<BoxButtons>>,
     time: Res<Time>,
     mut hud: ResMut<ScriptHud>,
     script: Res<ScriptState>,
     sim: Res<SimState>,
-    mut shown: Local<(Option<String>, String)>,
+    mut shown: Local<(Option<Panel>, String)>,
     mut notes: Query<&mut Text, (With<NotesText>, Without<BoxText>, Without<SubtitleText>)>,
     mut panel: Query<&mut Visibility, With<BoxPanel>>,
     mut boxed: Query<&mut Text, (With<BoxText>, Without<NotesText>, Without<SubtitleText>)>,
@@ -237,16 +274,34 @@ fn draw(
             t.0 = text.join("\n");
         }
     }
-    let now = view(&hud, &script, &sim);
+    let (p, front, subs) = view(&hud, &script, &sim);
+    hud.on_screen = front;
+    let now = (p, subs);
     if now == *shown {
         return;
     }
     for mut v in &mut panel {
         v.set_if_neq(if now.0.is_some() { Visibility::Inherited } else { Visibility::Hidden });
     }
-    if let Some(f) = &now.0 {
+    if now.0 != shown.0 {
+        for row in &rows {
+            commands.entity(row).despawn_related::<Children>();
+        }
+    }
+    if let Some((text, buttons)) = now.0.as_ref().filter(|_| now.0 != shown.0) {
         for mut t in &mut boxed {
-            t.0.clone_from(f);
+            t.0.clone_from(text);
+        }
+        for row in &rows {
+            for (i, label) in buttons.iter().enumerate() {
+                commands.entity(row).with_child((
+                    Button,
+                    BoxButton(i),
+                    Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() },
+                    BackgroundColor(Color::srgba(0.20, 0.18, 0.08, 0.9)),
+                    children![(Text::new(label.clone()), TextFont { font_size: FontSize::Px(16.0), ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.4)))],
+                ));
+            }
         }
     }
     if now.1 != shown.1 {
@@ -260,25 +315,32 @@ fn draw(
     *shown = now;
 }
 
-/// Keys for a script's open menu (before the frame's scripts run): number keys pick a
-/// button of the front message box; 1, Enter or Space close a box without buttons;
-/// Enter closes a character-creation menu.
-pub fn menu_keys(keys: Res<ButtonInput<KeyCode>>, hud: Res<ScriptHud>, mut script: ResMut<ScriptState>) {
+/// Keys and clicks for a script's open menu (before the frame's scripts run): number keys
+/// or a click pick a button of the front message box; 1, Enter, Space or a click on OK
+/// close a box without buttons; Enter or a click on Done closes a character-creation
+/// menu. All go through `ScriptState::answer`.
+pub fn menu_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    clicks: Query<(&Interaction, &BoxButton), Changed<Interaction>>,
+    hud: Res<ScriptHud>,
+    mut script: ResMut<ScriptState>,
+) {
     use KeyCode::*;
     let Some(code) = script.rt.as_ref().and_then(|rt| rt.game.menu) else { return };
     if !crate::script::is_script_menu(code) {
         return;
     }
+    let clicked = clicks.iter().find(|(i, _)| **i == Interaction::Pressed).map(|(_, b)| b.0);
     let enter = keys.any_just_pressed([Enter, NumpadEnter]);
     if code != MENU_MESSAGE {
-        if enter {
-            script.answer(None, "Enter");
+        if enter || clicked.is_some() {
+            script.answer(None, if enter { "Enter" } else { "click" });
         }
         return;
     }
     let digits = [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9];
     let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9];
-    let picked = (0..9).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i]));
+    let picked = (0..9).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i])).or(clicked);
     let Some(front) = script.rt.as_ref().and_then(|rt| rt.game.boxes.first().copied()) else { return };
     let buttons = hud.box_view(front, &script).buttons.len();
     if buttons == 0 {

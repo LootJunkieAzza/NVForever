@@ -20,6 +20,8 @@ use crate::world::WorldData;
 
 pub type LeafMaterial = ExtendedMaterial<StandardMaterial, LeafCards>;
 pub type BarkMaterial = ExtendedMaterial<StandardMaterial, BarkWind>;
+/// Distant tree billboards (treelod.rs).
+pub type BillboardMaterial = ExtendedMaterial<StandardMaterial, TreeBillboards>;
 
 const SHADER: &str = "embedded://nvforever/tree.wgsl";
 
@@ -50,6 +52,35 @@ pub struct LeafCards {
 pub struct BarkWind {
     #[uniform(100)]
     pub wind: WindParams,
+}
+
+/// Distant tree billboards (treelod.rs): upright cards turned about the vertical towards
+/// the camera by the vertex shader (tree.wgsl `TREE_BILLBOARD`). They stand still: the
+/// wind uniform stays zero.
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone, Default)]
+pub struct TreeBillboards {
+    #[uniform(100)]
+    pub wind: WindParams,
+}
+
+impl MaterialExtension for TreeBillboards {
+    fn vertex_shader() -> ShaderRef {
+        SHADER.into()
+    }
+    fn prepass_vertex_shader() -> ShaderRef {
+        SHADER.into()
+    }
+    fn specialize(
+        _: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _: &MeshVertexBufferLayoutRef,
+        key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        descriptor.vertex.shader_defs.push("TREE_BILLBOARD".into());
+        // Billboards crossfade with the cells whose trees they stand in for (treelod.rs).
+        nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        Ok(())
+    }
 }
 
 impl MaterialExtension for LeafCards {
@@ -97,7 +128,11 @@ pub struct TreePlugin;
 impl Plugin for TreePlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "tree.wgsl");
-        app.add_plugins((MaterialPlugin::<LeafMaterial>::default(), MaterialPlugin::<BarkMaterial>::default()))
+        app.add_plugins((
+            MaterialPlugin::<LeafMaterial>::default(),
+            MaterialPlugin::<BarkMaterial>::default(),
+            MaterialPlugin::<BillboardMaterial>::default(),
+        ))
             .init_resource::<TreeCache>()
             .add_systems(Update, wind.after(crate::sky::update_sky));
     }

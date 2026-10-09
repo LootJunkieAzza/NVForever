@@ -1,9 +1,9 @@
 # Static actors: NPCs drawn as one assembled entity (workstream 5)
 
 Status 2026-10-08: **parts A, B and C done** (C: geometry and face-texture FaceGen;
-the body's skin `.egt` and the race FaceGen data are not used yet); part D (creatures)
-not started; part E (animation playback) done: `nvforever` (default `--actor-pose idle`)
-plays `mtidle.kf` on each actor's skeleton, all 60 transform tracks binding to
+since 2026-10-09 the body skin `.egt` too, actors.md §4.1; the race FaceGen data stays
+unused, §4.2); part D (creatures) done 2026-10-09 (§8 below); part E (animation
+playback) done: `nvforever` (default `--actor-pose idle`) plays `mtidle.kf` on each actor's skeleton, all 60 transform tracks binding to
 `skeleton.nif`, with skinned, rigid and FaceGen parts following (actors.md §7); since
 2026-10-09 this is the default (owner decision: the owner asked for working NPCs; set by
 the desktop coordinator, reversible), and `--actor-pose bind` keeps the frozen bind pose.
@@ -183,7 +183,7 @@ Done when 1–5 hold for humanoids with FaceGen faces (parts A, B and C).
 | A — data | schema additions, `fnv-actor` resolution, CLI, oracle, `L3.actors.appearance`, spec note | `fnv-sim` (leveled lists, inventories) |
 | B — assembly | one-skeleton spawning in `nvf-assets`, viewer `--npc`, world streaming of actors, frozen bind pose | A's `ActorAppearance` (stub first) |
 | C — FaceGen | spec note for `.egm`/`.egt`/`.tri` from public documentation, head/hair/hat morphs from FGGS/FGGA, skin texture morph from FGTS | B |
-| D — creatures | CREA (`MODL` skeleton + `NIFZ` model list), ACRE placement | B |
+| D — creatures (done 2026-10-09) | CREA (`MODL` skeleton + `NIFZ` model list), LVLC and template resolution, ACRE placement, idle; `fnvtool actor creatures`, oracle, `L3.actors.creatures`; actors.md §10; §8 below | B |
 | E — animation playback | `--actor-pose idle` (the default since 2026-10-09): a looping KF idle on each actor's skeleton by bone name (anim_play), accumulation root held at the identity, no per-frame allocation; findings in actors.md §7. Choosing clips by situation stays Layer 6 | B |
 | F — animation data (headless) | IDLE schema and reader (`fnv_actor::idle`), `.kf` catalogue by skeleton folder (`fnvtool actor anims`), spec note docs/spec-notes/animation.md; groundwork for Layer 6 animation selection | A |
 | H — weapons: holster and draw | the weapon an NPC carries drawn as a model on the skeleton's `Weapon` node, holstered by default; the stance's holster, equip, aim and unequip clips layered over locomotion by track priority; `prn:` keys move the weapon between holster bone and hand; test aid `--actor-weapon-test`; `fnvtool actor weapons`; actors.md §9; plan in §7 below | G |
@@ -286,3 +286,33 @@ actor and frame, drawing while walking about 18 µs more (§9.7). Open for the o
 exact holster placement against in-game screenshots, and the default (`holstered`; set
 `--actor-weapons none` for the part G look).
 
+## 8. Part D — creatures (2026-10-09)
+
+Facts and rules: docs/spec-notes/actors.md §10 (records, resolution, meshes, idle, CLI).
+
+- **Headless**: `fnv_actor::records::Creature` (CREA) and LVLC lists;
+  `Resolver::resolve_creature` → `CreatureAppearance` (creature after LVLC and template
+  resolution, skeleton, NIFZ parts beside it, base scale, KFFZ names, `random`).
+- **CLI and oracle**: `fnvtool actor creatures` (`fnv.actor.creatures/1`, with
+  `--check-meshes`); `tools/capture/oracle_actor.py creatures`, written from the spec
+  note; `L3.actors.creatures` compares the 2,346 deterministic placed creatures of the
+  ten masters (all equal).
+- **Engine**: `actors::spawn_creature` assembles each placed creature with
+  `nvf_assets::actor::spawn_actor` (`PartUse::by_ancestor`: unskinned shapes hang from
+  their nearest ancestor that the skeleton has), scales it by XSCL × BNAM, and plays the
+  skeleton's `mtidle.kf` through the locomotion player (male body lookup, spread phase).
+  `world.rs` calls it for CREA bases next to the NPC call.
+- **Also in this round**: actors and creatures that are not enabled at the start are
+  spawned hidden so a script's Enable shows them (actors.md §11; owner-review item 19);
+  light sources of such lights likewise; "Random Anim Start" spreads placed models'
+  idle phases (animation.md §8); `nvf-viewer --anim` plays walks in place (actors.md
+  §8.8); the body skin `.egt` tints the body texture (actors.md §4.1).
+- **Not done**: creature walk/turn/attack clips and KFFZ special idles (Layer 6); NIFT
+  texture variants; hand `.egt`; race FaceGen data (§4.2 of actors.md).
+
+Results (2026-10-09): `L3.actors.creatures` 2,346 of 2,346 equal; every skin bone of the
+230 (skeleton, model) pairs is in its skeleton and every rigid shape finds a bone
+(actors.md §10.2); in-game reference frames of the Goodsprings bighorners, coyotes and
+Victor match by eye in place, size and look (SSIM 0.36–0.43, sky and grass dominated);
+the moving-camera smoke test draws and animates 115 creatures with no idle missing, at
+50 fps (actors.md §10.5).
