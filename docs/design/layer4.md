@@ -245,7 +245,13 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    layer matrix — a scripted drop test is proposed as backlog item B11
    (layer4-captures.md); the Havok scale needs no in-game test (collision.md §6).
 
-9. **Movement and collision (workstream 2, 2026-10-08)**. Unattended jobs are ready and
+9. **Movement and collision (workstream 2, 2026-10-08)**. Update 2026-10-09
+   (`claude/l4-play-closeout`): capsule height, push and dropped items are captured
+   unattended (`pc_head`, `pc_push`, `pc_drop_fall`, physics.md §4.3 and §6): the player
+   is about 130 units tall to the ceiling's surface (the character is now 128.9 with a
+   cone top), pushing agrees with push mass 80, dropped items fall; the crouched height and
+   whether running or walking feels right with a real keyboard remain for someone at the
+   game. Unattended jobs are ready and
    need only the game to be free (layer4-captures.md §5): `mv_b11_drops`, `mv_traces`,
    `mv_b11_clutter`, `mv_values`. Questions that need someone at the game:
    - Capsule height: standing, then crouched, under a beam or doorway lintel whose height

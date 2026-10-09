@@ -468,10 +468,38 @@ FormID from 0xFF000000) the collision objects of its base form's model through
 physics cell containing it. Dynamic objects fall and settle like placed clutter; while the
 body moves, the reference pose `R = R_body R_localᵀ`, `t = t_body − R t_local` (local = the
 object's node and body transforms) is written back to the simulation, for models with
-exactly one collision object. That a dropped item falls at all is [hypothesis]: a
-scripted `player.Drop` stayed at its drop point for 10 s in game [observed]; the
-evidence, the readings and the capture that would settle it are in simulation.md §5
-"After the drop".
+exactly one collision object. Earlier evidence was mixed (a scripted `player.Drop` read
+the same z for 10 s in `ld_drop_refs`, simulation.md §5 "After the drop"); **settled
+2026-10-09: dropped items fall** [observed, capture `pc_drop_fall` (tools/capture/jobs/
+make_closeout_jobs.py), save nvfdoc, just outside Doc Mitchell's front door, the player's
+feet at 8693.43 on terrain at about 8690, heading 72.8°]:
+
+| Case | Reading (GetPos, GetAngle X Y Z) |
+|---|---|
+| scripted `player.Drop` stimpak | 5 loops after: z 8705.9 (the drop point is 8723.4, 30 above the feet); from 1 s on at rest at (−73109.3, 1334.4, 8696.82), angles (86.7, −17.2, 0.5): on its side, 7.7 units from the drop point |
+| the same, `SetPos Z` +1 and then +40 | stays where it is put (8697.8, then 8737.8, for 3 s each): a resting dropped item is not woken by `SetPos` |
+| `Drop` with the Pip-Boy open (`TapControl 14`, `MenuMode` 1) | in the menu it stays at the drop point (−73115.2, 1327.2, 8723.43), angles (0, 0, 72.81) = the player's heading; after `CloseAllMenus` it falls (8704.9 after 5 loops) and rests at (−73109.6, 1335.1, 8696.93), angles (86.4, −16.3, 0.7) |
+| `PlaceAtMe` stimpak | created at the player's feet, turned at random, rests at 8695.5 |
+| scripted `Drop` of a tin can | falls, rolls 30 units, at rest on its side at (−73102.8, 1296.5, 8696.99), angles (86.4, 31.2, 59.8) |
+| the player runs 40 loops over the resting stimpak | it moves 2.7 units and turns (angle Y −15.7 → 23.0); the player is not stopped (216 units in 0.67 s) |
+
+So a drop starts at its drop point turned as the holder faces (X and Y 0, Z the holder's
+heading), falls under its model's collision when the world runs, and rests lying down.
+`nvf-play` now turns a dropped item to the player's heading (`menu.rs`; `World::drop_item`
+leaves 0). Why `ld_drop_refs` read no fall is not known [hypothesis: its reference scan
+may have read a reference whose 3D was not loaded].
+
+**Clutter rests on the terrain's contact shell** (since 2026-10-09; `PhysWorld::
+insert_terrain` gives the terrain collider a contact skin of `TERRAIN_SHELL`, 3.5): the
+same drops in `fnvtool phys walk` with the item as a prop at the game's drop point and
+heading (§7) rested 4.2 units lower than the game's stimpak and stood the tin can upright
+1.4 units above the terrain; with the skin the stimpak rests at (−73111.2, 1334.7,
+8696.21), angles (86.4, −21.9, 0) against the game's (−73109.3, 1334.4, 8696.82), (86.7,
+−17.2, 0.5), and the can lies on its side at 8697.47 against 8696.99 (it rolls 17 units
+less) [observed; that the excess is the shell the player rests on (§6.2) is the same
+hypothesis]. Statics keep no skin for dynamic bodies (no capture of clutter resting on a
+static yet). Parity-lab L4 results are identical with the skin (the player's controller
+does not use contact skins).
 
 In our engine [observed, `nvforever --play`, 2026-10-08]: a stimpak (one dynamic Clutter
 object) dropped 30 units above Doc Mitchell's floor (z 7360) came to rest on its side at
@@ -544,7 +572,7 @@ means someone at the game.
 | fixed step `dt` | 1/60 s | unknown; the game ran at 60–64 loops per second during captures [observed] |
 | body radius | 22 | **[observed, §6.4.1]** from `mv_diag_fence_edge`: drops rested on the fence edge 22.6 off it (radius + 0.7 shell ≥ 22.6) and fell at 25.7; the game stops 21.45 from the fence face (`move_fence_stop`, face measured to 0.05), which would give 20.75: about 1.2 apart, not explained; the candidate now stops 22.7 from the face (keeping a static shell's 0.7 from walls, no longer the terrain's 3.5) |
 | bottom shape | cone: flat tip of radius 3.2, then rising 1.58 per unit to the radius | **[observed, §6.4.1]** fitted to 26 fence-edge drops from 50 and 200 units (RMS 2.9); the depth depends on the speed of the fall, which the model does not have |
-| capsule height | 128 | [hypothesis]; owner (head against a low ceiling of known height, standing and crouched) |
+| capsule height | 128.9, with a top mirroring the bottom cone | **[observed, capture `pc_head`, 2026-10-09]** see "Capsule height" below; crouched: not captured |
 | step height | 24 | [hypothesis]; `move_porch_steps` exercises steps of Doc Mitchell's porch; the limit needs ledges of graded heights (design open, §6.3) |
 | max slope | 45° | [hypothesis]; an unattended run up steep LAND squares is possible (design open, §6.3) |
 | jump apex | 61.6 | **[observed]** apex 61.6 above the standing feet, §6.3 (`fJumpHeightMin` reads 64) |
@@ -554,9 +582,50 @@ means someone at the game.
 | walk / run speed | `nvf-play` uses 86.8 / 344 | **[observed]**, §6.3 |
 | eye height | 112 (`nvf-play`) | about 123 above the feet if the crosshair pick is a sphere of `fActivatePickSphereRadius` 16 cast from above the feet (both distances agree); a plain ray fits only with the camera 10.6 units behind the feet (110 above them) [observed: `mv_values`, §6.3; the model is hypothesis]; not changed yet |
 | activation reach | 150 (`nvf-play` `pick::REACH`) | `iActivatePickLength` reads 150, `fActivatePickSphereRadius` 16; at 30° down the crosshair found the fence up to a feet-to-face distance of 120 and not from 123 [observed: `mv_values`]: 122–126 along the view with the sphere model, 139–142 for a plain ray; not changed yet |
-| push mass | 80 | [hypothesis]; owner (how far walking pushes a known clutter item) |
+| push mass | 80 | **[observed agreement, capture `pc_push`, 2026-10-09]** see "Pushing clutter" below: unchanged |
 | layers the player passes through | §4 list | B11 job `mv_b11_drops` and scenario `L4.phys.drops.b11_goodsprings`, ready (§4.2) |
 | CollisionMarker bounds | half extents | three CollisionMarker tops in `mv_b11_drops`: read as full extents they would be 6.5, 65 and 34.5 units lower (§4.2) |
+
+**Capsule height** (capture `pc_head`, unattended, save nvfdoc, Doc Mitchell's house,
+`make_closeout_jobs.py`): standing jumps (TapControl 12) after `SetPos` to the floor
+(7360; the player read 7364.0 before jumping, so it hovered as after other `SetPos`
+drops, §6.2) under ceilings whose height `fnvtool phys cell --ray` gives, twice each
+[observed]:
+
+| Spot (x, y) | Ceiling at the axis | Game apex (GetPos z) | Ceiling − apex | NVForever (128.9, cone top) |
+|---|---|---|---|---|
+| open room (1536, 1340) | 7616 | 7425.54 / 7425.37 (rise 61.5) | — | rise 59.2 from 7360.7 (not limited) |
+| doorway beam (1536, 1468) | 7536.1 | 7405.61 / 7405.61 | 130.5 | 7406.48 (+0.87) |
+| sloping ceiling (1864, 2116) | 7534.2 | 7404.20 / 7404.20 | 130.0 | 7403.43 (−0.77) |
+| sloping (1880, 2116) | 7528.4 | 7398.14 / 7398.41 | 130.1 | 7397.61 (−0.69) |
+| sloping (1896, 2116) | 7522.6 | 7392.64 / 7392.66 | 130.0 | 7391.79 (−0.86) |
+
+The head stops 130.0–130.5 below the ceiling (at the axis), whatever the slope: the
+player is about 130 units tall including the ceiling's shell. NVForever's character is
+now 128.9 tall with its top a mirror of the bottom cone (`fnv_phys::character::HEIGHT`);
+the old flat top at 128 overshot the beam by 1.8, a flat top fitted to the beam
+stopped 5–8 units low under the slope. The editor documentation says the player "stands
+128 units tall" [documented: GECK Layout, level-design.md]. A sneaking jump in the open
+rose as high (61.5) [observed]; the crouched height is not captured (the sneak toggle did
+not take before the beam jump), so sneaking keeps the standing shape. Walking under the
+176-unit doorway passes, standing and sneaking; sneaking walk speed 49.5 units/s =
+86.8 × 0.57 [observed: pc_head], the fraction `nvf-play` uses.
+
+**Pushing clutter** (capture `pc_push`, same house, a lane of flat floor at x 1536):
+the player runs (Always Run) or walks into an item lying on the floor 150 / 100 units
+ahead, forward held 40 loops running or 150 walking, positions sampled every loop
+[observed]; NVForever: the same trials in `fnvtool phys walk` with the item as a prop (§7):
+
+| Trial | Game | NVForever (push mass 80) |
+|---|---|---|
+| tin can, running (3 runs) | carried ahead at the player's speed while touching (84, 78, 106 units in the first 0.26 s), then rolls on at about 290 units/s; 372–451 units in all, through the doorway | carried at the player's speed (77 in 0.25 s), then slows from 260 to 160 units/s; stopped at the wall 198 units on |
+| tin can, walking (2 runs) | pushed along at the walking speed: 41 and 30 units | 46 units |
+| stimpak, running | the player runs over it; it moves 12.4 units | 12.1 units |
+| whiskey bottle | rolled away (180 units) while settling, before the player started: no push | (stays) |
+
+The push itself agrees (an item touched by the player moves with it; a flat item is run
+over), so the push mass stays 80. The game's tin can keeps its speed longer after the
+contact (less rolling friction or damping) [observed]; not tuned.
 
 Settings stored in FalloutNV.esm whose names suggest movement or falling (values
 [observed] from the GMST records; meanings [hypothesis] from the names only):
@@ -587,6 +656,8 @@ it adds:
 | walk speed | 86.8 units/s (`MoveSpeeds::OBSERVED`) | [observed: §6.3, a level-1 character, Speed Mult 100; the formula (encumbrance, sneaking, weapon out) is unknown; `fMoveBaseSpeed` is 77] |
 | run speed | 344 units/s | [observed: §6.3; `fMoveBaseSpeed × fMoveRunMult` would be 308] |
 | run by default, Shift walks | | [observed: Always Run is on in the owner's game and the Run control is bound to left Shift, §6.3] |
+| Caps Lock toggles Always Run (then Shift runs), Ctrl toggles sneaking, Q toggles Auto Move | since 2026-10-09 | [observed: the owner's control map binds Always Run, Crouch/Sneak and Auto Move to these keys; sneaking toggles (mv_values); that Shift runs with Always Run off and that Forward/Back end Auto Move is hypothesis] (docs/design/layer4-play.md §6, input audit) |
+| sneaking speed | 197.7/344 of the speed otherwise | [observed running forward, mv_values §6.3; walking and other directions hypothesis]; the capsule and the eye stay as standing (see capsule height) |
 | backwards at 0.79 of the forward speed (`BACK_SPEED_FRACTION`); sideways and diagonals at the forward speed, diagonals not faster | | [observed: backwards 272.8 against 344, §6.3; sideways and diagonals hypothesis] |
 | eye height above the feet | 112 units | [hypothesis: placeholder for a standing human at about 70 units per metre] |
 | the player reference's z rotation is its compass heading in radians | written to the simulation each frame | [hypothesis: door teleport markers' rotations are read the same way] |
@@ -1643,12 +1714,34 @@ arrival; walking off the box is caught 800 units under the cell's lowest collisi
 (7532) and put at the door arrival (its last footing, the box's edge, no longer passes the
 standing test), from where it walks into the room.
 
-**Capture proposed for the owner** (not run; the game is in use by other sessions):
-`coc GSGasStation`, then read `player.GetPos x|y|z` and `player.GetAngle z` (does `coc`
-put the player at the door arrival (511, −5951, ~7554), at a marker, or elsewhere?);
-then `player.SetPos` to x 682, y −4755, z 7552 (over nothing) and read z every 0.5 s for
-10 s (does the game let the player fall, stop them, or move them?). Either result would
-replace a [hypothesis] above.
+**Captured 2026-10-09** (`pc_coc`, unattended, save nvftest; `make_closeout_jobs.py`)
+[observed]:
+
+| `coc` into | Player (GetPos, GetAngle Z) | What is there |
+|---|---|---|
+| GSDocMitchellHouse | (2351.98, 1603.60, 7360.59), 270° | its COCMarkerHeading 0x00103E68 (2351.98, 1603.60, 7360), z rotation 4.712 rad |
+| GSGasStation | (512.30, −5970.55, 7554.08), 0° | its one XMarker 0x00105D4B (512.3, −5970.55, 7553.5); not the door arrival (511.4, −5950.8) |
+| GSProspectorSaloonInterior | (−3.94, 243.61, 3460.58), 0° | its one XMarker 0x0015F9C3, exactly |
+| GSGeneralStore | (−13.77, 598.76, 544.61), 0° | no marker; the XTEL position of door 0x00106373 into it (−13.77, 598.76, 544.53), whose rotation is −90° |
+
+Over nothing in the gas station (`SetPos` 682, −4755, 7552): the player fell (7422.9
+after 0.59 s, free fall) and by 1.12 s stood at (512.30, −5970.55, 7554.09), the `coc`
+spot, and stayed there for 20 s. No save was written by `coc` (the run's save guard saw no
+change).
+
+So the rules (`nvf_play::player::safe`) are now: **the cell's own spot**
+(`safe::cell_spot`): COCMarkerHeading (its heading), else an XMarker, else the first door
+arrival into the cell (facing 0) [observed for one cell each; which of several XMarkers or
+doors is hypothesis]. An interior start with no `--pos` goes there (`PlayData::
+start_at_cell_spot`), as `coc` does; a start, door destination or fall with nothing
+under it goes there first, else to the nearest door arrival; falls are caught 256 units
+under the cell's lowest collision (`INTERIOR_FELL_THROUGH`, was 800) [engineering choice
+inside the observed window of about 100–410 units]. The last place stood is still tried
+first after a fall [hypothesis; in the capture it was the same spot]. The XMarker and
+door headings of 0 are [observed] for these cells only.
+`fnv-game`'s `coc_destination` (Layer 5, `crates/fnv-game/src/runner.rs`) still takes the
+first placed reference when a cell has no COCMarkerHeading; the XMarker / door-arrival
+rule above would replace it (left to the Layer 5 owner).
 
 ## 7. CLI contract
 
@@ -1781,7 +1874,13 @@ as used), then
 `trace` holds every `--every`th step and the last. A script may add `"observe": {"from_step":
 s, "every": n, "count": k}`: the output then holds `observations`, the feet (and `grounded`, `swimming`)
 after steps s + n, s + 2n, … s + kn, labelled `"t<seconds after step s, two decimals>"`
-(`t0.25` …); it must end within the script. Other top-level fields (e.g. the `capture`
+(`t0.25` …); it must end within the script. Optional `"props": [{"label", "model", "at":
+[x, y, z], "rot"?: [x, y, z]}]` (since 2026-10-09) adds each model's collision before the
+walk as a reference with FormID 0xFF000000 + its index (needs the meshes), e.g. a clutter
+item for the character to push; the output then has `props` (`label`, `model`, `formid`,
+`bodies`, `havok_mass` (the objects' stored masses summed), `end`, `end_rotation`,
+`asleep`), each trace entry `props` (first body's position per prop) and each observation
+`props`. Without `props` the output is unchanged. Other top-level fields (e.g. the `capture`
 block that `tools/capture/capture_moves.py` reads) are ignored. Runs are deterministic: the same
 inputs give byte-identical output [observed: the Goodsprings script below, run twice].
 `crates/fnv-phys/scripts/goodsprings_walk.json` is such a script (synthetic input, not a

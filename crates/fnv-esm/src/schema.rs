@@ -15,8 +15,23 @@
 //! Type expressions: a primitive name (`u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 formid
 //! zstring zstring_array string bytes`), a named type from `types`, or an object:
 //! `{"struct": [fields]}`, `{"array": T, "count": N}` (no count = fill the rest),
-//! `{"enum": prim, "values": {"0": "Name"}}`, `{"flags": prim, "bits": {"0": "Name"}}`.
+//! `{"enum": prim, "values": {"0": "Name"}}`, `{"flags": prim, "bits": {"0": "Name"}}`,
+//! `{"union": [{"size": N, "type": T}, ..., {"type": T}]}` (the first variant whose
+//! `size` equals the bytes left, else the first variant without `size`; the value is
+//! the chosen variant's value).
 //! Struct fields may be `"optional": true` (allowed to be absent at the end).
+//!
+//! A record entry may also name bits of its 24-byte record header's flags field
+//! (additive; older loaders ignore the key):
+//!
+//! ```json
+//! "WEAP": {"name": "Weapon", "header_flags": {"bits": {"10": "Quest Item"},
+//!          "confidence": "documented", "note": "source"}, "subrecords": {}}
+//! ```
+//!
+//! Bits are numbered from 0 (least significant). The container-level flags every record
+//! shares (deleted, compressed, master) stay in `raw::record_flags`: the reader needs them
+//! before any schema is loaded.
 
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value};
@@ -100,6 +115,10 @@ pub enum TypeDef {
     Array { elem: Box<TypeDef>, count: Option<usize> },
     Enum { base: Prim, values: Vec<(i64, String)> },
     Flags { base: Prim, bits: Vec<(u32, String)> },
+    /// Layout chosen by the number of bytes left: `(Some(n), T)` applies when exactly `n`
+    /// bytes remain, `(None, T)` is the fallback. Expresses xEdit's size-decided unions
+    /// (e.g. WATR DATA: 2-byte damage, or the older 186-byte visual data).
+    Union(Vec<(Option<usize>, TypeDef)>),
 }
 
 #[derive(Debug, Clone)]
@@ -115,6 +134,22 @@ pub struct RecordDef {
     pub name: String,
     pub confidence: String,
     pub subrecords: HashMap<[u8; 4], SubDef>,
+    /// Named bits of the record header's flags field, sorted by bit (`header_flags`).
+    pub header_flags: Vec<(u32, String)>,
+    pub header_flags_confidence: Option<String>,
+}
+
+impl RecordDef {
+    /// The mask of the header flag with this name (case-insensitive), if the schema
+    /// names it for this record type.
+    pub fn header_flag(&self, name: &str) -> Option<u32> {
+        self.header_flags.iter().find(|(_, n)| n.eq_ignore_ascii_case(name)).map(|(b, _)| 1u32 << b)
+    }
+
+    /// Names of the set bits of `flags` that the schema names, in bit order.
+    pub fn header_flag_names(&self, flags: u32) -> Vec<&str> {
+        self.header_flags.iter().filter(|(b, _)| flags & (1u32 << b) != 0).map(|(_, n)| n.as_str()).collect()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -202,6 +237,24 @@ fn parse_type(v: &Value, ctx: &str) -> Result<TypeDef, SchemaError> {
                     }
                 }
                 Ok(TypeDef::Flags { base, bits })
+            } else if let Some(vs) = v.get("union") {
+                let arr = vs.as_array().ok_or_else(|| SchemaError(format!("{ctx}: union must be an array")))?;
+                let mut out = Vec::new();
+                for (i, var) in arr.iter().enumerate() {
+                    let size = match var.get("size") {
+                        None => None,
+                        Some(n) => Some(n.as_u64().ok_or_else(|| SchemaError(format!("{ctx}: union #{i} bad size")))? as usize),
+                    };
+                    let ty = parse_type(
+                        var.get("type").ok_or_else(|| SchemaError(format!("{ctx}: union #{i} missing type")))?,
+                        &format!("{ctx}[{i}]"),
+                    )?;
+                    out.push((size, ty));
+                }
+                if out.is_empty() {
+                    return Err(SchemaError(format!("{ctx}: union needs at least one variant")));
+                }
+                Ok(TypeDef::Union(out))
             } else {
                 Err(SchemaError(format!("{ctx}: unrecognised type object")))
             }
@@ -219,7 +272,33 @@ fn parse_subdef(v: &Value, ctx: &str) -> Result<SubDef, SchemaError> {
     })
 }
 
+/// Named header flag bits (sorted) and their confidence.
+type HeaderFlags = (Vec<(u32, String)>, Option<String>);
+
+/// A record entry's `header_flags`: `{"bits": {"10": "Name"}, "confidence", "note"}`.
+fn parse_header_flags(v: Option<&Value>, ctx: &str) -> Result<HeaderFlags, SchemaError> {
+    let Some(v) = v else { return Ok((Vec::new(), None)) };
+    let bits = v.get("bits").and_then(Value::as_object).ok_or_else(|| SchemaError(format!("{ctx}: needs a \"bits\" object")))?;
+    let mut out = Vec::new();
+    for (k, n) in bits {
+        let bit: u32 = k.parse().map_err(|_| SchemaError(format!("{ctx}: bit {k:?}")))?;
+        if bit > 31 {
+            return Err(SchemaError(format!("{ctx}: bit {bit} out of range (the field is a u32)")));
+        }
+        let name = n.as_str().filter(|n| !n.is_empty()).ok_or_else(|| SchemaError(format!("{ctx}: bit {bit} needs a name")))?;
+        out.push((bit, name.to_string()));
+    }
+    out.sort();
+    Ok((out, v.get("confidence").and_then(Value::as_str).map(str::to_string)))
+}
+
 impl Schema {
+    /// The mask of the named record-header flag for record type `rec`, if the schema
+    /// names it (`header_flags`).
+    pub fn header_flag(&self, rec: &[u8; 4], name: &str) -> Option<u32> {
+        self.records.get(rec)?.header_flag(name)
+    }
+
     /// Load and merge every `*.json` file under `dir` (sorted by path).
     pub fn load_dir(dir: impl AsRef<Path>) -> Result<Schema, SchemaError> {
         let mut files = Vec::new();
@@ -266,10 +345,13 @@ impl Schema {
                         subs.insert(sig4(ss, label)?, parse_subdef(sd, &format!("{label}:{sig}.{ss}"))?);
                     }
                 }
+                let (header_flags, header_flags_confidence) = parse_header_flags(d.get("header_flags"), &format!("{label}:{sig}.header_flags"))?;
                 let rd = RecordDef {
                     name: d.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
                     confidence: d.get("confidence").and_then(Value::as_str).unwrap_or("hypothesis").to_string(),
                     subrecords: subs,
+                    header_flags,
+                    header_flags_confidence,
                 };
                 if self.records.insert(k, rd).is_some() {
                     return Err(SchemaError(format!("{label}: record {sig} defined twice")));
@@ -294,6 +376,7 @@ impl Schema {
                 },
                 TypeDef::Struct(fs) => fs.iter().try_for_each(|f| check(s, &f.ty, depth + 1, ctx)),
                 TypeDef::Array { elem, .. } => check(s, elem, depth + 1, ctx),
+                TypeDef::Union(vs) => vs.iter().try_for_each(|(_, t)| check(s, t, depth + 1, ctx)),
             }
         }
         for (n, t) in &self.types {
@@ -345,7 +428,7 @@ impl Schema {
             }
             TypeDef::Array { elem, count: Some(c) } => Some(self.fixed_size(elem)? * c),
             TypeDef::Array { count: None, .. } => None,
-            TypeDef::Named(_) => None,
+            TypeDef::Named(_) | TypeDef::Union(_) => None,
         }
     }
 }
@@ -460,5 +543,23 @@ mod tests {
         let mut s = Schema::default();
         let dup = r#"{"format":"fnv.schema/1","common":{"EDID":{"type":"u8"},"EDID":{"type":"u16"}}}"#;
         assert!(s.merge_str(dup, "x").unwrap_err().0.contains("duplicate key"));
+    }
+
+    #[test]
+    fn header_flags() {
+        let mut s = Schema::default();
+        let t = r#"{"format":"fnv.schema/1","records":{"MISC":{"name":"Misc",
+          "header_flags":{"bits":{"10":"Quest Item","5":"Deleted"},"confidence":"documented"},"subrecords":{}}}}"#;
+        s.merge_str(t, "t").unwrap();
+        assert_eq!(s.header_flag(b"MISC", "quest item"), Some(0x400));
+        assert_eq!(s.header_flag(b"MISC", "Nope"), None);
+        assert_eq!(s.header_flag(b"KEYM", "Quest Item"), None);
+        let r = &s.records[b"MISC"];
+        assert_eq!(r.header_flag_names(0x420), vec!["Deleted", "Quest Item"]);
+        assert_eq!(r.header_flags_confidence.as_deref(), Some("documented"));
+        for bad in [r#"{"bits":{"32":"X"}}"#, r#"{"bits":{"x":"X"}}"#, r#"{"bits":{"1":""}}"#, r#"{}"#] {
+            let t = format!(r#"{{"format":"fnv.schema/1","records":{{"MISC":{{"header_flags":{bad}}}}}}}"#);
+            assert!(Schema::default().merge_str(&t, "x").is_err(), "{bad}");
+        }
     }
 }

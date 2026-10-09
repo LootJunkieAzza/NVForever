@@ -213,6 +213,44 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   non-playable item (`fnv_sim::forms::Item::non_playable`); that the Pip-Boy 3000 and
   other non-playable armour behave like the glove is [hypothesis]; the simulation does
   not equip them yet.
+- **Quest items**: an item marked as a quest item cannot be dropped from the player's
+  inventory and cannot be sold, and a dead body holding one is not cleaned up until it is
+  taken out [documented: GECK wiki Category:Items and SetQuestObject, owner exports
+  2026-10-09 and 2026-10-07]. The mark is bit 10 (0x400) of the item record's header
+  flags, named "Quest Item" per record type in `schemas/fnv` (`header_flags`; sources and
+  the 339 flagged records of the ten masters in `docs/spec-notes/esm.md`). Scripts set or
+  clear it with `SetQuestObject form flag`, which changes the form's flag [documented:
+  GECK wiki SetQuestObject]. Implemented:
+  - `Item::quest_item` is the record's flag; `World::is_quest_item` is the one answer the
+    engine asks: a script's value (`World::set_quest_object`, kept in `fnv.sim.state/1`
+    snapshots as `quest_objects`) when one was set, else the record's. That a script's
+    value replaces the authored one for every reference of the form is [hypothesis: the
+    flag is the base form's]. fnv-game's SetQuestObject writes there (it used to keep its
+    own map, `FormChanges::quest_items`, now unused).
+  - The player's own drop (`World::player_drop_item`, the inventory menu's drop keys)
+    refuses a quest item with `SimError::QuestItem` and moves nothing [documented].
+  - A **scripted** drop does not: in the game, `player.Drop` from a script removed a quest
+    key and a stimpak made a quest item with `SetQuestObject 1` from the player's
+    inventory like any other item [observed 2026-10-09, save `nvftest`, job
+    `tools/capture/jobs/qi_drop_quest_item.steps.json`, output
+    `C:\fnv-private\capture\out\qi_drop_quest_item.1791540717.jsonl`: Doc Hoff's Supply
+    Key (KEYM 0x00068E8D, header bit 10) read `IsQuestItem` 1 and its count went 1 → 0
+    after `player.Drop`; the stimpak read `IsQuestItem` 0, then 1 after `SetQuestObject`,
+    and its count went 10 → 9 on the drop; after `SetQuestObject 0` it read 0 again and
+    9 → 8]. So `World::drop_item`, which the script functions `Drop` and `DropMe` and the
+    action scripts' `drop_item` use, ignores the flag. The same capture confirms that the
+    game reads header bit 10 as the quest-item flag (`IsQuestItem`) [observed].
+  - Other holders (NPCs, containers) may drop one [hypothesis: the pages name only the
+    player; scripted drops ignore the flag anyway].
+  - Moving a quest item into a container (`World::transfer`) is allowed [hypothesis: the
+    pages say nothing about containers].
+  - Selling: no barter exists yet; when it does, it must refuse quest items the same way
+    [documented].
+  - Corpses: nothing cleans up dead bodies yet, so the "not cleaned up while holding a
+    quest item" rule has nothing to act on [documented, not implemented].
+  - fnv-game's RemoveAllTypedItems leaves the player's quest items (as before, now read
+    from `World::is_quest_item`); its RemoveAllItems does not exempt them yet although
+    the catalogue says it should (`script-functions-catalogue.md`) [open].
 - **Inventory model**: one stack per base item, split into groups of identical extra data
   (condition, owner, equipped). Removing more than is held removes what is there and
   reports that number [hypothesis: GECK `RemoveItem` behaviour as commonly described; to
@@ -412,7 +450,11 @@ draws per case, unattended, save `nvftest`; chi-square p 0.16–1.0 in all ten c
   leaves the reference at count 1; the player's own activation (`World::activate`, the
   engine) still takes the whole stack [hypothesis; not captured]. The simulation places drops at that offset (holder heading from its z
   rotation, §5 crosshair notes) [hypothesis for other actors and items].
-- **After the drop: does a dropped item fall?** Two observations pull different ways:
+- **After the drop: does a dropped item fall?** **Yes** [observed 2026-10-09, capture
+  `pc_drop_fall`: a scripted `Drop`, and a `Drop` with the Pip-Boy open once it closed,
+  fell from the drop point and came to rest lying down within 1 s; the new reference
+  starts with GetAngle Z = the holder's heading; readings in physics.md §4.3]. The
+  earlier readings, kept for the record:
   - The scripted drop above (`ld_drop_refs`, tgm and tdetect on) read `GetPos Z` 8723.86
     right after `player.Drop` and again 600 frames (10 s) later: the drop point, 30 units
     above the feet [observed, `C:\fnv-private\capture\out\ld_drop_refs.*.jsonl`].
@@ -739,7 +781,10 @@ Lab comparator: **distribution** over `/cases`, keyed on `label`, `field` `outco
 
 Observational report behind §1–§5 (counts per base type, item value/weight coverage,
 carried-item targets, leveled-list statistics, reference flags, locks, teleport
-reciprocity, loader issues). Not a scenario.
+reciprocity, loader issues). Not a scenario. `quest_items` (2026-10-09): `by_type` and
+`items` (formid, sig, edid, name) of the items the loader reads as quest items, and
+`item_record_header_bits`: per item record type, how many winning records set each
+header flag bit, whatever the schema names (the observation behind §3 "Quest items").
 
 ### `fnvtool sim doors <lo> --schema <dir>` → `fnv.sim.doors/1`
 
