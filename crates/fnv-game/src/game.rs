@@ -125,6 +125,10 @@ pub struct RefExtra {
     /// Packages added with AddScriptPackage (the last one is current).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub packages: Vec<FormId>,
+    /// The AI package the actor chose when its packages were last evaluated
+    /// ([`Game::evaluate_package`]); `None` until then.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub current_package: Option<FormId>,
 }
 
 /// The player's state outside the world's reference table.
@@ -170,6 +174,23 @@ pub struct MessageBox {
     pub buttons: usize,
     /// The button chosen (runner input), returned once by `GetButtonPressed`.
     pub pressed: Option<i32>,
+    /// The script that showed the box (its instance, or the unit of a result script):
+    /// only that script's `GetButtonPressed` receives the button; any other script
+    /// reads −1 and leaves the box alone [hypothesis, from the GECK wiki's ShowMessage
+    /// and GetButtonPressed pages: the script that shows a message box polls its button].
+    /// `None` (a box from an older snapshot): the first caller takes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+}
+
+impl MessageBox {
+    /// The identity of a calling script for [`MessageBox::owner`].
+    pub fn owner_of(inst: Option<InstKey>, unit: &str) -> String {
+        match inst {
+            Some(k) => k.label(),
+            None => unit.to_string(),
+        }
+    }
 }
 
 pub struct Game<'a> {
@@ -185,11 +206,24 @@ pub struct Game<'a> {
     pub loaded_cells: BTreeSet<FormId>,
     /// Scripted references a script moved (they may have left their authored cell).
     pub moved: BTreeSet<FormId>,
-    /// The open menu (MenuMode), by menu code.
+    /// The open menu, by menu code. While a menu is open, [`Game::tick`] runs MenuMode
+    /// blocks instead of GameMode, and game time stops for scripts (GetSecondsPassed and
+    /// the quest delay of GameMode) [observed: layer5-captures.md §8.3 e]. Part of the
+    /// engine API, docs/spec-notes/scripts.md §7.2.
     pub menu: Option<u16>,
+    /// A loading screen is up: [`Game::tick`] runs no script and game time stops
+    /// [observed: GetSecondsPassed did not count a `coc` loading screen,
+    /// layer5-captures.md §8.3 e]. Part of the engine API, scripts.md §7.2.
+    pub loading: bool,
     pub message_box: Option<MessageBox>,
     pub frame: u64,
+    /// Game time in seconds: the frame steps that were not in a menu or a loading
+    /// screen. GetSecondsPassed reads it.
     pub time: f64,
+    /// References enabled since the last frame whose OnLoad runs at the start of the
+    /// next one [observed: OnLoad after Enable had not run on the line after Enable and
+    /// had run by the next frame, layer5-captures.md §8.3 d].
+    pub pending_onload: Vec<FormId>,
     pub events: Vec<Event>,
     /// Calls per opcode that have no implementation.
     pub unhandled: BTreeMap<u16, u64>,
@@ -199,6 +233,8 @@ pub struct Game<'a> {
     stubs_seen: BTreeSet<(u16, String, String)>,
     pub rng: ChaCha8Rng,
     depth: u32,
+    /// A function asked the running script to stop as `Return` does (RemoveMe).
+    stop_run: bool,
 }
 
 /// Snapshot of the Layer 5 state plus the world's (`fnv.game.state/1`).
@@ -214,9 +250,13 @@ pub struct GameSnapshot {
     pub loaded_cells: BTreeSet<FormId>,
     pub moved: BTreeSet<FormId>,
     pub menu: Option<u16>,
+    #[serde(default)]
+    pub loading: bool,
     pub message_box: Option<MessageBox>,
     pub frame: u64,
     pub time: f64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_onload: Vec<FormId>,
     pub rng_word_pos: String,
 }
 
@@ -230,10 +270,14 @@ pub enum ActMode {
     /// `Activate` [documented: GECK wiki Activate; layer5.md §3.4].
     Hand,
     /// `Activate` with flag 0 (or none): the default action, bypassing any OnActivate
-    /// block [documented: GECK wiki Activate].
+    /// block [documented: GECK wiki Activate; observed: a scripted `Activate player` of
+    /// the Doc Mitchell house door and of dead ED-E did not run their blocks,
+    /// layer5-captures.md §8.3 f].
     Default,
-    /// `Activate actor 1`: the OnActivate block instead of the default action; nothing
-    /// when there is no block [documented: GECK wiki Activate].
+    /// `Activate actor 1`: the OnActivate block instead of the default action
+    /// [documented: GECK wiki Activate, RunOnActivateBlockFlag]; the default action when
+    /// the target has no block [observed: a dead legionary without an OnActivate block
+    /// opened its loot menu, `L5.quest.dead_activation`].
     Block,
 }
 
@@ -266,9 +310,11 @@ impl<'a> Game<'a> {
             loaded_cells: BTreeSet::new(),
             moved: BTreeSet::new(),
             menu: None,
+            loading: false,
             message_box: None,
             frame: 0,
             time: 0.0,
+            pending_onload: Vec::new(),
             events: Vec::new(),
             unhandled: BTreeMap::new(),
             stubbed: BTreeMap::new(),
@@ -276,6 +322,7 @@ impl<'a> Game<'a> {
             stubs_seen: BTreeSet::new(),
             rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x5C21_7000),
             depth: 0,
+            stop_run: false,
         }
     }
 
@@ -311,6 +358,7 @@ impl<'a> Game<'a> {
         if !s.running {
             s.running = true;
             s.since_run = 0.0;
+            s.since_menu_run = 0.0;
             self.emit(EventKind::QuestStarted { quest: q });
         }
         true
@@ -570,15 +618,35 @@ impl<'a> Game<'a> {
 
     // ---- frames ------------------------------------------------------------------
 
-    /// One frame: quest scripts whose delay has passed, then the object scripts of
-    /// enabled references in loaded cells (GameMode, or MenuMode while a menu is open)
-    /// [hypothesis: quests before references, each in FormID order; observed: quest
-    /// delays, see `QuestDef::script_delay`].
+    /// One frame. Nothing runs during a loading screen ([`Game::loading`]). Otherwise:
+    /// the OnLoad blocks of references enabled since the last frame; quest scripts whose
+    /// delay has passed; the object scripts of enabled references in loaded cells; the
+    /// scripts of the items the player carries. Each runs GameMode, or MenuMode while a
+    /// menu is open ([`Game::menu`]).
+    ///
+    /// Game time ([`Game::time`]) and the quest delay of GameMode advance only outside
+    /// menus and loading screens [observed: GetSecondsPassed after a 900-frame container
+    /// menu was one ordinary frame for an every-frame quest and the quest's own 0.5 s
+    /// delay for VMQ03aTimer, `L5.quest.seconds_after_menu`; layer5-captures.md §8.3 e].
+    /// MenuMode keeps its own delay counter, which advances only in menus [hypothesis].
+    /// Order: quests before references, each in FormID order, then carried items
+    /// [hypothesis; not settled by the captures, layer5-captures.md §8.3 d].
     pub fn tick(&mut self) {
-        let dt = self.cfg.frame_seconds;
         self.frame += 1;
-        self.time += dt;
-        let ev = if self.menu.is_some() { event::MENU_MODE } else { event::GAME_MODE };
+        if self.loading {
+            return;
+        }
+        let dt = self.cfg.frame_seconds;
+        let in_menu = self.menu.is_some();
+        if !in_menu {
+            self.time += dt;
+        }
+        for r in std::mem::take(&mut self.pending_onload) {
+            if self.present(r) && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) {
+                self.ref_event(r, event::ON_LOAD, None, None);
+            }
+        }
+        let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
         let subject = self.menu.map(|m| Value::Num(m as f64));
         let data = self.data;
         let due: Vec<(FormId, FormId)> = self
@@ -588,10 +656,11 @@ impl<'a> Game<'a> {
             .filter_map(|(q, s)| {
                 let def = data.quests.get(q)?;
                 let script = def.script.filter(|s| data.scripts.contains_key(s))?;
-                s.since_run += dt;
+                let counter = if in_menu { &mut s.since_menu_run } else { &mut s.since_run };
+                *counter += dt;
                 let delay = s.delay.unwrap_or_else(|| def.script_delay());
-                if s.since_run + 1e-9 >= delay {
-                    s.since_run = 0.0;
+                if *counter + 1e-9 >= delay {
+                    *counter = 0.0;
                     Some((*q, script))
                 } else {
                     None
@@ -609,6 +678,50 @@ impl<'a> Game<'a> {
             if self.data.script(script).is_some_and(|u| u.has_block(ev)) {
                 self.run_event(InstKey::Ref { reference: r }, script, ev, subject, RunCtx { self_ref: Some(r), ..Default::default() });
             }
+        }
+        let holder = FormId::PLAYER_REF;
+        for (item, script) in self.carried_scripts(holder, ev) {
+            // An earlier item's script may have removed this one.
+            if self.world.item_count(holder, item).unwrap_or(0) > 0 {
+                let key = InstKey::Item { holder, item };
+                self.run_event(key, script, ev, subject, RunCtx { self_ref: None, action_ref: Some(holder), quest: None });
+            }
+        }
+    }
+
+    /// The scripted items `holder` carries whose script has a block for `ev`, in FormID
+    /// order. Only the player's inventory runs per-frame item scripts here [observed: a
+    /// jar of pistol powder's GameMode ran in the player's inventory by the frame after
+    /// it was added, `L5.quest.onadd_gamemode`; hypothesis: items held by other actors
+    /// and containers also run, not modelled].
+    fn carried_scripts(&self, holder: FormId, ev: u16) -> Vec<(FormId, FormId)> {
+        let Some(inv) = self.world.peek(holder).and_then(|s| s.inventory.as_ref()) else { return Vec::new() };
+        inv.iter()
+            .filter_map(|(item, _)| {
+                let script = self.data.script_of_base(item)?;
+                self.data.script(script).is_some_and(|u| u.has_block(ev)).then_some((item, script))
+            })
+            .collect()
+    }
+
+    /// Whether game time is stopped for scripts (a menu or a loading screen).
+    pub fn paused(&self) -> bool {
+        self.menu.is_some() || self.loading
+    }
+
+    /// A function asks the running script to stop as `Return` does (RemoveMe).
+    pub fn request_return(&mut self) {
+        self.stop_run = true;
+    }
+
+    /// `r` was enabled: when it is in a loaded cell and its script has an OnLoad block,
+    /// that block runs at the start of the next frame, not inside Enable [observed: the
+    /// jukebox's and the broken radio's OnLoad effects were not there on the line after
+    /// Enable and were there one frame later, layer5-captures.md §8.3 d].
+    pub fn note_enabled(&mut self, r: FormId) {
+        let has = self.ref_script(r).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_LOAD));
+        if has && self.cell_of(r).is_some_and(|c| self.loaded_cells.contains(&c)) && !self.pending_onload.contains(&r) {
+            self.pending_onload.push(r);
         }
     }
 
@@ -693,23 +806,33 @@ impl<'a> Game<'a> {
     pub fn activate(&mut self, actor: FormId, target: FormId, mode: ActMode) -> Result<serde_json::Value, String> {
         let has_block = self.ref_script(target).and_then(|s| self.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
         match mode {
-            ActMode::Hand if has_block => {
+            ActMode::Hand | ActMode::Block if has_block => {
+                // The block runs inside the activation [observed: a variable the door's
+                // OnActivate set was read on the next line of the script that called
+                // `Activate player 1`, `L5.quest.ref_activation`].
                 let ran = self.ref_event(target, event::ON_ACTIVATE, Some(Value::Ref(actor.0)), Some(actor));
                 Ok(serde_json::json!({"result": "script", "ran": ran}))
             }
-            ActMode::Block => {
-                let ran = has_block && self.ref_event(target, event::ON_ACTIVATE, Some(Value::Ref(actor.0)), Some(actor));
-                Ok(serde_json::json!({"result": "script", "ran": ran}))
-            }
-            ActMode::Hand | ActMode::Default => self.default_activation(actor, target, mode == ActMode::Hand),
+            ActMode::Hand | ActMode::Block | ActMode::Default => self.default_activation(actor, target, mode == ActMode::Hand),
         }
     }
 
     /// The default action of an activation (Layer 4), with its Layer 5 consequences:
-    /// a picked-up item reaches the actor's inventory (OnAdd), a door moves the player.
+    /// a picked-up item reaches the actor's inventory (OnAdd), a door moves the player, a
+    /// dead actor opens its inventory (the loot menu) [observed: a scripted Activate of a
+    /// dead actor opened the container menu, `L5.quest.dead_activation`].
     pub fn default_activation(&mut self, actor: FormId, target: FormId, by_hand: bool) -> Result<serde_json::Value, String> {
-        let act = if by_hand { self.world.activate(actor, target) } else { self.world.activate_scripted(actor, target) }
-            .map_err(|e| e.to_string())?;
+        let base = functions::base_of(self, target);
+        let dead_actor = self.extra.get(&target).is_some_and(|e| e.dead)
+            && base.and_then(|b| self.data.sig(b)).is_some_and(|s| &s == b"NPC_" || &s == b"CREA");
+        let act = if dead_actor && self.present(target) {
+            let script = base.and_then(|b| self.world.forms.get(b)).and_then(|b| b.script);
+            fnv_sim::world::Activation { outcome: Outcome::OpenedContainer { container: target }, unlocked_with: None, script }
+        } else if by_hand {
+            self.world.activate(actor, target).map_err(|e| e.to_string())?
+        } else {
+            self.world.activate_scripted(actor, target).map_err(|e| e.to_string())?
+        };
         let v = serde_json::to_value(&act).map_err(|e| e.to_string())?;
         self.emit(EventKind::Activated { reference: target, by: actor, outcome: Some(v.clone()) });
         match act.outcome {
@@ -767,12 +890,79 @@ impl<'a> Game<'a> {
     /// OnPackageChange blocks.
     pub fn package_event(&mut self, actor: FormId, package: FormId, which: usize) {
         let data = self.data;
+        if which != 1 {
+            self.extra.entry(actor).or_default().current_package = Some(package);
+        }
         if let Some(Some(u)) = data.packages.get(&package).map(|p| p[which]) {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
             self.run_result(u, RunCtx { self_ref: Some(actor), ..Default::default() });
         }
         let ev = [event::ON_PACKAGE_START, event::ON_PACKAGE_DONE, event::ON_PACKAGE_CHANGE][which];
         self.ref_event(actor, ev, Some(Value::Ref(package.0)), None);
+    }
+
+    // ---- AI packages (the start of Layer 6) ---------------------------------------
+
+    /// The AI package list of an actor reference: its base form's `PKID` list, or its
+    /// template's when the template supplies the AI packages (followed through
+    /// templates that are actors; a leveled-actor template is not resolved and the
+    /// base's own list is used) [documented: xEdit template flags; hypothesis on the
+    /// leveled case].
+    pub fn package_list(&self, actor: FormId) -> Vec<FormId> {
+        let Some(mut base) = functions::base_of(self, actor) else { return Vec::new() };
+        for _ in 0..8 {
+            let Some(a) = self.data.actors.get(&base) else { break };
+            match a.template.filter(|t| a.template_packages && self.data.actors.contains_key(t)) {
+                Some(t) => base = t,
+                None => return a.packages.clone(),
+            }
+        }
+        self.data.actors.get(&base).map(|a| a.packages.clone()).unwrap_or_default()
+    }
+
+    /// The package an actor runs when it evaluates its packages: a script package
+    /// (AddScriptPackage) overrides the list [documented: catalogue summary of
+    /// AddScriptPackage]; otherwise the first package of the list whose conditions pass,
+    /// evaluated with the actor as the subject [observed: the Goodsprings settlers took
+    /// their flee package or the next one, and Sunny Smiles her third package, as their
+    /// conditions decided, `L5.quest.condition_groups`, layer5-captures.md §8.3 b;
+    /// hypothesis: the first passing package in list order]. Schedules (`PSDT`),
+    /// locations and the package procedure are not read yet (Layer 6).
+    pub fn select_package(&mut self, actor: FormId) -> Option<FormId> {
+        if let Some(p) = self.extra.get(&actor).and_then(|e| e.packages.last()).copied() {
+            return Some(p);
+        }
+        let data = self.data;
+        for p in self.package_list(actor) {
+            let Some(def) = data.package_defs.get(&p) else { continue };
+            if self.conditions_pass(&def.conditions, Some(actor), None, &format!("PACK {p}")) {
+                return Some(p);
+            }
+        }
+        None
+    }
+
+    /// `EvaluatePackage`: the actor picks its package again ([`Game::select_package`])
+    /// and keeps it as its current package. Starting the package (its begin result
+    /// script, OnPackageStart) is Layer 6 and not done here; the runner's `package`
+    /// input stands in for it.
+    pub fn evaluate_package(&mut self, actor: FormId) -> Option<FormId> {
+        let p = self.select_package(actor);
+        let e = self.extra.entry(actor).or_default();
+        if e.current_package != p {
+            e.current_package = p;
+            self.emit(EventKind::PackageChosen { actor, package: p });
+        }
+        p
+    }
+
+    /// The actor's current package: the one last chosen, or chosen now when it never
+    /// evaluated its packages (an actor always runs a package once loaded [hypothesis]).
+    pub fn current_package(&mut self, actor: FormId) -> Option<FormId> {
+        match self.extra.get(&actor).and_then(|e| e.current_package) {
+            Some(p) => Some(p),
+            None => self.evaluate_package(actor),
+        }
     }
 
     // ---- conditions --------------------------------------------------------------
@@ -899,9 +1089,11 @@ impl<'a> Game<'a> {
             loaded_cells: self.loaded_cells.clone(),
             moved: self.moved.clone(),
             menu: self.menu,
+            loading: self.loading,
             message_box: self.message_box.clone(),
             frame: self.frame,
             time: self.time,
+            pending_onload: self.pending_onload.clone(),
             rng_word_pos: self.rng.get_word_pos().to_string(),
         }
     }
@@ -919,9 +1111,11 @@ impl<'a> Game<'a> {
         g.loaded_cells = s.loaded_cells.clone();
         g.moved = s.moved.clone();
         g.menu = s.menu;
+        g.loading = s.loading;
         g.message_box = s.message_box.clone();
         g.frame = s.frame;
         g.time = s.time;
+        g.pending_onload = s.pending_onload.clone();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)
@@ -1082,5 +1276,9 @@ impl Host for Exec<'_, '_> {
     fn skipped(&mut self, what: &VmError) {
         let unit = self.unit.key();
         self.game.emit(EventKind::Skipped { unit, what: what.to_string() });
+    }
+
+    fn take_return(&mut self) -> bool {
+        std::mem::take(&mut self.game.stop_run)
     }
 }
