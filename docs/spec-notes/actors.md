@@ -685,11 +685,32 @@ Per prefix (length of equip / unequip in seconds; where the weapon hangs, §9.2)
   same leveled-list results as its worn armour, §2.3), the drawable weapon with the
   highest base damage, the first carried on ties [engine choice standing in for Layer 6's
   equip logic].
-- Type → prefix (`AnimType::prefix`) [hypothesis, matched by the weapon parts each set's
-  clips animate: `##MinigunBarrel` in `2hhaim.kf` (Handle), `##127SmgClip` in `2haaim.kf`
-  (Automatic), `##Throwingkinfe` in `1gtaim.kf` (Thrown), `##mlIndicators` in `2hlaim.kf`
-  (Launcher)]: the energy pistol and rifle use `1hp` and `2hr` (no prefix of their own);
-  Thrown and Grenade Throw share `1gt`.
+- Type → prefix (`AnimType::prefix`). The ESM gives only the type (DNAM); no field names
+  the clips, so the link is read from two kinds of evidence in the data [observed,
+  2026-10-09]:
+  - **Weapon parts.** A weapon model's moving parts are `##`-named nodes, and the stance
+    clips animate them by name. Matching the parts of the weapons placed NPCs carry
+    against the `##` tracks of every `<prefix>*.kf` in `characters\_male\` (all clips of
+    a prefix, not only the four of §9.1): the laser pistol's `##LPSideLatch`,
+    `##LPSmallEnergyCell`, `##LPTrigger` occur only in `1hp` clips, as do the parts of the
+    plasma pistol, Euclid's C-Finder, Plasma Defender and flare gun (Pistol - Energy →
+    `1hp`); the laser rifle's `##LR_CellReleaseSpring` occurs only in `2hr` clips (Rifle -
+    Energy → `2hr`; its `##MicroFusionCell` is also in `2ha` and `2hh` clips); the frag
+    grenade's `##GFPin`, the plasma grenade's slides and the dynamite's `##Lighter` only in
+    `1gt` clips (Grenade Throw → `1gt`); likewise `##MinigunBarrel` (`2hh`, Handle),
+    `##127SmgClip` (`2ha`, Automatic), `##mlIndicators` (`2hl`, Launcher), and every
+    ballistic pistol's and rifle's parts in `1hp` and `2hr`. Generic part names
+    (`##Trigger`, `##Clip`) occur under several prefixes and decide nothing; the recharger
+    pistol's parts occur in no clip.
+  - **Attack animations.** The thrown weapons (throwing knife, hatchet, spear) have no
+    moving parts, but their DNAM "Attack Animation" is AttackThrow6, 7 or 8, and the only
+    files of those names are `1gtattackthrow6.kf`, `…7.kf`, `…8.kf` (and their `sneak1gt`
+    copies) (Thrown → `1gt`). `1gtaim.kf` also animates `##Throwingkinfe` (sic), the
+    throwing knife's node.
+
+  So the energy types have no prefix of their own and share the ballistic ones, and
+  Thrown shares Grenade Throw's. Land Mine (`1lm`) and Mine Drop (`1md`) are matched by
+  name only (no NPC carries one).
 - Placed NPCs in the ten masters (3,942 resolved): 3,139 have a weapon (826 by fixed
   data, 2,313 through a leveled roll), 803 none. By type: Pistol - Ballistic 690, Rifle -
   Ballistic 559, Melee (1 Hand) 546, Rifle - Automatic 536, Melee (2 Hand) 471, Thrown 123,
