@@ -10,6 +10,7 @@ mod esm_cmd;
 mod install_cmd;
 mod nif_cmd;
 mod phys_cmd;
+mod script_cmd;
 mod sim_cmd;
 mod source;
 mod world_cmd;
@@ -69,6 +70,9 @@ enum Cmd {
     /// Layer 4 core simulation: forms, references, inventories, activation.
     #[command(subcommand)]
     Sim(SimCmd),
+    /// Layer 5 compiled scripts: units, bytecode IR, canonical text, opcode coverage.
+    #[command(subcommand)]
+    Script(script_cmd::ScriptCmd),
 }
 
 #[derive(Subcommand)]
@@ -535,6 +539,7 @@ fn main() -> ExitCode {
         Cmd::Phys(c) => phys_cmd::run(c),
         Cmd::Collide(c) => collide_cmd::run(c),
         Cmd::Sim(c) => sim_cmd::run(c),
+        Cmd::Script(c) => script_cmd::run(c),
     };
     match res {
         Ok(v) => {
