@@ -155,8 +155,15 @@ later gore step and is read in code then.
 ## 2. The shot chain (`CombatForms::chain`)
 
 1. **Ammo.** NAM0 itself when it is an AMMO, else the AMMO entries of its form list,
-   in list order. Without a choice, the first one is used [hypothesis: the game's
-   default ammo for a new weapon].
+   in list order. The lists put the plain round first [observed]: AmmoList10mm is
+   10mm, 10mm Hollow Point, 10mm JHP (Hand Load); AmmoList9mm is 9mm, 9mm +P,
+   9mm Hollow Point. The masters have no 10mm AP. The loaded ammo is the first entry
+   the carrier has, else the first entry (`CombatForms::ammo_for`). That is the
+   owner's account of the game (2026-10-09): a weapon defaults to the plain round
+   unless only another type is carried, going down the list [hypothesis until
+   captured]. Ammo Swap takes the next carried entry down the list, wrapping
+   (`next_ammo`) [design]. `chain` takes the ammo explicitly. Without one, it uses the
+   first entry.
 2. **Projectile.** The ammo's, if set, else the weapon's [documented]. The same goes
    for the count.
 3. **Damage per projectile** = base damage ÷ the count [documented].
@@ -234,5 +241,6 @@ All three take `<Data> <plugins…> --schema <dir>` and print one JSON document.
 
 1. Do the 14 projectiles that name an explosion without the flag explode in the game?
    Firing the plasma caster at a wall would show it (§1.3).
-2. Which ammo does a weapon start with when it comes with none loaded (§2)?
+2. Confirm the ammo choice (§2) in the game: carry only 10mm Hollow Point and equip a
+   10mm pistol, then carry both.
 3. NPC and player maximum health against the health settings (§3; C5's capture).

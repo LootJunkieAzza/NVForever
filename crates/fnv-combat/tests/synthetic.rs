@@ -206,6 +206,22 @@ fn ammo_replaces_projectile_and_count() {
 }
 
 #[test]
+fn ammo_goes_down_the_list() {
+    let c = forms();
+    let rifle = FormId(RIFLE);
+    let (plain, special) = (FormId(AMMO_PLAIN), FormId(AMMO_SPECIAL));
+    // Both carried, or neither: the first in the list.
+    assert_eq!(c.ammo_for(rifle, |_| true), Some(plain));
+    assert_eq!(c.ammo_for(rifle, |_| false), Some(plain));
+    // Only the second carried: that one.
+    assert_eq!(c.ammo_for(rifle, |a| a == special), Some(special));
+    // Ammo Swap steps down the list, wrapping, skipping what is not carried.
+    assert_eq!(c.next_ammo(rifle, plain, |_| true), Some(special));
+    assert_eq!(c.next_ammo(rifle, special, |_| true), Some(plain));
+    assert_eq!(c.next_ammo(rifle, plain, |a| a == plain), Some(plain));
+}
+
+#[test]
 fn body_parts_group_with_and_without_names() {
     let c = forms();
     let b = &c.body_parts[&FormId(BODY)];
