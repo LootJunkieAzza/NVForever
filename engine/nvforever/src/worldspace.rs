@@ -20,7 +20,7 @@
 //! so taking the parent's is not implemented beyond what the start already does.
 
 use crate::lod::{GenState, LodState};
-use crate::sky::{self, CloudLayer, MoonDisc, SkyDome, SkyState, Stars, Sun, SunDisc};
+use crate::sky::{self, CloudLayer, MoonDisc, SkyDome, SkyState, Stars, Sun};
 use crate::water::DistantWater;
 use crate::world::WorldData;
 use crate::Args;
@@ -28,7 +28,7 @@ use bevy::prelude::*;
 use nvf_assets::GameData;
 
 /// The sky's entities, spawned by `sky::setup_sky`.
-type SkyEntity = Or<(With<SkyDome>, With<CloudLayer>, With<Sun>, With<SunDisc>, With<Stars>, With<MoonDisc>)>;
+type SkyEntity = Or<(With<SkyDome>, With<CloudLayer>, With<Sun>, With<Stars>, With<MoonDisc>)>;
 
 /// Switch to the travel's worldspace when it is another one (runs before `world::travel`).
 #[allow(clippy::too_many_arguments)]
