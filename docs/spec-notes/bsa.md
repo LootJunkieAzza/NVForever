@@ -114,7 +114,8 @@ describes the algorithm; verified on every file and folder name in the corpus, o
 Settings [observed]: `Fallout_default.ini`, the owner's `Fallout.ini` and
 `FalloutPrefs.ini` all have `SArchiveList=Fallout - Textures.bsa, Fallout - Textures2.bsa,
 Fallout - Meshes.bsa, Fallout - Voices1.bsa, Fallout - Sound.bsa, Fallout - Misc.bsa`,
-`bInvalidateOlderFiles=1`, `SInvalidationFile=ArchiveInvalidation.txt`. `Update.bsa` is
+`bInvalidateOlderFiles=1`, `SInvalidationFile=ArchiveInvalidation.txt`, plus
+`bUseArchives=1`, `bCheckRuntimeCollisions=0` and three `iRetain…Table=1` lines. `Update.bsa` is
 not in the list, and no plugin is named `Update`; the game uses it all the same (below).
 
 Survey [observed 2026-10-09, `fnvtool bsa list` of all 22 archives with content hashes]:
