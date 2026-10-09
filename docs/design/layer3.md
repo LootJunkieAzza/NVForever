@@ -94,10 +94,16 @@ What it does now:
   Morph controllers (the flags' small ripples) are not evaluated yet.
 - Sky, sun, ambient light and fog from the worldspace's climate and weather at a time
   of day (`--hour`, `[`/`]` keys; `--weather`; `--fog near,far` override): the game's
-  `meshes\sky\atmosphere.nif` dome coloured by its vertex weights (sky-lower / horizon /
-  sky-upper) and the four `clouds.nif` layers with the weather's cloud textures and
-  colours (world.md §6), a directional light with the weather's sunlight colour along a
-  sun path, a sun disc with the climate's sun texture, ambient and fog colours. Colours
+  `meshes\sky\atmosphere.nif` dome coloured with sky-upper (its blue vertex weight) and
+  horizon (a fitted function of elevation), mixed as display values, and the four
+  `clouds.nif` layers with the weather's cloud textures and colours (world.md §6 "Sky
+  colours"), a directional light with the weather's sunlight colour along a sun path,
+  the climate's sun and glare textures drawn around the sun (world.md §6 "Sun and
+  glare"), ambient and fog colours. Sky parts use their own material (`sky.wgsl`): their
+  colours are display values passed through the inverse of the tonemapper, so the
+  image-space grade sees them as the game's grade does; by day they are dimmed and
+  warmed and the clouds take on part of the sunlight's hue [hypothesis, fitted to the
+  reference frames]. Colours
   use the four main times of day only (world.md §6). Light levels: a colour of 1.0 lights
   a white surface to 1.0 on screen (sun π / exposure, ambient 1 / exposure), from the
   game's texture × (ambient + sunlight · N·L) model [hypothesis]; this replaced levels
