@@ -2,9 +2,10 @@
 //!
 //! Actor value codes are the indices of `ActorValue` in `schemas/fnv/common.json`
 //! [documented: xEdit; scripts.md §2.4]. S.P.E.C.I.A.L. (codes 5–11) live in the Layer 4
-//! world (base from `NPC_ DATA`); the other values start at 0 here [hypothesis: their
-//! base values (skills, health, derived stats) are not read yet] and change through the
-//! setters.
+//! world (base from `NPC_ DATA`); the body part conditions (codes 25–31) start at 100
+//! (undamaged) and the other values at 0 here [hypothesis: their base values (skills,
+//! health, derived stats) are not read yet; a new character has no crippled limbs] and
+//! change through the setters.
 
 use super::{base_of, none, yes, Args, Ctx};
 use crate::game::{event, Game};
@@ -19,7 +20,7 @@ fn special(code: u16) -> Option<&'static str> {
 pub fn actor_value(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
     match special(code) {
         Some(name) => g.world.actor_value(actor, name).map(|v| v as f64).map_err(|e| e.to_string()),
-        None => Ok(g.extra.get(&actor).and_then(|e| e.actor_values.get(&code)).copied().unwrap_or(0.0)),
+        None => Ok(g.extra.get(&actor).and_then(|e| e.actor_values.get(&code)).copied().unwrap_or(default_value(code))),
     }
 }
 
@@ -236,4 +237,20 @@ pub fn remove_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value,
     }
     g.stub_note(ctx, a.0);
     none()
+}
+
+/// The starting value of an actor value this crate keeps (see the module notes).
+fn default_value(code: u16) -> f64 {
+    if (25..=31).contains(&code) {
+        100.0
+    } else {
+        0.0
+    }
+}
+
+/// Current health over base health [documented: catalogue notes]. Without a damage
+/// model a living actor is at full health and a dead one at 0 [hypothesis].
+pub fn get_health_percentage(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::Num(if g.extra.get(&r).is_some_and(|e| e.dead) { 0.0 } else { 1.0 }))
 }

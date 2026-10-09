@@ -169,3 +169,15 @@ pub fn get_map_marker_visible(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Valu
     let r = ctx.subject()?;
     yes(g.player.map_markers.contains(&r))
 }
+
+/// The player's miscellaneous statistics by code (the source names them as strings; the
+/// bytes hold the code, scripts.md §2.4). They start at 0 and change through
+/// ModPCMiscStat only [hypothesis: the game's own counters are Layer 6].
+pub fn get_pc_misc_stat(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    Ok(Value::Num(g.player.misc_stats.get(&a.code(0)?).copied().unwrap_or(0.0)))
+}
+
+pub fn mod_pc_misc_stat(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    *g.player.misc_stats.entry(a.code(0)?).or_default() += a.num(1)?;
+    none()
+}
