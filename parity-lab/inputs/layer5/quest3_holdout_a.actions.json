@@ -1,0 +1,570 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Layer 5 round 3 held-out scenario A",
+  "save": "nvfdoc",
+  "given": [
+    {
+      "kind": "reputation",
+      "rep": "0x0011989B",
+      "fame": 0,
+      "infamy": 0
+    },
+    {
+      "kind": "reputation",
+      "rep": "0x00124AD1",
+      "fame": 0,
+      "infamy": 0
+    }
+  ],
+  "actions": [
+    {
+      "op": "add_reputation",
+      "rep": "0x0011989B",
+      "axis": "fame",
+      "size": 5
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 1: add fame size 5"
+    },
+    {
+      "op": "add_reputation",
+      "rep": "0x0011989B",
+      "axis": "fame",
+      "size": 5
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 2: add fame size 5"
+    },
+    {
+      "op": "add_reputation",
+      "rep": "0x0011989B",
+      "axis": "fame",
+      "size": 5
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 3: add fame size 5"
+    },
+    {
+      "op": "add_reputation",
+      "rep": "0x0011989B",
+      "axis": "infamy",
+      "size": 4
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 4: add infamy size 4"
+    },
+    {
+      "op": "add_reputation",
+      "rep": "0x0011989B",
+      "axis": "infamy",
+      "size": 4
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 5: add infamy size 4"
+    },
+    {
+      "op": "add_reputation",
+      "rep": "0x0011989B",
+      "axis": "infamy",
+      "size": 3
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 6: add infamy size 3"
+    },
+    {
+      "op": "remove_reputation",
+      "rep": "0x0011989B",
+      "axis": "fame",
+      "size": 5
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 7: remove fame size 5"
+    },
+    {
+      "op": "remove_reputation",
+      "rep": "0x0011989B",
+      "axis": "fame",
+      "size": 4
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 8: remove fame size 4"
+    },
+    {
+      "op": "add_reputation",
+      "rep": "0x0011989B",
+      "axis": "infamy",
+      "size": 5
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 9: add infamy size 5"
+    },
+    {
+      "op": "add_reputation",
+      "rep": "0x0011989B",
+      "axis": "infamy",
+      "size": 5
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 10: add infamy size 5"
+    },
+    {
+      "op": "remove_reputation",
+      "rep": "0x0011989B",
+      "axis": "infamy",
+      "size": 2
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 11: remove infamy size 2"
+    },
+    {
+      "op": "remove_reputation",
+      "rep": "0x0011989B",
+      "axis": "fame",
+      "size": 5
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 12: remove fame size 5"
+    },
+    {
+      "op": "remove_reputation",
+      "rep": "0x0011989B",
+      "axis": "fame",
+      "size": 5
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans step 13: remove fame size 5"
+    },
+    {
+      "op": "set_reputation",
+      "rep": "0x0011989B",
+      "axis": "infamy",
+      "value": 3
+    },
+    {
+      "op": "remove_reputation",
+      "rep": "0x0011989B",
+      "axis": "infamy",
+      "size": 3
+    },
+    {
+      "op": "get_reputation",
+      "rep": "0x0011989B",
+      "fields": [
+        "infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Great Khans: RemoveReputation infamy size 3 from 3"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 7.5,
+      "infamy": 0,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 7.5, infamy 0"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 7.4,
+      "infamy": 0,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 7.4, infamy 0"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 0,
+      "infamy": 7.5,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 0, infamy 7.5"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 25,
+      "infamy": 7.5,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 25, infamy 7.5"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 7.5,
+      "infamy": 25,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 7.5, infamy 25"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 50,
+      "infamy": 25,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 50, infamy 25"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 25,
+      "infamy": 50,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 25, infamy 50"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 24.9,
+      "infamy": 49.9,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 24.9, infamy 49.9"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 60,
+      "infamy": 60,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 60, infamy 60"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 12.5,
+      "infamy": 37.5,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 12.5, infamy 37.5"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 50,
+      "infamy": 50,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 50, infamy 50"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 49.9,
+      "infamy": 7.5,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 49.9, infamy 7.5"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 0,
+      "infamy": 50,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 0, infamy 50"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": 50,
+      "infamy": 0,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame 50, infamy 0"
+    },
+    {
+      "op": "set_reputation_read",
+      "rep": "0x00124AD1",
+      "fame": -5,
+      "infamy": 30,
+      "fields": [
+        "fame",
+        "infamy",
+        "pct.fame",
+        "pct.infamy",
+        "threshold.mixed",
+        "threshold.good",
+        "threshold.bad"
+      ],
+      "label": "Followers: fame -5, infamy 30"
+    },
+    {
+      "op": "set_reputation",
+      "rep": "0x0011989B",
+      "axis": "fame",
+      "value": 0
+    },
+    {
+      "op": "set_reputation",
+      "rep": "0x0011989B",
+      "axis": "infamy",
+      "value": 0
+    },
+    {
+      "op": "set_reputation",
+      "rep": "0x00124AD1",
+      "axis": "fame",
+      "value": 0
+    },
+    {
+      "op": "set_reputation",
+      "rep": "0x00124AD1",
+      "axis": "infamy",
+      "value": 0
+    }
+  ]
+}
