@@ -1,0 +1,721 @@
+//! Paths over the nav graph: A* across triangles (through edges, cell seams and doors),
+//! then the funnel algorithm per space to pull the corridor of triangles tight into a
+//! polyline that keeps a clearance from the walkable area's outline.
+//!
+//! How the original game chooses paths is not known; costs and clearances here are
+//! engine choices (docs/design/navmesh.md §3), not game rules.
+
+use crate::graph::{area2, DoorEdge, EdgeKind, NavGraph, Space, NONE};
+use crate::record::tri_flags;
+use serde::Serialize;
+use std::cmp::{Ordering, Reverse};
+use std::collections::{BinaryHeap, HashMap};
+
+/// What a path may use and what it costs.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PathParams {
+    /// Clearance kept from the walkable area's outline, game units (about the actor's
+    /// radius).
+    pub radius: f32,
+    /// A large creature: triangles flagged "No Large Creatures" are closed.
+    pub large: bool,
+    /// Whether doors may be used (paths between spaces).
+    pub doors: bool,
+    /// Whether ledge links may be used (drops down and climbs up a ledge).
+    pub ledges: bool,
+    /// Cost per unit across triangles flagged "Preferred", relative to 1 elsewhere.
+    pub preferred_cost: f32,
+    /// Cost per unit across water triangles.
+    pub water_cost: f32,
+    /// Fixed cost of using a door, in units of distance.
+    pub door_cost: f32,
+    /// A* gives up after expanding this many triangles (per leg).
+    pub max_expanded: usize,
+    /// Locked doors may be used (the actor can open them).
+    pub open_locked: bool,
+    /// Triangles steeper than this (degrees) are closed: for a mover that cannot climb
+    /// what the navmesh calls walkable. `None`: every navmesh triangle is walkable.
+    pub max_slope_deg: Option<f32>,
+    /// Keys the actor carries: locked doors these open may be used.
+    pub keys: Vec<u32>,
+}
+
+impl Default for PathParams {
+    fn default() -> Self {
+        PathParams {
+            radius: 24.0,
+            large: false,
+            doors: true,
+            ledges: false,
+            preferred_cost: 0.85,
+            water_cost: 3.0,
+            door_cost: 256.0,
+            max_expanded: 400_000,
+            open_locked: false,
+            max_slope_deg: None,
+            keys: Vec::new(),
+        }
+    }
+}
+
+/// A position in a space.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Place {
+    pub space: Space,
+    pub pos: [f32; 3],
+}
+
+/// The part of a path within one space.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Leg {
+    pub space: Space,
+    /// Corners of the polyline, from the leg's start to its end.
+    pub points: Vec<[f32; 3]>,
+    /// The triangles the leg crosses, in order.
+    pub corridor: Vec<u32>,
+    /// The door that ends the leg (the next leg starts at its arrival), if any.
+    pub door: Option<DoorEdge>,
+}
+
+/// A path: one leg per space visited.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Path {
+    pub legs: Vec<Leg>,
+    /// Polyline length summed over the legs, game units.
+    pub length: f32,
+    /// Triangles A* expanded.
+    pub expanded: usize,
+    /// How far the start and the goal were moved to put them on the navmesh (3D
+    /// distance); callers decide whether a far snap means the goal is not really reached.
+    pub start_snap: f32,
+    pub goal_snap: f32,
+}
+
+impl Path {
+    pub fn end(&self) -> Option<[f32; 3]> {
+        self.legs.last().and_then(|l| l.points.last().copied())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum PathError {
+    /// No usable triangle near the start or the goal.
+    NoTriangle { which: &'static str, at: [f32; 3] },
+    /// The goal cannot be reached from the start (searched everything reachable).
+    Unreachable { expanded: usize },
+    /// The search stopped at `max_expanded`.
+    TooFar { expanded: usize },
+}
+
+impl std::fmt::Display for PathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            PathError::NoTriangle { which, at } => write!(f, "no navmesh triangle near the {which} ({:.0}, {:.0}, {:.0})", at[0], at[1], at[2]),
+            PathError::Unreachable { expanded } => write!(f, "the goal cannot be reached ({expanded} triangles searched)"),
+            PathError::TooFar { expanded } => write!(f, "search limit reached after {expanded} triangles"),
+        }
+    }
+}
+
+impl std::error::Error for PathError {}
+
+/// How far from a point a path start or goal may be snapped onto the navmesh.
+pub const SNAP_RADIUS: f32 = 512.0;
+
+#[derive(Clone, Copy)]
+enum Via {
+    Start,
+    Edge(u32, u8),
+    Door(u32, usize),
+}
+
+#[derive(Clone, Copy)]
+struct Node {
+    g: f32,
+    via: Via,
+    /// Where the path enters the triangle (estimate used for costs).
+    at: [f32; 3],
+    closed: bool,
+}
+
+/// A float with a total order (for heaps).
+#[derive(PartialEq, Clone, Copy)]
+struct OrdF(f32);
+impl Eq for OrdF {}
+impl PartialOrd for OrdF {
+    fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for OrdF {
+    fn cmp(&self, o: &Self) -> Ordering {
+        self.0.total_cmp(&o.0)
+    }
+}
+
+/// A door in the door search (triangle, index), or `None` for the goal.
+type DoorKey = Option<(u32, usize)>;
+
+#[derive(PartialEq)]
+struct Open(f32, u32);
+impl Eq for Open {}
+impl PartialOrd for Open {
+    fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for Open {
+    fn cmp(&self, o: &Self) -> Ordering {
+        // Min-heap on f, ties by triangle for determinism.
+        o.0.total_cmp(&self.0).then_with(|| o.1.cmp(&self.1))
+    }
+}
+
+fn lerp(a: [f32; 3], b: [f32; 3], s: f32) -> [f32; 3] {
+    [a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s, a[2] + (b[2] - a[2]) * s]
+}
+
+fn dist(a: [f32; 3], b: [f32; 3]) -> f32 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
+impl NavGraph {
+    /// Whether a path may step from triangle `t` over edge `e`.
+    fn passable(&self, t: u32, e: usize, p: &PathParams) -> Option<u32> {
+        let tri = &self.tris[t as usize];
+        let n = tri.next[e];
+        if n == NONE || !self.usable(n) {
+            return None;
+        }
+        match tri.kind[e] {
+            EdgeKind::Internal | EdgeKind::Portal => {}
+            EdgeKind::LedgeUp | EdgeKind::LedgeDown if p.ledges => {}
+            _ => return None,
+        }
+        if p.large && self.tris[n as usize].has(tri_flags::NO_LARGE_CREATURES) {
+            return None;
+        }
+        if p.max_slope_deg.is_some_and(|m| self.up[n as usize] < m.to_radians().cos() - 1e-4) {
+            return None;
+        }
+        Some(n)
+    }
+
+    fn cost_factor(&self, t: u32, p: &PathParams) -> f32 {
+        let tri = &self.tris[t as usize];
+        if tri.has(tri_flags::WATER) {
+            p.water_cost
+        } else if tri.has(tri_flags::PREFERRED) {
+            p.preferred_cost
+        } else {
+            1.0
+        }
+    }
+
+    /// Whether a path may go through door `d`: its arrival is usable and the door is not
+    /// locked, or the traveller holds its key, or may open locks.
+    pub fn door_open(&self, d: &DoorEdge, p: &PathParams) -> bool {
+        if !self.usable(d.to) {
+            return false;
+        }
+        match self.door_locks.get(&d.door) {
+            None => true,
+            Some(_) if p.open_locked => true,
+            Some(l) => l.key.is_some_and(|k| p.keys.contains(&k)),
+        }
+    }
+
+    /// The doors to go through, in order, to get from `from` to `to`: empty when both are
+    /// in the same walkable area. A search over walkable areas joined by doors, costed by
+    /// straight lines between doors; it answers "can this actor get there?" (through any
+    /// number of interiors and worldspaces) without searching triangles. `Unreachable`
+    /// when no chain of open doors joins the two areas.
+    pub fn door_route(&self, from: Place, to: Place, p: &PathParams) -> Result<Vec<DoorEdge>, PathError> {
+        let (start, s_at) = self.nearest(from.space, from.pos, SNAP_RADIUS).ok_or(PathError::NoTriangle { which: "start", at: from.pos })?;
+        let (goal, g_at) = self.nearest(to.space, to.pos, SNAP_RADIUS).ok_or(PathError::NoTriangle { which: "goal", at: to.pos })?;
+        let route = self.route_between(start, s_at, goal, g_at, p, &[]).ok_or(PathError::Unreachable { expanded: 0 })?;
+        Ok(route.iter().map(|&(f, i)| self.doors[&f][i]).collect())
+    }
+
+    /// Whether `to` can be reached from `from` ([`NavGraph::door_route`]).
+    pub fn can_reach(&self, from: Place, to: Place, p: &PathParams) -> bool {
+        self.door_route(from, to, p).is_ok()
+    }
+
+    /// Doors (triangle, index) from the area of `start` to the area of `goal`, leaving
+    /// out `excluded`; `Some(vec![])` within one area.
+    fn route_between(&self, start: u32, s_at: [f32; 3], goal: u32, g_at: [f32; 3], p: &PathParams, excluded: &[(u32, usize)]) -> Option<Vec<(u32, usize)>> {
+        let (a_s, a_g) = (self.area[start as usize], self.area[goal as usize]);
+        if a_s == NONE || a_g == NONE {
+            return None;
+        }
+        if a_s == a_g {
+            return Some(Vec::new());
+        }
+        if !p.doors {
+            return None;
+        }
+        // Dijkstra over doors; the goal is the node `None`.
+        let mut best: HashMap<DoorKey, (f32, DoorKey)> = HashMap::new();
+        let mut heap: BinaryHeap<(Reverse<OrdF>, DoorKey)> = BinaryHeap::new();
+        let leave = |area: u32, at: [f32; 3], g: f32, prev: DoorKey, best: &mut HashMap<DoorKey, (f32, DoorKey)>, heap: &mut BinaryHeap<(Reverse<OrdF>, DoorKey)>| {
+            for &(f, i) in self.area_doors.get(&area).map_or(&[][..], |v| v.as_slice()) {
+                if excluded.contains(&(f, i)) || !self.door_open(&self.doors[&f][i], p) {
+                    continue;
+                }
+                let c = g + dist(at, self.centre(f)) + p.door_cost;
+                let k = Some((f, i));
+                if best.get(&k).is_none_or(|b| c < b.0) {
+                    best.insert(k, (c, prev));
+                    heap.push((Reverse(OrdF(c)), k));
+                }
+            }
+        };
+        leave(a_s, s_at, 0.0, None, &mut best, &mut heap);
+        let mut done: std::collections::HashSet<DoorKey> = std::collections::HashSet::new();
+        while let Some((Reverse(OrdF(c)), k)) = heap.pop() {
+            if !done.insert(k) {
+                continue;
+            }
+            let Some((f, i)) = k else {
+                // The goal: walk back.
+                let mut route = Vec::new();
+                let mut at = best[&None].1;
+                while let Some(d) = at {
+                    route.push(d);
+                    at = best[&Some(d)].1;
+                }
+                route.reverse();
+                return Some(route);
+            };
+            let d = self.doors[&f][i];
+            let a = self.area[d.to as usize];
+            if a == a_g {
+                let g = c + dist(d.arrival, g_at);
+                if best.get(&None).is_none_or(|b| g < b.0) {
+                    best.insert(None, (g, k));
+                    heap.push((Reverse(OrdF(g)), None));
+                }
+            }
+            leave(a, d.arrival, c, k, &mut best, &mut heap);
+        }
+        None
+    }
+
+    /// A path from `from` to `to` (each snapped onto the navmesh of its space within
+    /// [`SNAP_RADIUS`]). Within one walkable area: A* over triangles. Across areas
+    /// (other spaces, other islands): the door route first ([`NavGraph::door_route`]),
+    /// then A* for each leg; a leg that cannot be walked takes its door out of the route
+    /// and the route is planned again. With ledges allowed, A* runs over everything at
+    /// once (ledges join areas the area labels keep apart).
+    pub fn find_path(&self, from: Place, to: Place, p: &PathParams) -> Result<Path, PathError> {
+        let (start, s_at) = self.nearest(from.space, from.pos, SNAP_RADIUS).ok_or(PathError::NoTriangle { which: "start", at: from.pos })?;
+        let (goal, g_at) = self.nearest(to.space, to.pos, SNAP_RADIUS).ok_or(PathError::NoTriangle { which: "goal", at: to.pos })?;
+        let (chain, expanded) = if p.ledges {
+            self.search(start, s_at, goal, g_at, to.space, p, p.doors)?
+        } else {
+            let mut excluded: Vec<(u32, usize)> = Vec::new();
+            let mut expanded = 0usize;
+            loop {
+                let route = self.route_between(start, s_at, goal, g_at, p, &excluded).ok_or(PathError::Unreachable { expanded })?;
+                let mut chain: Vec<(u32, Via)> = Vec::new();
+                let (mut t, mut at) = (start, s_at);
+                let mut entered_by: Option<(u32, usize)> = None;
+                let mut failed = None;
+                for &(f, i) in route.iter().chain(std::iter::once(&(NONE, 0))) {
+                    let (target, target_at, space) = if f == NONE {
+                        (goal, g_at, to.space)
+                    } else {
+                        (f, self.centre(f), self.space_of_tri(f).unwrap_or(to.space))
+                    };
+                    match self.search(t, at, target, target_at, space, p, false) {
+                        Ok((mut c, n)) => {
+                            expanded += n;
+                            // This leg starts by the door that ended the last one.
+                            if let Some((lf, li)) = entered_by {
+                                c[0].1 = Via::Door(lf, li);
+                            }
+                            chain.extend(c);
+                        }
+                        Err(PathError::TooFar { expanded: n }) => return Err(PathError::TooFar { expanded: expanded + n }),
+                        Err(_) => {
+                            failed = Some((f, i));
+                            break;
+                        }
+                    }
+                    if f != NONE {
+                        let d = self.doors[&f][i];
+                        (t, at) = (d.to, d.arrival);
+                        entered_by = Some((f, i));
+                    }
+                }
+                match failed {
+                    None => break (chain, expanded),
+                    // The leg to the goal itself cannot be walked: no door helps.
+                    Some((NONE, _)) => return Err(PathError::Unreachable { expanded }),
+                    Some(d) if excluded.len() < 16 => excluded.push(d),
+                    Some(_) => return Err(PathError::Unreachable { expanded }),
+                }
+            }
+        };
+        let legs = self.legs_of(&chain, s_at, g_at, from.space, to.space, p);
+        let length = legs.iter().map(|l| l.points.windows(2).map(|w| dist(w[0], w[1])).sum::<f32>()).sum();
+        Ok(Path { legs, length, expanded, start_snap: dist(from.pos, s_at), goal_snap: dist(to.pos, g_at) })
+    }
+
+    /// A* from triangle `start` (entered at `s_at`) to `goal` (`g_at`, in `goal_space`):
+    /// the triangles and how each was entered, and how many were expanded.
+    #[allow(clippy::too_many_arguments)]
+    fn search(&self, start: u32, s_at: [f32; 3], goal: u32, g_at: [f32; 3], goal_space: Space, p: &PathParams, doors: bool) -> Result<(Vec<(u32, Via)>, usize), PathError> {
+        let min_factor = p.preferred_cost.min(1.0).min(p.water_cost).max(0.01);
+        let h = |t: u32, at: [f32; 3]| {
+            if self.space_of_tri(t) == Some(goal_space) {
+                dist(at, g_at) * min_factor
+            } else {
+                0.0
+            }
+        };
+        let mut nodes: HashMap<u32, Node> = HashMap::new();
+        let mut open = BinaryHeap::new();
+        nodes.insert(start, Node { g: 0.0, via: Via::Start, at: s_at, closed: false });
+        open.push(Open(h(start, s_at), start));
+        let mut expanded = 0usize;
+        let mut found = false;
+        while let Some(Open(_, t)) = open.pop() {
+            let node = nodes[&t];
+            if node.closed {
+                continue;
+            }
+            nodes.get_mut(&t).expect("open node").closed = true;
+            if t == goal {
+                found = true;
+                break;
+            }
+            expanded += 1;
+            if expanded > p.max_expanded {
+                return Err(PathError::TooFar { expanded });
+            }
+            let factor = self.cost_factor(t, p);
+            let mut relax = |n: u32, via: Via, at: [f32; 3], step: f32, nodes: &mut HashMap<u32, Node>| {
+                let g = node.g + step;
+                let better = nodes.get(&n).is_none_or(|o| !o.closed && g < o.g);
+                if better {
+                    nodes.insert(n, Node { g, via, at, closed: false });
+                    open.push(Open(g + h(n, at), n));
+                }
+            };
+            for e in 0..3 {
+                let Some(n) = self.passable(t, e, p) else { continue };
+                let (l, r) = self.portal(t, e);
+                // Too narrow for the actor: an edge between two outline vertices that is
+                // narrower than the actor's clearance radius.
+                let tri = &self.tris[t as usize];
+                let width = dist(l, r);
+                let tight = self.boundary_vertex[tri.v[e] as usize] && self.boundary_vertex[tri.v[(e + 1) % 3] as usize];
+                if tight && width < p.radius && n != goal {
+                    continue;
+                }
+                // Costs run between the middles of the portals (kept clear of outline
+                // ends), so each triangle has one entry point whatever the way in and
+                // the search is a plain graph search; the funnel and the shortcut pass
+                // straighten the result.
+                let (sl, sr) = self.shrunk_portal(t, e, p.radius);
+                let at = lerp(sl, sr, 0.5);
+                let step = dist(node.at, at) * factor;
+                relax(n, Via::Edge(t, e as u8), at, step, &mut nodes);
+            }
+            if doors {
+                for (i, d) in self.doors.get(&t).map_or(&[][..], |v| v.as_slice()).iter().enumerate() {
+                    if !self.door_open(d, p) {
+                        continue;
+                    }
+                    let step = dist(node.at, self.centre(t)) * factor + p.door_cost;
+                    relax(d.to, Via::Door(t, i), d.arrival, step, &mut nodes);
+                }
+            }
+        }
+        if !found {
+            return Err(PathError::Unreachable { expanded });
+        }
+        // Walk back: triangles and how each was entered.
+        let mut chain: Vec<(u32, Via)> = Vec::new();
+        let mut t = goal;
+        loop {
+            let via = nodes[&t].via;
+            chain.push((t, via));
+            match via {
+                Via::Start => break,
+                Via::Edge(prev, _) | Via::Door(prev, _) => t = prev,
+            }
+        }
+        chain.reverse();
+        Ok((chain, expanded))
+    }
+
+    /// Split a chain of triangles into legs at doors, and pull each leg tight.
+    fn legs_of(&self, chain: &[(u32, Via)], s_at: [f32; 3], g_at: [f32; 3], from_space: Space, to_space: Space, p: &PathParams) -> Vec<Leg> {
+        let mut legs = Vec::new();
+        let mut leg_start = s_at;
+        let mut corridor: Vec<u32> = Vec::new();
+        let mut portals: Vec<([f32; 3], [f32; 3])> = Vec::new();
+        for (i, &(t, _)) in chain.iter().enumerate() {
+            corridor.push(t);
+            let next = chain.get(i + 1);
+            match next.map(|n| n.1) {
+                Some(Via::Edge(_, e)) => portals.push(self.shrunk_portal(t, e as usize, p.radius)),
+                Some(Via::Door(_, di)) => {
+                    let d = self.doors[&t][di];
+                    let end = self.door_approach(t, leg_start, p.radius);
+                    let space = self.space_of_tri(t).unwrap_or(from_space);
+                    let points = self.shortcut(space, corridor[0], funnel(leg_start, end, &portals), p);
+                    legs.push(Leg { space, points, corridor: std::mem::take(&mut corridor), door: Some(d) });
+                    portals.clear();
+                    leg_start = d.arrival;
+                }
+                Some(Via::Start) => unreachable!("only the first triangle has no predecessor"),
+                None => {
+                    let points = self.shortcut(to_space, corridor[0], funnel(leg_start, g_at, &portals), p);
+                    legs.push(Leg { space: to_space, points, corridor: std::mem::take(&mut corridor), door: None });
+                }
+            }
+        }
+        legs
+    }
+
+    /// The portal of edge `e` of `t`, with each end that is an outline vertex moved in
+    /// by `radius` (at most to 45% of the width), so the path keeps clear of walls.
+    pub fn shrunk_portal(&self, t: u32, e: usize, radius: f32) -> ([f32; 3], [f32; 3]) {
+        let (l, r) = self.portal(t, e);
+        let tri = &self.tris[t as usize];
+        let len = dist(l, r);
+        if len < 1e-3 || radius <= 0.0 {
+            return (l, r);
+        }
+        let s = (radius / len).min(0.45);
+        let towards = |a: [f32; 3], b: [f32; 3]| [a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s, a[2] + (b[2] - a[2]) * s];
+        // Ends of a portal that is not this triangle's own whole edge (a seam portal)
+        // lie on the edge's interior and are not outline vertices; keep the test on the
+        // edge's vertices, which is conservative.
+        let right_out = self.boundary_vertex[tri.v[e] as usize];
+        let left_out = self.boundary_vertex[tri.v[(e + 1) % 3] as usize];
+        let nl = if left_out { towards(l, r) } else { l };
+        let nr = if right_out { towards(r, l) } else { r };
+        (nl, nr)
+    }
+
+    /// Where a leg ending at a door triangle stops: the triangle's point nearest to the
+    /// door side, approximated by its centre (the door reference stands at the
+    /// triangle's outer edge).
+    fn door_approach(&self, t: u32, _from: [f32; 3], _radius: f32) -> [f32; 3] {
+        self.centre(t)
+    }
+
+    /// Drop corners of a funnelled leg wherever the straight line from a corner to a
+    /// later one is walkable ([`NavGraph::walkable_line`], keeping 3/4 of the clearance):
+    /// the corridor A* found need not be the best one, and this straightens what the
+    /// corridor bent. Looks at most 32 corners ahead.
+    fn shortcut(&self, space: Space, start_tri: u32, pts: Vec<[f32; 3]>, p: &PathParams) -> Vec<[f32; 3]> {
+        if pts.len() <= 2 {
+            return pts;
+        }
+        let clear = p.radius * 0.75;
+        let mut out = vec![pts[0]];
+        let (mut i, mut ti) = (0usize, start_tri);
+        while i + 1 < pts.len() {
+            let mut next = (i + 1, NONE);
+            for j in ((i + 2)..pts.len().min(i + 33)).rev() {
+                if let Some(t) = self.walkable_line(space, ti, pts[i], pts[j], clear, p) {
+                    next = (j, t);
+                    break;
+                }
+            }
+            i = next.0;
+            out.push(pts[i]);
+            ti = if next.1 != NONE { next.1 } else { self.locate(space, pts[i], 128.0).unwrap_or(ti) };
+        }
+        out
+    }
+
+    /// Whether an actor can walk the straight line from `a` (on triangle `t`) to `b`: it
+    /// crosses only edges a path may cross, and keeps `clear` units (seen from above)
+    /// from the edges it may not cross, of the triangles it passes and their neighbours.
+    /// Returns the triangle under `b`.
+    pub fn walkable_line(&self, space: Space, t: u32, a: [f32; 3], b: [f32; 3], clear: f32, p: &PathParams) -> Option<u32> {
+        let (mut cur, mut prev) = (t, NONE);
+        let mut checked = std::collections::HashSet::new();
+        for _ in 0..4096 {
+            // Clearance from the outline near this triangle.
+            let tri = self.tris[cur as usize];
+            for n in std::iter::once(cur).chain(tri.next.iter().copied().filter(|&n| n != NONE)) {
+                if !checked.insert(n) {
+                    continue;
+                }
+                let c = self.corners(n);
+                for e in 0..3 {
+                    if self.passable(n, e, p).is_none() && seg_seg_dist2d(a, b, c[e], c[(e + 1) % 3]) < clear {
+                        return None;
+                    }
+                }
+            }
+            if self.contains_xy(cur, b[0], b[1]) {
+                return Some(cur);
+            }
+            // Leave by the edge the line crosses furthest along (not back the way in).
+            let c = self.corners(cur);
+            let mut exit: Option<(f32, usize)> = None;
+            for e in 0..3 {
+                if prev != NONE && tri.next[e] == prev {
+                    continue;
+                }
+                if let Some(s) = crossing(a, b, c[e], c[(e + 1) % 3]) {
+                    if exit.is_none_or(|(best, _)| s > best) {
+                        exit = Some((s, e));
+                    }
+                }
+            }
+            let (s, e) = exit?;
+            let n = self.passable(cur, e, p)?;
+            // Across a seam the linked triangle need not be the one facing the crossing:
+            // continue on the triangle under the point just past it.
+            let ahead = (s + 1e-3).min(1.0);
+            let x = lerp(a, b, ahead);
+            prev = cur;
+            cur = if self.contains_xy(n, x[0], x[1]) { n } else { self.locate(space, x, 96.0).filter(|&t| t != prev)? };
+        }
+        None
+    }
+}
+
+/// Where along segment a-b (0..1) it crosses segment c-d, seen from above.
+fn crossing(a: [f32; 3], b: [f32; 3], c: [f32; 3], d: [f32; 3]) -> Option<f32> {
+    let r = [b[0] - a[0], b[1] - a[1]];
+    let q = [d[0] - c[0], d[1] - c[1]];
+    let cross = |u: [f32; 2], v: [f32; 2]| u[0] * v[1] - u[1] * v[0];
+    let den = cross(r, q);
+    if den.abs() < 1e-9 {
+        return None;
+    }
+    let w = [c[0] - a[0], c[1] - a[1]];
+    let s = cross(w, q) / den;
+    let u = cross(w, r) / den;
+    let eps = 1e-4;
+    ((-eps..=1.0 + eps).contains(&s) && (-eps..=1.0 + eps).contains(&u)).then_some(s)
+}
+
+/// Distance between segments a-b and c-d, seen from above.
+fn seg_seg_dist2d(a: [f32; 3], b: [f32; 3], c: [f32; 3], d: [f32; 3]) -> f32 {
+    if crossing(a, b, c, d).is_some() {
+        return 0.0;
+    }
+    let pt_seg = |p: [f32; 3], s0: [f32; 3], s1: [f32; 3]| {
+        let (dx, dy) = (s1[0] - s0[0], s1[1] - s0[1]);
+        let l2 = dx * dx + dy * dy;
+        let t = if l2 < 1e-12 { 0.0 } else { (((p[0] - s0[0]) * dx + (p[1] - s0[1]) * dy) / l2).clamp(0.0, 1.0) };
+        (p[0] - s0[0] - t * dx).hypot(p[1] - s0[1] - t * dy)
+    };
+    pt_seg(a, c, d).min(pt_seg(b, c, d)).min(pt_seg(c, a, b)).min(pt_seg(d, a, b))
+}
+
+/// The funnel ("string pulling") algorithm over portals given as (left, right) seen
+/// along the path, in the horizontal plane; corner heights come from the portal ends.
+/// After Mikko Mononen's "Simple Stupid Funnel Algorithm" (2010, public description).
+pub fn funnel(start: [f32; 3], end: [f32; 3], mut portals: &[([f32; 3], [f32; 3])]) -> Vec<[f32; 3]> {
+    // A start (or end) lying on a portal would open the funnel to 180 degrees, which the
+    // algorithm cannot represent: such a portal is already passed (or reached).
+    let on = |p: [f32; 3], (l, r): ([f32; 3], [f32; 3])| {
+        let len = (l[0] - r[0]).hypot(l[1] - r[1]);
+        len < 1e-4 || area2(l, r, p).abs() <= 1e-3 * len
+    };
+    while let Some((&first, rest)) = portals.split_first() {
+        if !on(start, first) {
+            break;
+        }
+        portals = rest;
+    }
+    while let Some((&last, rest)) = portals.split_last() {
+        if !on(end, last) {
+            break;
+        }
+        portals = rest;
+    }
+    let mut pts = vec![start];
+    let mut all: Vec<([f32; 3], [f32; 3])> = Vec::with_capacity(portals.len() + 2);
+    all.push((start, start));
+    all.extend_from_slice(portals);
+    all.push((end, end));
+    let same = |a: [f32; 3], b: [f32; 3]| (a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4;
+    // area2(apex, a, b) > 0 when b is to the left of apex→a (counter-clockwise).
+    let (mut apex, mut left, mut right) = (start, start, start);
+    let (mut left_i, mut right_i) = (0usize, 0usize);
+    let mut i = 1;
+    while i < all.len() {
+        let (l, r) = all[i];
+        // Right side: r must not cross to the right of the current right edge.
+        if area2(apex, right, r) >= 0.0 {
+            if same(apex, right) || area2(apex, left, r) < 0.0 {
+                right = r;
+                right_i = i;
+            } else {
+                // r crosses over the left edge: left becomes a corner.
+                pts.push(left);
+                apex = left;
+                right = apex;
+                right_i = left_i;
+                i = left_i + 1;
+                continue;
+            }
+        }
+        if area2(apex, left, l) <= 0.0 {
+            if same(apex, left) || area2(apex, right, l) > 0.0 {
+                left = l;
+                left_i = i;
+            } else {
+                pts.push(right);
+                apex = right;
+                left = apex;
+                left_i = right_i;
+                i = right_i + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if !same(*pts.last().expect("start"), end) || pts.len() == 1 {
+        pts.push(end);
+    }
+    pts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn straight_corridor_is_one_segment() {
+        // Portals across the x axis at x = 1, 2, 3 (left is +y when walking along +x).
+        let portals: Vec<_> = (1..4).map(|x| ([x as f32, 1.0, 0.0], [x as f32, -1.0, 0.0])).collect();
+        let p = funnel([0.0, 0.0, 0.0], [4.0, 0.0, 0.0], &portals);
+        assert_eq!(p, vec![[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]]);
+    }
+
+    #[test]
+    fn corner_is_pulled_to_the_inside_vertex() {
+        // Walk east, then north round a corner at (2, 1): portals east up to x = 2, then
+        // portals north from y = 1.
+        let portals = vec![
+            ([1.0, 1.0, 0.0], [1.0, -1.0, 0.0]),
+            ([2.0, 1.0, 5.0], [2.0, -1.0, 0.0]),
+            ([2.0, 1.0, 5.0], [4.0, 1.0, 0.0]),
+            ([2.0, 2.0, 0.0], [4.0, 2.0, 0.0]),
+        ];
+        let p = funnel([0.0, 0.0, 0.0], [3.0, 4.0, 0.0], &portals);
+        assert_eq!(p.len(), 3, "{p:?}");
+        assert_eq!(p[1], [2.0, 1.0, 5.0]);
+    }
+
+    #[test]
+    fn empty_corridor() {
+        assert_eq!(funnel([0.0; 3], [1.0, 1.0, 1.0], &[]), vec![[0.0; 3], [1.0, 1.0, 1.0]]);
+        assert_eq!(funnel([1.0; 3], [1.0; 3], &[]), vec![[1.0; 3], [1.0; 3]]);
+    }
+}
