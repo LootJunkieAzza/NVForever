@@ -116,6 +116,29 @@ pub fn set_quest_delay(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Stri
     none()
 }
 
+/// Every objective the quest defines is marked completed (not displayed)
+/// [documented: GECK wiki CompleteAllObjectives; the display rule of
+/// SetObjectiveCompleted, scripts.md §5].
+pub fn complete_all_objectives(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let q = quest(g, a, 0)?;
+    let ids: Vec<i32> = g.data.quests[&q].objectives.keys().copied().collect();
+    for i in ids {
+        g.set_objective(q, i, None, Some(true));
+    }
+    none()
+}
+
+/// The quest's stages, objectives, completed/failed state and script variables go back
+/// to their start [documented: catalogue summary of ResetQuest]; whether it runs is
+/// unchanged [hypothesis].
+pub fn reset_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let q = quest(g, a, 0)?;
+    let running = g.quests.get(&q).is_some_and(|s| s.running);
+    g.quests.insert(q, crate::quest::QuestState { running, ..Default::default() });
+    g.instances.remove(&InstKey::Quest { quest: q });
+    none()
+}
+
 /// Marks the quest completed (the Pip-Boy part is presentation) [documented: catalogue
 /// summary]. It does not stop the quest [hypothesis, as the Complete Quest stage flag,
 /// layer5-captures.md §5.3].

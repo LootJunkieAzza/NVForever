@@ -82,11 +82,13 @@ pub fn kill_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     if g.extra.get(&r).is_some_and(|e| e.dead) {
         return none();
     }
-    g.extra.entry(r).or_default().dead = true;
+    let killer = a.opt_form(0);
+    let e = g.extra.entry(r).or_default();
+    e.dead = true;
+    e.killer = killer;
     if let Some(b) = base_of(g, r) {
         *g.player.dead_count.entry(b).or_default() += 1;
     }
-    let killer = a.opt_form(0);
     g.ref_event(r, event::ON_DEATH, killer.map(|k| Value::Ref(k.0)), killer);
     none()
 }
@@ -211,6 +213,227 @@ flag!(set_ghost, get_ghost, ghost);
 flag!(set_restrained, get_restrained, restrained);
 flag!(set_unconscious, get_unconscious, unconscious);
 flag!(set_player_teammate, get_player_teammate, teammate);
+
+fn actor_def<'d>(g: &'d Game, r: FormId) -> Option<&'d crate::data::ActorDef> {
+    base_of(g, r).and_then(|b| g.data.actors.get(&b))
+}
+
+/// 1 for an actor whose race has the Child flag (RACE DATA) [documented: catalogue
+/// summary of IsChild].
+pub fn is_child(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(actor_def(g, r).and_then(|d| d.race).is_some_and(|race| g.data.child_races.contains(&race)))
+}
+
+/// 1 for a creature of the given type (CREA DATA type) [documented: catalogue summary];
+/// 0 for NPCs.
+pub fn get_is_creature_type(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let t = a.code(0)? as i64;
+    yes(actor_def(g, r).and_then(|d| d.creature_type) == Some(t))
+}
+
+/// Essential: the reference's own flag (SetActorRefEssential) or its base's (ACBS,
+/// changed by SetEssential). The reference flag cannot clear the base's [documented:
+/// catalogue notes of SetActorRefEssential].
+pub fn essential(g: &Game, r: FormId) -> bool {
+    let base = base_of(g, r);
+    let base_flag = base
+        .and_then(|b| g.forms.essential.get(&b).copied())
+        .unwrap_or_else(|| base.and_then(|b| g.data.actors.get(&b)).is_some_and(|d| d.essential));
+    base_flag || g.extra.get(&r).and_then(|e| e.essential).unwrap_or(false)
+}
+
+/// `SetEssential base flag`: the base form's flag, for every reference [documented:
+/// catalogue summary].
+pub fn set_essential(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let b = a.form(0)?;
+    let b = base_of(g, b).filter(|_| g.world.placed.get(b).is_some()).unwrap_or(b);
+    g.forms.essential.insert(b, a.num_or(1, 1.0) != 0.0);
+    none()
+}
+
+pub fn set_actor_ref_essential(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.extra.entry(r).or_default().essential = Some(a.num_or(0, 1.0) != 0.0);
+    none()
+}
+
+pub fn is_essential(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(essential(g, r))
+}
+
+/// `actor.SetActorFullName message`: the base's name becomes the message's title, for
+/// every reference [documented: catalogue notes]; kept for the engine's name display.
+pub fn set_actor_full_name(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let m = a.form(0)?;
+    let b = base_of(g, r).unwrap_or(r);
+    g.forms.names.insert(b, m);
+    none()
+}
+
+/// 1 when the given actor killed the caller (KillActor's killer) [documented:
+/// catalogue summary].
+pub fn is_killer(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let k = a.form(0)?;
+    yes(g.extra.get(&r).and_then(|e| e.killer) == Some(k))
+}
+
+/// The factions an actor is in now: its base's (SNAM) unless removed, and those added
+/// at run time.
+pub fn factions_of(g: &Game, r: FormId) -> Vec<FormId> {
+    let mut out: Vec<FormId> = actor_def(g, r).map(|d| d.factions.iter().map(|f| f.0).collect()).unwrap_or_default();
+    if let Some(e) = g.extra.get(&r) {
+        out.extend(e.factions.keys().copied());
+    }
+    out.sort();
+    out.dedup();
+    out.retain(|&f| faction_rank(g, r, f) >= 0);
+    out
+}
+
+/// The group combat reaction of faction `a` towards `b`: a run-time SetEnemy/SetAlly,
+/// else FACT XNAM, else neutral (0) [documented: catalogue notes of
+/// GetFactionCombatReaction: 0 neutral for unlisted pairs, 1 enemy, 2 ally, 3 friend].
+pub fn reaction(g: &Game, a: FormId, b: FormId) -> i64 {
+    if let Some(&v) = g.forms.faction_reactions.get(&a).and_then(|m| m.get(&b)) {
+        return v;
+    }
+    g.data.faction_reactions.get(&a).and_then(|l| l.iter().find(|x| x.0 == b)).map(|x| x.1).unwrap_or(0)
+}
+
+pub fn get_faction_combat_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    Ok(Value::Num(reaction(g, a.form(0)?, a.form(1)?) as f64))
+}
+
+/// `actor.GetFactionRelation other` (0 neutral, 1 enemy, 2 ally, 3 friend)
+/// [documented: GECK wiki GetFactionRelation]. How the factions combine is a
+/// [hypothesis]: the reactions of the caller's factions towards the other's factions,
+/// enemy first, then friend, then ally; the player counts as an enemy of a caller in a
+/// faction the player is a crime enemy of.
+pub fn get_faction_relation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let o = a.form(0)?;
+    let mine = factions_of(g, r);
+    if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
+        return Ok(Value::Num(1.0));
+    }
+    let theirs = factions_of(g, o);
+    let all: Vec<i64> = mine.iter().flat_map(|&x| theirs.iter().map(move |&y| (x, y))).map(|(x, y)| reaction(g, x, y)).collect();
+    let v = if all.contains(&1) {
+        1
+    } else if all.contains(&3) {
+        3
+    } else if all.contains(&2) {
+        2
+    } else {
+        0
+    };
+    Ok(Value::Num(v as f64))
+}
+
+/// `SetEnemy f1 f2 [flag12 flag21]`: each direction becomes enemy (flag 0, the default)
+/// or neutral (1) [documented: catalogue notes].
+pub fn set_enemy(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let (f1, f2) = (a.form(0)?, a.form(1)?);
+    let v = |x: f64| if x != 0.0 { 0 } else { 1 };
+    let (r12, r21) = (v(a.num_or(2, 0.0)), v(a.num_or(3, 0.0)));
+    g.forms.faction_reactions.entry(f1).or_default().insert(f2, r12);
+    g.forms.faction_reactions.entry(f2).or_default().insert(f1, r21);
+    none()
+}
+
+/// `SetAlly f1 f2 [flag12 flag21]`: each direction becomes ally (flag 0, the default)
+/// or friend (1) [documented: catalogue notes].
+pub fn set_ally(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let (f1, f2) = (a.form(0)?, a.form(1)?);
+    let v = |x: f64| if x != 0.0 { 3 } else { 2 };
+    let (r12, r21) = (v(a.num_or(2, 0.0)), v(a.num_or(3, 0.0)));
+    g.forms.faction_reactions.entry(f1).or_default().insert(f2, r12);
+    g.forms.faction_reactions.entry(f2).or_default().insert(f1, r21);
+    none()
+}
+
+/// The actor leaves every faction it is in [documented: catalogue summary].
+pub fn remove_from_all_factions(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    for f in factions_of(g, r) {
+        g.extra.entry(r).or_default().factions.insert(f, -1);
+    }
+    none()
+}
+
+/// The caller's rank minus the target's in a faction [documented: catalogue summary];
+/// a non-member's rank counts as −1 [hypothesis].
+pub fn get_faction_rank_difference(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let f = a.form(0)?;
+    let t = a.form(1)?;
+    Ok(Value::Num((faction_rank(g, r, f) - faction_rank(g, t, f)) as f64))
+}
+
+/// `SetPCEnemyOfFaction faction flag` [documented: catalogue summary].
+pub fn set_pc_enemy_of_faction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let f = a.form(0)?;
+    if a.num_or(1, 1.0) != 0.0 {
+        g.player.enemy_of.insert(f);
+    } else {
+        g.player.enemy_of.remove(&f);
+    }
+    none()
+}
+
+pub fn get_pc_enemy_of_faction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    yes(g.player.enemy_of.contains(&a.form(0)?))
+}
+
+pub fn clear_faction_player_enemy_flag(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.player.enemy_of.remove(&a.form(0)?);
+    none()
+}
+
+/// 1 when the player is a crime enemy of any faction the caller is in [documented:
+/// catalogue summary].
+pub fn get_actor_faction_player_enemy(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(factions_of(g, r).iter().any(|f| g.player.enemy_of.contains(f)))
+}
+
+flag!(ignore_crime, get_ignore_crime, ignore_crime);
+flag!(set_ignore_friendly_hits, get_ignore_friendly_hits, ignore_friendly_hits);
+
+/// `actor.SetLevel level [levelToPC min max]`: the player's level, or an actor's
+/// (with the level-to-player flag the level is an offset from the player's, kept within
+/// min and max when given) [documented: catalogue summary and notes]. Re-rolling an
+/// actor's inventory and the player's stats are not modelled.
+pub fn set_level(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject_or_player();
+    let mut level = a.int(0)?;
+    if r == FormId::PLAYER_REF {
+        g.player.level = Some(level);
+        return none();
+    }
+    if a.num_or(1, 0.0) != 0.0 {
+        level += g.player.level.unwrap_or(g.world.config().player_level as i32);
+        if let Ok(min) = a.int(2) {
+            level = level.max(min);
+        }
+        if let Some(max) = a.int(3).ok().filter(|&m| m > 0) {
+            level = level.min(max);
+        }
+    }
+    g.extra.entry(r).or_default().level = Some(level);
+    none()
+}
+
+/// How many actors are the player's teammates now [documented: catalogue summary].
+pub fn get_player_teammate_count(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let n = g.extra.iter().filter(|(_, e)| e.teammate && !e.dead).count();
+    Ok(Value::Num(n as f64))
+}
 
 /// Health back to its base: the stored Health (code 16) change is dropped.
 pub fn reset_health(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {

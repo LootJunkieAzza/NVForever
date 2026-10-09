@@ -33,6 +33,10 @@ pub mod event {
     pub const ON_PACKAGE_DONE: u16 = 0x10;
     pub const ON_PACKAGE_CHANGE: u16 = 0x14;
     pub const ON_LOAD: u16 = 0x15;
+    pub const SCRIPT_EFFECT_START: u16 = 0x11;
+    pub const SCRIPT_EFFECT_FINISH: u16 = 0x12;
+    pub const SCRIPT_EFFECT_UPDATE: u16 = 0x13;
+    pub const ON_DESTRUCTION_STAGE_CHANGE: u16 = 0x23;
     pub const ON_TRIGGER: u16 = 0x18;
     pub const ON_TRIGGER_ENTER: u16 = 0x1A;
     pub const ON_TRIGGER_LEAVE: u16 = 0x1B;
@@ -73,6 +77,8 @@ pub enum InstKey {
     Quest { quest: FormId },
     /// A scripted item in an inventory (one instance per holder and item).
     Item { holder: FormId, item: FormId },
+    /// The effect script of one active magic effect ([`ActiveEffect::id`]).
+    Effect { id: u32 },
 }
 
 impl InstKey {
@@ -81,6 +87,7 @@ impl InstKey {
             InstKey::Ref { reference } => format!("ref:{reference}"),
             InstKey::Quest { quest } => format!("quest:{quest}"),
             InstKey::Item { holder, item } => format!("item:{item}@{holder}"),
+            InstKey::Effect { id } => format!("effect:{id}"),
         }
     }
 }
@@ -129,6 +136,123 @@ pub struct RefExtra {
     /// ([`Game::evaluate_package`]); `None` until then.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub current_package: Option<FormId>,
+    /// SetActorRefEssential (the reference only; the base's flag is separate).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub essential: Option<bool>,
+    /// Who killed the actor (KillActor's killer), for IsKiller.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub killer: Option<FormId>,
+    /// Object damage taken (DamageObject), for the destruction stage.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub damage: Option<f64>,
+    /// Spells added with AddSpell, in order.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub spells: Vec<FormId>,
+    /// SetBroadcastState of a radio station (talking activator).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub broadcast: Option<bool>,
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub ignore_crime: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub ignore_friendly_hits: bool,
+    /// SetTalkingActivatorActor.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub talking_actor: Option<FormId>,
+    /// SetCriticalStage (0 none, 1 goo start, 2 goo end, 3 disintegrate start, 4 end).
+    #[serde(skip_serializing_if = "is_zero", default)]
+    pub critical_stage: u16,
+    /// SetScale.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub scale: Option<f64>,
+    /// SetLevel of an actor other than the player.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub level: Option<i32>,
+    /// SetMinimalUse of a door.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub minimal_use: Option<bool>,
+}
+
+fn is_zero(v: &u16) -> bool {
+    *v == 0
+}
+
+/// A challenge's run-time state (UnlockChallenge, RemoveRecurringFromChallenge, the
+/// completion the Layer 6 challenge counters report).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ChallengeState {
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub unlocked: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub completed: bool,
+    /// RemoveRecurringFromChallenge cleared the Recurring flag.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub not_recurring: bool,
+}
+
+/// EnableFastTravel's three flags (all false = the default: travel and waiting allowed).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct FastTravel {
+    pub travel_disabled: bool,
+    pub wait_disabled: bool,
+    /// The setting survives an interior → exterior change.
+    pub keep: bool,
+}
+
+impl FastTravel {
+    pub fn is_default(&self) -> bool {
+        *self == FastTravel::default()
+    }
+}
+
+/// Run-time changes to base forms and cells (they apply to every reference of the form)
+/// [documented per function: catalogue summaries of SetEssential, SetActorFullName,
+/// SetQuestObject, SetCellOwnership, SetCellPublicFlag, SetItemValue, SetEnemy, SetAlly].
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FormChanges {
+    /// Faction → other faction → group combat reaction (0 neutral, 1 enemy, 2 ally,
+    /// 3 friend), over the FACT XNAM list.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub faction_reactions: BTreeMap<FormId, BTreeMap<FormId, i64>>,
+    /// SetEssential on actor bases.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub essential: BTreeMap<FormId, bool>,
+    /// SetActorFullName: base → the message whose title is the new name.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub names: BTreeMap<FormId, FormId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub quest_items: BTreeMap<FormId, bool>,
+    /// SetCellOwnership (None: the owner was cleared).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub cell_owners: BTreeMap<FormId, FormId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub public_cells: BTreeMap<FormId, bool>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub item_values: BTreeMap<FormId, i32>,
+}
+
+/// A magic effect active on an actor (docs/spec-notes/scripts.md §7.6).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActiveEffect {
+    pub id: u32,
+    pub target: FormId,
+    /// The magic item it came from (ALCH, SPEL, ENCH, INGR).
+    pub source: FormId,
+    /// The base effect (MGEF).
+    pub effect: FormId,
+    /// Its index in the source's effect list.
+    pub index: usize,
+    pub magnitude: u32,
+    /// Seconds; ignored when `permanent`.
+    pub duration: f64,
+    pub elapsed: f64,
+    /// An ability added with AddSpell: lasts until removed.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub permanent: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub caster: Option<FormId>,
+    /// The effect script (MGEF archetype Script), if any.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub script: Option<FormId>,
 }
 
 /// The player's state outside the world's reference table.
@@ -165,6 +289,31 @@ pub struct PlayerState {
     /// Map markers ShowMap made visible.
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub map_markers: BTreeSet<FormId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub challenges: BTreeMap<FormId, ChallengeState>,
+    #[serde(skip_serializing_if = "FastTravel::is_default", default)]
+    pub fast_travel: FastTravel,
+    /// Factions the player is an enemy of after a crime (SetPCEnemyOfFaction).
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub enemy_of: BTreeSet<FormId>,
+    /// SetInCharGen.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub in_chargen: bool,
+    /// Casino winnings level (0–4) per casino (CSNO), set by the casino games (Layer 6).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub casino_levels: BTreeMap<FormId, i32>,
+    /// SetPCCanUsePowerArmor.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub power_armor: bool,
+    /// Dialogue topics added with AddTopic.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub topics: BTreeSet<FormId>,
+    /// SetLevel on the player (otherwise the configuration's level).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub level: Option<i32>,
+    /// Hardcore mode was off at some point (IsAlwaysHardcore).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub hardcore_was_off: bool,
 }
 
 /// A message box waiting for a button (`ShowMessage` of a message with buttons).
@@ -232,6 +381,13 @@ pub struct Game<'a> {
     unhandled_seen: BTreeSet<(u16, String)>,
     stubs_seen: BTreeSet<(u16, String, String)>,
     pub rng: ChaCha8Rng,
+    /// Run-time changes to base forms and cells.
+    pub forms: FormChanges,
+    /// Magic effects active on actors, in the order they started.
+    pub effects: Vec<ActiveEffect>,
+    pub next_effect: u32,
+    /// ScriptEffectElapsedSeconds inside a ScriptEffectUpdate block (0 elsewhere).
+    pub effect_elapsed: f64,
     depth: u32,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
@@ -258,6 +414,12 @@ pub struct GameSnapshot {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_onload: Vec<FormId>,
     pub rng_word_pos: String,
+    #[serde(default)]
+    pub forms: FormChanges,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<ActiveEffect>,
+    #[serde(default)]
+    pub next_effect: u32,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
@@ -321,6 +483,10 @@ impl<'a> Game<'a> {
             unhandled_seen: BTreeSet::new(),
             stubs_seen: BTreeSet::new(),
             rng: ChaCha8Rng::seed_from_u64(cfg.seed ^ 0x5C21_7000),
+            forms: FormChanges::default(),
+            effects: Vec::new(),
+            next_effect: 1,
+            effect_elapsed: 0.0,
             depth: 0,
             stop_run: false,
         }
@@ -692,6 +858,9 @@ impl<'a> Game<'a> {
                 self.run_event(key, script, ev, subject, RunCtx { self_ref: None, action_ref: Some(holder), quest: None });
             }
         }
+        if !in_menu {
+            self.update_effects(dt);
+        }
     }
 
     /// The scripted items `holder` carries whose script has a block for `ev`, in FormID
@@ -800,6 +969,14 @@ impl<'a> Game<'a> {
     /// The player is now in `cell`: load it (and its neighbours outdoors).
     pub fn player_entered(&mut self, cell: Option<FormId>) {
         if let Some(c) = cell {
+            // EnableFastTravel without its keep flag: going from an interior back to an
+            // exterior allows fast travel again [documented: catalogue notes of
+            // EnableFastTravel].
+            let placed = self.world.placed;
+            let was_interior = !self.loaded_cells.is_empty() && self.loaded_cells.iter().all(|&l| placed.world_of(l).is_none());
+            if was_interior && placed.world_of(c).is_some() && !self.player.fast_travel.keep {
+                self.player.fast_travel = crate::game::FastTravel::default();
+            }
             let cells = self.cells_around(c);
             self.set_loaded(cells);
         }
@@ -970,6 +1147,124 @@ impl<'a> Game<'a> {
         }
     }
 
+    // ---- magic effects (docs/spec-notes/scripts.md §7.6) --------------------------
+
+    /// Apply the effects of a magic item (an ingestible the actor consumes, a spell
+    /// cast on it, an ability added to it) to `target`. Each effect whose conditions
+    /// pass (subject: the target) becomes an [`ActiveEffect`]; an effect whose base
+    /// effect is a Script effect runs its ScriptEffectStart block at once, inside this
+    /// call, in an instance of its own [hypothesis: at once; per effect, in the item's
+    /// effect order]. An effect of duration 0 that is not permanent then finishes at
+    /// once (ScriptEffectFinish) [hypothesis]. Returns the effects started.
+    pub fn apply_magic_item(&mut self, target: FormId, source: FormId, caster: Option<FormId>, permanent: bool) -> Vec<u32> {
+        let data = self.data;
+        let Some(items) = data.effect_items.get(&source) else { return Vec::new() };
+        let mut started = Vec::new();
+        for (index, e) in items.iter().enumerate() {
+            let label = format!("{} effect {index}", data.name(source));
+            if !self.conditions_pass(&e.conditions, Some(target), caster, &label) {
+                continue;
+            }
+            let id = self.next_effect;
+            self.next_effect += 1;
+            let script = data.magic_effects.get(&e.effect).and_then(|m| m.script).filter(|s| data.scripts.contains_key(s));
+            self.effects.push(ActiveEffect {
+                id,
+                target,
+                source,
+                effect: e.effect,
+                index,
+                magnitude: e.magnitude,
+                duration: e.duration as f64,
+                elapsed: 0.0,
+                permanent,
+                caster,
+                script,
+            });
+            self.emit(EventKind::EffectStarted { id, target, source, effect: e.effect });
+            started.push(id);
+            self.effect_event(id, event::SCRIPT_EFFECT_START, 0.0);
+            if !permanent && e.duration == 0 && self.effects.iter().any(|x| x.id == id) {
+                self.finish_effect(id, true);
+            }
+        }
+        started
+    }
+
+    /// The player (or an actor) consumes an ingestible (ALCH) from its inventory: one is
+    /// removed and its effects apply to the actor ([`Game::apply_magic_item`]). The engine
+    /// calls this when the player uses an aid item; EquipItem of an aid item does the same.
+    pub fn consume(&mut self, actor: FormId, item: FormId) -> Result<Vec<u32>, String> {
+        let removed = self.world.remove_item(actor, item, 1).map_err(|e| e.to_string())?;
+        if removed == 0 {
+            return Err(format!("{} carries no {}", self.data.name(actor), self.data.name(item)));
+        }
+        self.emit(EventKind::ItemRemoved { from: actor, item, count: 1 });
+        Ok(self.apply_magic_item(actor, item, Some(actor), false))
+    }
+
+    /// Run an effect's script block (if its script has one) on the effect's target.
+    fn effect_event(&mut self, id: u32, ev: u16, elapsed: f64) {
+        let Some(e) = self.effects.iter().find(|x| x.id == id) else { return };
+        let (Some(script), target, caster) = (e.script, e.target, e.caster) else { return };
+        if !self.data.script(script).is_some_and(|u| u.has_block(ev)) {
+            return;
+        }
+        let before = std::mem::replace(&mut self.effect_elapsed, elapsed);
+        self.run_event(InstKey::Effect { id }, script, ev, None, RunCtx { self_ref: Some(target), action_ref: caster, quest: None });
+        self.effect_elapsed = before;
+    }
+
+    /// End an effect: its ScriptEffectFinish block runs (when `run_finish`), then it and
+    /// its script instance are dropped.
+    pub fn finish_effect(&mut self, id: u32, run_finish: bool) {
+        if !self.effects.iter().any(|x| x.id == id) {
+            return;
+        }
+        if run_finish {
+            self.effect_event(id, event::SCRIPT_EFFECT_FINISH, 0.0);
+        }
+        if let Some(i) = self.effects.iter().position(|x| x.id == id) {
+            let e = self.effects.remove(i);
+            self.instances.remove(&InstKey::Effect { id });
+            self.emit(EventKind::EffectFinished { id, target: e.target, source: e.source });
+        }
+    }
+
+    /// One frame of active effects (game time only): each runs ScriptEffectUpdate with
+    /// ScriptEffectElapsedSeconds = the frame time, then an effect whose duration has
+    /// passed finishes [hypothesis: update every frame, finish on the frame the
+    /// duration is reached; documented: ScriptEffectElapsedSeconds is the time since
+    /// the last update, non-zero only in ScriptEffectUpdate]. Effects on dead actors
+    /// keep running [hypothesis].
+    fn update_effects(&mut self, dt: f64) {
+        let ids: Vec<u32> = self.effects.iter().map(|e| e.id).collect();
+        for id in ids {
+            let Some(e) = self.effects.iter_mut().find(|x| x.id == id) else { continue };
+            e.elapsed += dt;
+            let done = !e.permanent && e.elapsed + 1e-9 >= e.duration;
+            self.effect_event(id, event::SCRIPT_EFFECT_UPDATE, dt);
+            if done {
+                self.finish_effect(id, true);
+            }
+        }
+    }
+
+    /// Remove the effects of `target` that `pick` selects. An effect whose own script is
+    /// running stops that script like a return and does not run its finish block
+    /// [documented: GECK wiki Dispel]; the others run ScriptEffectFinish [hypothesis].
+    pub fn dispel(&mut self, target: FormId, running: Option<InstKey>, pick: impl Fn(&ActiveEffect) -> bool) -> usize {
+        let ids: Vec<u32> = self.effects.iter().filter(|e| e.target == target && pick(e)).map(|e| e.id).collect();
+        for &id in &ids {
+            let own = running == Some(InstKey::Effect { id });
+            if own {
+                self.request_return();
+            }
+            self.finish_effect(id, !own);
+        }
+        ids.len()
+    }
+
     // ---- conditions --------------------------------------------------------------
 
     /// Evaluate a condition list (`subject` and `target` for the run-on choices).
@@ -1100,6 +1395,9 @@ impl<'a> Game<'a> {
             time: self.time,
             pending_onload: self.pending_onload.clone(),
             rng_word_pos: self.rng.get_word_pos().to_string(),
+            forms: self.forms.clone(),
+            effects: self.effects.clone(),
+            next_effect: self.next_effect,
         }
     }
 
@@ -1121,6 +1419,9 @@ impl<'a> Game<'a> {
         g.frame = s.frame;
         g.time = s.time;
         g.pending_onload = s.pending_onload.clone();
+        g.forms = s.forms.clone();
+        g.effects = s.effects.clone();
+        g.next_effect = s.next_effect.max(1);
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)
