@@ -280,6 +280,45 @@ pub struct BodyPart {
     pub gore_target_bone: Option<String>,
 }
 
+impl BodyPart {
+    /// The part's location as `GetHitLocation` numbers it (the BodyLocation enum: −1 none,
+    /// 0 torso, 1–2 head, 3–4 left arm, 5–6 right arm, 7–9 left leg, 10–12 right leg, 13
+    /// brain, 14 weapon) [documented: xEdit wbBodyLocationEnum; GECK wiki GetHitLocation].
+    pub fn location(&self) -> i32 {
+        const NAMES: [&str; 15] = [
+            "Torso", "Head 1", "Head 2", "Left Arm 1", "Left Arm 2", "Right Arm 1", "Right Arm 2", "Left Leg 1", "Left Leg 2", "Left Leg 3", "Right Leg 1",
+            "Right Leg 2", "Right Leg 3", "Brain", "Weapon",
+        ];
+        self.part_type.as_deref().and_then(|t| NAMES.iter().position(|n| *n == t)).map_or(-1, |i| i as i32)
+    }
+
+    /// What kind of limb the part is, from its location.
+    pub fn limb(&self) -> Limb {
+        match self.location() {
+            0 => Limb::Torso,
+            1 | 2 | 13 => Limb::Head,
+            3..=6 => Limb::Arm,
+            7..=12 => Limb::Leg,
+            _ => Limb::Other,
+        }
+    }
+
+    /// The damage input for a hit on this part.
+    pub fn hit_part(&self) -> crate::damage::HitPart {
+        crate::damage::HitPart { damage_mult: if self.damage_mult > 0.0 { self.damage_mult } else { 1.0 }, head: self.limb() == Limb::Head }
+    }
+}
+
+/// A body part's kind (from its BodyLocation), for hit volume sizes and flinches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+pub enum Limb {
+    Head,
+    Torso,
+    Arm,
+    Leg,
+    Other,
+}
+
 /// BPTD.
 #[derive(Debug, Clone, Serialize)]
 pub struct BodyPartData {
@@ -358,6 +397,8 @@ pub struct CombatForms {
     /// Every FLST (weapons name their ammo through them).
     pub form_lists: HashMap<FormId, Vec<FormId>>,
     pub armor: HashMap<FormId, ArmorStats>,
+    /// CREA `PNAM`: a creature's body part data (step C8) [documented: xEdit CREA].
+    pub creature_body_parts: HashMap<FormId, FormId>,
     /// Game settings by lower-case Editor ID.
     pub settings: BTreeMap<String, Setting>,
     /// Signature of the winning record of every loaded form.
@@ -367,7 +408,7 @@ pub struct CombatForms {
 }
 
 /// IPDS is only registered (its signature), so references to it can be checked.
-const SIGS: &[&[u8; 4]] = &[b"WEAP", b"AMMO", b"AMEF", b"PROJ", b"EXPL", b"BPTD", b"ENCH", b"SPEL", b"FLST", b"GMST", b"IPDS", b"ARMO"];
+const SIGS: &[&[u8; 4]] = &[b"WEAP", b"AMMO", b"AMEF", b"PROJ", b"EXPL", b"BPTD", b"ENCH", b"SPEL", b"FLST", b"GMST", b"IPDS", b"ARMO", b"CREA"];
 
 enum Loaded {
     Weapon(Box<WeaponStats>),
@@ -380,6 +421,7 @@ enum Loaded {
     FormList(Vec<FormId>),
     Setting(Setting),
     Armor(ArmorStats),
+    CreatureParts(Option<FormId>),
     Other,
 }
 
@@ -445,6 +487,11 @@ impl CombatForms {
                 Loaded::Armor(a) => {
                     out.armor.insert(id, a);
                 }
+                Loaded::CreatureParts(p) => {
+                    if let Some(p) = p {
+                        out.creature_body_parts.insert(id, p);
+                    }
+                }
                 Loaded::Setting(s) => {
                     if let Some(e) = edid {
                         out.settings.insert(e.to_ascii_lowercase(), s);
@@ -463,6 +510,27 @@ impl CombatForms {
     /// A numeric game setting by Editor ID (any case).
     pub fn setting(&self, edid: &str) -> Option<f32> {
         self.settings.get(&edid.to_ascii_lowercase()).and_then(Setting::as_f32)
+    }
+
+    /// The body part data of an actor (step C8): a creature's own (`PNAM`) when `base` is
+    /// a CREA that names one, else the BPTD whose model is the actor's skeleton
+    /// (`DefaultBodyPartData` is `Characters\_Male\skeleton.NIF`) [observed: the BPTD
+    /// models; hypothesis: NPCs use the BPTD of their skeleton], skipping the player's
+    /// own (`PlayerBodyPartData`, FormID 0x1C) for others.
+    pub fn body_parts_for(&self, base: FormId, skeleton: &str) -> Option<FormId> {
+        if let Some(p) = self.creature_body_parts.get(&base) {
+            return Some(*p);
+        }
+        let want = skeleton.replace('/', "\\").to_ascii_lowercase();
+        let want = want.trim_start_matches("meshes\\");
+        let mut found: Vec<FormId> = self
+            .body_parts
+            .iter()
+            .filter(|(id, b)| id.0 != 0x1C && b.model.as_deref().is_some_and(|m| m.replace('/', "\\").to_ascii_lowercase().trim_start_matches("meshes\\") == want))
+            .map(|(id, _)| *id)
+            .collect();
+        found.sort();
+        found.first().copied()
     }
 
     /// The armour an actor wears out of the items it carries: the carried ARMO, each once,
@@ -582,6 +650,7 @@ fn load_one(cx: &mut Ctx, sig: &[u8; 4], d: &[Decoded]) -> Loaded {
             let items = all(d, b"LNAM").cloned().collect::<Vec<_>>();
             Loaded::FormList(items.iter().filter_map(|v| cx.fid("LNAM", Some(v))).collect())
         }
+        b"CREA" => Loaded::CreatureParts(cx.fid("PNAM", first(d, b"PNAM"))),
         b"ARMO" => {
             let dnam = first(d, b"DNAM");
             let slots = first(d, b"BMDT").and_then(|b| b.get("biped_flags")).and_then(|f| num(f, "value")).unwrap_or(0.0) as u32;

@@ -4204,6 +4204,7 @@ dependencies = [
  "bevy",
  "clap",
  "fnv-actor",
+ "fnv-combat",
  "fnv-dds",
  "fnv-esm",
  "fnv-install",
