@@ -74,7 +74,7 @@ pub(crate) fn affine(t: &NifTransform) -> Affine3A {
 /// Rendering-relevant properties accumulated from an object and its ancestors.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Props {
-    textures: Vec<String>,
+    pub(crate) textures: Vec<String>,
     alpha: Option<(i64, i64)>,
     material_alpha: Option<f32>,
     emissive: Option<[f32; 3]>,
@@ -92,6 +92,8 @@ pub(crate) struct Props {
     vertex_colors_tint: bool,
     /// BSShaderNoLightingProperty: drawn without lighting (effects, glows).
     unlit: bool,
+    /// BSShaderFlags bit 18 "Hair" [documented: nif.xml].
+    pub(crate) hair: bool,
     /// The view-angle falloff of a BSShaderNoLightingProperty.
     falloff: Option<Falloff>,
     /// BSShaderFlags bit 29 "External_Emittance" [documented: nif.xml].
@@ -156,6 +158,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         let flags = s.int("shader_flags").unwrap_or(0);
         p.specular = flags & 1 != 0;
         p.vertex_alpha = flags & (1 << 3) != 0;
+        p.hair = flags & (1 << 18) != 0;
         p.external_emittance = flags & (1 << 29) != 0;
         p.falloff = None;
     }
