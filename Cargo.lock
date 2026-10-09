@@ -464,6 +464,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-script"
+version = "0.1.0"
+dependencies = [
+ "fnv-esm",
+ "fnv-util",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "fnv-sim"
 version = "0.1.0"
 dependencies = [
@@ -532,6 +544,7 @@ dependencies = [
  "fnv-install",
  "fnv-nif",
  "fnv-phys",
+ "fnv-script",
  "fnv-sim",
  "fnv-spt",
  "fnv-util",
