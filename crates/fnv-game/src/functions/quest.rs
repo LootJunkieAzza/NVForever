@@ -115,3 +115,16 @@ pub fn set_quest_delay(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Stri
     g.quest(q).delay = (d > 0.0).then_some(d);
     none()
 }
+
+/// Marks the quest completed (the Pip-Boy part is presentation) [documented: catalogue
+/// summary]. It does not stop the quest [hypothesis, as the Complete Quest stage flag,
+/// layer5-captures.md §5.3].
+pub fn complete_quest(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let q = quest(g, a, 0)?;
+    let s = g.quest(q);
+    if !s.completed {
+        s.completed = true;
+        g.emit(crate::trace::EventKind::QuestCompleted { quest: q });
+    }
+    none()
+}
