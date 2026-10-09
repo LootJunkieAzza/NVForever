@@ -18,6 +18,15 @@
 //! physics cell containing them: their base form's model collision, dynamic when the
 //! model says so ([`PhysState::add_created`]). While a dynamic one moves, its pose is
 //! written back to the simulation ([`PhysState::settle_created`]).
+//!
+//! Placed references whose collision is one dynamic object (clutter) are written back
+//! the same way once physics has moved them (pushed, knocked down: more than
+//! [`MOVED_DISTANCE`] or [`MOVED_ROTATION`] from where they were added, so settling on
+//! load is not a move): [`PhysState::settle_placed`]. Their cells then build their
+//! collision at the simulation's pose (`prepare::Job::poses`), `crate::moved` draws them
+//! there, and snapshots keep it. They stay in their placed cell (the cell lists come from
+//! the plugins) [engineering choice]. That the game keeps a pushed item where it came to
+//! rest is [hypothesis].
 
 pub mod cells;
 mod loader;
@@ -69,6 +78,11 @@ pub struct PhysState {
     pub ref_cell: HashMap<u32, PhysCell>,
     /// References created at run time (dropped items) that have collision now.
     pub created: BTreeMap<u32, CreatedBody>,
+    /// Placed references with one dynamic collision object, in the world now.
+    pub placed_dynamic: BTreeMap<u32, PlacedDynamic>,
+    /// Placed references whose pose [`PhysState::settle_placed`] wrote to the simulation
+    /// this frame (for `crate::moved`).
+    pub moved_now: Vec<u32>,
     pub stats: PhysStats,
     /// Feet before the last fixed step (the camera interpolates from it).
     pub(crate) prev_feet: [f32; 3],
@@ -94,6 +108,8 @@ impl Default for PhysState {
             cells: BTreeMap::new(),
             ref_cell: HashMap::new(),
             created: BTreeMap::new(),
+            placed_dynamic: BTreeMap::new(),
+            moved_now: Vec::new(),
             stats: PhysStats::default(),
             prev_feet: [0.0; 3],
             persistent_by_grid: HashMap::new(),
@@ -131,6 +147,26 @@ pub struct CreatedBody {
     /// At rest (its body asleep) since it last moved.
     pub settled: bool,
 }
+
+/// A placed reference that physics can move: its collision is one dynamic object.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlacedDynamic {
+    /// The object's node and body transforms (see [`CreatedBody::local`]).
+    pub local: Iso,
+    pub scale: f32,
+    /// Position and row-major rotation it was added at.
+    pub added: ([f32; 3], [f32; 9]),
+    /// Physics has moved it since (beyond [`MOVED_DISTANCE`] / [`MOVED_ROTATION`]).
+    pub moved: bool,
+}
+
+/// A placed dynamic reference counts as moved by physics once its pose is this far (game
+/// units) from where it was added [engineering choice: clutter placed a little above its
+/// support settles by a unit or less when its cell loads, which is not a push].
+pub const MOVED_DISTANCE: f32 = 1.0;
+/// Or turned this much (largest difference of a rotation matrix entry, about 1.1 degrees)
+/// [engineering choice].
+pub const MOVED_ROTATION: f32 = 0.02;
 
 /// A dynamic created reference that falls this far below where its collision was added
 /// has fallen through the world [engineering choice]: its collision is removed and it is
@@ -209,6 +245,12 @@ impl std::fmt::Display for PrepareTimes<'_> {
             t.records, t.read, t.parse, t.convert, t.shapes
         )
     }
+}
+
+/// `job` with the simulation's poses of its references that physics or a script moved.
+fn with_poses(mut job: Job, sim: &SimState) -> Job {
+    job.poses = job.refs.iter().filter_map(|&r| sim.moved_pose(r).map(|(p, a)| (r, p, a))).collect();
+    job
 }
 
 /// What loading needs besides the physics state.
@@ -325,7 +367,7 @@ impl PhysState {
             PhysCell::Exterior(..) => record.and_then(|c| c.land),
             PhysCell::Interior(_) => None,
         };
-        Job { cell, refs, land }
+        Job { cell, refs, land, poses: Vec::new() }
     }
 
     fn source(&self, ctx: &LoadCtx) -> Source {
@@ -334,7 +376,7 @@ impl PhysState {
 
     /// The work of preparing `cell`, to run on any thread.
     fn work(&self, ctx: &LoadCtx, cell: PhysCell) -> loader::Work {
-        let job = self.job(ctx.d, cell);
+        let job = with_poses(self.job(ctx.d, cell), ctx.sim);
         #[cfg(test)]
         if let Some(fake) = self.fake {
             return Box::new(move || fake(&job));
@@ -422,7 +464,7 @@ impl PhysState {
             *counts.entry("not_present").or_default() += 1;
             return false;
         }
-        let RefShapes { tallies, water, prepared } = shapes(&pl);
+        let RefShapes { tallies, water, prepared, dynamic_local } = shapes(&pl);
         for what in tallies {
             *counts.entry(what).or_default() += 1;
         }
@@ -438,6 +480,10 @@ impl PhysState {
         if !rep.errors.is_empty() {
             *counts.entry("object_errors").or_default() += rep.errors.len();
         }
+        if let (Some(local), 1) = (dynamic_local, rep.bodies) {
+            let added = (pl.position, ref_rotation(pl.rotation));
+            self.placed_dynamic.insert(pl.form_id, PlacedDynamic { local, scale: pl.scale, added, moved: false });
+        }
         rep.bodies > 0
     }
 
@@ -447,7 +493,7 @@ impl PhysState {
         let src = self.source(ctx);
         let mut times = LoadTimes::default();
         let t = Instant::now();
-        let pl = placement(ctx.d.lo, ctx.d.schema, r);
+        let pl = placement(ctx.d.lo, ctx.d.schema, r).map(|pl| prepare::at_pose(pl, ctx.sim.moved_pose(r)));
         times.records += ms_since(t);
         let added = self.apply(ctx, pl, |pl| prepare::reference(&src, pl, &mut times));
         self.stats.times.add(&times);
@@ -467,6 +513,7 @@ impl PhysState {
         for r in c.refs {
             self.world.remove_ref(r);
             self.created.remove(&r);
+            self.placed_dynamic.remove(&r);
             if self.ref_cell.get(&r) == Some(&cell) {
                 self.ref_cell.remove(&r);
             }
@@ -482,6 +529,7 @@ impl PhysState {
             return;
         }
         if !ctx.sim.present(form_id) {
+            self.placed_dynamic.remove(&form_id);
             if self.world.remove_ref(form_id) {
                 debug!("collision of {form_id:08X} removed");
             }
@@ -636,6 +684,36 @@ impl PhysState {
             }
         }
         moved
+    }
+
+    /// Write the poses of placed dynamic references that physics has moved back to the
+    /// simulation (see the module notes); logs each one's first move. Returns the
+    /// references whose pose changed.
+    pub fn settle_placed(&mut self, sim: &mut World) -> Vec<u32> {
+        let mut changed = Vec::new();
+        for (&id, p) in self.placed_dynamic.iter_mut() {
+            let Some(b) = self.world.ref_bodies(id).first().copied() else { continue };
+            if b.sleeping && !p.moved {
+                continue;
+            }
+            let (pos, rot) = dropped::ref_pose_from_body(&b, &p.local, p.scale);
+            if !p.moved {
+                let dist = (0..3).map(|i| (pos[i] - p.added.0[i]).powi(2)).sum::<f32>().sqrt();
+                if dist < MOVED_DISTANCE && max_diff(&rot, &p.added.1) < MOVED_ROTATION {
+                    continue;
+                }
+                p.moved = true;
+                info!("placed {id:08X} moved by physics: at ({:.1}, {:.1}, {:.1}), {dist:.1} from where it was added", pos[0], pos[1], pos[2]);
+            }
+            let Ok(s) = sim.get(FormId(id)) else { continue };
+            let dist = (0..3).map(|i| (pos[i] - s.pos[i]).powi(2)).sum::<f32>().sqrt();
+            if dist > 0.01 || max_diff(&ref_rotation(s.rot), &rot) > 1e-4 {
+                s.pos = pos;
+                s.rot = ref_angles(&rot);
+                changed.push(id);
+            }
+        }
+        changed
     }
 
     /// Unload everything and switch to `space`.
@@ -833,6 +911,7 @@ fn ref_changed(
 /// The settle write-back for dropped items ([`PhysState::settle_created`]) after the
 /// frame's fixed steps (in the player's chain, after its step).
 pub(crate) fn settle_created(d: Res<PlayWorld>, mut sim: ResMut<SimState>, mut phys: ResMut<PhysState>) {
+    phys.moved_now = if phys.placed_dynamic.is_empty() { Vec::new() } else { phys.settle_placed(&mut sim.world) };
     if phys.created.is_empty() {
         return;
     }
