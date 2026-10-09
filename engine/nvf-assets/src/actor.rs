@@ -16,8 +16,10 @@
 //!   "PF_EDITOR_VISIBLE"; observed: the cap shapes of `upperbody.nif` (`bodycaps`,
 //!   `limbcaps`, `meatneck01`, `meathead01`) all have it clear, its body shapes set it;
 //!   hypothesis: an intact actor shows no cap].
-//! - Pose: the skeleton's bind pose, frozen (owner decision 2026-10-08).
+//! - Pose: the skeleton's bind pose, frozen (owner decision 2026-10-08), by default; a
+//!   KF clip can play on the skeleton's bones instead ([`play_on_actor`], actors.md §7).
 
+use crate::anim_play::{Clip, Playing};
 use crate::data::GameData;
 use crate::model::ModelCtx;
 use crate::nif_material::NifMaterial;
@@ -96,6 +98,7 @@ pub struct ActorParts {
     skeletons: HashMap<String, Option<Arc<PreparedSkeleton>>>,
     parts: HashMap<String, Option<Arc<PreparedPart>>>,
     materials: HashMap<(String, usize, String), Handle<NifMaterial>>,
+    clips: HashMap<String, Option<Arc<Clip>>>,
     pub failures: Vec<String>,
 }
 
@@ -188,6 +191,25 @@ impl ActorCtx<'_, '_> {
         };
         self.cache.parts.insert(key, p.clone());
         p
+    }
+
+    /// The first controller sequence of the KF file at `path` (loaded on first use).
+    pub fn clip(&mut self, path: &str) -> Option<Arc<Clip>> {
+        let key = fnv_vfs::normalize(path);
+        if let Some(c) = self.cache.clips.get(&key) {
+            return c.clone();
+        }
+        let c = match decode(&self.models.data, &key)
+            .and_then(|(file, _, dec)| fnv_nif::anim::sequences(&file, &dec).first().map(Clip::from_sequence).ok_or("no sequence".into()))
+        {
+            Ok(c) => Some(Arc::new(c)),
+            Err(e) => {
+                self.cache.failures.push(format!("{key}: {e}"));
+                None
+            }
+        };
+        self.cache.clips.insert(key, c.clone());
+        c
     }
 
     /// The material of shape `i` of the part at `path` with its base texture replaced by
@@ -361,6 +383,8 @@ pub fn rigid_local(skel: &PreparedSkeleton, b: usize, root: &Affine3A, shape: &A
 #[derive(Debug)]
 pub struct SpawnedActor {
     pub root: Entity,
+    /// The skeleton's node entities, in [`PreparedSkeleton`] order (`nodes[0]` is `root`).
+    pub nodes: Vec<Entity>,
     /// Entities carrying meshes.
     pub drawn: Vec<Entity>,
     /// Skinned shapes whose bones the skeleton lacks: drawn rigidly at the root instead.
@@ -381,7 +405,8 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
     for (i, p) in skel.parents.iter().enumerate().skip(1) {
         commands.entity(nodes[p.unwrap_or(0)]).add_child(nodes[i]);
     }
-    let mut out = SpawnedActor { root: nodes[0], drawn: Vec::new(), unbound: 0 };
+    let mut out = SpawnedActor { root: nodes[0], nodes, drawn: Vec::new(), unbound: 0 };
+    let nodes = &out.nodes;
     for u in parts {
         let bone = skel.by_name.get(u.part.attach_bone()).copied();
         for (i, s) in u.part.shapes.iter().enumerate() {
@@ -427,6 +452,35 @@ pub fn spawn_actor(commands: &mut Commands, parent: Entity, transform: Transform
         }
     }
     out
+}
+
+/// The skeleton node a clip track named `name` drives: any node but the root, whose
+/// transform is the actor's placement.
+pub fn clip_target(skel: &PreparedSkeleton, name: &str) -> Option<usize> {
+    skel.by_name.get(name).copied().filter(|&i| i > 0)
+}
+
+/// The clip's track names split into those that drive a node of `skel` and those that
+/// do not (for reports).
+pub fn clip_binding<'a>(skel: &PreparedSkeleton, clip: &'a Clip) -> (Vec<&'a str>, Vec<&'a str>) {
+    clip.tracks.iter().map(|(n, _)| n.as_str()).partition(|n| clip_target(skel, n).is_some())
+}
+
+/// Play `clip` in a loop on a spawned actor's skeleton: tracks drive the bone entities by
+/// node name, so skinned shapes and rigid parts under their bones follow. `phase` (0–1)
+/// is where in the clip the actor starts; `hold` keeps it there (frequency 0). An
+/// accumulation root the clip does not drive is set to the identity
+/// ([`Clip::undriven_accum_root`]).
+pub fn play_on_actor(commands: &mut Commands, actor: &SpawnedActor, skel: &PreparedSkeleton, clip: &Clip, source: &str, phase: f32, hold: bool) {
+    if let Some(i) = clip.undriven_accum_root().and_then(|r| clip_target(skel, r)) {
+        commands.entity(actor.nodes[i]).insert(Transform::IDENTITY);
+    }
+    let mut playing = Playing::new(source, clip, |n| clip_target(skel, n).map(|i| actor.nodes[i]));
+    playing.time = clip.start + phase.clamp(0.0, 1.0) * (clip.stop - clip.start);
+    if hold {
+        playing.frequency = 0.0;
+    }
+    commands.entity(actor.root).insert(playing);
 }
 
 #[cfg(test)]

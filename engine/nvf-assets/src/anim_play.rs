@@ -22,6 +22,8 @@ pub struct Clip {
     pub tracks: Vec<(String, Arc<TransformTrack>)>,
     /// Tracks without a target name or with an interpolator that is not a transform.
     pub skipped: usize,
+    /// The sequence's accumulation root (nif.xml NiControllerSequence "Accum Root Name").
+    pub accum_root: Option<String>,
 }
 
 impl Clip {
@@ -42,7 +44,17 @@ impl Clip {
             cycle_type: seq.cycle_type,
             tracks,
             skipped,
+            accum_root: seq.accum_root_name.clone().filter(|n| !n.is_empty()),
         }
+    }
+
+    /// The accumulation root when no track drives it. Such a clip carries the root's
+    /// whole bind offset on the node below it (`Bip01 NonAccum` under `Bip01` in
+    /// `mtidle.kf` [observed, docs/spec-notes/actors.md §7]), so the root itself must be
+    /// held at the identity while it plays [hypothesis: the accumulated motion of a clip
+    /// without a root track is none].
+    pub fn undriven_accum_root(&self) -> Option<&str> {
+        self.accum_root.as_deref().filter(|r| !self.tracks.iter().any(|(n, _)| n == r))
     }
 }
 
