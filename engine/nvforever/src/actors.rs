@@ -59,8 +59,10 @@ pub struct ActorWorld {
     pub pose_time: Option<f32>,
     pub walk_test: Option<WalkTestArgs>,
     /// Locomotion clip sets by (skeleton, body); `None` when no idle was found.
-    sets: Mutex<HashMap<(String, Body), Option<Arc<ClipSet>>>>,
+    sets: Mutex<ClipSets>,
 }
+
+type ClipSets = HashMap<(String, Body), Option<Arc<ClipSet>>>;
 
 impl ActorWorld {
     pub fn build(lo: &LoadOrder, schema: &Schema) -> ActorWorld {
