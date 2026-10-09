@@ -193,7 +193,38 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
 | laser rifle | aimed, DT 12 | 12 of 12 | 3.7 s |
 | hunting rifle | skill 75, aimed at 3000 units, DT 6 | 3 of 3 | 2.2 s |
 
-## 7. Open points
+## 7. Hit volumes (step C3)
+
+- **The capsule** (`fnv_phys::actors`, `HitVolume`): one vertical capsule per placed
+  actor in the physics world, kinematic, owner `Owner::Actor { form_id, layer }`.
+  - Its layer is BIPED while the actor lives and DEAD_BIP once dead. The layers are the
+    documented Havok names; using them for actors is our choice.
+  - It takes part in no contacts: it pushes no clutter, and the character controller
+    walks through it [design].
+  - Setting an unchanged volume does nothing; the shape is rebuilt only when its size
+    changes.
+- **In play** (`engine/nvf-play/src/hitvol.rs`): every drawn, present ACHR/ACRE gets a
+  volume each frame from its render bounds [design]:
+  - the union of its drawn parts' world boxes;
+  - feet at the bottom centre, height the box height;
+  - radius the smaller horizontal half-extent, clamped to 10–150 units.
+
+  An actor that is hidden, removed or no longer drawn loses its volume.
+- **Rays.**
+  - The crosshair's collision ray targets an actor when it hits its volume.
+  - The floor probe, the safe-spot search and the third-person camera skip actor
+    volumes (`layers::actor_volumes()`).
+- **Checked.**
+  - `fnv-phys` tests: shots hit the capsule, follow it when moved and see its layer
+    change on death; a filter can skip it; a character walks through it; moving it
+    through a dynamic box does not push the box.
+  - In the engine: `nvforever --data <Data> --cell Goodsprings --play --run-seconds
+    25` exits 0 with "run finished" and reports 13 actor volumes at exit (10 NPCs and
+    15 creatures drawn, 12 of them hidden by the simulation). A level probe ray from
+    150 units at each capsule's middle hit its own actor for 12 of the 13, and
+    something else first for one [observed 2026-10-09].
+
+## 8. Open points
 
 - Every [design] number is a first guess for the owner to tune in play.
 - Projectile gravity units and speeds: the owner's projectile capture round.

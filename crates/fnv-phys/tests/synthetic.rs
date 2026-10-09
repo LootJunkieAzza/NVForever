@@ -426,6 +426,60 @@ fn activation_ray_skips_the_caster() {
     assert!(q.ray(eye, [1.0, 0.0, 0.0], 80.0, &Filter::excluding(c.key())).is_none());
 }
 
+// --- actor hit volumes (combat C3) ---
+
+fn person(feet: [f32; 3], dead: bool) -> HitVolume {
+    HitVolume { feet, radius: 20.0, height: 128.0, dead }
+}
+
+#[test]
+fn actor_volumes_take_shots() {
+    let mut w = ground();
+    w.set_actor_volume(0x10, person([200.0, 0.0, 0.0], false));
+    w.update_queries();
+    let shot = w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).unwrap();
+    assert_eq!(shot.owner, Owner::Actor { form_id: 0x10, layer: layers::BIPED });
+    assert!((shot.distance - 180.0).abs() < 0.1, "{}", shot.distance);
+    // Above the head: a miss.
+    assert!(w.queries().ray([0.0, 0.0, 140.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).is_none());
+    // Moved: the shot follows the volume.
+    w.set_actor_volume(0x10, person([300.0, 0.0, 0.0], false));
+    w.update_queries();
+    let shot = w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).unwrap();
+    assert!((shot.distance - 280.0).abs() < 0.1);
+    // Dead: DEAD_BIP, which a filter can skip.
+    w.set_actor_volume(0x10, person([300.0, 0.0, 0.0], true));
+    w.update_queries();
+    let shot = w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).unwrap();
+    assert_eq!(shot.owner, Owner::Actor { form_id: 0x10, layer: layers::DEAD_BIP });
+    let skip = Filter { exclude_layers: LayerSet::from_layers(&[layers::DEAD_BIP]), ..Default::default() };
+    assert!(w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &skip).is_none());
+    assert_eq!(w.actor_volumes().collect::<Vec<_>>(), vec![0x10]);
+    assert!(w.remove_actor_volume(0x10));
+    w.update_queries();
+    assert!(w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).is_none());
+}
+
+#[test]
+fn characters_walk_through_actor_volumes_and_clutter_ignores_them() {
+    let mut w = ground();
+    w.set_actor_volume(0x10, person([60.0, 0.0, 0.0], false));
+    w.add_ref(&at(1, [60.0, 40.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+    settle(&mut w, &mut c, 30);
+    let steps = walk(&mut w, &mut c, [120.0, 0.0], 120);
+    assert!(c.feet[0] > 200.0, "{:?}", c.feet);
+    assert!(steps.iter().all(|s| s.touched.iter().all(|o| o.key() != Key::Actor(0x10))));
+    // Moving the volume through the box does not push it.
+    let before = w.ref_bodies(1)[0].translation;
+    for i in 0..30 {
+        w.set_actor_volume(0x10, person([60.0, i as f32 * 2.0, 0.0], false));
+        w.step();
+    }
+    let after = w.ref_bodies(1)[0].translation;
+    assert!((after[0] - before[0]).abs() < 0.01 && (after[1] - before[1]).abs() < 0.01, "{before:?} {after:?}");
+}
+
 #[test]
 fn character_runs_are_deterministic() {
     let run = || {
@@ -446,7 +500,7 @@ fn character_runs_are_deterministic() {
 proptest! {
     #[test]
     fn owner_roundtrip(x in any::<i32>(), y in any::<i32>(), f in any::<u32>(), o in any::<u16>(), l in any::<u8>()) {
-        for owner in [Owner::Terrain { x, y }, Owner::Ref { form_id: f, object: o, layer: l }, Owner::Character { id: f }] {
+        for owner in [Owner::Terrain { x, y }, Owner::Ref { form_id: f, object: o, layer: l }, Owner::Character { id: f }, Owner::Actor { form_id: f, layer: l }] {
             prop_assert_eq!(Owner::decode(owner.encode()), Some(owner));
         }
     }

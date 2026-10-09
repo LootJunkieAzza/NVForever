@@ -291,7 +291,7 @@ impl Status {
                     self.touched.insert(*form_id);
                 }
                 Owner::Terrain { .. } => self.touched_terrain = true,
-                Owner::Character { .. } => {}
+                Owner::Character { .. } | Owner::Actor { .. } => {}
             }
         }
         self.last = Some(s.clone());

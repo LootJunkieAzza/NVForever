@@ -22,6 +22,7 @@
 //! Design: docs/design/layer4.md §2.8 and §7 (workstream 2); facts, hypotheses and the
 //! CLI contract: docs/spec-notes/physics.md.
 
+pub mod actors;
 pub mod air;
 pub mod arrival;
 pub mod character;
@@ -34,6 +35,7 @@ pub mod terrain;
 pub mod water;
 pub mod world;
 
+pub use actors::HitVolume;
 pub use arrival::Arrival;
 pub use character::{Character, CharacterInput, CharacterParams, CharacterStep};
 pub use convert::ConvertError;
