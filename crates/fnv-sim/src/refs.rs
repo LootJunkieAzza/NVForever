@@ -81,6 +81,8 @@ pub struct PlacedRef {
     pub linked: Option<FormId>,
     /// XMRC on an actor reference: the container holding the actor's merchant stock.
     pub merchant_container: Option<FormId>,
+    /// ONAM "Open by Default" (doors) [documented: xEdit wbDefinitionsFNV.pas REFR].
+    pub open_by_default: bool,
 }
 
 impl PlacedRef {
@@ -348,5 +350,6 @@ fn load_ref(
         enable_parent,
         linked: fid(first(&d, b"XLKR"), "XLKR", issues),
         merchant_container: fid(first(&d, b"XMRC"), "XMRC", issues),
+        open_by_default: first(&d, b"ONAM").is_some(),
     })
 }

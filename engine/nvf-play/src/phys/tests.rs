@@ -64,6 +64,7 @@ fn fake_cell(job: &Job) -> Prepared {
             scale: 1.0,
             enable_parent: None,
             open_by_default: false,
+            teleport: false,
             emittance: None,
         };
         // As `prepare::cell` does: at the simulation's pose when it holds another.
@@ -72,7 +73,7 @@ fn fake_cell(job: &Job) -> Prepared {
         let obj = object(if dynamic { 15.0 } else { 50.0 }, if dynamic { Motion::Dynamic } else { Motion::Static });
         let prepared = PreparedRef::new(&params, &RefPose::from_placement(&pl), &[obj]);
         let dynamic_local = dynamic.then_some(Iso::IDENTITY);
-        refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local }) });
+        refs.push(Entry { form_id: pl.form_id, placement: Some(pl), shapes: Some(RefShapes { tallies: vec!["fake"], water: Vec::new(), prepared: Some(prepared), dynamic_local, door: None }) });
     }
     // A pond: a reference with only a water volume (placed water, physics.md §6.6).
     let pond = Placement {
@@ -85,10 +86,11 @@ fn fake_cell(job: &Job) -> Prepared {
         scale: 1.0,
         enable_parent: None,
         open_by_default: false,
+        teleport: false,
         emittance: None,
     };
     let water = vec![CollisionObject { layer: fnv_phys::layers::WATER, ..object(100.0, Motion::Static) }];
-    refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None }) });
+    refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None, door: None }) });
     let terrain = Some(PreparedTerrain::new(&params, (gx, gy), &heights));
     Prepared { cell: job.cell, heights: Some(heights), terrain, refs, times: LoadTimes::default() }
 }
@@ -275,6 +277,7 @@ fn sim_with_crate() -> (SimState, u32, [f32; 3]) {
             enable_parent: None,
             linked: None,
             merchant_container: None,
+            open_by_default: false,
         },
     );
     let forms: &'static FormStore = Box::leak(Box::default());

@@ -19,6 +19,11 @@ pub enum Steer {
     /// At a door: move the actor to `arrival` (in the next leg's space), then call
     /// [`Follower::door_used`].
     Door(DoorEdge),
+    /// At the stop in front of a door that opens in place (`at`): stand, open the door,
+    /// and once it is fully open (its "Open" sequence has ended) call
+    /// [`Follower::door_opened`]. Until then the follower holds here. A door already
+    /// open is passed at once by calling `door_opened` straight away.
+    OpenDoor { door: u32, at: [f32; 3] },
     /// At the end of the path.
     Arrived,
 }
@@ -37,6 +42,11 @@ pub struct Follower {
     /// A door that ends a leg is used from within this horizontal distance of the leg's
     /// end (in front of the door, where the frame may keep a body from the exact point).
     pub door_radius: f32,
+    /// The next stop of the leg's `door_stops` (doors that open in place).
+    pub stop: usize,
+    /// Held at that stop ([`Steer::OpenDoor`] given) until [`Follower::door_opened`]:
+    /// a door pushing the actor about while it opens does not send it walking again.
+    pub holding: bool,
 }
 
 fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -45,7 +55,7 @@ fn hdist(a: [f32; 3], b: [f32; 3]) -> f32 {
 
 impl Follower {
     pub fn new(path: Path) -> Follower {
-        Follower { path, leg: 0, next: 1, arrive_radius: 16.0, goal_radius: 1.0, door_radius: 48.0 }
+        Follower { path, leg: 0, next: 1, arrive_radius: 16.0, goal_radius: 1.0, door_radius: 48.0, stop: 0, holding: false }
     }
 
     /// The space of the leg being walked.
@@ -57,30 +67,41 @@ impl Follower {
     pub fn steer(&mut self, feet: [f32; 3]) -> Steer {
         let Some(leg) = self.path.legs.get(self.leg) else { return Steer::Arrived };
         let pts = &leg.points;
+        let pending = leg.door_stops.get(self.stop).copied();
+        // A door stop reached, or at or behind the corner being walked to, holds the
+        // follower there.
+        if let Some(s) = pending.filter(|s| self.holding || s.point < self.next) {
+            self.holding = true;
+            return Steer::OpenDoor { door: s.door, at: pts[s.point] };
+        }
         while self.next < pts.len() {
             let q = pts[self.next];
             let d = hdist(feet, q);
             let last = self.next + 1 == pts.len();
+            let stop = pending.filter(|s| s.point == self.next);
             let goal = last && leg.door.is_none() && self.leg + 1 == self.path.legs.len();
-            let radius = if goal {
+            let radius = if stop.is_some() {
+                self.arrive_radius
+            } else if goal {
                 self.goal_radius
             } else if last && leg.door.is_some() {
                 self.door_radius
             } else {
                 self.arrive_radius
             };
-            if d <= radius {
-                self.next += 1;
-                continue;
-            }
             // Passed a corner (beyond it along the segment that ends there) while close.
-            if !last && d < 4.0 * self.arrive_radius {
+            let passed = !last && d < 4.0 * self.arrive_radius && {
                 let p = pts[self.next - 1];
                 let (sx, sy) = (q[0] - p[0], q[1] - p[1]);
-                if (feet[0] - q[0]) * sx + (feet[1] - q[1]) * sy >= 0.0 {
-                    self.next += 1;
-                    continue;
+                (feet[0] - q[0]) * sx + (feet[1] - q[1]) * sy >= 0.0
+            };
+            if d <= radius || passed {
+                if let Some(s) = stop {
+                    self.holding = true;
+                    return Steer::OpenDoor { door: s.door, at: q };
                 }
+                self.next += 1;
+                continue;
             }
             break;
         }
@@ -101,6 +122,16 @@ impl Follower {
     pub fn door_used(&mut self) {
         self.leg += 1;
         self.next = 1;
+        self.stop = 0;
+        self.holding = false;
+    }
+
+    /// The door of the current [`Steer::OpenDoor`] is open: walk on through it.
+    pub fn door_opened(&mut self) {
+        let Some(s) = self.path.legs.get(self.leg).and_then(|l| l.door_stops.get(self.stop)).copied() else { return };
+        self.stop += 1;
+        self.holding = false;
+        self.next = self.next.max(s.point + 1);
     }
 
     /// The path's destination.
@@ -229,6 +260,8 @@ pub enum WalkEvent {
     UsedDoor(DoorEdge),
     /// Reached the end of the path in this update.
     Arrived,
+    /// Standing in front of a door that opens in place, waiting for it to open.
+    WaitingForDoor(u32),
 }
 
 /// An actor moved along a path on the navmesh surface, without physics (the actor's
@@ -275,15 +308,23 @@ impl Walker {
         Ok(&self.follower.as_ref().expect("just set").path)
     }
 
-    /// Move for `dt` seconds.
+    /// Move for `dt` seconds, passing doors that open in place as if they were open.
     pub fn update(&mut self, nav: &NavGraph, dt: f32) -> WalkEvent {
+        self.update_with(nav, dt, &mut |_| true)
+    }
+
+    /// Move for `dt` seconds. At a door that opens in place, `open(door)` is asked every
+    /// update until it says the door is fully open: it should start the door opening (if
+    /// it is not already) and answer whether its "Open" sequence has ended; the walker
+    /// stands meanwhile.
+    pub fn update_with(&mut self, nav: &NavGraph, dt: f32, open: &mut dyn FnMut(u32) -> bool) -> WalkEvent {
         let Some(mut f) = self.follower.take() else { return WalkEvent::Idle };
-        let ev = self.advance(nav, &mut f, dt);
+        let ev = self.advance(nav, &mut f, dt, open);
         // Keep the path unless it ended (an idle update with the path not finished keeps it).
         let keep = match ev {
             WalkEvent::Arrived => false,
             WalkEvent::Idle => f.steer(self.feet) != Steer::Arrived,
-            WalkEvent::Moved | WalkEvent::UsedDoor(_) => true,
+            WalkEvent::Moved | WalkEvent::UsedDoor(_) | WalkEvent::WaitingForDoor(_) => true,
         };
         if keep {
             self.follower = Some(f);
@@ -291,13 +332,20 @@ impl Walker {
         ev
     }
 
-    fn advance(&mut self, nav: &NavGraph, f: &mut Follower, dt: f32) -> WalkEvent {
+    fn advance(&mut self, nav: &NavGraph, f: &mut Follower, dt: f32, open: &mut dyn FnMut(u32) -> bool) -> WalkEvent {
         let mut budget = self.speed * dt;
         let mut moved = false;
         // A step may pass several close corners.
         for _ in 0..8 {
             match f.steer(self.feet) {
                 Steer::Arrived => return if moved { WalkEvent::Arrived } else { WalkEvent::Idle },
+                Steer::OpenDoor { door, .. } => {
+                    if open(door) {
+                        f.door_opened();
+                        continue;
+                    }
+                    return WalkEvent::WaitingForDoor(door);
+                }
                 Steer::Door(d) => {
                     f.door_used();
                     self.space = f.space().unwrap_or(self.space);
@@ -366,7 +414,7 @@ mod tests {
     use crate::path::Leg;
 
     fn path(points: Vec<[f32; 3]>) -> Path {
-        Path { legs: vec![Leg { space: Space::Interior(1), points, corridor: vec![], door: None }], length: 0.0, expanded: 0, start_snap: 0.0, goal_snap: 0.0 }
+        Path { legs: vec![Leg { space: Space::Interior(1), points, corridor: vec![], door: None, door_stops: vec![] }], length: 0.0, expanded: 0, start_snap: 0.0, goal_snap: 0.0 }
     }
 
     #[test]

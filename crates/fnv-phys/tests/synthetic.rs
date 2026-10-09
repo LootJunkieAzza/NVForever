@@ -1045,6 +1045,38 @@ fn placed_water_survives_adding_the_same_refs_bodies() {
 }
 
 #[test]
+fn keyframed_door_blocks_until_posed_open() {
+    // A door panel 100 wide (y) across the path at x = 100, hinged at y = -50, on the
+    // AnimStatic layer, keyframed as door models are (docs/spec-notes/doors.md).
+    let mut w = ground();
+    let panel = CollisionObject {
+        layer: layers::ANIM_STATIC,
+        node_transform: Iso { translation: [0.0, -50.0, 0.0], rotation: ID },
+        body_transform: Iso { translation: [0.0, 50.0, 100.0], rotation: ID },
+        ..object(boxed([4.0, 50.0, 100.0]), Motion::Keyframed)
+    };
+    let pose = at(7, [100.0, 0.0, 0.0]);
+    w.add_ref(&pose, std::slice::from_ref(&panel));
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 10.0]);
+    settle(&mut w, &mut c, 30);
+    walk(&mut w, &mut c, [80.0, 0.0], 150);
+    assert!(c.feet[0] < 100.0 - 20.0, "blocked by the closed door: {:?}", c.feet);
+    // A static object cannot be posed; a missing object index is refused.
+    assert!(!w.pose_ref_object(&pose, 3, &panel.node_transform, &panel.body_transform));
+    // Swing the hinge 90° (the panel now runs along +x from the hinge, out of the path).
+    let open = Iso { translation: [0.0, -50.0, 0.0], rotation: rz(-std::f32::consts::FRAC_PI_2) };
+    assert!(w.pose_ref_object(&pose, 0, &open, &panel.body_transform));
+    let b = &w.ref_bodies(7)[0];
+    assert!((b.translation[0] - 150.0).abs() < 0.5 && (b.translation[1] + 50.0).abs() < 0.5, "{:?}", b.translation);
+    walk(&mut w, &mut c, [80.0, 0.0], 150);
+    assert!(c.feet[0] > 150.0, "walked through the open doorway: {:?}", c.feet);
+    // Stepping keeps the body where it was posed.
+    w.step();
+    let b = &w.ref_bodies(7)[0];
+    assert!((b.translation[0] - 150.0).abs() < 0.5, "{:?}", b.translation);
+}
+
+#[test]
 fn explosions_push_dynamic_bodies_away() {
     let mut w = ground();
     w.add_ref(&at(1, [60.0, 0.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
@@ -1106,4 +1138,37 @@ fn part_capsules_say_which_part_was_hit() {
     w.update_queries();
     assert_eq!(w.actor_part_count(0x10), 0);
     assert_eq!(shot(&mut w, 125.0).unwrap().0, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: fnv_phys::actors::WHOLE });
+}
+
+#[test]
+fn a_swinging_door_is_not_solid() {
+    // The closed panel of `keyframed_door_blocks_until_posed_open`, made non-solid as
+    // while it swings: the character walks through it and rays miss it; solid again, it
+    // blocks once more. A static frame beside it stays solid throughout.
+    let mut w = ground();
+    let panel = CollisionObject {
+        layer: layers::ANIM_STATIC,
+        node_transform: Iso { translation: [0.0, -50.0, 0.0], rotation: ID },
+        body_transform: Iso { translation: [0.0, 50.0, 100.0], rotation: ID },
+        ..object(boxed([4.0, 50.0, 100.0]), Motion::Keyframed)
+    };
+    let frame = CollisionObject { node_transform: Iso { translation: [0.0, 300.0, 100.0], rotation: ID }, ..object(boxed([4.0, 50.0, 100.0]), Motion::Static) };
+    let pose = at(7, [100.0, 0.0, 0.0]);
+    w.add_ref(&pose, &[panel, frame]);
+    let solid = Filter::default();
+    let ray = |w: &mut PhysWorld, y: f32| w.queries().ray([0.0, y, 50.0], [1.0, 0.0, 0.0], 500.0, &solid).map(|h| h.owner);
+    assert!(matches!(ray(&mut w, 0.0), Some(Owner::Ref { form_id: 7, object: 0, .. })));
+    assert_eq!(w.set_ref_keyframed_solid(7, false), 1);
+    assert_eq!(w.set_ref_keyframed_solid(7, false), 0, "already not solid");
+    assert!(ray(&mut w, 0.0).is_none(), "the swinging panel is not hit");
+    assert!(matches!(ray(&mut w, 300.0), Some(Owner::Ref { form_id: 7, object: 1, .. })), "the frame still is");
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 10.0]);
+    settle(&mut w, &mut c, 30);
+    walk(&mut w, &mut c, [80.0, 0.0], 150);
+    assert!(c.feet[0] > 150.0, "walked through the swinging panel: {:?}", c.feet);
+    // At rest again: solid.
+    assert_eq!(w.set_ref_keyframed_solid(7, true), 1);
+    assert!(matches!(ray(&mut w, 0.0), Some(Owner::Ref { form_id: 7, object: 0, .. })));
+    walk(&mut w, &mut c, [-80.0, 0.0], 150);
+    assert!(c.feet[0] > 100.0 + 20.0, "blocked from the far side: {:?}", c.feet);
 }

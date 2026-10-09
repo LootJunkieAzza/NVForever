@@ -5,6 +5,7 @@
 //! Design: docs/design/layer4.md §2.8 and §7 (workstream 1); facts and confidence tags:
 //! docs/spec-notes/collision.md.
 
+pub mod anim;
 pub mod nif;
 pub mod shape;
 

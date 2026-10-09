@@ -157,6 +157,8 @@ pub struct StreamStats {
     pub refs_animated: usize,
     /// Of those, references whose base has "Random Anim Start" (a spread start phase).
     pub refs_random_start: usize,
+    /// Doors that open in place, drawn with their node hierarchy (`crate::doors`).
+    pub refs_doors: usize,
     pub water_planes: usize,
     pub lights: usize,
     /// Light sources of references not enabled at the start, spawned hidden.
@@ -208,6 +210,9 @@ pub fn stream(
             streamer.loaded.insert((i32::MIN, i32::MIN), e);
             streamer.stats.cells_loaded += 1;
             streamer.stats.load_ms += t0.elapsed().as_secs_f64() * 1000.0;
+            // The interior is its one cell: in once it is loaded (travellers in it wait
+            // for this, nav.rs).
+            streamer.settled = true;
         }
         return;
     }
@@ -449,16 +454,23 @@ fn load_cell(
         };
         // The reference transform replaces the model root's own (world.md §4).
         let rt = to_cell * ref_affine(&p);
-        if let Some(rig) = &model.rig {
+        // A door that opens in place (no XTEL) and has Open/Close sequences: posed from
+        // its state in `nvf_play::doors` (doors.rs). Teleport doors stay static.
+        let door = model.rig.as_ref().filter(|rig| rig.door.is_some() && &base.sig == b"DOOR" && !p.teleport);
+        if let Some(rig) = model.rig.as_ref().filter(|rig| rig.idle.is_some() || door.is_some()) {
             // Animated (Idle sequence): its own node hierarchy per reference.
             // "Random Anim Start" bases start their idle at a phase spread by reference
             // (fnv_actor::anims::random_anim_start; animation.md §8).
             let phase = if random_anim_start(world, base.form_id) { crate::actors::clip_phase(r) } else { 0.0 };
-            stats.refs_random_start += usize::from(phase > 0.0);
-            let (root, drawn) = rig.spawn_at_phase(commands, cell_e, Transform::from_matrix(Mat4::from(rt)), &path, phase);
+            stats.refs_random_start += usize::from(phase > 0.0 && rig.idle.is_some());
+            let (root, drawn, nodes) = rig.spawn_nodes(commands, cell_e, Transform::from_matrix(Mat4::from(rt)), &path, phase);
             commands.entity(root).insert(RefVisual(r));
             for e in &drawn {
                 commands.entity(*e).insert(RefVisual(r));
+            }
+            if door.is_some() {
+                commands.entity(root).insert(crate::doors::DoorRig::new(r, model.clone(), &path, nodes, p.open_by_default));
+                stats.refs_doors += 1;
             }
             stats.shapes += drawn.len();
             stats.refs_drawn += 1;

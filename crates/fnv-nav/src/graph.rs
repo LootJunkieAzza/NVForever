@@ -106,6 +106,8 @@ pub struct BuildStats {
     pub doors: usize,
     /// Door links whose door has no teleport, or whose destination has no triangle.
     pub doors_unresolved: usize,
+    /// Doors that open in place standing on the navmesh (`crate::doors`).
+    pub in_place_doors: usize,
 }
 
 /// The nav graph.
@@ -134,6 +136,10 @@ pub struct NavGraph {
     pub area_space: Vec<Space>,
     /// Doors leaving each area: (triangle the door is next to, index into `doors` of it).
     pub area_doors: HashMap<u32, Vec<(u32, usize)>>,
+    /// Doors that open in place (no XTEL), by reference ([`crate::doors`]).
+    pub in_place: HashMap<u32, crate::doors::InPlaceDoor>,
+    /// The doors that open in place standing on each triangle.
+    pub door_tris: HashMap<u32, Vec<u32>>,
     /// Triangle lists of each space's buckets ([`BUCKET`]-unit squares).
     buckets: HashMap<Space, HashMap<(i32, i32), Vec<u32>>>,
     pub stats: BuildStats,
@@ -211,6 +217,7 @@ impl NavGraph {
                 g.door_locks.insert(d, l);
             }
         }
+        g.learn_in_place_doors(lo, schema, ix);
         g
     }
 

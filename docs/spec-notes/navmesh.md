@@ -135,6 +135,18 @@ paths use them only when asked (`PathParams::ledges`).
 - Non-teleport doors (e.g. `UtlDoor01` 0x0012C97C in OVCentralSewers01) sit across the
   navmesh with no Door flag [observed]: actors are expected to open them on their way
   [hypothesis].
+- **Doors that open in place** (DOOR references without XTEL) are found by their base's
+  bounds (OBND, placed by the reference's position, rotation and scale) over the
+  navmesh's triangles: **1,043** of them stand on navmesh in FalloutNV.esm [observed:
+  `fnvtool nav graph`, `stats.in_place_doors`]. Others stand where no navmesh runs (a
+  closet door at the navmesh's edge, e.g. 0x0010618E in GSProspectorSaloonInterior)
+  [observed: `nav near`]. A locked one closes its triangles to actors without its key, as
+  a locked teleport door closes its link [engine choice on the lock rule above]. Their
+  models and animation: docs/spec-notes/doors.md.
+- A door's bounds can be wider than its opening: `UtlDoor01`'s span 249 units across
+  (−69 to 180), more than the doorway the navmesh runs through at 0x0012C97C [observed];
+  the walkable stretch of navmesh along the door's line is taken as the opening instead
+  (docs/design/navmesh.md §4).
 
 ## 4a. Checked against NPCs recorded in the game [observed]
 
@@ -176,23 +188,27 @@ All commands take `<data_dir> <plugins>... --schema <dir>` and print one JSON do
   of walkable areas, the largest ones and the largest one's share.
 - `fnvtool nav near --at <ref|x,y,z> [--space S] [--radius R]` → `fnv.nav.near/1`: the
   triangles within R (navmesh, index, corners, flags, each edge's kind, target and whether
-  its ends are outline vertices, doors).
+  its ends are outline vertices, doors, `in_place_doors`: the doors that open in place
+  standing on it).
 - `fnvtool nav path --from <ref|x,y,z> --to <ref|x,y,z> [--space S] [--clearance R]
   [--ledges] [--no-doors] [--large] [--open-locked] [--keys K,...]` → `fnv.nav.path/1`:
   the resolved ends, params, `door_route` (the doors to go through, with the space each
   leads into and its lock, or an error) and its time, and `path` (length, triangles
   expanded, snap distances, legs: space, polyline points, corridor size, navmeshes
-  crossed, the door ending the leg) or `error`.
+  crossed, the door ending the leg, `door_stops`: each door that opens in place on the
+  leg and the point where the actor stops to open it) or `error`.
 - `fnvtool nav walk` (the path options, plus `--speed`, `--max-seconds`,
   `--goal-radius`, `--every`, `--max-slope`, `--any-slope`, `--with-actors`,
   `--nif-schema`, `--no-meshes`) → `fnv.nav.walk/1`: an NPC-sized physics character
   (fnv-phys defaults) walks the path in the collision world of the cells along each leg
   (built like `fnvtool phys walk`), steered by `fnv_nav::Follower` with
   `fnv_nav::follow::Unstuck`. `summary`: outcome (`arrived`, `stuck`, `timeout`),
-  seconds, steps, end, distance to the goal, walked, replans, detours, doors used, largest
-  deviation from the path, navmesh checks (and how many found no navmesh within 48 units),
-  physics builds and their time, colliders touched. `events` (world built, detour,
-  replanned, gave up) and an optional `trace`.
+  seconds, steps, end, distance to the goal, walked, replans, detours, doors used,
+  `doors_opened` (doors that open in place: door, stop, feet, seconds waited for the Open
+  sequence), largest deviation from the path, navmesh checks (and how many found no
+  navmesh within 48 units), physics builds and their time, colliders touched. `events`
+  (world built, `animated_doors` in the world, `door_opening`, `door_passed` for a door
+  with nothing to wait for, detour, replanned, gave up) and an optional `trace`.
 
 - `fnvtool nav observed --samples <jsonl>...` (`--min-walk`) → `fnv.nav.observed/1`:
   per §4a, recorded positions against the navmesh (counts within 8, 32, 128 and 512
@@ -204,7 +220,8 @@ All commands take `<data_dir> <plugins>... --schema <dir>` and print one JSON do
 ## 7. Open questions
 
 - How the original chooses paths (costs, the weight of Preferred and Water, door costs)
-  and how actors open doors, avoid each other and get unstuck. The GECK's "Test
+  and how actors open doors (from how far; whether they wait for the animation; whether
+  doors close behind them: docs/spec-notes/doors.md §3), avoid each other and get unstuck. The GECK's "Test
   Pathfinding" tool shows the path an actor would take between two triangles
   [documented: GECK wiki, Toolbar]: captures of it would give reference paths.
 - The actor walking speed and the steepest slope actors climb (§2, §5).
