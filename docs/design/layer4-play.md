@@ -300,6 +300,20 @@ stopped before), the stimpak and the front door (feet 8693.53, shell 3.50), the
 streaming frames of 3.5 and 3.4 ms, and the Mojave north gate round trip lands as
 recorded above (1003.50 in Freeside, 4344.46 back).
 
+After merging dropped items, jump/trees and the swimming follow-up (2026-10-09), against
+main's binary (481db8d) run back to back: Goodsprings walk, main 3.4–71.6 ms per cell
+(13.9), each in one frame, against 3.2–61.4 (10.1) prepared on the loader thread, ≤ 1.2 ms
+inserting, longest streaming frame 2.0 ms; the long walk, main 2.4–28.0 (6.0) against
+2.2–30.4 (5.4), ≤ 4.9 ms inserting (one dense cell), longest streaming frame 5.9 ms.
+Placed water comes out of the prepared path (`RefShapes::water`, added before the bodies
+as `fnvtool phys` does) and dropped items load with their cell when it is inserted
+(`add_created`, FormIDs above every placed one). Same outcomes as main for every check:
+walk ends, stimpak, door 8693.53, gate 1003.50 / 4344.46, a stimpak dropped by the north
+gate (rests 4350.47, unloaded in Freeside, back at 4350.46), CampGuardianCaves (floats at
+6425.5, 102.5 below the placed surface 6528), Boulder Beach (swims at −102.5 from
+(59500, 38500), walks out at (55599, 38457, 2634.1)); parity-lab 336/351, every result
+identical to main's `fnvtool`.
+
 Open:
 - Nobody has played it with real keys and mouse yet (input, cursor grab, menus by hand).
 - Dialogue and barter are not built.
