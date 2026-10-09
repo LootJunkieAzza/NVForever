@@ -17,6 +17,7 @@ mod lod;
 mod locomotion;
 mod weapons;
 mod lodgen;
+mod player_body;
 mod reflection;
 mod ripples;
 mod imagespace;
@@ -474,6 +475,10 @@ fn main() -> AppExit {
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);
+        if play.is_some() {
+            // The player's own body (player_body.rs): needs the actor records.
+            app.add_plugins(player_body::PlayerBodyPlugin);
+        }
     }
     if args.screenshot.is_some() {
         app.add_systems(Update, screenshot_and_exit);

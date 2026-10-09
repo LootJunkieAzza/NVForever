@@ -837,7 +837,10 @@ Values [observed]:
 Used: `CharacterParams::jump_height` = 61.6; `nvf-play` walks at 86.8 and runs at 344
 (`MoveSpeeds::OBSERVED`); gravity stays 686.7 (within 0.4% of both fits). Run and walk
 are 11.7% and 12.7% above `fMoveBaseSpeed × fMoveRunMult` and `fMoveBaseSpeed`; the
-formula (animation, equipment, encumbrance) is unknown.
+formula (animation, equipment, encumbrance) is unknown. The male movement clips' root motion is
+close to the measured speeds: 85.3 walking, 353.9 running, 282.5 running backwards (a
+backward share of 0.798 against the measured 0.793) [observed: animation.md §9.2];
+whether the game derives its speeds from the clips is [hypothesis].
 
 Movement scenarios designed from this (`L4.phys.walk.*`, inputs
 `parity-lab/inputs/layer4/move_*.walk.json`, job `mv_traces`, golden builder
@@ -884,7 +887,8 @@ capsule height (owner), push mass (owner).
   towards 14.7; `fJumpMoveMult` reads 0.30), and the landing slowdown is a fixed speed
   profile after every landing with a key held; the scenario passes 6/6.
 - Other speeds (`mv_values`) [observed]: backwards 272.8 units/s (0.79 of forward; used by
-  `nvf-play`), sneaking forward 197.7 (= 344 × 0.575; `fMoveSneakMult` is 0.57); the strafe
+  `nvf-play`), sneaking forward 197.7 (= 344 × 0.575; `fMoveSneakMult` is 0.57; used by
+  `nvf-play` since 2026-10-09); the strafe
   and diagonal runs hit the yard's house and are not usable.
 
 ### 6.4 Follow-up captures: predictions (written 2026-10-08 before the runs)

@@ -1,5 +1,8 @@
 # Static actors: NPCs drawn as one assembled entity (workstream 5)
 
+Since 2026-10-09 the same assembly also draws the player's own body in `--play`,
+animated from the controls with layered clips (docs/design/player-body.md).
+
 Status 2026-10-08: **parts A, B and C done** (C: geometry and face-texture FaceGen;
 since 2026-10-09 the body skin `.egt` too, actors.md §4.1; the race FaceGen data stays
 unused, §4.2); part D (creatures) done 2026-10-09 (§8 below); part E (animation
