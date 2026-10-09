@@ -101,6 +101,22 @@ pub struct ActorDef {
     /// CREA DATA creature type code (0 Animal … 7 Giant) [documented: xEdit
     /// wbCreatureTypeEnum; schema `gameplay.json`].
     pub creature_type: Option<i64>,
+    /// Combat (step C5) [documented: xEdit field names; GECK wiki Stats Tab pages]:
+    /// NPC_ DATA Base Health (added to the health derived from Endurance and level) or
+    /// CREA DATA Health (the creature's health).
+    pub base_health: i64,
+    /// DATA Endurance.
+    pub endurance: i64,
+    /// ACBS level, or the player-level multiplier ×1000 with "PC Level Mult", and the
+    /// calculated level's bounds.
+    pub level_raw: i64,
+    pub pc_level_mult: bool,
+    pub calc_min: i64,
+    pub calc_max: i64,
+    /// ACBS template flag "Stats": the template supplies the stats.
+    pub template_stats: bool,
+    /// CREA ACBS "Invulnerable".
+    pub invulnerable: bool,
 }
 
 /// A region's areas (REGN WNAM, RPLI/RPLD): each area a polygon of worldspace x, y
@@ -727,12 +743,24 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     b"DATA" if &sig == b"CREA" => {
                         a.creature_type =
                             v.as_ref().and_then(|v| v.get("type")).and_then(|t| field_code(schema, &sig, b"DATA", Some("type"), t));
+                        a.base_health = v.as_ref().and_then(|v| v.get("health")).and_then(Json::as_i64).unwrap_or(0);
+                        a.endurance = v.as_ref().and_then(|v| v.get("attributes")).and_then(|x| x.get("endurance")).and_then(Json::as_i64).unwrap_or(0);
+                    }
+                    b"DATA" if &sig == b"NPC_" => {
+                        a.base_health = v.as_ref().and_then(|v| v.get("base_health")).and_then(Json::as_i64).unwrap_or(0);
+                        a.endurance = v.as_ref().and_then(|v| v.get("attributes")).and_then(|x| x.get("endurance")).and_then(Json::as_i64).unwrap_or(0);
                     }
                     b"ACBS" => {
                         let f = v.as_ref().and_then(|v| v.get("flags"));
                         a.female = has_flag(f, "Female");
                         a.essential = has_flag(f, "Essential");
-                        a.template_packages = has_flag(v.as_ref().and_then(|v| v.get("template_flags")), "AI Packages");
+                        a.invulnerable = has_flag(f, "Invulnerable");
+                        a.pc_level_mult = has_flag(f, "PC Level Mult");
+                        let n = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_i64).unwrap_or(0);
+                        (a.level_raw, a.calc_min, a.calc_max) = (n("level_or_level_mult_raw"), n("calc_min"), n("calc_max"));
+                        let tf = v.as_ref().and_then(|v| v.get("template_flags"));
+                        a.template_packages = has_flag(tf, "AI Packages");
+                        a.template_stats = has_flag(tf, "Stats");
                     }
                     _ => {}
                 }

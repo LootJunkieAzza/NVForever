@@ -273,7 +273,75 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     creature it was aimed at. The explosion caught it for 176 and another creature at
     501 units for 125 (before armour).
 
-## 9. Open points
+## 9. Damage applied (step C5)
+
+- **Health** (`crates/fnv-game/src/combat.rs`). Health's base (actor value 16) is the
+  actor's maximum health whenever no script has set it, so `GetAV Health` and
+  `GetHealthPercentage` see combat.
+  - NPC: Base Health + Endurance × `fAVDNPCHealthEnduranceMult` (5) + level ×
+    `fAVDNPCHealthLevelMult` (5).
+  - Creature: its DATA Health.
+  - Player: `fAVDHealthEnduranceOffset` + Endurance × 20 + (level − 1) × 5 + Base
+    Health.
+  - The forms are hypotheses until captured; the settings' names and values are
+    observed (combat-data.md §3).
+  - Level comes from ACBS, or for "PC Level Mult" the player's level × the multiplier
+    within the calculated bounds [documented: Stats Tab pages].
+  - A template with the "Stats" flag supplies the stats.
+- **A hit** (`Game::hit`):
+  - Health's damage part grows (as `DamageAV`).
+  - The last hit (location, critical, attacker, weapon) is kept for `GetHitLocation`,
+    which is now implemented.
+  - OnHit runs with the attacker, then OnHitWith with the weapon.
+  - Child races and Invulnerable creatures take nothing.
+  - Essential actors (base flag or `SetActorRefEssential`) fall unconscious at 1 health
+    instead of dying [design].
+  - At 0 health the actor dies as with `KillActor`: dead flag, killer, GetDeadCount,
+    OnDeath. `KillActor` now uses the same `Game::kill`.
+- **Kill XP** [documented: Experience Settings]. The target's level picks the class
+  (the first `iXPLevelKill…` threshold at or above it), which gives the reward. There is
+  none when the player did less than `iXPDeathRewardHealthThreshold` % of the damage.
+- **Armour.** The target's armour is what it would wear of what it carries
+  (`CombatForms::worn_armor`, the owner's wearing rule from actors.md §2.3). DT and DR
+  are the sums over the pieces [hypothesis]. The simulation creates an actor's inventory
+  on first touch, so the engine reads it through `World::inventory_mut`.
+- **In play** (`engine/nvf-play/src/combat.rs`). Every projectile hit and blast goes
+  through `Game::hit` inside the script runtime's world swap.
+  - Blasts use location −1 and the same armour rule as bullets.
+  - An `ActorHit` message goes out with each hit.
+  - Without the script runtime, hits are only logged.
+- **On screen** (`engine/nvforever/src/deaths.rs`, `locomotion.rs`):
+  - A living actor flinches with `idleanims\mt_hittorso.kf` over its other clips.
+  - A dead one plays `idleanims\deathpose1.kf` or `deathpose2.kf` (chosen by reference)
+    and holds its last frame.
+  - An actor already dead when drawn goes straight to that end pose.
+  - A skeleton without death poses (creatures) freezes and is laid on its back
+    [design, until ragdolls].
+  - Dead actors' hit volumes move to DEAD_BIP.
+- **Looting.** The crosshair offers **Search** on a dead actor, and activation by hand
+  opens its inventory in the container menu (the dead-actor rule of
+  `Game::default_activation`, now also on the by-hand path).
+- **HUD** [design]:
+  - a hit marker (white, red on a kill);
+  - the last target's name and health bar for 4 s;
+  - the player's health (`HP now/max`);
+  - a line per kill with its XP.
+- **Test aid:** `aimnpc` (aim at the nearest NPC's hit volume).
+- **Checked** [observed 2026-10-09, `nvforever --cell Goodsprings --play`, exit 0, "run
+  finished"; screenshots kept privately]:
+  - **Raven** (creature, 6 health): killed by one 9mm hit, its OnHit script ran, +1 XP
+    (very easy creature). Later hits on the corpse did nothing.
+  - **Goodsprings Settler** (55 health, Field Hand Outfit, DT 2): 7 hits (7.2 each, a
+    23.2 critical) killed it, +10 XP.
+  - **The body:** it lay in the death pose, the crosshair showed "Search", and
+    activating it opened its inventory (5.56mm rounds, Field Hand Outfit, Varmint
+    Rifle).
+  - **HUD:** `HP 200/200` (Endurance 5 × 20 + Base Health 100).
+- **Lab.** `fnvlab run --layer 5` gives 28/32, the same four known failures as main
+  (`L5.script.decode` and three `delay_*`; layer5.md), so the new Health base changed
+  no scenario.
+
+## 10. Open points
 
 - Every [design] number is a first guess for the owner to tune in play.
 - Projectile gravity units and speeds: the owner's projectile capture round.

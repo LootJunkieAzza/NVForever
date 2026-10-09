@@ -255,7 +255,16 @@ fn plugin_bytes() -> Vec<u8> {
         b"NPC_",
         0,
         NPC,
-        &[sub(b"EDID", z("TestNpc")), sub(b"PKID", PACK_GATED.to_le_bytes().to_vec()), sub(b"PKID", PACK_IDLE.to_le_bytes().to_vec())],
+        &[
+            sub(b"EDID", z("TestNpc")),
+            // ACBS: flags, fatigue, barter gold, level 4, calc min/max, speed, karma,
+            // disposition, template flags.
+            sub(b"ACBS", [&0u32.to_le_bytes()[..], &[0; 4], &4u16.to_le_bytes(), &[0; 6], &0f32.to_le_bytes(), &[0; 4]].concat()),
+            // DATA: Base Health 30, S.P.E.C.I.A.L. 5 6 6 5 5 5 5 (Endurance 6).
+            sub(b"DATA", [&30i32.to_le_bytes()[..], &[5, 6, 6, 5, 5, 5, 5]].concat()),
+            sub(b"PKID", PACK_GATED.to_le_bytes().to_vec()),
+            sub(b"PKID", PACK_IDLE.to_le_bytes().to_vec()),
+        ],
     );
     let achr = record(
         b"ACHR",
@@ -687,4 +696,38 @@ fn saving_functions_are_recorded_and_do_nothing() {
         assert!(is_stub(op), "{name}");
         assert!(matches!(lookup(op), Some(Kind::Stub(_))));
     }
+}
+
+#[test]
+fn combat_hits_damage_health_kill_and_reward() {
+    use fnv_game::combat::HitInfo;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    // Base Health 30 + Endurance 6 × 5 + level 4 × 5 (the settings' defaults).
+    assert_eq!(g.actor_level(npc), 4.0);
+    assert_eq!(g.max_health(npc), 80.0);
+    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: 1, critical: true };
+    let r = g.hit(npc, 30.0, by_player);
+    assert_eq!((r.dealt, r.health, r.died), (30.0, 50.0, false));
+    assert_eq!(g.extra[&npc].last_hit.map(|h| (h.location, h.critical)), Some((1, true)));
+    // The killing hit takes what is left; level 4 is an average NPC: 20 XP.
+    let r = g.hit(npc, 60.0, by_player);
+    assert_eq!((r.dealt, r.health, r.died, r.xp), (50.0, 0.0, true, 20.0));
+    assert!(g.is_dead(npc) && g.extra[&npc].killer == Some(FormId::PLAYER_REF));
+    assert_eq!(g.player.xp, 20.0);
+    assert!(g.hit(npc, 10.0, by_player).immune);
+    // An essential actor falls unconscious at 1 health instead.
+    let mut g = game(&f);
+    g.new_game();
+    g.extra.entry(npc).or_default().essential = Some(true);
+    let r = g.hit(npc, 500.0, by_player);
+    assert!(r.knocked_out && !r.died && r.health == 1.0 && !g.is_dead(npc));
+    // Others did most of the damage: no XP.
+    let mut g = game(&f);
+    g.new_game();
+    g.hit(npc, 70.0, HitInfo { attacker: None, ..by_player });
+    let r = g.hit(npc, 10.0, by_player);
+    assert!(r.died && r.xp == 0.0);
 }

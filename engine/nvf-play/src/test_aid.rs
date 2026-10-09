@@ -30,8 +30,8 @@
 //!   `orbit=<yaw deg>:<pitch deg>` (Toggle POV held with the camera circled that far
 //!   round the player) or `release` (Toggle POV let go); for combat (step C4): `fire`
 //!   (Use pressed, or let go if held), `reload` (a Ready Item tap with the weapon out),
-//!   `swap` (Ammo Swap) and `aimactor` (turn the view to the middle of the nearest
-//!   actor's hit volume).
+//!   `swap` (Ammo Swap), `aimactor` (turn the view to the middle of the nearest
+//!   actor's hit volume) and `aimnpc` (the same, NPCs only).
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
@@ -117,6 +117,7 @@ enum Press {
     Reload,
     Swap,
     AimActor,
+    AimNpc,
 }
 
 fn press(rest: &str) -> Result<Press, String> {
@@ -131,6 +132,7 @@ fn press(rest: &str) -> Result<Press, String> {
         "reload" => Press::Reload,
         "swap" => Press::Swap,
         "aimactor" => Press::AimActor,
+        "aimnpc" => Press::AimNpc,
         _ => {
             if let Some(Ok(d)) = rest.strip_prefix("zoom=").map(|d| d.trim().parse::<f32>()) {
                 Press::Zoom(d)
@@ -289,6 +291,7 @@ fn keys_and_controls(
     mut control: ResMut<PlayerControl>,
     phys: Res<PhysState>,
     mut player: ResMut<Player>,
+    play: Res<crate::PlayWorld>,
 ) {
     let now = time.elapsed_secs();
     for m in take_due(&mut aids.moves, now) {
@@ -314,7 +317,8 @@ fn keys_and_controls(
             Press::Fire => aids.fire_held = !aids.fire_held,
             Press::Reload => control.reload = true,
             Press::Swap => control.ammo_swap = true,
-            Press::AimActor => aim_at_nearest_actor(&phys, &mut player),
+            Press::AimActor => aim_at_nearest_actor(&phys, &mut player, |_| true),
+            Press::AimNpc => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR")),
         }
         info!(
             "test aid: control {p:?}: sneak {} weapon out {} aiming {:?} view {:?} distance {:.0}",
@@ -329,11 +333,12 @@ fn keys_and_controls(
     }
 }
 
-/// Turn the view to the middle of the nearest actor hit volume (combat test aid).
-fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player) {
+/// Turn the view to the middle of the nearest actor hit volume that `keep` accepts
+/// (combat test aid).
+fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, keep: impl Fn(u32) -> bool) {
     let eye = player.eye();
     let d2 = |c: [f32; 3]| (c[0] - eye[0]).powi(2) + (c[1] - eye[1]).powi(2) + (c[2] - eye[2]).powi(2);
-    let nearest = phys.world.actor_volumes().filter_map(|id| phys.world.actor_volume(id).map(|v| (id, v.center()))).min_by(|a, b| d2(a.1).total_cmp(&d2(b.1)));
+    let nearest = phys.world.actor_volumes().filter(|&id| keep(id)).filter_map(|id| phys.world.actor_volume(id).map(|v| (id, v.center()))).min_by(|a, b| d2(a.1).total_cmp(&d2(b.1)));
     let Some((id, c)) = nearest else {
         warn!("test aid: aimactor: no actor hit volume");
         return;
