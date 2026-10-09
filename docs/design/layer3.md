@@ -101,8 +101,11 @@ What it does now:
   use the four main times of day only (world.md §6). Light levels: a colour of 1.0 lights
   a white surface to 1.0 on screen (sun π / exposure, ambient 1 / exposure), from the
   game's texture × (ambient + sunlight · N·L) model [hypothesis]; this replaced levels
-  tuned by eye that were about 4× too bright in sunlight. Sun shadows: four cascades out to
-  `--shadow-distance` (default 16,000 units; 0 turns them off). The directional light
+  tuned by eye that were about 4× too bright in sunlight. Sun path fitted to the original
+  game's sun positions: rises at sunrise begin, sets at sunset end, 9° south of the
+  east-west line (world.md §6). Sun shadows: the original game casts none from the world
+  (world.md §6), so they are off by default; `--shadow-distance <units>` turns on four
+  cascades out to that distance (16,000 was the old default). The directional light
   fades out within ~6° of the horizon, where it switches between sun and moon
   [interim]. Observed in the time-lapse: NVWastelandClear's night ambient (luminance
   0.42) is brighter than its day ambient (0.14), so nights look brighter than late

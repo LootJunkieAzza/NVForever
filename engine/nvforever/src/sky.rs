@@ -64,8 +64,9 @@ const MOON_SIZE: f32 = 2.4 * SUN_SIZE;
 /// Sun elevations (degrees) over which the stars and the moon fade in [hypothesis].
 const STARS_FADE: (f32, f32) = (0.0, -12.0);
 const MOON_FADE: (f32, f32) = (5.0, -6.0);
-/// Southward tilt of the sun's path in radians [hypothesis].
-const SUN_TILT: f32 = 0.45;
+/// How far south of the east-west line the sun's path runs, in radians (9°) [hypothesis,
+/// fitted to the original game's sun positions; fnv_world::sky::sun_direction].
+const SUN_SOUTH: f32 = 9.0 * PI / 180.0;
 /// Elevation (radians) below which the directional light fades out towards the horizon.
 const HORIZON_FADE: f32 = 0.1;
 /// Cloud texture scroll per second per ONAM speed unit, in texture repeats [placeholder
@@ -311,7 +312,7 @@ impl SkyState {
 
     /// Sun elevation above the horizon in degrees.
     pub fn sun_elevation(&self) -> f32 {
-        sun_direction(&self.climate, self.hour, SUN_TILT)[2].clamp(-1.0, 1.0).asin().to_degrees()
+        sun_direction(&self.climate, self.hour, SUN_SOUTH)[2].clamp(-1.0, 1.0).asin().to_degrees()
     }
 
     /// Star and moon visibility (0..1) at this hour.
@@ -737,7 +738,7 @@ pub fn update_night_sky(
     let Ok(cam_t) = cam.single() else { return };
     let cam_pos = cam_t.translation;
     let indoors = sky.interior.is_some();
-    let sun_dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&sky.climate, sky.hour, SUN_TILT));
+    let sun_dir = game_to_bevy().rotation * Vec3::from_array(sun_direction(&sky.climate, sky.hour, SUN_SOUTH));
     let (star_vis, moon_vis) = if indoors { (0.0, 0.0) } else { sky.night_visibility() };
     let refresh = *last != Some((sky.hour, sky.days_passed));
     *last = Some((sky.hour, sky.days_passed));
@@ -845,7 +846,7 @@ pub fn update_sky(
         return;
     }
     let (h, c) = (sky.hour, &sky.climate);
-    let sun_dir_game = Vec3::from_array(sun_direction(c, h, SUN_TILT));
+    let sun_dir_game = Vec3::from_array(sun_direction(c, h, SUN_SOUTH));
     let sun_dir = to_bevy.rotation * sun_dir_game;
 
     // Follow the camera every frame; clouds drift with their ONAM speeds.
