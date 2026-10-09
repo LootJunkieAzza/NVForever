@@ -426,6 +426,60 @@ fn activation_ray_skips_the_caster() {
     assert!(q.ray(eye, [1.0, 0.0, 0.0], 80.0, &Filter::excluding(c.key())).is_none());
 }
 
+// --- actor hit volumes (combat C3) ---
+
+fn person(feet: [f32; 3], dead: bool) -> HitVolume {
+    HitVolume { feet, radius: 20.0, height: 128.0, dead }
+}
+
+#[test]
+fn actor_volumes_take_shots() {
+    let mut w = ground();
+    w.set_actor_volume(0x10, person([200.0, 0.0, 0.0], false));
+    w.update_queries();
+    let shot = w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).unwrap();
+    assert_eq!(shot.owner, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: fnv_phys::actors::WHOLE });
+    assert!((shot.distance - 180.0).abs() < 0.1, "{}", shot.distance);
+    // Above the head: a miss.
+    assert!(w.queries().ray([0.0, 0.0, 140.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).is_none());
+    // Moved: the shot follows the volume.
+    w.set_actor_volume(0x10, person([300.0, 0.0, 0.0], false));
+    w.update_queries();
+    let shot = w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).unwrap();
+    assert!((shot.distance - 280.0).abs() < 0.1);
+    // Dead: DEAD_BIP, which a filter can skip.
+    w.set_actor_volume(0x10, person([300.0, 0.0, 0.0], true));
+    w.update_queries();
+    let shot = w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).unwrap();
+    assert_eq!(shot.owner, Owner::Actor { form_id: 0x10, layer: layers::DEAD_BIP, part: fnv_phys::actors::WHOLE });
+    let skip = Filter { exclude_layers: LayerSet::from_layers(&[layers::DEAD_BIP]), ..Default::default() };
+    assert!(w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &skip).is_none());
+    assert_eq!(w.actor_volumes().collect::<Vec<_>>(), vec![0x10]);
+    assert!(w.remove_actor_volume(0x10));
+    w.update_queries();
+    assert!(w.queries().ray([0.0, 0.0, 100.0], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).is_none());
+}
+
+#[test]
+fn characters_walk_through_actor_volumes_and_clutter_ignores_them() {
+    let mut w = ground();
+    w.set_actor_volume(0x10, person([60.0, 0.0, 0.0], false));
+    w.add_ref(&at(1, [60.0, 40.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+    settle(&mut w, &mut c, 30);
+    let steps = walk(&mut w, &mut c, [120.0, 0.0], 120);
+    assert!(c.feet[0] > 200.0, "{:?}", c.feet);
+    assert!(steps.iter().all(|s| s.touched.iter().all(|o| o.key() != Key::Actor(0x10))));
+    // Moving the volume through the box does not push it.
+    let before = w.ref_bodies(1)[0].translation;
+    for i in 0..30 {
+        w.set_actor_volume(0x10, person([60.0, i as f32 * 2.0, 0.0], false));
+        w.step();
+    }
+    let after = w.ref_bodies(1)[0].translation;
+    assert!((after[0] - before[0]).abs() < 0.01 && (after[1] - before[1]).abs() < 0.01, "{before:?} {after:?}");
+}
+
 #[test]
 fn character_runs_are_deterministic() {
     let run = || {
@@ -446,7 +500,7 @@ fn character_runs_are_deterministic() {
 proptest! {
     #[test]
     fn owner_roundtrip(x in any::<i32>(), y in any::<i32>(), f in any::<u32>(), o in any::<u16>(), l in any::<u8>()) {
-        for owner in [Owner::Terrain { x, y }, Owner::Ref { form_id: f, object: o, layer: l }, Owner::Character { id: f }] {
+        for owner in [Owner::Terrain { x, y }, Owner::Ref { form_id: f, object: o, layer: l }, Owner::Character { id: f }, Owner::Actor { form_id: f, layer: l, part: o as u8 }] {
             prop_assert_eq!(Owner::decode(owner.encode()), Some(owner));
         }
     }
@@ -988,4 +1042,68 @@ fn placed_water_survives_adding_the_same_refs_bodies() {
     w.add_placed_water(&water_only, &[water_box()]);
     assert!(w.remove_ref(11));
     assert!(!w.remove_ref(11));
+}
+
+#[test]
+fn explosions_push_dynamic_bodies_away() {
+    let mut w = ground();
+    w.add_ref(&at(1, [60.0, 0.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
+    w.add_ref(&at(2, [600.0, 0.0, 6.0]), &[object(boxed([6.0, 6.0, 6.0]), Motion::Dynamic)]);
+    for _ in 0..30 {
+        w.step();
+    }
+    let (near, far) = (w.ref_bodies(1)[0].translation, w.ref_bodies(2)[0].translation);
+    assert_eq!(w.push_dynamic([0.0, 0.0, 6.0], 300.0, 400.0), 1);
+    for _ in 0..30 {
+        w.step();
+    }
+    assert!(w.ref_bodies(1)[0].translation[0] > near[0] + 20.0, "{:?}", w.ref_bodies(1));
+    assert!((w.ref_bodies(2)[0].translation[0] - far[0]).abs() < 0.01);
+}
+
+// --- per-part hit volumes (combat C8) ---
+
+#[test]
+fn part_capsules_say_which_part_was_hit() {
+    use fnv_phys::PartCapsule;
+    let mut w = ground();
+    let v = person([200.0, 0.0, 0.0], false);
+    let parts = [
+        // Torso: a vertical segment; head above it; a leg sloping forward.
+        PartCapsule { part: 0, a: [200.0, 0.0, 70.0], b: [200.0, 0.0, 110.0], radius: 15.0 },
+        PartCapsule { part: 1, a: [200.0, 0.0, 120.0], b: [200.0, 0.0, 130.0], radius: 9.0 },
+        PartCapsule { part: 4, a: [200.0, 0.0, 60.0], b: [220.0, 0.0, 10.0], radius: 7.0 },
+    ];
+    w.set_actor_parts(0x10, v, &parts);
+    w.update_queries();
+    assert_eq!(w.actor_part_count(0x10), 3);
+    // The widest part is the torso: its centre is the aim point.
+    let aim = w.actor_aim_point(0x10).unwrap();
+    assert!((aim[0] - 200.0).abs() < 1e-3 && (aim[2] - 90.0).abs() < 1e-3, "{aim:?}");
+    let head = w.actor_part_center(0x10, 1).unwrap();
+    assert!((head[2] - 125.0).abs() < 1e-3, "{head:?}");
+    assert!(w.actor_part_center(0x10, 9).is_none());
+    let shot = |w: &mut PhysWorld, z: f32| w.queries().ray([0.0, 0.0, z], [1.0, 0.0, 0.0], 1000.0, &Filter::default()).map(|h| (h.owner, h.distance));
+    let (o, d) = shot(&mut w, 90.0).unwrap();
+    assert_eq!(o, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: 0 });
+    assert!((d - 185.0).abs() < 0.1, "{d}");
+    assert_eq!(shot(&mut w, 125.0).unwrap().0, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: 1 });
+    // The leg at z 35 is centred at x 210.
+    let (o, d) = shot(&mut w, 35.0).unwrap();
+    assert_eq!(o, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: 4 });
+    assert!(d > 195.0 && d < 210.0, "{d}");
+    // Between the head and the top of the torso capsule there is a gap no single capsule had.
+    assert!(shot(&mut w, 145.0).is_none());
+    // Posed again (moved along x): the same colliders follow.
+    let moved: Vec<PartCapsule> = parts.iter().map(|p| PartCapsule { a: [p.a[0] + 100.0, p.a[1], p.a[2]], b: [p.b[0] + 100.0, p.b[1], p.b[2]], ..*p }).collect();
+    w.set_actor_parts(0x10, person([300.0, 0.0, 0.0], true), &moved);
+    w.update_queries();
+    let (o, d) = shot(&mut w, 90.0).unwrap();
+    assert_eq!(o, Owner::Actor { form_id: 0x10, layer: layers::DEAD_BIP, part: 0 });
+    assert!((d - 285.0).abs() < 0.1, "{d}");
+    // Back to the single capsule.
+    w.set_actor_volume(0x10, person([300.0, 0.0, 0.0], false));
+    w.update_queries();
+    assert_eq!(w.actor_part_count(0x10), 0);
+    assert_eq!(shot(&mut w, 125.0).unwrap().0, Owner::Actor { form_id: 0x10, layer: layers::BIPED, part: fnv_phys::actors::WHOLE });
 }

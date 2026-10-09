@@ -3,10 +3,11 @@
 //!
 //! - Crouch/Sneak (Left Ctrl) toggles sneaking.
 //! - Ready Item (R): with the weapon away, draws it; with it out, a tap reloads and a hold
-//!   of [`HOLSTER_HOLD`] puts it away [hypothesis: the game's tap/hold split; reloading
-//!   is not built yet].
-//! - Use (left mouse) attacks; with the weapon away it draws it first [hypothesis;
-//!   attacks are not built yet].
+//!   of [`HOLSTER_HOLD`] puts it away [hypothesis: the game's tap/hold split]. Reloading
+//!   is `crate::combat`'s.
+//! - Use (left mouse) attacks while held ([`PlayerControl::trigger`], `crate::combat`);
+//!   with the weapon away it draws it first [hypothesis].
+//! - Ammo Swap (hotkey 2) asks `crate::combat` for the next carried ammo type.
 //! - Block (right mouse, Left Alt), held: guns aim down the sights, fists and melee
 //!   weapons block.
 //! - Always Run (Caps Lock) toggles running as the default (on by default:
@@ -82,6 +83,13 @@ pub struct PlayerControl {
     pub orbit: Orbit,
     /// How long Ready Item has been held with the weapon out (a hold holsters).
     pub ready_held: Option<f32>,
+    /// Use held with the weapon out (the trigger; `crate::combat` reads it).
+    pub trigger: bool,
+    /// A reload was asked for (Ready Item tapped with the weapon out); `crate::combat`
+    /// clears it.
+    pub reload: bool,
+    /// Ammo Swap pressed; `crate::combat` clears it.
+    pub ammo_swap: bool,
 }
 
 impl Default for PlayerControl {
@@ -96,6 +104,9 @@ impl Default for PlayerControl {
             distance: DEFAULT_DISTANCE,
             orbit: Orbit::default(),
             ready_held: None,
+            trigger: false,
+            reload: false,
+            ammo_swap: false,
         }
     }
 }
@@ -165,11 +176,10 @@ pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
 }
 
 /// The controls that are bound but not built yet.
-const NOT_BUILT: [Control; 14] = [
+const NOT_BUILT: [Control; 12] = [
     Control::Rest,
     Control::Vats,
     Control::Hotkey1,
-    Control::AmmoSwap,
     Control::Hotkey3,
     Control::Hotkey4,
     Control::Hotkey5,
@@ -179,7 +189,6 @@ const NOT_BUILT: [Control; 14] = [
     Control::QuickSave,
     Control::QuickLoad,
     Control::Grab,
-    Control::Use,
 ];
 
 /// Toggles, holds, the third-person zoom; see the module notes.
@@ -193,6 +202,7 @@ pub fn read_controls(
 ) {
     if *state.get() != PlayState::Playing {
         control.aiming = false;
+        control.trigger = false;
         control.ready_held = None;
         control.orbit.held = false;
         return;
@@ -223,18 +233,23 @@ pub fn read_controls(
             c.ready_held = None;
         } else if input.just_released(Control::ReadyItem) || !input.pressed(Control::ReadyItem) {
             c.ready_held = None;
-            message = Some("Reload: not available yet".into());
+            c.reload = true;
         }
     }
-    // Use draws the weapon when it is away; attacking is not built.
+    // Use draws the weapon when it is away; held with it out, it is the trigger. The
+    // press that draws does not fire.
     if input.just_pressed(Control::Use) && !c.weapon_out {
         c.weapon_out = true;
+        c.trigger = false;
     } else {
-        for ctl in NOT_BUILT {
-            if input.just_pressed(ctl) {
-                let what = if ctl == Control::Use { "Attack" } else { Bindings::name(ctl) };
-                message = Some(format!("{what}: not available yet"));
-            }
+        c.trigger = c.weapon_out && input.pressed(Control::Use) && (c.trigger || input.just_pressed(Control::Use));
+    }
+    if input.just_pressed(Control::AmmoSwap) {
+        c.ammo_swap = true;
+    }
+    for ctl in NOT_BUILT {
+        if input.just_pressed(ctl) {
+            message = Some(format!("{}: not available yet", Bindings::name(ctl)));
         }
     }
     c.aiming = input.pressed(Control::Block);
@@ -321,7 +336,8 @@ pub fn place_camera(
     let shoulder = orbit_shoulder(settings.map_or(DEFAULT_SHOULDER, |s| s.shoulder), o.yaw);
     let pivot = body.pivot.unwrap_or(eye);
     let (base, want) = third_person_spot(pivot, heading, pitch, shoulder, control.distance);
-    let filter = Filter { exclude_layers: fnv_phys::layers::character_ignores(), ..Default::default() };
+    // The camera is not pushed in by actors' hit volumes (combat C3).
+    let filter = Filter { exclude_layers: fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes()), ..Default::default() };
     // From the pivot sideways to the shoulder, then back along the view.
     let mut from = pivot;
     let mut to = base;
