@@ -5,6 +5,27 @@ started 2026-10-09). Each item has the decision taken, why, and what changes if 
 decide differently. Newest items go at the end of each section. Strike out or delete an
 item once you've ruled on it.
 
+## Read first: your autosave was overwritten (2026-10-09 09:45)
+
+During capture round 4 (VCG01 from `nvfnew`, PR #79), one trial drove VCG01 to stage 55,
+whose result script calls `Autosave`. Turning off scripted autosaves in the INI did not
+stop it. The game wrote a new `autosave.fos` in `Documents\My Games\FalloutNV\Saves`
+at 09:45:56:
+- your 05:43 autosave became `autosave.fos.bak` and is still there;
+- the older `autosave.fos.bak` it replaced is gone (the 05:43 file may itself have come
+  from an earlier capture);
+- your named saves (Save 1–11, `nvftest`, `nvfdoc`, `nvfnew`) are untouched.
+
+To get the 05:43 autosave back, rename `autosave.fos.bak` to `autosave.fos` yourself
+(the tools never write to the Saves folder). Prevention:
+- `capture_run.py` now backs up the rolling saves before every run, then fails (exit 3)
+  and lists any change if the game writes to the Saves folder (tools/capture/README.md);
+- no scenario reaches stage 55;
+- capturing stage 55 needs your consent to let the game autosave there.
+
+The same run also triggered Steam achievement 31 (`AddAchievement 31`) in four game
+sessions. You already had it from an earlier playthrough.
+
 ## Merges into `main` (2026-10-09)
 
 1. **#45 (in-game screenshots, plugin v7) merged by the coordinator, after checking it
