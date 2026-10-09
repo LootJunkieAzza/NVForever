@@ -256,6 +256,9 @@ export, 2026-10-09), cross-checked against the captures: `docs/spec-notes/quests
 The base-game script language from the wiki's scripting pages, with its differences from
 the captures and the runtime: `docs/spec-notes/script-language.md`; AI packages,
 detection, factions and idles for Layer 6: `docs/spec-notes/actor-behaviour.md`.
+Trigger volumes (who fires them, OnTrigger every frame), three-actor conversations and
+encounter zones from Bethesda's GECK tutorials: `docs/spec-notes/level-design.md` §4, §6,
+§9, with the differences from `nvf-play` in its §11.2 (rows T1-T6).
 
 ## 7. Workstreams
 
