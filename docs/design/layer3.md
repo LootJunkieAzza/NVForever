@@ -126,8 +126,17 @@ What it does now:
   level-4 terrain chunks and object LOD blocks (world.md §7) around the camera. Terrain
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
   entirely inside are dropped and the vertices inside are sunk 2,000 units so the
-  border triangles slope under the loaded terrain. Object blocks are drawn only over
-  squares with no loaded cell. Terrain chunks are shaded by their model-space normal
+  border triangles slope under the loaded terrain. LOD is cut out only for cells that
+  are actually loaded (cells stream in one per frame; cutting it for the cells merely
+  wanted left the far edge empty until they arrived, the "pop" seen at a distance).
+  Object blocks are drawn whole over squares with no loaded cell and split by cell
+  elsewhere. Cells streamed in after the start fade in, and cells streamed out fade
+  out before they are dropped (`--cell-fade`, default 1 s, 0 off; fade.rs): their
+  meshes are dithered with Bevy's visibility-range crossfade driven by time, and the
+  cell's part of the object block with the complementary pattern; the LOD terrain
+  under a fading cell stays solid behind it until the cell is fully drawn. The game
+  fades objects at its LOD transitions [observed: owner]; dithering and the duration
+  are [hypothesis]. Terrain chunks are shaded by their model-space normal
   maps alone (world.md §7): each vertex gets an up normal and an east tangent so the
   standard tangent-space normal mapping reads the map as model-space normals; the
   untextured water-height shape is skipped (water planes cover it).
@@ -231,6 +240,9 @@ game units unchanged.
    `parity-lab/tools/gen_layer3_frames.py` (owner's manifest → private scenarios), and
    the capture procedure in `tools/capture/README.md` §7. Rendering is deterministic:
    two runs of the same camera give identical images (SSIM 1.0, MAE 0) [observed].
+   First reference frames (2026-10-09, four cameras at 16:9): `--fov` now follows the
+   game's Hor+ rule (the setting is the horizontal angle at 4:3; 75 → 91.3° at 16:9),
+   which aligned all four frames [hypothesis for the rule; docs/spec-notes/camera.md].
    Originally planned: an image comparator in the lab (perceptual metric with region masks,
    standard library only), a capture procedure for the original game, and fixed-camera
    scenarios.

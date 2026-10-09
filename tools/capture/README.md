@@ -219,6 +219,35 @@ stay in the private goldens directory. Console commands below are the game's own
 [documented: community console references; verify on your install]; NVForever never
 changes your game files or `Documents\My Games\FalloutNV`.
 
+**Automatic route (plugin version 7).** `capture_frames.py` does the steps below without
+hand work: list the cameras in a `fnv.capture.cameras/1` file (a starter set is
+`tools/capture/frames/cameras.json`; positions only, no game data), then
+
+```
+python tools/capture/capture_frames.py job tools/capture/frames/cameras.json --data "<Data>" --name fr_ref -o C:/fnv-private/frames/fr_ref.steps.json
+python tools/capture/capture_run.py --game "<FNV>" --save nvftest C:/fnv-private/frames/fr_ref.steps.json
+python tools/capture/capture_frames.py manifest C:/fnv-private/capture/out/fr_ref.<unix>.jsonl --cameras tools/capture/frames/cameras.json --goldens C:/fnv-private/goldens
+python parity-lab/tools/gen_layer3_frames.py C:/fnv-private/goldens
+```
+
+For each camera the job loads its grid square (`cow`), places the player (a camera without
+z stands on the terrain from `--data`), sets the hour and weather, waits, hides the HUD
+(`tm`), takes the screenshot and records the position, angles and hour the game reports;
+the manifest is written from those recorded values, and existing entries keep their
+`masks`, `min_ssim` and `holdout`. The save must be in first person. Look at each picture
+before trusting it: the finisher warns about black pictures and a window that was not in
+front, not about NPCs walking by (add `masks` for those). The manual steps below remain
+the reference procedure.
+
+First results (2026-10-09, plugin v7, save `nvftest`, the four starter cameras, game at
+1280 × 720 with `fDefaultFOV=75`) [observed]: every camera came out first person and
+aligned with `nvforever`'s render of the recorded pose, except that the game's view is
+wider. Rendering `goodsprings_noon` with `--fov 91.3` instead of 75 lines the two up
+(SSIM 0.18 → 0.42); 91.3° is the horizontal angle at 16:9 of a 75° horizontal FOV defined
+at 4:3 ("Hor+") [hypothesis for the game's rule; one camera measured]. The remaining
+differences are rendering (sky colour and clouds, missing grass, tone). The lake camera
+has a creature in the bottom-left corner that needs a mask.
+
 **Setup (once).** Pick how to save screenshots: the game's own key needs
 `bAllowScreenShot=1` in the `[Display]` section of your `Fallout.ini` (you edit it
 yourself) and writes `ScreenShot<N>.bmp` into the game folder; Steam's F12 also works if
@@ -465,6 +494,27 @@ docs/spec-notes/physics.md §6.3, ready jobs in docs/spec-notes/layer4-captures.
 python tools/capture/capture_moves.py job parity-lab/inputs/layer4/b11_goodsprings.drops.json --name mv_b11_drops --start "nvfdoc" --leave-door 0x00103E61 --console-first tgm --console-first tdetect -o <job>.steps.json
 python tools/capture/capture_moves.py golden C:/fnv-private/capture/out/<job>.<time>.jsonl <the same input> -o C:/fnv-private/goldens/phys/<name>.json
 ```
+
+**Quest captures** (`capture_quests.py`, Layer 5, workstream 5C): quest state of a save and
+quest-script behaviour. Definitions (stage indices, entries, objectives, script variables
+by name and index) come from the repository's own `fnvtool esm decode`; the scenario jobs
+are made from the candidate's inputs (`fnv.script.actions/1`,
+parity-lab/inputs/layer5/, written by `make_inputs.py` there), whose `given` preconditions
+are checked against the save when the golden is built. Method, contract and results:
+docs/spec-notes/layer5-captures.md.
+```
+python tools/capture/capture_quests.py defs --fnvtool <abs path>/target/release/fnvtool.exe --data "<Data>" --schema schemas/fnv --quest VCG01 --quest VCG02 ... -o C:/fnv-private/capture/quest/defs.json
+python tools/capture/capture_quests.py state-job --defs C:/fnv-private/capture/quest/defs.json --name q5_state_nvftest -o <job>.steps.json
+python tools/capture/capture_quests.py state C:/fnv-private/capture/out/q5_state_nvftest.<time>.jsonl --defs <defs> -o C:/fnv-private/goldens/quest/state.nvftest.json
+python tools/capture/capture_quests.py diff <state a> <state b>
+python tools/capture/capture_quests.py job parity-lab/inputs/layer5/quest_stage_order.actions.json --name q5_quest_stage_order --start nvftest --defs <defs> --data "<Data>" -o <job>.steps.json
+python tools/capture/capture_quests.py golden C:/fnv-private/capture/out/q5_quest_stage_order.<time>.jsonl --actions <the same input> -o C:/fnv-private/goldens/quest/quest_stage_order.trace.json
+```
+Run each scenario job in its own `capture_run.py` session (they change quest state, and
+jobs in one session share it). Job scripts cannot name a quest by Editor ID (neither can
+console lines in these sessions), so quests are built with `BuildRef` and their variables
+read and written with xNVSE's `GetVariable` / `SetVariable`; `job` resolves quest Editor
+IDs through `--defs` or `--data`.
 
 ## Tests
 
