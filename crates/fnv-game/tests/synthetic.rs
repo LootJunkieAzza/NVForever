@@ -149,6 +149,7 @@ const PACK_GATED: u32 = 0x910;
 const PACK_IDLE: u32 = 0x911;
 const PACK_SCRIPTED: u32 = 0x912;
 const NPC: u32 = 0x920;
+const NPC_SCRIPT: u32 = 0x921;
 const TOPIC: u32 = 0x930;
 const INFO_A: u32 = 0x931;
 const INFO_B: u32 = 0x932;
@@ -208,7 +209,18 @@ fn plugin_bytes() -> Vec<u8> {
         unit(0, &script(&[(2, Some([le16(1), r(1)].concat()), body)]), &[(1, "nUsed", 1)], &[0x14, QUEST, MESSAGE]),
     ]
     .concat();
-    let scpt = [record(b"SCPT", 0, QUEST_SCRIPT, &qscript), record(b"SCPT", 0, ACT_SCRIPT, &actscript)].concat();
+    // NPC script: nDone (1, short).
+    //   begin SayToDone
+    //     set nDone to nDone + 1
+    //   end
+    let body = set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")]));
+    let npcscript = [vec![sub(b"EDID", z("NpcScript"))], unit(0, &script(&[(0x07, None, body)]), &[(1, "nDone", 1)], &[])].concat();
+    let scpt = [
+        record(b"SCPT", 0, QUEST_SCRIPT, &qscript),
+        record(b"SCPT", 0, ACT_SCRIPT, &actscript),
+        record(b"SCPT", 0, NPC_SCRIPT, &npcscript),
+    ]
+    .concat();
     // The quest: start game enabled, delay 0.5 s.
     let mut q = vec![
         sub(b"EDID", z("Q")),
@@ -255,7 +267,12 @@ fn plugin_bytes() -> Vec<u8> {
         b"NPC_",
         0,
         NPC,
-        &[sub(b"EDID", z("TestNpc")), sub(b"PKID", PACK_GATED.to_le_bytes().to_vec()), sub(b"PKID", PACK_IDLE.to_le_bytes().to_vec())],
+        &[
+            sub(b"EDID", z("TestNpc")),
+            sub(b"SCRI", NPC_SCRIPT.to_le_bytes().to_vec()),
+            sub(b"PKID", PACK_GATED.to_le_bytes().to_vec()),
+            sub(b"PKID", PACK_IDLE.to_le_bytes().to_vec()),
+        ],
     );
     let achr = record(
         b"ACHR",
@@ -347,7 +364,7 @@ fn data_reads_quest_stages_conditions_and_units() {
     assert_eq!(s.raw, 0);
     assert_eq!(s.var_index("bRun"), Some(2));
     assert_eq!(d.script_of_base(FormId(ACTIVATOR)), Some(FormId(ACT_SCRIPT)));
-    assert_eq!(d.scripted_by_cell[&FormId(CELL)], vec![FormId(ACT_REF)]);
+    assert_eq!(d.scripted_by_cell[&FormId(CELL)], vec![FormId(ACT_REF), FormId(NPC_REF)]);
     assert_eq!(d.messages[&FormId(MESSAGE)].buttons, vec!["Yes", "No"]);
 }
 
@@ -612,6 +629,31 @@ fn say_to_says_the_next_unsaid_line_and_runs_its_end_script_when_it_ends() {
     // A stopped quest's lines are not said.
     let mut h = game(&f);
     assert_eq!(h.say(speaker, None, FormId(TOPIC), false), None);
+}
+
+#[test]
+fn say_to_done_follows_say_as_well_as_say_to() {
+    // docs/spec-notes/level-design.md §11.2 D1: SayToDone runs on the speaker after a
+    // line said with Say as well as with SayTo.
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let speaker = FormId(NPC_REF);
+    let done = |g: &Game| g.var(InstKey::Ref { reference: speaker }, 1).num();
+    assert_eq!(g.say(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_A)));
+    g.frames(120);
+    assert!(!g.is_talking(speaker));
+    assert_eq!(done(&g), 1.0);
+    assert_eq!(g.say(speaker, Some(FormId::PLAYER_REF), FormId(TOPIC), true), Some(FormId(INFO_B)));
+    g.frames(120);
+    assert_eq!(done(&g), 2.0);
+    // A line cut by another does not end: no SayToDone for it.
+    let mut h = game(&f);
+    h.new_game();
+    h.say(speaker, None, FormId(TOPIC), false);
+    h.say(speaker, None, FormId(TOPIC), false);
+    h.frames(120);
+    assert_eq!(done(&h), 1.0);
 }
 
 #[test]
