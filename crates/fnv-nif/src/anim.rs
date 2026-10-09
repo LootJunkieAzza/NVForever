@@ -169,16 +169,26 @@ impl BSplineChannel {
 
     /// Evaluate the open uniform B-spline at normalised time `u` in [0, 1].
     pub fn eval(&self, u: f32) -> Vec<f32> {
+        (0..self.dim).map(|c| self.eval_component(u, c)).collect()
+    }
+
+    /// [`Self::eval`] for an `N`-component channel without allocating (animation runs
+    /// every frame); `None` when the channel does not have `N` components.
+    pub fn eval_array<const N: usize>(&self, u: f32) -> Option<[f32; N]> {
+        (self.dim == N).then(|| std::array::from_fn(|k| self.eval_component(u, k)))
+    }
+
+    /// Component `c` of the spline at `u`: de Boor's algorithm on that component.
+    fn eval_component(&self, u: f32, c: usize) -> f32 {
         let n = self.count();
-        let d = BSPLINE_DEGREE.min(n.saturating_sub(1));
         if n == 0 {
-            return vec![0.0; self.dim];
+            return 0.0;
         }
+        let d = BSPLINE_DEGREE.min(n - 1);
         if d == 0 {
-            return self.points[..self.dim].to_vec();
+            return self.points[c];
         }
         // Open uniform knot vector: d+1 zeros, uniform interior knots, d+1 maxima.
-        let m = n + d + 1;
         let max_knot = (n - d) as f32;
         let knot = |i: usize| -> f32 {
             if i <= d {
@@ -195,22 +205,20 @@ impl BSplineChannel {
         while s < n - 1 && knot(s + 1) <= x {
             s += 1;
         }
-        let _ = m;
         // De Boor's algorithm [documented: de Boor 1972].
-        let mut pts: Vec<Vec<f32>> =
-            (0..=d).map(|j| self.points[(s - d + j) * self.dim..(s - d + j + 1) * self.dim].to_vec()).collect();
+        let mut pts = [0.0f32; BSPLINE_DEGREE + 1];
+        for (j, p) in pts.iter_mut().enumerate().take(d + 1) {
+            *p = self.points[(s - d + j) * self.dim + c];
+        }
         for r in 1..=d {
             for j in (r..=d).rev() {
                 let i = s - d + j;
                 let denom = knot(i + d + 1 - r) - knot(i);
                 let alpha = if denom > 0.0 { (x - knot(i)) / denom } else { 0.0 };
-                let (lo, hi) = pts.split_at_mut(j);
-                for (x, prev) in hi[0].iter_mut().zip(&lo[j - 1]) {
-                    *x = (1.0 - alpha) * prev + alpha * *x;
-                }
+                pts[j] = (1.0 - alpha) * pts[j - 1] + alpha * pts[j];
             }
         }
-        pts[d].clone()
+        pts[d]
     }
 }
 
@@ -231,7 +239,7 @@ impl<const N: usize> Channel<N> {
             Channel::BSpline { start, stop, spline } => {
                 let span = stop - start;
                 let u = if span > 0.0 { (t - start) / span } else { 0.0 };
-                spline.eval(u).try_into().ok()
+                spline.eval_array(u)
             }
         }
     }
@@ -577,6 +585,19 @@ mod tests {
         // 0.5·1 + 0.125·2 + 0.5·4 − 0.125·4 = 2.25.
         let v = k.sample(1.5).unwrap()[0];
         assert!((v - 2.25).abs() < 1e-5, "{v}");
+    }
+
+    #[test]
+    fn bspline_array_matches_vec() {
+        let pts: Vec<f32> = (0..21).map(|i| ((i * 7) % 5) as f32 - 0.5 * i as f32).collect();
+        let c = BSplineChannel { dim: 3, points: pts };
+        for i in 0..=16 {
+            let u = i as f32 / 16.0;
+            assert_eq!(c.eval_array::<3>(u).unwrap().to_vec(), c.eval(u));
+        }
+        assert_eq!(c.eval_array::<4>(0.5), None);
+        let one = BSplineChannel { dim: 4, points: vec![1.0, 2.0, 3.0, 4.0] };
+        assert_eq!(one.eval_array::<4>(0.7), Some([1.0, 2.0, 3.0, 4.0]));
     }
 
     #[test]

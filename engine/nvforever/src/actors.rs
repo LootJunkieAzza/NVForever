@@ -1,6 +1,7 @@
 //! Placed NPCs drawn as one assembled entity each (workstream 5,
 //! docs/design/static-actors.md): `fnv-actor` decides the parts, `nvf_assets::actor`
-//! assembles them on one skeleton, frozen in the bind pose; FaceGen shapes the faces
+//! assembles them on one skeleton, frozen in the bind pose by default or playing an idle
+//! clip with `--actor-pose idle` (docs/spec-notes/actors.md §7); FaceGen shapes the faces
 //! (`facegen.rs`).
 
 use bevy::math::Affine3A;
@@ -8,11 +9,37 @@ use bevy::prelude::*;
 use fnv_actor::{ActorForms, Appearance, Resolver};
 use fnv_esm::{LoadOrder, Schema};
 use fnv_sim::{FormId, FormStore};
-use nvf_assets::actor::{spawn_actor, ActorCtx, PartUse};
+use nvf_assets::actor::{clip_binding, play_on_actor, spawn_actor, ActorCtx, PartUse};
 use nvf_play::RefVisual;
+use std::collections::HashSet;
 use std::sync::Mutex;
 
 use crate::facegen::FaceGenCache;
+
+/// How placed actors are posed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum ActorPose {
+    /// The skeleton's bind pose, frozen (owner decision 2026-10-08).
+    #[default]
+    Bind,
+    /// The skeleton's idle clip in a loop ([`idle_clip`]).
+    Idle,
+}
+
+/// The idle clip played on a skeleton: `locomotion\mtidle.kf` in the skeleton's folder
+/// [observed: `characters\_male\locomotion\mtidle.kf` beside
+/// `characters\_male\skeleton.nif`; hypothesis: the folder rule for other skeletons].
+pub fn idle_clip(skeleton: &str) -> String {
+    let s = fnv_vfs::normalize(skeleton);
+    let dir = s.rfind('\\').map_or("", |i| &s[..=i]);
+    format!("{dir}locomotion\\mtidle.kf")
+}
+
+/// Where in its clip an actor starts (0–1): spread by reference FormID so neighbours do
+/// not move in step [engine choice, not a game rule].
+fn clip_phase(reference: u32) -> f32 {
+    (reference.wrapping_mul(2_654_435_761) >> 8) as f32 / (1u32 << 24) as f32
+}
 
 /// The records actors are resolved from (built once at start).
 #[derive(Resource)]
@@ -22,6 +49,12 @@ pub struct ActorWorld {
     /// FaceGen on/off (`--no-facegen`), and its file cache.
     pub facegen_enabled: bool,
     pub facegen: Mutex<FaceGenCache>,
+    pub pose: ActorPose,
+    /// With [`ActorPose::Idle`]: hold every actor at this clip time (seconds from the
+    /// clip's start) instead of playing (screenshots).
+    pub pose_time: Option<f32>,
+    /// (skeleton, clip) pairs whose track binding was reported.
+    reported: Mutex<HashSet<(String, String)>>,
 }
 
 impl ActorWorld {
@@ -31,6 +64,9 @@ impl ActorWorld {
             forms: FormStore::build(lo, schema),
             facegen_enabled: true,
             facegen: Mutex::new(FaceGenCache::default()),
+            pose: ActorPose::Bind,
+            pose_time: None,
+            reported: Mutex::new(HashSet::new()),
         }
     }
 
@@ -46,6 +82,9 @@ pub struct ActorStats {
     pub parts_missing: usize,
     /// Skinned shapes whose bones the skeleton lacks (drawn unskinned).
     pub unbound_shapes: usize,
+    /// Actors playing a clip, and those whose clip could not be loaded.
+    pub animated: usize,
+    pub clip_missing: usize,
 }
 
 /// Spawn the actor placed by `reference` under `parent` with the reference transform
@@ -136,7 +175,56 @@ pub fn spawn(
     for e in &spawned.drawn {
         commands.entity(*e).insert(RefVisual(reference));
     }
+    if world.pose == ActorPose::Idle {
+        let path = idle_clip(&a.skeleton);
+        match ctx.clip(&path) {
+            Some(clip) => {
+                let pair = (fnv_vfs::normalize(&a.skeleton), path.clone());
+                if world.reported.lock().expect("reported").insert(pair) {
+                    let (bound, unbound) = clip_binding(&skel, &clip);
+                    info!(
+                        "actor pose: {path} ({:.2}s) on {} ({} nodes): {} transform tracks ({} others skipped), {} drive skeleton nodes, {} do not {:?}; accumulation root {:?} held at the identity: {}",
+                        clip.stop - clip.start,
+                        a.skeleton,
+                        skel.names.len(),
+                        clip.tracks.len(),
+                        clip.skipped,
+                        bound.len(),
+                        unbound.len(),
+                        unbound,
+                        clip.accum_root,
+                        clip.undriven_accum_root().is_some()
+                    );
+                }
+                let (phase, hold) = match world.pose_time {
+                    Some(t) => (t / (clip.stop - clip.start).max(f32::EPSILON), true),
+                    None => (clip_phase(reference), false),
+                };
+                play_on_actor(commands, &spawned, &skel, &clip, &path, phase, hold);
+                stats.animated += 1;
+            }
+            None => stats.clip_missing += 1,
+        }
+    }
     stats.unbound_shapes += spawned.unbound;
     stats.drawn += 1;
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idle_clip_beside_the_skeleton() {
+        assert_eq!(idle_clip(r"Meshes\Characters\_Male\skeleton.nif"), r"meshes\characters\_male\locomotion\mtidle.kf");
+        assert_eq!(idle_clip("skeleton.nif"), r"locomotion\mtidle.kf");
+    }
+
+    #[test]
+    fn phases_spread_within_the_clip() {
+        let p: Vec<f32> = (0..64u32).map(|r| clip_phase(0x0010_4C0C + r)).collect();
+        assert!(p.iter().all(|x| (0.0..1.0).contains(x)));
+        assert!(p.iter().any(|&x| x < 0.25) && p.iter().any(|&x| x > 0.75));
+    }
 }
