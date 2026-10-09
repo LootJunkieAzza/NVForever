@@ -730,15 +730,23 @@ impl<'a> Game<'a> {
 
     /// A dialogue line was said (runner input standing in for Layer 6 dialogue): its
     /// begin and end result scripts run on the speaker.
-    pub fn run_info(&mut self, info: FormId, speaker: Option<FormId>) -> Result<(), String> {
+    ///
+    /// The line's conditions are evaluated first (subject the speaker, target the player)
+    /// and a line whose conditions fail is refused unless `force` is set: in the game such
+    /// a line would not be said. Returns whether the conditions passed.
+    pub fn run_info(&mut self, info: FormId, speaker: Option<FormId>, force: bool) -> Result<bool, String> {
         let data = self.data;
         let def = data.infos.get(&info).ok_or_else(|| format!("{info} is not a dialogue line (INFO)"))?;
         let speaker = speaker.or(def.speaker);
+        let pass = self.conditions_pass(&def.conditions, speaker, Some(FormId::PLAYER_REF), &format!("INFO {info}"));
+        if !pass && !force {
+            return Err(format!("the conditions of {info} do not pass (say_info with force to run it anyway)"));
+        }
         for u in [def.begin, def.end].into_iter().flatten() {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: speaker });
             self.run_result(u, RunCtx { self_ref: speaker, action_ref: None, quest: def.quest });
         }
-        Ok(())
+        Ok(pass)
     }
 
     /// A package event (runner input standing in for Layer 6 AI): the package's result
