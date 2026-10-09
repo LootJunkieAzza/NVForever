@@ -778,6 +778,8 @@ fn run_scripts(
     if let (Some(limit), Some((m, _, since))) = (st.auto_close, st.on_screen) {
         if now - since >= limit && st.answer(None, "test aid NVF_PLAY_TEST_SCRIPT_MENUS") {
             info!("test aid: closed menu {m} after {:.2} s", now - since);
+            // The next box may show the same message: its time starts when it opens.
+            st.on_screen = None;
         }
     }
     let Some(rt) = st.rt.as_mut() else { return };
