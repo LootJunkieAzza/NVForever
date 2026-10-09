@@ -232,8 +232,8 @@ fn keys(
             Some(_) => Some(0),
             None => anim.available.len().checked_sub(1),
         };
-        if let (Some(i), Some(nodes)) = (next.filter(|&i| i < anim.available.len()), browser.report.as_ref().map(|r| r.nodes.clone())) {
-            anim.start(i, &nodes);
+        if let (Some(i), Some(report)) = (next.filter(|&i| i < anim.available.len()), browser.report.as_ref()) {
+            anim.start(i, &report.nodes, &report.bind);
         }
     }
     if input.just_pressed(KeyCode::KeyH) {
@@ -307,7 +307,7 @@ fn load_mesh(
                 }
             }
             if !anim.available.is_empty() {
-                anim.start(0, &report.nodes);
+                anim.start(0, &report.nodes, &report.bind);
             }
             browser.report = Some(report);
             browser.error = None;

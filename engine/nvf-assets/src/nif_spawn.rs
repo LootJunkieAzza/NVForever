@@ -44,6 +44,9 @@ pub struct SpawnReport {
     pub bounds: Option<(Vec3, Vec3)>,
     /// Node name → entity, for animation targets.
     pub nodes: HashMap<String, Entity>,
+    /// Local transform of each named node as spawned (its bind pose), so a node an
+    /// animation took over can be put back.
+    pub bind: HashMap<Entity, Transform>,
     pub root: Option<Entity>,
     /// Skeleton file the skinned shapes were bound to.
     pub skeleton: Option<String>,
@@ -493,6 +496,7 @@ impl SpawnCtx<'_, '_> {
             for (k, v) in sk.nodes {
                 report.nodes.insert(k, v);
             }
+            report.bind.extend(sk.bind);
             report.skeleton = skeleton.map(str::to_string);
         }
         report.root = Some(root);
@@ -529,6 +533,7 @@ impl SpawnCtx<'_, '_> {
             entity_of.insert(o.block, id);
             if let Some(n) = &o.name {
                 report.nodes.entry(n.clone()).or_insert(id);
+                report.bind.insert(id, to_bevy(&o.transform));
             }
         }
         for o in &objects {
