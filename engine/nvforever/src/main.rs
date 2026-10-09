@@ -15,6 +15,7 @@ mod fly;
 mod lights;
 mod lod;
 mod locomotion;
+mod weapons;
 mod lodgen;
 mod reflection;
 mod ripples;
@@ -198,6 +199,14 @@ struct Args {
     /// §8.4). Needs --actor-pose idle.
     #[arg(long)]
     actor_walk_test: Option<f32>,
+    /// How NPCs' weapons are shown: holstered (the default), drawn, or not at all
+    /// (docs/spec-notes/actors.md §9). Needs --actor-pose idle.
+    #[arg(long, value_enum, default_value_t = weapons::WeaponMode::Holstered)]
+    actor_weapons: weapons::WeaponMode,
+    /// Test aid: armed NPCs draw and holster their weapon, each state held this many
+    /// seconds (docs/spec-notes/actors.md §9.4).
+    #[arg(long)]
+    actor_weapon_test: Option<f32>,
     /// With --actor-walk-test: only NPCs within this distance of the start position
     /// (game units; 0 = all).
     #[arg(long, default_value_t = 0.0, requires = "actor_walk_test")]
@@ -362,6 +371,8 @@ fn main() -> AppExit {
         a.pose = args.actor_pose;
         a.pose_time = args.actor_pose_time;
         a.walk_test = args.actor_walk_test.map(|speed| actors::WalkTestArgs { speed, radius: args.actor_walk_test_radius, center: start });
+        a.weapon_mode = args.actor_weapons;
+        a.weapon_test = args.actor_weapon_test;
         if a.walk_test.is_some() && a.pose == actors::ActorPose::Bind {
             warn!("--actor-walk-test needs --actor-pose idle; actors stay in the bind pose");
         }
@@ -425,7 +436,7 @@ fn main() -> AppExit {
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
     .init_resource::<locomotion::ActorAnimCost>()
-    .add_systems(Update, (locomotion::walk_test, locomotion::drive).chain())
+    .add_systems(Update, (locomotion::walk_test, locomotion::drive, weapons::reparent).chain())
     .add_systems(Update, timelapse.after(sky::update_sky));
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
@@ -470,7 +481,7 @@ fn main() -> AppExit {
                     info!("actor animation: no actors posed");
                 } else {
                     info!(
-                    "actor animation: up to {} actors posed at once, {:.3} ms per frame on average, {:.2} us per actor and frame, {:.2} clips per actor and frame ({:.1}% of actor frames blending two), {:.1} tracks per actor and frame",
+                    "actor animation: up to {} actors posed at once, {:.3} ms per frame on average, {:.2} us per actor and frame, {:.2} clips per actor and frame ({:.1}% of actor frames with more than one clip), {:.1} tracks per actor and frame",
                     c.peak,
                     c.total.as_secs_f64() * 1e3 / f64::from(c.frames.max(1)),
                     c.total.as_secs_f64() * 1e6 / c.actor_frames.max(1) as f64,

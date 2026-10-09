@@ -1,8 +1,10 @@
 # Layer 1 design: BSA reader and ESM/ESP parser
 
-Spec section 12 deliverable, in the section 9 format. Status as of 2026-10-06: **implemented
-and validated against the user's install** (FNV 1.4.0.525); the remaining exit-criterion
-item is the cross-check against an FNVEdit export run on the user's machine.
+Spec section 12 deliverable, in the section 9 format. Status as of 2026-10-09: **implemented
+and validated against the user's install** (FNV 1.4.0.525), and cross-checked against the
+owner's FNVEdit export of all 10 masters: 6 plugins match on every row, the other 4 differ
+by one row each, every one an xEdit normalisation of what the file holds
+(docs/spec-notes/esm.md, "Cross-check against xEdit"). Lab: 111/115 Layer 1 scenarios pass.
 
 ## 1. Summary and assumptions
 
@@ -16,8 +18,8 @@ Assumptions (defaults chosen while the user was away; easy to revisit):
   see `docs/design/dependencies.md` for what replaced the in-tree zlib, JSON and SHA-256.
 - Licence placeholder **GPL-3.0-or-later** (OpenMW's choice). Not yet decided by the user.
 - Ground truth = an independent Python reader written by a separate agent from the spec
-  notes only, plus the HEDR record count authored by Bethesda's own tool, plus (pending)
-  FNVEdit exports.
+  notes only, plus the HEDR record count authored by Bethesda's own tool, plus the
+  owner's FNVEdit exports (2026-10-09).
 
 ## 2. Findings and design
 
@@ -54,7 +56,7 @@ Assumptions (defaults chosen while the user was away; easy to revisit):
 - Pre-order packs inject new forms into FalloutNV.esm's FormID space [observed].
 - Irregular data in the user's masters [observed], each tolerated and reported:
   one LAND with a wrong zlib checksum (FalloutNV.esm; shipped defect *or* local damage —
-  [hypothesis], see §4); one REFR whose FormID uses a master index beyond the master list
+  [hypothesis], see §5); one REFR whose FormID uses a master index beyond the master list
   (GunRunnersArsenal.esm); one dangling reference (DeadMoney INFO 0x01011B23 →
   0x010108DD); two QUST DATA subrecords only 2 bytes long where the documented layout
   needs at least 4 (FalloutNV.esm 0x0001E5CA and 0x0002242A — both have old form versions
@@ -77,7 +79,10 @@ per-plugin master-index → load-index maps, and indexes every record by global 
 102,646 null; 893,586 resolve; 6,074 point into the engine built-in range below 0x800
 (4,566 of them 0x14 [hypothesis: the player reference]); **1 dangling**; **1** with an
 invalid master index (the GRA REFR). So every FormID the schema can see resolves, except
-those two irregularities.
+those two irregularities. (2026-10-09, with the larger schema: 1,012,805 fields, 898,714 resolve, 107,918 null;
+19 with a master index beyond the master list: the GRA REFR's base plus 18 FalloutNV.esm
+ANIO DATA with a stale index 01; dangling: the DM INFO plus 6 REGN / 7 WTHR fields,
+esm.md Unknowns 7.)
 
 ### 2.5 Schema-as-data strategy
 
@@ -99,32 +104,44 @@ Current coverage [observed] (subrecord instances decoded exactly by a documented
 about 0.5% of FalloutNV.esm instances are fields the layout itself marks as opaque bytes,
 e.g. compiled script data, counted separately as `opaque_bytes`):
 
+Measured 2026-10-09 (`fnvtool esm coverage --schema schemas/fnv`, all 10 masters):
+
 | Plugin | Decoded | Pairs fully decoded | Trailing | Errors |
 |---|---|---|---|---|
-| FalloutNV.esm | 93.66 % of 2,321,456 | 833 / 1,155 | 0 | 2 |
-| DeadMoney.esm | 94.32 % | 624 / 889 | 0 | 0 |
-| HonestHearts.esm | 92.93 % | 602 / 848 | 0 | 0 |
-| OldWorldBlues.esm | 95.76 % | 603 / 854 | 0 | 0 |
-| LonesomeRoad.esm | 94.76 % | 578 / 810 | 0 | 0 |
-| GunRunnersArsenal.esm | 92.51 % | 224 / 259 | 0 | 0 |
+| FalloutNV.esm | 94.74 % of 2,321,456 | 972 / 1,155 | 0 | 2 |
+| DeadMoney.esm | 95.50 % of 160,880 | 747 / 889 | 0 | 0 |
+| HonestHearts.esm | 93.80 % of 179,706 | 718 / 848 | 0 | 0 |
+| OldWorldBlues.esm | 96.86 % of 225,669 | 720 / 854 | 0 | 0 |
+| LonesomeRoad.esm | 96.03 % of 161,312 | 693 / 810 | 0 | 0 |
+| GunRunnersArsenal.esm | 94.05 % of 6,853 | 231 / 259 | 0 | 0 |
+| Caravan/Classic/Mercenary/TribalPack | 98.61 / 94.27 / 97.47 / 100 % | 63/64, 95/97, 70/72, 51/51 | 0 | 0 |
 
-Largest undecoded record types by instances: PACK (AI packages), NAVM/NAVI (navmesh),
-IMAD (image-space modifiers, 12,002), TERM (3,925); plus CREA NIFT, DIAL INFC/INFX,
-REFR TNAM. (IDLE and CREA NIFZ/KFFZ decode since 2026-10-08, docs/spec-notes/animation.md
-§1.) **Record-specific layouts exist for 40 of the 107 record types
-present**; the other 67 decode only their shared subrecords (EDID, FULL, OBND, models,
-scripts, …). Adding them is the main remaining Layer 1 work item. Schema v1 limits behind several gaps: no context rules
-(the same signature meaning different things by position), no length-prefixed strings, no unions (GMST DATA depends on the Editor ID's first letter), no
-count-prefixed arrays (CREA NIFT). Schema v2 should add `union` (with a decider: size, or
-a sibling field, or EDID prefix), `lstring`, count-prefixed arrays, and ordered subrecord
-groups. NUL-separated string lists already have the primitive `zstring_array` (added
-2026-10-08 for KFFZ/NIFZ).
+The 2 errors are the two 2-byte QUST DATA (§2.3). The 8 WATR DATA "trailing" of the
+previous measurement were the older 186-byte DATA form (visual data plus damage, in the 8
+FalloutNV.esm waters without DNAM); since 2026-10-09 the schema has size-decided unions
+and decodes both forms [documented: xEdit WATR; observed: 70 × 2 bytes, 8 × 186 bytes].
+
+**Record-specific layouts exist for 70 of the 107 record types present** (MSTT, GRAS,
+PWAT, ADDN, ANIO, IPCT, IPDS and TACT added 2026-10-09, `schemas/fnv/placed.json`, each
+fully decoded with zero trailing/errors in all 10 masters and spot-checked: their FormID
+fields point at records of the documented types). Records of those 70 types are 97.2 % of
+FalloutNV.esm's 465,016 records. The other 37 types decode only their shared subrecords
+(EDID, FULL, OBND, models, scripts, ...); by FalloutNV.esm record count the biggest are
+NAVM (4,771), PACK (4,163), CPTH (418), TERM (344), CAMS, SPEL, IDLM, LSCR,
+EXPL, ENCH, MSET, ARMA. Largest undecoded subrecord instances by record type: PACK 53,603,
+NAVM 30,306, NAVI 9,543, DIAL 5,058 (INFC/INFX), TERM 3,962, MSET, BPTD, CREA (NIFT),
+REFR (TNAM). Schema v1 limits behind several gaps: no context rules (the same signature
+meaning different things by position), no length-prefixed strings, no EditorID- or
+sibling-decided unions (GMST DATA depends on the Editor ID's first letter), no
+count-prefixed arrays (CREA NIFT). Size-decided unions (`{"union": [{"size": n, "type":
+T}, ..., {"type": fallback}]}`) exist since 2026-10-09; NUL-separated string lists have
+the primitive `zstring_array` (2026-10-08, KFFZ/NIFZ).
 
 ## 3. Code and schema
 
-- Code: `crates/*` (tests: `cargo test --workspace --release`, 36 unit and integration tests).
-- Schemas: `schemas/fnv/{common,world,objects,gameplay}.json` (40 record types, 420
-  subrecord definitions, 40 shared types).
+- Code: `crates/*` (tests: `cargo test --workspace --release`).
+- Schemas: `schemas/fnv/{common,world,objects,gameplay,sky,placed}.json` (70 record types,
+  503 record-specific and 68 shared subrecord definitions, 56 named types; 2026-10-09).
 - Lab: `parity-lab/` (Python stdlib; 26 self-tests), scenarios in
   `parity-lab/scenarios/layer1_*.json`.
 - Capture: `tools/capture/` (oracles, xEdit script, inventory; 16 self-tests).
@@ -134,6 +151,11 @@ plugin inventories incl. all 465,016 FalloutNV.esm records, headers, stats, byte
 round-trips; 15 archive listings with SHA-256 of every decoded file, headers,
 round-trips). The other 31 scenarios need data that only exists on the user's machine
 (7 archives over 400 MB; 10 FNVEdit exports) and report as `error` until captured.
+
+Parity result on the owner's machine, 2026-10-09 [observed]: **111/115 Layer 1 scenarios
+pass**, 0 errors (every archive incl. the big ones, all 10 FNVEdit exports present). The
+4 failures are `L1.esm.inventory_xedit.{FalloutNV,DeadMoney,OldWorldBlues,GunRunnersArsenal}`,
+one row each, all documented xEdit normalisations (§4 step 7).
 
 ## 4. Step-by-step validation plan against FalloutNV.esm
 
@@ -152,30 +174,52 @@ Each step is a lab scenario or a command; all steps 1–6 pass today on the stag
    record FormID mappable (one known exception), overrides/injected forms/ONAM reported.
 6. **Field decoding**: `fnvtool esm coverage --schema schemas/fnv` → zero `trailing`,
    errors only where noted; reference resolution via `loadorder --schema`.
-7. **Third-party cross-check (pending)**: FNVEdit export vs candidate
-   (`L1.esm.inventory_xedit.*`) — the M1 exit criterion.
+7. **Third-party cross-check (done 2026-10-09)**: FNVEdit export vs candidate
+   (`L1.esm.inventory_xedit.*`), the M1 exit criterion: 6/10 pass with every row equal;
+   FalloutNV, DeadMoney, OldWorldBlues and GunRunnersArsenal differ by one row each, all
+   four documented xEdit normalisations (three missing required subrecords that xEdit
+   adds as empty, one out-of-range master index that xEdit folds into the file's own),
+   esm.md "Cross-check against xEdit". `oracle_esm.py` agrees with us on all four rows.
 8. **Repeat on DLC masters** (steps 1–7 per plugin; scenarios exist for all 10).
 
 ## 5. Open questions and verification steps for the user
 
-1. **Run the FNVEdit export** (`tools/capture/xedit/export_inventory.pas`, steps in
-   `tools/capture/README.md`) for all 10 masters and drop the outputs into the private
-   goldens directory as `esm/<Plugin>.xedit.inventory.json`. This closes the M1 exit
-   criterion ("matching a trusted third-party tool"). Expected difference: the GRA REFR
-   0x02000801 may be displayed as 0x01000801.
-2. **Big archives**: on your PC run `fnvtool bsa verify` and
-   `python tools/capture/oracle_bsa.py` on `Fallout - Meshes/Textures/Textures2/Sound/
-   Voices1.bsa`, `LonesomeRoad - Main.bsa`, `OldWorldBlues - Main.bsa`, or move the lab
-   run to your machine (copy `lab.local.example.json` to `lab.local.json`).
-3. **Checksum anomaly**: compare the SHA-256 of your `FalloutNV.esm`
-   (`50991d36804b7d1e70df1afd7471b72f0e29d1b456ee2516a9717c002564e7c1`) after Steam
-   "Verify integrity of game files", or with another copy, to tell a shipped defect from
-   local damage (LAND 0x00150FC0).
-4. **In-game behaviour checks** (later, via xNVSE logging): what the engine does with the
-   out-of-range FormID 0x02000801 in GRA, and with the dangling DM INFO reference.
-5. Your live `Documents\My Games\FalloutNV\Fallout.ini` / `FalloutPrefs.ini` `[Archive]`
-   section (archive list and invalidation settings) — needed for archive precedence.
-6. Decisions still yours: language (Rust assumed), licence (GPL-3.0 assumed).
+Answered (2026-10-09), kept for the record:
+
+- ~~Run the FNVEdit export~~: done by the owner for all 10 masters; result in §4 step 7.
+  The predicted GRA difference (0x02000801 shown as 0x01000801) is one of the four rows.
+- ~~Big archives~~: validated on the owner's machine (2026-10-06) and now part of every lab
+  run there (all `L1.bsa.*` pass).
+- ~~INI `[Archive]` section~~: the owner's `Fallout.ini` and `FalloutPrefs.ini` hold the
+  shipped default `SArchiveList` (the six base archives), `bInvalidateOlderFiles=1`,
+  `SInvalidationFile=ArchiveInvalidation.txt` (bsa.md, layer2.md §2.5).
+- ~~Language~~: Rust, using the ecosystem fully (owner decision, dependencies.md).
+
+Still open:
+
+1. **xEdit differences (owner decision)**: the four `L1.esm.inventory_xedit.*` rows are
+   documented xEdit normalisations, not reader errors (esm.md), so those scenarios stay
+   failing under the rule that comparators, scenarios and goldens are not changed to pass.
+   A clean option, if wanted: a *known differences* list in the scenario format (each
+   entry: key, field, expected oracle value, candidate value, and a link to the spec-note
+   paragraph that explains it), reported separately by the lab as "documented difference"
+   instead of pass or fail, and only ever edited by the owner. Not implemented.
+2. **Checksum anomaly**: the SHA-256 of the owner's current `FalloutNV.esm` (re-hashed
+   read-only 2026-10-09) is still
+   `50991d36804b7d1e70df1afd7471b72f0e29d1b456ee2516a9717c002564e7c1`, the copy in which
+   LAND 0x00150FC0's bad Adler-32 was found. A Steam "Verify integrity of game files"
+   (owner-only) or another copy would tell a shipped defect from local damage.
+3. **In-game behaviour checks**: the out-of-range FormID is **settled** by an
+   unattended capture (2026-10-09, job `l1_oob_formid`): the game places GRA's REFR
+   0x02000801 in `TestMentats` as GRA's own 0x..000801 with GRA's own base 0x..000800,
+   exactly as xEdit displays it. **Owner decision**: make `LoadOrder::to_global` read an
+   out-of-range index as the plugin's own (tried; it fails the two `L3.world.*.interiors`
+   scenarios by exactly this reference because `oracle_world.py` and its golden follow the
+   old rule, so oracle and golden would be updated with it; esm.md). Still open:
+   whether the dangling DM INFO "Previous INFO" link (0x01011B23 → 0x010108DD) changes
+   the order of `NVDLC01RadioElijahEnd`'s lines; the capture needs a save at the end of
+   Dead Money (owner), plan in esm.md Unknowns 4.
+4. **Licence**: the owner's decision (GPL-3.0-or-later assumed as placeholder).
 
 ## 6. Updated spec notes
 
