@@ -3,8 +3,10 @@
 //!
 //! Each frame: keys and mouse become a [`MoveIntent`] and the look angles (Input set);
 //! the character is placed on the ground once its cell is loaded, then moved in fixed
-//! steps through the `Stepper` (Physics set); the camera sits at the eye, interpolated
-//! between the last two steps; the simulation's player reference follows the feet.
+//! steps through the `Stepper` (Physics set); the simulation's player reference follows
+//! the feet; a player body, when one is drawn, poses itself in [`BodySet`] and gives the
+//! eye; the camera (`control::place_camera`) sits at the eye, interpolated between the
+//! last two steps, or behind the player in third person.
 //! Nothing moves in `PlayState::Menu` (physics time stops). Movement values are
 //! [hypothesis] (docs/spec-notes/physics.md §6).
 //!
@@ -16,10 +18,12 @@
 
 pub mod safe;
 
+use crate::bindings::{Bindings, Control, ControlInput};
+use crate::control::PlayerControl;
 use crate::phys::cells::Space;
 use crate::phys::PhysState;
 use crate::sim::SimState;
-use crate::{space, PlaySet, PlayState, PlayWorld, PlayerCamera, Travel};
+use crate::{space, PlaySet, PlayState, PlayWorld, Travel};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -37,8 +41,8 @@ pub const EYE_HEIGHT: f32 = 112.0;
 pub const DEFAULT_MOVE_BASE_SPEED: f32 = 77.0;
 pub const DEFAULT_MOVE_RUN_MULT: f32 = 4.0;
 
-/// Mouse look, radians per mouse count [engineering choice, not a game value].
-pub const LOOK_RADIANS_PER_COUNT: f32 = 0.0025;
+/// Mouse look, radians per mouse count: the game's `fMouseSensitivity` (bindings.rs).
+pub const LOOK_RADIANS_PER_COUNT: f32 = crate::bindings::MOUSE_SENSITIVITY;
 /// Steepest look up or down [engineering choice].
 pub const MAX_PITCH: f32 = 89.0 * std::f32::consts::PI / 180.0;
 
@@ -53,12 +57,17 @@ pub struct Player {
     /// Feet position, game space (interpolated between fixed steps: where the camera
     /// shows the player; `PhysState::player` holds the stepped position).
     pub feet: [f32; 3],
+    /// The eye of the player's body this frame (game space), when a body is drawn
+    /// (nvforever's player body writes it in [`BodySet`]): its head, crouching and
+    /// swaying with the animation.
+    pub body_eye: Option<[f32; 3]>,
 }
 
 impl Player {
-    /// Eye position, game space.
+    /// Eye position, game space: the body's when one is drawn, else `eye_height` above
+    /// the feet.
     pub fn eye(&self) -> [f32; 3] {
-        [self.feet[0], self.feet[1], self.feet[2] + self.eye_height]
+        self.body_eye.unwrap_or([self.feet[0], self.feet[1], self.feet[2] + self.eye_height])
     }
 
     /// Unit view direction, game space.
@@ -237,8 +246,15 @@ pub fn swim_velocity(intent: &MoveIntent, heading: f32, pitch: f32, speeds: Move
 
 /// New look angles after a mouse motion (counts; +x right, +y down).
 pub fn look(heading: f32, pitch: f32, delta: Vec2) -> (f32, f32) {
-    let h = (heading + delta.x * LOOK_RADIANS_PER_COUNT).rem_euclid(std::f32::consts::TAU);
-    let p = (pitch - delta.y * LOOK_RADIANS_PER_COUNT).clamp(-MAX_PITCH, MAX_PITCH);
+    look_with(heading, pitch, delta, LOOK_RADIANS_PER_COUNT, false)
+}
+
+/// [`look`] at a sensitivity (radians per count), with the vertical axis inverted or not
+/// (the game's `bInvertYValues`).
+pub fn look_with(heading: f32, pitch: f32, delta: Vec2, sensitivity: f32, invert_y: bool) -> (f32, f32) {
+    let dy = if invert_y { -delta.y } else { delta.y };
+    let h = (heading + delta.x * sensitivity).rem_euclid(std::f32::consts::TAU);
+    let p = (pitch - dy * sensitivity).clamp(-MAX_PITCH, MAX_PITCH);
     (h, p)
 }
 
@@ -282,6 +298,11 @@ impl Status {
     }
 }
 
+/// Within `PlaySet::Physics`, after the character has moved and before the camera is
+/// placed: where a player body poses itself and writes [`Player::body_eye`].
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BodySet;
+
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
@@ -290,16 +311,21 @@ impl Plugin for PlayerPlugin {
             .init_resource::<Controls>()
             .init_resource::<Status>()
             .init_resource::<Net>()
+            .init_resource::<PlayerControl>()
+            .init_resource::<Bindings>()
+            .init_resource::<crate::control::BodyView>()
             .insert_resource(NearAid::from_env())
-            .add_systems(Startup, init_player)
-            .add_systems(Update, (grab_cursor, read_input, mouse_look).chain().in_set(PlaySet::Input))
+            .add_systems(Startup, (init_player, crate::control::init_settings))
+            .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
+            .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
                 Update,
-                (place_initial, interior_net, step, crate::phys::settle_created, sync_sim, log_status, place_camera)
+                (place_initial, interior_net, step, crate::phys::settle_created, sync_sim, log_status)
                     .chain()
                     .in_set(PlaySet::Physics)
                     .after(crate::phys::PhysSystems),
-            );
+            )
+            .add_systems(Update, crate::control::place_camera.in_set(PlaySet::Physics).after(log_status));
     }
 }
 
@@ -330,7 +356,7 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
         info!("interior start at the cell's own spot ({:?}): ({:.1}, {:.1}, {:.1}), heading {:.0}°", spot.source, spot.feet[0], spot.feet[1], spot.feet[2], spot.heading.to_degrees());
         (feet, heading) = (spot.feet, spot.heading);
     }
-    commands.insert_resource(Player { heading, pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet });
+    commands.insert_resource(Player { heading, pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet, body_eye: None });
     let settings = MoveSpeeds::from_settings(sim.forms.setting_f32("fMoveBaseSpeed"), sim.forms.setting_f32("fMoveRunMult"));
     let speeds = MoveSpeeds::OBSERVED;
     info!(
@@ -366,31 +392,52 @@ fn grab_cursor(
     }
 }
 
-fn read_input(
-    keys: Res<ButtonInput<KeyCode>>,
-    state: Res<State<PlayState>>,
-    mut controls: ResMut<Controls>,
-    mut intent: ResMut<MoveIntent>,
-) {
+/// The movement controls: Forward, Back, Slide Left and Right; running unless Run is held
+/// while Always Run is on (and the other way round); Auto Move walks forward until
+/// Forward or Back is pressed [hypothesis]; Jump.
+fn read_input(input: ControlInput, state: Res<State<PlayState>>, mut control: ResMut<PlayerControl>, mut intent: ResMut<MoveIntent>) {
     if *state.get() != PlayState::Playing {
         *intent = MoveIntent::default();
         return;
     }
-    read_keys(&mut controls, &mut intent, |k| keys.pressed(k), |k| keys.just_pressed(k));
+    let axis = |plus: Control, minus: Control| input.pressed(plus) as i32 as f32 - input.pressed(minus) as i32 as f32;
+    if control.auto_move && (input.just_pressed(Control::Forward) || input.just_pressed(Control::Back)) {
+        control.auto_move = false;
+    }
+    intent.forward = if control.auto_move { 1.0 } else { axis(Control::Forward, Control::Back) };
+    intent.right = axis(Control::SlideRight, Control::SlideLeft);
+    intent.walk = control.always_run == input.pressed(Control::Run);
+    intent.sneak = control.sneak;
+    if input.just_pressed(Control::Jump) {
+        intent.jump = true;
+    }
 }
 
-/// Mouse look while the cursor is grabbed.
+/// Mouse look while the cursor is grabbed; while Toggle POV is held it circles the camera
+/// instead (control.rs).
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     state: Res<State<PlayState>>,
+    bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
+    mut control: ResMut<PlayerControl>,
     mut player: ResMut<Player>,
 ) {
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     if !grabbed || *state.get() != PlayState::Playing || motion.delta == Vec2::ZERO {
         return;
     }
-    (player.heading, player.pitch) = look(player.heading, player.pitch, motion.delta);
+    let (s, inv) = (bindings.mouse_sensitivity, bindings.invert_y);
+    if control.orbit.held {
+        let o = &mut control.orbit;
+        let (yaw, pitch) = look_with(o.yaw, o.pitch, motion.delta, s, inv);
+        // Keep the yaw in (−π, π] so the swing back takes the short way.
+        o.yaw = (yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        o.pitch = pitch;
+        o.moved = true;
+        return;
+    }
+    (player.heading, player.pitch) = look_with(player.heading, player.pitch, motion.delta, s, inv);
 }
 
 /// Put the character on the ground under the start position once its cell is loaded: a
@@ -760,13 +807,6 @@ fn log_status(time: Res<Time>, phys: Res<PhysState>, player: Res<Player>, mut st
         phys.world.steps(),
         if s.waiting_frames > 0 { format!(", waited {} frames for its cell", s.waiting_frames) } else { String::new() },
     );
-}
-
-/// The camera at the player's eye, looking along the view.
-fn place_camera(player: Option<Res<Player>>, mut cams: Query<&mut Transform, With<PlayerCamera>>) {
-    let (Some(p), Ok(mut t)) = (player, cams.single_mut()) else { return };
-    t.translation = space::to_bevy(p.eye());
-    t.rotation = space::look_rotation(p.heading, p.pitch);
 }
 
 #[cfg(test)]

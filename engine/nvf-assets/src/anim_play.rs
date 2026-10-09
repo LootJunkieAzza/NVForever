@@ -59,6 +59,22 @@ impl Clip {
         }
     }
 
+    pub fn length(&self) -> f32 {
+        (self.stop - self.start).max(0.0)
+    }
+
+    /// The speed the clip's accumulation root moves at over one cycle (units per second
+    /// at frequency 1), from its track's translation at the start and stop times: the
+    /// ground speed the clip was made for [observed: `locomotion\male\mtforward.kf`
+    /// moves `Bip01` 102.3 units in 1.2 s, docs/spec-notes/animation.md §9.2]. `None`
+    /// when the root has no track or the clip no length.
+    pub fn root_speed(&self) -> Option<f32> {
+        let t = self.accum_track()?;
+        let (a, b) = (t.translation.sample(self.start)?, t.translation.sample(self.stop)?);
+        let len = self.length();
+        (len > 0.0).then(|| Vec2::new(b[0] - a[0], b[1] - a[1]).length() / len)
+    }
+
     /// The transform track of the accumulation root, if one drives it.
     pub fn accum_track(&self) -> Option<&TransformTrack> {
         let r = self.accum_root.as_deref()?;
