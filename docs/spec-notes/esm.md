@@ -105,9 +105,10 @@ Subrecords [documented][observed]:
   those FormIDs do not exist in FalloutNV.esm. LonesomeRoad injects one AVIF the same
   way. The engine must accept new forms in a master's ID space.
 - **Out-of-range index** [observed]: GunRunnersArsenal.esm has one REFR with FormID
-  0x02000801 although it has only one master (valid indices 0 and 1). What the game does
-  with it is unknown [hypothesis: treated as the file's own index, or dropped]. The
-  loader reports it as `unmappable`.
+  0x02000801 although it has only one master (valid indices 0 and 1). The game treats the
+  index as the file's own [observed in game, 2026-10-09; see "Cross-check against
+  xEdit"]. Our loader still reports the record as `unmappable` and leaves it out of the
+  index (change proposed, see below).
 - FormIDs below 0x800 in the first master are reserved for engine built-ins
   [hypothesis, community knowledge]; references into that range need not resolve to a
   record.
@@ -158,14 +159,28 @@ report what the file holds and the export shows xEdit's own normalisation:
 - **xEdit folds an out-of-range master index into the file's own index** [documented:
   xEdit `wbImplementation.pas`, `TwbMainRecord.DoGetFixedFormID`: a file index greater
   than or equal to the plugin's master count is replaced by the plugin's own index]. GRA
-  has one master, so 0x02000801 is shown as 0x01000801. We keep the stored value and the
-  load order reports it as `unmappable` [observed]. Details of that REFR [observed]: its
+  has one master, so 0x02000801 is shown as 0x01000801. Our inventory keeps the stored value
+  (it describes the file) [observed]. Details of that REFR [observed]: its
   base (NAME) is 0x02000800, also out of range (GRA's own 0x01000800 is the WEAP
   `WeapNVDLC00Faderator`, "The Faderator"); it sits in the temporary children of
   `TestMentats` (0x00108BED, FalloutNV.esm's "Mentats Test Level"); DATA position
   (2341.27, 2058.89, 6991.75), rotation 0; no other subrecords. A developer test
   placement saved while the file had one more master is the likely origin [hypothesis].
-  What the game does with it: Unknowns 4.
+  **The game does the same as xEdit** [observed, in-game capture `l1_oob_formid`
+  2026-10-09, `tools/capture/jobs/l1_oob_formid.steps.json`, owner's load order with GRA
+  at index 05]: after `coc TestMentats`, the cell holds a reference `05000801`, enabled,
+  base `05000800` (GRA's own WEAP), within 0.005 units of the stored position, and it is
+  the only reference in the cell whose source mod is GRA (99 references in the cell). So
+  the out-of-range index 02 is read as "this file", not as load-order slot 02
+  (HonestHearts) and not dropped; the base FormID in NAME is mapped the same way. Before
+  the cell was loaded, `BuildRef 5 2049` gave no form (a temporary reference exists only
+  while its cell is loaded [hypothesis]). Making `LoadOrder::to_global` do the same (index
+  master-count + 1 observed; larger ones assumed the same [hypothesis]) was tried: it adds
+  this one reference to `TestMentats` (98 instead of 97) and so fails
+  `L3.world.cells.interiors` / `L3.world.refs.interiors`, whose golden comes from
+  `oracle_world.py`, which drops such records like our old rule. Since the oracle there
+  follows the old reading, not the game, the change waits for an owner decision to
+  update oracle_world.py and regenerate that golden together with the loader.
 
 Consequence: `L1.esm.inventory_xedit.{FalloutNV,DeadMoney,OldWorldBlues,GunRunnersArsenal}`
 fail by exactly these rows (scores 0.999998, 0.999975, 0.999981, 0.997433) and the other
@@ -191,9 +206,26 @@ scenarios and goldens are untouched (parity-lab/AGENT.md).
 3. GMST `DATA` type depends on the first letter of the Editor ID (s/i/f) [documented in
    xEdit as a union]; schema v1 has only size-decided unions (`{"union": [...]}`, used for
    WATR DATA), not EditorID-decided ones, so GMST DATA stays undecoded.
-4. Engine handling of the out-of-range FormID in GRA, of the bad-checksum LAND, and of
-   the dangling reference DeadMoney INFO 0x01011B23 → 0x010108DD (no such record in any
-   loaded file) [observed].
+4. Engine handling of the bad-checksum LAND and of the dangling reference DeadMoney INFO
+   0x01011B23 PNAM ("Previous INFO" [documented: xEdit INFO]) → 0x010108DD (no such
+   record in any loaded file) [observed]. In game the INFO exists (`BuildRef 1 72483` →
+   `01011B23`) and 0x010108DD does not (`BuildRef 1 67805` → no form) [observed,
+   `l1_oob_formid`]; whether the dangling "previous" link changes the topic's response
+   order is not observed. The INFO is the last line of topic `NVDLC01RadioElijahEnd`
+   (DIAL 0x01011B12, quest `NVDLC01RadioElijah` 0x0100F2BB, Elijah trapped in the vault
+   at the end of Dead Money; its result script sets `bEndBreathing`). Capture plan: a job
+   that needs a save at the end of Dead Money (none of the three capture saves is there),
+   so it needs the owner: from such a save, let the radio play and record, per game
+   loop, `NVDLC01RadioElijah.bEndBreathing` and the topic's spoken INFO order, then
+   compare with the order our loader builds when PNAM points nowhere.
+   The out-of-range GRA FormID is settled (Cross-check section above).
+7. FalloutNV.esm has 18 ANIO records whose DATA ("Animation", an IDLE [documented:
+   xEdit ANIO]) is 0x0100xxxx although the file has no masters, e.g. ANIO 0x0009266D →
+   0x0100BA20; folded to the file itself they name no record (no IDLE with those low IDs
+   in any master either) [observed: `fnvtool esm loadorder --schema`, 2026-10-09].
+   The same report finds 6 REGN and 7 WTHR FormID fields in FalloutNV.esm that name no
+   record (e.g. REGN 0x00174D19 → 0x000D705D, WTHR 0x00092BC4 → 0x000922EA) [observed];
+   which subrecords they are in is not analysed yet (layouts from the sky workstream).
 5. Version-control fields and group stamp/unknown fields — preserved, not interpreted.
 6. Two QUST `DATA` subrecords in FalloutNV.esm (e.g. 0x0001E5CA) are 2 bytes long, while
    the documented layout needs at least 4 [observed]; engine behaviour unknown.
