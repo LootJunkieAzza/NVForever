@@ -5,7 +5,7 @@
 //! Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
 //! F12 screenshot, Esc quit. With `--play` the camera is the player instead (Layer 4,
 //! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md),
-//! and Esc in a menu closes the menu.
+//! Esc opens the pause menu (Resume / Quit) and closes the open menu.
 
 mod actors;
 mod emittance;
@@ -378,6 +378,7 @@ fn main() -> AppExit {
         heading_deg: args.heading,
         pitch_deg: args.pitch,
         auto_walk: args.auto_walk,
+        start_at_cell_spot: args.pos.is_none(),
     });
     // Also for an interior start: LOD stays off inside and is switched on at the door out
     // (world::travel), with generated terrain for the start worldspace.
@@ -592,18 +593,24 @@ fn overlay(
     lod: Res<lod::LodState>,
     cam: Query<&GlobalTransform, With<FlyCam>>,
     mut text: Query<&mut Text, With<Overlay>>,
+    play_state: Option<Res<State<nvf_play::PlayState>>>,
 ) {
     let (Ok(cam), Ok(mut t)) = (cam.single(), text.single_mut()) else { return };
     let g = world::bevy_to_game(cam.translation());
     let c = fnv_world::cell_of(g.x, g.y);
     let s = &streamer.stats;
     t.0 = format!(
-        "pos {:.0}, {:.0}, {:.0}  cell {},{}\ncells {} ({} loads, {:.0} ms total)  refs drawn {} (animated {})  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}\nmodels {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  {}  lights {}\n{}\nWASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit",
+        "pos {:.0}, {:.0}, {:.0}  cell {},{}
+cells {} ({} loads, {:.0} ms total)  refs drawn {} (animated {})  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}
+models {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  {}  lights {}
+{}
+{}",
         g.x, g.y, g.z, c.0, c.1,
         streamer.loaded.len(), s.cells_loaded, s.load_ms,
         s.refs_drawn, s.refs_animated, s.refs_skipped_disabled, s.refs_skipped_type, s.refs_speedtree, s.refs_no_model, s.shapes,
         models.len(), models.failures.len(), textures.failures.len(), terrain.layers, terrain.quadrants_without_base,
         s.water_planes, lod.describe(), s.lights, sky.describe(),
+        if play_state.is_some() { nvf_play::HELP } else { "WASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit" },
     );
 }
 
@@ -613,9 +620,9 @@ fn keys(
     mut commands: Commands,
     mut n: Local<u32>,
 ) {
-    // With --play, Esc in a menu closes the menu (nvf-play) instead of quitting.
-    let in_menu = play_state.is_some_and(|s| *s.get() == nvf_play::PlayState::Menu);
-    if input.just_pressed(KeyCode::Escape) && !in_menu {
+    // With --play, Esc is nvf-play's: it opens the pause menu (Resume / Quit) or closes
+    // the open menu, instead of quitting.
+    if input.just_pressed(KeyCode::Escape) && play_state.is_none() {
         commands.write_message(AppExit::Success);
     }
     if input.just_pressed(KeyCode::F12) {

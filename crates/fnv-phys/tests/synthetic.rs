@@ -179,8 +179,9 @@ fn dynamic_clutter_settles_on_terrain() {
         w.step();
     }
     let b = w.ref_bodies(5)[0];
-    assert!((b.translation[2] - 4.0).abs() < 0.5, "{b:?}");
-    assert!((b.translation[0] - 10.0).abs() < 2.0 && (b.translation[1] - 10.0).abs() < 2.0, "{b:?}");
+    // On the terrain's contact shell: 3.5 above the bare surface (physics.md §4.3).
+    assert!((b.translation[2] - (4.0 + fnv_phys::TERRAIN_SHELL)).abs() < 0.5, "{b:?}");
+    assert!((b.translation[0] - 10.0).abs() < 5.0 && (b.translation[1] - 10.0).abs() < 5.0, "{b:?}");
     assert!(b.sleeping || b.linvel.iter().all(|v| v.abs() < 1.0), "{b:?}");
     let s = w.stats();
     assert_eq!((s.bodies_dynamic, s.steps), (1, 600));
