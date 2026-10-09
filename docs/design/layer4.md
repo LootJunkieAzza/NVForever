@@ -221,11 +221,11 @@ until captured; the outcome is a value, not a side channel, so the trace shows i
    the start-up message boxes dismissed with their number key, Tab inventory (arrow keys,
    Enter, mouse click to select and equip, the Close button), the Prospector Saloon door's
    prompt and E into the interior, a container opened with E and emptied with R (carry
-   weight 89.5 → 95.5), Esc/Tab/E closing menus. Found and handed to the Layer 4 play
-   workstream: the help line still lists the free-fly keys in play mode; Esc in the world
-   quits at once (the game opens a pause menu); message-box buttons ignore mouse clicks;
-   equipping ammunition reports a raw FormID; lock prompts show "level 0" instead of the
-   game's level names.
+   weight 89.5 → 95.5), Esc/Tab/E closing menus. Found, and fixed in #97 (Esc now opens a
+   Resume / Quit pause menu): the help line listed the free-fly keys in play mode; Esc in the world quit
+   at once (the game opens a pause menu); message-box buttons ignored mouse clicks;
+   equipping ammunition reported a raw FormID; lock prompts showed "level 0" instead of
+   the game's level names.
 
 ## 5. Open questions and verification steps for the owner
 
