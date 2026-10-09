@@ -25,6 +25,7 @@ mod reputation;
 
 pub use reputation::{store as reputation_store, tiers as reputation_tiers};
 pub use actor::{actor_value, av_code, set_current as set_actor_value_current};
+pub use misc::clock_now;
 
 use crate::game::{Game, InstKey};
 use fnv_script::vm::{ArgValue, Value};
@@ -286,7 +287,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         // The PC version [decision]: not a console.
         (0x1135, "IsXBox", Impl(misc::zero)),
         (0x120B, "IsPS3", Impl(misc::zero)),
-        (0x108D, "IsTalking", Impl(misc::zero)),
+        (0x108D, "IsTalking", Impl(misc::is_talking)),
         // Reputations (reputation.rs).
         (0x123F, "GetReputationThreshold", Impl(reputation::get_reputation_threshold)),
         (0x1239, "AddReputation", Impl(reputation::add_reputation)),
@@ -393,8 +394,8 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1097, "AddScriptPackage", Impl(actor::add_script_package)),
         (0x1098, "RemoveScriptPackage", Impl(actor::remove_script_package)),
         (0x11FA, "ResetAI", Stub("AI packages")),
-        (0x1034, "SayTo", Stub("dialogue")),
-        (0x1033, "Say", Stub("dialogue")),
+        (0x1034, "SayTo", Impl(misc::say_to)),
+        (0x1033, "Say", Impl(misc::say)),
         (0x1056, "StartConversation", Stub("dialogue")),
         (0x1016, "StartCombat", Stub("combat")),
         (0x1017, "StopCombat", Stub("combat")),
@@ -421,10 +422,10 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1225, "AutoDisplayObjectives", Stub("HUD")),
         (0x11DD, "ForceActiveQuest", Stub("Pip-Boy")),
         (0x115E, "Autosave", Stub("saving")),
-        (0x11E1, "GetPlayerName", Stub("menus (name entry)")),
-        (0x10DA, "ShowRaceMenu", Stub("menus (race menu)")),
-        (0x121A, "SetTagSkills", Stub("menus (tag skills)")),
-        (0x1268, "ShowTraitMenu", Stub("menus (traits)")),
+        (0x11E1, "GetPlayerName", Impl(misc::get_player_name)),
+        (0x10DA, "ShowRaceMenu", Impl(misc::show_race_menu)),
+        (0x121A, "SetTagSkills", Impl(misc::set_tag_skills)),
+        (0x1268, "ShowTraitMenu", Impl(misc::show_trait_menu)),
         (0x10A0, "GetFurnitureMarkerID", Stub("AI (furniture)")),
         (0x1187, "GetHitLocation", Stub("combat")),
         (0x106E, "GetCurrentAIPackage", Stub("AI packages")),
@@ -435,7 +436,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x106C, "GetWeaponAnimType", Stub("combat (weapon)")),
         (0x111E, "IsSneaking", Stub("movement (sneaking)")),
         (0x1032, "GetTalkedToPC", Stub("dialogue")),
-        (0x1245, "ShowLoveTesterMenuParams", Stub("menus (Vigor Tester)")),
+        (0x1245, "ShowLoveTesterMenuParams", Impl(misc::show_love_tester_menu)),
         (0x1173, "ShowBarterMenu", Stub("menus (barter)")),
         (0x1123, "PlayMagicShaderVisuals", Stub("rendering (effect shaders)")),
         (0x1129, "SetActorAlpha", Stub("rendering")),
