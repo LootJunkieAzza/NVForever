@@ -367,4 +367,9 @@ docs/spec-notes/actors.md §8.5 together with the locomotion notes.
 `fnvtool actor creatures` (`fnv.actor.creatures/1`: every placed creature after leveled
 and template resolution — skeleton, NIFZ body models, base scale, KFFZ names — and with
 `--check-meshes` how each model joins its skeleton) is defined in
-docs/spec-notes/actors.md §9.4 together with the creature notes.
+docs/spec-notes/actors.md §10.4 together with the creature notes.
+# Weapon stance clips (workstream 5, part H)
+
+`fnvtool actor weapons` (`fnv.actor.weapons/1`: per stance prefix the holster, equip, aim
+and unequip clips with their `prn:` keys and track priorities, and the weapon each placed
+NPC draws) is defined in docs/spec-notes/actors.md §9.5 together with the weapon notes.

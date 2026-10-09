@@ -18,7 +18,7 @@
 //!   hypothesis: an intact actor shows no cap].
 //! - Pose: the skeleton's bind pose, frozen (owner decision 2026-10-08), by default; a
 //!   KF clips can play on the skeleton's bones instead ([`blend_player`], actors.md §7–8).
-//! - Creatures (actors.md §9.2) use the same assembly with one difference for unskinned
+//! - Creatures (actors.md §10.2) use the same assembly with one difference for unskinned
 //!   shapes ([`PartUse::by_ancestor`]): such a shape hangs from its nearest ancestor in
 //!   the part file whose name is a node of the skeleton, keeping the transforms below
 //!   that ancestor; else from the part's `Prn`; else from the skeleton's root.
@@ -396,7 +396,7 @@ pub fn rigid_local(skel: &PreparedSkeleton, b: usize, root: &Affine3A, shape: &A
     }
 }
 
-/// Where an unskinned creature shape hangs (actors.md §9.2): the skeleton node of its
+/// Where an unskinned creature shape hangs (actors.md §10.2): the skeleton node of its
 /// nearest ancestor whose name the skeleton has, with the transforms below that
 /// ancestor; else the part's `Prn` bone (as for NPC parts, [`rigid_local`]); else the
 /// skeleton's root with the whole transform below the part's root.

@@ -1,6 +1,7 @@
 //! `fnvtool actor …`: actor appearance (workstream 5, crate `fnv-actor`). Contract:
 //! docs/spec-notes/actors.md §5; `actor anims` (module `actor_anims`): docs/spec-notes/animation.md §6; `actor locomotion`
-//! (module `actor_locomotion`): docs/spec-notes/actors.md §8.5.
+//! (module `actor_locomotion`): docs/spec-notes/actors.md §8.5; `actor weapons` (module
+//! `actor_weapons`): §9.5.
 
 use crate::esm_cmd::open_load_order;
 use crate::ActorCmd;
@@ -99,6 +100,17 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
             v["condition_function_names"] = json!(fn_names.len());
             Ok(v)
         }
+        ActorCmd::Weapons { lo: lo_args, schema: schema_dir, nif_schema, folder } => {
+            let schema = Schema::load_dir(&schema_dir).with_context(|| schema_dir.display().to_string())?;
+            let nif_dir = nif_schema.unwrap_or_else(|| schema_dir.parent().map(|p| p.join("nif")).unwrap_or_default());
+            let nif = fnv_nif::Schema::load_dir(&nif_dir).with_context(|| nif_dir.display().to_string())?;
+            let vfs = fnv_vfs::Vfs::open_default(&lo_args.data_dir).with_context(|| lo_args.data_dir.display().to_string())?;
+            let plugins = open_load_order(&lo_args)?;
+            let lo = LoadOrder::new(&plugins)?;
+            let mut v = crate::actor_weapons::report(&lo, &schema, &vfs, &nif, &folder);
+            v["load_order"] = json!(plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>());
+            Ok(v)
+        }
         ActorCmd::Locomotion { data_dir, nif_schema, folder, samples } => {
             let nif = fnv_nif::Schema::load_dir(&nif_schema).with_context(|| nif_schema.display().to_string())?;
             let vfs = fnv_vfs::Vfs::open_default(&data_dir).with_context(|| data_dir.display().to_string())?;
@@ -107,7 +119,7 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
     }
 }
 
-/// `fnvtool actor creatures` (fnv.actor.creatures/1, docs/spec-notes/actors.md §9.4).
+/// `fnvtool actor creatures` (fnv.actor.creatures/1, docs/spec-notes/actors.md §10.4).
 #[allow(clippy::too_many_arguments)]
 fn creatures(
     lo: &LoadOrder,
@@ -231,7 +243,7 @@ fn creature_meshes(vfs: &fnv_vfs::Vfs, nif: &fnv_nif::Schema, pairs: &BTreeMap<(
             problems.push(json!({"skeleton": skel, "model": model, "creatures": uses, "problems": p}));
         }
     }
-    // The idle each skeleton would play (actors.md §9.3).
+    // The idle each skeleton would play (actors.md §10.3).
     for skel in skeletons.keys() {
         let folder = skel.rsplit_once('\\').map_or("", |(f, _)| f);
         let found = fnv_actor::locomotion::clip_candidates(folder, fnv_actor::locomotion::Body::Male, "mt", fnv_actor::locomotion::Move::Idle)
