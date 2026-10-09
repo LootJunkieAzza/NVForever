@@ -11,6 +11,6 @@ pub mod texture;
 
 pub use data::{ArchivePlugin, GameData};
 pub use model::{ModelCache, PreparedModel, PreparedShape};
-pub use nif_material::{nif_material, NifMaterial, NifMaterialPlugin};
+pub use nif_material::{fade_prepass, nif_material, NifMaterial, NifMaterialPlugin};
 pub use nif_spawn::{NifHidden, NifRoot, SpawnCtx, SpawnReport};
 pub use texture::TextureCache;

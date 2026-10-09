@@ -1,0 +1,118 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "VCG03 stage 10: a quest variable set from a function call, references enabled; the stage set again without the repeat flag",
+  "save": "nvftest",
+  "given": [
+    {
+      "kind": "quest",
+      "quest": "VCG03",
+      "running": false,
+      "completed": false,
+      "stage": 0,
+      "not_done": [
+        10
+      ],
+      "vars": {
+        "nHealingPowdersAtStart": 0
+      }
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x00136A1D",
+      "count": 0
+    },
+    {
+      "kind": "disabled",
+      "of": "0x0015D982",
+      "disabled": true
+    },
+    {
+      "kind": "disabled",
+      "of": "0x0015D981",
+      "disabled": true
+    }
+  ],
+  "actions": [
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "0x00136A1D",
+      "count": 2
+    },
+    {
+      "op": "set_stage_read",
+      "quest": "VCG03",
+      "stage": 10,
+      "field": "var.nHealingPowdersAtStart",
+      "label": "VCG03 variable read in the script that set stage 10"
+    },
+    {
+      "op": "get_quest",
+      "quest": "VCG03",
+      "label": "VCG03 after stage 10",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.10",
+        "var.nHealingPowdersAtStart"
+      ]
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x0015D982",
+      "label": "Xander root after stage 10"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x0015D981",
+      "label": "broc flower after stage 10"
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x00168C25",
+      "label": "survival critter 1 after stage 10"
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "0x00136A1D",
+      "count": 1
+    },
+    {
+      "op": "disable",
+      "target": "0x0015D982"
+    },
+    {
+      "op": "set_stage",
+      "quest": "VCG03",
+      "stage": 10
+    },
+    {
+      "op": "get_quest",
+      "quest": "VCG03",
+      "label": "VCG03 after stage 10 again",
+      "fields": [
+        "running",
+        "completed",
+        "stage",
+        "done.10",
+        "var.nHealingPowdersAtStart"
+      ]
+    },
+    {
+      "op": "get_disabled",
+      "of": "0x0015D982",
+      "label": "Xander root after stage 10 again"
+    },
+    {
+      "op": "remove_item",
+      "from": "player",
+      "item": "0x00136A1D",
+      "count": 3
+    }
+  ]
+}
