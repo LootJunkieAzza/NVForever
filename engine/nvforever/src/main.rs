@@ -180,9 +180,9 @@ struct Args {
     /// Draw NPCs with the race's base face (no FaceGen morphs or face textures).
     #[arg(long)]
     no_facegen: bool,
-    /// How NPCs are posed: the frozen bind pose, or the skeleton's idle clip in a loop
-    /// (docs/spec-notes/actors.md §7).
-    #[arg(long, value_enum, default_value_t = actors::ActorPose::Bind)]
+    /// How NPCs are posed: the skeleton's idle clip in a loop (the default), or the
+    /// frozen bind pose (docs/spec-notes/actors.md §7).
+    #[arg(long, value_enum, default_value_t = actors::ActorPose::Idle)]
     actor_pose: actors::ActorPose,
     /// Test aid with --actor-pose idle: hold every NPC at this clip time (seconds).
     #[arg(long)]
