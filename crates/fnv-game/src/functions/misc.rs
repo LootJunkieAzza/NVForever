@@ -1,7 +1,7 @@
 //! Messages, time, globals and numbers.
 
 use super::{none, Args, Ctx};
-use crate::game::{Game, MessageBox};
+use crate::game::{menus, Game, MessageBox};
 use crate::trace::EventKind;
 use fnv_script::vm::Value;
 use fnv_sim::clock;
@@ -13,12 +13,18 @@ use rand_core::RngCore;
 pub fn show_message(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let m = a.form(0)?;
     let def = g.data.messages.get(&m).ok_or_else(|| format!("{} is not a message", g.data.name(m)))?;
-    let (text, buttons) = (def.text.clone(), def.buttons.clone());
+    let (text, buttons, is_box) = (def.text.clone(), def.buttons.clone(), def.message_box);
     if !buttons.is_empty() {
         let owner = Some(MessageBox::owner_of(ctx.inst, &ctx.unit));
         g.message_box = Some(MessageBox { message: m, buttons: buttons.len(), pressed: None, owner });
     }
-    g.emit(EventKind::MessageShown { message: m, text, buttons });
+    g.emit(EventKind::MessageShown { message: m, text, buttons: buttons.clone() });
+    // A message box (MESG flag Message Box, or buttons) is a menu until the player closes
+    // it [observed: MenuMode 1001 while the pack plugins' boxes were open,
+    // layer5-captures.md §10.1]; other messages are corner notifications.
+    if is_box || !buttons.is_empty() {
+        g.show_box(m);
+    }
     none()
 }
 
@@ -57,25 +63,28 @@ pub fn get_random_percent(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, 
 /// hypothesis: the clock, not the frame, is quantised].
 pub const CLOCK_TICK: f64 = 1.0 / 64.0;
 
-fn clock_now(t: f64) -> f64 {
+/// The game clock in 1/64 s steps.
+pub fn clock_now(t: f64) -> f64 {
     (t / CLOCK_TICK + 1e-9).floor() * CLOCK_TICK
 }
 
-/// Seconds since this instance last called the function, read from the 1/64 s clock;
-/// 0 on the first call; the same value for every call in one frame [documented: GECK
-/// wiki GetSecondsPassed]. Result scripts (no instance) get 0.
+/// The clock time between the start of this instance's previous per-frame run
+/// (GameMode, ScriptEffectUpdate) and the start of the current one; 0 on the first run.
+/// Every call in one run gives the same value [documented: GECK wiki GetSecondsPassed],
+/// and the value does not depend on when the script last called the function
+/// [observed: VCG01's countdowns restarted after a pause in its calls ran their full
+/// time, layer5-captures.md §10.7; see [`Game::mark_run`]]. Outside a per-frame run (an
+/// event block of the same instance), the time since the latest run; result scripts (no
+/// instance) get 0.
 pub fn get_seconds_passed(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let Some(key) = ctx.inst else { return none() };
-    let (frame, now) = (g.frame, clock_now(g.time));
-    let inst = g.instances.entry(key).or_default();
-    if let Some((f, v)) = inst.gsp_frame {
-        if f == frame {
-            return Ok(Value::Num(v));
-        }
-    }
-    let v = inst.gsp_last.map(|l| now - l).unwrap_or(0.0);
-    inst.gsp_last = Some(now);
-    inst.gsp_frame = Some((frame, v));
+    let now = clock_now(g.time);
+    let Some(inst) = g.instances.get(&key) else { return none() };
+    let v = match (inst.run_last, inst.run_prev) {
+        (Some(last), prev) if last == now => prev.map_or(0.0, |p| now - p),
+        (Some(last), _) => now - last,
+        (None, _) => 0.0,
+    };
     Ok(Value::Num(v))
 }
 
@@ -136,4 +145,62 @@ pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
         (Some(_), None) => true,
         (Some(m), Some(c)) => m as f64 == c,
     }))
+}
+
+/// `speaker.SayTo target topic`: the speaker says the topic's first line it can say to
+/// the target (`Game::say`, docs/spec-notes/scripts.md §7.7).
+pub fn say_to(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let speaker = ctx.subject()?;
+    let (target, topic) = (a.form(0)?, a.form(1)?);
+    g.say(speaker, Some(target), topic, true);
+    none()
+}
+
+/// `speaker.Say topic`: as SayTo, with no listener.
+pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let speaker = ctx.subject()?;
+    let topic = a.form(0)?;
+    g.say(speaker, None, topic, false);
+    none()
+}
+
+/// 1 while the actor is saying a line (SayTo, Say).
+pub fn is_talking(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let who = ctx.subject()?;
+    Ok(Value::bool(g.is_talking(who)))
+}
+
+/// The menu each character-creation function opens (`Game::open_menu`) [observed: the
+/// code of each was open after the stage whose script calls it, save nvfnew,
+/// layer5-captures.md §10.2–10.3]. What the menu does (the name typed, the race chosen,
+/// the tag skills and traits picked, the S.P.E.C.I.A.L. points) is the player's, outside
+/// the scripts: closing it keeps the state as it is.
+fn open(g: &mut Game, code: u16) -> Result<Value, String> {
+    g.open_menu(code);
+    none()
+}
+
+/// GetPlayerName: the name menu.
+pub fn get_player_name(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    open(g, menus::NAME)
+}
+
+/// ShowRaceMenu: the race menu.
+pub fn show_race_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    open(g, menus::RACE)
+}
+
+/// SetTagSkills: the tag-skill menu.
+pub fn set_tag_skills(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    open(g, menus::TAG_SKILLS)
+}
+
+/// ShowTraitMenu: the trait menu.
+pub fn show_trait_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    open(g, menus::TRAITS)
+}
+
+/// ShowLoveTesterMenuParams: the Vigor Tester's S.P.E.C.I.A.L. menu.
+pub fn show_love_tester_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    open(g, menus::LOVE_TESTER)
 }
