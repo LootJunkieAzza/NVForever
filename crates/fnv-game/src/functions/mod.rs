@@ -201,6 +201,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10EE, "EquipItem", Impl(items::equip_item)),
         (0x10EF, "UnequipItem", Impl(items::unequip_item)),
         (0x10B6, "GetEquipped", Impl(items::get_equipped)),
+        (0x11F4, "GetWeaponHealthPerc", Impl(items::get_weapon_health_perc)),
         // Actors.
         (0x100E, "GetActorValue", Impl(actor::get_actor_value)),
         (0x100F, "SetActorValue", Impl(actor::set_actor_value)),
@@ -246,6 +247,9 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1060, "EnablePlayerControls", Impl(player::enable_player_controls)),
         (0x1062, "GetPlayerControlsDisabled", Impl(player::get_player_controls_disabled)),
         (0x1050, "GetLevel", Impl(player::get_level)),
+        (0x1138, "GetPCMiscStat", Impl(player::get_pc_misc_stat)),
+        (0x1137, "ModPCMiscStat", Impl(player::mod_pc_misc_stat)),
+        (0x11AF, "GetHealthPercentage", Impl(actor::get_health_percentage)),
         (0x117D, "RemoveNote", Impl(player::remove_note)),
         (0x126D, "ResetXP", Impl(player::reset_xp)),
         (0x123D, "GetReputation", Impl(player::get_reputation)),
@@ -272,6 +276,9 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1221, "Abs", Impl(misc::abs)),
         // State that only Layer 6 changes; with no Layer 6 it reads "no".
         (0x1121, "IsInCombat", Impl(misc::zero)),
+        // The PC version [decision]: not a console.
+        (0x1135, "IsXBox", Impl(misc::zero)),
+        (0x120B, "IsPS3", Impl(misc::zero)),
         (0x108D, "IsTalking", Impl(misc::zero)),
         // Layer 6 systems: recorded, no effect.
         (0x105E, "EvaluatePackage", Stub("AI packages")),
