@@ -47,6 +47,13 @@ fn squash(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace() && *c != '_').flat_map(char::to_lowercase).collect()
 }
 
+/// An actor value code from its xEdit name (`Perception Condition`), without regard to
+/// case and spaces.
+pub fn av_by_name(name: &str) -> Option<u16> {
+    let want = squash(name);
+    AV_NAMES.iter().position(|n| squash(n) == want).map(|i| i as u16)
+}
+
 /// An actor value code from its name: the script name the decoder uses
 /// (`encodings.json`, e.g. `NightEye`, `PerceptionCondition`) or the xEdit name, either
 /// without regard to case and spaces (`Nighteye`, `Night Eye`), or a number.

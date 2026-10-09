@@ -1,10 +1,10 @@
 # Combat design: weapons, projectiles, damage, melee
 
-Status 2026-10-09: **design for review; steps C1–C7 built**: data, rules, hit volumes, the
-player shooting, damage applied, melee, explosives and destructibles (branches
-`claude/combat-data`, `-rules`, `-hitvol`, `-shoot`, `-damage`, `-melee`, `-explosives`;
-docs/spec-notes/combat-data.md, docs/spec-notes/combat-rules.md §7–11). Limb hits are
-planned as step C8 (§5.9). Owner requests 2026-10-09:
+Status 2026-10-09: **design for review; steps C1–C8 built**: data, rules, hit volumes, the
+player shooting, damage applied, melee, explosives and destructibles, limb hits (branches
+`claude/combat-data`, `-rules`, `-hitvol`, `-shoot`, `-damage`, `-melee`, `-explosives`,
+`-limbs`; docs/spec-notes/combat-data.md, docs/spec-notes/combat-rules.md §7–12). Owner
+requests 2026-10-09:
 
 1. On top of the player body (docs/design/player-body.md: controls, equipping, drawing and
    holstering), "the actual damage/projectile systems in place for shooting and melee
@@ -549,12 +549,12 @@ beyond combat. Third, C5 already passes a hit location everywhere (`GetHitLocati
     [hypothesis: humans and the player use these].
   - Each part names its bone, damage multiplier, health percentage, limb-condition
     actor value and part type (`fnv_combat::data::BodyPart`, read since C1).
-- **Hit volumes:** one capsule per part, on the part's bone, posed from the animated
+- **Hit volumes:** one capsule per bone segment of each part, posed from the animated
   skeleton each frame, replacing the single C3 capsule for actors that have parts
   [design].
-  - Sizes come from the bone's child joint (length) and a radius per part type
-    [design], or from the skeleton's own collision when it has some
-    [hypothesis: worth checking in `skeleton.nif`].
+  - Lengths come from the part's bone chain, radii from a share of the actor's size by
+    kind of part [design] (combat-rules.md §12). The skeleton's own collision was not
+    used.
   - `Owner::Actor` gains the part index.
 - **Damage:**
   - The part's damage multiplier in §5.3 (head ×2 for most humans [observed: C1
@@ -570,7 +570,7 @@ beyond combat. Third, C5 already passes a hit location everywhere (`GetHitLocati
   - arms: the documented spread penalties (§4.2, already in `spread::actor_spread`)
     and the melee arm-condition term (already in `damage::hit`);
   - legs: slower movement [design];
-  - head: a screen effect (the Enum `HitShader` blur) [design].
+  - head: a screen effect (the Enum `HitShader` blur) [design; not built in C8].
   - The HUD shows the limb states.
 - **Later (gore):** severing and exploding limbs by the part's flags, chance and
   explosion, with debris and limb replacement models.

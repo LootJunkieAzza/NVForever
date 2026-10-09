@@ -1,6 +1,6 @@
 //! Hits and deaths of placed actors on screen (docs/design/combat.md §5.6–5.7, step C5):
-//! `nvf_play::combat` reports each hit ([`ActorHit`]); a living actor plays its hit
-//! reaction once over its other clips, a dead one its death pose (held at the end). An
+//! `nvf_play::combat` reports each hit ([`ActorHit`]); a living actor plays the hit
+//! reaction for where it was hit (step C8) once over its other clips, a dead one its death pose (held at the end). An
 //! actor that is dead when it is drawn (a cell loaded again) goes straight to the end of
 //! the pose. Without a death pose the actor's pose freezes and the body is laid on its
 //! back about its feet [design: until ragdolls].
@@ -41,8 +41,8 @@ fn show_hits_and_deaths(
             let start = if hit.is_some_and(|h| h.died) { 0.0 } else { END };
             commands.entity(e).insert(Dying { clip, t: start });
             commands.entity(e).remove::<Flinch>();
-        } else if hit.is_some() {
-            if let Some(c) = lo.set.flinch.clone() {
+        } else if let Some(h) = hit {
+            if let Some(c) = lo.set.flinch_for(h.location) {
                 commands.entity(e).insert(Flinch { clip: c, t: 0.0 });
             }
         }
