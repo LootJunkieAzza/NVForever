@@ -71,10 +71,12 @@ impl AnimType {
         AnimType::ALL.into_iter().find(|t| t.name() == name)
     }
 
-    /// The stance prefix of the type's clips (`1hpequip.kf`, …) [hypothesis, animation.md
-    /// §3.2: matched by the weapon parts the clips animate, e.g. `##MinigunBarrel` in
-    /// `2hhaim.kf` (Handle), `##127SmgClip` in `2haaim.kf` (Automatic), `##Throwingkinfe` in
-    /// `1gtaim.kf` (Thrown); the energy types have no prefix of their own].
+    /// The stance prefix of the type's clips (`1hpequip.kf`, …) [observed, actors.md §9.3:
+    /// each weapon's `##` parts are animated only by its prefix's clips (the laser pistol's
+    /// by `1hp`, the laser rifle's `##LR_CellReleaseSpring` by `2hr`, `##MinigunBarrel` by
+    /// `2hh`), and the thrown weapons' attack animations exist only as
+    /// `1gtattackthrow6|7|8.kf`; `1lm` and `1md` by name only]. The energy types have no
+    /// prefix of their own.
     pub fn prefix(self) -> &'static str {
         match self {
             AnimType::HandToHand => "h2h",
