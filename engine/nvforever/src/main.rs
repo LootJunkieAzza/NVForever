@@ -14,6 +14,7 @@ mod facegen;
 mod fly;
 mod lights;
 mod lod;
+mod locomotion;
 mod lodgen;
 mod reflection;
 mod ripples;
@@ -184,9 +185,19 @@ struct Args {
     /// frozen bind pose (docs/spec-notes/actors.md §7).
     #[arg(long, value_enum, default_value_t = actors::ActorPose::Idle)]
     actor_pose: actors::ActorPose,
-    /// Test aid with --actor-pose idle: hold every NPC at this clip time (seconds).
+    /// Test aid with --actor-pose idle: hold every NPC at this clip time (seconds); with
+    /// --actor-walk-test, at this time of the walk script (run from its start, repeatable).
     #[arg(long)]
     actor_pose_time: Option<f32>,
+    /// Test aid: NPCs walk a fixed script along their forward axis at this speed (units
+    /// per second): out, stop, turn, back, and a backward leg (docs/spec-notes/actors.md
+    /// §8.4). Needs --actor-pose idle.
+    #[arg(long)]
+    actor_walk_test: Option<f32>,
+    /// With --actor-walk-test: only NPCs within this distance of the start position
+    /// (game units; 0 = all).
+    #[arg(long, default_value_t = 0.0, requires = "actor_walk_test")]
+    actor_walk_test_radius: f32,
     /// Test aid with --play: walk forward at this speed (game units per second).
     #[arg(long, default_value_t = 0.0, requires = "play")]
     auto_walk: f32,
@@ -346,6 +357,10 @@ fn main() -> AppExit {
         a.facegen_enabled = !args.no_facegen;
         a.pose = args.actor_pose;
         a.pose_time = args.actor_pose_time;
+        a.walk_test = args.actor_walk_test.map(|speed| actors::WalkTestArgs { speed, radius: args.actor_walk_test_radius, center: start });
+        if a.walk_test.is_some() && a.pose == actors::ActorPose::Bind {
+            warn!("--actor-walk-test needs --actor-pose idle; actors stay in the bind pose");
+        }
         info!("actor records loaded in {:.2}s", t0.elapsed().as_secs_f64());
         a
     });
@@ -405,6 +420,8 @@ fn main() -> AppExit {
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, overlay, keys).chain())
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
+    .init_resource::<locomotion::ActorAnimCost>()
+    .add_systems(Update, (locomotion::walk_test, locomotion::drive).chain())
     .add_systems(Update, timelapse.after(sky::update_sky));
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
@@ -421,7 +438,15 @@ fn main() -> AppExit {
         app.add_systems(Update, screenshot_and_exit);
     }
     if let Some(secs) = args.run_seconds {
-        app.add_systems(Update, move |time: Res<Time>, streamer: Res<Streamer>, lod: Res<lod::LodState>, actors: Option<Res<actors::ActorWorld>>, anim: Res<AnimCost>, mut commands: Commands, mut t: Local<(f32, u32)>| {
+        #[allow(clippy::too_many_arguments)]
+        let summary = move |time: Res<Time>,
+                            streamer: Res<Streamer>,
+                            lod: Res<lod::LodState>,
+                            actors: Option<Res<actors::ActorWorld>>,
+                            anim: Res<AnimCost>,
+                            actor_anim: Res<locomotion::ActorAnimCost>,
+                            mut commands: Commands,
+                            mut t: Local<(f32, u32)>| {
             t.0 += time.delta_secs();
             t.1 += 1;
             if t.0 >= secs {
@@ -436,13 +461,24 @@ fn main() -> AppExit {
                     anim.total.as_secs_f64() * 1e3 / f64::from(anim.frames.max(1)),
                     anim.total.as_secs_f64() * 1e6 / anim.clip_frames.max(1) as f64
                 );
+                let c = &*actor_anim;
+                info!(
+                    "actor animation: up to {} actors posed at once, {:.3} ms per frame on average, {:.2} us per actor and frame, {:.2} clips per actor and frame ({:.1}% of actor frames blending two), {:.1} tracks per actor and frame",
+                    c.peak,
+                    c.total.as_secs_f64() * 1e3 / f64::from(c.frames.max(1)),
+                    c.total.as_secs_f64() * 1e6 / c.actor_frames.max(1) as f64,
+                    c.layer_frames as f64 / c.actor_frames.max(1) as f64,
+                    100.0 * c.blend_frames as f64 / c.actor_frames.max(1) as f64,
+                    c.tracks as f64 / c.actor_frames.max(1) as f64
+                );
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
                     info!("FaceGen: {} shapes morphed, {} faces textured, {} EGMs not matching their shape", fg.morphed_shapes, fg.faces_textured, fg.mismatched);
                 }
                 commands.write_message(AppExit::Success);
             }
-        });
+        };
+        app.add_systems(Update, summary);
     }
     app.run()
 }
@@ -599,8 +635,8 @@ fn timelapse(
     }
 }
 
-/// Time spent advancing clips (animated models and, with `--actor-pose idle`, actors),
-/// for the `--run-seconds` summary.
+/// Time spent advancing single clips (animated models; actors are timed by
+/// `locomotion::ActorAnimCost`), for the `--run-seconds` summary.
 #[derive(Resource, Default)]
 struct AnimCost {
     total: std::time::Duration,

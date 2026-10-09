@@ -365,7 +365,7 @@ fn load_cell(
         let base: Option<BaseObject> = p.base.and_then(|b| base_object(world.lo, world.schema, b));
         if let (Some((aw, parts)), Some(b)) = (actors.as_mut(), base.as_ref().filter(|b| &b.sig == b"NPC_")) {
             let mut ctx = ActorCtx { cache: parts, models };
-            if crate::actors::spawn(commands, cell_e, to_cell * ref_affine(&p), r, b.form_id, aw, &mut ctx, &mut stats.actors) {
+            if crate::actors::spawn(commands, cell_e, to_cell * ref_affine(&p), Vec3::from_array(p.position), r, b.form_id, aw, &mut ctx, &mut stats.actors) {
                 continue;
             }
         }
