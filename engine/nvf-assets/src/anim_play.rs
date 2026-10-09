@@ -130,13 +130,41 @@ pub struct AnimState {
     pub current: Option<usize>,
     pub playing: Option<Playing>,
     pub paused: bool,
+    /// The accumulation root the current sequence holds at the identity
+    /// ([`Clip::undriven_accum_root`]), with its bind transform to put back.
+    pub held: Option<(Entity, Transform)>,
+    /// Transforms [`advance`] writes before posing (holding or releasing that root).
+    pending: Vec<(Entity, Transform)>,
 }
 
 impl AnimState {
-    pub fn start(&mut self, index: usize, nodes: &HashMap<String, Entity>) {
+    /// Play sequence `index` on the nodes. `bind` gives the nodes' local bind transforms,
+    /// for the accumulation root a previous sequence held.
+    pub fn start(&mut self, index: usize, nodes: &HashMap<String, Entity>, bind: &HashMap<Entity, Transform>) {
         let Some((source, seq)) = self.available.get(index) else { return };
+        let clip = Clip::from_sequence(seq);
+        let playing = Playing::new(source, &clip, |n| nodes.get(n).copied());
+        let hold = clip.undriven_accum_root().and_then(|r| nodes.get(r)).copied();
         self.current = Some(index);
-        self.playing = Some(Playing::new(source, &Clip::from_sequence(seq), |n| nodes.get(n).copied()));
+        self.playing = Some(playing);
+        self.release();
+        if let Some(e) = hold {
+            self.pending.push((e, Transform::IDENTITY));
+            self.held = Some((e, bind.get(&e).copied().unwrap_or_default()));
+        }
+    }
+
+    /// Stop playing; a held accumulation root goes back to its bind transform.
+    pub fn stop(&mut self) {
+        self.current = None;
+        self.playing = None;
+        self.release();
+    }
+
+    fn release(&mut self) {
+        if let Some(back) = self.held.take() {
+            self.pending.push(back);
+        }
     }
 }
 
@@ -159,6 +187,11 @@ pub fn cycle_time(t: f32, start: f32, stop: f32, cycle: i64) -> f32 {
 }
 
 pub fn advance(time: Res<Time>, mut state: ResMut<AnimState>, mut transforms: Query<&mut Transform>) {
+    for (e, t) in std::mem::take(&mut state.pending) {
+        if let Ok(mut tr) = transforms.get_mut(e) {
+            *tr = t;
+        }
+    }
     let paused = state.paused;
     if let Some(p) = state.playing.as_mut() {
         p.step(time.delta_secs(), paused, &mut transforms);
@@ -175,7 +208,65 @@ pub fn advance_instances(time: Res<Time>, mut playing: Query<&mut Playing>, mut 
 
 #[cfg(test)]
 mod tests {
-    use super::cycle_time;
+    use super::*;
+    use fnv_nif::anim::{Channel, Track};
+    use std::f32::consts::FRAC_PI_2;
+
+    fn seq(tracks: &[&str]) -> Sequence {
+        let track = |n: &&str| Track {
+            node_name: Some(n.to_string()),
+            controller_type: None,
+            priority: None,
+            data: TrackData::Transform(TransformTrack {
+                translation: Channel::Static(Some([0.0, -0.296, 66.33])),
+                rotation: Channel::Static(None),
+                euler: None,
+                scale: Channel::Static(None),
+            }),
+        };
+        Sequence {
+            block: 0,
+            name: None,
+            start_time: 0.0,
+            stop_time: 1.0,
+            frequency: 1.0,
+            cycle_type: 0,
+            accum_root_name: Some("Bip01".into()),
+            text_keys: Vec::new(),
+            tracks: tracks.iter().map(track).collect(),
+        }
+    }
+
+    #[test]
+    fn undriven_accum_root_is_held_then_restored() {
+        let (root, non_accum) = (Entity::from_raw_u32(1).unwrap(), Entity::from_raw_u32(2).unwrap());
+        let nodes = HashMap::from([("Bip01".to_string(), root), ("Bip01 NonAccum".to_string(), non_accum)]);
+        let bind_root = Transform::from_xyz(0.0, 0.657, 67.771).with_rotation(Quat::from_rotation_z(FRAC_PI_2));
+        let bind = HashMap::from([(root, bind_root), (non_accum, Transform::IDENTITY)]);
+        let mut state = AnimState {
+            available: vec![
+                ("idle".into(), seq(&["Bip01 NonAccum"])),
+                ("walk".into(), seq(&["Bip01", "Bip01 NonAccum"])),
+            ],
+            ..Default::default()
+        };
+        // A clip without a Bip01 track holds Bip01 at the identity.
+        state.start(0, &nodes, &bind);
+        assert_eq!(std::mem::take(&mut state.pending), [(root, Transform::IDENTITY)]);
+        // Switching to the same clip keeps holding it.
+        state.start(0, &nodes, &bind);
+        assert_eq!(std::mem::take(&mut state.pending), [(root, bind_root), (root, Transform::IDENTITY)]);
+        // A clip that drives Bip01 gets it back at its bind pose first.
+        state.start(1, &nodes, &bind);
+        assert_eq!(std::mem::take(&mut state.pending), [(root, bind_root)]);
+        assert_eq!(state.held, None);
+        // Stopping releases a held root.
+        state.start(0, &nodes, &bind);
+        state.pending.clear();
+        state.stop();
+        assert_eq!(state.pending, [(root, bind_root)]);
+        assert!(state.playing.is_none() && state.current.is_none());
+    }
 
     #[test]
     fn cycles() {
