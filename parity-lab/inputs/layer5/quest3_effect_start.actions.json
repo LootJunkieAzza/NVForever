@@ -1,0 +1,200 @@
+{
+  "format": "fnv.script.actions/1",
+  "seed": 0,
+  "frame_seconds": 0.016666666666666666,
+  "title": "Effect scripts of aid items: ScriptEffectStart inside the use, a zero-duration effect after the use, ScriptEffectUpdate of an ability per frame",
+  "save": "nvfdoc",
+  "given": [
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x0000000F",
+      "count": 18
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x0001519E",
+      "count": 0
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x000F1865",
+      "count": 0
+    },
+    {
+      "kind": "item_count",
+      "of": "player",
+      "item": "0x0007EA1B",
+      "count": 0
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Nighteye",
+      "value": 0
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "PerceptionCondition",
+      "value": 100
+    },
+    {
+      "kind": "actor_value",
+      "of": "player",
+      "av": "Health",
+      "value": 200
+    }
+  ],
+  "actions": [
+    {
+      "op": "damage_av",
+      "of": "player",
+      "av": "Health",
+      "value": 40
+    },
+    {
+      "op": "sample_av",
+      "of": "player",
+      "av": "Health",
+      "frames": 30,
+      "label": "health without the ability"
+    },
+    {
+      "op": "add_spell",
+      "of": "player",
+      "spell": "0x0014CCE2"
+    },
+    {
+      "op": "sample_av",
+      "of": "player",
+      "av": "Health",
+      "frames": 60,
+      "label": "health with the ability"
+    },
+    {
+      "op": "remove_spell",
+      "of": "player",
+      "spell": "0x0014CCE2"
+    },
+    {
+      "op": "sample_av",
+      "of": "player",
+      "av": "Health",
+      "frames": 30,
+      "label": "health after RemoveSpell"
+    },
+    {
+      "op": "restore_av",
+      "of": "player",
+      "av": "Health",
+      "value": 100
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "0x0001519E",
+      "count": 1
+    },
+    {
+      "op": "use_item",
+      "actor": "player",
+      "item": "0x0001519E",
+      "read": [
+        {
+          "item": "0x0000000F"
+        },
+        {
+          "item": "0x0001519E"
+        }
+      ],
+      "label": "Nuka-Cola used: in the same script"
+    },
+    {
+      "op": "get_item_count",
+      "of": "player",
+      "item": "0x0000000F",
+      "label": "caps after the Nuka-Cola"
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "0x000F1865",
+      "count": 1
+    },
+    {
+      "op": "damage_av",
+      "of": "player",
+      "av": "PerceptionCondition",
+      "value": 40
+    },
+    {
+      "op": "get_av",
+      "of": "player",
+      "name": "PerceptionCondition",
+      "label": "head before the supplies"
+    },
+    {
+      "op": "use_item",
+      "actor": "player",
+      "item": "0x000F1865",
+      "read": [
+        {
+          "av": "PerceptionCondition"
+        },
+        {
+          "item": "0x000F1865"
+        }
+      ],
+      "label": "supplies used: in the same script"
+    },
+    {
+      "op": "damage_av",
+      "of": "player",
+      "av": "PerceptionCondition",
+      "value": 20
+    },
+    {
+      "op": "sample_av_damage",
+      "of": "player",
+      "av": "PerceptionCondition",
+      "damage": 5,
+      "frames": 10,
+      "label": "head each frame after the supplies (read, then damaged by 5)"
+    },
+    {
+      "op": "restore_av",
+      "of": "player",
+      "av": "PerceptionCondition",
+      "value": 100
+    },
+    {
+      "op": "add_item",
+      "to": "player",
+      "item": "0x0007EA1B",
+      "count": 1
+    },
+    {
+      "op": "use_item",
+      "actor": "player",
+      "item": "0x0007EA1B",
+      "read": [
+        {
+          "av": "Nighteye"
+        },
+        {
+          "item": "0x0007EA1B"
+        }
+      ],
+      "label": "Cateye used: in the same script"
+    },
+    {
+      "op": "get_av",
+      "of": "player",
+      "name": "Nighteye",
+      "label": "Nighteye after the Cateye"
+    }
+  ]
+}
