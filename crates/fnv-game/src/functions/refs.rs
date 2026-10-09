@@ -13,6 +13,7 @@ pub fn enable(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
     if !was {
         g.emit(EventKind::RefEnabled { reference: r });
+        g.note_enabled(r);
     }
     none()
 }

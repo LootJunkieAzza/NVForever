@@ -221,22 +221,42 @@ pub fn reset_health(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String>
     none()
 }
 
-/// Recorded on the actor (the package runs in Layer 6); also traced as a stub call.
+/// Recorded on the actor and made its current package (the package runs in Layer 6);
+/// also traced as a stub call.
 pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let p = a.form(0)?;
-    g.extra.entry(r).or_default().packages.push(p);
+    let e = g.extra.entry(r).or_default();
+    e.packages.push(p);
+    e.current_package = Some(p);
     g.stub_note(ctx, a.0);
     none()
 }
 
+/// The script package is dropped; the actor chooses again when its package is next
+/// asked for.
 pub fn remove_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if let Some(e) = g.extra.get_mut(&r) {
         e.packages.pop();
+        e.current_package = None;
     }
     g.stub_note(ctx, a.0);
     none()
+}
+
+/// `EvaluatePackage`: see [`Game::evaluate_package`].
+pub fn evaluate_package(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.evaluate_package(r);
+    none()
+}
+
+/// 1 when the actor's current package is the given one [documented: catalogue summary].
+pub fn get_is_current_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let p = a.form(0)?;
+    yes(g.current_package(r) == Some(p))
 }
 
 /// The starting value of an actor value this crate keeps (see the module notes).
