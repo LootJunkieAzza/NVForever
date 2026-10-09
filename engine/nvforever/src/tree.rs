@@ -63,9 +63,11 @@ impl MaterialExtension for LeafCards {
         _: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _: &MeshVertexBufferLayoutRef,
-        _: MaterialExtensionKey<Self>,
+        key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.vertex.shader_defs.push("TREE_LEAVES".into());
+        // Trees fade in and out with their cells (fade.rs).
+        nvf_assets::fade_prepass(descriptor, key.mesh_key);
         Ok(())
     }
 }
@@ -81,9 +83,11 @@ impl MaterialExtension for BarkWind {
         _: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _: &MeshVertexBufferLayoutRef,
-        _: MaterialExtensionKey<Self>,
+        key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.vertex.shader_defs.push("TREE_BARK".into());
+        // Trees fade in and out with their cells (fade.rs).
+        nvf_assets::fade_prepass(descriptor, key.mesh_key);
         Ok(())
     }
 }
