@@ -250,6 +250,34 @@ item once you've ruled on it.
     `git reflog expire --expire-unreachable=now --all` (no stash existed) and deleted
     that one loose object. `git fsck --connectivity-only` is clean.
 
+22. **Capture round 3 (PR #73, merged).**
+    - **Reputation is measured:** levels at 15/50/100% of the scale, deed sizes give
+      1/2/4/7/12 points, and a 4×4 tier grid. The runtime's earlier 25/50/75% guess was
+      wrong; runtime round 3 (`claude/layer5-runtime-3`) replaces it.
+    - **Effect-script timing is measured:** Start runs inside the use call, Update every
+      frame, menus pause it, and repeated doses add to the duration.
+    - **Order:** one quest script ran before object scripts in the same frame.
+
+    For you:
+    - (a) the tolerances it chose: 0.25 s for effect durations, 0.0001 for reputation;
+    - (b) `L5.quest.script_order` travels with `coc Goodsprings`;
+    - (c) the 15/50/100% rule is assumed for the eight reputations it did not change;
+    - (d) a one-line blindness slip: one grep printed an unrelated line of scripts.md
+      §5 (it reported this itself).
+
+    New holdouts: `L5.quest.r3_holdout_a`/`_b`.
+
+23. **Runtime round 3 (#75) and the clock order (#76).** L5 is now 24/28. The four
+    misses are the three `delay_*` inputs (item 15) and `L5.script.decode` (item 7). All
+    six holdouts pass. Lab 361/380 with 0 regressions. Decisions for you:
+    - zero-duration effects run Finish inside the use (the captures can't tell this
+      from "never");
+    - a second dose's Start doesn't re-run, and only the same item merges;
+    - `go_to_cell` puts the player mid-cell (the Goodsprings cell has no COC marker);
+    - GetBaseActorValue includes ModActorValue changes [hypothesis];
+    - AddReputationExact clamping wasn't captured;
+    - the engine now advances the game clock before each frame's scripts (#76) [hypothesis].
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
