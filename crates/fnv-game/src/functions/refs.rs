@@ -9,15 +9,21 @@ use fnv_sim::FormId;
 /// Enable / disable; the fade flag is presentation only.
 pub fn enable(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    let was = g.world.get(r).map_err(|e| e.to_string())?.enabled;
     g.world.set_enabled(r, true).map_err(|e| e.to_string())?;
-    g.emit(EventKind::RefEnabled { reference: r });
+    if !was {
+        g.emit(EventKind::RefEnabled { reference: r });
+    }
     none()
 }
 
 pub fn disable(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
+    let was = g.world.get(r).map_err(|e| e.to_string())?.enabled;
     g.world.set_enabled(r, false).map_err(|e| e.to_string())?;
-    g.emit(EventKind::RefDisabled { reference: r });
+    if was {
+        g.emit(EventKind::RefDisabled { reference: r });
+    }
     none()
 }
 

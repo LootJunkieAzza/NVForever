@@ -5,28 +5,43 @@ use super::{none, yes, Args, Ctx};
 use crate::game::{event, Game};
 use crate::trace::EventKind;
 use fnv_script::vm::Value;
+use fnv_sim::FormId;
 
-/// `Container.AddItem item count [silent]`: leveled lists resolve as in Layer 4; each
-/// item added gets OnAdd on its script [hypothesis for OnAdd from AddItem].
+/// The items an item parameter stands for: the form itself, or every member of a form
+/// list [documented: GECK wiki AddItem and RemoveItem notes, a form list applies the
+/// count to each item in it].
+fn items(g: &Game, item: FormId) -> Vec<FormId> {
+    if g.data.sig(item).as_ref() == Some(b"FLST") {
+        super::refs::list_members(g, item)
+    } else {
+        vec![item]
+    }
+}
+
+/// `Container.AddItem item count [silent]`: leveled lists resolve as in Layer 4; OnAdd
+/// runs on the item's script [documented: GECK wiki AddItem, once per item in the count;
+/// here once per call, hypothesis].
 pub fn add_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let to = ctx.subject()?;
-    let item = a.form(0)?;
     let count = a.int(1)?;
-    let added = g.world.add_item(to, item, count).map_err(|e| e.to_string())?;
-    for (i, n) in added {
-        g.emit(EventKind::ItemAdded { to, item: i, count: n });
-        g.item_event(to, i, event::ON_ADD, Some(Value::Ref(to.0)));
+    for item in items(g, a.form(0)?) {
+        let added = g.world.add_item(to, item, count).map_err(|e| e.to_string())?;
+        for (i, n) in added {
+            g.emit(EventKind::ItemAdded { to, item: i, count: n });
+            g.item_event(to, i, event::ON_ADD, Some(Value::Ref(to.0)));
+        }
     }
     none()
 }
 
 pub fn remove_item(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let from = ctx.subject()?;
-    let item = a.form(0)?;
     let count = a.int(1)?;
-    let n = g.world.remove_item(from, item, count).map_err(|e| e.to_string())?;
-    if n > 0 {
-        g.emit(EventKind::ItemRemoved { from, item, count: n });
+    for item in items(g, a.form(0)?) {
+        let n = g.world.remove_item(from, item, count).map_err(|e| e.to_string())?;
+        if n > 0 {
+            g.emit(EventKind::ItemRemoved { from, item, count: n });
+        }
     }
     none()
 }

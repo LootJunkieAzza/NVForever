@@ -25,6 +25,7 @@ fnv-phys = { path = "../fnv-phys" }
 fnv-collide = { path = "../fnv-collide" }
 fnv-sim = { path = "../fnv-sim" }
 fnv-script = { path = "../fnv-script" }
+fnv-game = { path = "../fnv-game" }
 fnv-actor = { path = "../fnv-actor" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
