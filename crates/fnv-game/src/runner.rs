@@ -385,7 +385,10 @@ fn apply_given(g: &mut Game, gv: &Given) -> Result<(), String> {
 }
 
 /// Run one action; returns its observation fields (for labelled actions).
-fn step(g: &mut Game, a: &Action) -> Result<Option<(String, Map<String, Json>)>, String> {
+/// A labelled observation: label and fields.
+type Observed = Option<(String, Map<String, Json>)>;
+
+fn step(g: &mut Game, a: &Action) -> Result<Observed, String> {
     let mut obs = Map::new();
     let mut lab: Option<String> = None;
     match a {
@@ -630,7 +633,7 @@ pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -
     if input.format != ACTIONS_FORMAT {
         return Err(format!("unsupported actions format {:?} (expected {ACTIONS_FORMAT})", input.format));
     }
-    if !(input.frame_seconds > 0.0) {
+    if input.frame_seconds.is_nan() || input.frame_seconds <= 0.0 {
         return Err("frame_seconds must be positive".into());
     }
     let world = World::new(

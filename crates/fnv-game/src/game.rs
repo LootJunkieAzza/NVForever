@@ -114,6 +114,8 @@ pub struct RefExtra {
     pub unconscious: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub marked_for_delete: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub teammate: bool,
     /// Faction rank changes: a rank, or −1 for "removed".
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub factions: BTreeMap<FormId, i8>,
@@ -133,7 +135,7 @@ pub struct PlayerState {
     pub perks: BTreeMap<FormId, u8>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
     pub notes: BTreeSet<FormId>,
-    /// Fame and infamy per reputation.
+    /// Infamy (index 0) and fame (index 1) per reputation, as GetReputation's axis.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub reputation: BTreeMap<FormId, [f64; 2]>,
     /// `SexChange`: true = female.
@@ -150,6 +152,12 @@ pub struct PlayerState {
     /// text, sneaking.
     #[serde(default)]
     pub controls_disabled: [bool; 7],
+    /// SetHardcore (otherwise the configuration's).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub hardcore: Option<bool>,
+    /// Map markers ShowMap made visible.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty", default)]
+    pub map_markers: BTreeSet<FormId>,
 }
 
 /// A message box waiting for a button (`ShowMessage` of a message with buttons).

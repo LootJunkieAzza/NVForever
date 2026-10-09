@@ -95,3 +95,12 @@ pub fn abs(_g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 pub fn zero(_g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     none()
 }
+
+/// 1 while a menu is open, or that menu with a menu code [documented: catalogue summary].
+pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    Ok(Value::bool(match (g.menu, a.num(0).ok().filter(|c| *c != 0.0)) {
+        (None, _) => false,
+        (Some(_), None) => true,
+        (Some(m), Some(c)) => m as f64 == c,
+    }))
+}

@@ -42,7 +42,7 @@ pub fn add_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
 }
 
 pub fn is_hardcore(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
-    yes(g.world.config().hardcore)
+    yes(g.player.hardcore.unwrap_or(g.world.config().hardcore))
 }
 
 pub fn is_player_tag_skill(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -104,4 +104,68 @@ pub fn get_level(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
         return Err("levels of actors other than the player are not modelled".into());
     }
     Ok(Value::Num(g.world.config().player_level as f64))
+}
+
+pub fn remove_note(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.player.notes.remove(&a.form(0)?);
+    none()
+}
+
+pub fn reset_xp(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    g.player.xp = 0.0;
+    none()
+}
+
+/// Axis 0 is infamy, 1 fame [documented: GECK wiki GetReputation].
+fn rep_axis(a: &Args) -> Result<usize, String> {
+    match a.int(1)? {
+        0 => Ok(0),
+        1 => Ok(1),
+        o => Err(format!("reputation axis {o} is not 0 (infamy) or 1 (fame)")),
+    }
+}
+
+pub fn get_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = a.form(0)?;
+    let i = rep_axis(a)?;
+    Ok(Value::Num(g.player.reputation.get(&r).map(|v| v[i]).unwrap_or(0.0)))
+}
+
+/// Sets the amount exactly [documented: GECK wiki SetReputation].
+pub fn set_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = a.form(0)?;
+    let i = rep_axis(a)?;
+    g.player.reputation.entry(r).or_default()[i] = a.num(2)?;
+    none()
+}
+
+/// Karma (actor value 23) changes by the amount, kept within the iKarmaMin/iKarmaMax game
+/// settings when a plugin defines them [documented: GECK wiki RewardKarma].
+pub fn reward_karma(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let p = FormId::PLAYER_REF;
+    let mut v = super::actor::actor_value(g, p, 23)? + a.num(0)?;
+    if let Some(max) = g.world.forms.setting_f32("iKarmaMax") {
+        v = v.min(max as f64);
+    }
+    if let Some(min) = g.world.forms.setting_f32("iKarmaMin") {
+        v = v.max(min as f64);
+    }
+    g.extra.entry(p).or_default().actor_values.insert(23, v);
+    none()
+}
+
+pub fn set_hardcore(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.player.hardcore = Some(a.num(0)? != 0.0);
+    none()
+}
+
+/// Map markers made visible (fast travel is Layer 6).
+pub fn show_map(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.player.map_markers.insert(a.form(0)?);
+    none()
+}
+
+pub fn get_map_marker_visible(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.player.map_markers.contains(&r))
 }
