@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/fnv-util", "crates/fnv-install", "crates/fnv-inflate", "crates/fnv-bsa", "crates/fnv-esm", "crates/fnv-nif", "crates/fnv-dds", "crates/fnv-spt", "crates/fnv-vfs", "crates/fnv-world", "crates/fnv-sim", "crates/fnv-actor", "crates/fnv-collide", "crates/fnv-phys", "crates/fnv-script", "crates/fnvtool"]
+members = ["crates/fnv-util", "crates/fnv-install", "crates/fnv-inflate", "crates/fnv-bsa", "crates/fnv-esm", "crates/fnv-nif", "crates/fnv-dds", "crates/fnv-spt", "crates/fnv-vfs", "crates/fnv-world", "crates/fnv-sim", "crates/fnv-actor", "crates/fnv-collide", "crates/fnv-phys", "crates/fnv-script", "crates/fnv-game", "crates/fnvtool"]
 exclude = ["viewer"]
 
 [workspace.package]
