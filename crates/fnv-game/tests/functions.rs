@@ -250,7 +250,8 @@ fn records_read_for_the_new_functions() {
     assert_eq!((m.archetype, m.script), (1, Some(FormId(EFFECT_SCRIPT))));
     assert_eq!(d.effect_items[&FormId(ALCH)][0].duration, 1);
     let dd = &d.destructibles[&FormId(ACTI)];
-    assert_eq!((dd.health, dd.stages.clone()), (100, vec![(50, 1, 0), (0, 2, 4)]));
+    let stages: Vec<(u8, u8, u8)> = dd.stages.iter().map(|s| (s.health_percent, s.index, s.flags)).collect();
+    assert_eq!((dd.health, stages), (100, vec![(50, 1, 0), (0, 2, 4)]));
     let rg = &d.regions[&FormId(REGN)];
     assert_eq!(rg.world, Some(FormId(WRLD)));
     assert!(rg.contains(100.0, 100.0) && !rg.contains(5000.0, 100.0) && !rg.contains(-1.0, 2000.0));
@@ -544,4 +545,24 @@ fn ownership_destruction_regions_challenges_and_calendar() {
     g.world.get(FormId(ADULT_REF)).unwrap().pos = [0.0, 0.0, 0.0];
     g.world.get(FormId(CHILD_REF)).unwrap().pos = [100.0, 0.0, 0.0];
     assert!((call(&mut g, 0x1063, Some(ADULT_REF), &[r(CHILD_REF)]) - 90.0).abs() < 1e-3);
+}
+
+/// Combat C7: object damage through `Game::damage_object` (DamageObject's rule).
+#[test]
+fn destruction_stages_from_combat_damage() {
+    let f = fixture();
+    let mut g = game(&f);
+    let acti = FormId(ACTI_REF);
+    assert!(g.is_destructible(acti));
+    // 60 of 100: 40 % left, at or below the 50 % stage.
+    let c = g.damage_object(acti, 60.0).unwrap();
+    assert_eq!((c.before, c.after, c.destroyed), (-1, 1, false));
+    // A small hit changes nothing.
+    let c = g.damage_object(acti, 5.0).unwrap();
+    assert_eq!((c.before, c.after), (1, 1));
+    // The rest reaches the 0 % stage, which destroys it.
+    let c = g.damage_object(acti, 100.0).unwrap();
+    assert_eq!((c.after, c.destroyed), (2, true));
+    assert!(g.damage_object(acti, 10.0).is_none());
+    assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 2.0);
 }

@@ -20,6 +20,7 @@ fnv-spt.workspace = true
 nvf-play.workspace = true
 fnv-actor.workspace = true
 fnv-sim.workspace = true
+fnv-combat.workspace = true
 fnv-nav.workspace = true
 clap.workspace = true
 serde_json = "1"

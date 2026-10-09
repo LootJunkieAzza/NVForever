@@ -121,6 +121,13 @@ previous measurement were the older 186-byte DATA form (visual data plus damage,
 FalloutNV.esm waters without DNAM); since 2026-10-09 the schema has size-decided unions
 and decodes both forms [documented: xEdit WATR; observed: 70 × 2 bytes, 8 × 186 bytes].
 
+Combat layouts (2026-10-09, `schemas/fnv/combat.json`, docs/spec-notes/combat-data.md):
+PROJ, EXPL, BPTD, AMEF, ENCH and SPEL decode with zero unknown, trailing or errors in all
+ten masters. FalloutNV.esm is now 94.89 %, DeadMoney 95.57, HonestHearts 93.88,
+OldWorldBlues 97.06, LonesomeRoad 96.13, GunRunnersArsenal 96.03, ClassicPack 94.90; the
+others are unchanged. DEBR DATA puts a NUL-ended string in the middle of a field and
+stays undecoded.
+
 **Record-specific layouts exist for 70 of the 107 record types present** (MSTT, GRAS,
 PWAT, ADDN, ANIO, IPCT, IPDS and TACT added 2026-10-09, `schemas/fnv/placed.json`, each
 fully decoded with zero trailing/errors in all 10 masters and spot-checked: their FormID

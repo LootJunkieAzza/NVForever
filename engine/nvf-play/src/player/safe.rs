@@ -158,7 +158,7 @@ pub fn aim(eye: [f32; 3], at: [f32; 3]) -> (f32, f32) {
 /// What may support or block the player: everything but the layers the character passes
 /// through and the player's own capsule.
 fn filter(phys: &PhysState) -> Filter {
-    let mut f = Filter { exclude_layers: layers::character_ignores(), ..Default::default() };
+    let mut f = Filter { exclude_layers: layers::character_ignores().union(layers::actor_volumes()), ..Default::default() };
     if let Some(c) = &phys.player {
         f.exclude.push(c.key());
     }

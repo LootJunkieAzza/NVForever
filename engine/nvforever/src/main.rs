@@ -8,11 +8,13 @@
 //! Esc opens the pause menu (Resume / Quit) and closes the open menu.
 
 mod actors;
+mod deaths;
 mod emittance;
 mod fade;
 mod facegen;
 mod fly;
 mod lights;
+mod limbs;
 mod lod;
 mod locomotion;
 mod weapons;
@@ -527,7 +529,7 @@ fn main() -> AppExit {
         app.insert_resource(a);
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
-            app.add_plugins(player_body::PlayerBodyPlugin);
+            app.add_plugins((player_body::PlayerBodyPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin));
         }
     }
     if let Some(n) = nav_state {
