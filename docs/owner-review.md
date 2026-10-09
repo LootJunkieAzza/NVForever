@@ -64,3 +64,30 @@ item once you've ruled on it.
    the captures cover the intro quest itself. Until then, captures use the existing
    `nvftest` and `nvfdoc` saves. Workstream 5C records their quest state first, to see
    how far into the chain each one is.
+7. **5A (script reader, PR #51) is merged with `L5.script.decode` failing at 0.997.**
+   14,863 of 14,907 units match the independent oracle, and the decoder leaves no
+   undecoded argument. The 44 that differ are each explained in
+   `docs/spec-notes/scripts.md` §3.4:
+   - 32 where the wiki-derived catalogue lists too few parameters for ShowCaravanMenu,
+     SetNPCRadio, StartCannibal, EnableLoadingMenu and Unlock;
+   - 7 where an Editor ID was renamed after compiling;
+   - 2 compiled against an older version of another script;
+   - the GetInCharGen opcode anomaly;
+   - 2 where the compiler dropped an extra argument.
+
+   Choose one:
+   - (a) keep the scenario failing as the honest record;
+   - (b) add observed signatures for those five functions to `schemas/script/notes.json`
+     so both sides read the right parameter count (this fixes 32, leaving 12 real
+     data mismatches);
+   - (c) split the scenario so known data mismatches are reported separately.
+
+   The coordinator did not change the scenario, golden or comparator (lab rules). My
+   recommendation is (b), then (a) for the remaining 12.
+8. **Is the 5A oracle independent enough?** It never reads compiled bytes. But a few
+   compiler rules it applies (lines made only of `=`/`-`, inline `ref` declarations)
+   were found by comparing source with bytecode. They are listed in scripts.md §3.4.
+9. **Where the parameter-encoding table lives.** `crates/fnv-script/data/encodings.json`
+   currently lives in the crate. The alternative is `schemas/script/` next to
+   `functions.json`, which fits the "schemas as data" rule better. Moving it is cheap;
+   say which you prefer.
