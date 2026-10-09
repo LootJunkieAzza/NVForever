@@ -28,15 +28,40 @@ pub struct SetClip {
 pub struct ClipSet {
     pub clips: BTreeMap<Move, SetClip>,
     /// Combat (step C5): death poses held once played (`idleanims\deathpose1.kf`,
-    /// `deathpose2.kf`), and the torso hit reaction (`idleanims\mt_hittorso.kf`), when
-    /// the skeleton's folder has them [observed: the `_male` folder does].
+    /// `deathpose2.kf`), and the hit reactions by where the hit landed (step C8, [`FLINCHES`]),
+    /// when the skeleton's folder has them [observed: the `_male` folder does].
     pub death: Vec<Arc<BoundClip>>,
-    pub flinch: Option<Arc<BoundClip>>,
+    pub flinch: [Option<Arc<BoundClip>>; 6],
+}
+
+impl ClipSet {
+    /// The hit reaction for a hit location (`GetHitLocation` numbering), the torso's when
+    /// the part has none.
+    pub fn flinch_for(&self, location: i32) -> Option<Arc<BoundClip>> {
+        let k = match location {
+            1 | 2 | 13 => 1,
+            3 | 4 => 2,
+            5 | 6 => 3,
+            7..=9 => 4,
+            10..=12 => 5,
+            _ => 0,
+        };
+        self.flinch[k].clone().or_else(|| self.flinch[0].clone())
+    }
 }
 
 /// Death poses and hit reaction looked for in a skeleton's folder (combat C5).
 const DEATH_POSES: [&str; 2] = ["idleanims\\deathpose1.kf", "idleanims\\deathpose2.kf"];
-const FLINCH: &str = "idleanims\\mt_hittorso.kf";
+/// Hit reactions: torso, head, left and right arm, left and right leg [observed: the
+/// `_male\idleanims` names; design: which location plays which].
+const FLINCHES: [&str; 6] = [
+    "idleanims\\mt_hittorso.kf",
+    "idleanims\\mt_hithead.kf",
+    "idleanims\\mt_hitarmleft.kf",
+    "idleanims\\mt_hitarmright.kf",
+    "idleanims\\mt_hitlegleft.kf",
+    "idleanims\\mt_hitlegright.kf",
+];
 
 /// A dead actor (combat C5): the death pose plays once and holds its last frame; without
 /// one, the pose freezes and the body is laid down [design].
@@ -92,8 +117,10 @@ impl ClipSet {
                 set.death.push(Arc::new(bind_clip(skel, clip)));
             }
         }
-        let path = format!("{folder}\\{FLINCH}");
-        set.flinch = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
+        for (k, f) in FLINCHES.iter().enumerate() {
+            let path = format!("{folder}\\{f}");
+            set.flinch[k] = ctx.models.data.vfs.exists(&path).then(|| ctx.clip(&path)).flatten().map(|c| Arc::new(bind_clip(skel, c)));
+        }
         let missing: Vec<&str> = Move::ALL.iter().filter(|m| !set.clips.contains_key(m)).map(|m| m.group()).collect();
         let line = format!("{folder} {body:?} {STANCE}: {} clips, missing {missing:?}: {}", set.clips.len(), report.join("; "));
         (set, line)

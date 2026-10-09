@@ -47,6 +47,10 @@ After sky or lighting changes, also run the day/night time-lapse (a full day in 
 add `--pos -69500,2500,13400 --pitch -89.5` for the aerial view):
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --play --hour 17 --time-scale 1.2 --run-seconds 26`
 (expect exit 0, "run finished" and 24+ hourly samples).
+After navmesh, pathing or travelling-NPC changes, run the headless NPC walks in
+docs/design/navmesh.md §5 (`fnvtool nav walk`, all must arrive) and the travel smoke test:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-travel DocMitchellREF=GSChetRef --npc-travel SunnyRef=EasyPeteRef --follow-npc --run-seconds 105`
+(expect exit 0 and "nav summary: 2 of 2 travellers arrived").
 
 ## Commits
 
