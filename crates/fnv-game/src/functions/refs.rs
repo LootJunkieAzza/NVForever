@@ -272,3 +272,34 @@ pub fn add_form_to_form_list(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value
     }
     none()
 }
+
+/// Opens (1) or closes (0) a door [documented: GECK wiki SetOpenState].
+pub fn set_open_state(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    g.world.get(r).map_err(|e| e.to_string())?.open = a.num(0)? != 0.0;
+    none()
+}
+
+/// 1 open, 3 closed for a door at rest, 0 for other objects [documented: GECK wiki
+/// GetOpenState codes; hypothesis: no opening/closing animation states without Layer 6].
+pub fn get_open_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let door = base_of(g, r).and_then(|b| g.data.sig(b)).as_ref() == Some(b"DOOR");
+    let open = g.world.get(r).map_err(|e| e.to_string())?.open;
+    Ok(Value::Num(if !door {
+        0.0
+    } else if open {
+        1.0
+    } else {
+        3.0
+    }))
+}
+
+/// A trigger-enter event on the calling trigger, by the given reference [documented:
+/// catalogue summary].
+pub fn enter_trigger(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let t = ctx.subject()?;
+    let by = a.form(0)?;
+    g.ref_event(t, crate::game::event::ON_TRIGGER_ENTER, Some(Value::Ref(by.0)), Some(by));
+    none()
+}
