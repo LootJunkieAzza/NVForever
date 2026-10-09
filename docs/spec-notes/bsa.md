@@ -105,12 +105,53 @@ describes the algorithm; verified on every file and folder name in the corpus, o
   `LonesomeRoad - Main`, `OldWorldBlues - Main`) could not be transferred. Their listings
   were validated on the owner's machine on 2026-10-06 (all match `oracle_bsa.py`); see
   Anomalies for the two that did not rebuild with the canonical rule.
-- How the game resolves the same path present in several archives. `Fallout_default.ini`
-  `[Archive]` has `SArchiveList=Fallout - Textures.bsa, Fallout - Textures2.bsa, Fallout -
-  Meshes.bsa, Fallout - Voices1.bsa, Fallout - Sound.bsa, Fallout - Misc.bsa`,
-  `bInvalidateOlderFiles=1`, `SInvalidationFile=ArchiveInvalidation.txt` [observed]. The
-  user's live `Fallout.ini` (in Documents\My Games) may differ (e.g. add `Update.bsa`).
-  Plugin-named archives (`DeadMoney - Main.bsa` for `DeadMoney.esm`) are believed to load
-  automatically with their plugin [hypothesis]. Precedence between loose files, list
-  order and plugin archives needs a runtime test.
+- Loose-file precedence (see Precedence below) and the order of `Update.bsa` against the
+  DLC archives.
 - Meaning of archive flag 0x80 and of file-flag padding bytes.
+
+## Precedence (the same path in several archives)
+
+Settings [observed]: `Fallout_default.ini`, the owner's `Fallout.ini` and
+`FalloutPrefs.ini` all have `SArchiveList=Fallout - Textures.bsa, Fallout - Textures2.bsa,
+Fallout - Meshes.bsa, Fallout - Voices1.bsa, Fallout - Sound.bsa, Fallout - Misc.bsa`,
+`bInvalidateOlderFiles=1`, `SInvalidationFile=ArchiveInvalidation.txt`. `Update.bsa` is
+not in the list, and no plugin is named `Update`; the game uses it all the same (below).
+
+Survey [observed 2026-10-09, `fnvtool bsa list` of all 22 archives with content hashes]:
+420 paths are present in more than one archive, 300 of them with different contents.
+`Update.bsa` replaces 35 files of `Fallout - Meshes.bsa` and 2 of `Fallout - Textures2.bsa`;
+the DLC `<Plugin> - Main.bsa` archives replace base meshes too (e.g. `OldWorldBlues -
+Main.bsa` has its own `architecture\nellishangar\nvnellishangar.nif`, using
+`nellis afb\nellishanger_d.dds` instead of the base copy's Citadel wall textures and
+window band). Many differences are collision-only (Havok blocks) and invisible.
+
+Test [observed 2026-10-09, plugin v7 screenshots from save `nvftest`, 1280 × 720, noon,
+NVWastelandClear; `nvforever` rendered each recorded camera twice with the archive
+order replaced through `NVF_ARCHIVE_ORDER`; compared over the pixels where the two
+renders differ (mean absolute sRGB difference to the game, lower is closer; SSIM of that
+region, higher is closer)]:
+
+| Camera (object) | Hypothesis A (game order below) | Hypothesis B | A | B |
+|---|---|---|---|---|
+| Nellis hangar, `nvnellishangar.nif` | `OldWorldBlues - Main` over `Fallout - Meshes` | base over DLC | 15.7 / 0.716 | 24.4 / 0.680 |
+| Camp Forlorn Hope tower, `ncr\ncr_guardtower01.nif` | `Update` over `Fallout - Meshes` | base over `Update` | 29.7 / 0.577 | 60.6 / 0.561 |
+| Westside, `freeside\atomicwranglerext.nif` | `Update` over `Fallout - Meshes` | base over `Update` | 6.8 / 0.777 | 21.1 / 0.741 |
+
+All three favour A. Rule used by `crates/fnv-vfs` (lowest precedence first):
+1. the `SArchiveList` archives in list order [the order among them never matters for
+   the shipped data: the six share no path, observed];
+2. `Update.bsa` — **overrides the base archives** [observed, two objects above];
+3. each active plugin's own archives (`<plugin stem> - *.bsa`, `<plugin stem>.bsa`) in
+   load order — a **DLC archive overrides the base archives** [observed, Nellis hangar];
+4. loose files [hypothesis: no loose mesh or texture exists in the owner's `Data`
+   (only music, radio songs, shader packages and the intro video), and the project never
+   writes into the game folder, so this stays untested; `bInvalidateOlderFiles=1` is
+   commonly said to make loose files win [hypothesis]].
+
+File timestamps do not decide it: `Update.bsa` and the DLC archives are dated July 2025,
+older than the base archives' modification times (6 October 2026) [observed],
+and still override them. Still [hypothesis]: `Update.bsa` before the DLC archives (they
+share only `characters\_1stperson\1hpaim.kf` with different contents, not testable by a
+screenshot) and DLC against DLC in load order (only DLC-worldspace files differ).
+`Fallout - Invalidation.bsa` is in no list and named after no plugin; the VFS ignores it
+[hypothesis that the game does too].
