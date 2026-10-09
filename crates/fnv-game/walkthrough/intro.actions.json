@@ -104,6 +104,7 @@
     {"op": "kill", "actor": "scripted:0x0010A1F4#3", "killer": "player"},
     {"op": "advance_seconds", "seconds": 1},
     {"op": "get_quest", "quest": "VCG02", "fields": ["stage", "objective.50.completed", "objective.60.displayed"], "label": "VCG02 after the wells"},
+    {"op": "say_info", "info": "0x0010A1EE", "speaker": "0x00104E85"},
     {"op": "say_first", "speaker": "0x00104E85", "infos": ["0x0010B3D9", "0x0010B3DA", "0x0010B3DB"], "label": "Sunny back at the saloon"},
     {"op": "note", "text": "VCG03, the healing powder lesson: Sunny's line starts it at stage 10."},
     {"op": "say_info", "info": "0x0015D97E", "speaker": "0x00104E85"},
