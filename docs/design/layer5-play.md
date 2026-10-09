@@ -93,9 +93,9 @@ open and close the runtime's menu), plus `--new-game` in `engine/nvforever/src/m
   `Game::open_menu` and close them with `Game::close_menu` (`menu.rs` →
   `script::engine_menu_opened` / `engine_menu_closed`). A box a MenuMode script shows
   meanwhile waits and opens when the menu closes (the runtime's rule).
-- **Answers** (`ScriptState::answer`): a number key picks a button of the front box;
-  1, Enter or Space close a box without buttons; Enter closes a character-creation menu
-  (its Done). The button goes into `Game::message_box` *before* the frame's tick and
+- **Answers** (`ScriptState::answer`): a number key or a click picks a button of the
+  front box (the buttons are clickable, #97); 1, Enter, Space or a click on OK close a box
+  without buttons; Enter or a click on Done closes a character-creation menu. The button goes into `Game::message_box` *before* the frame's tick and
   `Game::close_menu` runs *after* it, so a `Begin MenuMode 1001` block still reads
   `GetButtonPressed` once (the Goodsprings chemistry set's does; `Game::press_button`
   closes the box at once, before MenuMode could run) [hypothesis: the original runs the
@@ -107,6 +107,11 @@ open and close the runtime's menu), plus `--new-game` in `engine/nvforever/src/m
   the game is in `PlayState::Menu`: no moving, looking or activating, the cursor is
   free, the game clock stops (`sim.rs`) [observed: the pack boxes held the world clock,
   layer5-captures.md §10.1]. Round 1 left the player free under a box.
+- **The pause menu** (Esc, `crate::pause`, #97) is a `PlayState::Menu` of its own:
+  `hold_player` leaves it alone, and scripts do not tick while it is open (no MenuMode
+  code of the original's pause menu is known, so script time simply stops) [decision].
+  It cannot open while a script's menu holds the player (Esc opens it only while
+  playing).
 
 Activation by hand (`activate.rs`, `PlaySet::Activation`, before this) calls
 `script::activate_by_hand`: a target whose script has an OnActivate block runs it
@@ -348,9 +353,11 @@ runtime's fitted line length (80: 18.1 s against about 13 s), as in the walk-thr
 stage follows which, by what, and which menu each opens match the walk-through and the
 capture.
 
-### 6.3 Round 2 checks (2026-10-09, after merging main)
+### 6.3 Round 2 checks (2026-10-09, after merging main up to #102)
 
-All windowed runs exit 0 with "run finished":
+All windowed runs exit 0 with "run finished" (repeated after each merge of main; the
+last after #97–#102: the new game again to VCG01 200 with the same stages, 56 frames per
+second):
 - **Freeside → Strip gate** (round 1's command, 24 s): unattended, so the pack and
   add-on boxes (12) were answered after 0.25 s each; E at 9 s says "Gate is locked", the
   passport aid unlocks it, E at 15 s travels to TheStripWorldNew (feet on the floor at
@@ -367,10 +374,10 @@ All windowed runs exit 0 with "run finished":
 - **Goodsprings**, 40 s without aids: the first pack box stays open (attended runs do not
   answer boxes), the player is held and script time stops, as in the capture's save;
   45 s with `--auto-walk 300`: every box answered after 0.25 s, the walk goes on.
-- The moving-camera smoke test (215 cells) and the time-lapse (30 hourly lines).
+- The moving-camera smoke test (213–215 cells) and the time-lapse (29–30 hourly lines).
 - Workspace and engine tests and clippy, both Python suites. Parity lab with this
-  branch's `fnvtool`: 365/384 (11 fail, 8 error), L5 28/32, as on main (the four known
-  fails); the headless walk-through gives the same observations and events with and
+  branch's `fnvtool`: 368/387 after #102 (365/384 before; the same 11 fail and 8
+  error, the three new scenarios pass), L5 28/32, as on main (the four known fails); the headless walk-through gives the same observations and events with and
   without the SayToDone change (D1).
 
 ## 7. Open
