@@ -117,8 +117,13 @@ pub struct QuestState {
     pub stages_done: BTreeSet<i32>,
     /// `SetObjectiveDisplayed`/`Completed` flags by objective index.
     pub objectives: BTreeMap<i32, ObjectiveState>,
-    /// Seconds since the quest script last ran.
+    /// Game-mode seconds since the quest script last ran (GameMode's delay counter;
+    /// stopped in menus and loading screens).
     pub since_run: f64,
+    /// Menu seconds since the quest script last ran in a menu (MenuMode's delay counter)
+    /// [hypothesis: each mode keeps its own counter].
+    #[serde(default)]
+    pub since_menu_run: f64,
     /// `SetQuestDelay` override.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub delay: Option<f64>,

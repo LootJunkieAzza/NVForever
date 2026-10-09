@@ -80,6 +80,19 @@ pub struct ActorDef {
     pub essential: bool,
     pub race: Option<FormId>,
     pub class: Option<FormId>,
+    /// PKID: the AI package list, in record order.
+    pub packages: Vec<FormId>,
+    /// TPLT: the template actor, and whether the template supplies the AI packages
+    /// (ACBS template flag "AI Packages") [documented: xEdit; schema `gameplay.json`].
+    pub template: Option<FormId>,
+    pub template_packages: bool,
+}
+
+/// An AI package's conditions (`PACK` CTDA before the begin/end/change sections)
+/// [documented: xEdit PACK layout].
+#[derive(Debug, Clone, Default)]
+pub struct PackageDef {
+    pub conditions: Vec<Condition>,
 }
 
 pub struct GameData {
@@ -93,6 +106,8 @@ pub struct GameData {
     pub infos: HashMap<FormId, InfoDef>,
     /// PACK begin / end / change result scripts.
     pub packages: HashMap<FormId, [Option<UnitId>; 3]>,
+    /// Every PACK with its conditions.
+    pub package_defs: HashMap<FormId, PackageDef>,
     pub messages: HashMap<FormId, MessageDef>,
     pub form_lists: HashMap<FormId, Vec<FormId>>,
     pub actors: HashMap<FormId, ActorDef>,
@@ -134,6 +149,7 @@ struct Read {
     message: Option<MessageDef>,
     form_list: Option<Vec<FormId>>,
     actor: Option<ActorDef>,
+    package: Option<PackageDef>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -167,6 +183,7 @@ impl GameData {
             quests: BTreeMap::new(),
             infos: HashMap::new(),
             packages: HashMap::new(),
+            package_defs: HashMap::new(),
             messages: HashMap::new(),
             form_lists: HashMap::new(),
             actors: HashMap::new(),
@@ -261,6 +278,9 @@ impl GameData {
             if let Some(a) = r.actor {
                 d.actors.insert(id, a);
             }
+            if let Some(p) = r.package {
+                d.package_defs.insert(id, p);
+            }
         }
         for (id, p) in &refs.refs {
             if let (Some(cell), Some(_)) = (p.cell, d.script_of_base(p.base)) {
@@ -317,7 +337,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     let map = |l: u32| lo.to_global(pi, l);
     let mut ctx = DecodeCtx { schema, on_formid: None };
     let mut val = |s: &fnv_esm::Subrecord| decode_sub(&sig, s, &mut ctx).value;
-    let wanted = matches!(&sig, b"QUST" | b"INFO" | b"MESG" | b"FLST" | b"NPC_" | b"CREA");
+    let wanted = matches!(&sig, b"QUST" | b"INFO" | b"MESG" | b"FLST" | b"NPC_" | b"CREA" | b"PACK");
     for s in &subs {
         match &s.sig {
             b"EDID" if out.edid.is_none() => out.edid = val(s).and_then(|v| v.as_str().map(str::to_string)),
@@ -485,17 +505,33 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         }
                     }
                     b"VTCK" => a.voice = fid(v),
+                    b"PKID" => a.packages.extend(fid(v)),
+                    b"TPLT" => a.template = fid(v),
                     b"RNAM" if &sig == b"NPC_" => a.race = fid(v),
                     b"CNAM" if &sig == b"NPC_" => a.class = fid(v),
                     b"ACBS" => {
                         let f = v.as_ref().and_then(|v| v.get("flags"));
                         a.female = has_flag(f, "Female");
                         a.essential = has_flag(f, "Essential");
+                        a.template_packages = has_flag(v.as_ref().and_then(|v| v.get("template_flags")), "AI Packages");
                     }
                     _ => {}
                 }
             }
             out.actor = Some(a);
+        }
+        b"PACK" => {
+            let mut p = PackageDef::default();
+            for (s, v) in &decoded {
+                match *s {
+                    // The begin / end / change sections hold result scripts, not
+                    // package conditions.
+                    b"POBA" | b"POEA" | b"POCA" => break,
+                    b"CTDA" => p.conditions.extend(cond(v, &mut out.issues)),
+                    _ => {}
+                }
+            }
+            out.package = Some(p);
         }
         _ => {}
     }
