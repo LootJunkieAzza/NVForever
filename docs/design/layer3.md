@@ -289,3 +289,6 @@ owner once the first comparisons exist; they are then frozen like any other tole
 `docs/spec-notes/world.md` (new): world structure, persistent cells, cell size, water
 height sentinels, references and their flags, LAND layout with evidence, the rotation
 convention with evidence, open questions.
+`docs/spec-notes/level-design.md`: Bethesda's GECK tutorials on rooms, portals,
+occlusion planes, object fade, static collections and lights, with what the renderer does
+differently (its §11.2 rows C1-C5, L1-L4).
