@@ -15,7 +15,10 @@
 //! Type expressions: a primitive name (`u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 formid
 //! zstring zstring_array string bytes`), a named type from `types`, or an object:
 //! `{"struct": [fields]}`, `{"array": T, "count": N}` (no count = fill the rest),
-//! `{"enum": prim, "values": {"0": "Name"}}`, `{"flags": prim, "bits": {"0": "Name"}}`.
+//! `{"enum": prim, "values": {"0": "Name"}}`, `{"flags": prim, "bits": {"0": "Name"}}`,
+//! `{"union": [{"size": N, "type": T}, ..., {"type": T}]}` (the first variant whose
+//! `size` equals the bytes left, else the first variant without `size`; the value is
+//! the chosen variant's value).
 //! Struct fields may be `"optional": true` (allowed to be absent at the end).
 //!
 //! A record entry may also name bits of its 24-byte record header's flags field
@@ -112,6 +115,10 @@ pub enum TypeDef {
     Array { elem: Box<TypeDef>, count: Option<usize> },
     Enum { base: Prim, values: Vec<(i64, String)> },
     Flags { base: Prim, bits: Vec<(u32, String)> },
+    /// Layout chosen by the number of bytes left: `(Some(n), T)` applies when exactly `n`
+    /// bytes remain, `(None, T)` is the fallback. Expresses xEdit's size-decided unions
+    /// (e.g. WATR DATA: 2-byte damage, or the older 186-byte visual data).
+    Union(Vec<(Option<usize>, TypeDef)>),
 }
 
 #[derive(Debug, Clone)]
@@ -230,6 +237,24 @@ fn parse_type(v: &Value, ctx: &str) -> Result<TypeDef, SchemaError> {
                     }
                 }
                 Ok(TypeDef::Flags { base, bits })
+            } else if let Some(vs) = v.get("union") {
+                let arr = vs.as_array().ok_or_else(|| SchemaError(format!("{ctx}: union must be an array")))?;
+                let mut out = Vec::new();
+                for (i, var) in arr.iter().enumerate() {
+                    let size = match var.get("size") {
+                        None => None,
+                        Some(n) => Some(n.as_u64().ok_or_else(|| SchemaError(format!("{ctx}: union #{i} bad size")))? as usize),
+                    };
+                    let ty = parse_type(
+                        var.get("type").ok_or_else(|| SchemaError(format!("{ctx}: union #{i} missing type")))?,
+                        &format!("{ctx}[{i}]"),
+                    )?;
+                    out.push((size, ty));
+                }
+                if out.is_empty() {
+                    return Err(SchemaError(format!("{ctx}: union needs at least one variant")));
+                }
+                Ok(TypeDef::Union(out))
             } else {
                 Err(SchemaError(format!("{ctx}: unrecognised type object")))
             }
@@ -351,6 +376,7 @@ impl Schema {
                 },
                 TypeDef::Struct(fs) => fs.iter().try_for_each(|f| check(s, &f.ty, depth + 1, ctx)),
                 TypeDef::Array { elem, .. } => check(s, elem, depth + 1, ctx),
+                TypeDef::Union(vs) => vs.iter().try_for_each(|(_, t)| check(s, t, depth + 1, ctx)),
             }
         }
         for (n, t) in &self.types {
@@ -402,7 +428,7 @@ impl Schema {
             }
             TypeDef::Array { elem, count: Some(c) } => Some(self.fixed_size(elem)? * c),
             TypeDef::Array { count: None, .. } => None,
-            TypeDef::Named(_) => None,
+            TypeDef::Named(_) | TypeDef::Union(_) => None,
         }
     }
 }

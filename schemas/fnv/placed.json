@@ -1,0 +1,377 @@
+{
+ "format": "fnv.schema/1",
+ "types": {
+  "GrassData": {
+   "struct": [
+    {
+     "name": "density",
+     "type": "u8"
+    },
+    {
+     "name": "min_slope",
+     "type": "u8"
+    },
+    {
+     "name": "max_slope",
+     "type": "u8"
+    },
+    {
+     "name": "unused_0",
+     "type": {
+      "array": "u8",
+      "count": 1
+     }
+    },
+    {
+     "name": "unit_from_water_amount",
+     "type": "u16"
+    },
+    {
+     "name": "unused_1",
+     "type": {
+      "array": "u8",
+      "count": 2
+     }
+    },
+    {
+     "name": "unit_from_water_type",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "Above - At Least",
+       "1": "Above - At Most",
+       "2": "Below - At Least",
+       "3": "Below - At Most",
+       "4": "Either - At Least",
+       "5": "Either - At Most",
+       "6": "Either - At Most Above",
+       "7": "Either - At Most Below"
+      }
+     }
+    },
+    {
+     "name": "position_range",
+     "type": "f32"
+    },
+    {
+     "name": "height_range",
+     "type": "f32"
+    },
+    {
+     "name": "color_range",
+     "type": "f32"
+    },
+    {
+     "name": "wave_period",
+     "type": "f32"
+    },
+    {
+     "name": "flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Vertex Lighting",
+       "1": "Uniform Scaling",
+       "2": "Fit to Slope"
+      }
+     }
+    },
+    {
+     "name": "unused_2",
+     "type": {
+      "array": "u8",
+      "count": 3
+     }
+    }
+   ]
+  },
+  "ImpactData": {
+   "struct": [
+    {
+     "name": "effect_duration",
+     "type": "f32"
+    },
+    {
+     "name": "effect_orientation",
+     "type": {
+      "enum": "u32",
+      "values": {
+       "0": "Surface Normal",
+       "1": "Projectile Vector",
+       "2": "Projectile Reflection"
+      }
+     }
+    },
+    {
+     "name": "angle_threshold",
+     "type": "f32"
+    },
+    {
+     "name": "placement_radius",
+     "type": "f32"
+    },
+    {
+     "name": "sound_level",
+     "type": "SoundLevel"
+    },
+    {
+     "name": "flags",
+     "type": {
+      "flags": "u32",
+      "bits": {
+       "0": "No Decal Data"
+      }
+     }
+    }
+   ]
+  },
+  "ImpactDataSet": {
+   "struct": [
+    {
+     "name": "stone",
+     "type": "formid"
+    },
+    {
+     "name": "dirt",
+     "type": "formid"
+    },
+    {
+     "name": "grass",
+     "type": "formid"
+    },
+    {
+     "name": "glass",
+     "type": "formid"
+    },
+    {
+     "name": "metal",
+     "type": "formid"
+    },
+    {
+     "name": "wood",
+     "type": "formid"
+    },
+    {
+     "name": "organic",
+     "type": "formid"
+    },
+    {
+     "name": "cloth",
+     "type": "formid"
+    },
+    {
+     "name": "water",
+     "type": "formid"
+    },
+    {
+     "name": "hollow_metal",
+     "type": "formid",
+     "optional": true
+    },
+    {
+     "name": "organic_bug",
+     "type": "formid",
+     "optional": true
+    },
+    {
+     "name": "organic_glow",
+     "type": "formid",
+     "optional": true
+    }
+   ]
+  }
+ },
+ "records": {
+  "MSTT": {
+   "name": "Moveable Static",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "On Local Map",
+     "type": "BoolU8",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MSTT record"
+    },
+    "SNAM": {
+     "name": "Sound",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas MSTT record"
+    }
+   }
+  },
+  "GRAS": {
+   "name": "Grass",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": "GrassData",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas GRAS record"
+    }
+   }
+  },
+  "PWAT": {
+   "name": "Placeable Water",
+   "confidence": "documented",
+   "subrecords": {
+    "DNAM": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Reflects",
+          "1": "Reflects - Actors",
+          "2": "Reflects - Land",
+          "3": "Reflects - LOD Land",
+          "4": "Reflects - LOD Buildings",
+          "5": "Reflects - Trees",
+          "6": "Reflects - Sky",
+          "7": "Reflects - Dynamic Objects",
+          "8": "Reflects - Dead Bodies",
+          "9": "Refracts",
+          "10": "Refracts - Actors",
+          "11": "Refracts - Land",
+          "16": "Refracts - Dynamic Objects",
+          "17": "Refracts - Dead Bodies",
+          "18": "Silhouette Reflections",
+          "28": "Depth",
+          "29": "Object Texture Coordinates",
+          "31": "No Underwater Fog"
+         }
+        }
+       },
+       {
+        "name": "water",
+        "type": "formid"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PWAT record"
+    }
+   }
+  },
+  "ADDN": {
+   "name": "Addon Node",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Node Index",
+     "type": "i32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ADDN record"
+    },
+    "SNAM": {
+     "name": "Sound",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ADDN record"
+    },
+    "DNAM": {
+     "name": "Data",
+     "type": {
+      "struct": [
+       {
+        "name": "master_particle_system_cap",
+        "type": "u16"
+       },
+       {
+        "name": "unknown",
+        "type": {
+         "array": "u8",
+         "count": 2
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ADDN record"
+    }
+   }
+  },
+  "ANIO": {
+   "name": "Animated Object",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Animation",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas ANIO record"
+    }
+   }
+  },
+  "IPCT": {
+   "name": "Impact",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Data",
+     "type": "ImpactData",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IPCT record"
+    },
+    "DNAM": {
+     "name": "Texture Set",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IPCT record"
+    },
+    "SNAM": {
+     "name": "Sound 1",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IPCT record"
+    },
+    "NAM1": {
+     "name": "Sound 2",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IPCT record"
+    }
+   }
+  },
+  "IPDS": {
+   "name": "Impact DataSet",
+   "confidence": "documented",
+   "subrecords": {
+    "DATA": {
+     "name": "Impacts",
+     "type": "ImpactDataSet",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas IPDS record; optional from the 10th entry (SetOptionalFrom(9)); sizes 48/40/36 observed"
+    }
+   }
+  },
+  "TACT": {
+   "name": "Talking Activator",
+   "confidence": "documented",
+   "subrecords": {
+    "SNAM": {
+     "name": "Looping Sound",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TACT record"
+    },
+    "VNAM": {
+     "name": "Voice Type",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TACT record"
+    },
+    "INAM": {
+     "name": "Radio Template",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas TACT record"
+    }
+   }
+  }
+ }
+}
