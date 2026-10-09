@@ -187,6 +187,14 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   normalised) [observed]. Time maps linearly from [start, stop] to the parameter range.
 - Text keys (NiTextKeyExtraData): (time, string) pairs such as `start`, `end`, sound and
   hit events [documented; event meaning is engine behaviour, Layer 6].
+- Unbound tracks in an old file: `characters\_male\eatidle.kf` (one of the 20.0.0.4 KF
+  files) has 50 controlled blocks; played on `characters\_male\upperbody.nif` bound to
+  `characters\_male\skeleton.nif`, 27 find their node and 23 name nodes the FNV human
+  skeleton does not have: tail bones, `Torch`, `Quiver`, `BackWeapon`, `SideWeapon`, and
+  thumb and twist bones [observed 2026-10-07, viewer]. That this is a rig from an older
+  game left in the file is a [hypothesis]; whether the original game ignores such tracks
+  silently (as the viewer does) is not checked. Recorded as-is at the Layer 2 close-out
+  (2026-10-09); no further evidence was collected.
 
 ## 6. Conventions verified on the data
 
