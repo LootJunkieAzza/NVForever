@@ -5,10 +5,11 @@
 
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
-use fnv_game::game::{ActMode, Game, GameConfig, InstKey};
+use fnv_game::functions::Ctx;
+use fnv_game::game::{ActMode, FurnitureUse, Game, GameConfig, InstKey};
 use fnv_game::trace::EventKind;
 use fnv_game::GameData;
-use fnv_script::vm::Value;
+use fnv_script::vm::{ArgValue, Value};
 use fnv_script::FunctionTable;
 use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
 use serde_json::{json, Value as Json};
@@ -831,4 +832,49 @@ fn limb_hits_lower_conditions_and_cripple() {
     assert_eq!((r.limb, r.crippled), (Some((29, 0.0)), false));
     // Health took only the hits' damage.
     assert_eq!(r.health, 65.0);
+}
+
+#[test]
+fn furniture_functions_answer_from_the_use_set_on_the_actor() {
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let npc = FormId(NPC_REF);
+    // The activator reference stands in for a chair: the functions only compare forms.
+    let (chair, chair_base) = (FormId(ACT_REF), FormId(ACTIVATOR));
+    let ask = |g: &mut Game, opcode: u16, on: FormId, arg: Option<FormId>| {
+        let ctx = Ctx { unit: "test".into(), opcode, on: Some(on), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: true };
+        let args: Vec<ArgValue> = arg.map(|a| ArgValue::Value(Value::Ref(a.0))).into_iter().collect();
+        g.call_function(&ctx, &args).num()
+    };
+    const SITTING: u16 = 0x109F;
+    const SLEEPING: u16 = 0x1031;
+    const MARKER: u16 = 0x10A0;
+    const IS_REF: u16 = 0x10A2;
+    const IS_OBJ: u16 = 0x10A3;
+    // Not on furniture.
+    for op in [SITTING, SLEEPING, MARKER] {
+        assert_eq!(ask(&mut g, op, npc, None), 0.0);
+    }
+    assert_eq!(ask(&mut g, IS_REF, npc, Some(chair)), 0.0);
+    // Getting onto a chair by its left marker, then seated.
+    g.set_furniture_use(npc, Some(FurnitureUse { reference: chair, marker_id: 11, state: 2 }));
+    assert_eq!((ask(&mut g, SITTING, npc, None), ask(&mut g, SLEEPING, npc, None), ask(&mut g, MARKER, npc, None)), (2.0, 0.0, 11.0));
+    g.set_furniture_use(npc, Some(FurnitureUse { reference: chair, marker_id: 11, state: 3 }));
+    assert_eq!(ask(&mut g, SITTING, npc, None), 3.0);
+    assert_eq!(ask(&mut g, IS_REF, npc, Some(chair)), 1.0);
+    assert_eq!(ask(&mut g, IS_REF, npc, Some(npc)), 0.0);
+    assert_eq!(ask(&mut g, IS_OBJ, npc, Some(chair_base)), 1.0);
+    assert_eq!(ask(&mut g, IS_OBJ, npc, Some(FormId(NPC))), 0.0);
+    // Someone else is not seated.
+    assert_eq!(ask(&mut g, SITTING, FormId::PLAYER_REF, None), 0.0);
+    // A bed marker answers GetSleeping instead.
+    g.set_furniture_use(npc, Some(FurnitureUse { reference: chair, marker_id: 1, state: 3 }));
+    assert_eq!((ask(&mut g, SITTING, npc, None), ask(&mut g, SLEEPING, npc, None)), (0.0, 3.0));
+    // The use survives a snapshot and ends when cleared.
+    let snap = serde_json::to_value(g.snapshot()).unwrap();
+    assert_eq!(snap["extra"][&npc.to_string()]["furniture"]["marker_id"], json!(1));
+    g.set_furniture_use(npc, None);
+    assert_eq!(ask(&mut g, SLEEPING, npc, None), 0.0);
+    assert_eq!(g.furniture_use(npc), None);
 }
