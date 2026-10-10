@@ -1803,10 +1803,93 @@ and you thought something in the weapon model controls it. Both were right. Bran
    before. The fix
    would be to aim from the camera's own line in third person; that changes where
    shots land, so I left it.
-8. **Not done:** the game's real muzzle flash effect and light (ours draws a small
-   marker), shell casings (the models have a marker for those too), models for missiles
-   and grenades in flight, and NPCs' shots (they do not shoot yet). Weapons without the
-   marker still draw from the eye.
+8. **Not done:** shell casings (the models have a marker for those too) and NPCs'
+   shots (they do not shoot yet). Weapons without the marker still draw from the eye.
+
+### Added the same day: bullets you can see, and muzzle flashes
+
+Your request, passed on by the weapon parts session: "actual bullet projectiles that
+arent invisible along with the muzzle flash effects". Same branch. Facts:
+`docs/spec-notes/combat-rules.md` §15. Pictures in the same folder
+(`minigun-flash-side.png`, `minigun-tracer-in-flight.png`, `laser-rifle-beam.png`).
+
+1. **Muzzle flash:** each projectile record names a flash model, how long it shows and
+   a light. Ours now shows that model at the end of the barrel, pointing along it,
+   with the light, for the record's time (0.04 seconds for bullets).
+2. **Your note that the minigun's flash stayed too long:** two causes, both mine. The
+   picture was taken with a test switch that held every flash for 3 seconds, and in
+   normal play I had padded the time to at least 0.05 seconds, so at the minigun's
+   rate one flash ran into the next. Both are gone: the flash lasts the record's time
+   and is off the moment you stop firing.
+3. **Projectiles:** every shot now draws the game's own projectile model in flight,
+   starting at the barrel: tracer rounds, laser beams, missiles, plasma bolts,
+   grenades. Checked in a run: the minigun and the laser rifle. The others use the
+   same code but I did not look at them.
+4. **Decision taken, every shot is drawn:** the game draws only a share of bullets
+   (the minigun's record says 30%, the 10mm's 0%). You asked for bullets that are not
+   invisible, so ours draws all of them. Say if you want the game's shares back.
+5. **Decision taken, how fast a drawn bullet flies:** the game works out a bullet's
+   hit at once; how it then draws the bullet I do not know. Ours flies the model from
+   the barrel to the hit at the record's speed. For a pistol that is very fast (about
+   390 metres a second) and the model is a bullet the size of a real one, so you will
+   see it for a frame or two at most. To keep the shot visible I also draw a thin line
+   along it for a moment. The minigun's rounds are slower and carry their own glowing
+   streak, which shows well.
+6. **Your note that the laser beam looked too low:** it was. The beam was drawn from
+   where the barrel was at the instant of the shot, and the firing animation lifts the
+   gun about 15 cm on the very next frame, so the beam hung under the barrel. A beam
+   now stays attached to the barrel for as long as it shows.
+7. **For you to decide:** if pistol and rifle bullets should be easier to see, the
+   choices are to slow the drawn bullet down (it would arrive after the hit lands) or
+   to give every bullet a streak like the minigun's. Both are our invention, so I
+   left them.
+8. **Not done:** smoke, sparks and the missile's trail (a separate kind of effect in
+   the files), impact effects, sounds. The flamer shows its flash but no flame, because
+   its flame is made only of that kind of effect.
+
+### Added 2026-10-11: sounds, smoke and sparks, impact effects, shell casings
+
+Your request: build the "not built" list (smoke, sparks and the missile's trail; the
+flamer's flame; impact effects, sounds, shell casings and NPCs' shots). Branch
+`claude/shot-effects`. Facts: `docs/spec-notes/particles.md` and
+`docs/spec-notes/combat-rules.md` §16. Pictures: `C:\fnv-private\references\muzzle\`
+(`minigun-smoke-dust-casings.png`, `missile-trail.png`, `flamer.png`).
+
+1. **Sounds:** your gun now plays the game's own sounds: firing, the click when empty,
+   drawing and putting away. Bullets make the impact sound of what they hit (earth,
+   concrete, wood, metal, flesh and so on), and explosions make theirs. I cannot hear,
+   so what I checked is that each file is found, decoded and sent to the speakers. You
+   are the first to listen: tell me if anything is too loud, too quiet or wrong.
+   `--no-sound` turns them off.
+2. **Smoke, sparks and trails:** the game stores these as particle effects attached to
+   the flash, the projectile and the impact. Ours now plays them: sparks and a wisp of
+   smoke at the muzzle, a smoke trail behind a missile, dust and debris where a bullet
+   lands.
+3. **Impact effects:** a bullet that lands shows the game's effect for that surface.
+4. **Shell casings:** each shot throws the weapon's casing out of the ejection port; it
+   falls, bounces and lies on the ground for the game's own time.
+5. **The flamer is only half there:** flame is drawn, but as a thin run of puffs that
+   burns about 6 metres out, not the solid jet you know. I think I know why (ours keeps
+   each puff's source alive for too short a time) but not what the game does instead.
+   A recording of the game's flamer from the side would settle it.
+6. **How particles behave is my reading of the files:** the files give numbers with
+   names (speed, gravity, grow time, colours over life) and I worked out what each
+   does from the name and from how the effect should look. Nothing was compared with
+   the game. If an effect looks wrong to you (too big, too fast, wrong colour), say
+   which and I will look at that one.
+7. **NPCs' shots: not done, and it needs something else first.** NPCs do not attack
+   yet. That is the combat-AI work (detection, combat behaviour), which is its own
+   project. Everything built here (flash, projectile, casing, sounds, impacts) is
+   written so NPC shots can use it when they exist. Say if you want NPC combat started.
+8. **The minigun may sound thin:** its record names no firing sound at all, only a
+   looping "spin" sound, which ours now plays while you fire. I think the gunfire
+   itself is triggered from the firing animation, which is a kind of sound cue not
+   built yet. Tell me what you hear.
+9. **Not done:** sound coming
+   from the left or right; reload sounds (they are tied to the animations); bullet
+   holes; the fireball of an explosion (you get its sound and the dust); the flash and
+   impact pictures do not yet grow and fade as the files animate them.
+
 ## Idle animations: scripts, packages, dialogue, and the wake-up at Doc Mitchell's (2026-10-10, session "idles")
 
 Your request: idles from scripts (PlayIdle), from the package tabs (Idles, and

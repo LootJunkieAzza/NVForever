@@ -4217,6 +4217,7 @@ dependencies = [
  "fnv-phys",
  "fnv-script",
  "fnv-sim",
+ "fnv-vfs",
  "fnv-voice",
  "fnv-world",
  "nvf-assets",

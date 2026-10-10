@@ -4,6 +4,8 @@
 //!   effects, projectiles, explosions, body parts, the effect forms weapons apply, and
 //!   the chain a shot follows (weapon → ammo → projectile → explosion). Field meanings
 //!   and sources: docs/spec-notes/combat-data.md.
+//! - [`fx`]: the effect content of shots (sounds, shell casings, add-on nodes, impacts;
+//!   docs/spec-notes/combat-rules.md §16).
 //! - Step C2, the rules: [`tuning`] (game settings with documented defaults, and our own
 //!   [`tuning::CombatTuning`]), [`damage`] (damage, criticals, armour, knockdown,
 //!   knockback), [`spread`] (spread cone, bloom, recoil), [`attack`] (fire rate, magazine,
@@ -14,6 +16,7 @@
 pub mod attack;
 pub mod damage;
 pub mod data;
+pub mod fx;
 pub mod projectile;
 pub mod rng;
 pub mod shot;

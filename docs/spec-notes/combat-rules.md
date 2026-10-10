@@ -277,14 +277,15 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   body part); applying it is step C5.
 - **Feedback** [design, until impact effects and audio]:
   - an impact marker for 0.3 s (0.6 s for explosions);
-  - tracers at the PROJ tracer chance, from the muzzle, and a flash marker at the
-    muzzle for 0.06 s per shot; a hitscan tracer that hits nothing is drawn to the end
-    of its range;
+  - a line from the muzzle along every hitscan shot for 0.08 s, to the hit or to the
+    end of the range (for other projectiles at the PROJ tracer chance); the muzzle
+    flash and the projectiles' models are §15;
   - an ammo counter (magazine / carried, the ammo's abbreviation).
 - **Test aids.** `NVF_PLAY_TEST_CONTROL` presses `fire`, `reload`, `swap` and
   `aimactor` (look at the nearest actor's hit volume). `NVF_PLAY_TEST_TRACERS=<seconds>`
-  gives every projectile a tracer and keeps tracers and flash markers that long, so
-  one screenshot shows where shots were drawn from.
+  gives every projectile a line and keeps the lines and a marker at the muzzle that
+  long, so one screenshot shows where shots were drawn from (muzzle flashes and
+  projectile models are not held).
 - **Checked** [observed 2026-10-09, `nvforever --cell Goodsprings --play`, exit 0, "run
   finished"]:
   - **9mm pistol** (50 rounds given): magazine 13/13, one shot per trigger pull. Two
@@ -688,3 +689,191 @@ bottles (quest `VCG02`, "Back in the Saddle"), which a shot neither counted nor 
   ```
 - **Open:** the `GetWeaponAnimType` table (owner-review.md); how hard the game's shots
   push clutter (the planned projectile captures); impact effects and sounds.
+
+## 15. What is drawn of a shot: muzzle flash and projectiles
+
+Owner request 2026-10-10: "actual bullet projectiles that aren't invisible along with
+the muzzle flash effects". Where a shot is drawn from is docs/design/combat.md §5.1 and
+animation.md §9.9.
+
+- **The records** [documented: xEdit PROJ; GECK wiki Projectile, §4.2 of combat.md]:
+  a PROJ has a model, a tracer chance ("how often the projectile is drawn"), a fade
+  duration (beams), and with its Muzzle Flash flag a flash model (`NAM1`), a flash
+  duration and a flash light (LIGH). Read with `fnvtool combat weapon` [observed]:
+
+  | Weapon | PROJ | Type, flags | Speed | Tracer chance | Model | Flash model, duration |
+  |---|---|---|---|---|---|---|
+  | 10mm pistol | `10mmBulletProjectile` | Missile, Hitscan | 27,520 | 0 | `projectiles\10mmprojectile.nif` | `handgunmuzzleflash01.nif`, 0.04 s |
+  | Minigun | `MinigunTracerProjectile` | Missile, Hitscan | 7,000 | 0.3 | `projectiles\762mmprojectile.nif` | `minigunmuzzleflash01.nif`, 0.04 s |
+  | Laser rifle | `BeamLaserProjectile` | Beam | 10,000 | 0 | `projectiles\testlaserbeamsteady.nif` (fade 0.14 s) | `laserriflemuzzleflash.nif`, 0.14 s |
+  | Missile launcher | `MissileProjectile` | Missile, Explosion | 1,550 | 0 | `projectiles\mlprojectile.nif` | `assaultriflemuzzleflash.nif`, 0 s |
+  | Plasma rifle | `PlasmaProjectile` | Missile | 7,500 | 0 | `projectiles\plasmaprojectile01.nif` | `plasmariflemuzzleflash.nif`, 0.12 s |
+  | Flamer | `FlameProjectile` | Flame, Hitscan | 12,000 (range 640) | 0 | `projectiles\flamerflame01.nif` | `flamermuzzleflash01.nif`, 0.2 s |
+  | Frag grenade | `GrenadeFragProjectile` | Lobber, Explosion | 1,200 | 0 | the grenade's own model | none |
+
+- **The models** [observed: `crates/fnv-nif/examples/effect_model_survey.rs` on
+  `Fallout - Meshes.bsa` and `Update.bsa`; 63 files under `meshes\projectiles`, 16
+  under `meshes\effects\muzzleflashes`]:
+  - they are built along +y: the 10mm bullet fills y 0 to 1.5 (1 unit across), the
+    missile y −55.7 to 12.7 with its flame behind, the laser beam y −2.7 to 2048 with
+    a node `BeamEnd` at (0, 2048, 0), the handgun flash y −5 to 31.7 and the minigun's
+    y −10.6 to 77;
+  - `762mmprojectile.nif` holds a bullet (`Projectile`, 0.8 by 3 units) and a streak
+    244 units long and 4 across under a `NiBillboardNode` named `Tracer`;
+  - `10mmprojectile.nif` holds one shape, the bullet, under a node `10mm`, beside
+    empty nodes named for other calibres;
+  - `NiBillboardNode`: in 10 of the 63 projectile models and 13 of the 16 flashes, 31
+    nodes in all, with billboard mode 1 (12), 4 (13) and 2 (6). The mode-1 nodes of the
+    files looked at hold geometry that is long in y (the tracer streak, the laser
+    beam), and the handgun flash's mode-1 node is turned a quarter turn about y in the
+    file, the others not at all;
+  - they also hold `BSValueNode`s named `AddOnNode<n>` (two in each bullet flash,
+    three behind the missile, four in the plasma bolt), and the flash planes have a
+    `NiTransformController` with no sequence in the file.
+- **Readings** [hypothesis]: +y is the models' forward axis; the flash model is
+  attached at the weapon's `ProjectileNode` with the node's rotation (whose y axis lies
+  along the barrel, animation.md §9.9); `BeamEnd` marks the beam's far end so the model
+  can be stretched to the beam's length; a billboard node shows its +z side and, in the
+  "rotate about up" modes, turns about its own y [documented: the mode names, nif.xml
+  BillboardMode]. How the game draws a hitscan bullet is not known.
+- **Engine** (since 2026-10-10):
+  - combat sends a `ShotFired` (the PROJ) for each shot and lists every projectile to
+    draw in `ShotVisuals` (PROJ, place, direction; `nvf_play::combat`):
+    - a projectile stepped in flight (missile, plasma, grenade): where it is seen
+      (from the muzzle, closing on its path);
+    - one whose hit is found at once (hitscan) [design]: a bullet flying from the
+      muzzle to where it landed at the PROJ's speed, gone on arrival;
+    - a beam [design]: from the muzzle to its end, for the PROJ's fade duration. Its
+      start stays on the muzzle while it shows, and so does the start of the line
+      along a hitscan shot: the attack clip moves the gun right after the shot
+      [observed: the laser rifle's `ProjectileNode` is 10.3 units higher and 4.4 to
+      the side one frame after it fires, and stays there], and a beam left where the
+      muzzle was hung below the barrel (the owner: "that laser beam looks too low");
+    - every projectile is listed, not the tracer chance of them
+      (`DRAW_EVERY_PROJECTILE`) [design: the owner's request];
+  - `nvforever::shot_fx` draws them:
+    - the flash model under the `ProjectileNode` entity of the rig in view
+      (`PlayerBody::muzzle_entity`), for the PROJ's flash duration and always for the
+      frame it is made in, with a point light of the LIGH's colour, fade and radius
+      (no shadows);
+    - the PROJ's model at each listed projectile, +y along the flight; a beam's model
+      scaled along y by its length ÷ `BeamEnd`'s y;
+    - billboard nodes turned to the camera each frame (`ModelNode::billboard`);
+    - the models of the weapon in use are loaded when it is equipped, so the first
+      flash is not lost to loading;
+  - a weapon without a `ProjectileNode` (or a run without a player body) shows no
+    flash; its projectiles are still drawn.
+- **Checked** [observed 2026-10-10, `--play` at Goodsprings, `--hour 12`, third person
+  from the side (`orbit=75:5` at the screenshot's time), exit 0 and "run finished";
+  screenshots kept privately]:
+  - Minigun, trigger held: "46 muzzle flashes (46 with a light), 46 projectile models
+    drawn, 0 projectiles without a model". During the burst one flash stands at the end
+    of the barrel, pointing along it; 0.4 s after the trigger is let go there is none.
+    A frame of another run shows a tracer streak in flight ahead of the barrel.
+  - Laser rifle, one shot: "BeamLaserProjectile drawn at (−71672.1, 2091.8, 8437.5),
+    a beam 628 units long"; the red beam runs along the shot from the muzzle, and
+    0.1 s after the shot still starts at the muzzle, which has risen since.
+  - The muzzle's place worked out from the pose (`Rig::muzzle_at`) and the drawn
+    node's place a frame later agree to 0.1 unit in every frame logged, standing and
+    through a shot.
+  - Before the flash time was the record's alone it was held to at least 0.05 s, and
+    the test aid held it for seconds: the owner saw the minigun's flash "sticking
+    around way too long". Now 0.04 s is one frame at 25 frames a second.
+- **Not built:** the controllers inside the flash models, the PROJ's own light, NPCs'
+  shots. Add-on nodes are docs/spec-notes/particles.md; sounds, impacts and shell
+  casings are §16. Not looked at in a run: the 10mm bullet, plasma bolt and grenade
+  models (their PROJs go the same way).
+- A model is not shown until it has flown the length it reaches behind its origin
+  [design]: the minigun round's streak (220 units behind the bullet) ran back through
+  the gun and the shooter in its first frame [observed].
+- **Open:** whether the game draws a hitscan bullet at all outside its tracer chance,
+  and at what speed; whether a billboard shows +z or −z (the flash glows and the beam
+  show with +z); the flame's model has no shape of its own (add-on nodes only): its
+  flame is particles (particles.md).
+
+## 16. Sounds, impacts and shell casings
+
+Owner request 2026-10-11: build what §15 left out. Particle effects are
+docs/spec-notes/particles.md.
+
+- **The records** [documented: xEdit; schemas/fnv `objects.json`, `combat.json`,
+  `placed.json`], read by `fnv_combat::fx` (`fnvtool combat fx --form <weapon>` prints
+  a weapon's):
+  - WEAP: `SNAM` twice (Shoot 3D, Shoot Dist), `XNAM` Shoot 2D, `NAM7` Shoot 3D
+    Looping, `TNAM` Melee Swing / Gun No Ammo, `NAM9` Equip, `NAM8` Unequip, `INAM`
+    impact data set, `MOD2` shell casing model (read from the raw subrecord: the WEAP
+    layout in the schema does not list it);
+  - SOUN: `FNAM` a file or a folder under `sound\`, `SNDD` flags, minimum and maximum
+    attenuation distance (stored ÷ 5 and ÷ 100), static attenuation in hundredths of a
+    decibel, frequency adjustment in percent;
+  - PROJ `DATA` sound; EXPL `DATA` sound 1, sound 2, impact data set;
+  - IPDS: an IPCT for each of twelve materials (stone, dirt, grass, glass, metal, wood,
+    organic, cloth, water, hollow metal, organic bug, organic glow);
+  - IPCT: model, effect duration, effect orientation (Surface Normal, Projectile
+    Vector, Projectile Reflection), texture set, sound 1, sound 2.
+  - Read [observed, FalloutNV.esm]: 3,190 SOUN, 125 IPCT in 60 IPDS, 37 ADDN.
+- **Examples** [observed]: the 10mm pistol's Shoot 2D is `WPN10mmFire2D`, the folder
+  `fx\wpn\10mm_pistol\fire_2d\` (flag 2D, static attenuation 13.22 dB); its No Ammo
+  `WPNPistol10mmFireDry` is one `.wav`; its casing `Projectiles\45CalCasing.NIF`; its
+  impact data set gives `BallisticStoneImpact` (`Effects\ImpactBallisticConcrete01.NIF`,
+  0.25 s, Projectile Reflection) for stone, `BalisticDirtImpact` for dirt and grass, and
+  `BallisticOrganicImpact` (blood, 0.08 s, Surface Normal) for organic.
+  `fGunShellEjectSpeed` is 160.
+- **Sounds** (`nvf_play::sfx`):
+  - a `PlaySound` names a SOUN and, for a sound with a place, a point. A folder stands
+    for the `.wav` files directly in it, one picked at random [hypothesis];
+  - WAV is decoded here (PCM of 8, 16 and 24 bits, 32-bit float) and played through
+    Bevy's audio as a source of our own; another encoding is reported once;
+  - loudness [design]: gain 10^(−static attenuation ÷ 20); with a place, full within
+    the minimum distance of the player's eye, then minimum ÷ distance, fading to
+    nothing at the maximum distance. Not panned. The record's attenuation curve is not
+    used;
+  - pitch: the frequency adjustment, and ±5% at random with Random Frequency Shift
+    [design: the size];
+  - combat plays: Shoot 2D (else Shoot 3D) for each shot of the player's [hypothesis:
+    that the 2D sound is the shooter's own]; the Shoot 3D Looping sound going round
+    from a weapon's first shot until 0.25 s after its last [hypothesis: when; design:
+    the 0.25 s]; No Ammo on an empty trigger; Equip and
+    Unequip when the player starts to draw or put away [hypothesis: when]; an impact's
+    sounds at the impact; an explosion's at the explosion;
+  - `nvforever --no-sound` turns them off.
+- **Impacts.** A shot that lands takes the IPCT its weapon's impact data set gives for
+  the surface:
+  - the collision material of the triangle hit [documented: nif.xml
+    `Fallout3HavokMaterial`, 32 materials repeated as platforms and stairs] is mapped
+    to one of the twelve by its name [hypothesis: `fnv_combat::fx::impact_material`];
+    terrain, which has no code, counts as dirt [design]; an actor counts as organic
+    [design: bug and glow are not told apart];
+  - `nvforever::shot_fx` shows the IPCT's model at the point for its effect duration,
+    its +z along the orientation the IPCT names [hypothesis: +z, from the impact
+    models' add-on nodes standing along +z]. The model's add-on nodes emit dust and
+    debris (particles.md).
+- **Shell casings.** The player body gives the weapon model's `ShellCasingNode` place
+  and its +z axis to combat (`WeaponAnim::casing`). Each shot of a weapon with a casing
+  model throws one from there along that axis at `fGunShellEjectSpeed`; it falls under
+  the world's gravity, bounces (keeping 0.35 of its speed [design]) and is removed
+  after `fGunShellLifetime`.
+  - For +z as the way out [observed: `muzzle_node_survey --list`]: in the 59 models
+    whose node is turned by no right angle, its z axis points to the side the node sits
+    on and up (9mm (−0.38, 0.36, 0.85), service rifle (0.17, 0.59, 0.79)); the cowboy
+    repeater's points up (lever actions throw up).
+- **Checked** [observed 2026-10-11, `--play` at Goodsprings, exit 0, "run finished"]:
+  - 10mm pistol: "sfx: 4 sounds played": `WPNPistol0Equip`, `WPN10mmFire2D` (gain
+    0.218), `FXBulletImpactEarth` at 656 units (gain 0.276, `BalisticDirtImpact` on
+    terrain), `WPNPistol0EquipUn`. No file failed to decode. Nobody listened: the check
+    is that the files are found, decoded and handed to the audio output.
+  - Minigun burst: "40 shell casings, 40 impact effects"; impacts named concrete, dirt
+    and wood by surface; casings fall to the right of the gun and lie on the ground.
+  - The minigun has neither a Shoot 2D nor a Shoot 3D sound [observed: `fnvtool combat
+    fx --form WeapMinigun`]: its only shoot sound is the loop `WPNMinigunSpinLPM`
+    (`fx\wpn\minigun\wpn_minigun_spin_lpm.wav`). Where its gunfire sound comes from is
+    open [hypothesis: the attack clip's text keys].
+- **Not built:** the Shoot Dist
+  sound, panning and reverb, sounds named by animation text keys (reloads), the PROJ's
+  own sound (a bullet passing), impact decals (the IPCT's texture set), the animations
+  inside impact models (they grow and fade), explosion models, casings hitting the
+  ground with a sound.
+- **NPCs' shots** are not built and cannot be on their own: NPCs do not attack yet (no
+  combat packages, detection or combat styles; docs/design/combat.md §8). What a shot
+  shows and sounds like is ready to be used by them: the messages carry places, not
+  the player.
