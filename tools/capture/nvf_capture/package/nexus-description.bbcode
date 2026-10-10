@@ -39,7 +39,22 @@ Install with a mod manager, or copy [font=Courier New]NVSE\Plugins\nvf_capture.d
 [*]Press [b]End[/b] when the plugin announces the job (top left). Home skips it.
 [*]Open the newest file in [font=Courier New]C:\fnv-private\capture\out\[/font].
 [/list]
-The job format, every kind of step, what the in-game script compiler accepts, unattended runs and screenshots are described in [font=Courier New]Docs\nvf_capture\README.md[/font].
+More examples are next to the first one: items, a step done by hand, a screenshot without the HUD, sampling the player's position, and an unattended run. The job format, every kind of step, what the in-game script compiler accepts, unattended runs and screenshots are described in [font=Courier New]Docs\nvf_capture\README.md[/font].
+
+[size=4][b]What a job looks like[/b][/size]
+[code]{
+ "format": "fnv.capture.steps/1",
+ "name": "my_job",
+ "forms": {"caps": "FalloutNV.esm:0000000F"},
+ "steps": [
+  {"query": "player.GetAV Strength"},
+  {"query": "player.GetItemCount @caps", "field": "caps"},
+  {"script": "player.AddItem @caps 10 1"},
+  {"until": "GameHour >= 12", "max_frames": 20000},
+  {"screenshot": "noon"}
+ ]
+}[/code]
+Save it as [font=Courier New]my_job.steps.json[/font] in the [font=Courier New]jobs[/font] folder. Short scripts like these are enough for most jobs; full xNVSE function scripts work too.
 
 [size=4][b]Before you run jobs[/b][/size]
 [list]

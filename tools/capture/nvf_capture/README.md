@@ -66,9 +66,9 @@ dir=D:\somewhere\capture
 4. When *finished* appears, open the newest file in `out\`:
 
 ```
-{"kind":"start","job":"example_read_only","plugin_version":7,"nvse_version":"0x06040090","runtime_version":"0x040020D0"}
-{"kind":"result","step":0,"label":"load_order","field":"FalloutNV.esm","value":0.0}
-{"kind":"result","step":1,"label":"load_order","field":"loaded_mods","value":10.0}
+{"kind":"start","job":"example_read_only","plugin_version":8,"nvse_version":"0x06040090","runtime_version":"0x040020D0"}
+{"kind":"result","step":0,"label":"","field":"GetNumLoadedMods","value":10.0}
+{"kind":"result","step":1,"label":"","field":"GetNthModName 0","value":"FalloutNV.esm"}
 ...
 {"kind":"end","steps":10}
 ```
@@ -89,19 +89,23 @@ rejected, and the reason is logged.
   "name": "my_job",
   "title": "Shown in game when the job is announced",
   "start": "What to load first, shown with the title.",
+  "forms": {"caps": "FalloutNV.esm:0000000F"},
   "steps": [
-    {"query": "float fV\nBegin Function { }\nlet fV := player.GetAV Strength\nSetFunctionValue fV\nEnd\n",
-     "label": "player", "field": "strength"}
+    {"query": "player.GetAV Strength"},
+    {"query": "player.GetItemCount @caps", "field": "caps"},
+    {"script": "player.AddItem @caps 10 1"},
+    {"frames": 10},
+    {"query": "player.GetItemCount @caps", "field": "caps_after"}
   ]
 }
 ```
 
-The plugin runs one step per game loop (one per frame). A step that fails is recorded as
-an error and the job goes on.
+`title`, `start` and `forms` are optional. The plugin runs one step per game loop (one
+per frame). A step that fails is recorded as an error and the job goes on.
 
 | Step | What it does | Output line (`kind`) |
 | --- | --- | --- |
-| `{"query": script, "label": l, "field": f}` | runs the script and records its result (a number, a string or `null`) | `result` with `value` or `error` |
+| `{"query": script, "label": l, "field": f}` | runs the script and records its result (a number, a string or `null`); `label` and `field` only name the result in the output and may be left out | `result` with `value` or `error` |
 | `{"script": script}` | runs the script, ignores its result | `error` only if it fails |
 | `{"console": line}` | runs one console line | `error` only if it fails |
 | `{"frames": n}` | waits n game loops | none |
@@ -116,21 +120,56 @@ and ends with `{"kind": "end", "steps": n}`. A file without an end line was cut 
 game closed or a save was loaded, which adds an `aborted` line). Errors look like
 `{"kind": "error", "step": 3, "error": "script did not compile"}`.
 
-### Scripts
+### Scripts, the short way
 
-A script is the source text of an xNVSE user-defined function, compiled in the running
-game. Return a value with `SetFunctionValue`:
+Wherever a step takes a script you can write just the part that matters, and the plugin
+writes the rest of the function around it (plugin version 8):
 
-```
-float fV
-Begin Function { }
-let fV := player.GetItemCount rItem
-SetFunctionValue fV
-End
+| Where | Write | Example |
+| --- | --- | --- |
+| `query`, `remember` | an expression with a numeric value | `"player.GetAV Strength"` |
+| `query` with `"text": true` | an expression whose value is a string | `"GetNthModName 0"` |
+| `until` | a condition | `"GameHour >= 12"` |
+| `script` | one or more statements | `"player.AddItem @caps 10 1"` |
+
+- **Forms.** Editor IDs do not compile in the running game (see below), so name the
+  forms a job uses once, in its `forms`, as `"<plugin file>:<FormID in hex>"`, and use
+  them as `@name`. The FormID is the one xEdit or the G.E.C.K. shows; its first two
+  digits (the load-order position) are ignored, so the job works in any load order.
+  `@name` stands for the form wherever a script expects one: `player.GetItemCount @caps`,
+  `@door.GetLocked`, `@chest.AddItem @caps 5 1`.
+- **Several statements** go into a list, one line each:
+  `{"script": ["player.AddItem @caps 10 1", "player.SetAV Strength 7"]}`.
+- A short `query` without a `field` uses its own text as the field.
+- `%{name}` (a number kept by `remember`) works in short scripts too:
+  `{"until": "GameDaysPassed >= %{day0} + 1", "max_frames": 20000}`.
+- In an `observe` step: `header`, `count`, `probe` and `drive` are numeric expressions,
+  `until` and a hook's `when` are conditions, `drive_end` and a hook's `then` are
+  statements.
+
+A job with a mistake in a short script (an `@name` that is not in `forms`) is skipped as
+a whole, and the log says which step.
+
+### Scripts, in full
+
+For anything the short way cannot say (your own variables, loops, a reference taken from
+a function), write the whole script: the source text of an xNVSE user-defined function,
+which returns its value with `SetFunctionValue`. A text that contains `Begin Function` is
+used exactly as written (`@name` is not replaced in it). It can be one string with `\n`
+between the lines, or a list of lines:
+
+```json
+{"query": ["ref rCell",
+           "Begin Function { }",
+           "let rCell := player.GetParentCell",
+           "SetFunctionValue (GetFormIDString rCell)",
+           "End"],
+ "field": "cell"}
 ```
 
 What the in-game compiler accepted and refused on the setup above (observed; the full
-list with dates is in the project's notes, linked at the end):
+list with dates is in the project's notes, linked at the end). The short way already
+follows these rules:
 
 - Declare variables **before** `Begin Function`. `ref` variables declared inside the
   block did not compile.
@@ -161,6 +200,17 @@ brightness, 0 black to 1 white) and `foreground` (whether the window was in fron
 black or covered picture can be told apart without opening it. Hide the HUD with a
 console step `tm` a few game loops before, and `tm` again after
 (`examples\example_wait_and_screenshot.steps.json`).
+
+### Examples
+
+| File | Shows |
+| --- | --- |
+| `example_read_only.steps.json` | short queries: load order, position, an actor value, the clock; one full script |
+| `example_items.steps.json` | `forms` and `@name`, scripts that change something, counting before and after |
+| `example_manual_step.steps.json` | a step done by hand between two readings |
+| `example_wait_and_screenshot.steps.json` | `remember`, `until`, console lines and a screenshot without the HUD |
+| `example_observe.steps.json` | `observe`: the player's position 20 times, every 30 frames |
+| `auto.example.json` | an unattended run (copy it to the capture directory as `auto.json`) |
 
 ### Observing
 

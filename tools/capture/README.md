@@ -503,6 +503,12 @@ Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, automa
 observe step, layouts), `tests/test_capture_steps.py`, `tests/test_capture_run.py` and
 `tests/test_observe.py`.
 
+**Jobs by hand (plugin version 8):** a script may be given in a short form (just the
+expression, condition or statements; forms named once per job and used as `@name`), which
+the plugin writes out as the same function scripts the tools generate. The tools' own jobs
+are full scripts and reach the game unchanged. Guide: `nvf_capture/README.md`; rules:
+`docs/spec-notes/xnvse-capture.md` §8.
+
 **Releasing the plugin** (`package_plugin.py`): the plugin is useful outside this project
 (a job runner for the original game), so it can be published on a mod site.
 ```
