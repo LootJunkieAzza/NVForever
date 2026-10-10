@@ -81,6 +81,22 @@ pub fn texture_path(raw: &str) -> String {
     format!("textures\\{p}")
 }
 
+/// The path of the normal map that lies beside a texture by name: the same path with
+/// `_n` before the extension (`…\ghoul\upperbodymale.dds` → `…\ghoul\upperbodymale_n.dds`);
+/// the rest of the path is kept as written. `None` for a path without a file name and
+/// extension. Whether that file exists is the caller's question ([`Vfs::exists`]).
+/// [observed: every skin shape of the actor models names in texture slot 1 the file
+/// named this way after its slot 0; hypothesis: the game finds the normal map of a skin
+/// texture it puts in by this name, docs/spec-notes/actors.md §3.1]
+pub fn normal_map_beside(texture: &str) -> Option<String> {
+    let file_start = texture.rfind(['\\', '/']).map_or(0, |i| i + 1);
+    let dot = file_start + texture[file_start..].rfind('.')?;
+    if dot == file_start || dot + 1 == texture.len() {
+        return None;
+    }
+    Some(format!("{}_n{}", &texture[..dot], &texture[dot..]))
+}
+
 #[derive(Debug, Clone, Copy)]
 enum Location {
     Archive { archive: usize, folder: usize, file: usize },
@@ -239,6 +255,26 @@ mod tests {
         assert_eq!(texture_path("data\\textures\\a.dds"), "textures\\a.dds");
         assert_eq!(texture_path("c:\\proj\\data\\textures\\b\\a.dds"), "textures\\b\\a.dds");
         assert_eq!(texture_path("clutter\\a.dds"), "textures\\clutter\\a.dds");
+    }
+
+    #[test]
+    fn the_normal_map_beside_a_texture_has_n_before_the_extension() {
+        assert_eq!(
+            normal_map_beside("textures\\characters\\ghoul\\upperbodymale.dds").as_deref(),
+            Some("textures\\characters\\ghoul\\upperbodymale_n.dds")
+        );
+        // The path is kept as written (case, separators, no `textures\` in front).
+        assert_eq!(normal_map_beside("Characters/RaiderFemale/HandFemale.DDS").as_deref(), Some("Characters/RaiderFemale/HandFemale_n.DDS"));
+        assert_eq!(normal_map_beside("headhuman.dds").as_deref(), Some("headhuman_n.dds"));
+        // Only the last dot of the file name counts, and dots in folder names do not.
+        assert_eq!(normal_map_beside("a.b\\head.old.dds").as_deref(), Some("a.b\\head.old_n.dds"));
+        assert_eq!(normal_map_beside("textures\\characters\\facemods\\falloutnv.esm\\x"), None);
+        // No file name or no extension: no sibling.
+        assert_eq!(normal_map_beside(""), None);
+        assert_eq!(normal_map_beside("textures\\characters\\male\\"), None);
+        assert_eq!(normal_map_beside("textures\\characters\\male\\.dds"), None);
+        assert_eq!(normal_map_beside("textures\\characters\\male\\headhuman."), None);
+        assert_eq!(normal_map_beside("textures\\characters\\male\\headhuman"), None);
     }
 
     #[test]
