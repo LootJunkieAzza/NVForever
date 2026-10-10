@@ -234,6 +234,11 @@ struct Args {
     /// seconds (docs/spec-notes/actors.md §9.4).
     #[arg(long)]
     actor_weapon_test: Option<f32>,
+    /// Test aid: standing NPCs within this distance of the camera (game units) turn on
+    /// the spot to face it, playing their turn clips (docs/spec-notes/actors.md §8.9).
+    /// Needs --actor-pose idle; not for --npc-travel travellers.
+    #[arg(long, conflicts_with = "actor_walk_test")]
+    actor_turn_test: Option<f32>,
     /// With --actor-walk-test: only NPCs within this distance of the start position
     /// (game units; 0 = all).
     #[arg(long, default_value_t = 0.0, requires = "actor_walk_test")]
@@ -540,8 +545,13 @@ fn main() -> AppExit {
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
-    .add_systems(Update, (locomotion::walk_test, locomotion::drive, weapons::reparent).chain())
+    .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     .add_systems(Update, timelapse.after(sky::update_sky));
+    if let Some(radius) = args.actor_turn_test {
+        app.insert_resource(locomotion::TurnTest { radius, started: 0, finished: 0, degrees: 0.0 })
+            .add_systems(Update, locomotion::turn_test.before(locomotion::turn_to))
+            .add_systems(Last, locomotion::turn_test_report);
+    }
     if args.new_game {
         app.insert_resource(nvf_play::script::NewGame);
     }
@@ -629,6 +639,7 @@ fn main() -> AppExit {
                     100.0 * c.blend_frames as f64 / c.actor_frames.max(1) as f64,
                     c.tracks as f64 / c.actor_frames as f64
                     );
+                    info!("actor turns: {} actor frames playing a turn-on-the-spot clip", c.turn_frames);
                 }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
