@@ -33,15 +33,9 @@ controls.md (bindings).
   targets it). Shown in third person and while the camera circles the player.
 - **First person**: the game's arms rig, `characters\_1stperson\skeleton.nif`, with its
   own clips (`characters\_1stperson\`). It draws the hands (their `…1st.nif` meshes) and
-<<<<<<< HEAD
   only the `Arms…` shapes of the upper body and of worn upper-body armour, with the
   outfit's `PipBoyOn…` sleeve (gloves and the Pip-Boy whole; no head, hair or other
-  armour; `fnv_actor::first_person`), and the weapon's
-=======
-  only the `Arms…` shapes of the upper body and of worn upper-body armour (gloves whole;
-  no head, hair or other armour; skin tinted as in third person;
-  `fnv_actor::first_person`), and the weapon's
->>>>>>> origin/main
+  armour; skin tinted as in third person; `fnv_actor::first_person`), and the weapon's
   first-person model (WEAP `WNAM`, a STAT). `Bip01 Looking` turns with the view's pitch,
   so arms and weapon stay in front of the camera, which sits at the rig's `Camera1st`
   node: 118 units above the feet, 78 crouched. Shown in first person.
@@ -97,6 +91,49 @@ exist. The draw/holster timing follows the clips of the rig in view.
   matches the first-person view; in third person it still starts there [engineering
   choice; the game's third-person pick is not known].
 
+### 1.5 The body in first person (owner request 2026-10-10; not the original's)
+
+A switch, off by default as the original draws the arms rig alone: `--first-person-body`,
+and "Body in first person" on the settings page (key `first-person-body`).
+[engineering choices throughout; nothing here is a claim about the game]
+
+- On, first person draws the third-person body too, without its head parts (head, hair,
+  headgear: the `HEAD_SLOTS` rule of the stand-in body), so looking down shows the
+  chest, legs and feet in the outfit worn. The view is unchanged: the camera stays at the
+  arms rig's `Camera1st`.
+- The body is moved to the view, not the view to the body: each frame it stands where
+  its eyes are under the camera and 4 units behind (`OWN_BODY_BACK`), feet on the
+  ground, so the open neck stays out of the picture; crouched and moving it follows its
+  own head. It stays upright whatever the pitch (the aim up/down clips are not blended
+  in), as the arms rig alone follows the view.
+- While the arms rig's arms are up (weapon out, being drawn or put away) the body's own
+  arms, hands, gloves and Pip-Boy are hidden (the shapes the arms rig draws,
+  `fnv_actor::first_person::shape_shows`), and its weapon while it is in the hand. With
+  the weapon away the body's arms hang at its sides and its weapon is in its holster.
+- On furniture the seated body is drawn without its head and the view is its eye, as
+  before, and (owner decision 2026-10-10: "limited to a real person's head movement")
+  the view turns at most 80° to either side of the way the body faces (`NECK_TURN`)
+  and tilts at most 75° down (`NECK_DOWN`); a view further round when sitting down
+  comes round at 4 rad/s, and the body is drawn once it has. The way the body faces is
+  its pelvis's (`Bip01 Pelvis`, its turn about the vertical since the bind pose): the
+  clips of getting on and off turn the body inside the rig, and the view turns with it
+  (owner report 2026-10-10: sitting down, the camera "didn't move in line with the rest
+  of the body"). The eyes go round the neck (`Bip01 Head`) with the view, as a turned
+  head's do. With the switch off the seated view is as it was: free, not turned by the
+  body, and no body.
+- Not built: the shadow. The body's shadow in first person has no head, and while the
+  weapon is out no arms of its own (the arms rig's shadow floats in front, as it does
+  with the switch off).
+
+Checked 2026-10-10 on the owner's install [observed in NVForever: screenshots kept
+privately], Goodsprings, Vault 21 jumpsuit `00104184` and varmint rifle `0007EA24`:
+looking 88° down with the weapon away shows the chest, belt, both hands at the sides
+and the boots; with the rifle out, the arms rig over the legs; sneaking and running
+forward; seated on the saloon porch chair `00106349`, the lap and forearms ahead, the
+shoulder and arm at either limit, a view that starts behind comes round, and through
+the sitting-down clip the view turns with the body from facing the chair to facing away
+from it.
+
 ## 2. Code
 
 | Item | Where | Notes |
@@ -110,7 +147,7 @@ exist. The draw/holster timing follows the clips of the rig in view.
 | Bindings | `engine/nvf-play/src/bindings.rs` | every `[Controls]` control with the game's default key and mouse button; `ControlInput` |
 | Controls and camera | `engine/nvf-play/src/control.rs` | `PlayerControl` (sneak, weapon, Block, Always Run, Auto Move, view, distance, `Orbit`), `ControlSettings` (GMSTs), `BodyView`, `place_camera` |
 | Movement keys, mouse look | `engine/nvf-play/src/player.rs` | movement through the bindings; mouse look turns the orbit while Toggle POV is held; `Player::body_eye`, `BodySet` |
-| Body | `engine/nvforever/src/player_body.rs` (`PlayerBodyPlugin`, with `--play` and actors on) | both rigs, weapon models, clip caches, per-frame clip choice, eye and pivot, which rig is shown |
+| Body | `engine/nvforever/src/player_body.rs` (`PlayerBodyPlugin`, with `--play` and actors on) | both rigs, weapon models, clip caches, per-frame clip choice, eye and pivot, which rig is shown; the body in first person (§1.5: `PlayerBody::first_person_body`, `Shown`, `seated_heading`) |
 | Shared part building | `engine/nvforever/src/actors.rs` (`part_uses`) | NPCs and the player build parts the same way |
 | Test aids | `engine/nvf-play/src/test_aid.rs` | `NVF_PLAY_TEST_EQUIP`, `NVF_PLAY_TEST_MOVE`, `NVF_PLAY_TEST_CONTROL` (`sneak`, `weapon`, `aim`, `view`, `jump`, `zoom=`, `orbit=<yaw>:<pitch>`, `release`); for a session played by hand, the debug switches `NVF_PLAY_DEBUG_GIVE` and `NVF_PLAY_DEBUG_EQUIP` (same values as the `TEST` ones, the run stays attended) |
 
