@@ -51,6 +51,13 @@ After navmesh, pathing or travelling-NPC changes, run the headless NPC walks in
 docs/design/navmesh.md §5 (`fnvtool nav walk`, all must arrive) and the travel smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-travel DocMitchellREF=GSChetRef --npc-travel SunnyRef=EasyPeteRef --follow-npc --run-seconds 105`
 (expect exit 0 and "nav summary: 2 of 2 travellers arrived").
+After AI package changes (`fnv-game` `ai`/`package`, `fnv-ai`), run `fnvtool ai packages`
+(expect `all_agree` true), `fnvtool ai reach` and, with the owner's observer captures,
+`fnvtool ai observed` and `fnvtool ai run --samples`; compare with the figures in
+docs/design/actor-behaviour.md §4 and §5.3 and explain any change. After changes to
+`fnv-ai` or the engine's residents, also run the residents smoke test:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-packages EasyPeteRef,GSChetRef,GoodspringsSettler04Ref --hour 21.9 --follow-npc --run-seconds 150`
+(expect exit 0 and "ai summary … 3 residents, 6 packages chosen, 4 trips, 4 arrivals, 0 unreachable").
 
 ## Commits
 

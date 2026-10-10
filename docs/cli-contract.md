@@ -418,3 +418,16 @@ sound files) are defined in docs/spec-notes/voice.md §10 together with the voic
 NPC-sized physics character walking a path) and `nav observed` (`fnv.nav.observed/1`, NPC
 movement recorded in the game against the navmesh) are defined in docs/spec-notes/navmesh.md §6
 together with the navmesh notes.
+
+# AI packages
+
+`fnvtool ai survey` (`fnv.ai.survey/1`, what the PACK records hold, read from the
+schema's decoded values), `ai packages` (`fnv.ai.packages/1`, the typed reader's tallies
+and whether they agree with the survey), `ai show` (`fnv.ai.show/1`, packages in full and
+actors with their package lists), `ai day` (`fnv.ai.day/1`, the package an actor chooses
+at every hour and why) and `ai observed` (`fnv.ai.observed/1`, AI observer samples from
+the game against the reader and the choice: package type codes, package lists, package
+targets, schedules, a replay of the choice), `ai run` (`fnv.ai.run/1`, actors carrying
+their packages out over the navmesh, alone or against observer samples) and `ai reach`
+(`fnv.ai.reach/1`, whether every actor can reach where each of its packages sends it) are
+defined in docs/spec-notes/packages.md §5 together with the package notes.

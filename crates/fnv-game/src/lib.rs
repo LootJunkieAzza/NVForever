@@ -7,6 +7,8 @@
 //! - [`data`]: compiled scripts, quests, dialogue/package results, messages, form lists
 //! - [`quest`]: quest definitions and run-time state
 //! - [`cond`]: the conditions of `CTDA` records
+//! - [`package`]: AI packages as typed data (docs/spec-notes/packages.md)
+//! - [`ai`]: which package an actor runs and when it chooses again
 //! - [`game`]: the game state, instances, dispatch, SetStage, activation, snapshots
 //! - [`functions`]: function implementations by opcode
 //! - [`trace`]: trace events
@@ -17,6 +19,7 @@
 //!
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
+pub mod ai;
 pub mod combat;
 pub mod cond;
 pub mod data;
@@ -24,6 +27,7 @@ pub mod dialogue;
 pub mod functions;
 pub mod game;
 pub mod intro;
+pub mod package;
 pub mod quest;
 pub mod runner;
 pub mod trace;

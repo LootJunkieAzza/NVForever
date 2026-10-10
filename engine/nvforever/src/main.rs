@@ -25,6 +25,7 @@ mod nav;
 mod player_body;
 mod ragdoll;
 mod reflection;
+mod residents;
 mod ripples;
 mod imagespace;
 mod sky;
@@ -249,9 +250,22 @@ struct Args {
     /// Walking speed of --npc-travel NPCs, game units per second.
     #[arg(long, default_value_t = nav::WALK_SPEED)]
     npc_speed: f32,
-    /// The free camera follows the first --npc-travel NPC (through doors too).
-    #[arg(long, requires = "npc_travel", conflicts_with = "play")]
+    /// The free camera follows the first --npc-travel NPC, else the first
+    /// --npc-packages NPC (through doors too).
+    #[arg(long, conflicts_with = "play")]
     follow_npc: bool,
+    /// NPCs that live by their AI packages: placed actors (Editor ID or FormID, comma
+    /// separated or repeated), or `all` for every actor and creature of the cells
+    /// loaded around the camera, choose their package by the hour and walk to where it
+    /// sends them (docs/design/actor-behaviour.md §5.4). Their clock starts at --hour
+    /// and runs at --time-scale, or at --npc-timescale when the sky stands still. With
+    /// --play the choice uses the game's own state (quests, scripts).
+    #[arg(long, value_delimiter = ',')]
+    npc_packages: Vec<String>,
+    /// Game seconds per second for --npc-packages when --time-scale is 0 (the game's
+    /// TimeScale is 30).
+    #[arg(long, default_value_t = 30.0, requires = "npc_packages")]
+    npc_timescale: f32,
     /// Draw the navmesh near the camera and the travellers' paths.
     #[arg(long)]
     show_navmesh: bool,
@@ -472,7 +486,21 @@ fn main() -> AppExit {
         a
     });
     let open_doors = args.open_doors;
-    let nav_state = if args.npc_travel.is_empty() && !args.show_navmesh {
+    if args.follow_npc && args.npc_travel.is_empty() && args.npc_packages.is_empty() {
+        return fail("--follow-npc needs --npc-travel or --npc-packages".to_string());
+    }
+    let residents = if args.npc_packages.is_empty() {
+        None
+    } else {
+        // Game hours per second: the sky's rate when it runs, else the NPCs' own.
+        let rate = if sky_state.time_scale > 0.0 { sky_state.time_scale as f64 } else { args.npc_timescale.max(0.0) as f64 / 3600.0 };
+        let clock = residents::Clock { hour: sky_state.hour, days_passed: sky_state.days_passed, rate };
+        match residents::Residents::build(&world, &args.npc_packages, clock, args.npc_speed, args.play) {
+            Ok(r) => Some(r),
+            Err(e) => return fail(e),
+        }
+    };
+    let nav_state = if args.npc_travel.is_empty() && !args.show_navmesh && residents.is_none() {
         None
     } else {
         match nav::NavState::build(&world, &args.npc_travel, args.npc_speed, args.show_navmesh, args.follow_npc) {
@@ -519,7 +547,12 @@ fn main() -> AppExit {
         hide: args.hide.iter().map(|h| h.to_ascii_lowercase()).collect(),
         interior,
         light_scale: args.light_scale,
-        managed: nav_state.as_ref().map(|n| n.travellers.iter().map(|t| t.reference).collect()).unwrap_or_default(),
+        managed: nav_state
+            .iter()
+            .flat_map(|n| n.travellers.iter().map(|t| t.reference))
+            .chain(residents.iter().flat_map(|r| r.references()))
+            .collect(),
+        manage_actors: residents.as_ref().is_some_and(|r| r.all),
         stats: Default::default(),
     })
     .insert_resource(world)
@@ -575,6 +608,12 @@ fn main() -> AppExit {
             Last,
             nav::report,
         );
+        if let Some(r) = residents {
+            app.insert_resource(r)
+                .add_systems(Startup, residents::log_startup)
+                .add_systems(Update, residents::drive.after(world::stream).after(nvf_play::PlaySet::Scripts).before(nav::drive))
+                .add_systems(Last, residents::report);
+        }
         if play.is_none() {
             // Travellers' door trips (and the camera following one) use the play mode's
             // travel message; without --play, the renderer applies it alone.
