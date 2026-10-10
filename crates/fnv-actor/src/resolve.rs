@@ -191,6 +191,20 @@ pub fn texture_path(p: &str) -> String {
     archive_path("textures\\", p)
 }
 
+impl Appearance {
+    /// The FaceGen texture coefficients that tint the actor's skin (face, body, hands):
+    /// its own FGTS, plus its race's for its sex value by value when `with_race`
+    /// [hypothesis: the race's values are a baseline the actor's are added to,
+    /// docs/spec-notes/actors.md §4.2]. `None` for an actor without FaceGen data.
+    pub fn skin_fgts(&self, with_race: bool) -> Option<Vec<f64>> {
+        let own = &self.facegen.as_ref()?.fgts;
+        Some(match self.race_facegen.as_ref().filter(|_| with_race) {
+            Some(race) => crate::facegen::add_coefficients(own, &race.fgts),
+            None => own.clone(),
+        })
+    }
+}
+
 /// The `.egt` of a race hand, from the race's body `.egt` (an archive path): beside it,
 /// `lefthand<kind>.egt` or `righthand<kind>.egt`, `<kind>` being what follows
 /// `upperbody` and an optional `human` in the body file's name (`upperbodyhumanmale.egt`

@@ -1039,3 +1039,30 @@ Pip-Boy light. Facts: docs/spec-notes/actors.md §1.2; design: docs/design/playe
 5. **Seen on the way, not touched:** the Vault 21 jumpsuit shows a "101" (armour
    texture swaps are not read yet, actors.md §1.1). The black patches I saw on the bare
    body are the subject of the section "The player's unclothed body" above.
+
+## Skin tone by race (2026-10-10, session "race facegen")
+
+Follows item 4 of "The player's unclothed body" above. Numbers and reasons:
+`docs/spec-notes/actors.md` §4.2.
+
+1. **Changed:** an NPC's skin tint (face, body, hands) now comes from its own face
+   texture values plus its race's. Before, only its own were used, and African American
+   NPCs (357 NPC records) were drawn with light skin, lighter than Caucasian NPCs: their
+   own values hold none of the race's colour, the race's values hold all of it. The
+   other races barely change (their race values are small), nor does the player's body.
+2. **For you to judge, with the original game beside it:** Joe Cobb and Easy Pete. Our
+   pictures with and without the change are in `C:\fnv-private\references\race_facegen\`
+   (`sheet.png`: Joe Cobb, Sunny Smiles, Easy Pete; top row before, bottom row after).
+   - Joe Cobb: pale before, dark brown now.
+   - Easy Pete: his record's race is African American (old aged). He was pale grey-white
+     before and is a dark red-brown now, darker than Joe Cobb. If the original shows him
+     clearly lighter than that, the rule is too strong for him and I need to know.
+   - Sunny Smiles: no visible change (her record's race is Hispanic).
+
+   `--no-race-facegen` shows the old look for comparison.
+3. **Not changed: the face shape.** The data suggests the race's shape values are meant
+   to be added the same way, but I have nothing to check a face shape against. An
+   in-game picture of Joe Cobb's face from the front and from the side would settle it.
+4. **Added, off by default:** `--show-disabled-actors` draws the actors a script has not
+   enabled yet. Joe Cobb is one of them (hidden in the saloon until the story shows
+   him), so the pictures needed it.
