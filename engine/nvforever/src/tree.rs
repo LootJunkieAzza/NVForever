@@ -147,17 +147,10 @@ fn angular_speeds(rock: f32, rustle: f32) -> (f32, f32) {
     (tau * (0.2 + 0.6 * rock.max(0.0)), tau * (0.5 + 1.5 * rustle.max(0.0)))
 }
 
-/// Give every tree material the weather's wind (WTHR DATA wind speed / 255, faded with
-/// the weather; none indoors). Materials are only touched when the wind or the set of
-/// trees changes: a changed material is prepared again with every entity drawn with it,
-/// which every frame cost a third of the frame rate while cells streamed [observed].
-fn wind(
-    sky: Res<crate::sky::SkyState>,
-    cache: Res<TreeCache>,
-    mut leaves: ResMut<Assets<LeafMaterial>>,
-    mut bark: ResMut<Assets<BarkMaterial>>,
-    mut last: Local<(Vec4, usize)>,
-) {
+/// The weather's wind: xyz its direction (Bevy world space, horizontal, unit), w its
+/// strength 0-1 (WTHR DATA wind speed / 255, faded with the weather; none indoors). Also
+/// the grass's wind (grass.rs).
+pub fn wind_vector(sky: &crate::sky::SkyState) -> Vec4 {
     let speed = |w: &fnv_world::sky::Weather| w.wind_speed as f32 / 255.0;
     let now = speed(&sky.weather);
     let strength = match &sky.prev {
@@ -168,7 +161,20 @@ fn wind(
     let a = WIND_DIRECTION_DEG.to_radians();
     // Game (x, y, z) is Bevy (x, z, -y).
     // Steps of 1/1000 so a weather fade touches the materials a few hundred times at most.
-    let dir = Vec3::new(a.cos(), 0.0, -a.sin()).extend((strength * 1000.0).round() / 1000.0);
+    Vec3::new(a.cos(), 0.0, -a.sin()).extend((strength * 1000.0).round() / 1000.0)
+}
+
+/// Give every tree material the weather's wind ([`wind_vector`]). Materials are only touched when the wind or the set of
+/// trees changes: a changed material is prepared again with every entity drawn with it,
+/// which every frame cost a third of the frame rate while cells streamed [observed].
+fn wind(
+    sky: Res<crate::sky::SkyState>,
+    cache: Res<TreeCache>,
+    mut leaves: ResMut<Assets<LeafMaterial>>,
+    mut bark: ResMut<Assets<BarkMaterial>>,
+    mut last: Local<(Vec4, usize)>,
+) {
+    let dir = wind_vector(&sky);
     let built = cache.0.len();
     if *last == (dir, built) {
         return;

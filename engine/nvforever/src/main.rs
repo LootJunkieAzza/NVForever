@@ -16,6 +16,7 @@ mod fade;
 mod facegen;
 mod fly;
 mod furniture;
+mod grass;
 mod head_look;
 mod lights;
 mod limbs;
@@ -153,6 +154,27 @@ struct Args {
     /// from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
     #[arg(long, default_value_t = 16_000.0)]
     shadow_distance: f32,
+    /// Do not grow grass on the landscape (docs/spec-notes/grass.md).
+    #[arg(long)]
+    no_grass: bool,
+    /// Grass is drawn in full up to this distance in game units (the game's
+    /// fGrassStartFadeDistance; default the owner's INI value).
+    #[arg(long, default_value_t = 7000.0)]
+    grass_distance: f32,
+    /// Grass goes over this distance beyond --grass-distance (the game's fGrassFadeRange).
+    #[arg(long, default_value_t = 1000.0)]
+    grass_fade_range: f32,
+    /// Multiplier on every grass type's density (1: as the records say).
+    #[arg(long, default_value_t = 1.0)]
+    grass_density: f32,
+    /// Factors on the ambient light and on the sun's light for grass, "ambient,sun"
+    /// (docs/spec-notes/grass.md §5).
+    #[arg(long, default_value = "1.67,0.55")]
+    grass_light: String,
+    /// Edge of the squares that each get one candidate plant per grass type, in game units
+    /// (the game's iMinGrassSize; larger: sparser grass).
+    #[arg(long, default_value_t = 80.0)]
+    grass_min_size: f32,
     /// World units per terrain texture repeat [hypothesis; docs/design/layer3.md].
     #[arg(long, default_value_t = 4096.0 / 6.0)]
     terrain_tile: f32,
@@ -472,6 +494,9 @@ fn main() -> AppExit {
             None => return fail(format!("--fog {f}: expected near,far")),
         }
     }
+    let Some(grass_light) = parse_vec::<2>(&args.grass_light) else {
+        return fail(format!("--grass-light {}: expected ambient,sun", args.grass_light));
+    };
     let Some([w, h]) = args.size.split_once('x').and_then(|(w, h)| Some([w.parse::<u32>().ok()?, h.parse::<u32>().ok()?])) else {
         return fail(format!("--size {}: expected WxH", args.size));
     };
@@ -564,6 +589,13 @@ fn main() -> AppExit {
     )
     .add_plugins((ArchivePlugin(game), lights::LightsPlugin, emittance::EmittancePlugin, water::WaterPlugin, tree::TreePlugin, reflection::ReflectionPlugin, ripples::RipplesPlugin))
     .add_plugins((imagespace::ImageSpacePlugin, sky::SkyPlugin))
+    .add_plugins(grass::GrassPlugin(grass::GrassConfig {
+        enabled: !args.no_grass,
+        fade_start: args.grass_distance.max(0.0),
+        fade_range: args.grass_fade_range.max(0.0),
+        light: (grass_light[0].max(0.0), grass_light[1].max(0.0)),
+        generate: fnv_world::grass::GrassSettings { min_size: args.grass_min_size, density_scale: args.grass_density.max(0.0), ..Default::default() },
+    }))
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
@@ -680,6 +712,7 @@ fn main() -> AppExit {
                             clocks: (Res<Time<Virtual>>, Res<Time<Real>>),
                             streamer: Res<Streamer>,
                             lod: Res<lod::LodState>,
+                            grass: Res<grass::GrassCache>,
                             actors: Option<Res<actors::ActorWorld>>,
                             anim: Res<AnimCost>,
                             actor_anim: Res<locomotion::ActorAnimCost>,
@@ -697,6 +730,7 @@ fn main() -> AppExit {
                     t.0, streamer.stats.cells_loaded, streamer.loaded.len(), t.1, t.1 as f32 / t.0, baked, cached, streamer.stats.actors
                 );
                 info!("distant LOD at the end: {}", lod.describe());
+                info!("grass at the end: {}, {} generated in total in {:.0} ms", grass.describe(), grass.plants_generated, grass.build_ms);
                 info!(
                     "animation: up to {} clips playing at once, {:.3} ms per frame on average, {:.2} us per clip and frame",
                     anim.peak,
@@ -792,6 +826,7 @@ fn overlay(
     textures: Res<TextureCache>,
     sky: Res<sky::SkyState>,
     lod: Res<lod::LodState>,
+    grass: Res<grass::GrassCache>,
     cam: Query<&GlobalTransform, With<FlyCam>>,
     mut text: Query<&mut Text, With<Overlay>>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
@@ -803,14 +838,14 @@ fn overlay(
     t.0 = format!(
         "pos {:.0}, {:.0}, {:.0}  cell {},{}
 cells {} ({} loads, {:.0} ms total)  refs drawn {} (animated {})  disabled {}  not drawn {}  speedtree {}  no model {}  shapes {}
-models {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  {}  lights {}
+models {} (failed {})  textures failed {}  terrain layers {}  quadrants without base {}  water {}  {}  lights {}  {}
 {}
 {}",
         g.x, g.y, g.z, c.0, c.1,
         streamer.loaded.len(), s.cells_loaded, s.load_ms,
         s.refs_drawn, s.refs_animated, s.refs_skipped_disabled, s.refs_skipped_type, s.refs_speedtree, s.refs_no_model, s.shapes,
         models.len(), models.failures.len(), textures.failures.len(), terrain.layers, terrain.quadrants_without_base,
-        s.water_planes, lod.describe(), s.lights, sky.describe(),
+        s.water_planes, lod.describe(), s.lights, grass.describe(), sky.describe(),
         if play_state.is_some() { nvf_play::HELP } else { "WASD/QE move  Shift fast  right-drag look  wheel speed  [ ] hour  F12 screenshot  Esc quit" },
     );
 }

@@ -1119,3 +1119,46 @@ ours after; `saloon_before_after.png`: Sunny, Trudy, Joe Cobb, a settler;
    picture. `--no-race-facegen` shows the old faces for comparison.
 6. Your other request, the dogs' eyes, was done separately: the "Dog eyes" section
    above (#145).
+
+## Grass (2026-10-10, session "grass")
+
+Your request: grass that is not placed as objects but grows on certain ground textures,
+as in the base game. Branch `claude/grass`. Facts and open questions:
+`docs/spec-notes/grass.md`. Pictures: `C:\fnv-private\references\grass\`
+(`game_0800.jpg`, `game_1200.jpg`: your two screenshots; `sign_0800.png`,
+`sign_1200.png`: ours from the same spot and hours; `compare_game_left_ours_right.png`:
+the grass field cut out of all four).
+
+1. **Built:** each ground texture names up to three grass types, and the game data says
+   how dense each is, on what slopes and how near water it grows, and how much plants
+   vary in size and shade. The engine grows them on every loaded cell, moves them in the
+   wind and stops drawing them beyond the grass distance of your INI (7,000 units).
+   `--no-grass` turns it off; `--grass-density 0.5` halves it.
+2. **A rule I made up, for you to judge:** nothing public says how the game decides
+   where each plant stands, so the rule is mine. It uses your INI's values (spacing 80,
+   two types per texture) and puts the tall straw grass and the low sage in the same
+   places as your screenshots. Ours looks somewhat thicker than the game's; single
+   plants will not match the game's one for one. `--grass-density` is there if you want
+   it thinner, and I can change the default once you say how it looks to you.
+3. **Which two of three types:** most textures name three grass types and the game
+   grows two. I grow the first two listed; the game may pick differently.
+4. **Pixelated strands (your question about anti-aliasing): fixed.** Your game runs
+   with 8x anti-aliasing and transparency multisampling, which softens the cut-out edges
+   of each strand. Ours cut every strand with a hard test per pixel, which also ate the
+   thin strands at a distance, so plants looked half the size. Strands now end softly
+   and the plants are as full as the game's.
+5. **Too bright: fixed at noon.** Your first comparison was our noon against the game's
+   morning, which was most of it. With your hour-12 screenshot to measure against, our
+   grass was still 10 % too bright and too orange, because it was lit exactly like the
+   ground. The game's grass takes more of the bluish sky light and less of the warm sun.
+   Ours now does the same and matches the game's colour at noon to within a few percent.
+6. **Still different at hour 8:** our whole scene is about 15 % brighter than the game's
+   there, ground and grass alike, and we draw sun shadows the game does not. That is the
+   scene's morning light, which this branch does not touch.
+7. **Not matched:** the low sage plants are browner and darker than the game's
+   grey-green ones. I do not know why yet.
+8. **Ground textures (your other request):** found and fixed by a separate task, pull
+   request #150 (branch `claude/terrain-quality`): the ground textures were stretched to
+   2.7 times their size in the game and had no surface relief (normal maps). The game's
+   ground still shows stronger relief than ours after the fix; that remainder is lighting
+   or shine on the terrain and is not done.
