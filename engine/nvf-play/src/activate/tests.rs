@@ -137,7 +137,7 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .init_resource::<crate::bindings::Bindings>()
         .init_resource::<Target>()
         .init_resource::<HudMessage>()
-        .add_message::<Travel>()
+        .add_message::<TravelRequest>()
         .add_message::<OpenContainer>()
         .add_message::<RefChanged>()
         .add_systems(Update, (find_target, activate, sync_visuals).chain());
@@ -234,7 +234,7 @@ fn a_door_sends_travel_and_a_locked_chest_a_message() {
     app.update();
     assert_eq!(target(&app), Some((DOOR_REF, Source::Collision)));
     press_e(&mut app);
-    let t = drain::<Travel>(&mut app);
+    let t: Vec<Travel> = drain::<TravelRequest>(&mut app).into_iter().map(|r| r.0).collect();
     assert_eq!(t.len(), 1);
     assert_eq!((t[0].interior, t[0].feet, t[0].heading_deg), (Some(CELL_INT), [10.0, 20.0, 30.0], 90.0));
     let p = app.world().resource::<SimState>().world.peek(FormId::PLAYER_REF).unwrap().clone();
