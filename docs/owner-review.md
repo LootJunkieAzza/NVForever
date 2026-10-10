@@ -1117,3 +1117,22 @@ Facts and the survey: docs/spec-notes/nif.md §6 "Multiply blend", actors.md §1
    (for example the rust under the pipes of the utility halls) flicker against the wall
    they lie on, because they are drawn in the same plane without the decal offset their
    flags ask for.
+
+## See-through corn (2026-10-10, session "skull cap", your screenshot at Goodsprings)
+
+Facts: docs/spec-notes/nif.md §6 "Alpha" (last paragraph), world.md "Texture layers".
+
+1. **Fixed, cause:** the ground's texture layers are drawn as see-through sheets over
+   the base ground. The corn *rows* (the merged models, not the single plants) are also
+   drawn see-through, with soft leaf edges, and such models leave no depth behind. So
+   whenever the ground piece behind a row counted as nearer than the row, its layers
+   were painted on top of the corn. That made the near row faint and hid the row behind
+   it completely. Ground layers are now always drawn before any other see-through
+   model. Checked from your position: both rows are solid, and the ground is unchanged.
+2. **Wider than corn:** the same fault could fade any see-through model seen against
+   the ground (dirty glass, some signs). They get the fix too. I did not go looking for
+   other cases.
+3. **Left as it is:** the rows stay soft-edged (blended) while the single plants are
+   hard-edged (cut out), because the merged models store a cut-off of 0 where the single
+   plant stores 124. If the rows look different from the single plants in the game in a
+   way that matters, say so and I will draw the rows cut out as well.

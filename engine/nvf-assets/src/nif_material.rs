@@ -81,7 +81,37 @@ impl MaterialExtension for NifSurface {
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         fade_prepass(descriptor, key.mesh_key);
+        // StandardMaterial has set the rasteriser's bias from the material's depth bias.
+        if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
+            depth_stencil.bias.constant = raster_bias(depth_stencil.bias.constant);
+        }
         Ok(())
+    }
+}
+
+/// Sort-only part of the depth bias of blended meshes that are drawn before every other
+/// blended mesh of the world ([`sort_first`]). Bevy sorts blended meshes by view distance
+/// plus the material's depth bias, ascending, and draws them in that order
+/// [documented: bevy_core_pipeline 0.19 Transparent3d]; the sky uses −1e6 (nvforever
+/// `sky.rs`), so these come after the sky and before the rest.
+pub const SORT_FIRST_BIAS: f32 = -5.0e5;
+
+/// The material depth bias of a blended mesh that lies on an opaque surface and is drawn
+/// before every other blended mesh, with `bias` as its bias in the depth buffer (terrain
+/// texture layers). Blended meshes write no depth: one drawn before such a layer would be
+/// painted over by it wherever the layer sorts as the nearer of the two.
+pub fn sort_first(bias: f32) -> f32 {
+    SORT_FIRST_BIAS + bias
+}
+
+/// The rasteriser's depth bias for a material depth bias: Bevy uses one number for the
+/// draw order and for the depth buffer, so the sort-only part of [`sort_first`] is taken
+/// out again.
+pub fn raster_bias(constant: i32) -> i32 {
+    if constant <= (SORT_FIRST_BIAS / 2.0) as i32 {
+        constant - SORT_FIRST_BIAS as i32
+    } else {
+        constant
     }
 }
 
@@ -185,6 +215,25 @@ mod tests {
         // The default parameters keep full opacity at every angle.
         for c in [0.0, 0.5, 1.0] {
             assert_eq!(Falloff::NONE.opacity(c), 1.0);
+        }
+    }
+
+    #[test]
+    fn sort_first_bias() {
+        // Terrain layers: drawn before a blended mesh thousands of units farther away
+        // (Bevy sorts by distance + bias, ascending), in rank order among themselves, and
+        // with their plain bias in the depth buffer.
+        for rank in 0..8 {
+            let bias = 2.0 * (rank as f32 + 1.0);
+            let m = sort_first(bias);
+            assert!(m + 400_000.0 < 0.0);
+            assert!(m > -1.0e6 + 100.0, "after the sky");
+            assert!(sort_first(bias + 2.0) > m);
+            assert_eq!(raster_bias(m as i32), bias as i32);
+        }
+        // Other materials keep their bias (LOD meshes use −50).
+        for b in [0, 2, 16, -50, -1000] {
+            assert_eq!(raster_bias(b), b);
         }
     }
 
