@@ -5,10 +5,14 @@
 //!   docs/spec-notes/nif.md §6 "Emissive light"];
 //! - the view-angle falloff of BSShaderNoLightingProperty scales the alpha, so light
 //!   beams, glows, force fields and dust sheets fade where they turn edge-on to the camera
-//!   (docs/spec-notes/nif.md §6, "View-angle falloff").
+//!   (docs/spec-notes/nif.md §6, "View-angle falloff");
+//! - the colour of a multiply-blended shape (tinted glass, shadow overlays) is a factor on
+//!   what lies behind it: its lit colour and emissive light are summed in display values
+//!   and held to 0..1, without fog or tonemapping ([`multiply_factor`],
+//!   docs/spec-notes/nif.md §6, "Multiply blend").
 //!
-//! Shapes with a black emissive colour and no falloff render exactly as with
-//! StandardMaterial.
+//! Opaque, alpha-tested and alpha-blended shapes with a black emissive colour and no
+//! falloff render exactly as with StandardMaterial.
 //!
 //! Crossfades: meshes with a crossfading `VisibilityRange` (the streamed cells' fade in
 //! and out, nvforever `fade.rs`) are dithered in every pass. Bevy's depth-only prepass
@@ -121,6 +125,32 @@ impl Falloff {
     }
 }
 
+/// Display gamma of [`multiply_factor`] and [`multiply_emissive`]: a plain power law, so a
+/// product of display values is the product of the linear values.
+pub const MULTIPLY_GAMMA: f32 = 2.2;
+
+/// The factor a multiply-blended shape (NiAlphaProperty source factor ZERO, destination
+/// factor SRC_COLOR: result = destination × source colour [documented: nif.xml
+/// AlphaFlags]) puts on what lies behind it, for the shape's lit colour and emissive
+/// light, both linear (CPU mirror of nif_material.wgsl).
+///
+/// The game's shader output is taken as texture × (light + emissive colour × emissive
+/// multiplier) in display values, held to 0..1 when written to the frame [hypothesis,
+/// docs/spec-notes/nif.md §6 "Multiply blend"]. So both parts are summed as display
+/// values and the sum is limited: a multiply can only darken.
+pub fn multiply_factor(lit: Vec3, emissive: Vec3) -> Vec3 {
+    let display = lit.max(Vec3::ZERO).powf(1.0 / MULTIPLY_GAMMA) + emissive.max(Vec3::ZERO).powf(1.0 / MULTIPLY_GAMMA);
+    display.clamp(Vec3::ZERO, Vec3::ONE).powf(MULTIPLY_GAMMA)
+}
+
+/// The linear emissive light of a multiply-blended shape for a NiMaterialProperty emissive
+/// colour × multiplier `value`: `value` raised to the display gamma. The shader multiplies
+/// it by the linear texture colour, and [`multiply_factor`] takes the product back to
+/// display values, which gives texture (display) × `value`, the game's term [hypothesis].
+pub fn multiply_emissive(value: f32) -> f32 {
+    value.max(0.0).powf(MULTIPLY_GAMMA)
+}
+
 pub struct NifMaterialPlugin;
 
 impl Plugin for NifMaterialPlugin {
@@ -156,5 +186,31 @@ mod tests {
         for c in [0.0, 0.5, 1.0] {
             assert_eq!(Falloff::NONE.opacity(c), 1.0);
         }
+    }
+
+    #[test]
+    fn multiply_blend_factor() {
+        let display = |v: Vec3| v.powf(1.0 / MULTIPLY_GAMMA);
+        let close = |a: Vec3, b: [f32; 3]| (a - Vec3::from_array(b)).abs().max_element() < 0.005;
+        // Rex's skull cap (rex_skullcap.nif `##SkullCap:0`): a flat texture of sRGB
+        // (49, 87, 117), emissive colour 0.19 × multiplier 12. In the dark it leaves what
+        // lies behind at texture × 2.28 in display values, blue held at 1: a light blue
+        // glass, not black.
+        let texture = Vec3::new(49.0, 87.0, 117.0) / 255.0;
+        let emissive = texture.powf(MULTIPLY_GAMMA) * multiply_emissive(0.190_283_18 * 12.0);
+        assert!(close(display(multiply_factor(Vec3::ZERO, emissive)), [0.439, 0.779, 1.0]));
+        // Light on the cap adds in display values and cannot pass 1.
+        let lit = Vec3::splat(0.25f32.powf(MULTIPLY_GAMMA));
+        assert!(close(display(multiply_factor(lit, emissive)), [0.689, 1.0, 1.0]));
+        // Without emissive light the factor is the shape's colour: an unlit shadow overlay
+        // darkens by its vertex colour, white changes nothing and black hides.
+        assert!(close(multiply_factor(Vec3::splat(0.5), Vec3::ZERO), [0.5; 3]));
+        assert!(close(multiply_factor(Vec3::ONE, Vec3::ZERO), [1.0; 3]));
+        assert!(close(multiply_factor(Vec3::splat(4.0), Vec3::ZERO), [1.0; 3]));
+        assert!(close(multiply_factor(Vec3::ZERO, Vec3::ZERO), [0.0; 3]));
+        // An emissive value of 1 is 1 in both spaces; larger ones grow by the gamma.
+        assert_eq!(multiply_emissive(1.0), 1.0);
+        assert!((multiply_emissive(2.0) - 2f32.powf(2.2)).abs() < 1e-6);
+        assert_eq!(multiply_emissive(-1.0), 0.0);
     }
 }
