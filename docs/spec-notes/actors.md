@@ -426,6 +426,47 @@ The CLAUDE.md moving-camera smoke test (`--cell Goodsprings --auto-fly 4000
   with `KF_BENCH=1`, 20,000 poses).
 - No per-frame allocation in sampling (§7.3).
 
+### 7.6 The head and neck bones, and the head tracking data (dialogue look)
+
+What `nvforever` relies on to turn an actor's head to the player in a conversation
+(docs/design/dialogue-play.md §8; `engine/nvforever/src/dialogue_look.rs`), 2026-10-10:
+
+- **The chain.** In `characters\_male\skeleton.nif` the head hangs from two neck bones:
+  `Bip01 Neck` → `Bip01 Neck1` → `Bip01 Head` [observed: the engine walks up from the
+  head through its parents whose names contain "Neck" and logs the chain:
+  `dialogue look: … on Bip01 Neck, Bip01 Neck1, Bip01 Head`].
+- **Axes.** In the bind pose an actor faces +y of its own space with z up (its root is
+  turned about z by its reference's heading, §3) [observed: actors face their
+  reference's heading]. The head bone's own "forward" and "up" are therefore read from
+  its bind-pose rotation (the inverse of it applied to +y and +z), with no assumption
+  about how the bone's axes are named. A head turned with these axes looks at the
+  player's eye in the screenshots, level [observed].
+- **Body part data.** `DefaultBodyPartData` (BPTD 0x0000001D, model
+  `Characters\_Male\skeleton.NIF`) has six parts. Its `Head` part: part node `Bip01
+  Neck1`, VATS target `Bip01 Head`, IK start node (`BPNI`) `Bip01 Head`; flags
+  Severable, IK Data, Explodable, IK Data - Is Head, IK Data - Headtracking; Tracking
+  Max Angle 60.0. The other five parts (torso, arms, legs) have Tracking Max Angle 0;
+  the two leg parts carry IK Data - Biped Data [observed: `fnvtool esm decode --edid
+  DefaultBodyPartData` on FalloutNV.esm]. The fields' meanings: "Headtracking": the head
+  will turn towards its target; "Tracking Max Angle": the largest angle the actor will
+  turn its head to look at something; "Start Node": the base node of the part in the
+  skeleton [documented: GECK wiki "Body Part", owner export]. [hypothesis: the angle is
+  in degrees and is the largest turn to either side; whether the original turns only
+  the start node or spreads the turn over the neck is not known.]
+- **The `HeadTrack` float.** The human idle's `NiFloatExtraDataController` on `Bip01
+  Head` (§7.1) fits what the wiki says of skeletons: a float extra data named
+  `HeadTrack` marks the bone animated for head tracking, and a clip can animate that
+  float through such a controller [documented: GECK wiki "NIF Block Types" and "NIF
+  Animation Controllers", owner export]. [hypothesis: the idle's track is that float,
+  and a clip uses it to weaken or switch off head tracking while it plays.] Not played.
+- **What follows a turned head** [observed: screenshots of Easy Pete and Sunny Smiles,
+  the head at up to 60° to a side]: the skinned head and neck (no gap at the collar),
+  the rigid parts under `Bip01 Head` (hair, eyes, beard, hat), and the face while its
+  lip sync runs (the morphed mesh is skinned like the mesh it replaces).
+- **Turn clips.** `locomotion\mtturnleft.kf` and `mtturnright.kf` (§8.1) play while a
+  standing actor's body is turned on the spot to the player, through
+  `Locomotion::turn` as for the walk test and travellers.
+
 ## 8. Locomotion playback (part G)
 
 `nvforever` plays an actor's idle, walk, run and turn clips according to its velocity and
@@ -636,7 +677,8 @@ the Prospector Saloon porch, Goodsprings [observed]:
   (animation.md §3.2). Sneak and swim sets sit directly in `characters\_male\`
   (`sneakmt*`, `swimmt*`) and would need `clip_candidates` to look there too.
 - **Turn speed**: turn clips carry no root rotation (§8.2); the game's turn speed and
-  whether it scales the turn clip's rate are open. The walk test turns at 90°/s.
+  whether it scales the turn clip's rate are open. The walk test turns at 90°/s; actors
+  turning on the spot turn at 120°/s (§8.9).
 - **Ground following**: the walk test moves in the placement's plane; a real mover needs
   the ground height (Layer 4 physics) per step.
 - **`nvf-viewer --anim`** (done 2026-10-09): the viewer's single-clip player
@@ -646,6 +688,59 @@ the Prospector Saloon porch, Goodsprings [observed]:
   too. World objects' clips keep their travel.
 - **Creatures (part D)**: done for the idle (§10.3); creature walk and turn clips are
   not surveyed and not played.
+
+### 8.9 Turning on the spot
+
+Added 2026-10-10. The turn clips were already chosen for a standing actor that turns
+(§8.3), but nothing made an actor stand and turn: travellers swung to their path's
+direction at 720°/s while already walking, so `mtturnleft.kf` and `mtturnright.kf` played
+only in the walk test and on the player's body. All rules here are engine choices
+[design]; none is a measured game value.
+
+- **What the data says.** The turn clips are 1 s loops with no accumulation-root track
+  and a pelvis (`Bip01 NonAccum`) that stays at yaw 90° and between 64.0 and 66.9 units
+  up for the whole loop; text keys `Blend: 3`, `Enum: Left` at 0.5 s and
+  `Enum: Right` at 0.93 s in `mtturnleft.kf`, `Enum: Left` at 0.37 s in `mtturnright.kf`
+  [observed: `fnvtool actor locomotion --samples 9`, owner's install, 2026-10-10]. So
+  the clip holds no turn angle or speed (§8.2). `FalloutNV.esm` has no game setting
+  whose Editor ID contains "turn", and only `fVATSTargetRotateMult` with "rotat"
+  [observed: `fnvtool esm inventory`]; the speed is not in the plugin data.
+- **Turn speed**: 120°/s standing (`fnv_nav::follow::SPOT_TURN_RATE`) [design: half a
+  turn in 1.5 s, three footfalls]. The clip plays at rate 1 whatever the angle. The AI
+  observer captures record each actor's heading per sample (ai-observer.md), so a
+  capture of an NPC turning to a new package target could replace this number [open].
+- **Before walking** (`fnv_nav::Walker`): a walker that stands (it did not move in its
+  last update: at the start of a path, after waiting at a door, after arriving through a
+  teleport door) and whose way lies more than 20° off its heading
+  (`SPOT_TURN_START`) turns on the spot until it faces the way, then sets off; its
+  updates return `WalkEvent::Turned` meanwhile. Smaller differences, and every corner
+  met while walking, are steered at the walking turn rate as before (720°/s). The feet
+  do not move during the turn, so path following is unchanged; a trip takes up to 1.5 s
+  longer per standing start.
+- **Standing with nowhere to go**: `Walker::face(heading, dt)` turns a walker-moved
+  actor (travellers; the AI packages' agents) towards a compass heading at the same
+  speed and says when it faces it. For an actor nothing else moves, the component
+  `TurnTo { heading }` on its root (`engine/nvforever/src/locomotion.rs`) does the
+  same: the system `turn_to` turns the root about z, sets `Locomotion::turn` so the turn
+  clip plays, and removes the component when the actor faces the heading (a component
+  taken away mid-turn stops the turn). Headings are compass headings in game space
+  (0 = +y north, π/2 = +x east), as `Walker::heading`. The conversation partner's body
+  turn (`engine/nvforever/src/dialogue_look.rs`, `BodyTurn`) is separate: it eases its
+  own turn and sets `Locomotion::turn` itself; `TurnTo` is for turns at a steady speed.
+- **Clip choice** is §8.3's, unchanged: both movers give the actor zero velocity and a
+  turn rate of ±120°/s, above the 15°/s threshold; the turn clip fades in over its
+  `Blend: 3` (0.1 s) and the idle or walk that follows over its own blend time.
+- **Test aid `--actor-turn-test <radius>`**: standing NPCs within `<radius>` game units
+  of the camera get a `TurnTo` towards it whenever it is more than 20° off their
+  heading. On exit the log says `turn test: N turns on the spot begun, M finished, D
+  degrees in all`. Not with `--actor-walk-test`; `--npc-travel` travellers are turned by
+  their walker, which overrides it. The `--run-seconds` summary gains the line `actor
+  turns: N actor frames playing a turn-on-the-spot clip`.
+- **Not done**: weapon-stance turn clips (`1hpturnleft.kf`, …; the player's body picks
+  them, `fnv_actor::player_clips::turn_clips`, NPCs play `mt` only); creature turns
+  (§10.3: their turn clips sit in the skeleton's folder and are found by
+  `clip_candidates`, not checked on screen); scaling the clip's rate with the turn
+  speed; an actor facing its target on arrival (left to AI packages).
 
 ## 9. Weapons: holstering and drawing (part H)
 
@@ -1153,9 +1248,22 @@ turn is made against (§12.3): yaw to either side of straight ahead, pitch up an
 
 ### 12.6 Open
 
-- **Conversations** (dialogue step D7, another session): the speaker's head should be
-  driven through `LookOverride(LookAt::Player)`. Two systems writing the head bone
-  after `locomotion::drive` would turn it twice.
+- **Conversations** (dialogue step D7, `engine/nvforever/src/dialogue_look.rs`, merged
+  2026-10-10): a conversation turns its actor's head itself, and head tracking hands the
+  head over so the two never write the same bones. While `dialogue_look::Looks` holds
+  the actor (facing the player, or easing back) `track` leaves it alone and forgets its
+  own turn; it runs after `turn_speaker`. A head that tracking already had on the
+  player starts the conversation fully turned (weight 1) instead of easing in from the
+  animation, and `HeadLook::animated` gives the conversation the animation's rotation of
+  a bone tracking wrote and no clip posed since [design]. Checked 2026-10-10: Easy Pete
+  with the player 53° off his front (`NVF_PLAY_TEST_TALK`, head only): head on the
+  player before the talk, still on the player 0.15 s into it and during the line, one
+  turn and no kink at the neck (screenshots kept privately). Rough edges: after the
+  conversation the head eases back to the animation and then tracking turns it to the
+  player again; a head mid-turn when the talk starts jumps to the full turn; the two
+  systems' limits and bone chains differ (the conversation also turns `Bip01 Neck`, which
+  the clavicles hang from, §12.3). One system driving the head through
+  `LookOverride(LookAt::Player)` would remove all three [open].
 - Sitting, sleeping and other furniture poses: nothing marks such actors yet;
   `NoHeadLook` is there for it. The frame of §12.3 keeps the limits sensible in such a
   pose, but that is not checked.

@@ -9,7 +9,9 @@ paths, sound lengths, playback in `--play`; docs/spec-notes/voice.md) and **D4 d
 docs/design/dialogue-play.md; playing it by hand is the owner's) and **D6 done**
 (branch `claude/dialogue-lip`: lip sync — the `.lip` files decoded, the face morphs
 of the `.tri` files, a speaker's mouth, lids and brows moving with the voice in
-`--play`; docs/spec-notes/lipsync.md); D5 open. Owner request 2026-10-10: "now that quests have been done are we
+`--play`; docs/spec-notes/lipsync.md) and **D7 done** (branch `claude/dialogue-facing`:
+in a conversation the actor turns its head, and standing its body, to the player and
+the player's view turns to the actor's face; docs/design/dialogue-play.md §8); D5 open. Owner request 2026-10-10: "now that quests have been done are we
 able to work on dialogue lines".
 
 Where it sits: dialogue is Layer 6 (README; layer5.md §1 lists it with AI packages and
@@ -148,6 +150,8 @@ lab can run it headless.
 | D5 | In-game captures for §6, then `L6.dialogue.*` scenarios with blind holdouts | capture time on the owner's desktop | lab |
 | D6 | Lip sync (owner request 2026-10-10: "apply the .LIP files to the spoken lines"): the `.lip` format from the files, a reader, the `.tri` face morphs, the speaker's face moving with the voice in `--play` | D3 | every `.lip` decodes without residue and packs back byte for byte; the consonant channels follow the letters of the text; screenshots of a speaker mid-line |
 
+| D7 | Facing each other (owner request 2026-10-10: "i need the player and npc that are talking to each other to look at each other", for conversations, not for lines an NPC just says): the actor's head and body, the player's view | D4, D6 | screenshots before, during and after a conversation approached from the side and from behind, also from outside; the intro: no facing on SayTo lines, facing in both conversations |
+
 D1+D2 are one workstream and D3 another; they run in parallel. D4 follows D2. D5 needs
 the original game running on the owner's desktop and waits for the owner to say when.
 
@@ -182,8 +186,9 @@ the dialogue menu are the fallback.
 
 Facial emotion (the emotion fields are read into the data but not used; lip sync
 itself became step D6, docs/spec-notes/lipsync.md, whose §6 lists what it leaves out:
-head turns and eye movement while talking, expressions, blinking outside speech), the
-dialogue camera, barter and repair services, companion wheels,
+the head turns and eye movement a `.lip` file asks for, expressions, blinking outside
+speech; the actor turning to the player became step D7, docs/design/dialogue-play.md
+§8), the dialogue camera (the zoom on the speaker; dialogue-play.md §8.5), barter and repair services, companion wheels,
 radio stations, random conversations between NPCs and combat barks. The last three need
 AI packages and detection.
 
@@ -208,6 +213,13 @@ everything a script can see.
 - **Looking**: the player looks around freely with the mouse while the actor speaks;
   while choices are offered the cursor is free for clicking and the view holds
   [owner decision 2026-10-10: "go with the first option"].
+- **Facing each other** (step D7) is presentation: the actor turning to the player and
+  the view turning to the actor run while game logic is held. The view turns to the
+  actor when the conversation starts and is the player's own after that [owner decision
+  2026-10-10; `--dialogue-recentre` brings it back onto the actor each time the choices
+  appear]. With `original` the turns are completed at once, so
+  the frozen picture shows the two facing each other; the Esc pause menu holds them
+  like everything else (docs/design/dialogue-play.md §8.3).
 - **One switch for all menus** [owner decision 2026-10-10: "add the pause switch to all
   menus except the actual ESC pause menu"]: `nvforever --play --menu-pause
   living|original`, default `living` (`--dialogue-pause` is the old name and still

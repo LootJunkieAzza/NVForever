@@ -160,6 +160,14 @@ impl HeadLook {
         self.shown
     }
 
+    /// The rotation the animation gave skeleton node `node`, which has `now`: `now`,
+    /// unless it is a bone this state wrote last frame and nothing posed since. For a
+    /// system that takes the head over (`dialogue_look.rs`).
+    pub fn animated(&self, node: usize, now: Quat) -> Quat {
+        let k = self.rig.as_ref().and_then(|h| h.chain.iter().position(|&i| i == node));
+        k.map_or(now, |k| animated_rotation(now, self.written[k]))
+    }
+
     fn holds_bones(&self) -> bool {
         self.written.iter().any(Option::is_some)
     }
@@ -202,7 +210,9 @@ impl Plugin for HeadLookPlugin {
         // player's body gave this frame's eye); transforms are propagated in PostUpdate.
         app.insert_resource(HeadLookSettings { camera_is_player: self.camera_is_player, force_point: self.force_point })
             .init_resource::<HeadLookStats>()
-            .add_systems(Update, (attach, track).chain().after(crate::locomotion::drive).after(nvf_play::player::BodySet))
+            // After a conversation has turned its actor (dialogue_look.rs), whose head is
+            // left to it.
+            .add_systems(Update, (attach, track).chain().after(crate::locomotion::drive).after(nvf_play::player::BodySet).after(crate::dialogue_look::turn_speaker))
             .add_systems(Last, report);
         if self.force_point.is_some() {
             app.add_systems(Update, force_point.before(track));
@@ -457,6 +467,7 @@ fn track(
     settings: Res<HeadLookSettings>,
     player: Option<Res<Player>>,
     script: Option<Res<ScriptState>>,
+    talk: Option<Res<crate::dialogue_look::Looks>>,
     camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
     mut actors: Query<Looker>,
     globals: Query<&GlobalTransform>,
@@ -494,6 +505,14 @@ fn track(
         let look = &mut *look;
         if !alive(rig, vis, dying, corpse) {
             // Dead or hidden: the death pose or the ragdoll owns the bones now.
+            look.ease.reset();
+            (look.target, look.chosen, look.side) = (None, None, None);
+            look.written = [None; MAX_CHAIN];
+            continue;
+        }
+        if talk.as_ref().is_some_and(|t| t.turns_head(rig.reference)) {
+            // A conversation turns this head itself, from where it was (dialogue_look.rs
+            // wrote the bones this frame): hands off, and from the animation again after.
             look.ease.reset();
             (look.target, look.chosen, look.side) = (None, None, None);
             look.written = [None; MAX_CHAIN];
