@@ -1262,7 +1262,7 @@ turn is made against (§12.3): yaw to either side of straight ahead, pitch up an
   conversation the head eases back to the animation and then tracking turns it to the
   player again; a head mid-turn when the talk starts jumps to the full turn; the two
   systems' limits and bone chains differ (the conversation also turns `Bip01 Neck`, which
-  the clavicles hang from, §12.3). One system driving the head through
+  the clavicles hang from, §12.1). One system driving the head through
   `LookOverride(LookAt::Player)` would remove all three [open].
 - Sitting, sleeping and other furniture poses: nothing marks such actors yet;
   `NoHeadLook` is there for it. The frame of §12.3 keeps the limits sensible in such a
