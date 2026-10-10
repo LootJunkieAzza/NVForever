@@ -23,7 +23,9 @@
 //! - Creatures (actors.md §10.2) use the same assembly with one difference for unskinned
 //!   shapes ([`PartUse::by_ancestor`]): such a shape hangs from its nearest ancestor in
 //!   the part file whose name is a node of the skeleton, keeping the transforms below
-//!   that ancestor; else from the part's `Prn`; else from the skeleton's root.
+//!   that ancestor; else from the part's `Prn`, as an ordinary child on every bone (the
+//!   head rule above is for NPC head parts: under it a dog's eyes sit on one side of its
+//!   head); else from the skeleton's root.
 
 use crate::anim_play::{BlendPlayer, BoundClip, Clip};
 use crate::data::GameData;
@@ -104,6 +106,21 @@ impl PartShape {
 pub fn texture_targets(shapes: &[(bool, bool)]) -> Vec<bool> {
     let any_skin = shapes.iter().any(|&(cap, skin)| !cap && skin);
     shapes.iter().map(|&(cap, skin)| !cap && (skin || !any_skin)).collect()
+}
+
+/// The normal map a shape takes when its diffuse is replaced by `texture`, or `None` to
+/// keep the one its model names: for a skin shape, the file beside `texture` named with
+/// `_n` ([`fnv_vfs::normal_map_beside`]) when `exists` finds it (asked with the VFS
+/// path). The race part models and the worn models name the adult human's skin maps
+/// (every head model names `characters\male\headhuman_n.dds`) while each kind of skin
+/// has its own beside its diffuse, most of them named by no mesh. Shapes that are not
+/// skin keep theirs: eye textures have no such file, the mouth, teeth and tongue ones a
+/// 1 × 1 stand-in where the models name a flat map, and for hair the files do not show
+/// which map the game uses [observed: `crates/fnv-nif/examples/texture_refs.rs`;
+/// hypothesis for the rule, docs/spec-notes/actors.md §3.1 "Normal maps"].
+pub fn skin_normal_map(skin: bool, texture: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+    let normal = fnv_vfs::normal_map_beside(texture).filter(|_| skin)?;
+    exists(&fnv_vfs::texture_path(&normal)).then_some(normal)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -252,7 +269,8 @@ impl ActorCtx<'_, '_> {
     }
 
     /// The material of shape `i` of the part at `path` with its base texture replaced by
-    /// `texture` (a texture path; cached).
+    /// `texture` (a texture path; cached). A skin shape also takes the normal map that
+    /// lies beside `texture` ([`skin_normal_map`]).
     pub fn material_with_texture(&mut self, path: &str, part: &PreparedPart, i: usize, texture: &str) -> Handle<NifMaterial> {
         let key = (fnv_vfs::normalize(path), i, fnv_vfs::normalize(texture));
         if let Some(m) = self.cache.materials.get(&key) {
@@ -264,6 +282,13 @@ impl ActorCtx<'_, '_> {
             props.textures.push(String::new());
         }
         props.textures[0] = texture.to_string();
+        let vfs = &self.models.data.vfs;
+        if let Some(normal) = skin_normal_map(s.is_skin(), texture, |p| vfs.exists(p)) {
+            if props.textures.len() < 2 {
+                props.textures.push(String::new());
+            }
+            props.textures[1] = normal;
+        }
         let mut mesh = (*s.cpu).clone();
         let m = &mut *self.models;
         let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
@@ -427,8 +452,11 @@ pub fn rigid_local(skel: &PreparedSkeleton, b: usize, root: &Affine3A, shape: &A
 
 /// Where an unskinned creature shape hangs (actors.md §10.2): the skeleton node of its
 /// nearest ancestor whose name the skeleton has, with the transforms below that
-/// ancestor; else the part's `Prn` bone (as for NPC parts, [`rigid_local`]); else the
-/// skeleton's root with the whole transform below the part's root.
+/// ancestor; else the part's `Prn` bone, as an ordinary child with the part's root
+/// transform kept (root ∘ shape) whichever bone it is, `Bip01 Head` included: the NPC
+/// head rule of [`rigid_local`] does not hold for creatures [observed: dog eyes and
+/// skull caps, the Protectron's dome and hat]; else the skeleton's root with the whole
+/// transform below the part's root.
 pub fn creature_rigid_attach(skel: &PreparedSkeleton, part: &PreparedPart, s: &PartShape) -> (usize, Affine3A) {
     let mut below = s.own;
     for (name, t) in &s.ancestors {
@@ -438,7 +466,7 @@ pub fn creature_rigid_attach(skel: &PreparedSkeleton, part: &PreparedPart, s: &P
         below = *t * below;
     }
     match part.prn.as_ref().and_then(|n| skel.by_name.get(n)) {
-        Some(&b) => (b, rigid_local(skel, b, &part.root, &s.transform)),
+        Some(&b) => (b, part.root * s.transform),
         None => (0, s.transform),
     }
 }
@@ -566,6 +594,20 @@ mod tests {
     }
 
     #[test]
+    fn a_skin_shape_takes_the_normal_map_beside_its_new_texture() {
+        let archive = ["textures\\characters\\ghoul\\upperbodymale_n.dds", "textures\\characters\\mouth\\mouthhuman_n.dds"];
+        let exists = |p: &str| archive.contains(&p);
+        // As an ICON gives it (no `textures\` in front, mixed case): found by its VFS path,
+        // returned as written.
+        assert_eq!(skin_normal_map(true, "Characters\\Ghoul\\UpperBodyMale.dds", exists).as_deref(), Some("Characters\\Ghoul\\UpperBodyMale_n.dds"));
+        // No such file: the model's own normal map stays.
+        assert_eq!(skin_normal_map(true, "characters\\ghoul\\handmale.dds", exists), None);
+        // Not a skin shape (mouth, eyes, hair): the model's own stays even when the file exists.
+        assert_eq!(skin_normal_map(false, "characters\\mouth\\mouthhuman.dds", exists), None);
+        assert_eq!(skin_normal_map(true, "", exists), None);
+    }
+
+    #[test]
     fn creature_rigid_shapes_hang_from_their_nearest_skeleton_ancestor() {
         let skel = PreparedSkeleton {
             by_name: HashMap::from([("Bip01 Head".to_string(), 3)]),
@@ -587,7 +629,7 @@ mod tests {
             ancestors,
             own,
         };
-        let part = PreparedPart::default();
+        let mut part = PreparedPart::default();
         // Screen01 (not a bone) under the part's copy of Bip01 Head: hangs from the head
         // with Screen01's transform kept.
         let shape = s(vec![(Some("Screen01".into()), screen), (Some("Bip01 Head".into()), head_copy)]);
@@ -599,6 +641,57 @@ mod tests {
         let (b, local) = creature_rigid_attach(&skel, &part, &shape);
         assert_eq!(b, 0);
         assert!((Vec3::from(local.translation) - Vec3::new(1.0, 5.0, 0.0)).length() < 1e-5);
+        // No such ancestor but a `Prn`: that bone, with the part's root transform kept.
+        part.prn = Some("Bip01 Head".into());
+        part.root = Affine3A::from_translation(Vec3::new(0.0, 0.0, 7.0));
+        let (b, local) = creature_rigid_attach(&skel, &part, &shape);
+        assert_eq!(b, 3);
+        assert!((Vec3::from(local.translation) - Vec3::new(1.0, 5.0, 7.0)).length() < 1e-5);
+    }
+
+    #[test]
+    fn creature_parts_on_the_head_are_plain_children() {
+        // A dog's head bone: its x axis runs up and forward along the skull, its z axis
+        // to the dog's left (-x of the skeleton; the dog faces +y). The eye model's root
+        // is a half turn about an axis in the bone's xy plane; it is neither the identity
+        // nor the inverse of the bone's rotation, so the NPC head rule would put both
+        // eyes on one side of the head (actors.md §10.2).
+        let (c, s) = (0.4, 0.9165);
+        let rot = Mat3::from_cols(Vec3::new(0.0, c, s), Vec3::new(0.0, s, -c), -Vec3::X);
+        let bone = Affine3A::from_mat3_translation(rot, Vec3::new(0.0, 42.1, 56.7));
+        let skel = PreparedSkeleton {
+            by_name: HashMap::from([(DEFAULT_RIGID_BONE.to_string(), 1)]),
+            bind_world: vec![Affine3A::IDENTITY, bone],
+            names: vec![None, Some(DEFAULT_RIGID_BONE.to_string())],
+            ..Default::default()
+        };
+        let root = Affine3A::from_mat3(Mat3::from_cols(Vec3::new(c, s, 0.0), Vec3::new(s, -c, 0.0), -Vec3::Z));
+        let part = PreparedPart { prn: Some(DEFAULT_RIGID_BONE.to_string()), root, ..Default::default() };
+        let shape = PartShape {
+            name: None,
+            mesh: Handle::default(),
+            material: Handle::default(),
+            props: Props::default(),
+            cpu: Arc::new(Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)),
+            skin: None,
+            transform: Affine3A::IDENTITY,
+            cap: false,
+            ancestors: Vec::new(),
+            own: Affine3A::IDENTITY,
+        };
+        let (b, local) = creature_rigid_attach(&skel, &part, &shape);
+        assert_eq!(b, 1);
+        assert_eq!(local, root);
+        // The two eyes of the model (±z) land either side of the skeleton's x = 0, at
+        // the same height and the same distance forward.
+        let eye = |z: f32| (bone * local).transform_point3(Vec3::new(10.8, 2.9, z));
+        let (l, r) = (eye(3.5), eye(-3.5));
+        assert!((l.x + r.x).abs() < 1e-3 && (l.x - r.x).abs() > 6.9, "{l} {r}");
+        assert!((l.y - r.y).abs() < 1e-3 && (l.z - r.z).abs() < 1e-3, "{l} {r}");
+        // The NPC head rule on the same data: one eye above the other, off to one side.
+        let npc = bone * rigid_local(&skel, 1, &root, &Affine3A::IDENTITY);
+        let (l, r) = (npc.transform_point3(Vec3::new(10.8, 2.9, 3.5)), npc.transform_point3(Vec3::new(10.8, 2.9, -3.5)));
+        assert!((l.x - r.x).abs() < 1e-3 && (l.z - r.z).abs() > 6.9, "{l} {r}");
     }
 
     #[test]

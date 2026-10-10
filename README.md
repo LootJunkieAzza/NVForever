@@ -181,6 +181,13 @@ docs/
 - Every factual claim is tagged `[documented]`, `[observed]` or `[hypothesis]`.
 - Goldens and any game-derived dumps stay private (`.gitignore` blocks game files).
 
+## Support the project
+
+NVForever is free and stays free. If you would like to support the work, you can do so on
+Ko-fi: [ko-fi.com/lootjunkieazza](https://ko-fi.com/lootjunkieazza). Donations are
+voluntary and pay for nothing in return: no game content, no early access, no extra
+features. You still need your own copy of *Fallout: New Vegas*.
+
 ## Licence
 
 GPL-3.0-or-later (placeholder pending the project owner's decision; see `LICENSE`).

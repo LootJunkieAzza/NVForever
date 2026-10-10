@@ -944,11 +944,41 @@ Builds on the section above. Facts and the rule:
 3. **For you to judge:** the Great Khan woman in the picture (Melissa) is now very dark
    on arms and legs, because her face values are dark and the body follows the face
    (item 3 above is the same question for the player).
-4. **Found, not changed:** the fine surface relief of the skin (the normal map) is
-   still the human one on ghouls, raiders and children, on the body itself as well as
-   inside outfits: each kind has its own relief file and the engine does not switch to
-   it. Ghoul skin shows it most: ghoul colours on a smooth human surface. Hands drawn
-   as part of a fist weapon (boxing tape, knuckles) keep human skin too.
+4. **Fixed in the next session ("skin normal maps", 2026-10-10; actors.md §3.1, "Normal
+   maps"):** the fine surface relief of the skin (the normal map) was the adult man's on
+   everyone, on the body itself as well as inside outfits: each kind of skin has its own
+   relief file beside its colour file and the engine did not switch to it. Now skin
+   takes the relief file that lies beside the colour texture it is given.
+   - **What you will see:** ghouls have the ghoul surface (sunken nose, bared jaw,
+     sinews on the neck, rough arms and legs) instead of ghoul colours on a smooth human
+     one. Women had the men's face relief (heavy brow and jaw shading) and now have
+     their own: 489 placed adult women, so this is the change you will meet most often.
+     Old people get the wrinkles of their own files (131), children theirs (29). The
+     raider races (384) change least: their files differ little from the human ones.
+     Young adult men of the ordinary human races are untouched.
+   - **How it was checked:** one before and after pair each of the Gomorrah ghoul, the
+     three Great Khans and a Goodsprings settler, in
+     `C:\fnv-private\frames\skin-normal-maps\` (`cmp_ghoul_gom.png` and `cmp_khans.png`
+     are enlarged side-by-side views). The ghoul changes on his own pixels only; of the
+     Khans mostly the woman's face; the settler's two pictures are the same file byte
+     for byte. The rule is a hypothesis: the game's files fit it (most of these relief
+     files are named by no model, so the game can only find them by name), but I
+     compared no picture from the original. A close view of a ghoul's or a woman's face
+     in the original would confirm it.
+   - **Not changed, for you to decide:** hair. 216 placed NPCs (the African American
+     hair and the balding hair on the base hair model) have a hair texture with its own
+     relief file that differs from the one their hair model names. The files do not show
+     which one the game uses, so they keep the model's. Eyes, mouths and teeth have no
+     real relief files of their own and stay as they were.
+   - **To tell you:** I ran `fnvtool nif textures` once, which walks every archive of
+     the install, the add-ons included (one of them is a lab holdout). It lists texture
+     paths that meshes name and that do not exist; I read its summary counts and the
+     first rows (base-game architecture meshes), found it was not what I needed, and
+     deleted the output. The survey behind the rule used `Fallout - Textures.bsa`,
+     `Fallout - Textures2.bsa`, `Fallout - Meshes.bsa` and `FalloutNV.esm` only.
+
+   Still open from the session before: hands drawn as part of a fist weapon (boxing
+   tape, knuckles) keep human skin.
 5. **To tell you:** I also ran the skin survey over the add-on archives, among them
    `HonestHearts - Main.bsa`, before noticing that the lab treats that archive as a
    holdout. It printed counts of skin shapes by texture name, nothing else. The rule was
@@ -1037,11 +1067,34 @@ Follows item 4 of "The player's unclothed body" above. Numbers and reasons:
    enabled yet. Joe Cobb is one of them (hidden in the saloon until the story shows
    him), so the pictures needed it.
 
+## Dog eyes (2026-10-10, session "dog-eyes")
+
+Your report: on dogs, the eyes are not showing correctly. Facts and measurements:
+docs/spec-notes/actors.md §10.2 and §10.5.
+
+1. **Fixed, cause:** a dog's eyes are a separate model that hangs from the head bone.
+   It was being turned the way hats and hair have to be turned on a person's head, which
+   put both eyeballs on one side of the dog's head, one above the other, and left the
+   sockets empty. Creature parts now hang from their bone as the files give them. Checked
+   on Cheyenne against the dog's own eyelids: the eyes now sit just behind them.
+2. **Fixed by the same change (135 placed creatures):** every dog with an eye model
+   (Cheyenne, Rex, NCR and wild dogs, cyberdogs), the cyberdogs' skull caps including
+   Rex's, the dome on every Protectron's head, and Primm Slim's hat (it was on edge
+   beside his head). Coyotes and Legion mongrels have their eyes in the body model and
+   were not affected.
+3. **Not compared with the game:** I had no base-game screenshot of a dog's face. The
+   placement is settled by the data, but the look of the eye (colour, shine) is drawn
+   from the plain texture and is my render only. A close game screenshot of Cheyenne's
+   face would confirm it.
+4. **Seen on the way, not touched:** Rex's glass skull cap is drawn solid black, so the
+   brain under it cannot be seen (a material problem, not a placement one; notes in
+   §10.5).
+
 ## Sunny Smiles' face shape and shiny hair (2026-10-10, session "face shape")
 
 Your report: next to the game, our Sunny Smiles has a strange, almost masculine face,
-and her hair shines in light. Branch `claude/facegen-race`, stacked on the "Skin tone by
-race" pull request (#141) above; this answers its item 3. Facts:
+and her hair shines in light. Branch `claude/facegen-race` (#142); it builds on "Skin tone by
+race" (#141) above and answers its item 3. Facts:
 `docs/spec-notes/actors.md` §4.3 and `docs/spec-notes/nif.md` §6 "Hair". Pictures:
 `C:\fnv-private\references\face_shape\` (`sunny_compare.png`: the game, ours before,
 ours after; `saloon_before_after.png`: Sunny, Trudy, Joe Cobb, a settler;
@@ -1064,5 +1117,5 @@ ours after; `saloon_before_after.png`: Sunny, Trudy, Joe Cobb, a settler;
    a still pose. I cannot tell yet whether that is the whole difference.
 5. **Not compared with the game:** Trudy, Joe Cobb and the others — only Sunny had a
    picture. `--no-race-facegen` shows the old faces for comparison.
-6. Your other request, the dogs' eyes, is a separate task (suggested as "Fix dog eyes
-   on rendered creature models").
+6. Your other request, the dogs' eyes, was done separately: the "Dog eyes" section
+   above (#145).
