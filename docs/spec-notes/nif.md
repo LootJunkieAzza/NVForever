@@ -420,10 +420,88 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   game limits the colour depends on its frame format; vertex colours enter as linear
   factors here as on every other shape, which leaves the overlays lighter than a product
   of display values would; ZERO / INV_SRC_ALPHA (two scope lens shapes, darkening by
-  alpha) is still drawn as a multiply by colour; the overlays lie in the plane of the
-  surface under them and flicker against it (their shader flags set bits 26 and 27,
-  `decal_single_pass` and `dynamic_decal_single_pass` [documented: nif.xml
-  BSShaderFlags], which the renderers do not use yet).
+  alpha) is still drawn as a multiply by colour. The overlays are decals: see "Decal
+  flags" below (an earlier version of this note had them in the plane of the surface
+  under them and flickering against it; the survey there shows neither).
+- **Decal flags** (BSShaderFlags bit 26 `decal_single_pass` and bit 27
+  `dynamic_decal_single_pass`; BSShaderFlags2 bit 21 `alpha_decal` [documented: nif.xml,
+  schemas/nif/scene.json]). Survey of the visible shapes in `Fallout - Meshes.bsa`
+  [observed, `crates/fnv-nif/examples/decal_survey.rs`]:
+  - 2,130 shapes in 1,517 files set a decal bit: 2,089 both, 41 only bit 26, none only
+    bit 27. No visible shape sets `alpha_decal`. All 2,130 also set bit 31
+    (`zbuffer_test`); 1,958 set `zbuffer_write` (BSShaderFlags2 bit 0) and 172 do not.
+  - By shader property: 1,435 BSShaderPPLightingProperty (lit), 695
+    BSShaderNoLightingProperty; none of any other type.
+  - By blend: 1,301 alpha-tested only, 458 SRC_ALPHA / INV_SRC_ALPHA, 336 multiply, 20
+    additive, 15 neither blended nor tested. So the flags are not tied to a blend mode.
+    Of the 578 multiply shapes of BSShaderNoLightingProperty (see "Multiply blend"), 336
+    set the bits and 242 do not.
+  - What they are: dirt, stains, cracks, road markings, signs and insignia on kit
+    pieces, most under `dlc03\architecture` (250), `architecture\urban` (244),
+    `dlcanch\dungeons` (214), `dungeons\utility` (125), `dlcpitt\dungeons` (110) and
+    `dungeons\caves` (109). 120 are alone in their file (e.g.
+    `architecture\urban\decals\dirtdecal01.nif`): decals placed in the world as
+    objects, which the editor's guidance puts one unit above their surface
+    (level-design.md §7 "Clutter settling").
+  - Where they lie. For each flagged shape with another shape in its file (2,010), the
+    survey takes the centres of its triangles, finds the nearest triangle of any shape
+    without a decal bit, and takes the median distance along that triangle's normal over
+    the centres within one unit of it. **They are not in the plane of the surface: they
+    are lifted off it.** 1,473 lie in front of it: 19 by 0.001 to 0.05 units, 288 by
+    0.05 to 0.15, 638 by 0.15 to 0.3, 326 by 0.3 to 0.6 and 202 by 0.6 to 1. 16 lie in
+    the plane (within 0.001), 59 behind it, and 462 have no triangle centre within one
+    unit of another shape. The multiply overlays sit mostly at 0.1 (190 of 336 in the
+    0.05 to 0.15 bin) and the alpha-tested decals mostly at 0.2 to 0.3 (490 of 1,301 in
+    the 0.15 to 0.3 bin).
+  - Example: in `dungeons\utility\hall\utlhallsm1waypipe01.nif` the walls of shape `:0`
+    are at y = ±112. The rust stain `UtlHallSm1WayPipe01:8` (multiply, flags 0x8c000000)
+    has every vertex at y = ±111.9, 0.1 in front, and the textured decal `:24`
+    (alpha-tested, flags 0x8e000101) at ±111.8, 0.2 in front.
+  - Shapes that are in the plane: `landscape\nv_rocks\nvn_rocksloperrdrk.nif`
+    `NVN_RockSlopeRRED:2` (the ground layer on a rock slope, 204 triangles, every centre
+    within 0.0001 of the rock), `architecture\wasteland\highway\overpassroad01.nif`
+    `OverpassRoad01:61` (the road surface on the overpass, median 0, at most 0.07), and
+    the shadows under the Caravan money (`terminals\nv_caravan\currency-*.nif`, within
+    0.002).
+  - Control: the flag does not mean "lies on another shape". Of the 6,295 blended
+    shapes without a decal bit, 1,018 have a median centre distance of 0.001 or less to
+    another shape (697 of 4,146 SRC_ALPHA / INV_SRC_ALPHA, 317 of 1,710 additive),
+    against 12 of the 2,130 flagged ones. Those were not looked at.
+
+  What the game does with the bits is not known from the data [hypothesis: it draws
+  such shapes with a depth offset towards the camera; an offset of 0.1 units is below
+  the step of a 24-bit depth buffer at some distance, so the art's offset alone would
+  not hold everywhere, and the shapes in the plane need one at any distance].
+
+  How the renderers draw them [hypothesis]: a shape with either bit gets a depth offset
+  towards the camera in the rasteriser (`nif_material::decal_bias`: 64 steps of the
+  depth buffer plus one pixel's depth slope), in every pass, whatever its blend mode. In
+  the 32-bit reversed depth buffer the constant part is at most 7.6e-6 of the distance
+  to the camera (0.008 units at 1,000), so it cannot pull a decal through anything a
+  decal's own offset would not. The draw order of blended decals is not changed
+  (`StandardMaterial::depth_bias` would move it too, so the offset goes through the
+  material's pipeline key instead).
+
+  Effect [observed, `nvf-viewer --screenshot`, before and after]:
+  - the lifted decals drew correctly before: the reversed 32-bit depth buffer resolves
+    0.1 units at these distances. `utlhallsm1waypipe01.nif` differs in 8 pixels of
+    1280 × 800, and two runs of the same build in none;
+  - the shapes in the plane change: on `nvn_rocksloperrdrk.nif` the ground layer's edge
+    and on `overpassroad01.nif` the road surface's edge and one corner were partly
+    covered by the shape under them, and are whole now.
+
+  The dark jagged streaks across `utlhallsm1waypipe01.nif` in the viewer are not the
+  stain and not depth fighting. They are the pipe and cable cards of shape `:1`
+  (`PipeFlatsSheet01.dds`, alpha-tested with threshold 128, no decal bit), which stand
+  1.3 units off the walls (y = ±110.7) and are seen nearly edge-on from the viewer's
+  default camera [observed, `fnvtool nif decode`]. The offset leaves them as they were.
+
+  Open: whether the game offsets, and by how much (a screenshot of a wall stain at a
+  distance would not tell: the art's offset already holds in our depth buffer); decals
+  on a blended surface are ordered by distance only; the 1,018 unflagged blended shapes
+  that coincide with another shape; at world coordinates beyond about 65,000 units
+  single-precision positions step by 0.008 units, which leaves little of a 0.05 unit
+  offset, and no exterior decal was examined there.
 - **View-angle falloff** (BSShaderNoLightingProperty, stream version > 26) is stored as
   four floats: a start angle and a stop angle, each the cosine of an angle, and an
   "alpha falloff multiplier" opacity for each [documented: nif.xml].
