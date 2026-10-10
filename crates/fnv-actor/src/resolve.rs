@@ -29,6 +29,7 @@ pub mod slot {
     pub const UPPER_BODY: u32 = 1 << 2;
     pub const LEFT_HAND: u32 = 1 << 3;
     pub const RIGHT_HAND: u32 = 1 << 4;
+    pub const PIPBOY: u32 = 1 << 6;
     pub const HAT: u32 = 1 << 10;
 }
 

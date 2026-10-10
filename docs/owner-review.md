@@ -950,3 +950,27 @@ Branch `claude/furniture` (worktree `NVForever-furniture`).
    `GetSitting` is 1 (furniture.md §5); not needed for what is built.
 5. Game runs took both locks. The repository move orphaned this session's first
    worktree mid-way; its two unpushed commits were rebuilt from the files on disk.
+
+## Pip-Boy on the arm (2026-10-10, session "pip-boy")
+
+Your report: the Pip-Boy on the player's arm looks off, and its glow belongs to the
+Pip-Boy light. Facts: docs/spec-notes/actors.md §1.2; design: docs/design/player-body.md
+§4 and §5.
+
+1. **Fixed, position:** the Pip-Boy model hangs from the forearm bone and was being
+   turned the way hats and hair have to be turned on the head bone, which threw it onto
+   the back of the upper arm. It is now a cuff on the left forearm, down to the glove,
+   in third person, and it is drawn in first person too (it was missing there).
+2. **Fixed, glow:** the bright green square was the model's light-glow shape, always
+   drawn. It is hidden until a Pip-Boy light exists (not built; say if you want it).
+3. **Also changed, a guess from the shape names:** outfits carry two left sleeves,
+   `PipBoyOn` and `PipBoyOff`; both were drawn on everyone. Now an actor wearing a
+   Pip-Boy shows the first and everyone else the second (170 outfits).
+4. **Your answers (2026-10-10), applied:** the three orange button lights are always
+   lit (they are drawn); with a Pip-Boy on, the outfit's `PipBoyOn` sleeve is drawn, in
+   first person too (it was missing there, leaving bare wrist in a jumpsuit). Item 3 is
+   therefore your rule for the Pip-Boy wearer; that everyone else shows `PipBoyOff` is
+   still my reading of the name. Still open: is the screen dark with the light off?
+5. **Seen on the way, not touched:** the Vault 21 jumpsuit shows a "101" (armour
+   texture swaps are not read yet, actors.md §1.1). The black patches I saw on the bare
+   body are the subject of the section "The player's unclothed body" above.
