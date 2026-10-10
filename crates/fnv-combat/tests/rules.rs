@@ -6,6 +6,7 @@ use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
 use fnv_combat::damage::{self, Attacker, HitInput, HitPart, NoPerks, Target};
 use fnv_combat::data::{AmmoEffect, ExplosionStats, ProjectileStats, WeaponStats};
 use fnv_combat::projectile::{blast, swing, ActorId, CombatWorld, ProjEvent, Projectile, WorldHit};
+use fnv_combat::shot::{self, Seen};
 use fnv_combat::spread::{self, Kick, Stance};
 use fnv_combat::vec::{self, V3};
 use fnv_combat::{CombatTuning, Rules};
@@ -430,4 +431,53 @@ fn melee_reach_power_and_block() {
     let d = damage::hit(&r, &t, &h, &Attacker { unarmed_skill: 40.0, ..Attacker::default() }, &Target::default(), &NoPerks, &NoPerks, 0.99);
     assert!(!d.miss && close(d.dealt, 0.5 + 0.05 * 40.0));
     assert!(close(damage::blocked(&t, 10.0), 10.0 * (1.0 - t.block)));
+}
+
+/// Where a shot leaves and where it is seen to leave (docs/design/combat.md §5.1).
+#[test]
+fn shots_are_aimed_from_the_eye_and_seen_from_the_muzzle() {
+    let t = CombatTuning::default();
+    let eye = [0.0, 0.0, 100.0];
+    let aim = [1.0, 0.0, 0.0];
+    let muzzle = [20.0, 10.0, 60.0];
+    let wall = Toy { actors: vec![], fence: false, wall: Some(800.0) };
+    // Without a muzzle the shot leaves the eye and is drawn where it flies.
+    let l = shot::leaving(&wall, eye, aim, None, 5000.0, Some(1), true);
+    assert_eq!((l.origin, l.aim, l.seen, l.covered), (eye, aim, Seen::ON_PATH, false));
+    assert!(close(l.aim_distance, 800.0) && l.aim_point == [800.0, 0.0, 100.0]);
+    // With one it still leaves the eye along the view; it is drawn from the muzzle and
+    // is on its path by the aim point.
+    let l = shot::leaving(&wall, eye, aim, Some(muzzle), 5000.0, Some(1), true);
+    assert_eq!((l.origin, l.aim, l.covered), (eye, aim, false));
+    assert_eq!(l.seen.at(eye, 0.0), muzzle);
+    assert_eq!(l.seen.at([400.0, 0.0, 100.0], 400.0), [410.0, 5.0, 80.0]);
+    assert_eq!(l.seen.at(l.aim_point, 800.0), l.aim_point);
+    assert_eq!(l.seen.at([900.0, 0.0, 100.0], 900.0), [900.0, 0.0, 100.0]);
+    // Nothing in the way of the view: the offset closes over the reach.
+    let open = Toy { actors: vec![], fence: false, wall: None };
+    let l = shot::leaving(&open, eye, aim, Some(muzzle), 5000.0, Some(1), true);
+    assert!(close(l.aim_distance, 5000.0) && close(l.seen.converge, 5000.0) && !l.covered);
+    // Something the muzzle's ray meets and the view passes over, but far from the
+    // barrel (the ray goes through z = 80 at x = 400): no cover.
+    let far = Toy { actors: vec![(8, [400.0, 5.0, 70.0], 15.0)], fence: false, wall: Some(800.0) };
+    let l = shot::leaving(&far, eye, aim, Some(muzzle), 5000.0, Some(1), true);
+    assert!(!l.covered && l.origin == eye && l.seen.offset == vec::sub(muzzle, eye));
+    // The same right in front of the barrel (the ray goes through (100, 9, 64)): in
+    // third person the projectiles leave the muzzle for the aim point and strike it;
+    // in first person they do not.
+    let cover = Toy { actors: vec![(8, [100.0, 9.0, 60.0], 10.0)], fence: false, wall: Some(800.0) };
+    let l = shot::leaving(&cover, eye, aim, Some(muzzle), 5000.0, Some(1), false);
+    assert!(!l.covered && l.origin == eye);
+    let l = shot::leaving(&cover, eye, aim, Some(muzzle), 5000.0, Some(1), true);
+    assert!(l.covered && l.origin == muzzle && l.seen == Seen::ON_PATH);
+    assert!(close(vec::len(vec::sub(vec::add(muzzle, vec::scale(l.aim, vec::len(vec::sub(l.aim_point, muzzle)))), l.aim_point)), 0.0));
+    let mut p = Projectile::spawn(&proj("Missile", &["Hitscan"], 20000.0, 0.0), None, l.origin, l.aim, Some(1), G, &t);
+    assert!(matches!(&p.step(&cover, 1.0 / 60.0)[..], [ProjEvent::Hit { actor: Some(8), .. }]));
+    // The actor aimed at is no cover, though the muzzle's ray meets it sooner.
+    let target = Toy { actors: vec![(7, [400.0, 0.0, 100.0], 40.0)], fence: false, wall: None };
+    let l = shot::leaving(&target, eye, aim, Some([20.0, 10.0, 60.0]), 5000.0, Some(1), true);
+    assert!(!l.covered && l.origin == eye && close(l.aim_distance, 360.0));
+    // A barrel pushed past the aim point: drawn from the eye.
+    let l = shot::leaving(&wall, eye, aim, Some([820.0, 10.0, 60.0]), 5000.0, Some(1), true);
+    assert_eq!((l.origin, l.seen, l.covered), (eye, Seen::ON_PATH, false));
 }
