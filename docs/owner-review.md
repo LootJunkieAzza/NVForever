@@ -745,6 +745,36 @@ an NPC waits until the open animation has finished. Design: `docs/design/navmesh
    `run.lock` had been held since 11:39 with no owner file and no FalloutNV or
    nvforever process running (stale-looking); removed at your request (15:45).
 
+## Loading screens (2026-10-10, session "loading screen")
+
+Your request: pause and show a loading screen when changing cell, everything on hold
+until loading is done, the picture taken from the game's loading-screen textures as the
+plugins list them. Design: docs/design/loading-screen.md; records:
+docs/spec-notes/loading-screens.md; branch `claude/loading-screen`.
+
+1. **Yes, the plugins say which pictures are loading screens.** FalloutNV.esm has 208
+   loading screen records (LSCR); each names a picture and a text. They use 35 of the 52
+   textures in `textures\interface\loading`; the other 17 are parts of the original's
+   screen (roulette wheel, glare, text bar), the start-up screens (legal, publisher
+   logos) and three pictures no record names. The game picks from the records, so those
+   17 never appear.
+2. **Decisions taken, each reversible:**
+   - 12 records belong to places (the Strip's casinos, Primm, Vault 11, Goodsprings,
+     Boulder City, ...). Going to such a place, its own screen is taken every other
+     time, a general one otherwise. The original's odds are not known.
+   - A place given as a map square (Goodsprings, Primm, Boulder City, Vault 11) counts
+     for arrivals within 2 squares of it. The original's reach is not known.
+   - The picture fills the window without being stretched (its sides are cropped); the
+     record's text is shown in a band along the bottom. The original's layout, roulette
+     wheel and level progress are not copied.
+   - Scripts, the game clock, animations, NPCs and the test aids all stand still under
+     the screen; a voice line already playing goes on, as under the pause menu.
+3. **Not done, your call:** a loading screen at the start of a run (the world still
+   streams in view there), and for travel without `--play` (`--follow-npc`).
+4. **Shared code touched** (other sessions: note when merging): `PlayState` gained
+   `Loading`; activation and scripts now send `nvf_play::loading::TravelRequest`, and
+   `Travel` goes out two frames later; `run_scripts` returns under a loading screen.
+
 ## Ragdolls (2026-10-10, session "ragdoll")
 
 Owner request: dead NPCs and creatures drop to the floor with real physics. Facts,
@@ -775,5 +805,5 @@ design and what was checked: `docs/spec-notes/ragdoll.md`.
    unattended test-aid runs with a window) before reading item 5 of the NPC
    coordinator's section. Another session took both locks at 10:50:52 and still held
    them at 10:57; my last four runs (10:46–10:57) overlapped it. Any windowed check or
-   capture of that session in that window may need re-running. No further game runs
-   were made from this session after that.
+   capture of that session in that window may need re-running. The one run
+   after that (11:05, on the tree merged with main) took both locks.
