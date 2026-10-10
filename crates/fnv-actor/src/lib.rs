@@ -18,6 +18,8 @@
 //! - [`player_clips`]: which clips the player's body plays under direct control (moving,
 //!   sneaking, drawing, aiming and holstering a weapon), and the draw/holster sequence
 //! - [`first_person`]: what the player's first-person rig draws (arms and hands)
+//! - [`furniture`]: furniture an actor can use: the entry points on its model, the clip
+//!   the IDLE tree names for getting on, staying on and getting off, and the phases of a use
 //!
 //! Facts and rules with confidence tags: docs/spec-notes/actors.md and (animation data)
 //! docs/spec-notes/animation.md.
@@ -25,6 +27,7 @@
 pub mod anims;
 pub mod facegen;
 pub mod first_person;
+pub mod furniture;
 pub mod idle;
 pub mod locomotion;
 pub mod mesh;
