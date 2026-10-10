@@ -185,6 +185,13 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
   pitch>`, minigun `0000433F` and 9mm pistol `000E3778`]: idle, level and 50° up and
   down, the left hand is on the top handle as while firing, the same after firing
   stops and while running; the pistol is held as before.
+- Minigun holstered (2026-10-10, owner question, then game screenshots: holstered only
+  the backpack shows, on the back; drawn the gun is in the hands and the backpack
+  stays): the weapon model's parts follow the clips' visibility tracks, and the
+  `Backpack` node hangs from the bone its `UPB` string names (animation.md §9.7).
+  After [observed: screenshots from behind, from the side and from the front with
+  `orbit=90:0` and `orbit=150:0`]: as in the game screenshots; the gun appears half way
+  through the draw and goes half way through putting it away.
 
 ## 5. Open questions for the owner
 

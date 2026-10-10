@@ -37,6 +37,9 @@ pub struct PreparedShape {
     /// root's transform is not included (see [`PreparedModel::root`]).
     pub transform: Affine3A,
     pub name: Option<String>,
+    /// Names of the nodes above the shape, nearest first, the root excluded (parts of
+    /// a weapon model are shown, hidden and attached by them: animation.md §9.7).
+    pub ancestors: Vec<String>,
     /// CPU copy of the mesh, kept only for models loaded with
     /// [`ModelCtx::model_with_cpu`]. GPU meshes are render-world only: once uploaded,
     /// their vertex data can no longer be read from the main world.
@@ -212,6 +215,26 @@ pub struct ModelCtx<'w> {
 }
 
 impl ModelCtx<'_> {
+    /// The string extra data named `key` (`UPB`, `Prn`) of the model's named nodes, by
+    /// node name. Reads the file again: for the few models that need it (a weapon whose
+    /// parts hang from different bones).
+    pub fn node_strings(&mut self, path: &str, key: &str) -> HashMap<String, String> {
+        let mut out = HashMap::new();
+        let Some(bytes) = self.data.read(path) else { return out };
+        let schema = self.data.schema.clone();
+        let Ok(file) = NifFile::parse(&bytes, Some(&schema)) else { return out };
+        let dec = Decoded::new(&file, &bytes, &schema);
+        for o in scene_objects(&file, &dec).iter().filter(|o| o.is_node) {
+            let (Some(name), Some(Ok(node))) = (&o.name, dec.blocks.get(o.block)) else { continue };
+            for &e in node.refs("extra_data").unwrap_or_default() {
+                if let Some(x) = dec.get(e).filter(|x| x.text("name").is_some_and(|n| n.eq_ignore_ascii_case(key))) {
+                    out.extend(x.text("string_data").map(|s| (name.clone(), s.to_string())));
+                }
+            }
+        }
+        out
+    }
+
     /// The prepared model at `path` (loaded on first use).
     pub fn model(&mut self, path: &str) -> Option<Arc<PreparedModel>> {
         self.load(path, false)
@@ -307,12 +330,14 @@ impl ModelCtx<'_> {
             // for hidden ancestors.
             let mut t = if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY };
             let mut hidden = hidden_self(o.block);
+            let mut ancestors = Vec::new();
             let mut cur = o.parent;
             let mut depth = 0;
             while let Some(p) = cur {
                 let Some(po) = by_block.get(&p) else { break };
                 if po.parent.is_some() {
                     t = affine(&po.transform) * t;
+                    ancestors.extend(po.name.clone());
                 }
                 hidden |= hidden_self(p);
                 cur = po.parent;
@@ -390,6 +415,7 @@ impl ModelCtx<'_> {
                 material,
                 transform: t,
                 name: o.name.clone(),
+                ancestors,
                 external_emittance: props.external_emittance(),
             });
             out.triangles += tris;

@@ -1590,9 +1590,15 @@ the left hand is too high. Branch `claude/weapon-rest-pose`. Facts:
 3. **Checked in ours:** minigun held level and looking 50° up and down, firing, after
    firing stops, and running: the left hand stays on the top handle and nothing jumps
    when firing stops. The 9mm pistol looks as before.
-4. **Found on the way, not built yet (your earlier question about the holstered
-   minigun):** the game's files switch the gun part of the minigun, flamer and gatling
-   laser off while holstered and on again half a second into the draw, and the
-   minigun's backpack is a separate part meant for the upper back. Ours does not read
-   either yet, so what you see holstered is not built on purpose. A game screenshot of
-   the minigun holstered and drawn, from behind, would confirm what to build.
+4. **The holstered minigun (your question, then your two game screenshots), built on
+   branch `claude/weapon-parts`:** the game's files switch the gun part of the minigun,
+   flamer and gatling laser off while holstered and on again half a second into the
+   draw, and the minigun's backpack is a separate part meant for the upper back. Ours
+   now reads both. Checked with the minigun (`minigun_parts_sheet.png`): holstered,
+   only the backpack shows, on the back, as in your screenshot; the gun appears half
+   way through the draw and goes half way through putting it away; drawn, the gun is in
+   the hands and the backpack stays on the back.
+5. **Not done:** the flamer and gatling laser were not looked at in ours (same
+   animations, so the gun part should behave the same; whether their models have a
+   back part like the minigun's I did not check). NPCs carrying these weapons still
+   draw them the old way. In first person the backpack is not drawn at all.

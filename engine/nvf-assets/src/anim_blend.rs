@@ -215,6 +215,26 @@ impl Animator {
         self.find(clip, tag).map(|i| &self.layers[i])
     }
 
+    /// Whether the playing clips show or hide the node named `name` (a part of a weapon
+    /// model, animation.md §9.7): the visibility track of the highest priority among
+    /// them, the latest started of equals; `None` when no playing clip has one for it.
+    pub fn visible(&self, name: &str) -> Option<bool> {
+        let mut best: Option<(i32, bool)> = None;
+        for l in self.layers.iter().filter(|l| l.ease > 0.0) {
+            for (n, priority, track) in &l.clip.visibility {
+                if n != name {
+                    continue;
+                }
+                if let Some(v) = track.at(l.sample_time(self.phase)) {
+                    if best.is_none_or(|(p, _)| *priority >= p) {
+                        best = Some((*priority, v));
+                    }
+                }
+            }
+        }
+        best.map(|(_, v)| v)
+    }
+
     /// Advance fades, weights and times by `dt` seconds; synced layers move their shared
     /// phase at `sync_rate` times their own speed (weighted by their shares). Layers
     /// faded out are dropped.
@@ -388,6 +408,7 @@ mod tests {
             skipped: 0,
             accum_root: Some("Bip01".into()),
             text_keys: Vec::new(),
+            visibility: Vec::new(),
         })
     }
 
@@ -498,6 +519,29 @@ mod tests {
         assert!((t.x - 5.0).abs() < 0.5 && (t.y - 5.0).abs() < 0.5, "{t}");
         let t = step(&mut a, 1.0, None, 1.0);
         assert_eq!(t, Vec3::new(10.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn the_highest_priority_visibility_track_decides() {
+        use fnv_nif::anim::BoolTrack;
+        let with = |priority: i32, track: BoolTrack| {
+            let mut c = (*clip(&[("A", [0.0; 3], 30)], 1.0)).clone();
+            c.visibility = vec![("##Gun".to_string(), priority, track)];
+            Arc::new(c)
+        };
+        let mut a = animator();
+        assert_eq!(a.visible("##Gun"), None);
+        // The holster clip hides the part; the draw clip, above it, shows it half way.
+        let holster = with(0, BoolTrack { value: Some(false), keys: Vec::new() });
+        let draw = with(55, BoolTrack { value: None, keys: vec![(0.0, false), (0.5, true)] });
+        a.want(&holster, 0, 1.0, Mode::Once, 0.0);
+        assert_eq!(a.visible("##Gun"), Some(false));
+        a.want(&draw, 1, 1.0, Mode::Once, 0.0);
+        a.advance(0.25, 1.0);
+        assert_eq!(a.visible("##Gun"), Some(false));
+        a.advance(0.5, 1.0);
+        assert_eq!(a.visible("##Gun"), Some(true));
+        assert_eq!(a.visible("##Other"), None);
     }
 
     #[test]

@@ -162,6 +162,20 @@ enum View {
     First,
 }
 
+/// One shape of the weapon model.
+struct WeaponPart {
+    entity: Entity,
+    /// The model nodes above it whose names begin `##`, each with whether the clips
+    /// last showed it: clips show and hide such nodes (the minigun's gun while it is
+    /// holstered) [observed: animation.md §9.7].
+    tags: Vec<(String, bool)>,
+    /// Whether it hangs from a bone of its own (the minigun's backpack) rather than
+    /// from the `Weapon` node.
+    on_bone: bool,
+    /// The visibility last written to the entity.
+    shown: Option<bool>,
+}
+
 /// One skeleton with its parts, clips and weapon.
 struct Rig {
     view: View,
@@ -184,6 +198,8 @@ struct Rig {
     weapon_parent: Option<usize>,
     attached: Option<usize>,
     weapon_model: Option<Entity>,
+    /// The weapon model's shapes.
+    weapon_parts: Vec<WeaponPart>,
     /// Third person: drawn entities to hide when it stands in for the first-person rig.
     head_entities: Vec<Entity>,
     /// Whether the rig is shown, and whether its head is (last applied).
@@ -419,6 +435,9 @@ fn ensure_body(
         if let Some(e) = rig.weapon_model.take() {
             commands.entity(e).despawn();
         }
+        for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
+            commands.entity(p.entity).despawn();
+        }
         let model = match rig.view {
             View::Third => w.and_then(|w| w.model.as_deref()),
             View::First => w.and_then(|w| w.first_person_model.as_deref().or(w.model.as_deref())),
@@ -428,9 +447,25 @@ fn ensure_body(
             Some(pm) => {
                 let holder = commands.spawn((Name::new(format!("Player weapon {path}")), Transform::IDENTITY, Visibility::Inherited)).id();
                 commands.entity(rig.animator.nodes[node]).add_child(holder);
+                // A node of the model whose `UPB` string names a bone hangs its shapes
+                // from that bone instead [observed: the minigun's `Backpack` node says
+                // `Bip01 Spine2`; hypothesis: that is its meaning; animation.md §9.7].
+                let bones = models.node_strings(&path, "UPB");
+                let skel = rig.animator.skel.clone();
+                let in_hand = m.hands.in_hand;
                 for s in &pm.shapes {
-                    let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)))).id();
-                    commands.entity(holder).add_child(e);
+                    let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
+                    if bone.is_some() && rig.view == View::First {
+                        // On the body, behind the first-person view.
+                        continue;
+                    }
+                    let tags: Vec<(String, bool)> =
+                        s.ancestors.iter().chain(s.name.as_ref()).filter(|n| n.starts_with("##")).map(|n| (n.clone(), true)).collect();
+                    let shown = tags.is_empty() || in_hand;
+                    let visibility = if shown { Visibility::Inherited } else { Visibility::Hidden };
+                    let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)), visibility)).id();
+                    commands.entity(bone.map_or(holder, |b| rig.animator.nodes[b])).add_child(e);
+                    rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), shown: Some(shown) });
                 }
                 rig.weapon_model = Some(holder);
                 info!("player weapon model ({:?} person): {path}", rig.view);
@@ -523,6 +558,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         weapon_parent,
         attached: weapon_parent,
         weapon_model: None,
+        weapon_parts: Vec::new(),
         head_entities,
         shown: None,
         head_shown: None,
@@ -911,8 +947,23 @@ fn drive_body(
     player.body_eye = eye.map(|e| e.to_array());
     view.pivot = third_eye.or(eye).map(|e| [feet[0], feet[1], e.z + 5.0]);
 
-    // The weapon nodes' parents.
+    // The weapon nodes' parents, and the weapon parts the clips show or hide (a part
+    // no playing clip speaks for stays as it was).
     for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
+        for p in &mut rig.weapon_parts {
+            for (tag, on) in &mut p.tags {
+                if let Some(v) = rig.animator.visible(tag) {
+                    *on = v;
+                }
+            }
+            let shown = p.tags.iter().all(|(_, on)| *on);
+            if p.shown != Some(shown) {
+                if let Ok(mut v) = visibility.get_mut(p.entity) {
+                    *v = if shown { Visibility::Inherited } else { Visibility::Hidden };
+                    p.shown = Some(shown);
+                }
+            }
+        }
         if rig.attached != rig.weapon_parent {
             if let (Some(w), Some(p)) = (rig.weapon_node, rig.weapon_parent) {
                 commands.entity(rig.animator.nodes[w]).insert(ChildOf(rig.animator.nodes[p]));
