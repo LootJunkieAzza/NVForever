@@ -1571,3 +1571,55 @@ the further up or down you look, from the hip and down the sights. Branch
    in between (half way at 45°). The rifle files support 90° (the back bends three
    times 30°). A game screenshot looking about 45° up, from the side, would check the
    in-between.
+
+## Actors can be pushed (2026-10-10, session "actor push")
+
+Your request: the player or an NPC that is moving should be able to push another actor
+that is standing still, with a capture from the game to say how far. Branch
+`claude/actor-push`. Facts: `docs/spec-notes/physics.md` §6.8,
+`docs/design/actor-behaviour.md` §5.7.
+
+1. **I need the capture, and it is ready to run.** About 4 minutes, nobody at the
+   controls, save `nvfdoc`, stays inside Doc Mitchell's house (no door, so no autosave):
+   ```
+   python tools/capture/capture_run.py --game "<FNV folder>" --save nvfdoc --kill-on-timeout -o C:/fnv-private/capture/run_pc_actor_push.json tools/capture/jobs/pc_actor_push.steps.json
+   ```
+   I did not start the game myself: you asked to be told, and other sessions were
+   building on the machine at the time, which would have slowed the game.
+2. **What the capture does.** The player runs and walks into Doc Mitchell and into a
+   settler the job creates:
+   - straight on, and from a little to the side;
+   - with the key held for several seconds, up to the wall;
+   - with the NPC told not to move (restrained);
+   - placed on the very spot the NPC stands on;
+   - standing in the way of the NPC while it walks.
+3. **What works in ours now**, with my own numbers until the capture gives the game's:
+   - You walk into a standing NPC: it moves ahead of you at half your speed. Aim off
+     its middle and it goes aside while you pass. Checked in a run: a Goodsprings
+     settler pushed 117 units in under a second of running at him.
+   - A walking NPC meets you while you stand still: it pushes you, the same way.
+     Checked in a run: Easy Pete on his noon walk pushed you ahead of him for three
+     seconds, then went on into the saloon.
+   - A walking NPC meets a standing NPC: the same rule. It did not happen in any of my
+     runs, so I have not seen it in the game.
+   - A pushed NPC stops at walls and furniture. It never leaves the floor NPCs can
+     walk on.
+   - Two seconds after you leave it alone, an NPC pushed out of its place walks back.
+   - NPCs that sit, sleep or are on their way somewhere are not pushed. They block as
+     before.
+4. **The guesses the capture replaces:** the half speed, the two seconds, and whether
+   the game's NPC walks back at all.
+5. **Not done:**
+   - A pushed NPC slides; it plays no stepping animation.
+   - Two actors that are both walking still do not push each other.
+   - NPCs far from you (moved without collision) neither push nor are stopped.
+   - Size and weight make no difference: a deathclaw is pushed like a settler.
+6. **Two faults found on the way and fixed:**
+   - An NPC walking close past you carried you along with it at its own speed, like a
+     moving platform. Easy Pete took you 163 units to the saloon door this way. This
+     was in the game before my change.
+   - After being left untouched for a few seconds and then moved by a door or a
+     teleport, a character's solid body could stay behind where it arrived while the
+     character walked on. Hard to meet in play, but it was there.
+7. **Not mine, flagged separately:** one dialogue test already fails on `main` (the
+   greeting "on the spot" test in `fnv-ai`). It fails the same without my changes.

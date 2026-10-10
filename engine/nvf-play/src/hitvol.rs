@@ -208,9 +208,13 @@ fn sync_volumes(
         let v = volume_for(lo, hi, dead);
         let posed = posed.by_ref.get(&id).filter(|p| !p.segments.is_empty());
         // In the player's way where its body is now, unless the character controller
-        // walks it (its character blocks the player already).
+        // walks it (its block is where its character is, `crate::player`).
         if !dead && id != FormId::PLAYER_REF.0 && !phys.npcs.contains_key(&id) {
-            blocks.list.push(blocking::block_for(id, lo, hi, posed.and_then(|p| blocking::torso(&p.segments))));
+            let block = blocking::block_for(id, lo, hi, posed.and_then(|p| blocking::torso(&p.segments)));
+            // One that stands where it may be pushed is where its owner has it, with
+            // the pushes still to come.
+            let block = blocks.standing_now(id).map_or(block, |at| block.standing_at(at));
+            blocks.list.push(block);
         }
         match posed {
             Some(p) => {
@@ -268,7 +272,26 @@ fn report(mut exit: MessageReader<AppExit>, vols: Res<HitVolumes>, blocks: Res<A
             format!("; the nearest, {:08X} round ({:.0}, {:.0}) to ({:.0}, {:.0}), is {:.1} units from touching the player at ({:.0}, {:.0}, {:.0})", b.actor, b.a[0], b.a[1], b.b[0], b.b[1], room(b), c.feet[0], c.feet[1], c.feet[2])
         })
     });
-    info!("actors in the player's way: {} at exit; they changed the player's step {} times{}", blocks.list.len(), blocks.steps_blocked, nearest.unwrap_or_default());
+    info!(
+        "actors in the player's way: {} at exit; they changed the player's step {} times, a walking actor's {} times{}",
+        blocks.list.len(),
+        blocks.steps_blocked,
+        blocks.steps_actor_blocked,
+        nearest.unwrap_or_default()
+    );
+    let [player, actors, pushed] = blocks.steps_pushing;
+    // Those that stand in the way and may be pushed, nearest to the player first.
+    let from = phys.player.as_ref().map_or([0.0; 2], |c| [c.feet[0], c.feet[1]]);
+    let mut standing: Vec<(f32, u32, [f32; 2])> =
+        blocks.list.iter().filter(|b| b.pushable).map(|b| ((b.a[0] - from[0]).hypot(b.a[1] - from[1]), b.actor, b.a)).collect();
+    standing.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let nearest: Vec<String> = standing.iter().take(6).map(|(d, id, at)| format!("{id:08X} at ({:.0}, {:.0}), {d:.0} units away", at[0], at[1])).collect();
+    info!(
+        "actors pushed aside: {} may be pushed at exit{}{}; the player pushed one in {player} steps, a walking actor another in {actors}, one the player in {pushed}",
+        standing.len(),
+        if nearest.is_empty() { "" } else { ": " },
+        nearest.join("; ")
+    );
 }
 
 #[cfg(test)]

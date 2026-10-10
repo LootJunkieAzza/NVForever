@@ -10,6 +10,10 @@
 //!
 //! Movement here is `fnv_nav::Walker` (on the navmesh surface, no physics): the engine
 //! moves actors near the player with collision instead and uses this for the rest.
+//!
+//! An actor that stands ([`Ai::stands`]) can be pushed aside by one that walks into it
+//! ([`Ai::push`]: over the navmesh, as far as it has room); left alone again it goes
+//! back to where its package has it (docs/design/actor-behaviour.md §5.7).
 
 use crate::goal::{self, Goal, Route, Talk};
 use crate::sandbox::{Doing, Sandbox};
@@ -61,6 +65,9 @@ pub enum Activity {
 pub enum AiEvent {
     /// The actor has another current package (`None`: none).
     Package { package: Option<FormId> },
+    /// Pushed aside and left alone again, the actor goes back to its package's place,
+    /// `away` units from where it stands (a [`AiEvent::Trip`] follows).
+    PushedBack { package: FormId, away: f32 },
     /// A walk was planned.
     Trip { package: FormId, to: [f32; 3], space: Space, length: f32, doors: Vec<FormId>, running: bool, patrol_point: Option<FormId> },
     /// Already where the package wants it.
@@ -116,6 +123,14 @@ pub enum Talking {
 const REPLAN_DISTANCE: f32 = 64.0;
 const REPLAN_SECONDS: f64 = 0.5;
 
+/// An actor pushed aside goes back to where its package has it once nothing has pushed
+/// it for this long, seconds [our choice; whether and when the game's actors go back is
+/// the capture `pc_actor_push`].
+pub const PUSHED_BACK_SECONDS: f64 = 2.0;
+/// A push moves an actor onto navmesh no higher or lower than this from where it
+/// stands, game units [our choice: about a step].
+const PUSH_MAX_STEP: f32 = 32.0;
+
 /// An event with its actor and when it happened.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Logged {
@@ -168,6 +183,8 @@ pub struct Agent {
     wait_until: Option<f64>,
     /// Its Dialogue package's progress.
     pub talk: Option<Talking>,
+    /// When it was last pushed aside (`Game::time`), until it has gone back or need not.
+    pushed_at: Option<f64>,
 }
 
 #[derive(Default)]
@@ -193,8 +210,61 @@ impl Ai {
         let place = goal::place_of_ref(game, actor).ok_or_else(|| format!("{actor} is in no cell"))?;
         let heading = game.world.peek(actor).map(|s| s.rot[2]).or_else(|| game.world.placed.get(actor).map(|p| p.rot[2])).unwrap_or(0.0);
         let walker = Walker::new(place.space, place.pos, heading, self.cfg.walk_speed);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None, pushed_at: None });
         Ok(())
+    }
+
+    /// Whether `actor` stands where an actor walking into it pushes it aside: it is in
+    /// the world and alive, not on its way, not on furniture or about to use some, not
+    /// waiting at a door and not in a conversation it started.
+    pub fn stands(&self, game: &Game, actor: FormId) -> bool {
+        let Some(a) = self.agents.get(&actor) else { return false };
+        game.present(actor)
+            && !game.extra.get(&actor).is_some_and(|e| e.dead)
+            && a.activity != Activity::Travelling
+            && a.using.is_none()
+            && a.waiting_at.is_none()
+            && a.talk != Some(Talking::Speaking)
+    }
+
+    /// Push a standing actor `by` (x, y), game units: it moves over the navmesh as far
+    /// as there is navmesh to stand on (along its edge when the push points off it), and
+    /// not at all where it stands on none. Returns how far it moved.
+    pub fn push(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, by: [f32; 2]) -> f32 {
+        let len = by[0].hypot(by[1]);
+        if len < 1e-6 || !self.stands(game, actor) {
+            return 0.0;
+        }
+        let a = self.agents.get_mut(&actor).expect("stands");
+        let w = &mut a.walker;
+        let want = [w.feet[0] + by[0], w.feet[1] + by[1], w.feet[2]];
+        let Some((tri, to)) = nav.nearest(w.space, want, len) else { return 0.0 };
+        let d = [to[0] - w.feet[0], to[1] - w.feet[1]];
+        // Not back against the push, and not onto another floor.
+        if d[0] * by[0] + d[1] * by[1] <= 0.0 || (to[2] - w.feet[2]).abs() > PUSH_MAX_STEP {
+            return 0.0;
+        }
+        w.feet = to;
+        w.tri = tri;
+        a.pushed_at = Some(game.time);
+        let (feet, heading) = (Place { space: w.space, pos: w.feet }, w.heading);
+        let cell = goal::cell_of_place(game.world.placed, &feet);
+        let _ = game.set_actor_place(actor, cell, feet.pos, heading);
+        d[0].hypot(d[1])
+    }
+
+    /// Left alone after a push: back to the place of its package when the push took it
+    /// out of it [hypothesis: the game's package has the actor at its location again;
+    /// not captured]. A sandboxing actor goes on from where it is, a patrol from its
+    /// next point.
+    fn back_after_push(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId) {
+        let a = self.agents.get_mut(&actor).expect("listed");
+        a.pushed_at = None;
+        let (Some(package), Activity::There, None, None, None) = (a.package, a.activity, &a.sandbox, a.wait_until, a.talk) else { return };
+        let feet = Place { space: a.walker.space, pos: a.walker.feet };
+        let Some(to) = a.goal.clone().and_then(|g| self.way_to(feet, &g)) else { return };
+        self.log(game, actor, AiEvent::PushedBack { package, away: hdist(feet.pos, to.pos) });
+        self.plan(game, nav, actor, package, to, None);
     }
 
     fn log(&mut self, game: &Game, actor: FormId, event: AiEvent) {
@@ -242,11 +312,15 @@ impl Ai {
                 a.sandbox = None;
                 a.wait_until = None;
                 a.talk = None;
+                a.pushed_at = None;
                 self.set_using(game, actor, None);
                 self.taken.retain(|_, user| *user != actor);
                 if let Some(p) = current {
                     self.begin(game, nav, actor, p);
                 }
+            }
+            if self.agents[&actor].pushed_at.is_some_and(|t| game.time - t >= PUSHED_BACK_SECONDS) {
+                self.back_after_push(game, nav, actor);
             }
             match self.agents[&actor].activity {
                 Activity::Travelling => self.walk(game, nav, actor, dt, open),
