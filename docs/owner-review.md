@@ -1837,7 +1837,10 @@ test. Branch `claude/idles`. Facts and sources: `docs/spec-notes/idles.md`.
    replaces the first, as the wiki says; before, removing the stand-up package brought
    the sit-up back.
 4. **Guesses I made (please say if you know better):**
-   - Loop count 255 means "loop until something else replaces it"; 0 means once.
+   - ~~Loop count 255 means "loop until something else replaces it"~~ **answered by
+     you (2026-10-10):** the editor's Loop Forever box sets minimum and maximum both to
+     255; with the box clear any numbers can be entered. Ours now loops for ever only
+     when both are 255. Still a guess: 0 / 0 means once.
    - A looping idle repeats between its `StartLoop` and `EndLoop` markers.
    - `PlayIdle`, package begin/end/change idles and dialogue idles ignore the idle's
      conditions; idles from a package's or marker's list respect them.

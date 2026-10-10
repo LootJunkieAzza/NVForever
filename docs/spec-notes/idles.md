@@ -89,15 +89,16 @@ below 30).
 
 - **Loop counts**: the editor offers "Loop Forever" (the animation loops continually)
   and a minimum and a maximum "number of times an animation will loop", all three only
-  for animations that can loop [documented: GECK wiki, Idle Animations Window, §9]. So an
-  idle can loop for ever, and the two bytes are loop counts. How Loop Forever is *stored*
-  is not stated: the record has the two loop bytes and no flag for it [documented: xEdit
-  IDLE DATA], and the two poses the player stays in (lying awake, sitting on the bed)
-  store 255 / 255 while the two movements store 0 / 0 (§2); in the ten masters 1,462
-  idles store 0 / 0 and 93 store 255 / 255 [observed: animation.md §1.1]. Reading
-  [hypothesis, one look in the editor settles it: is Loop Forever ticked on
-  `LooseVCG01PlayerWakeup`?]: 255 / 255 is Loop Forever; both 0 play the idle once;
-  otherwise it plays a number of times from the minimum to the maximum.
+  for animations that can loop [documented: GECK wiki, Idle Animations Window, §9].
+  **Loop Forever is stored as minimum and maximum both 255** [observed: the owner's GECK,
+  2026-10-10: `LooseVCG01PlayerWakeup` shows Loop Forever ticked with both fields at 255
+  and greyed out; ticking the box sets both to 255; with the box clear any minimum and
+  maximum can be entered, a maximum of 255 included]. So only 255 / 255 loops for ever
+  (93 idles of the ten masters, animation.md §1.1), and any other pair is a number of
+  times from the minimum to the maximum. Both 0 (1,462 idles) play the idle once
+  [hypothesis: at least one pass]. The same window shows "Must return a file" ticked on
+  that record, whose group byte is 0x47: bit 0x80 clear, as xEdit reads the flag
+  [observed].
 - **Loop stretch** [hypothesis]: a looping idle plays to its `EndLoop` key and goes back
   to its `StartLoop` key; without the keys the whole clip repeats. On its last pass it
   plays on to the end of the clip.

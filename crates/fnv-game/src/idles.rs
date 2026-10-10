@@ -63,13 +63,17 @@ pub enum Loops {
 }
 
 impl IdleDef {
-    /// How often the idle plays, from its loop minimum and maximum: both 0, once; a
-    /// maximum of 255, until replaced; otherwise a number from the minimum to the
-    /// maximum, `roll(n)` choosing one of `n` [hypothesis for all three: xEdit names the
-    /// fields only; observed: the looping idles of the opening (lying awake, sitting on
-    /// the bed) store 255 / 255 and its one-shot idles 0 / 0, idles.md §2].
+    /// How often the idle plays, from its loop minimum and maximum.
+    ///
+    /// - Both 255: the editor's "Loop Forever", until something replaces the idle
+    ///   [observed: ticking Loop Forever in the GECK sets both to 255, and
+    ///   `LooseVCG01PlayerWakeup` has it ticked; owner, 2026-10-10, idles.md §3]. A
+    ///   maximum of 255 with another minimum is an ordinary range.
+    /// - Otherwise a number of times from the minimum to the maximum [documented: GECK
+    ///   wiki, Idle Animations Window], `roll(n)` choosing one of `n`; at least once, so
+    ///   both 0 play the idle once [hypothesis].
     pub fn loops(&self, mut roll: impl FnMut(u32) -> u32) -> Loops {
-        if self.loop_max == 255 {
+        if self.loop_min == 255 && self.loop_max == 255 {
             return Loops::Forever;
         }
         let (lo, hi) = (self.loop_min.min(self.loop_max) as u32, self.loop_max as u32);
@@ -266,6 +270,9 @@ mod tests {
         let d = |loop_min, loop_max| IdleDef { model: None, loop_min, loop_max, conditions: None };
         assert_eq!(d(0, 0).loops(|_| 0), Loops::Times(1));
         assert_eq!(d(255, 255).loops(|_| 0), Loops::Forever);
+        // Loop Forever is both at 255; a range up to 255 is a range.
+        assert_eq!(d(0, 255).loops(|_| 0), Loops::Times(1));
+        assert_eq!(d(3, 255).loops(|n| n - 1), Loops::Times(255));
         assert_eq!(d(2, 5).loops(|n| n - 1), Loops::Times(5));
         assert_eq!(d(2, 5).loops(|_| 0), Loops::Times(2));
         // A minimum above the maximum counts as the maximum.
