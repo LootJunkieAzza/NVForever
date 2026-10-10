@@ -42,10 +42,26 @@ fn main() {
         let Some(s) = sequences(&f, &dec).into_iter().next() else { continue };
         let keys: Vec<String> = s.text_keys.iter().map(|(t, k)| format!("{t:.2}:{}", k.replace('\n', " | ").replace('\r', ""))).collect();
         println!("{p}: [{:.3}..{:.3}] cycle {} accum {:?}, {} tracks; text keys: {}", s.start_time, s.stop_time, s.cycle_type, s.accum_root_name, s.tracks.len(), keys.join(", "));
+        // Tracks that are not transforms (visibility, colours, ...): named only.
+        let other: Vec<String> = s
+            .tracks
+            .iter()
+            .filter_map(|t| match &t.data {
+                TrackData::Transform(_) => None,
+                TrackData::Other(kind) => Some(format!("{} ({kind}, {}, priority {})", t.node_name.as_deref().unwrap_or("-"), t.controller_type.as_deref().unwrap_or("-"), t.priority.unwrap_or(-1))),
+                TrackData::None => Some(format!("{} (no data, {})", t.node_name.as_deref().unwrap_or("-"), t.controller_type.as_deref().unwrap_or("-"))),
+            })
+            .collect();
+        if !other.is_empty() && std::env::var_os("KF_OTHER").is_some() {
+            println!("  other tracks: {}", other.join("; "));
+        }
         let mut rows = BTreeMap::new();
         for t in &s.tracks {
             let TrackData::Transform(tt) = &t.data else { continue };
             let Some(n) = t.node_name.clone() else { continue };
+            if std::env::var_os("KF_OTHER").is_some() {
+                println!("  {n}: priority {}, translation {:?}, scale {:?}", t.priority.unwrap_or(-1), tt.translation.sample(s.start_time), tt.scale.sample(s.start_time));
+            }
             // Whether the pose moves over the clip: compare the start with the middle.
             let mid = 0.5 * (s.start_time + s.stop_time);
             let animated = match (tt.rotation_at(s.start_time), tt.rotation_at(mid)) {
