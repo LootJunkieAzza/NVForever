@@ -21,9 +21,9 @@
 //!   (`PlayState::Menu`, `script::hold_player`), and script time stops (the runtime's
 //!   `Game::menu`).
 //! - **Subtitles**: the dialogue lines being said (`Game::speech`), bottom centre, as
-//!   "Speaker: text", one response of the INFO at a time, each for as long as it lasts
-//!   (`crate::voice::line_lengths`: its voice file's length, or the length fitted to its
-//!   text without one).
+//!   "Speaker: text", one response of the INFO at a time in response-number order, each
+//!   for as long as it lasts (`crate::voice::speech_response`: its voice file's length,
+//!   or the length fitted to its text without one).
 
 use crate::script::{ScriptState, MENU_MESSAGE};
 use crate::script_events::BoxMessage;
@@ -221,9 +221,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<Panel>
     let mut subs = Vec::new();
     for s in &g.speech {
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
-        let lengths = crate::voice::line_lengths(g, sim, s);
-        let total: f64 = lengths.iter().sum();
-        let i = crate::voice::response_at(&lengths, total - s.remaining);
+        let i = crate::voice::speech_response(g, sim, s);
         let Some(text) = texts.get(i).or_else(|| texts.last()) else { continue };
         let base = sim.base_of(s.speaker.0).unwrap_or(s.speaker);
         let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));

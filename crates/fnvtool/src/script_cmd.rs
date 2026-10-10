@@ -119,10 +119,7 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             let fjson = functions_json(&a)?;
             with_load_order(&a, |l, lo, schema| Ok(coverage(l, lo, schema, &fjson)))
         }
-        ScriptCmd::Run { a, actions, no_voice_lengths } => {
-            let voice = !no_voice_lengths && std::env::var(VOICE_LENGTHS_ENV).map_or(true, |v| v != "0");
-            run_actions(&a, &actions, voice)
-        }
+        ScriptCmd::Run { a, actions, no_voice_lengths } => run_actions(&a, &actions, !no_voice_lengths),
     }
 }
 
@@ -624,15 +621,23 @@ fn run_actions(a: &ScriptArgs, actions: &std::path::Path, voice_lengths: bool) -
     let forms = fnv_sim::FormStore::build(&lo, &schema);
     let refs = fnv_sim::RefTable::build(&lo, &schema);
     let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
-    // Without archives (synthetic plugins, a folder of plugins only) no line has a file
-    // and every line keeps its fitted length.
-    let voice: Option<std::sync::Arc<dyn fnv_game::voice::VoiceLengths>> = match voice_lengths.then(|| crate::voice_cmd::open_vfs(&a.lo.data_dir, &a.lo.plugins)) {
-        Some(Ok(vfs)) => Some(std::sync::Arc::new(fnv_voice::VoiceBank::build(&lo, std::sync::Arc::new(vfs)))),
-        Some(Err(e)) => {
+    let voice = voice_lengths_hook(a, &lo, voice_lengths);
+    fnv_game::runner::run_with_voice(&data, &forms, &refs, &input, voice).map_err(anyhow::Error::msg)
+}
+
+/// The line-length hook of a headless run: the voice files in the archives next to the
+/// plugins (docs/spec-notes/voice.md §8), unless `wanted` is false or the environment
+/// says [`VOICE_LENGTHS_ENV`]`=0`. Without archives (synthetic plugins, a folder of
+/// plugins only) no line has a file and every line keeps its fitted length.
+pub fn voice_lengths_hook(a: &ScriptArgs, lo: &LoadOrder<'_>, wanted: bool) -> Option<fnv_game::runner::Voice> {
+    if !wanted || std::env::var(VOICE_LENGTHS_ENV).is_ok_and(|v| v == "0") {
+        return None;
+    }
+    match crate::voice_cmd::open_vfs(&a.lo.data_dir, &a.lo.plugins) {
+        Ok(vfs) => Some(std::sync::Arc::new(fnv_voice::VoiceBank::build(lo, std::sync::Arc::new(vfs)))),
+        Err(e) => {
             tracing::warn!("voice files not read, dialogue lines keep their fitted length: {e:#}");
             None
         }
-        None => None,
-    };
-    fnv_game::runner::run_with_voice(&data, &forms, &refs, &input, voice).map_err(anyhow::Error::msg)
+    }
 }
