@@ -116,6 +116,11 @@ pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
             let vfs = fnv_vfs::Vfs::open_default(&data_dir).with_context(|| data_dir.display().to_string())?;
             Ok(crate::actor_locomotion::report(&vfs, &nif, &folder, samples))
         }
+        ActorCmd::Tri { data_dir, nif_schema, path } => {
+            let nif = fnv_nif::Schema::load_dir(&nif_schema).with_context(|| nif_schema.display().to_string())?;
+            let vfs = fnv_vfs::Vfs::open_default(&data_dir).with_context(|| data_dir.display().to_string())?;
+            Ok(crate::actor_tri::report(&vfs, &nif, path.as_deref()))
+        }
     }
 }
 
