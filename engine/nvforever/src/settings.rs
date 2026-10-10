@@ -12,6 +12,7 @@ use crate::head_look::HeadLookSettings;
 use crate::lips::LipState;
 use crate::lod::LodState;
 use crate::nav::NavState;
+use crate::player_body::PlayerBody;
 use crate::sky::SkyState;
 use crate::world::Streamer;
 use crate::{Args, Overlay};
@@ -28,6 +29,7 @@ pub fn register(app: &mut App) {
     let has_lips = app.world().contains_resource::<LipState>();
     let has_heads = app.world().contains_resource::<HeadLookSettings>();
     let has_nav = app.world().contains_resource::<NavState>();
+    let has_body = app.world().contains_resource::<PlayerBody>();
     if has_lips {
         add_setting(
             app,
@@ -65,6 +67,19 @@ pub fn register(app: &mut App) {
             set: |w, on| w.resource_mut::<Args>().still_sky = !on,
         },
     );
+    if has_body {
+        add_setting(
+            app,
+            Setting {
+                key: "first-person-body",
+                group: GROUP_PICTURE,
+                label: "Body in first person",
+                note: "On: in first person you see your own body and legs when you look down. Off: only the arms and the weapon are drawn, as in the original. (--first-person-body)",
+                get: |w| w.resource::<PlayerBody>().first_person_body,
+                set: |w, on| w.resource_mut::<PlayerBody>().first_person_body = on,
+            },
+        );
+    }
     add_setting(
         app,
         Setting {

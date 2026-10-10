@@ -384,7 +384,8 @@ keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
   - The switches: `menu-pause` (the picture stands still in dialogue and menus,
     `--menu-pause`), `voice` (`--no-voice`), `dialogue-look` (`--no-dialogue-look`),
     `dialogue-recentre` (`--dialogue-recentre`), `lip-sync` (`--no-lip`),
-    `head-tracking` (`--no-head-tracking`), `sky-clock` (`--still-sky`), `sun-shadows`
+    `head-tracking` (`--no-head-tracking`), `sky-clock` (`--still-sky`),
+    `first-person-body` (`--first-person-body`, player-body.md §1.5), `sun-shadows`
     (`--shadow-distance 0`), `grass` (`--no-grass`), `distant-lod` (`--no-lod`), `grade`
     (`--no-grade`), `overlay` (`--no-overlay`), `navmesh` (`--show-navmesh`).
   - What switching while the game runs needed: grass switched off is hidden and cells
