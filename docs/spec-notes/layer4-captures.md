@@ -307,6 +307,25 @@ Recorded where the rule lives, tagged [observed by the owner in game, 2026-10-08
 - `GetPos Z` is the feet: the player standing on a rug at z 7360 in Doc Mitchell's house
   reads 7361.05 (physics.md §6).
 
+## 5a. Actor collision job ready to run (2026-10-10)
+
+`pc_actor_push` (`python tools/capture/jobs/make_actor_push_jobs.py`; 7,433 steps, about
+4 minutes, no manual step): the player runs and walks into Doc Mitchell and into a
+settler made by the job, is put on their spot, and stands in their way, in the lane of
+`pc_push` in Doc Mitchell's house. Trials, what each settles and what the engine
+predicts: physics.md §6.8. Save `nvfdoc`; god mode only (AI detection stays on, as in
+play). Nothing leaves the house, so no scripted autosave is reached.
+
+```
+python tools/capture/capture_run.py --game "<FNV folder>" --save nvfdoc --kill-on-timeout -o C:/fnv-private/capture/run_pc_actor_push.json tools/capture/jobs/pc_actor_push.steps.json
+```
+
+Not run yet. Things the first run may show wrong with the job itself: Doc Mitchell may
+be seated (`sitting` in the `as found` rows) and not take a `SetPos`, the settler may
+walk off to its own package's place between trials (every trial puts it back and reads
+it from 45 loops later), and `GetRestrained` or `GetCurrentAIProcedure` on a reference
+variable may not compile (the step then records an error and the job goes on).
+
 ## 5. Movement jobs ready to run (2026-10-08)
 
 Made by `python tools/capture/jobs/make_movement_jobs.py` (the scenario jobs from the lab

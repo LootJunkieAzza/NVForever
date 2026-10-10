@@ -39,8 +39,17 @@
 //!   object, e.g. a bottle to shoot) and `equip=<FormID hex>` (give one unless carried and
 //!   equip it, as `NVF_PLAY_TEST_EQUIP`).
 //!
+//! The aids that stand in for the keys and the mouse (`NVF_PLAY_TEST_MOVE`,
+//! `NVF_PLAY_TEST_CONTROL`'s presses, `NVF_PLAY_TEST_LOOK`, `NVF_PLAY_TEST_ACTIVATE`) are
+//! held by a script's `DisablePlayerControls` like the keys and the mouse
+//! (`control::ControlLocks`); the ones that place the player or aim the view directly
+//! (`GOTO`, `FACE`, the `aim…` presses) are not.
+//!
 //! - `NVF_PLAY_TEST_NO_SPREAD=1` (combat.rs): the player's shots leave exactly along the
 //!   view, with no spread or bloom, so a shot aimed with `aimref` or `aimpart` lands there.
+//! - `NVF_PLAY_TEST_TRACERS=<seconds>` (combat.rs): every projectile of the player's
+//!   draws a tracer, and tracers and muzzle flashes stay that long, so one screenshot
+//!   shows where the shots were drawn from.
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
@@ -481,7 +490,14 @@ fn face_reference(time: crate::pause::AidTime, mut aids: ResMut<Aids>, sim: Res<
     }
 }
 
-fn goto_and_look(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut phys: ResMut<PhysState>, mut player: ResMut<Player>) {
+fn goto_and_look(
+    time: crate::pause::AidTime,
+    mut aids: ResMut<Aids>,
+    mut phys: ResMut<PhysState>,
+    mut player: ResMut<Player>,
+    locks: Res<crate::control::ControlLocks>,
+    mut stats: ResMut<crate::control::LockStats>,
+) {
     let now = time.elapsed_secs();
     if phys.player.is_some() {
         for at in take_due(&mut aids.gotos, now) {
@@ -501,6 +517,12 @@ fn goto_and_look(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut phys: 
         }
     }
     for (h, p) in take_due(&mut aids.looks, now) {
+        // The aid stands in for the mouse, which a script's lock holds (control.rs).
+        if locks.looking {
+            info!("test aid: look heading {:.1} pitch {:.1} ignored: a script has disabled looking", h.to_degrees(), p.to_degrees());
+            stats.held[crate::control::group::LOOKING] += 1;
+            continue;
+        }
         info!("test aid: look heading {:.1} pitch {:.1}", h.to_degrees(), p.to_degrees());
         (player.heading, player.pitch) = (h, p);
     }

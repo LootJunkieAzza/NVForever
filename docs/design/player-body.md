@@ -61,6 +61,9 @@ controls.md (bindings).
 | Ammo Swap | 2 | the next carried ammo type down the weapon's list, then a reload (combat C4) |
 | Rest, Vats, Hotkeys 1 and 3–8, QuickSave F5, QuickLoad F9, Grab Z | | bound; pressing one shows "… : not available yet" |
 
+Scripts can turn groups of these controls off and on (`DisablePlayerControls`,
+`EnablePlayerControls`): `control::ControlLocks`, docs/spec-notes/controls.md §5.
+
 Mouse look uses the game's `fMouseSensitivity` (0.002 radians per count) and
 `bInvertYValues` (off). The F9 test aid that opened the nearest container moved to F10
 (F9 is Quick Load).

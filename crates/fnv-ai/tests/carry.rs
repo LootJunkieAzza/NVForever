@@ -708,3 +708,49 @@ fn a_sandbox_is_the_same_every_time() {
     assert!(a.0.len() >= 3, "{:?}", a.0);
     assert_eq!(a, b);
 }
+
+#[test]
+fn a_standing_actor_is_pushed_over_the_navmesh_and_goes_back() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_RADIUS, R_TO_CHAIR]);
+    let actor = FormId(R_RADIUS);
+    // On its way: not pushed.
+    s.run(1.0);
+    assert!(!s.ai.stands(&s.game, actor));
+    assert_eq!(s.ai.push(&mut s.game, &s.nav, actor, [5.0, 0.0]), 0.0);
+    s.run(30.0);
+    // There (within 150 of the marker at (350, 350)) and standing: a push moves it, and
+    // the game's reference with it.
+    let at = s.feet(R_RADIUS);
+    assert!(s.ai.stands(&s.game, actor));
+    let moved = s.ai.push(&mut s.game, &s.nav, actor, [6.0, 8.0]);
+    assert!((moved - 10.0).abs() < 1e-3, "{moved}");
+    let pushed = s.feet(R_RADIUS);
+    assert_eq!(pushed, [at[0] + 6.0, at[1] + 8.0, at[2]]);
+    assert_eq!(s.game.world.get(actor).unwrap().pos, pushed);
+    // Still where its package has it: it stays there.
+    s.run(10.0);
+    assert_eq!(s.feet(R_RADIUS), pushed);
+    assert!(!s.events(R_RADIUS).iter().any(|e| matches!(e, AiEvent::PushedBack { .. })));
+    // Pushed at the navmesh's edge (y 0): as far as the edge, no further, and along it
+    // when the push points off it at an angle.
+    let x = s.feet(R_RADIUS)[0];
+    let moved = s.ai.push(&mut s.game, &s.nav, actor, [0.0, -600.0]);
+    assert!((moved - (at[1] + 8.0)).abs() < 1e-2 && s.feet(R_RADIUS)[1].abs() < 1e-3, "{moved} {:?}", s.feet(R_RADIUS));
+    assert_eq!(s.ai.push(&mut s.game, &s.nav, actor, [0.0, -10.0]), 0.0);
+    let moved = s.ai.push(&mut s.game, &s.nav, actor, [10.0, -10.0]);
+    assert!((moved - 10.0).abs() < 1e-2 && (s.feet(R_RADIUS)[0] - (x + 10.0)).abs() < 1e-2, "{moved} {:?}", s.feet(R_RADIUS));
+    // Out of its package's place now. Left alone for a while it walks back into it.
+    s.run(1.0);
+    assert!(s.feet(R_RADIUS)[1].abs() < 1e-3);
+    s.run(40.0);
+    let events = s.events(R_RADIUS);
+    let back = events.iter().position(|e| matches!(e, AiEvent::PushedBack { .. })).expect("goes back");
+    assert!(matches!(events[back + 1], AiEvent::Trip { .. }) && matches!(events.last().unwrap(), AiEvent::Arrived { .. }), "{events:?}");
+    assert!(dist(s.feet(R_RADIUS), [350.0, 350.0, 0.0]) <= 150.0);
+    assert_eq!(s.ai.agents[&actor].activity, Activity::There);
+    // Who sits is not pushed.
+    assert_eq!(s.ai.agents[&FormId(R_TO_CHAIR)].using, Some(FormId(CHAIR_C)));
+    assert!(!s.ai.stands(&s.game, FormId(R_TO_CHAIR)));
+    assert_eq!(s.ai.push(&mut s.game, &s.nav, FormId(R_TO_CHAIR), [5.0, 0.0]), 0.0);
+}
