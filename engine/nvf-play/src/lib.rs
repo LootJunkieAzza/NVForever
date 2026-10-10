@@ -13,6 +13,7 @@
 
 pub mod activate;
 pub mod bindings;
+pub mod blocking;
 pub mod combat;
 pub mod control;
 pub mod dialogue;
