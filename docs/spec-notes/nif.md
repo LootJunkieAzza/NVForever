@@ -399,6 +399,22 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   sheen, brighter at night with the brighter night ambient; in game the panes are dark
   [observed, owner's screenshot]. The windows' environment map (slot 4
   `shinybright_e.dds`, mask slot 5 `_m`, window-environment flag) is not drawn yet.
+- **Hair** [observed, `characters\hair\hairbun.nif`]: both shapes have a
+  NiMaterialProperty with specular colour (0, 0, 0) and glossiness 10, and a
+  BSShaderPPLightingProperty with shader flags 0x82040101 — Specular (bit 0), Alpha
+  texture (8), Hair (18), Remappable textures (25), Z-buffer test (31) [documented:
+  nif.xml BSShaderFlags] — and the textures `HairBun.dds`, `HairBun_n.dds` and, in slot
+  2, `HairBun_hl.dds`. The normal map's alpha is high: mean 95 of 255, 90th percentile
+  184, against a mean of 16 for the female head's `headhuman_n.dds` and 21 for
+  `hairbase_n.dds`; the `_hl` map's alpha is nearly the same (mean 93, 90th percentile
+  181) over a grey strand pattern. Read as the plain specular mask of "Specular" above,
+  that alpha made the hair glint under the Prospector Saloon's window light — white
+  strands beside the face and a sheen on the crown — where the owner's in-game picture
+  of Sunny Smiles shows matte auburn hair. The renderers give shapes with the Hair flag
+  (hair, brows, beards) no specular [hypothesis: the hair shader does not use the
+  normal-map alpha as an ordinary specular mask; what it does with it and with the
+  `_hl` map is open — an in-game picture of hair under a strong light, from the side,
+  would show whether there is any highlight to rebuild].
 
 ## 7. Coverage status
 

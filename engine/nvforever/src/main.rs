@@ -217,6 +217,15 @@ struct Args {
     /// Draw NPCs with the race's base face (no FaceGen morphs or face textures).
     #[arg(long)]
     no_facegen: bool,
+    /// Tint NPCs' skin and shape their faces from their own FaceGen values alone, without
+    /// adding their race's, for comparisons (docs/spec-notes/actors.md §4.2, §4.3).
+    #[arg(long)]
+    no_race_facegen: bool,
+    /// Test aid: draw the actors that are not enabled at the start of a game (they are
+    /// spawned hidden until a script enables them; docs/spec-notes/actors.md §11), e.g.
+    /// to look at Joe Cobb in the saloon.
+    #[arg(long)]
+    show_disabled_actors: bool,
     /// How NPCs are posed: the skeleton's idle clip in a loop (the default), or the
     /// frozen bind pose (docs/spec-notes/actors.md §7).
     #[arg(long, value_enum, default_value_t = actors::ActorPose::Idle)]
@@ -516,6 +525,8 @@ fn main() -> AppExit {
         let t0 = std::time::Instant::now();
         let mut a = actors::ActorWorld::build(world.lo, world.schema);
         a.facegen_enabled = !args.no_facegen;
+        a.race_facegen = !args.no_race_facegen;
+        a.show_disabled = args.show_disabled_actors;
         a.pose = args.actor_pose;
         a.pose_time = args.actor_pose_time;
         a.walk_test = args.actor_walk_test.map(|speed| actors::WalkTestArgs { speed, radius: args.actor_walk_test_radius, center: start });
