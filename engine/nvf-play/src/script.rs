@@ -31,6 +31,11 @@
 //! - Activation by hand goes through [`activate_by_hand`] (called by `activate.rs`): a
 //!   reference whose script has an OnActivate block runs it *instead of* the default
 //!   action, which then runs only if the script calls `Activate` (`fnv_game`'s rule).
+//! - Conversations (`crate::dialogue`, docs/design/dialogue-play.md): activating an actor
+//!   whose default action is to talk starts one ([`Runtime::talk_after`]: by hand, from an
+//!   OnActivate block's `Activate` and from any script's `Activate player`); scripts start
+//!   them with StartConversation. The dialogue screen reads `Game::dialogue` and acts on
+//!   it between ticks through [`Runtime::player_action`].
 //! - `--new-game` ([`NewGame`]): the opening starts as the New Game menu starts it (VCG00
 //!   at stage 0, [`Runtime::start_opening`]); the player starts at
 //!   `VCG01PlayerStartMarkerREF` ([`new_game_start`]).
@@ -104,8 +109,11 @@ pub fn menu_code(mode: Mode) -> u16 {
 /// A menu the scripts opened (a message box, a character-creation menu), as opposed to
 /// the engine's container and inventory menus: the script overlay shows it and the
 /// player closes it there.
+///
+/// Not the dialogue menu (1009), should the runtime name it as the open menu during a
+/// conversation: that one is `crate::dialogue`'s screen, with its own keys.
 pub fn is_script_menu(code: u16) -> bool {
-    code != MENU_CONTAINER && code != MENU_INVENTORY
+    code != MENU_CONTAINER && code != MENU_INVENTORY && code != menus::DIALOGUE
 }
 
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
@@ -167,6 +175,10 @@ pub struct ScriptState {
     /// `walk:` test aids due: where to put the player's feet.
     walks: Vec<(String, [f32; 3])>,
     new_game: bool,
+    /// Real seconds spent while the virtual clock stood still (`--dialogue-pause
+    /// original`, `crate::dialogue`): added to the clock the test aids and the menu
+    /// timers read, so they go on through a conversation.
+    pub(crate) stopped_secs: f32,
 }
 
 /// The running game and what the engine side remembers between frames.
@@ -245,7 +257,7 @@ impl ScriptState {
             }
         });
         let loader = off.is_none().then(|| Mutex::new(start_loading(d, refs)));
-        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, on_screen: None, walks: Vec::new(), new_game }
+        ScriptState { loader, rt: None, off, trace, aids, gates: HashMap::new(), auto_close, on_screen: None, walks: Vec::new(), new_game, stopped_secs: 0.0 }
     }
 
     /// The player answers the script's open menu: `Some(b)` picks button b (0 = first) of
@@ -263,6 +275,17 @@ impl ScriptState {
             }
         }
         ok
+    }
+
+    /// A line of the engine's own in the trace log (a test aid's step, the player's
+    /// input on the dialogue screen), with `frame`, `t` and `gt` added.
+    pub(crate) fn trace_note(&mut self, mut v: serde_json::Value) {
+        let (Some(rt), Some(log)) = (self.rt.as_ref(), self.trace.as_mut()) else { return };
+        v["frame"] = serde_json::json!(rt.game.frame);
+        v["t"] = serde_json::json!(secs(rt.started));
+        v["gt"] = serde_json::json!(rt.game.time);
+        log.write(&v);
+        let _ = log.out.flush();
     }
 }
 
@@ -462,6 +485,7 @@ impl Runtime {
     fn by_hand(&mut self, target: FormId) -> Result<ByHand, String> {
         self.observe_inventory();
         let player = FormId::PLAYER_REF;
+        let from = self.game.events.len();
         let g = &mut self.game;
         let has_block = g.ref_script(target).and_then(|s| g.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE));
         let r = if has_block {
@@ -492,8 +516,73 @@ impl Runtime {
                 Err(e) => Err(e.to_string()),
             }
         };
+        // An actor whose default action ran (no OnActivate block, or its block called
+        // `Activate`) is talked to, if it has a greeting.
+        let r = match r {
+            Ok(_) if self.talk_after(from) => Ok(ByHand::Talk),
+            r => r,
+        };
         self.snapshot_inventory();
         r
+    }
+
+    /// The player's activations among the events from index `from` on whose default
+    /// action is to talk (`Outcome::Talk`: a living actor): the conversation starts with
+    /// the actor's greeting (`Game::start_dialogue`). An actor with nothing to say starts
+    /// none, and the activation keeps the on-screen line it had ("… has nothing to say").
+    /// Returns whether a conversation started.
+    fn talk_after(&mut self, from: usize) -> bool {
+        let player = FormId::PLAYER_REF;
+        let wanted: Vec<(usize, FormId)> = self
+            .game
+            .events
+            .iter()
+            .enumerate()
+            .skip(from)
+            .filter_map(|(i, e)| match &e.kind {
+                EventKind::Activated { by, outcome: Some(o), .. } if *by == player => match script_events::activation_from_json(o)?.outcome {
+                    Outcome::Talk { actor } => Some((i, actor)),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        let mut started = false;
+        for (i, actor) in wanted {
+            let g = &mut self.game;
+            match g.start_dialogue(actor, None) {
+                Ok(info) => {
+                    info!("dialogue: the player talks to {}: its greeting is {}", g.data.name(actor), g.data.name(info));
+                    // The activation's own effect (the "nothing to say" line) is void.
+                    self.skip.insert(i);
+                    started = true;
+                }
+                Err(e) => info!("dialogue: no conversation: {e}"),
+            }
+        }
+        started
+    }
+
+    /// Something the player does to the game between ticks (a choice on the dialogue
+    /// screen, a skipped response): inventory changes the menus made are seen first, and
+    /// what the action's scripts change is the scripts' own.
+    pub(crate) fn player_action<R>(&mut self, f: impl FnOnce(&mut Game<'static>) -> R) -> R {
+        self.observe_inventory();
+        let r = f(&mut self.game);
+        self.snapshot_inventory();
+        r
+    }
+
+    /// The player activates `r` as E does, wherever the crosshair is (test aids). Nobody
+    /// else applies a default action's outcome here: its trace events become effects like
+    /// a script's.
+    pub(crate) fn activate_as_player(&mut self, r: FormId) -> Result<ByHand, String> {
+        let from = self.game.events.len();
+        let done = self.by_hand(r)?;
+        if !matches!(done, ByHand::Talk) {
+            self.skip.retain(|&i| i < from);
+        }
+        Ok(done)
     }
 
     /// One test-aid step (`walk:` is the caller's: it needs physics).
@@ -538,12 +627,7 @@ impl Runtime {
             }
             ScriptAid::Activate(r) => {
                 let r = resolve(g, r)?;
-                let from = g.events.len();
-                let done = self.by_hand(r)?;
-                // Unlike E (activate.rs), nobody applies a default action's outcome here:
-                // its trace events become effects like a script's.
-                self.skip.retain(|&i| i < from);
-                if let ByHand::Default(a) = done {
+                if let ByHand::Default(a) = self.activate_as_player(r)? {
                     debug!("test aid: activated {r}: {:?}", a.outcome);
                 }
             }
@@ -569,6 +653,9 @@ pub enum ByHand {
     Script,
     /// The default action ran (no OnActivate block, or scripts are off).
     Default(Activation),
+    /// The target is an actor with a greeting: a conversation with it started
+    /// (`crate::dialogue` shows it).
+    Talk,
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.
@@ -686,7 +773,7 @@ impl Plugin for ScriptPlugin {
         let new_game = app.world().contains_resource::<NewGame>();
         let unattended = crate::test_aid::Unattended::from_env().0;
         app.insert_resource(ScriptState::new(d, refs, new_game, unattended))
-            .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin))
+            .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
             .add_systems(Update, (crate::script_hud::menu_keys, run_scripts, walk_player, hold_player).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, write_final);
     }
@@ -726,8 +813,9 @@ fn due_aids(st: &mut ScriptState, now: f32) -> Vec<ScriptAid> {
 
 /// One frame of scripts, then their effects.
 #[allow(clippy::too_many_arguments)]
-fn run_scripts(
+pub(crate) fn run_scripts(
     time: Res<Time>,
+    clocks: (Res<Time<Virtual>>, Res<Time<Real>>),
     play: Res<PlayWorld>,
     phys: Res<PhysState>,
     location: Res<Location>,
@@ -743,6 +831,10 @@ fn run_scripts(
     // Items the player used up in the inventory menu (the menu already removed them).
     let used: Vec<FormId> = used.read().map(|u| FormId(u.item)).collect();
     let st = &mut *script;
+    // `--dialogue-pause original` stops the virtual clock during a conversation
+    // (`crate::dialogue`): the runtime and the aids' clock then go by real frame time.
+    let stopped = clocks.0.is_paused().then(|| clocks.1.delta_secs_f64().min(0.25));
+    st.stopped_secs += stopped.unwrap_or(0.0) as f32;
     if st.rt.is_none() {
         let Some(rx) = st.loader.as_ref() else { return };
         let got = rx.lock().ok().and_then(|r| r.try_recv().ok());
@@ -776,7 +868,7 @@ fn run_scripts(
     }
     let Some(character) = phys.player.as_ref() else { return };
     let player_capsule = Some(Capsule { feet: character.feet, radius: character.params.radius, height: character.params.height });
-    let now = time.elapsed_secs();
+    let now = time.elapsed_secs() + st.stopped_secs;
     let mut due = due_aids(st, now);
     // A script's menu or box left open by an unattended run: answered with OK / Done.
     let on_screen = st.rt.as_ref().and_then(|rt| {
@@ -807,7 +899,7 @@ fn run_scripts(
     rt.location = Some(*location);
     let loading = rt.frozen_frames > 0;
     rt.frozen_frames = rt.frozen_frames.saturating_sub(1);
-    let dt = time.delta_secs_f64();
+    let dt = stopped.unwrap_or_else(|| time.delta_secs_f64());
     let t0 = Instant::now();
     let mut marked = Vec::new();
     let mut aid_lines = Vec::new();
@@ -840,10 +932,13 @@ fn run_scripts(
                 "t": secs(rt.started), "gt": rt.game.time}));
         }
         due.clear();
+        let from = rt.game.events.len();
         crate::script_trigger::update(rt, &play, player_capsule);
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
         rt.game.tick();
+        // A script's `Activate player` on an actor: the player talks to it.
+        rt.talk_after(from);
         rt.finish_answer();
         rt.snapshot_inventory();
         marked = rt.newly_marked();
@@ -991,7 +1086,7 @@ fn log_event(data: &GameData, e: &Event) {
         EventKind::Unhandled { name, unit, .. } => debug!("script: unhandled {name} in {unit}"),
         EventKind::ScriptError { unit, error } => warn!("script error in {unit}: {error}"),
         EventKind::CallFailed { name, unit, error, .. } => debug!("script: {name} failed in {unit}: {error}"),
-        _ => {}
+        _ => crate::dialogue::log_event(data, e),
     }
 }
 
