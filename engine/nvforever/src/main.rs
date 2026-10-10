@@ -15,6 +15,8 @@ mod emittance;
 mod fade;
 mod facegen;
 mod fly;
+mod furniture;
+mod head_look;
 mod lights;
 mod limbs;
 mod lips;
@@ -255,8 +257,14 @@ struct Args {
     /// Walking speed of --npc-travel NPCs, game units per second.
     #[arg(long, default_value_t = nav::WALK_SPEED)]
     npc_speed: f32,
-    /// The free camera follows the first --npc-travel NPC (through doors too).
-    #[arg(long, requires = "npc_travel", conflicts_with = "play")]
+    /// An NPC walks to a piece of furniture and uses it: "ACTOR=FURNITURE[:SECONDS]",
+    /// the actor a placed reference (Editor ID or FormID), the furniture a reference
+    /// FormID; with SECONDS it gets up again after that long on it (repeatable;
+    /// docs/spec-notes/furniture.md).
+    #[arg(long)]
+    npc_sit: Vec<String>,
+    /// The free camera follows the first --npc-travel or --npc-sit NPC (through doors too).
+    #[arg(long, conflicts_with = "play")]
     follow_npc: bool,
     /// Draw the navmesh near the camera and the travellers' paths.
     #[arg(long)]
@@ -285,6 +293,18 @@ struct Args {
     /// docs/design/dialogue.md, Pausing.
     #[arg(long, alias = "dialogue-pause", default_value = "living", value_parser = ["living", "original"], requires = "play")]
     menu_pause: String,
+    /// Do not turn actors' heads to the player and to NPCs near them (head_look.rs,
+    /// docs/spec-notes/actors.md §12).
+    #[arg(long)]
+    no_head_tracking: bool,
+    /// Test aid without --play: the free camera stands in for the player, so actors near
+    /// it look at it.
+    #[arg(long, conflicts_with_all = ["play", "no_head_tracking"])]
+    head_track_camera: bool,
+    /// Test aid: every actor near the camera is told to look at this game position
+    /// "x,y,z", the way a conversation or a script forces a head's target.
+    #[arg(long, allow_hyphen_values = true, conflicts_with = "no_head_tracking")]
+    head_track_point: Option<String>,
     /// With --play: in a conversation, do not turn the actor to the player nor the
     /// player's view to the actor (docs/design/dialogue-play.md §8).
     #[arg(long)]
@@ -490,10 +510,23 @@ fn main() -> AppExit {
         a
     });
     let open_doors = args.open_doors;
-    let nav_state = if args.npc_travel.is_empty() && !args.show_navmesh {
+    // Furniture: used by the player in play mode and by --npc-sit travellers.
+    let mut trips = args.npc_travel.clone();
+    let furnishings = if args.play || !args.npc_sit.is_empty() {
+        match furniture::Furnishings::build(&world, &args.npc_sit, trips.len()) {
+            Ok((f, sit_trips)) => {
+                trips.extend(sit_trips);
+                Some(f)
+            }
+            Err(e) => return fail(e),
+        }
+    } else {
+        None
+    };
+    let nav_state = if trips.is_empty() && !args.show_navmesh {
         None
     } else {
-        match nav::NavState::build(&world, &args.npc_travel, args.npc_speed, args.show_navmesh, args.follow_npc) {
+        match nav::NavState::build(&world, &trips, args.npc_speed, args.show_navmesh, args.follow_npc && !trips.is_empty()) {
             Ok(n) => Some(n),
             Err(e) => return fail(e),
         }
@@ -584,6 +617,16 @@ fn main() -> AppExit {
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);
+        if args.no_head_tracking {
+            info!("head tracking: off (--no-head-tracking)");
+        } else {
+            let force_point = match args.head_track_point.as_deref().map(|p| parse_vec::<3>(p).ok_or(p)) {
+                Some(Err(p)) => return fail(format!("--head-track-point {p}: expected x,y,z")),
+                Some(Ok(p)) => Some(p),
+                None => None,
+            };
+            app.add_plugins(head_look::HeadLookPlugin { camera_is_player: args.head_track_camera, force_point });
+        }
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin));
@@ -591,6 +634,13 @@ fn main() -> AppExit {
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
         }
+    }
+    if let Some(f) = furnishings {
+        // After the travellers moved, before the actors are posed.
+        app.insert_resource(f)
+            .add_systems(Startup, furniture::log_startup)
+            .add_systems(Update, (furniture::seat_orders, furniture::drive_actors).chain().after(nav::drive).before(locomotion::walk_test))
+            .add_systems(Last, furniture::report);
     }
     if let Some(n) = nav_state {
         let follow = n.follow;

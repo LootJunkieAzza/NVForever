@@ -29,6 +29,17 @@ pub struct LastHit {
     pub critical: bool,
 }
 
+/// The furniture an actor is using (docs/spec-notes/furniture.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FurnitureUse {
+    /// The furniture reference.
+    pub reference: FormId,
+    /// The ID of the model marker the actor entered by (`GetFurnitureMarkerID`).
+    pub marker_id: u8,
+    /// `GetSitting` / `GetSleeping`: 2 getting on, 3 on it, 4 getting off.
+    pub state: u8,
+}
+
 fn is_zero_f64(v: &f64) -> bool {
     *v == 0.0
 }
@@ -175,6 +186,9 @@ pub struct RefExtra {
     /// Who killed the actor (KillActor's killer), for IsKiller.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub killer: Option<FormId>,
+    /// The furniture the actor is on, getting on or getting off.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub furniture: Option<FurnitureUse>,
     /// The last hit taken (combat), for GetHitLocation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_hit: Option<LastHit>,

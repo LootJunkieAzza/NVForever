@@ -894,6 +894,63 @@ design and what was checked: `docs/spec-notes/ragdoll.md`.
    capture of that session in that window may need re-running. The two runs
    after that (11:05 and 11:07, on the tree merged with main) took both locks.
 
+## The player's unclothed body (2026-10-10, session "naked body texture")
+
+Your report: the unclothed body was one orange-tan colour, the T-shirt visible only as
+shading. Facts and rules: `docs/spec-notes/actors.md` §3.1 and §4.1.
+
+1. **Fixed:** the body model holds two shapes, the skin and the underwear (its own
+   texture: grey T-shirt, dark shorts). The engine put the race's skin texture on both.
+   Now only the skin shape takes it, for the player and for NPCs, men and women.
+2. **Also changed, so the body is one colour:** hands are tinted like the body (they
+   were left the light colour of the texture beside darker arms), the skin showing in
+   gloves likewise (the Pip-Boy glove's fingers and wrist), and the first-person arms
+   and hands take the same tint as the third-person body (they had none).
+3. **For you to judge: the skin tone.** Your picture is described as showing light skin.
+   Ours is now a clear brown on arms, legs, hands and face alike. That comes from the
+   face values stored in the player's record, which shift the skin colour darker than
+   nine in ten Caucasian NPCs; the shirt and shorts are not affected. The rule that
+   applies the shift is a hypothesis (it fits the files well, see §4.1) and I could not
+   see your picture. If the skin is still too dark against the original, please put the
+   picture where sessions can read it; `--no-facegen` shows the body without the shift.
+4. **Found, not changed:** African American NPCs (about 280) are probably drawn too
+   light: their own face values barely darken the shared skin texture, while their
+   race's values would. The game most likely adds the two (actors.md §4.2). Joe Cobb in
+   Goodsprings is the nearest case to compare with the original.
+5. **Found, not changed:** ghoul and raider-race NPCs show human skin where an outfit
+   leaves skin bare (actors.md §3.1, last paragraph).
+
+## Furniture: sitting (2026-10-10, session "furniture")
+
+Owner request: furniture usable by the player and by NPCs, animated: sit down, stay,
+stand up on moving. Facts, model and what was checked: `docs/spec-notes/furniture.md`.
+Branch `claude/furniture` (worktree `NVForever-furniture`).
+
+1. **Done:** chairs, benches, booths and stools work for NPCs and the player, with the
+   game's own clips (which clip is read from the game's idle records per furniture
+   marker, so left, right and front entries, stools and women's variants come out of the
+   data). You sit by activating the furniture and get up with a movement key or by
+   activating it again. NPCs can also use beds. `GetSitting` and the four related script
+   functions now answer for whoever is seated. New: `--npc-sit ACTOR=FURNITURE[:SECONDS]`
+   and `fnvtool actor furniture`.
+2. **Decisions taken, each reversible (furniture.md §5, §7):**
+   - you are put at the furniture's entry point when you activate it (no walking up);
+   - getting up: any movement key, or Activate on the same furniture;
+   - in first person you see through the seated body's eyes and the body is not drawn;
+   - sitting puts your weapon away;
+   - an actor takes the nearest enabled, free entry point; a chair holds one user, a
+     bench or a table of stools one per seat;
+   - the prompt still says "Activate" (I believe the game says "Sit" but have no source).
+3. **Not built:** you cannot use beds (that needs the sleep menu); NPCs do not pick
+   furniture by themselves yet (that needs AI packages, in progress on
+   `claude/ai-packages`; its session can give an actor a `SitOn` to seat it); work spots
+   such as the bar and workbenches; eating, talking and fidgeting while seated; the fast
+   stand-up when attacked.
+4. **A capture would settle** which side an NPC enters a chair from and when
+   `GetSitting` is 1 (furniture.md §5); not needed for what is built.
+5. Game runs took both locks. The repository move orphaned this session's first
+   worktree mid-way; its two unpushed commits were rebuilt from the files on disk.
+
 ## Pip-Boy on the arm (2026-10-10, session "pip-boy")
 
 Your report: the Pip-Boy on the player's arm looks off, and its glow belongs to the
@@ -914,6 +971,6 @@ Pip-Boy light. Facts: docs/spec-notes/actors.md §1.2; design: docs/design/playe
    first person too (it was missing there, leaving bare wrist in a jumpsuit). Item 3 is
    therefore your rule for the Pip-Boy wearer; that everyone else shows `PipBoyOff` is
    still my reading of the name. Still open: is the screen dark with the light off?
-5. **Seen on the way, not touched:** the bare player body has black patches at the
-   armpits and hip in third person, and the Vault 21 jumpsuit shows a "101" (armour
-   texture swaps are not read yet, actors.md §1.1).
+5. **Seen on the way, not touched:** the Vault 21 jumpsuit shows a "101" (armour
+   texture swaps are not read yet, actors.md §1.1). The black patches I saw on the bare
+   body are the subject of the section "The player's unclothed body" above.
