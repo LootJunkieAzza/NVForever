@@ -290,6 +290,23 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   TEST_GREATER keeps alpha strictly above the threshold; Bevy's mask keeps alpha ≥ the
   cutoff, so the cutoff moves half a step up [hypothesis]. Order-dependent blending
   remains possible for the blended shapes.
+
+  Static collections can lose the threshold [observed, `fnvtool nif decode`]: the single
+  maize plants (`landscape\plants\maize_healthyp.nif`, `maize_withered.nif` and their
+  `_group1` models) have flags 4845 (blend, test GREATER) with threshold 124, while the
+  merged rows built from them (`scol\scolmaizerow1b.nif`, `scolmaizerow2b.nif`,
+  `maizewitheredgroup2b.nif`) have the same flags with threshold 0. So by the rule above
+  the single plants are alpha-tested and the rows blended. Their texture `Maize_D.dds`
+  (DXT3) is a cut-out with soft edges: 31.8% of its texels have alpha 0, 60.2% alpha
+  255 and 8.1% lie between. Blended, the rows look right as long as nothing blended is
+  drawn over them. The terrain's texture layers were: they are blended meshes too, a
+  blended shape writes no depth, and the layers of the ground behind a row were drawn
+  after the row wherever their quadrant sorted as the nearer, which left the corn faint
+  and hid the row behind it entirely [observed: Goodsprings, `--pos -70710,-764,8350
+  --heading 175 --pitch -8 --fov 75`]. Terrain layers are now drawn before every other
+  blended mesh (docs/spec-notes/world.md §"Texture layers"); the rows are solid.
+  Whether the game writes depth for blended shapes is open; within one blended mesh
+  the triangles are drawn in their stored order.
 - **Skin shader type** [observed, `crates/fnv-nif/examples/skin_survey.rs` over
   `Fallout - Meshes.bsa`]: 255 visible shapes have BSShaderPPLightingProperty shader
   type 14 (`SHADER_SKIN` [documented: nif.xml BSShaderType]); the same 255 and no others
