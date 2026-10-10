@@ -16,6 +16,7 @@ mod facegen;
 mod fly;
 mod lights;
 mod limbs;
+mod lips;
 mod lod;
 mod locomotion;
 mod weapons;
@@ -265,6 +266,10 @@ struct Args {
     /// With --play: dialogue voice volume, 1 = as recorded.
     #[arg(long, default_value_t = 1.0)]
     voice_volume: f32,
+    /// With --play: do not move a speaker's face from the line's `.lip` file
+    /// (docs/spec-notes/lipsync.md).
+    #[arg(long)]
+    no_lip: bool,
     /// With --play: what a conversation with the player holds. "living": game logic
     /// only (scripts' game time, the game clock, physics, travelling NPCs, the player's
     /// movement), while animations, wind, water and sky go on and the player looks around
@@ -556,6 +561,7 @@ fn main() -> AppExit {
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin));
+            app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
         }
     }
     if let Some(n) = nav_state {
