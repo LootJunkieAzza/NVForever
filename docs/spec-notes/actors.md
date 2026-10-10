@@ -426,6 +426,47 @@ The CLAUDE.md moving-camera smoke test (`--cell Goodsprings --auto-fly 4000
   with `KF_BENCH=1`, 20,000 poses).
 - No per-frame allocation in sampling (§7.3).
 
+### 7.6 The head and neck bones, and the head tracking data (dialogue look)
+
+What `nvforever` relies on to turn an actor's head to the player in a conversation
+(docs/design/dialogue-play.md §8; `engine/nvforever/src/dialogue_look.rs`), 2026-10-10:
+
+- **The chain.** In `characters\_male\skeleton.nif` the head hangs from two neck bones:
+  `Bip01 Neck` → `Bip01 Neck1` → `Bip01 Head` [observed: the engine walks up from the
+  head through its parents whose names contain "Neck" and logs the chain:
+  `dialogue look: … on Bip01 Neck, Bip01 Neck1, Bip01 Head`].
+- **Axes.** In the bind pose an actor faces +y of its own space with z up (its root is
+  turned about z by its reference's heading, §3) [observed: actors face their
+  reference's heading]. The head bone's own "forward" and "up" are therefore read from
+  its bind-pose rotation (the inverse of it applied to +y and +z), with no assumption
+  about how the bone's axes are named. A head turned with these axes looks at the
+  player's eye in the screenshots, level [observed].
+- **Body part data.** `DefaultBodyPartData` (BPTD 0x0000001D, model
+  `Characters\_Male\skeleton.NIF`) has six parts. Its `Head` part: part node `Bip01
+  Neck1`, VATS target `Bip01 Head`, IK start node (`BPNI`) `Bip01 Head`; flags
+  Severable, IK Data, Explodable, IK Data - Is Head, IK Data - Headtracking; Tracking
+  Max Angle 60.0. The other five parts (torso, arms, legs) have Tracking Max Angle 0;
+  the two leg parts carry IK Data - Biped Data [observed: `fnvtool esm decode --edid
+  DefaultBodyPartData` on FalloutNV.esm]. The fields' meanings: "Headtracking": the head
+  will turn towards its target; "Tracking Max Angle": the largest angle the actor will
+  turn its head to look at something; "Start Node": the base node of the part in the
+  skeleton [documented: GECK wiki "Body Part", owner export]. [hypothesis: the angle is
+  in degrees and is the largest turn to either side; whether the original turns only
+  the start node or spreads the turn over the neck is not known.]
+- **The `HeadTrack` float.** The human idle's `NiFloatExtraDataController` on `Bip01
+  Head` (§7.1) fits what the wiki says of skeletons: a float extra data named
+  `HeadTrack` marks the bone animated for head tracking, and a clip can animate that
+  float through such a controller [documented: GECK wiki "NIF Block Types" and "NIF
+  Animation Controllers", owner export]. [hypothesis: the idle's track is that float,
+  and a clip uses it to weaken or switch off head tracking while it plays.] Not played.
+- **What follows a turned head** [observed: screenshots of Easy Pete and Sunny Smiles,
+  the head at up to 60° to a side]: the skinned head and neck (no gap at the collar),
+  the rigid parts under `Bip01 Head` (hair, eyes, beard, hat), and the face while its
+  lip sync runs (the morphed mesh is skinned like the mesh it replaces).
+- **Turn clips.** `locomotion\mtturnleft.kf` and `mtturnright.kf` (§8.1) play while a
+  standing actor's body is turned on the spot to the player, through
+  `Locomotion::turn` as for the walk test and travellers.
+
 ## 8. Locomotion playback (part G)
 
 `nvforever` plays an actor's idle, walk, run and turn clips according to its velocity and
