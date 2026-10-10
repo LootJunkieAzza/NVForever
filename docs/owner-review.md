@@ -602,13 +602,15 @@ sessions. You already had it from an earlier playthrough.
     what the screenshots show: `docs/design/dialogue-play.md` §8. Try it:
     `nvforever --data <Data> --play --cell Goodsprings`, walk up to Easy Pete from the
     side or from behind and press E.
-    - **For you to confirm (free look against facing).** You earlier chose free look
-      while the NPC speaks. That is kept: your view turns to the NPC when the
-      conversation starts (0.4 s), you can then look around with the mouse during a
-      line, and the view eases back onto the NPC when the choices appear. The mouse
-      always wins: moving it during a turn stops the turn. `--no-dialogue-recentre`
-      switches the coming back off. Say if you would rather the view stay locked on the
-      NPC throughout, or never come back by itself.
+    - **Free look against facing: decided 2026-10-10** ("never come back i just want
+      the initial look at npc to happen then allow the player to free look the rest of
+      the time they are in dialogue with them"). Your view turns to the NPC when the
+      conversation starts (0.4 s) and is yours after that; it no longer comes back when
+      the choices appear. The mouse always wins: moving it during the opening turn stops
+      the turn. `--dialogue-recentre` brings the old coming-back behaviour back. Still
+      as you chose earlier: while the choices are shown the cursor is released for
+      clicking, so the view holds until you pick; say if you want free look there too
+      (choosing would then be keys only).
     - **How far and how fast are our own choices, not the original's.** The head turns
       at most 60° to a side (that number is the game's own: "Tracking Max Angle" of the
       head in `DefaultBodyPartData`) and 30° up or down; it takes 0.45 s to turn and
