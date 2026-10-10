@@ -16,6 +16,10 @@
 // rustle (flutter and tilt), each with its own phase. Speeds come from the TREE record's
 // rock and rustle speeds and strength from the weather's wind speed; amplitudes and the
 // mapping to frequencies are chosen by eye (speedtree.md §6).
+//
+// The fragment shader (leaf cards and billboards, main pass) is Bevy's standard one with
+// soft cut-out edges where the view is multisampled (SOFT_EDGES; nvf_assets
+// nif_material.rs `soft_edges`).
 
 #import bevy_pbr::{
     mesh_functions,
@@ -28,8 +32,13 @@
 // The prepass view bind group holds the globals at binding 1 (the main pass at 11).
 @group(0) @binding(1) var<uniform> globals: Globals;
 #else
-#import bevy_pbr::forward_io::{Vertex, VertexOutput}
+#import bevy_pbr::forward_io::{Vertex, VertexOutput, FragmentOutput}
 #import bevy_pbr::mesh_view_bindings::globals
+#import bevy_pbr::pbr_fragment::pbr_input_from_standard_material
+#import bevy_pbr::pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing}
+#ifdef VISIBILITY_RANGE_DITHER
+#import bevy_pbr::pbr_functions::visibility_range_dither
+#endif
 #endif
 
 struct TreeWind {
@@ -151,3 +160,35 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #endif
     return out;
 }
+
+#ifndef PREPASS_PIPELINE
+@fragment
+fn fragment(
+    in: VertexOutput,
+    @builtin(front_facing) is_front: bool,
+) -> FragmentOutput {
+#ifdef VISIBILITY_RANGE_DITHER
+    visibility_range_dither(in.position, in.visibility_range_dither);
+#endif
+    var pbr_input = pbr_input_from_standard_material(in, is_front);
+#ifdef SOFT_EDGES
+    // The share of the pixel's samples the leaf covers: 1 at the cutoff and above, falling
+    // to 0 within a pixel outside it.
+    let edge_alpha = pbr_input.material.base_color.a;
+    let edge = saturate((edge_alpha - pbr_input.material.alpha_cutoff) / max(fwidth(edge_alpha), 0.0001) + 1.0);
+    if edge <= 0.0 {
+        discard;
+    }
+    pbr_input.material.base_color.a = 1.0;
+#else
+    pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
+#endif
+    var out: FragmentOutput;
+    out.color = apply_pbr_lighting(pbr_input);
+    out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+#ifdef SOFT_EDGES
+    out.color.a = edge;
+#endif
+    return out;
+}
+#endif

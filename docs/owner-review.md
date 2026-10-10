@@ -1345,3 +1345,27 @@ the grass field cut out of all four).
    2.7 times their size in the game and had no surface relief (normal maps). The game's
    ground still shows stronger relief than ours after the fix; that remainder is lighting
    or shine on the terrain and is not done.
+
+## Smooth cut-out edges and anti-aliasing (2026-10-10, session "grass")
+
+Your question after the grass work: does the rest of the game need transparency
+multisampling and anti-aliasing. Branch `claude/soft-edges`. Facts:
+`docs/spec-notes/nif.md` §6 "Alpha" (soft edges). Pictures:
+`C:\fnv-private\references\soft_edges\` (`before_after.png`: plants at the Goodsprings
+sign, before on top; `msaa_1_4_8.png`: the same yucca with 1, 4 and 8 samples).
+
+1. **Done:** everything that is cut out of a texture (plants, fences, grates, hair, tree
+   leaves and the distant tree cards) now has smooth edges, as grass already had. Your
+   game does this with "transparency multisampling"; ours had hard steps.
+2. **Ordinary anti-aliasing** was already on at 4 samples; your game runs 8.
+   `--msaa 8` gives you the same (also 1, 2, 4). I left the default at 4 because 8 costs
+   frame rate everywhere and I have not measured by how much on your machine.
+3. **Left hard on purpose:** the distant building blocks. Their textures are black
+   where they are cut out, and a soft edge would draw a thin black line round every
+   cut-out.
+4. **For you to judge:** outlines grow by up to one pixel. I checked plants and trees at
+   the Goodsprings sign and one interior; hair and fences close up I have not looked at
+   beside the game.
+5. **Seen on the way:** grass shows a faint dotted pattern where it overlaps something
+   dark, visible when a frame is enlarged. It comes from having only four samples;
+   `--msaa 8` reduces it.
