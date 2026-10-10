@@ -1,12 +1,14 @@
-// NIF surface material (nif_material.rs): Bevy's standard PBR fragment with three changes,
+// NIF surface material (nif_material.rs): Bevy's standard PBR fragment with four changes,
 // all [hypothesis, docs/spec-notes/nif.md §6 "Emissive light", "Specular", "View-angle
-// falloff"]:
+// falloff", "Multiply blend"]:
 // - the alpha is scaled by the view-angle falloff (blended effect shapes only);
 // - the emissive light is modulated by the surface colour (diffuse texture × vertex
 //   colour), as NIF emissive is;
 // - ambient light is diffuse only: the specular part Bevy adds for its ambient light is
 //   taken out again, since the game's ambient term is a flat colour and highlights come
-//   from lights (and environment maps, not drawn yet).
+//   from lights (and environment maps, not drawn yet);
+// - a multiply-blended shape's colour is a factor on what lies behind it: summed in
+//   display values, held to 0..1, and neither fogged nor tonemapped.
 
 // Meshes in a crossfade (VisibilityRange; streamed cells fading in and out) are dithered
 // first, as Bevy's own PBR fragment does.
@@ -50,6 +52,17 @@ fn falloff_opacity(cos_angle: f32, p: vec4<f32>) -> f32 {
     return mix(p.w, p.z, t);
 }
 
+// The factor a multiply-blended shape puts on what lies behind it (blend factors ZERO and
+// SRC_COLOR: result = destination × source colour), for the lit colour and the emissive
+// light of the shape, both linear (CPU mirror: nif_material.rs `multiply_factor`). The
+// game's shader output is taken as texture × (light + emissive) in display values, held
+// to 0..1 when it is written [hypothesis], so the two parts are summed as display values
+// (gamma 2.2) and the sum is limited before it goes back to linear.
+fn multiply_factor(lit: vec3<f32>, emissive: vec3<f32>) -> vec3<f32> {
+    let display = pow(max(lit, vec3(0.0)), vec3(1.0 / 2.2)) + pow(max(emissive, vec3(0.0)), vec3(1.0 / 2.2));
+    return pow(saturate(display), vec3(2.2));
+}
+
 @fragment
 fn fragment(
     in: VertexOutput,
@@ -67,6 +80,11 @@ fn fragment(
     // base_color already holds texture × vertex colour × material colour.
     let e = pbr_input.material.emissive;
     pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
+#ifdef BLEND_MULTIPLY
+    // Kept out of the lighting sum: multiply_factor adds it in display values.
+    let multiply_emissive = pbr_input.material.emissive.rgb;
+    pbr_input.material.emissive = vec4(vec3(0.0), e.a);
+#endif
 
 #ifdef PREPASS_PIPELINE
     let out = deferred_output(in, pbr_input);
@@ -86,7 +104,15 @@ fn fragment(
     } else {
         out.color = pbr_input.material.base_color;
     }
+#ifdef BLEND_MULTIPLY
+    // The colour is a factor, not light: no fog and no tonemapping. Bevy's multiply blend
+    // is destination × colour + destination × (1 − alpha), so the colour is premultiplied
+    // as bevy_pbr::pbr_functions::premultiply_alpha does.
+    let factor = multiply_factor(out.color.rgb, multiply_emissive);
+    out.color = vec4(factor * out.color.a, out.color.a);
+#else
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+#endif
 #endif
     return out;
 }

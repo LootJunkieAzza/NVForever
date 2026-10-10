@@ -1088,7 +1088,7 @@ docs/spec-notes/actors.md §10.2 and §10.5.
    face would confirm it.
 4. **Seen on the way, not touched:** Rex's glass skull cap is drawn solid black, so the
    brain under it cannot be seen (a material problem, not a placement one; notes in
-   §10.5).
+   §10.5). Fixed since: see "Rex's glass skull cap" below.
 
 ## Sunny Smiles' face shape and shiny hair (2026-10-10, session "face shape")
 
@@ -1119,3 +1119,50 @@ ours after; `saloon_before_after.png`: Sunny, Trudy, Joe Cobb, a settler;
    picture. `--no-race-facegen` shows the old faces for comparison.
 6. Your other request, the dogs' eyes, was done separately: the "Dog eyes" section
    above (#145).
+
+## Rex's glass skull cap (2026-10-10, session "skull cap")
+
+Facts and the survey: docs/spec-notes/nif.md §6 "Multiply blend", actors.md §10.5.
+
+1. **Fixed, cause:** the cap is the game's one lit shape that *multiplies* what is behind
+   it by its own colour (584 shapes use that blend in the base meshes; the other 583 are
+   unlit stains, shades and interface parts). Its colour comes almost entirely from a
+   strong glow setting on a flat blue texture. We were adding that glow as light and then
+   fogging and tonemapping the result, which left a factor so dark that the cap came out
+   black in the King's School. The cap's colour is now worked out as a factor: Rex's
+   leaves about 44% of the red, 78% of the green and all of the blue of what is behind
+   it, so the brain shows through a light blue glass.
+2. **Please check against the game:** I had no base-game screenshot of Rex's head, so
+   the tint's colour is from the data but its strength rests on my reading of how the
+   game combines the glow with the texture. A close screenshot of Rex's head in the
+   King's School (or outside in daylight) would settle it. If the glass looks darker or
+   clearer in the game, that one rule changes; the placement and the blend do not.
+3. **Not built:** the cap and the brain pulse in the game's data (a four-second glow
+   loop) and the cap carries a chrome reflection map. Neither is drawn yet, so the cap
+   is steady and has no reflections.
+4. **Applies to the cyberdogs too, not looked at:** by the same rule the police
+   cyberdog's cap is a red glass and the military one a yellow glass. Both are Old World
+   Blues models; I decoded those two files by name and did not open them in the engine.
+5. **Seen on the way, not touched:** the unlit stain overlays in interior kit pieces
+   (for example the rust under the pipes of the utility halls) flicker against the wall
+   they lie on, because they are drawn in the same plane without the decal offset their
+   flags ask for.
+
+## See-through corn (2026-10-10, session "skull cap", your screenshot at Goodsprings)
+
+Facts: docs/spec-notes/nif.md §6 "Alpha" (last paragraph), world.md "Texture layers".
+
+1. **Fixed, cause:** the ground's texture layers are drawn as see-through sheets over
+   the base ground. The corn *rows* (the merged models, not the single plants) are also
+   drawn see-through, with soft leaf edges, and such models leave no depth behind. So
+   whenever the ground piece behind a row counted as nearer than the row, its layers
+   were painted on top of the corn. That made the near row faint and hid the row behind
+   it completely. Ground layers are now always drawn before any other see-through
+   model. Checked from your position: both rows are solid, and the ground is unchanged.
+2. **Wider than corn:** the same fault could fade any see-through model seen against
+   the ground (dirty glass, some signs). They get the fix too. I did not go looking for
+   other cases.
+3. **Left as it is:** the rows stay soft-edged (blended) while the single plants are
+   hard-edged (cut out), because the merged models store a cut-off of 0 where the single
+   plant stores 124. If the rows look different from the single plants in the game in a
+   way that matters, say so and I will draw the rows cut out as well.
