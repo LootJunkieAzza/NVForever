@@ -380,6 +380,17 @@ pub fn reach(lo: &LoadOrder, schema: &Schema, data: &GameData, refs: &RefTable) 
                 Goal::Near { place, .. } => vec![place],
                 Goal::Inside { at, .. } => vec![at],
                 Goal::Route(r) => r.points.iter().map(|x| x.1).collect(),
+                // A Dialogue package: the wait location is judged; the way to whom the
+                // actor talks to (the player, mostly) depends on where that one is.
+                Goal::Talk(t) => match *t.wait {
+                    Goal::Near { place, .. } => vec![place],
+                    Goal::Inside { at, .. } => vec![at],
+                    _ => {
+                        *verdicts.entry("talks: goes up to its target from where it is".into()).or_default() += 1;
+                        *by_type.entry(ty).or_default().entry("goes up to its target".into()).or_default() += 1;
+                        continue;
+                    }
+                },
                 Goal::NotCarriedOut(why) => {
                     *verdicts.entry(format!("not carried out yet: {why}")).or_default() += 1;
                     *by_type.entry(ty).or_default().entry("not carried out yet".into()).or_default() += 1;

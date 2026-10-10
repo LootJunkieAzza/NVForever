@@ -61,6 +61,7 @@ fn placed(id: u32, base: u32, cell: u32) -> PlacedRef {
         patrol_idle: None,
         merchant_container: None,
         open_by_default: false,
+        primitive: None,
     }
 }
 

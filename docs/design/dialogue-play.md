@@ -18,7 +18,10 @@ about the original unless it carries a tag.
    (`Game::start_dialogue`). The same happens when the actor's OnActivate block calls
    `Activate`, and when any script activates an actor for the player
    (`script::Runtime::talk_after` reads the frame's `activated` events). Scripts also
-   start conversations themselves with `StartConversation` (Doc Mitchell's psych test).
+   start conversations themselves with `StartConversation` (Doc Mitchell's psych test),
+   and an actor living by its packages (`--npc-packages`) starts one with its Dialogue
+   package: the force greet, as Sunny Smiles's in the Prospector Saloon
+   (docs/design/actor-behaviour.md §5.6).
    An actor with nothing to say starts nothing: the line "… has nothing to say" shows as
    before and the log says why (`dialogue: no conversation: …`).
    **An actor whose greeting has the Goodbye flag starts no conversation either**: it

@@ -279,6 +279,7 @@ fn sim_with_crate() -> (SimState, u32, [f32; 3]) {
             patrol_idle: None,
             merchant_container: None,
             open_by_default: false,
+            primitive: None,
         },
     );
     let forms: &'static FormStore = Box::leak(Box::default());

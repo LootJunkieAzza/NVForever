@@ -3,13 +3,19 @@
 //! (`Game::package_goal_met`). A package whose location cannot be reached is set aside
 //! for a while and the actor chooses again (`Game::block_package`).
 //!
+//! A Dialogue package ([`goal::Talk`]) is carried out here too: the actor waits where
+//! the package has it wait, goes up to its target when the target is where the package
+//! says, and starts the conversation with the player (`Game::start_dialogue`: the force
+//! greet) or says its line (`Game::say`); docs/design/actor-behaviour.md §5.6.
+//!
 //! Movement here is `fnv_nav::Walker` (on the navmesh surface, no physics): the engine
 //! moves actors near the player with collision instead and uses this for the rest.
 
-use crate::goal::{self, Goal, Route};
+use crate::goal::{self, Goal, Route, Talk};
 use crate::sandbox::{Doing, Sandbox};
 use fnv_game::game::Game;
 use fnv_game::package::{flags, PackageType};
+use fnv_nav::follow::heading_of;
 use fnv_nav::{NavGraph, PathParams, Place, Space, WalkEvent, Walker};
 use fnv_sim::FormId;
 use serde::Serialize;
@@ -76,7 +82,39 @@ pub enum AiEvent {
     },
     /// A patrolling actor waits at a patrol point for its idle time.
     PatrolWait { patrol_point: FormId, seconds: f32 },
+    /// An actor with a Dialogue package sets off towards the one it is to talk to, who
+    /// is `away` units from it (`None`: in another space).
+    Approach { package: FormId, target: FormId, away: Option<f32>, length: f32, doors: Vec<FormId>, running: bool },
+    /// It starts talking, `away` units from its target: a conversation with the player
+    /// (`line` is what it says first), or the one line of a Say To package.
+    Talk { package: FormId, target: FormId, line: FormId, away: f32, say_to: bool },
+    /// The conversation it started is over.
+    TalkOver { package: FormId },
+    /// It was to talk and did not (it has no line to say).
+    NoTalk { package: FormId, why: String },
 }
+
+/// How far an actor is with its Dialogue package ([`goal::Talk`]).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(tag = "phase", rename_all = "snake_case")]
+pub enum Talking {
+    /// On its way to the package's wait location.
+    ToWait,
+    /// Waiting for its target to come near, or into the trigger location.
+    Waiting,
+    /// Going up to its target, last planned for where the target stood (`to`); from
+    /// `replan` on (`Game::time`) the way is planned again when the target has moved.
+    Approaching { to: Place, replan: f64 },
+    /// In the conversation it started.
+    Speaking,
+    /// It has talked: the package has met its goal.
+    Done,
+}
+
+/// A target that has moved this far from where the way to it was planned to is planned
+/// for again, and not more often than every [`REPLAN_SECONDS`] [our choice].
+const REPLAN_DISTANCE: f32 = 64.0;
+const REPLAN_SECONDS: f64 = 0.5;
 
 /// An event with its actor and when it happened.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -128,6 +166,8 @@ pub struct Agent {
     pub sandbox: Option<Sandbox>,
     /// Waiting at a patrol point until this `Game::time`.
     wait_until: Option<f64>,
+    /// Its Dialogue package's progress.
+    pub talk: Option<Talking>,
 }
 
 #[derive(Default)]
@@ -153,7 +193,7 @@ impl Ai {
         let place = goal::place_of_ref(game, actor).ok_or_else(|| format!("{actor} is in no cell"))?;
         let heading = game.world.peek(actor).map(|s| s.rot[2]).or_else(|| game.world.placed.get(actor).map(|p| p.rot[2])).unwrap_or(0.0);
         let walker = Walker::new(place.space, place.pos, heading, self.cfg.walk_speed);
-        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None });
+        self.agents.insert(actor, Agent { walker, activity: Activity::None, package: None, goal: None, route_at: 0, trip_started: 0.0, trip_from: 0.0, waiting_at: None, using: None, sandbox: None, wait_until: None, talk: None });
         Ok(())
     }
 
@@ -201,6 +241,7 @@ impl Ai {
                 a.activity = Activity::None;
                 a.sandbox = None;
                 a.wait_until = None;
+                a.talk = None;
                 self.set_using(game, actor, None);
                 self.taken.retain(|_, user| *user != actor);
                 if let Some(p) = current {
@@ -219,7 +260,193 @@ impl Ai {
                 }
                 _ => {}
             }
+            if self.agents[&actor].talk.is_some() {
+                self.talk_step(game, nav, actor, dt);
+            }
         }
+    }
+
+    /// While a conversation holds the game (nobody walks, [`Ai::update`] is not
+    /// called): the actor that started it with its Dialogue package goes on turning to
+    /// the one it talks to.
+    pub fn update_held(&mut self, game: &mut Game, dt: f32) {
+        let Some(actor) = game.dialogue.as_ref().map(|c| c.actor) else { return };
+        let Some(a) = self.agents.get(&actor) else { return };
+        let (Some(Goal::Talk(talk)), Some(Talking::Speaking)) = (a.goal.clone(), a.talk) else { return };
+        let space = a.walker.space;
+        if let (Some(t), false) = (goal::place_of_ref(game, talk.target).filter(|t| t.space == space), talk.no_headtracking) {
+            self.face(game, actor, t, dt);
+        }
+    }
+
+    /// One update of a Dialogue package [documented: GECK wiki, Dialogue Package,
+    /// "Behavior"; the cases are numbered as there]:
+    /// - the actor first goes to the wait location, if the package has one;
+    /// - (3) without a trigger location it then goes up to its target at once;
+    /// - (1) with one, it stays until the target is in the trigger location and goes up
+    ///   to it then;
+    /// - (2) with one and a wait location of radius 0, it stays "until the target reaches
+    ///   the Activate Distance". It also goes up to a target that is in the trigger
+    ///   location, as in (1) [hypothesis: the page does not say so for this case, but the
+    ///   trigger locations of such packages are boxes placed around the spot (32 of 33 in
+    ///   FalloutNV.esm), and the player comes into the Prospector Saloon inside Sunny
+    ///   Smiles's box, 343 units from her, with an activate distance of 256 and a greeting
+    ///   that starts as the player comes in (owner, 2026-10-10)];
+    /// - within the activate distance it "will engage in conversation with the target (or
+    ///   dialogue, if the target is the player)".
+    ///
+    /// The wait location's radius is not wandered in; the target is not made to stand
+    /// still or to walk to the trigger location ("Do Not Control Target Movement" off).
+    fn talk_step(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32) {
+        let a = &self.agents[&actor];
+        let (Some(package), Some(Goal::Talk(talk)), Some(phase)) = (a.package, a.goal.clone(), a.talk) else { return };
+        let feet = Place { space: a.walker.space, pos: a.walker.feet };
+        let travelling = a.activity == Activity::Travelling;
+        let target = goal::place_of_ref(game, talk.target).filter(|_| game.present(talk.target) && !game.extra.get(&talk.target).is_some_and(|e| e.dead));
+        match phase {
+            Talking::ToWait | Talking::Done => return,
+            Talking::Speaking => {
+                if game.dialogue.as_ref().is_some_and(|c| c.actor == actor) {
+                    // It turns to the one it talks to [documented: unless No
+                    // Headtracking, speaker and target are "forced to look at each
+                    // other by the package"; how fast is our choice].
+                    if let (Some(t), false) = (target.filter(|t| t.space == feet.space), talk.no_headtracking) {
+                        self.face(game, actor, t, dt);
+                    }
+                } else {
+                    self.talk_done(game, actor);
+                    self.log(game, actor, AiEvent::TalkOver { package });
+                }
+                return;
+            }
+            Talking::Waiting | Talking::Approaching { .. } => {}
+        }
+        // A target that is nowhere, gone or dead: the actor waits where it is.
+        let Some(target) = target else {
+            if matches!(phase, Talking::Approaching { .. }) {
+                let a = self.agents.get_mut(&actor).expect("listed");
+                a.walker.follower = None;
+                a.activity = Activity::There;
+                a.talk = Some(Talking::Waiting);
+            }
+            return;
+        };
+        let away = if feet.space == target.space { goal::dist(feet.pos, target.pos) } else { f32::INFINITY };
+        let near = away <= talk.distance.max(self.cfg.arrive);
+        match phase {
+            Talking::Waiting => {
+                let triggered = talk.trigger.holds(game, feet, target);
+                // Case 2: a trigger location and a wait location without a radius.
+                let on_the_spot = talk.trigger != goal::Trigger::None && talk.wait_radius == 0.0;
+                if near && (triggered || on_the_spot) {
+                    self.talk_start(game, actor, package, &talk, away);
+                } else if triggered {
+                    self.approach(game, nav, actor, package, &talk, target, true);
+                }
+            }
+            Talking::Approaching { to, replan } => {
+                let moved = to.space != target.space || goal::dist(to.pos, target.pos) > REPLAN_DISTANCE;
+                if near || (!travelling && !moved) {
+                    // Near enough, or as near as the navmesh lets it get.
+                    self.talk_start(game, actor, package, &talk, away);
+                } else if moved && game.time >= replan {
+                    self.approach(game, nav, actor, package, &talk, target, false);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Plan the way to the one `actor` is to talk to; without one the package is set
+    /// aside like any other that cannot be reached.
+    #[allow(clippy::too_many_arguments)]
+    fn approach(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, package: FormId, talk: &Talk, target: Place, first: bool) {
+        let running = game.data.package_defs.get(&package).is_some_and(|d| d.has(flags::ALWAYS_RUN));
+        let params = self.path_params(game, actor);
+        let speed = if running { self.cfg.run_speed } else { self.cfg.walk_speed };
+        let a = self.agents.get_mut(&actor).expect("listed");
+        a.walker.speed = speed;
+        let from = Place { space: a.walker.space, pos: a.walker.feet };
+        match a.walker.go_to(nav, target, &params) {
+            Ok(path) => {
+                let (length, doors) = (path.length, path.legs.iter().filter_map(|l| l.door.map(|d| FormId(d.door))).collect());
+                if a.activity != Activity::Travelling {
+                    a.trip_started = game.time;
+                    a.trip_from = a.walker.travelled;
+                }
+                a.activity = Activity::Travelling;
+                a.talk = Some(Talking::Approaching { to: target, replan: game.time + REPLAN_SECONDS });
+                if first {
+                    let away = (from.space == target.space).then(|| goal::dist(from.pos, target.pos));
+                    self.log(game, actor, AiEvent::Approach { package, target: talk.target, away, length, doors, running });
+                }
+            }
+            Err(e) => {
+                a.talk = None;
+                self.unreachable(game, actor, package, e.to_string());
+            }
+        }
+    }
+
+    /// `actor` is near enough to the one it is to talk to: it stops and talks. A
+    /// conversation that cannot start now because the game is held (another
+    /// conversation, a menu) starts when it can.
+    fn talk_start(&mut self, game: &mut Game, actor: FormId, package: FormId, talk: &Talk, away: f32) {
+        let a = self.agents.get_mut(&actor).expect("listed");
+        a.walker.follower = None;
+        a.activity = Activity::There;
+        if talk.say_to {
+            let Some(topic) = talk.topic else { return };
+            match game.say(actor, Some(talk.target), topic, true) {
+                Some(line) => self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: true }),
+                None => {
+                    let why = format!("it has no line of {} to say", game.data.name(topic));
+                    self.log(game, actor, AiEvent::NoTalk { package, why });
+                }
+            }
+            self.talk_done(game, actor);
+            return;
+        }
+        if game.in_menu() || game.loading {
+            return;
+        }
+        match game.start_dialogue(actor, talk.topic) {
+            Ok(line) => {
+                self.agents.get_mut(&actor).expect("listed").talk = Some(Talking::Speaking);
+                self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: false });
+            }
+            // Nothing to say: the package is over, or the actor would try every frame
+            // [our choice].
+            Err(why) => {
+                self.log(game, actor, AiEvent::NoTalk { package, why });
+                self.talk_done(game, actor);
+            }
+        }
+    }
+
+    /// The Dialogue package has done what it is for: its goal is met [documented: a
+    /// Must Complete Dialogue package "will not reevaluate until actor has engaged in
+    /// dialogue with the target"]. The actor stays in the package until it chooses
+    /// another; it does not start over [our choice].
+    fn talk_done(&mut self, game: &mut Game, actor: FormId) {
+        let a = self.agents.get_mut(&actor).expect("listed");
+        a.talk = Some(Talking::Done);
+        a.activity = Activity::There;
+        game.package_goal_met(actor);
+    }
+
+    /// Turn a standing actor towards a place for `dt` seconds, and tell the game its
+    /// heading.
+    fn face(&mut self, game: &mut Game, actor: FormId, to: Place, dt: f32) {
+        let a = self.agents.get_mut(&actor).expect("listed");
+        let d = [to.pos[0] - a.walker.feet[0], to.pos[1] - a.walker.feet[1]];
+        if d[0].hypot(d[1]) < 1.0 {
+            return;
+        }
+        a.walker.face(heading_of(d), dt);
+        let (feet, heading) = (Place { space: a.walker.space, pos: a.walker.feet }, a.walker.heading);
+        let cell = goal::cell_of_place(game.world.placed, &feet);
+        let _ = game.set_actor_place(actor, cell, feet.pos, heading);
     }
 
     /// Whether `actor` is where the game is loaded: in one of the cells around the
@@ -375,11 +602,32 @@ impl Ai {
                 let (point, place) = route.points[start];
                 self.plan(game, nav, actor, package, place, Some(point));
             }
+            Goal::Talk(talk) => match self.way_to(feet, &talk.wait) {
+                Some(to) => {
+                    self.agents.get_mut(&actor).expect("listed").talk = Some(Talking::ToWait);
+                    self.plan(game, nav, actor, package, to, None);
+                }
+                None => {
+                    let a = self.agents.get_mut(&actor).expect("listed");
+                    a.talk = Some(Talking::Waiting);
+                    a.activity = Activity::There;
+                }
+            },
             Goal::NotCarriedOut(why) => {
                 self.agents.get_mut(&actor).expect("listed").activity = Activity::Staying;
                 self.log(game, actor, AiEvent::NotCarriedOut { package, why });
             }
             Goal::Missing(why) => self.unreachable(game, actor, package, why.to_string()),
+        }
+    }
+
+    /// Where an actor standing at `feet` has to go to be at a place to stay at
+    /// ([`Goal::Near`], [`Goal::Inside`]); `None`: it is there.
+    fn way_to(&self, feet: Place, stay: &Goal) -> Option<Place> {
+        match stay {
+            Goal::Near { place, radius } => (!self.within(feet, *place, *radius)).then_some(*place),
+            Goal::Inside { space, at } => (feet.space != *space).then_some(*at),
+            _ => None,
         }
     }
 
@@ -403,7 +651,10 @@ impl Ai {
                 a.trip_from = a.walker.travelled;
                 self.log(game, actor, event);
             }
-            Err(e) => self.unreachable(game, actor, package, e.to_string()),
+            Err(e) => {
+                a.talk = None;
+                self.unreachable(game, actor, package, e.to_string())
+            }
         }
     }
 
@@ -460,6 +711,16 @@ impl Ai {
         // The end of a sandbox's own walk: the behaviour it chose begins.
         if let Some(choice) = a.sandbox.as_mut().and_then(|s| s.pending.take()) {
             self.sandbox_begin(game, actor, choice, travelled.max(1.0));
+            return;
+        }
+        // A Dialogue package: at the wait location the wait begins; at the end of the
+        // way to its target `talk_step` looks at where the target is now.
+        if let Some(phase) = a.talk {
+            a.activity = Activity::There;
+            if phase == Talking::ToWait {
+                a.talk = Some(Talking::Waiting);
+                self.log(game, actor, AiEvent::Arrived { package, seconds, travelled, patrol_point: None });
+            }
             return;
         }
         let route = match &a.goal {

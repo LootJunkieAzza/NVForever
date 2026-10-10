@@ -49,6 +49,16 @@ pub struct EnableParent {
     pub opposite: bool,
 }
 
+/// A volume stored on the reference itself (XPRM) rather than in a model: trigger
+/// boxes, collision markers [documented: xEdit REFR XPRM]. `bounds` are read as half
+/// extents, a sphere's radius being the first [hypothesis: docs/spec-notes/physics.md
+/// §4.1].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Primitive {
+    pub sphere: bool,
+    pub bounds: [f32; 3],
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PlacedRef {
     pub id: FormId,
@@ -86,6 +96,10 @@ pub struct PlacedRef {
     pub merchant_container: Option<FormId>,
     /// ONAM "Open by Default" (doors) [documented: xEdit wbDefinitionsFNV.pas REFR].
     pub open_by_default: bool,
+    /// XPRM, when it is a box or a sphere (not written to JSON: the tools' output
+    /// stays as it was).
+    #[serde(skip)]
+    pub primitive: Option<Primitive>,
 }
 
 impl PlacedRef {
@@ -355,5 +369,13 @@ fn load_ref(
         patrol_idle: first(&d, b"XPRD").and_then(|v| v.as_f64()).map(|x| x as f32),
         merchant_container: fid(first(&d, b"XMRC"), "XMRC", issues),
         open_by_default: first(&d, b"ONAM").is_some(),
+        primitive: first(&d, b"XPRM").and_then(|v| {
+            let sphere = match v.get("type").and_then(|t| t.as_str()) {
+                Some("Box") => false,
+                Some("Sphere") => true,
+                _ => return None,
+            };
+            Some(Primitive { sphere, bounds: vec3(v.get("bounds"))?.map(f32::abs) })
+        }),
     })
 }
