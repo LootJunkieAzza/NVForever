@@ -23,7 +23,9 @@
 //! - **Subtitles**: the dialogue lines being said (`Game::speech`), bottom centre, as
 //!   "Speaker: text", one response of the INFO at a time in response-number order, each
 //!   for as long as it lasts (`crate::voice::speech_response`: its voice file's length,
-//!   or the length fitted to its text without one).
+//!   or the length fitted to its text without one); and the response being said in the
+//!   conversation with the player (`Game::dialogue`, `crate::dialogue::subtitle`), for as
+//!   long as the runtime says it.
 
 use crate::script::{ScriptState, MENU_MESSAGE};
 use crate::script_events::BoxMessage;
@@ -227,6 +229,8 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<Panel>
         let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
         subs.push(format!("{who}: {}", text.trim()));
     }
+    // The response being said in the conversation with the player (`crate::dialogue`).
+    subs.extend(crate::dialogue::subtitle(g, sim));
     (panel, front, subs.join("\n"))
 }
 

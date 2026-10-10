@@ -9,8 +9,9 @@ Sources and tags:
   (DIAL and INFO records, re-read 2026-10-10), as carried by `schemas/fnv/gameplay.json`.
 - **[documented: page, owner export]**: a page of the owner's private GECK wiki export
   (`C:\fnv-private\geckwiki\`, never committed). Everything here is our own summary.
-- **[owner statement 2026-10-10]**: the owner's ruling from long GECK use; not yet
-  captured in game.
+- **[owner statement 2026-10-10]**: the owner's rulings from long GECK use and play
+  (which line is picked; then, the same day, that a conversation pauses the game, who
+  can say a line, follow-ups and Random pools); not yet captured in game.
 - **[observed: …]**: read from the ten masters (FalloutNV, the four add-ons,
   GunRunnersArsenal and the four packs), with the command that shows it. "The summary"
   means the `summary` of `fnvtool dialogue topics <Data> <ten masters> --schema
@@ -237,7 +238,9 @@ farewell is a chain of them: the greeting → the Pip-Boy line → one of two su
 `fnvtool dialogue lines … --topic VCG01DocMitchellTopic076`].
 
 Runtime: when a line with follow-ups ends, the first follow-up the actor can say is
-said next, without a choice by the player [hypothesis].
+said next, without a choice by the player [owner statement 2026-10-10: follow-ups have
+no player response, as read here from Doc Mitchell's lines; not yet captured;
+hypothesis: the first sayable one when a line lists several].
 
 ### 3.5 Link From (TCLF)
 
@@ -265,18 +268,27 @@ One rule for greetings, chosen topics and the script functions SayTo and Say (`G
    use; not yet captured].
 3. **Inside one quest: first eligible line from the top**, unless lines carry the
    Random flag [owner statement 2026-10-10, from GECK use; not yet captured; observed
-   for SayTo: Doc Mitchell's VCG01Intro lines, layer5-captures.md §10.3]. Random: a line
-   the actor qualifies for is put on a stack instead of being said; the stack grows with
-   every further qualifying Random line and closes at one that has Random End, or at
-   the first qualifying line without Random; then one line of the stack is picked at
-   random [documented: Category:Dialogue, flags]. The same page's in-depth example 3
-   says instead that a plain line between Random ones is skipped and only Random End
-   closes the stack; the flag description is what the runtime follows [hypothesis;
-   capture question 4].
+   for SayTo: Doc Mitchell's VCG01Intro lines, layer5-captures.md §10.3].
+4. **Random pools.** Random lines that sit together in the list form a pool. A line
+   without the flag between two groups of Random lines splits them into two pools,
+   whether or not that line can be said [owner statement 2026-10-10: "random pools have
+   to be together; a non random line between 2 groups of randoms will split the pool
+   into 2 separates"; not yet captured]. A Random End line closes its pool at that line
+   [documented: Category:Dialogue, flag Random End; hypothesis that it also does when
+   the actor cannot say that line]. Going down the list, a pool is taken if the actor
+   can say any of its lines, and one of those is then picked at random [documented:
+   Category:Dialogue, flag Random, for the pick]. This settles the wiki's contradiction
+   (its flag description lets a qualifying plain line end the pool, its in-depth
+   example 3 lets the pool run across a plain line) in favour of neither: the pool is a
+   matter of where the lines sit, not of which qualify. Before this ruling the runtime
+   skipped a plain line the actor could not say and let the pool run on across it.
 
-Implementation: a stable sort of the stored order by quest priority, highest first,
-then the first line the speaker can say (rules 1–3 in one pass). The Random pick uses
-the game's seeded generator, and only when the stack holds more than one line.
+Implementation: a stable sort of the stored order by quest priority, highest first;
+then down the list over items, an item being a plain line or a pool; the first item
+the speaker can say. A pool is a run in that sorted order, so lines of two quests of
+equal priority that sit together can share a pool [hypothesis]. The Random pick uses
+the game's seeded generator, and only when more than one line of the pool can be
+said.
 
 A speaker **can say** a line when:
 - it has not said it, for Say Once; not within the last `fSayOncePerDayInfoTimer` game
@@ -284,10 +296,21 @@ A speaker **can say** a line when:
   [documented: Category:Dialogue]. The clock is GameDaysPassed × 24 + GameHour
   [hypothesis];
 - it is the line's fixed speaker, if the line has one [documented: Category:Dialogue];
-- the line's quest is running [hypothesis: holds in the SayTo captures; not tested with
-  a stopped quest] and the quest's conditions pass [documented: Quest Data Tab];
+- the line's quest is running **and the quest's own conditions pass**
+  [owner statement 2026-10-10: "every actor has the line as long as the quest is active
+  and the conditions are met on both the topic and the quest itself"; not yet captured;
+  documented: Quest Data Tab: a quest's conditions apply to all of its dialogue and are
+  checked before the lines' own]. A line of a stopped quest cannot be said. The
+  runtime evaluated the quest's conditions (the QUST's CTDA list before its stages)
+  from the start; they run like the line's, speaker as subject and listener as target
+  [hypothesis: the page does not say on whom]. 113 of the 640 quests carry conditions
+  (289 in all); 101 of them have lines, 8,151 lines in all [observed: the lines
+  summary's `quest_conditions`];
 - the line's conditions pass, with the speaker as subject and the listener as target
-  [documented: Category:Conditions].
+  [documented: Category:Conditions]. "Conditions on the topic" are these: the editor
+  lists a line's conditions under its topic, and a DIAL record has no condition
+  subrecords of its own [observed: no CTDA among the DIAL subrecords, the topics
+  summary's `subrecords`].
 
 Pointer for the AI package work: the owner states that an actor's package is chosen the
 same way, the first eligible one from the top of its list [owner statement 2026-10-10];
@@ -305,9 +328,14 @@ All of it is in `GameSnapshot`.
   actor says when spoken to; StartConversation: a named topic replaces the greeting].
   An actor with no such line cannot be talked to [hypothesis]; nor a dead, disabled or
   deleted one. One conversation at a time [hypothesis].
+- **A conversation pauses the game** behind it; lines spoken outside one (SayTo, Say)
+  do not [owner statement 2026-10-10: Doc Mitchell's Rorschach test, "a back and forth
+  dialogue with chosen options from the player", is what makes "the game … pause in
+  the background", unlike his earlier spoken lines; not yet captured]. §6 says what
+  that means for scripts. The conversation's own lines go on in real time.
 - **A line.** The begin result script runs when the line starts, the end result script
   when its last response is over [documented: Category:Dialogue]. Responses follow each
-  other in number order; each lasts `Game::response_seconds` (the one place a response
+  other in number order; each lasts `Game::response_seconds` of real time (the one place a response
   is timed: the length of its voice file in the actor's voice, or the fitted 1.1 s +
   1/16 s per character when it has none or the files are not given,
   docs/spec-notes/voice.md §8). Result scripts run on the actor with the line's quest. With Run
@@ -317,7 +345,7 @@ All of it is in `GameSnapshot`.
 - **When a line ends**, in this order: end result; the line's Add Topics join the known
   topics [documented: xEdit "Add Topics"; hypothesis on the moment and that they stay
   known afterwards]; a Goodbye line ends the conversation [documented]; else the first
-  follow-up the actor can say is said (§3.4) [hypothesis]; else choices are offered;
+  follow-up the actor can say is said (§3.4) [owner statement]; else choices are offered;
   with nothing to offer the conversation ends [hypothesis].
 - **Choices** (`Game::build_choices`). After a line with choices: those topics and
   nothing else. Otherwise the top-level topics plus the known topics
@@ -336,11 +364,21 @@ All of it is in `GameSnapshot`.
   GOODBYE topic is offered last, if it has one [documented: Quest and Dialogue Tutorial;
   Conversation Tab].
 - **Known topics.** `AddTopic` and lines' Add Topics lists fill one set, kept for the
-  whole game; every actor that has a line for a known topic offers it [hypothesis: the
-  wiki's AddTopic page speaks of adding to "the Add Topic list of a topic", which could
-  mean something narrower; capture question 6].
+  whole game; every actor that can say a line of a known topic offers it [owner
+  statement 2026-10-10: every actor has the line while its quest is active and the
+  conditions are met; not yet captured]. When an Add Topics list is applied (here: when
+  the line ends) stays a [hypothesis].
 - **Leaving** (`Game::end_dialogue`). The line being said is cut without its end result
-  [hypothesis]. When the game lets the player leave is the screen's business (D4).
+  [hypothesis]. When the game lets the player leave is the screen's business (D4:
+  docs/design/dialogue-play.md §2).
+- **Skipping** (`Game::skip_response`, added for the screen). The response being said
+  ends at once: the next response of the line starts, and after the last one the line
+  ends exactly as a line said to the end (end result, Add Topics, Goodbye, follow-ups,
+  choices) [hypothesis: skipping only shortens a line; the other reading, a skipped
+  line running no end script as a cut line does, would stop every quest whose stages
+  are set by end scripts whenever the player clicks through; capture question §7.8].
+  Nothing is skipped while a menu on top of the conversation holds it. No trace event
+  of its own.
 - **Not modelled:** conversations between two NPCs (the Conversation tab: HELLO, link
   to/from, GOODBYE), radio, combat and detection barks, Low/High Intelligence lines and
   the Dumb Response, the quest flag "Allow Repeated Conversation Topics", the Fallout 3
@@ -352,9 +390,11 @@ All of it is in `GameSnapshot`.
 | Function | During a conversation | Source |
 |---|---|---|
 | `IsTalking` | 1 while the actor says a response; 0 while the player chooses | [documented: IsTalking for "currently talking"; hypothesis for the choosing phase] |
-| `MenuMode 1009` | 1 from the greeting to the end | [documented: GetMenuTargetRef names menu 1009's target as the actor spoken to; hypothesis that it covers the whole conversation] |
-| `MenuMode` (no code), GameMode blocks, quest timers, `Game::time` | unchanged: **the dialogue menu does not pause the game** | [hypothesis; evidence: the Lucky 38 elevator Securitron's script (SCPT 0x0015725D) waits *in its GameMode block* for `MenuMode 1009` to be over before it shows a message box, which is pointless unless GameMode runs during dialogue] |
-| `Begin MenuMode 1009` blocks | not run (one script of the masters has one) | [hypothesis; not modelled] |
+| `MenuMode`, `MenuMode 1009` | 1 from the greeting to the end | [owner statement 2026-10-10: the conversation pauses the game; documented: GetMenuTargetRef names menu 1009's target as the actor spoken to] |
+| GameMode blocks, game time (`Game::time`, GetSecondsPassed), GameMode quest delays | stopped: **the conversation is menu mode** (`Game::in_menu`), by the rules observed for the other menus (scripts.md §7.2, §7.7) | [owner statement for the pause; the details are the existing menu rules] |
+| `Begin MenuMode` and `Begin MenuMode 1009` blocks | run, with the MenuMode quest delay counter | [the existing menu rules; hypothesis for this menu] |
+| Magic effects, SayTo and Say lines of other actors | stand still, as in any menu | [the existing menu rules; hypothesis] |
+| A GameMode script that starts the conversation (StartConversation) | the rest of that frame's GameMode scripts wait until it is over | [the existing rule for a menu opened during GameMode; hypothesis] |
 | `GetTalkedToPC` | 1 once a conversation with the player has started; SayTo lines do not count | [documented: GetTalkedToPC; hypothesis on SayTo] |
 | `GetDialogueEmotion` | the emotion type of the response being said, else 0 | [documented: GetDialogueEmotion for the codes] |
 | `StartConversation player [topic]` | starts the conversation at once; ignored while one runs or when the actor has no line; the walk to the player needs AI packages | [documented: StartConversation; stand-in for the walk] |
@@ -362,32 +402,64 @@ All of it is in `GameSnapshot`.
 | `AddTopic` | the topic joins the known topics (trace `topic_added`) | [documented: catalogue; hypothesis, §5] |
 | `GetIsCurrentPackage` | unchanged (no dialogue package is modelled) | – |
 
-A real menu opened during a conversation (a message box from a result script) stops
-game time and therefore the conversation, as it stops SayTo lines (scripts.md §7.7).
+`Game::menu` holds the other menus and stays empty for a conversation: the conversation
+itself is the menu (`Game::in_menu()`, `Game::open_menu_code()` 1009,
+`Game::menu_open(code)`). A menu opened during a conversation (a message box from a
+result script) opens on top of it at once and holds the conversation's lines until it
+is closed; `MenuMode 1009` stays 1 under it [hypothesis].
+
+**The Lucky 38 elevator Securitron (SCPT 0x0015725D)**, which the first version of this
+note read as evidence against a pause, fits a pausing menu better. Its OnActivate adds
+a dialogue package and sets a counter to 1; a `Begin MenuMode 1009` block moves the
+counter from 1 to 2; its GameMode block, when the counter is 2 and `MenuMode 1009` is
+not 1, shows the floor menu and resets the counter [observed: the script's compiled
+blocks, `fnvtool script decompile --form 0015725D`]. So the script marks "the
+conversation is on" from menu mode and acts in GameMode once it is over, which is what
+a script does when GameMode stands still during dialogue. With a pause the extra
+`MenuMode 1009` test inside GameMode can never be false; why it is there remains
+unexplained (a guard for the frame in which the menu closes, or plain caution). In the
+runtime both blocks now run as that reading expects.
 Still stubs: `IsActorTalkingThroughActivator` (talking activators), `GetDisposition`,
 `SetDisposition`, `Exists`.
 
-## 7. Hypotheses that need in-game captures
+## 7. What needs in-game captures
 
-1. Greeting choice when lines of several quests qualify: rules 1–3 of §4 "to confirm"
-   (owner statement), including equal priorities and the stored order of §3.1.
-2. Whether a line of a stopped quest can be said.
+**To confirm** (owner statements of 2026-10-10, the rules the runtime follows):
+
+- A. Greeting choice when lines of several quests qualify: rules 1–3 of §4, including
+  equal priorities and the stored order of §3.1.
+- B. A conversation with the player pauses the game (GameMode, game time); SayTo and Say
+  lines do not (§5, §6).
+- C. A line needs its quest running and the quest's conditions as well as its own; a
+  line of a stopped quest cannot be said (§4).
+- D. Known topics are global: every actor that can say a line of one offers it (§5).
+- E. Follow-up lines are said next with no player choice (§3.4).
+- F. Random pools are runs of Random lines that sit together; a plain line between two
+  groups splits them, sayable or not (§4 rule 4).
+
+**Open hypotheses** (numbers kept from the first version of this note; 2 and 4 moved
+up to C and F):
+
+1. (moved to A)
+2. (moved to C)
 3. Whether an actor with no qualifying greeting can be activated at all.
-4. Random stacks: does a qualifying plain line between Random lines close the stack
-   (flag description) or get skipped (the wiki's example 3)?
+4. Random pools, what the ruling leaves open: a Random End line the actor cannot say
+   (does it still close the pool?), and a pool made of lines of two quests.
 5. Which topics are offered and in what order: hidden when the actor has no line; ties
    of equal topic priority; the fallback to the topic list when no choice of a line can
    be said; the conversation ending when nothing can be offered; GOODBYE appended.
-6. Known topics: are AddTopic and Add Topics global and permanent, or tied to a topic,
-   an actor or a conversation? When is an Add Topics list applied (line start or end)?
-7. Follow-up lines: said next without a choice; first qualifying of several.
+6. Known topics: permanent for the whole game? When is an Add Topics list applied
+   (line start or end)? (That they are offered by every actor: D.)
+7. Follow-up lines: the first qualifying of several (that they need no choice: E).
 8. Timing of the begin and end results against the sound; the end result when the
    player skips a line or leaves; Run Immediately on a chosen line.
 9. INFC/INFX: does a "shared" line count as a line of the listing topic?
 10. Link From in player dialogue: does it add a choice?
 11. The skill tag's numbers: taken from the line's condition? What is shown for a perk?
-12. What `IsTalking`, bare `MenuMode`, `MenuMode 1009`, GameMode blocks and
-    `Begin MenuMode 1009` do during a conversation; whether game time runs.
+12. Inside the pause (B): what `IsTalking` reads while the player chooses;
+    `Begin MenuMode 1009` blocks and the MenuMode quest delay; whether magic effects
+    and other actors' SayTo lines stand still; a message box over a conversation; the
+    quest conditions' subject and target (C).
 13. Say Once across two actors sharing a line; Say Once a Day's clock; Say Once and
     Say Once a Day counted from the line's start or end.
 14. Response order where numbers and stored order disagree.
@@ -410,8 +482,8 @@ Without a filter or `--all` only the summary is printed. `--quest` and `--speake
 select topics that have such lines.
 
 **`dialogue lines [--quest Q] [--topic T] [--speaker A] [--info <hex>] [--all]
-[--text]` → `fnv.dialogue.lines/1`**: `summary` (the counts of §2.2 and
-`previous_info` of §3.1); `lines`, topics by FormID and within a topic in the order
+[--text]` → `fnv.dialogue.lines/1`**: `summary` (the counts of §2.2,
+`previous_info` of §3.1 and `quest_conditions` of §4); `lines`, topics by FormID and within a topic in the order
 lines are tried: `form`, `plugin`, `definitions`, `topic`, `position`, `quest`,
 `quest_priority`, `type`, `next_speaker`, `flags`, `record_flags`, `speaker`,
 `prompt_chars` (`prompt`), `responses` in the order said (`number`, `chars`, `emotion`,
@@ -433,8 +505,10 @@ conversation runs on) and `actions`, any of that contract's operations plus:
 | `wait_talk {start?, max_frames?, label?}` | waits until choices are offered or the conversation is over; with `start`, first until one is running (a script's StartConversation); observations `state` (`choosing`, `ended`), `choices`, `actor` |
 | `end_talk {}` | `Game::end_dialogue` |
 
-`max_frames` defaults to 7,200. A menu open while waiting is an error (the input has to
-close it). The same operations are accepted by `fnvtool script run`.
+`max_frames` defaults to 7,200. Another menu open while waiting (`Game::menu`, a message
+box over the conversation) is an error (the input has to close it). During a
+conversation `get_menus` and `wait_menu` read menu 1009 as open, and the stopwatch
+(script time) stands still. The same operations are accepted by `fnvtool script run`.
 
 The trace: `format`, `seed`, `frame_seconds`, `title`, `observations`, `steps`,
 `given_errors` as in `fnv.script.trace/1`; `events`, each with its `frame`, of these
@@ -469,12 +543,19 @@ gains `dialogue`.
   has begun; end: `bGiveTest` 0), and fourteen `choose` steps answer six word
   associations, five statements and three inkblots; each answer's begin script adds to
   the scores; the last line (Goodbye) sets `bDoFinalCalculation` at its start and stage
-  85 at its end. 15 lines; tag skills Guns, Science, Sneak as before.
+  85 at its end. 15 lines; tag skills Guns, Science, Sneak as before. The whole test
+  happens in paused time (real time passes for the lines, script time does not). One script used to lean on GameMode running meanwhile: VCG01Test's quest
+  script does the tag-skill calculation in GameMode once `bDoFinalCalculation` is 1,
+  which the last line's begin script sets. It ran while that line was being said, as long as
+  conversations did not pause; now it runs in the first GameMode frames after the
+  Goodbye line, still well before stage 90 opens the tag-skill menu 1 s later. The
+  result is the same.
 - **The farewell.** Stand-in: `talk` for Doc's dialogue package after stage 115 (and 4 s
   for his walk). Then the game's: the greeting that returns the player's things,
   two follow-up lines (the Pip-Boy with its message, the suit by the player's sex), the
   player's one answer, its follow-up, the Goodbye line whose end script starts
-  VGenericTimer's event 3 → the hardcore box → VCG01 200. 5 lines.
+  VGenericTimer's event 3 → the hardcore box → VCG01 200. 5 lines, in paused time;
+  nothing in it waits on GameMode.
 
 Stand-ins that remain in the walk-through and why: the menus' OK and the hardcore
 answer (the player's); walking into the two triggers (physics sensors); sitting on the
