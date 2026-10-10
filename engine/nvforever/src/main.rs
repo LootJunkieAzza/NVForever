@@ -153,6 +153,12 @@ struct Args {
     /// adapters, an interior cell's own image space), for comparisons.
     #[arg(long)]
     no_grade: bool,
+    /// Put an image space modifier on the screen, by Editor ID or 0xFormID, for looking
+    /// at one outside the scripts that play it: an animated one plays again and again, a
+    /// second apart; with `@<seconds>` it is held at that time after its start
+    /// (docs/spec-notes/image-modifiers.md §6). Repeatable.
+    #[arg(long, value_name = "MODIFIER[@SECONDS]")]
+    imod: Vec<String>,
     /// Sun shadows reach this far from the camera (game units); 0 turns them off. On by
     /// default (owner decision 2026-10-09), although the original game casts no sun shadows
     /// from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
@@ -514,6 +520,13 @@ fn main() -> AppExit {
         sky_state.shadow_distance = args.shadow_distance;
     }
     sky_state.grade = !args.no_grade;
+    let mut screen_modifiers = imagespace::ScreenModifiers::default();
+    for arg in &args.imod {
+        match imagespace::parse_forced(&world, arg) {
+            Ok(f) => screen_modifiers.forced.push(f),
+            Err(e) => return fail(e),
+        }
+    }
     sky_state.time_scale = args.time_scale.max(0.0);
     sky_state.days_passed = args.day.or_else(|| sky::find_global(&world, "GameDaysPassed")).unwrap_or(0.0).floor();
     if let Some(dir) = &args.timelapse {
@@ -678,6 +691,7 @@ fn main() -> AppExit {
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
     .insert_resource(GlobalAmbientLight { brightness: 600.0, ..default() })
     .insert_resource(sky_state)
+    .insert_resource(screen_modifiers)
     .insert_resource(fly::AutoFly(args.auto_fly))
     .insert_resource(lod::LodState::new(&world, lod_settings(&args), !args.no_lod && interior.is_none(), lodgen))
     .insert_resource(TerrainSettings { tile: args.terrain_tile })

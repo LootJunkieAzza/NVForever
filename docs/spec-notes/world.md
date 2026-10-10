@@ -498,6 +498,10 @@ byte, not needed yet) and 8 WATR records whose DATA holds an older 186-byte layo
   luminance × tint colour, brightness factor, contrast around the average luminance
   [hypothesis]. The IMGS flags byte (saturation, contrast, tint, brightness) is 0 in
   NVDefaultExterior; its role is unknown. HDR eye adaptation is not applied.
+- **IMAD as a screen effect**: the same record type played by scripts (fade colour,
+  blur, double vision, radial blur, every key of every track) is in
+  docs/spec-notes/image-modifiers.md; the weather grade above reads only the first
+  key of the cinematic tracks and the tint.
 - **IMAD cinematic track order** [documented: xEdit wbDefinitionsFNV.pas IMAD names
   `\x11IAD`..`\x14IAD` saturation, contrast, contrast avg lum, brightness; IMGS DNAM
   stores saturation, contrast avg lum, contrast, brightness]. The data fits the IMGS order

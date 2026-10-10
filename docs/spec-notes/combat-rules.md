@@ -117,7 +117,14 @@ each the identity by default. Reading PERK records is a later step.
     multiplier) when the engine passes it, else 1 ÷ "Attack Shots/Sec" [documented:
     GECK wiki Weapons].
 - **When the shot leaves.** At the attack clip's `Hit` key [documented:
-  NiTextKeyExtraData]. Automatic weapons fire at once.
+  NiTextKeyExtraData]. Automatic weapons fire at once, except those that spin up.
+- **Spin-up** [owner decision 2026-10-10]. An automatic weapon whose attack clip has
+  an internal loop (`Fire` and `Loop` keys: a minigun's `AttackSpin`) fires its first
+  shot at the clip's `Fire` key [documented: NiTextKeyExtraData, `Fire` works like
+  `Hit`], `spin_up` seconds after the pull, then at its rate while the trigger stays
+  held. Letting go during the spin-up fires nothing; every new pull, and firing on
+  after a reload, spins up again [design]. `Event::SpinUp` marks the start, for the
+  body's clip (docs/spec-notes/animation.md §9.8).
 - **Reload.** Takes the reload clip's length; the animation multiplier does not speed
   it up [documented]. Without a clip length, `fallback_reload`.
 - **Trigger.** A semi-automatic weapon needs a fresh pull per shot; an automatic one
@@ -239,8 +246,9 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   [design].
 - **Readiness and clips.** The cycle runs once the player body reports the weapon drawn
   and in hand (`WeaponAnim::ready`; without a body, as soon as it is wanted out).
-  - The body gives the attack clip's length and `Hit` key and the reload clip's
-    length, from the rig in view. The attack clip is `{prefix}{attack}{is}.kf` from the
+  - The body gives the attack clip's length and `Hit` key (and whether a `Loop`
+    key follows it: the spin-up time) and the reload clip's length, from the rig in
+    view. The attack clip is `{prefix}{attack}{is}.kf` from the
     WEAP attack animation; the reload clip is `{prefix}reload{x}.kf`
     (`fnv_actor::player_clips`).
   - The body plays the clip once each time combat counts an attack or a reload.

@@ -1,6 +1,6 @@
 //! Messages, time, globals and numbers.
 
-use super::{none, Args, Ctx};
+use super::{none, yes, Args, Ctx};
 use crate::game::{menus, Game, MessageBox};
 use crate::trace::EventKind;
 use fnv_script::vm::Value;
@@ -248,4 +248,30 @@ pub fn show_trait_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, Str
 /// ShowLoveTesterMenuParams: the Vigor Tester's S.P.E.C.I.A.L. menu.
 pub fn show_love_tester_menu(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     open(g, menus::LOVE_TESTER)
+}
+
+/// `ApplyImageSpaceModifier modifier`: the image space modifier starts playing on the
+/// screen [documented: GECK wiki ApplyImageSpaceModifier, owner export]
+/// (`Game::apply_image_modifier`, docs/spec-notes/image-modifiers.md §3). A form that is
+/// not an image space modifier is an error of the call.
+pub fn apply_image_space_modifier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let m = a.form(0)?;
+    if !g.data.image_modifiers.contains_key(&m) {
+        return Err(format!("{m} is not an image space modifier"));
+    }
+    g.apply_image_modifier(m);
+    none()
+}
+
+/// `RemoveImageSpaceModifier modifier`: the modifier leaves the screen [documented: GECK
+/// wiki RemoveImageSpaceModifier, owner export]; nothing happens when it is not on it.
+pub fn remove_image_space_modifier(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    g.remove_image_modifier(a.form(0)?);
+    none()
+}
+
+/// `IsImageSpaceActive modifier`: 1 while the modifier is on the screen [documented:
+/// GECK wiki IsImageSpaceActive, owner export].
+pub fn is_image_space_active(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    yes(g.image_modifier_active(a.form(0)?))
 }

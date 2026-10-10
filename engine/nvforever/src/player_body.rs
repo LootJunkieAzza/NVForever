@@ -22,6 +22,11 @@
 //! is out and how long the attack and reload clips run (`WeaponAnim`), and plays the clip
 //! once each time combat counts an attack or a reload up.
 //!
+//! The weapon model keeps its node tree under the `Weapon` node, and the clips move its
+//! parts by name as they move bones: the slide, hammer and trigger of a pistol in its
+//! attack clip, the magazine in its reload clip, a minigun's barrel in its spin clip
+//! (animation.md §9.8).
+//!
 //! Runs in `nvf_play::player::BodySet`: after the character moved, before the camera is
 //! placed. The eye (`Player::body_eye`) is the first-person rig's camera node. Without
 //! actors (`--no-actors`) there is no body and the eye stays at the fixed eye height;
@@ -51,7 +56,7 @@ use fnv_actor::weapon::AnimType;
 use fnv_actor::Appearance;
 use fnv_sim::FormId;
 use nvf_assets::actor::{rigid_local, spawn_actor, ActorCtx, ActorParts, PartUse, PreparedSkeleton};
-use nvf_assets::anim_blend::{Animator, Mode, DEFAULT_FADE};
+use nvf_assets::anim_blend::{Animator, ExtraNode, Mode, DEFAULT_FADE};
 use nvf_assets::anim_play::Clip;
 use nvf_assets::model::ModelCtx;
 use nvf_play::combat::WeaponAnim;
@@ -107,6 +112,10 @@ const NECK_RETURN_RATE: f32 = 4.0;
 /// And how far down it tilts, radians [engineering choice: 75 degrees, head and eyes;
 /// steeper, the view is down the body's own collar].
 const NECK_DOWN: f32 = 75.0 * std::f32::consts::PI / 180.0;
+/// An attack clip with a `Loop` key goes round its repeated part while the shots come no
+/// further apart than this, seconds [engineering choice: the clips that have the key are
+/// the `attackspin` ones, of weapons that fire many times a second; animation.md §9.8].
+const LOOP_HOLD: f32 = 0.25;
 
 /// A clip choice, for the clip caches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -235,6 +244,19 @@ struct Rig {
     weapon_shown: Option<bool>,
     /// The furniture clip it plays (`BodyClip::serial`), while it plays one.
     furniture: Option<u32>,
+    /// Seconds since the last attack started, and the repeated part of its clip, if it
+    /// has one: from and to, seconds into the clip.
+    since_attack: f32,
+    attack_loop: Option<(f32, f32)>,
+}
+
+/// Where a layer's time is after going round the repeated part of its clip, `start` to
+/// `end` seconds into it: unchanged before `end`.
+fn loop_time(time: f32, start: f32, end: f32) -> f32 {
+    if time < end || start >= end {
+        return time;
+    }
+    start + (time - end).rem_euclid(end - start)
 }
 
 impl Rig {
@@ -249,7 +271,7 @@ impl Rig {
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
-            Some(c) => debug!("player {:?} rig: {key:?} plays {}", self.view, c.path),
+            Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
             None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
         }
         self.clips.insert(key, found.clone());
@@ -306,9 +328,10 @@ struct Motion {
     seat_settled: bool,
     /// The same: the way the body faced last frame, to turn the view with it.
     seat_facing: Option<f32>,
-    /// The attack and reload counts last acted on (`WeaponAnim`).
+    /// The attack, reload and spin-up counts last acted on (`WeaponAnim`).
     attacks_seen: u32,
     reloads_seen: u32,
+    spin_ups_seen: u32,
     /// Interned clip names (attack stems, reload names) for the clip keys.
     names: HashMap<String, &'static str>,
 }
@@ -341,6 +364,7 @@ impl Default for Motion {
             seat_facing: None,
             attacks_seen: 0,
             reloads_seen: 0,
+            spin_ups_seen: 0,
             names: HashMap::new(),
         }
     }
@@ -475,6 +499,7 @@ fn ensure_body(
         if let Some(e) = rig.weapon_model.take() {
             commands.entity(e).despawn();
         }
+        rig.animator.set_extra(Vec::new());
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
         }
@@ -493,6 +518,16 @@ fn ensure_body(
                 let bones = models.node_strings(&path, "UPB");
                 let skel = rig.animator.skel.clone();
                 let in_hand = m.hands.in_hand;
+                // The model's nodes keep their tree and their names, so the clips can
+                // move its parts [observed: the clips' tracks on `##Slide`, `##Clip`,
+                // `##MinigunBarrel` name nodes of the weapon models; animation.md §9.8].
+                let local = |a: &Affine3A| Transform::from_matrix(Mat4::from(*a));
+                let part_nodes: Vec<Entity> = pm.nodes.iter().map(|n| commands.spawn((local(&n.local), Visibility::Inherited)).id()).collect();
+                for (n, e) in pm.nodes.iter().zip(&part_nodes) {
+                    commands.entity(n.parent.map_or(holder, |p| part_nodes[p])).add_child(*e);
+                }
+                let mut extra: Vec<ExtraNode> =
+                    pm.nodes.iter().zip(&part_nodes).filter_map(|(n, e)| Some(ExtraNode { name: n.name.clone()?, entity: *e, bind: local(&n.local) })).collect();
                 for s in &pm.shapes {
                     let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
                     if bone.is_some() && rig.view == View::First {
@@ -503,13 +538,23 @@ fn ensure_body(
                         s.ancestors.iter().chain(s.name.as_ref()).filter(|n| n.starts_with("##")).map(|n| (n.clone(), true)).collect();
                     let shown = tags.is_empty() || in_hand;
                     let visibility = if shown { Visibility::Inherited } else { Visibility::Hidden };
-                    let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)), visibility)).id();
-                    commands.entity(bone.map_or(holder, |b| rig.animator.nodes[b])).add_child(e);
+                    // On a bone of its own the shape keeps its place in the whole model;
+                    // else it sits under its node, which the clips may move.
+                    let (parent, place) = match bone {
+                        Some(b) => (rig.animator.nodes[b], local(&s.transform)),
+                        None => (s.node.map_or(holder, |n| part_nodes[n]), local(&s.own)),
+                    };
+                    let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), place, visibility)).id();
+                    commands.entity(parent).add_child(e);
+                    if let (None, Some(name)) = (bone, &s.name) {
+                        extra.push(ExtraNode { name: name.clone(), entity: e, bind: place });
+                    }
                     rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), shown: Some(shown) });
                 }
                 rig.weapon_model = Some(holder);
                 rig.weapon_shown = None;
-                info!("player weapon model ({:?} person): {path}", rig.view);
+                info!("player weapon model ({:?} person): {path}, {} nodes, {} named parts for the clips", rig.view, pm.nodes.len(), extra.len());
+                rig.animator.set_extra(extra);
             }
             None => warn!("player weapon {path}: model not loaded"),
         }
@@ -613,6 +658,8 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         arms_shown: None,
         weapon_shown: None,
         furniture: None,
+        since_attack: f32::INFINITY,
+        attack_loop: None,
     })
 }
 
@@ -642,6 +689,8 @@ struct Frame {
     reload: Option<&'static str>,
     attack_now: bool,
     reload_now: bool,
+    /// The weapon starts to spin up this frame: its attack clip plays from the start.
+    spin_now: bool,
 }
 
 /// Pose `rig` for the frame, apply the weapon events, place it at `root`; returns the
@@ -751,23 +800,39 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
             want.push((c.clone(), TAG_HOLSTER, 1.0, Mode::Once));
         }
     }
-    if f.hands.in_hand && f.attack_now {
+    if f.hands.in_hand && (f.attack_now || f.spin_now) {
         if let Some(c) = f.attack.and_then(|a| rig.clip(ctx, ClipKey::Attack(f.stance, f.prefix, a, f.aiming))) {
-            rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
-            // The attack's own up and down forms keep the body bent with the pitch while
-            // it plays, as the aim's do [observed: `2hrattackleftup.kf`, §9.6].
-            for (i, (aim, w)) in aim_w.into_iter().enumerate().skip(1) {
-                let tag = TAG_ATTACK + i as u32;
-                rig.animator.cut(tag);
-                if let Some(v) = (rig.view == View::Third).then(|| rig.variant(ctx, &c, aim)).flatten() {
-                    rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+            // A clip with a `Loop` key plays on through the shots that follow while it
+            // runs (a minigun's spin) instead of starting again at each, going round from
+            // its `Fire` key to its `Loop` key [documented: GECK wiki NiTextKeyExtraData,
+            // combat.md §4.2; observed: the barrel turns at one speed between the two,
+            // animation.md §9.8]. A spin-up starts it from the beginning, so the first
+            // shot, which combat holds back until then, meets the `Fire` key.
+            rig.attack_loop = c.keys.hit.zip(c.keys.loop_end).filter(|(from, to)| from < to).map(|(from, to)| (from - c.clip.start, to - c.clip.start));
+            let going = !f.spin_now && rig.attack_loop.is_some() && rig.animator.layers.iter().any(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, &c.clip) && !l.finished());
+            if !going {
+                rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
+                debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
+                // The attack's own up and down forms keep the body bent with the pitch while
+                // it plays, as the aim's do [observed: `2hrattackleftup.kf`, §9.6].
+                for (i, (aim, w)) in aim_w.into_iter().enumerate().skip(1) {
+                    let tag = TAG_ATTACK + i as u32;
+                    rig.animator.cut(tag);
+                    if let Some(v) = (rig.view == View::Third).then(|| rig.variant(ctx, &c, aim)).flatten() {
+                        rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+                    }
                 }
+            }
+            // A spin-up is not a shot: the clip runs on to its `Fire` key by itself.
+            if f.attack_now {
+                rig.since_attack = 0.0;
             }
         }
     }
     if f.hands.in_hand && f.reload_now {
         if let Some(c) = f.reload.and_then(|r| rig.clip(ctx, ClipKey::Reload(f.stance, f.prefix, r))) {
             rig.animator.restart(&c.clip, TAG_RELOAD, 1.0, Mode::Once, c.fade());
+            debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
         }
     }
     if matches!(f.hands.phase, WeaponPhase::Drawing | WeaponPhase::Holstering) {
@@ -793,6 +858,14 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
     // game matches the clip's root motion to the ground speed].
     let rate = if expected_speed > 1.0 { (f.speed / expected_speed).clamp(0.25, 2.5) } else { 1.0 };
     a.advance(f.dt, rate);
+    // While the shots keep coming, an attack clip with a repeated part goes round it;
+    // after the last it plays out from where it is.
+    rig.since_attack += f.dt;
+    if let Some((from, to)) = rig.attack_loop.filter(|_| rig.since_attack <= LOOP_HOLD) {
+        for l in a.layers.iter_mut().filter(|l| (TAG_ATTACK..TAG_ATTACK + 3).contains(&l.tag)) {
+            l.time = loop_time(l.time, from, to);
+        }
+    }
     a.pose();
     if let Some(l) = rig.looking {
         // The arms rig turns about `Bip01 Looking` with the view's pitch (about the
@@ -1018,14 +1091,16 @@ fn drive_body(
     let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
     anim.timing = nvf_play::combat::clip_timing(
-        attack_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit)),
+        attack_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit, c.keys.hit.zip(c.keys.loop_end).is_some_and(|(fire, back)| fire < back))),
         reload_clip.as_ref().map(|c| c.clip.length()),
     );
     anim.ready = m.hands.phase == WeaponPhase::Drawn && m.hands.in_hand;
     let attack_now = anim.attacks != m.attacks_seen;
     let reload_now = anim.reloads != m.reloads_seen;
+    let spin_now = anim.spin_ups != m.spin_ups_seen;
     m.attacks_seen = anim.attacks;
     m.reloads_seen = anim.reloads;
+    m.spin_ups_seen = anim.spin_ups;
 
     let frame = Frame {
         dt,
@@ -1047,6 +1122,7 @@ fn drive_body(
         reload,
         attack_now,
         reload_now,
+        spin_now,
     };
     let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
     let third_eye = pose_rig(&mut body.third, &frame, &events, root, &mut ctx, &mut transforms);
@@ -1121,7 +1197,14 @@ fn drive_body(
     if m.log_elapsed >= 1.0 {
         m.log_elapsed = 0.0;
         let layers = |r: &Rig| {
-            r.animator.layers.iter().filter(|l| l.ease > 0.01).map(|l| format!("{}:{}×{:.2}", l.tag, l.clip.name, l.weight)).collect::<Vec<_>>().join(" ")
+            let playing = r.animator.layers.iter().filter(|l| l.ease > 0.01).map(|l| format!("{}:{}×{:.2}", l.tag, l.clip.name, l.weight)).collect::<Vec<_>>().join(" ");
+            // The weapon parts the clips hold away from their place in the model.
+            let parts: Vec<String> = r.animator.extra_moved().filter(|p| p.1 > 0.01 || p.2 > 0.1).map(|(n, d, turn)| format!("{n} {d:.1} units {turn:.0}°")).collect();
+            if parts.is_empty() {
+                playing
+            } else {
+                format!("{playing}; weapon parts {}", parts.join(", "))
+            }
         };
         debug!(
             "player body: {stance:?} speed {:.0} weapon {:?} {} in hand {} airborne {:.2}s view {} eye z {:.1} (feet {:.1}); third [{}]; first [{}]",
@@ -1189,5 +1272,20 @@ mod tests {
     fn default_eye_is_in_front_of_and_above_the_head() {
         let skel = PreparedSkeleton { bind_world: vec![Affine3A::from_translation(Vec3::new(0.0, 0.0, 110.0))], ..Default::default() };
         assert_eq!(default_eye(&skel, 0), Vec3::new(0.0, 9.0, 7.0));
+    }
+
+    #[test]
+    fn an_attack_clip_goes_round_its_repeated_part() {
+        // 2hhattackspin.kf: repeated from `Fire` at 0.967 s to `Loop` at 1.633 s.
+        let (start, end) = (0.967, 1.633);
+        assert_eq!(loop_time(0.5, start, end), 0.5);
+        assert_eq!(loop_time(1.6, start, end), 1.6);
+        assert!((loop_time(1.633, start, end) - start).abs() < 1e-5);
+        assert!((loop_time(1.733, start, end) - (start + 0.1)).abs() < 1e-5);
+        // A long frame, or a shot during the way out: back inside the repeated part.
+        let t = loop_time(2.4, start, end);
+        assert!((start..end).contains(&t), "{t}");
+        // No repeated part to go round.
+        assert_eq!(loop_time(3.0, 2.5, 2.5), 3.0);
     }
 }
