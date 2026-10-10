@@ -2029,3 +2029,84 @@ point 5 of "Body in first person: a switch" above.
    - In water, your reflection in first person is still the floating arms, not your
      body (it was like that before). The same method would fix it; say if you want it.
    - Indoor lamps cast no shadows at all in ours, so you have no shadow from them.
+
+## Waiting and sleeping: the T menu (2026-10-11, session "wait menu")
+
+Your request: "a wait function that the player can use by pressing T", up to 24 hours,
+time ticking by one hour at a time, and a sleep instead of a wait when you are in a bed.
+Branch `claude/wait-menu`. Facts and sources: `docs/spec-notes/wait-menu.md`. Pictures:
+`C:\fnv-private\references\wait_menu\` (`compare-wait.png` is your screenshot above
+NVForever's; `nvf-sleep.png` is the bed version).
+
+1. **What works now:** press T while playing. The picture blurs and the box from your
+   screenshot comes up: the title, the slider with its 24 marks and the triangle, the
+   hours line with the time you will end at, the date line, and Wait and Cancel at the
+   right.
+   - Pick the hours with the mouse (click or drag on the slider, or the wheel) or with
+     the keys (Left/Right or A/D one hour, Page Up/Down six, Home/End the ends).
+   - E, Enter or a click on Wait accepts. X, Esc, T or a click on Cancel closes it.
+   - After you accept, an hour passes every half second. The menu counts down: the
+     hours left, the triangle moving back along the slider, the date and time going up.
+     The sky and the light change behind it hour by hour.
+   - Cancel during the countdown stops it there. The hours already passed stay passed.
+   - A wait across midnight changes the weekday and the date; 24 hours ends at the same
+     time the next day.
+2. **In a bed it is a sleep.** Lie down on a bed (E on it), then press T: the same menu
+   says "How long would you like to sleep?" and the button says Sleep. Time passes the
+   same way. You are still lying there when it closes.
+   - **The screen fades out when you accept a sleep** (your request while I was
+     working). It goes to black over one second, and comes back over one second when
+     the sleep ends or you cancel it. The menu stays visible on the black so you can
+     watch the hours count down and still cancel. Waiting does not fade. Say if you
+     would rather the menu disappeared too, or want the fade slower.
+3. **It moves the one game clock**, the same one the sky, the townspeople's schedules
+   and quest scripts read. After a wait from 18:37 to 22:37 in Goodsprings, Easy Pete,
+   Chet and a settler all switched to their night routines within a few seconds and
+   went to bed.
+4. **Scripts can hold it shut.** While a quest has taken your controls away (the
+   opening at Doc Mitchell's, for one), T does nothing, the same as the inventory.
+5. **What I had to guess** (nothing I could read says how the original does it):
+   - **The pace:** half a second per hour, so a full day takes twelve seconds. Say if
+     the original feels faster or slower.
+   - **Stopping part-way:** the original's own notes say a sleep can be cancelled; for
+     a wait I assumed the same.
+   - **The keys for the slider.** The original's files only describe the gamepad and
+     the mouse. E and X are the hints on your screenshot.
+   - **The menu opens on 1 hour.** I do not know what the original opens on.
+   - **The sleep wording.** Your screenshot is of the wait menu. For sleep I used the
+     same sentence with "sleep" and a "Sleep" button. A screenshot of the original's
+     sleep menu would settle it.
+   - **The day of the week.** Your screenshot says Saturday on 19.10.81. I count days so
+     that it comes out that way (the game's day counter starts on 13 October 2281, and
+     I took that day as a Sunday). One screenshot is all that backs it.
+6. **Where the words come from.** The original keeps this menu's text inside its
+   program, not in the data files, so NVForever cannot read it from your install. The
+   title, "Wait", "Cancel", "hours" and "Saturday" are typed in from your screenshot.
+   That is a handful of words, but they are the original's: say if you would rather
+   have NVForever's own wording there.
+7. **Something this turned up, for you to decide.** Quest scripts and the townspeople's
+   weekday schedules ask "what day of the week is it" through another part of the game
+   code, which works it out the way a real-world calendar would. By that rule 19.10.81
+   is a Wednesday, and your screenshot says Saturday. So that older rule is probably
+   wrong by three days. I did not change it here, because it would move who does what
+   on which day and the earlier checks of the schedules were made with it. If you type
+   `GetDayOfWeek` in the original's console with the wait menu's date line in view, one
+   number settles it (0 is Sunday, 6 is Saturday).
+8. **Not built:**
+   - **The original's refusals.** Its message list names these: enemies nearby, in
+     combat, under water, an alarm sounding, a bed someone else owns, and places or
+     quests that forbid waiting. I found the names, not the rules, so NVForever lets
+     you wait anywhere.
+   - **What sleep does besides passing time.** The data files show "Well Rested" (10%
+     more experience for a while, and full health and limbs) given by nine particular
+     safe beds, and a sleep need in hardcore mode. None of that happens yet. Plain
+     healing per hour of sleep is not in anything I could read.
+   - **People moving during the wait.** They stand still while the menu is up and set
+     off for where they should be when it closes, so after a long wait you can watch
+     them walk there. The original may put them in place; I do not know.
+   - **Pressing E on a bed still lies you down** rather than opening the sleep menu
+     directly. You asked for lying down first; T does the rest.
+   - **Scripts asking "is the player asleep?" or opening this menu themselves.** The
+     Well Rested beds need the first.
+   - **The game's own font, slider picture and menu sounds.** The menu is drawn with
+     NVForever's font and plain shapes, measured from your screenshot.

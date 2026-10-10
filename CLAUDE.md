@@ -48,7 +48,7 @@ add `--pos -69500,2500,13400 --pitch -89.5` for the aerial view):
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --play --hour 17 --time-scale 1.2 --run-seconds 26`
 (expect exit 0, "run finished" and 24+ hourly samples).
 After image space modifier changes (`fnv_world::image_modifier`, the `fnv-game` functions,
-`imagespace.rs` and its shaders), run the opening for half a minute:
+`imagespace.rs` and its shaders; a sleep's fade to black is drawn there too), run the opening for half a minute:
 `NVF_PLAY_TEST_SCRIPT_MENUS=1 engine/target/release/nvforever --data <Data> --play --new-game --run-seconds 32`
 (expect exit 0 and the "image space modifiers on the screen:" lines in this order: WhiteISFX,
 MQ08AllBlackedOutISFX; VCG01FadeInFromBlackISFX; that with VCG01PlayerStrainISFX;
@@ -99,6 +99,15 @@ After idle animation changes (docs/spec-notes/idles.md §7: `fnv-game` `idles`, 
 4 by packages' begin, end and change, 1 from collections, 4 by dialogue lines); 5 started on actors,
 5 on the player; 0 for actors not drawn, 0 without a usable clip", and Doc Mitchell getting off his
 chair "by clip SpecialIdle_DocSitLeftExit" in the "furniture:" lines).
+
+After changes to the wait and sleep menu (`nvf-play` `wait`, docs/spec-notes/wait-menu.md
+§11) or to the play clock it advances (`fnv_sim::World::advance_hours`, `sky_follows_game`),
+run the sleep smoke test, with `NVF_PLAY_TEST_NEAR=00176ACE`, `NVF_PLAY_TEST_ACTIVATE=16`
+and `NVF_PLAY_TEST_WAIT=22:open,23.5:hours=24,24.5:accept` set:
+`engine/target/release/nvforever --data <Data> --cell GSHouseInterior03 --play --hour 22 --run-seconds 40`
+(expect exit 0, "wait menu: open as sleep (the player lies on a bed)", 24 "sleep: hour N of 24
+passed:" lines ending one date later at the time of day the menu opened at, and "wait summary:
+the menu was opened 1 times (1 as sleep), 24 hours passed, 0 requests held by scripts").
 
 ## Commits
 

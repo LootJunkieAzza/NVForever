@@ -668,6 +668,7 @@ pub fn drive_player(
     match shown {
         Some(b) => {
             seat.hold = Some(b.pos);
+            seat.bed = lying && u.usage.phase != Phase::GettingOff;
             body.0 = Some(b);
         }
         None => {
@@ -678,6 +679,7 @@ pub fn drive_player(
             };
             phys.place_player(end.pos, 60.0, 200.0);
             seat.hold = None;
+            seat.bed = false;
             body.0 = None;
             f.stats.player_stood += 1;
             f.release(u.plan.furniture, who.reference);
