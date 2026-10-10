@@ -302,15 +302,17 @@ visual term, and the detector's skill minus the target's skill times a factor
   there before going on to the next linked marker or back to the package, a topic to say
   on arrival, and a result script run on arrival [documented: Idle Markers]. That result
   script is the REFR `patrol` unit after XPPA [observed: scripts.md §1.3]: agrees.
-- The IDLM record and the package's idle data are not in our schema yet; the runtime has
-  no idle markers.
+- Idle collections of packages and markers are read and played
+  (docs/spec-notes/idles.md §5).
 
 ### 5.3 The idle manager
 
 - The export mentions the idle manager only as what idle collections bypass. Our reading
   of the IDLE tree as the idle manager's decision tree (animation.md §2.2) remains a
   [hypothesis]; nothing in the export contradicts it. `fnv-actor` reads the IDLE records,
-  their conditions and the tree; nothing chooses idles yet.
+  their conditions and the tree; the furniture clips are chosen from it (furniture.md
+  §3), nothing else is. Idles asked for by scripts, packages and dialogue lines are
+  played (docs/spec-notes/idles.md).
 
 ## 6. From Category:Dialogue, beyond quests-dialogue.md
 

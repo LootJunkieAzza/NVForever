@@ -256,6 +256,10 @@ pub struct RefExtra {
     /// The actor has been in a conversation with the player (GetTalkedToPC).
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub talked_to_pc: bool,
+    /// The special idle the actor plays (IsIdlePlaying): told by whoever animates the
+    /// actor ([`Game::set_idle_playing`]); not part of the saved state.
+    #[serde(skip)]
+    pub idle: Option<FormId>,
 }
 
 fn is_zero(v: &u16) -> bool {
@@ -481,6 +485,10 @@ pub struct Speech {
     /// Topics are applied and no SayToDone block runs [hypothesis for both].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub greeting: bool,
+    /// Position (in the order the responses are said) of the response whose idles were
+    /// last asked for (`crate::idles`); not part of the saved state.
+    #[serde(skip)]
+    pub response: usize,
 }
 
 pub struct Game<'a> {
@@ -488,6 +496,9 @@ pub struct Game<'a> {
     /// What scripts asked of the engine's combat (`crate::combat::CombatRequest`), for
     /// the engine to take.
     pub combat_requests: Vec<crate::combat::CombatRequest>,
+    /// The idle animations actors were asked to play (`crate::idles::IdleRequest`), for
+    /// the layer that animates actors to take.
+    pub idle_requests: Vec<crate::idles::IdleRequest>,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -646,6 +657,7 @@ impl<'a> Game<'a> {
         Game {
             data,
             combat_requests: Vec::new(),
+            idle_requests: Vec::new(),
             world,
             cfg,
             quests: BTreeMap::new(),
@@ -1270,10 +1282,44 @@ impl<'a> Game<'a> {
         self.mark_said(speaker, info, false);
         let seconds = self.line_seconds(speaker, info);
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, response: 0 });
+        if let Some(&first) = def.response_order().first() {
+            self.ask_response_idles(speaker, target, info, first);
+        }
         if let Some(u) = def.begin {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
             self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
+        }
+    }
+
+    /// The lines being said outside a conversation move on to their next responses as
+    /// the time of each passes: the idles of a response that starts are asked for
+    /// (`crate::idles`; the first response's when the line starts).
+    fn speech_responses(&mut self) {
+        let data = self.data;
+        let mut started = Vec::new();
+        for k in 0..self.speech.len() {
+            let s = &self.speech[k];
+            let Some(def) = data.infos.get(&s.info) else { continue };
+            let order = def.response_order();
+            if order.len() < 2 {
+                continue;
+            }
+            let lengths = self.response_lengths(s.speaker, s.info);
+            let total: f64 = lengths.iter().sum();
+            let mut end = 0.0;
+            let at = order.iter().position(|&r| {
+                end += lengths.get(r).copied().unwrap_or(0.0);
+                total - s.remaining < end
+            });
+            let at = at.unwrap_or(order.len() - 1);
+            if at > s.response {
+                started.push((s.speaker, s.target, s.info, order[at]));
+                self.speech[k].response = at;
+            }
+        }
+        for (speaker, target, info, response) in started {
+            self.ask_response_idles(speaker, target, info, response);
         }
     }
 
@@ -1302,6 +1348,7 @@ impl<'a> Game<'a> {
     fn update_speech(&mut self, dt: f64) {
         let mut ended = Vec::new();
         let mut cut = Vec::new();
+        self.speech_responses();
         for s in &mut self.speech {
             s.remaining -= dt;
             let here = self.world.peek(s.speaker).is_none_or(|w| !w.deleted) && self.world.is_enabled(s.speaker).unwrap_or(false);
@@ -1543,6 +1590,9 @@ impl<'a> Game<'a> {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(actor) });
             self.run_result(u, RunCtx { self_ref: Some(actor), ..Default::default() });
         }
+        // The idle follows the result script, so it sees what the script set
+        // [documented: GECK wiki, Category:Packages].
+        self.ask_package_idle(actor, package, which);
         let ev = [event::ON_PACKAGE_START, event::ON_PACKAGE_DONE, event::ON_PACKAGE_CHANGE][which];
         self.ref_event(actor, ev, Some(Value::Ref(package.0)), None);
     }

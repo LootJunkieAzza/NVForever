@@ -74,6 +74,27 @@ docs/design/actor-behaviour.md §5.6), also run the force-greet smoke test, with
 After furniture changes (docs/spec-notes/furniture.md §7), run the sitting smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-sit EasyPeteRef=0010634A:8 --follow-npc --run-seconds 45`
 (expect exit 0 and "furniture summary: 1 of 1 actors sat down, 1 got up again").
+After changes to the player's controls or to what scripts lock of them (`nvf-play`
+`control::ControlLocks`, `script::sync_locks`; docs/spec-notes/controls.md §5), run the
+held-player smoke test, with `NVF_PLAY_TEST_SCRIPT_MENUS=1`, `NVF_PLAY_TEST_MOVE=1:1:0`,
+`NVF_PLAY_TEST_LOOK=0.1:90:0`, `NVF_PLAY_TEST_ACTIVATE=14` and
+`NVF_PLAY_TEST_CONTROL=16:sneak,17:weapon,18:view` set:
+`engine/target/release/nvforever --data <Data> --play --new-game --no-voice --run-seconds 30`
+(expect exit 0, "look heading 90.0 pitch 0.0 ignored", "activate: ignored" and "controls summary:
+scripts changed the player's controls 2 times; disabled at exit: movement, Pip-Boy, fighting, POV,
+sneaking; held back: movement <frames>, fighting 1, POV 1, looking 1, sneaking 1").
+After actor collision or pushing changes (`nvf-play` `blocking`, docs/spec-notes/physics.md §6.8),
+run the push smoke test (the player stands on Easy Pete's noon walk):
+`NVF_PLAY_TEST_SCRIPT_MENUS=1 NVF_PLAY_TEST_GOTO=1:-67790:3450:8425 engine/target/release/nvforever --data <Data> --cell Goodsprings --play --npc-packages EasyPeteRef --hour 12 --run-seconds 30`
+(expect exit 0, Easy Pete's "used door 0x0010636F", and in the "actors pushed aside:" line
+"one the player in" about 200 steps: he pushes the player ahead of him and goes on).
+After idle animation changes (docs/spec-notes/idles.md §7: `fnv-game` `idles`, `fnv-actor`
+`idle_play`, the engine's `idles.rs`, the player body's idles or view), run the opening:
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.05 engine/target/release/nvforever --data <Data> --play --new-game --no-voice --run-seconds 90`
+(expect exit 0, "run finished", "VCG01 stage 55 set", "idle summary: 10 idles asked for (1 by scripts,
+4 by packages' begin, end and change, 1 from collections, 4 by dialogue lines); 5 started on actors,
+5 on the player; 0 for actors not drawn, 0 without a usable clip", and Doc Mitchell getting off his
+chair "by clip SpecialIdle_DocSitLeftExit" in the "furniture:" lines).
 
 ## Commits
 

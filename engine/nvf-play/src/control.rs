@@ -20,6 +20,9 @@
 //!   The mouse wheel zooms the third-person camera.
 //! - The game's other controls (Rest, VATS, the hotkeys, Ammo Swap, Quick Save, Quick
 //!   Load, Grab) are bound but not built: pressing one says so on screen.
+//! - Scripts turn groups of controls off and on (`DisablePlayerControls`,
+//!   `EnablePlayerControls`): [`ControlLocks`], applied to every frame's requests by
+//!   [`enforce_locks`].
 //!
 //! This module holds the requests; what they look like is the player body's job
 //! (nvforever `player_body.rs`), which also writes the eye it sees from into
@@ -30,7 +33,7 @@
 use crate::activate::HudMessage;
 use crate::bindings::{Bindings, Control, ControlInput};
 use crate::phys::PhysState;
-use crate::player::Player;
+use crate::player::{MoveIntent, Player};
 use crate::sim::SimState;
 use crate::{space, PlayState, PlayerCamera};
 use bevy::input::mouse::AccumulatedMouseScroll;
@@ -116,6 +119,170 @@ impl PlayerControl {
     pub fn third_person_view(&self) -> bool {
         self.pov == Pov::Third || self.orbit.active()
     }
+}
+
+/// The control groups scripts have turned off with `DisablePlayerControls` and not yet
+/// back on with `EnablePlayerControls` (docs/spec-notes/controls.md §5): the script
+/// runtime's seven flags, copied here after each frame's scripts (`script::sync_locks`).
+/// What each stops [documented: GECK wiki DisablePlayerControls, "Flag Definitions"]:
+///
+/// - `movement`: moving (and jumping, Auto Move [hypothesis]), activating world objects,
+///   and the crosshair (`activate.rs`) and health (`combat.rs`) on the HUD.
+/// - `pipboy`: opening the Pip-Boy (`menu.rs`).
+/// - `fighting`: bringing up a weapon; a weapon that is out is put away.
+/// - `pov`: third person; a third-person view goes back to first person.
+/// - `looking`: turning the view (`player::mouse_look`).
+/// - `rollover`: the prompt on world objects (`activate.rs`).
+/// - `sneaking`: sneaking; a sneaking player stands up.
+///
+/// The keys are still read; [`enforce_locks`] strikes what is locked from the frame's
+/// requests, so test aids that press controls are held like the keys.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ControlLocks {
+    pub movement: bool,
+    pub pipboy: bool,
+    pub fighting: bool,
+    pub pov: bool,
+    pub looking: bool,
+    pub rollover: bool,
+    pub sneaking: bool,
+}
+
+/// The groups' places in the functions' parameter lists (and in [`LockStats::held`]).
+pub mod group {
+    pub const MOVEMENT: usize = 0;
+    pub const PIPBOY: usize = 1;
+    pub const FIGHTING: usize = 2;
+    pub const POV: usize = 3;
+    pub const LOOKING: usize = 4;
+    pub const ROLLOVER: usize = 5;
+    pub const SNEAKING: usize = 6;
+    pub const NAMES: [&str; 7] = ["movement", "Pip-Boy", "fighting", "POV", "looking", "rollover text", "sneaking"];
+}
+
+impl ControlLocks {
+    /// Every group locked.
+    pub const ALL: ControlLocks = ControlLocks { movement: true, pipboy: true, fighting: true, pov: true, looking: true, rollover: true, sneaking: true };
+
+    /// From the runtime's flags, in the functions' parameter order: movement, Pip-Boy,
+    /// fighting, POV, looking, rollover text, sneaking.
+    pub fn from_flags(f: [bool; 7]) -> ControlLocks {
+        let [movement, pipboy, fighting, pov, looking, rollover, sneaking] = f;
+        ControlLocks { movement, pipboy, fighting, pov, looking, rollover, sneaking }
+    }
+
+    pub fn flags(&self) -> [bool; 7] {
+        [self.movement, self.pipboy, self.fighting, self.pov, self.looking, self.rollover, self.sneaking]
+    }
+
+    pub fn any(&self) -> bool {
+        *self != ControlLocks::default()
+    }
+
+    /// The locked groups by name, in parameter order.
+    pub fn names(&self) -> Vec<&'static str> {
+        self.flags().into_iter().zip(group::NAMES).filter(|(on, _)| *on).map(|(_, n)| n).collect()
+    }
+
+    /// Strike from the frame's requests what is locked; returns the groups (by
+    /// [`group`] index) that had something to strike. Nothing comes back by itself when
+    /// a group is enabled again: the weapon stays away, the view in first person and the
+    /// player standing [hypothesis: not captured].
+    pub fn apply(&self, intent: &mut MoveIntent, control: &mut PlayerControl) -> [bool; 7] {
+        let mut struck = [false; 7];
+        if self.movement {
+            let before = (*intent, *control);
+            (intent.forward, intent.right, intent.jump) = (0.0, 0.0, false);
+            control.auto_move = false;
+            struck[group::MOVEMENT] = (*intent, *control) != before;
+        }
+        if self.fighting {
+            let before = *control;
+            // Blocking and aiming go with the weapon [hypothesis].
+            control.weapon_out = false;
+            control.ready_held = None;
+            (control.trigger, control.aiming, control.reload, control.ammo_swap) = (false, false, false, false);
+            struck[group::FIGHTING] = *control != before;
+        }
+        if self.pov {
+            let before = *control;
+            // The circling camera is a view from outside too.
+            control.pov = Pov::First;
+            control.orbit = Orbit::default();
+            struck[group::POV] = *control != before;
+        }
+        if self.sneaking {
+            struck[group::SNEAKING] = control.sneak || intent.sneak;
+            control.sneak = false;
+            intent.sneak = false;
+        }
+        struck
+    }
+}
+
+/// What the locks did, for the log line at exit.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LockStats {
+    /// Times scripts changed which groups are off.
+    pub changes: u32,
+    /// Per group ([`group`] index): frames in which something the player asked for was
+    /// struck (movement), or times a request was turned down (the others).
+    pub held: [u32; 7],
+}
+
+impl LockStats {
+    /// "movement 120, looking 2": the groups that held something back.
+    pub fn summary(&self) -> String {
+        let parts: Vec<String> = self.held.iter().zip(group::NAMES).filter(|(n, _)| **n > 0).map(|(n, name)| format!("{name} {n}")).collect();
+        if parts.is_empty() {
+            "nothing".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
+}
+
+/// After the frame's input (keys, mouse, test aids), before anything acts on it: what
+/// scripts have locked is struck from it ([`ControlLocks::apply`]). A locked movement
+/// control does not get the player up from furniture either [hypothesis].
+pub fn enforce_locks(
+    locks: Res<ControlLocks>,
+    mut stats: ResMut<LockStats>,
+    mut intent: ResMut<MoveIntent>,
+    mut control: ResMut<PlayerControl>,
+    mut seat: ResMut<crate::furniture::PlayerSeat>,
+) {
+    if !locks.any() {
+        return;
+    }
+    let (mut i, mut c) = (*intent, *control);
+    let mut struck = locks.apply(&mut i, &mut c);
+    intent.set_if_neq(i);
+    control.set_if_neq(c);
+    if locks.movement && seat.leave {
+        seat.leave = false;
+        struck[group::MOVEMENT] = true;
+    }
+    if struck != [false; 7] {
+        for (n, s) in stats.held.iter_mut().zip(struck) {
+            *n += u32::from(s);
+        }
+    }
+}
+
+/// At exit, when scripts ever changed the player's controls: how often, what is off now
+/// and what was held back.
+pub fn report_locks(mut exit: MessageReader<AppExit>, locks: Res<ControlLocks>, stats: Res<LockStats>) {
+    if exit.read().next().is_none() || stats.changes == 0 {
+        return;
+    }
+    let off = locks.names();
+    info!(
+        "controls summary: scripts changed the player's controls {} times; disabled at exit: {}; held back: {}",
+        stats.changes,
+        if off.is_empty() { "none".to_string() } else { off.join(", ") },
+        stats.summary()
+    );
 }
 
 /// Holding Ready Item this long with the weapon out holsters it, seconds [hypothesis].
@@ -325,7 +492,7 @@ pub fn place_camera(
     let (Some(p), Ok(mut t)) = (player, cams.single_mut()) else { return };
     let eye = p.eye();
     if !control.third_person_view() {
-        t.rotation = space::look_rotation(p.heading, p.pitch);
+        t.rotation = p.body_view.map_or_else(|| space::look_rotation(p.heading, p.pitch), space::view_rotation);
         t.translation = space::to_bevy(eye);
         return;
     }
@@ -456,5 +623,139 @@ mod tests {
         app.update();
         let c = control(&app);
         assert!(!c.orbit.held && c.pov == Pov::First);
+    }
+
+    #[test]
+    fn locks_follow_the_parameter_order() {
+        let l = ControlLocks::from_flags([true, false, true, false, false, false, true]);
+        assert_eq!(l, ControlLocks { movement: true, fighting: true, sneaking: true, ..Default::default() });
+        assert_eq!(l.names(), ["movement", "fighting", "sneaking"]);
+        assert!(l.any() && !ControlLocks::default().any());
+        assert_eq!(ControlLocks::from_flags([true; 7]), ControlLocks::ALL);
+        assert_eq!(ControlLocks::ALL.names().len(), 7);
+    }
+
+    /// Everything a player can ask for at once.
+    fn busy() -> (MoveIntent, PlayerControl) {
+        let intent = MoveIntent { forward: 1.0, right: -1.0, walk: true, sneak: true, jump: true };
+        let control = PlayerControl {
+            sneak: true,
+            weapon_out: true,
+            aiming: true,
+            auto_move: true,
+            pov: Pov::Third,
+            orbit: Orbit { yaw: 1.0, pitch: 0.2, held: true, moved: true },
+            ready_held: Some(0.1),
+            trigger: true,
+            reload: true,
+            ammo_swap: true,
+            ..Default::default()
+        };
+        (intent, control)
+    }
+
+    #[test]
+    fn each_lock_strikes_its_own_group() {
+        let (i0, c0) = busy();
+        // Nothing locked: nothing changes.
+        let (mut i, mut c) = (i0, c0);
+        assert_eq!(ControlLocks::default().apply(&mut i, &mut c), [false; 7]);
+        assert_eq!((i, c), (i0, c0));
+        // Movement: no moving, jumping or Auto Move; the rest is the player's.
+        let (mut i, mut c) = (i0, c0);
+        let struck = ControlLocks { movement: true, ..Default::default() }.apply(&mut i, &mut c);
+        assert_eq!(struck, [true, false, false, false, false, false, false]);
+        // Asked again with nothing left to strike: nothing is counted.
+        assert_eq!(ControlLocks { movement: true, ..Default::default() }.apply(&mut i, &mut c), [false; 7]);
+        assert_eq!(i, MoveIntent { forward: 0.0, right: 0.0, jump: false, ..i0 });
+        assert_eq!(c, PlayerControl { auto_move: false, ..c0 });
+        // Fighting: the weapon goes away and nothing fires.
+        let (mut i, mut c) = (i0, c0);
+        ControlLocks { fighting: true, ..Default::default() }.apply(&mut i, &mut c);
+        assert_eq!(i, i0);
+        assert_eq!(c, PlayerControl { weapon_out: false, aiming: false, ready_held: None, trigger: false, reload: false, ammo_swap: false, ..c0 });
+        // POV: back to first person, the camera behind the eyes.
+        let (mut i, mut c) = (i0, c0);
+        ControlLocks { pov: true, ..Default::default() }.apply(&mut i, &mut c);
+        assert_eq!(i, i0);
+        assert_eq!(c, PlayerControl { pov: Pov::First, orbit: Orbit::default(), ..c0 });
+        assert!(!c.third_person_view());
+        // Sneaking: the player stands up.
+        let (mut i, mut c) = (i0, c0);
+        ControlLocks { sneaking: true, ..Default::default() }.apply(&mut i, &mut c);
+        assert_eq!(i, MoveIntent { sneak: false, ..i0 });
+        assert_eq!(c, PlayerControl { sneak: false, ..c0 });
+        // Pip-Boy, looking and rollover text are held where they are read (menu.rs,
+        // player.rs, activate.rs).
+        let (mut i, mut c) = (i0, c0);
+        assert_eq!(ControlLocks { pipboy: true, looking: true, rollover: true, ..Default::default() }.apply(&mut i, &mut c), [false; 7]);
+        assert_eq!((i, c), (i0, c0));
+        // Everything at once.
+        let (mut i, mut c) = (i0, c0);
+        assert_eq!(ControlLocks::ALL.apply(&mut i, &mut c), [true, false, true, true, false, false, true]);
+    }
+
+    fn locked_app(locks: ControlLocks) -> App {
+        let mut app = app();
+        app.init_resource::<MoveIntent>()
+            .init_resource::<crate::furniture::PlayerSeat>()
+            .init_resource::<LockStats>()
+            .insert_resource(locks)
+            .add_systems(Update, enforce_locks.after(read_controls));
+        app
+    }
+
+    #[test]
+    fn locked_keys_do_nothing() {
+        // DisablePlayerControls with no parameters: movement, Pip-Boy, fighting, POV.
+        let mut app = locked_app(ControlLocks::from_flags([true, true, true, true, false, false, false]));
+        tap(&mut app, KeyCode::KeyR);
+        tap(&mut app, KeyCode::KeyF);
+        tap(&mut app, KeyCode::KeyQ);
+        let c = control(&app);
+        assert!(!c.weapon_out && c.pov == Pov::First && !c.auto_move);
+        // Sneaking is still the player's.
+        tap(&mut app, KeyCode::ControlLeft);
+        assert!(control(&app).sneak);
+        // The sneaking flag stands the player up, and Ctrl does nothing.
+        app.world_mut().resource_mut::<ControlLocks>().sneaking = true;
+        app.update();
+        assert!(!control(&app).sneak);
+        tap(&mut app, KeyCode::ControlLeft);
+        assert!(!control(&app).sneak);
+        // Enabled again: the keys work, and nothing came back by itself.
+        *app.world_mut().resource_mut::<ControlLocks>() = ControlLocks::default();
+        app.update();
+        let c = control(&app);
+        assert!(!c.sneak && !c.weapon_out && c.pov == Pov::First);
+        tap(&mut app, KeyCode::KeyR);
+        tap(&mut app, KeyCode::ControlLeft);
+        assert!(control(&app).weapon_out && control(&app).sneak);
+    }
+
+    #[test]
+    fn a_lock_puts_the_weapon_away_and_the_view_inside() {
+        let mut app = locked_app(ControlLocks::default());
+        tap(&mut app, KeyCode::KeyR);
+        tap(&mut app, KeyCode::KeyF);
+        assert!(control(&app).weapon_out && control(&app).pov == Pov::Third);
+        *app.world_mut().resource_mut::<ControlLocks>() = ControlLocks { fighting: true, pov: true, ..Default::default() };
+        app.update();
+        assert!(!control(&app).weapon_out && control(&app).pov == Pov::First);
+    }
+
+    #[test]
+    fn locked_movement_keeps_the_player_seated() {
+        let mut app = locked_app(ControlLocks { movement: true, ..Default::default() });
+        // A movement key was pressed on furniture and a test aid holds Forward.
+        app.world_mut().resource_mut::<crate::furniture::PlayerSeat>().leave = true;
+        *app.world_mut().resource_mut::<MoveIntent>() = MoveIntent { forward: 1.0, jump: true, ..Default::default() };
+        app.update();
+        assert!(!app.world().resource::<crate::furniture::PlayerSeat>().leave);
+        assert_eq!(*app.world().resource::<MoveIntent>(), MoveIntent::default());
+        let stats = *app.world().resource::<LockStats>();
+        assert_eq!(stats.held, [1, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(stats.summary(), "movement 1");
+        assert_eq!(LockStats::default().summary(), "nothing");
     }
 }

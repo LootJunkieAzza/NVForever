@@ -13,6 +13,7 @@
 //! - [`functions`]: function implementations by opcode
 //! - [`trace`]: trace events
 //! - [`dialogue`]: conversations between the player and an actor (Layer 6, step D2)
+//! - [`idles`]: the idle animations scripts, packages and dialogue lines ask for
 //! - [`intro`]: the intro chain's units (coverage)
 //! - [`runner`]: `fnv.script.actions/1` → `fnv.script.trace/1`
 //! - [`voice`]: the hook that gives a dialogue response the length of its voice file
@@ -26,6 +27,7 @@ pub mod data;
 pub mod dialogue;
 pub mod functions;
 pub mod game;
+pub mod idles;
 pub mod intro;
 pub mod package;
 pub mod quest;

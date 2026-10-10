@@ -179,9 +179,16 @@ lasts (its voice file's length, or the length fitted to its text when it has non
 scripts.md §7.7), and goes when the runtime ends or cuts the line. The voice file is
 played (`voice.rs`, docs/spec-notes/voice.md §9; `--no-voice`, `--voice-volume`).
 
+**Player controls** (2026-10-10): `DisablePlayerControls` and `EnablePlayerControls`
+have no trace event; after each frame's scripts the runtime's seven flags
+(`PlayerState::controls_disabled`) are copied to `control::ControlLocks`
+(`script::sync_locks`), and the player's input, activation, the crosshair and prompt and
+the inventory key obey them from the next frame (docs/spec-notes/controls.md §5). A
+change is a log line and a `controls` line in the script trace.
+
 Not applied (open, §7): `moved` of other references, `SetPos` / `SetAngle`, `SetOpenState`
-on a drawn door, a script's `DisablePlayerControls`, sound and the other Layer 6 stubs
-(of the image-space functions, the screen splatter and `SetCellImageSpace`).
+on a drawn door, sound and the other Layer 6 stubs (of the image-space functions, the
+screen splatter and `SetCellImageSpace`).
 
 **References enabled at run time** that render streaming skipped (it draws only what is
 enabled at the start of a game) are drawn by `script_draw.rs` while scripts run: the base
@@ -443,8 +450,9 @@ with identical observations with and without voice lengths.
   - The character-creation menus are placeholders: no name, race, S.P.E.C.I.A.L., tag
     skill or trait is chosen (Layer 7). The psych test's tags come from the runtime's
     VCG01Test calculation, fed by test aids in §6.2.
-  - A script's `DisablePlayerControls` is still not applied (the opening disables
-    movement until stage 55; here only menus hold the player).
+  - A script's `DisablePlayerControls` holds the player since 2026-10-10 (§4,
+    docs/spec-notes/controls.md §5): in the opening the player cannot move or look until
+    VCG01 stage 55 gives both back.
   - Dialogue with player choices (the psych test, Doc's farewell) is played on the
     dialogue screen since 2026-10-10 (docs/design/dialogue-play.md); the couch
     (`IsCurrentFurnitureRef`, AI), Doc's walk to the player for the farewell and walking

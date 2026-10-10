@@ -61,6 +61,15 @@ pub struct Player {
     /// (nvforever's player body writes it in [`BodySet`]): its head, crouching and
     /// swaying with the animation.
     pub body_eye: Option<[f32; 3]>,
+    /// The rotation of the first-person view this frame (game space, of a node looking
+    /// along its +Y with +Z up), when the body's animation turns the view (an idle that
+    /// drives the camera node); the heading and pitch give it otherwise.
+    pub body_view: Option<Quat>,
+    /// Where the game last put the player (the start of a game, a door, a script's
+    /// move), until the player moves by themselves. The collision may have pushed the
+    /// character away from it since (a start marker in a bed): a scripted scene plays
+    /// where the game put the player, not where the collision left them.
+    pub placed: Option<[f32; 3]>,
 }
 
 impl Player {
@@ -312,11 +321,15 @@ impl Plugin for PlayerPlugin {
             .init_resource::<Status>()
             .init_resource::<Net>()
             .init_resource::<PlayerControl>()
+            .init_resource::<crate::control::ControlLocks>()
+            .init_resource::<crate::control::LockStats>()
             .init_resource::<Bindings>()
             .init_resource::<crate::control::BodyView>()
             .insert_resource(NearAid::from_env())
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
+            .add_systems(Update, crate::control::enforce_locks.after(PlaySet::Input).before(PlaySet::Physics))
+            .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
                 Update,
@@ -356,7 +369,7 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
         info!("interior start at the cell's own spot ({:?}): ({:.1}, {:.1}, {:.1}), heading {:.0}°", spot.source, spot.feet[0], spot.feet[1], spot.feet[2], spot.heading.to_degrees());
         (feet, heading) = (spot.feet, spot.heading);
     }
-    commands.insert_resource(Player { heading, pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet, body_eye: None });
+    commands.insert_resource(Player { heading, pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet, body_eye: None, body_view: None, placed: None });
     let settings = MoveSpeeds::from_settings(sim.forms.setting_f32("fMoveBaseSpeed"), sim.forms.setting_f32("fMoveRunMult"));
     let speeds = MoveSpeeds::OBSERVED;
     info!(
@@ -434,20 +447,23 @@ fn read_input(
 }
 
 /// Mouse look while the cursor is grabbed; while Toggle POV is held it circles the camera
-/// instead (control.rs).
+/// instead (control.rs). Not while a script has locked looking: the view stays where it
+/// is [documented: GECK wiki DisablePlayerControls, LookingFlag].
+#[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
     look: Option<Res<crate::dialogue::FreeLook>>,
+    locks: Res<crate::control::ControlLocks>,
     mut control: ResMut<PlayerControl>,
     mut player: ResMut<Player>,
 ) {
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     // The player looks around freely while an actor speaks in a conversation.
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
-    if !grabbed || !playing || motion.delta == Vec2::ZERO {
+    if !grabbed || !playing || locks.looking || motion.delta == Vec2::ZERO {
         return;
     }
     let (s, inv) = (bindings.mouse_sensitivity, bindings.invert_y);
@@ -527,6 +543,7 @@ fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>, mut ne
     }
     let feet = phys.player.as_ref().expect("placed").feet;
     player.feet = feet;
+    player.placed = Some(feet);
     info!(
         "player placed: feet ({:.0}, {:.0}, {:.1}), ground {}, terrain z {}",
         feet[0],
@@ -724,6 +741,7 @@ fn step(
         }
         if let Some(c) = p.player.as_mut() {
             p.world.place_character(c, at);
+            p.prev_feet = at;
         }
         p.prev_feet = at;
         player.feet = at;
@@ -739,6 +757,10 @@ fn step(
     if let Some(t) = phys.terrain_z(feet[0], feet[1]).filter(|t| feet[2] < t - FELL_THROUGH) {
         warn!("player fell through at ({:.0}, {:.0}, {:.0}), terrain z {t:.0}: back on the ground", feet[0], feet[1], feet[2]);
         phys.place_player([feet[0], feet[1], t], 100_000.0, 100_000.0);
+    }
+    if intent.forward != 0.0 || intent.right != 0.0 || intent.jump {
+        // Moving by themselves: the player is no longer where the game put them.
+        player.placed = None;
     }
     let p = &mut *phys;
     let dt = p.world.params.dt;
@@ -773,16 +795,64 @@ fn step(
         };
         p.prev_feet = c.feet;
         let view = Some([player.heading.sin(), player.heading.cos()]);
-        // Actors stand in the way where they are now (`crate::blocking`).
+        // Actors stand in the way where they are now, and those that stand still give
+        // way (`crate::blocking`). The characters (the player's, and those of the actors
+        // another system walks) are blocks too, where they are at this step, and pass
+        // through each other's bodies: this rule alone keeps them apart. The player's
+        // block gives way when the player stands still on the ground.
         let mut go = [vx, vy];
-        if let Some(b) = blocks.as_deref_mut().filter(|b| !b.list.is_empty()) {
-            go = crate::blocking::clip(go, c.feet, c.params.radius, c.params.height, dt, &b.list);
-            b.steps_blocked += u64::from(go != [vx, vy]);
+        let mut walking: Vec<[f32; 2]> = p.npcs.values().map(|b| b.velocity).collect();
+        let mut pushed = [0.0f32; 2];
+        c.passes_characters = blocks.is_some();
+        for n in p.npcs.values_mut() {
+            n.ch.passes_characters = blocks.is_some();
+        }
+        if let Some(b) = blocks.as_deref_mut() {
+            use crate::blocking::{clip, Block, Push, PLAYER};
+            b.player_held = b.player_held.saturating_sub(1);
+            let standing = go == [0.0, 0.0] && c.grounded && !c.swimming && b.player_held == 0;
+            let placed = b.list.len();
+            let mut all = std::mem::take(&mut b.list);
+            all.extend(p.npcs.values().map(|n| Block::character(n.ch.id, n.ch.feet, n.ch.params.radius, n.ch.params.height, false)));
+            all.push(Block::character(PLAYER, c.feet, c.params.radius, c.params.height, standing));
+            // First the walking actors: what they push is their owner's to move, but for
+            // the player, which their pushes move in this step.
+            let mut pushes: Vec<Push> = Vec::new();
+            let mut stopped = false;
+            for (v, n) in walking.iter_mut().zip(p.npcs.values()) {
+                let asked = *v;
+                *v = clip(n.ch.id, asked, n.ch.feet, n.ch.params.radius, n.ch.params.height, dt, &mut all, &mut pushes);
+                stopped |= *v != asked;
+            }
+            b.steps_actor_blocked += u64::from(stopped);
+            for push in pushes.iter().filter(|p| p.actor == PLAYER) {
+                pushed = [pushed[0] + push.by[0], pushed[1] + push.by[1]];
+            }
+            pushes.retain(|p| p.actor != PLAYER);
+            b.steps_pushing[1] += u64::from(!pushes.is_empty());
+            b.steps_pushing[2] += u64::from(pushed != [0.0, 0.0]);
+            b.pushes.extend(pushes);
+            go = [go[0] + pushed[0] / dt, go[1] + pushed[1] / dt];
+            let (asked, before) = (go, b.pushes.len());
+            go = clip(PLAYER, go, c.feet, c.params.radius, c.params.height, dt, &mut all, &mut b.pushes);
+            b.steps_blocked += u64::from(go != asked);
+            b.steps_pushing[0] += u64::from(b.pushes.len() > before);
+            // The placed actors' blocks, moved by what pushed them, are kept.
+            all.truncate(placed);
+            b.list = all;
         }
         let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
+        // Pushed and held by something: the actors walk round the player for a while.
+        let want = pushed[0].hypot(pushed[1]);
+        if want > 1e-4 {
+            let got = ((c.feet[0] - p.prev_feet[0]) * pushed[0] + (c.feet[1] - p.prev_feet[1]) * pushed[1]) / want;
+            if let Some(b) = blocks.as_deref_mut().filter(|_| got < crate::blocking::HELD_SHARE * want) {
+                b.player_held = crate::blocking::HELD_STEPS;
+            }
+        }
         // The actors another system walks, by the velocity it gave each.
-        for b in p.npcs.values_mut() {
-            p.world.move_character(&mut b.ch, CharacterInput { velocity: b.velocity, ..Default::default() });
+        for (b, v) in p.npcs.values_mut().zip(walking) {
+            p.world.move_character(&mut b.ch, CharacterInput { velocity: v, ..Default::default() });
         }
         p.world.step();
         status.record(&s, p.prev_feet, [vx, vy], dt);

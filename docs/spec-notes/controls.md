@@ -74,3 +74,164 @@ The second hotkey's line is named `Ammo Swap`.
   camera stays where it was circled to after letting go.
 - Whether the bindings above are the defaults (a fresh `FalloutPrefs.ini`, or the
   game's Controls menu "Default" button).
+- The open points of §5.4 (controls turned off by scripts).
+
+## 5. Controls turned off by scripts
+
+Scripts take groups of controls away from the player and give them back:
+`DisablePlayerControls`, `EnablePlayerControls`, and `GetPlayerControlsDisabled` to ask.
+The state is the script runtime's (`fnv_game::functions::player`,
+`PlayerState::controls_disabled`); `nvforever --play` applies it since 2026-10-10
+(`nvf-play` `control::ControlLocks`, §5.3).
+
+### 5.1 The functions [documented: GECK wiki pages DisablePlayerControls, EnablePlayerControls, GetPlayerControlsDisabled]
+
+- All three take up to seven optional 0/1 parameters, one per group, in this order:
+  movement, Pip-Boy, fighting, POV, looking, rollover text, sneaking. Opcodes 0x1061
+  (disable), 0x1060 (enable), 0x1062 (get) [observed: script-functions-catalogue.md].
+- `DisablePlayerControls` turns off the groups whose parameter is 1 and leaves the others
+  as they are. With no parameters it is `1 1 1 1 0 0 0`: movement, Pip-Boy, fighting and
+  POV go; looking, rollover text and sneaking stay.
+- `EnablePlayerControls` turns the groups whose parameter is 1 back on. With no
+  parameters it is `1 1 1 1 1 1 1`: everything.
+- `GetPlayerControlsDisabled` is 1 when any of the groups picked by its parameters is
+  off; with no parameters, when any group is.
+- What each group does while it is off:
+
+  | Group | Effect |
+  |---|---|
+  | movement | the player cannot move; world objects cannot be activated; part of the HUD is hidden: action points, health, crosshair |
+  | Pip-Boy | the Pip-Boy cannot be brought up, nor the Wait menu |
+  | fighting | no weapon can be brought up; a weapon that is out is holstered |
+  | POV | no third-person view; a third-person view is forced into first person |
+  | looking | the view is locked where it is |
+  | rollover text | no rollover text on world objects |
+  | sneaking | the player cannot sneak; a sneaking player is forced out of it |
+
+- `DisablePlayerControls` also resets image-space modifiers, and replaced the older
+  `ForcePlayerTo1stPerson`.
+- An xNVSE plugin (JohnnyGuitar, `SetDisablePlayerControlsHUDVisibilityFlags`) can choose
+  which HUD parts are hidden while controls are off; its list of parts includes the
+  three above and, separately, messages, subtitles, the quest reminder and the "info"
+  part [documented: its GECK wiki page]. Not a vanilla function; noted for the HUD parts'
+  names.
+
+### 5.2 Use in the game [observed]
+
+- FalloutNV.esm calls `DisablePlayerControls` 151 times in 126 script units (119 times
+  with no parameters), `EnablePlayerControls` 137 times in 112 units (125 with no
+  parameters) and `GetPlayerControlsDisabled` 3 times in 2 units (`fnvtool script
+  decompile`). The parameter lists used, most common first: disable `0 0 0 1 0 0 0`
+  (8; first person only), `1 1 1 1 1 1 1` (6), `1 1 1 1 0 1 1` (5), `1 1 1 0 1 1 1` (3);
+  enable `0 1 1` (3), `1 1 1 1 1 1 1` (2), `1 0 0 1 1 1 0` (2), `0 0 0 0 1` (2).
+- A new game (save `nvfnew`, before any input): `GetPlayerControlsDisabled` asked one
+  group at a time reads `1 1 1 0 1 0 0`: movement, Pip-Boy, fighting and looking off;
+  POV, rollover text and sneaking on. After VCG01 stage 55 moving and looking are on
+  again (layer5-captures.md §10.2, §10.3).
+- The opening's calls, in order: VCG00 stage 0 `DisablePlayerControls 1 1` then
+  `DisablePlayerControls 0 0 0 0 1 0 0`; VCG01 stage 0 `EnablePlayerControls 0 0 0 0 1`
+  then `DisablePlayerControls 1 1 1 1 0 0 1`; stage 55 `DisablePlayerControls 0 1 1 0 0
+  0 1` then `EnablePlayerControls 1 0 0 1 1 1 0`; stage 110 `DisablePlayerControls 1 1 1
+  1 1 1 1` then `EnablePlayerControls 1 0 0 1 1 1 0`.
+- **Short parameter lists are not understood.** After VCG00 stage 0's two calls the
+  game read fighting off (the `1 1 1 0 1 0 0` above); the runtime, which takes a
+  left-out parameter as 0, has `1 1 0 0 1 0 0` there (`--play --new-game`, 2026-10-10).
+  So `DisablePlayerControls 1 1` seems to turn fighting off too, yet not POV, which the
+  form without parameters turns off [hypothesis: a left-out parameter is not simply 0;
+  the rule is not known, and the save may hold a state from before the scripts]. The
+  runtime is unchanged; `pc_controls` (§5.4) asks the game. In the opening the
+  difference lasts until VCG01 stage 0, three seconds later, which turns fighting off.
+- The capture tools use `DisablePlayerControls 0 0 0 1 0 0 0` to force first person for
+  reference screenshots; `IsPC1stPerson` read 1 with every picture taken that way
+  (`tools/capture/capture_frames.py`; the view before the call was not recorded).
+
+### 5.3 In `nvforever --play`
+
+After each frame's scripts the runtime's seven flags are copied to `ControlLocks`
+(`script::sync_locks`); the next frame's input obeys them. A change is logged ("player
+controls: movement, Pip-Boy, fighting, looking disabled by scripts" / "all enabled") and
+written to the script trace as a `controls` line.
+
+| Group | While it is off | Tag |
+|---|---|---|
+| movement | Forward, Back, the slides, Jump and Auto Move do nothing; Activate does nothing; the crosshair and the player's health line are hidden | [documented]; Jump and Auto Move [hypothesis] |
+| Pip-Boy | Menu Mode does not open the inventory | [documented] |
+| fighting | Ready Item and Use do not draw; a drawn weapon is put away (the holster clip plays); no firing, aiming, blocking, reloading or Ammo Swap | [documented]; aiming and blocking [hypothesis] |
+| POV | Toggle POV does nothing; third person and the circling camera go back to first person | [documented]; the circling camera [hypothesis] |
+| looking | the mouse does not turn the view (nor circle the camera) | [documented] |
+| rollover text | the activation prompt is hidden | [documented] |
+| sneaking | Crouch/Sneak does nothing; a sneaking player stands up | [documented] |
+
+- The keys are read as always; `control::enforce_locks` strikes what is locked from the
+  frame's requests before anything acts on them. So the test aids that stand in for keys
+  and the mouse (`NVF_PLAY_TEST_MOVE`, `NVF_PLAY_TEST_CONTROL`, `NVF_PLAY_TEST_LOOK`,
+  `NVF_PLAY_TEST_ACTIVATE`, and `NVF_PLAY_TEST_MENU` and `NVF_PLAY_TEST_DROP` where they
+  open the inventory) are held too; the aids that place the player or act for someone
+  else are not (`GOTO`, `FACE`, the `aim…` presses, the script aids `walk:` and
+  `activate:`, `NVF_PLAY_TEST_TALK`, `--auto-walk`).
+- Nothing comes back by itself when a group is enabled again: the weapon stays away, the
+  view stays in first person, the player stays standing [hypothesis].
+- With movement off, a movement key does not get the player up from furniture
+  [hypothesis].
+- Not held: the pause menu (Esc), conversations and menus that scripts or actors open,
+  what scripts do to the player (`MoveTo`, a script's `Activate`).
+- `--new-game`: every group is held from the first frame until the opening's first
+  script frame, which turns the controls off itself (the scripts take about a second to
+  load) [design].
+- Not built: the Wait menu (Rest is not built at all); the action-point part of the HUD
+  (NVForever has none yet); the image-space reset.
+- At exit, when scripts changed the controls at all: "controls summary: scripts changed
+  the player's controls N times; disabled at exit: …; held back: …" (per group, the
+  frames or presses in which something the player asked for was struck).
+
+**Checks (2026-10-10)**, unattended, `RUST_LOG=info`, each exit 0 with "run finished":
+
+- `--play --new-game --no-voice --run-seconds 140` with boxes and menus answered after
+  1 s, Forward held from the first second (`NVF_PLAY_TEST_MOVE=1:1:0`), Activate at 14
+  and 15 s, and Crouch/Sneak, Ready Item and Toggle POV pressed at 16 to 18 s. The log:
+  "all held until the new game's opening starts"; on the first script frame "movement,
+  Pip-Boy, looking disabled by scripts" (VCG00 stage 0); 3.4 s of game time later
+  "movement, Pip-Boy, fighting, POV, sneaking" (VCG01 stage 0); at game time 76.8, with
+  VCG01 stage 55, "Pip-Boy, fighting, sneaking". The player's status line reads 0
+  units/s commanded every second until stage 55 and 344 from then on (the character
+  still moved up to 40 units in that time with nothing commanded, its status "sliding"
+  and touching the bed 00103E22 it starts beside [hypothesis: collision settling or Doc
+  Mitchell walking past; not the controls]). Both Activates were ignored; the three presses were struck (sneak,
+  weapon and view unchanged a frame later). Pictures: no crosshair and no health line
+  at 20 s, both back at 135 s. Summary: "scripts changed the player's controls 3 times;
+  disabled at exit: Pip-Boy, fighting, sneaking; held back: movement 1341, fighting 1,
+  POV 1, sneaking 1".
+- The same for 30 s with `NVF_PLAY_TEST_LOOK=0.1:90:0` (the smoke test in CLAUDE.md):
+  the look is ignored; "held back: movement 418, fighting 1, POV 1, looking 1, sneaking
+  1". A look at 14 s, when VCG01 stage 0 has given looking back, turns the view.
+- `--cell Goodsprings --play --run-seconds 45` with the same presses and Forward held:
+  no control is ever off (no "player controls" change, no summary, the trace's final
+  `controls_disabled` all false); the player sneaks, draws, goes to third person and
+  runs north until a fence.
+- The force-greet smoke test of CLAUDE.md (a script aid's `activate:`, then Sunny's
+  conversation): as before.
+
+### 5.4 Open [hypothesis until captured]
+
+1. With only movement off, is the rollover text still shown on an object the player
+   looks at (ours: yes, since rollover text is its own group)?
+2. Does Jump work with movement off? Auto Move?
+3. After `EnablePlayerControls`: does a weapon holstered by the fighting flag come back
+   out, a view forced to first person go back to third, a player forced out of sneak
+   crouch again?
+4. With looking off, does Toggle POV held still circle the camera?
+5. With movement off, can the player get up from a chair?
+6. With fighting off, can the player still aim or block (Block held)?
+
+Capture job `pc_controls` (`tools/capture/jobs/make_controls_jobs.py`, save `nvfdoc`,
+about 3 minutes, no input; not run yet) asks the game: the seven flags after each form
+of the two functions (the defaults of §5.1, one group at a time, all seven with two given
+back, and the short parameter lists of §5.2: `1`, `1 1`, `0 1 1`, `0 0 0 0 1`); with
+movement off, the position while Forward is held, after Jump and after Auto
+Move (point 2); a drawn weapon, third person and sneaking each before the lock, under it,
+after the control is tapped under it, and after `EnablePlayerControls` (point 3; the
+[documented] forcing too); Menu Mode with the Pip-Boy off; and at the house door,
+pictures with the HUD on and `GetCrosshairRef` with nothing off, movement off and
+rollover text off, then Activate with movement off and with everything on (point 1 and
+the HUD parts). Points 4 to 6 need a mouse, furniture or a way to read blocking and are
+not in it.

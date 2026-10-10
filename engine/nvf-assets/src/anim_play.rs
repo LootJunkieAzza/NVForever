@@ -242,7 +242,7 @@ pub struct Layer {
 }
 
 /// How many clips a [`BlendPlayer`] blends at once.
-pub const MAX_LAYERS: usize = 4;
+pub const MAX_LAYERS: usize = 6;
 
 /// The priority of the identity a clip gives an accumulation root it does not drive: below
 /// every track, so any clip that drives the root wins.
@@ -702,7 +702,7 @@ mod tests {
         let (mut p, ix) = player();
         let (walk, idle) = walk_and_idle(&ix);
         let mut out = Vec::new();
-        p.layers = [Some(Layer { clip: idle, phase: 0.0, weight: 0.75 }), Some(Layer { clip: walk, phase: 0.0, weight: 0.25 }), None, None];
+        p.layers = [Some(Layer { clip: idle, phase: 0.0, weight: 0.75 }), Some(Layer { clip: walk, phase: 0.0, weight: 0.25 }), None, None, None, None];
         p.sample(&mut out);
         let get = |i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1;
         assert_eq!(get(1), Transform::IDENTITY);
@@ -739,29 +739,29 @@ mod tests {
         let get = |out: &Vec<(usize, Transform)>, i: usize| out.iter().find(|(j, _)| *j == i).unwrap().1.translation;
         let layer = |c: &Arc<BoundClip>, weight: f32| Some(Layer { clip: c.clone(), phase: 0.0, weight });
         // Walking legs (30) beat the equip clip's (26); its upper body (55) wins.
-        p.layers = [layer(&walk, 1.0), layer(&equip, 1.0), None, None];
+        p.layers = [layer(&walk, 1.0), layer(&equip, 1.0), None, None, None, None];
         p.sample(&mut out);
         assert_eq!(get(&out, 3).x, 1.0);
         assert_eq!(get(&out, 2).z, 7.0);
         // Standing, the equip clip's legs (26) beat the idle's (10).
-        p.layers = [layer(&idle, 1.0), layer(&equip, 1.0), None, None];
+        p.layers = [layer(&idle, 1.0), layer(&equip, 1.0), None, None, None, None];
         p.sample(&mut out);
         assert_eq!(get(&out, 3).x, 2.0);
         // A higher priority fading in (0.25) leaves the rest to the lower one.
-        p.layers = [layer(&idle, 1.0), layer(&equip, 0.25), None, None];
+        p.layers = [layer(&idle, 1.0), layer(&equip, 0.25), None, None, None, None];
         p.sample(&mut out);
         assert!((get(&out, 2).z - (0.25 * 7.0 + 0.75 * 1.0)).abs() < 1e-5);
         // Equal priorities share by weight even when they add up to more than 1.
         let walk2 = Arc::new(BoundClip::bind(prio_clip(1.0, vec![("Other", pose([5.0, 0.0, 0.0]), 30)]), &ix));
-        p.layers = [layer(&walk, 1.0), layer(&walk2, 1.0), None, None];
+        p.layers = [layer(&walk, 1.0), layer(&walk2, 1.0), None, None, None, None];
         p.sample(&mut out);
         assert!((get(&out, 3).x - 3.0).abs() < 1e-5);
         // A node no clip drives any more goes back to its bind transform (5, 0, 0).
-        p.layers = [layer(&walk, 1.0), None, None, None];
+        p.layers = [layer(&walk, 1.0), None, None, None, None, None];
         p.sample(&mut out);
-        p.layers = [layer(&equip, 1.0), None, None, None];
+        p.layers = [layer(&equip, 1.0), None, None, None, None, None];
         p.sample(&mut out);
-        p.layers = [layer(&walk, 1.0), None, None, None];
+        p.layers = [layer(&walk, 1.0), None, None, None, None, None];
         p.sample(&mut out);
         assert_eq!(get(&out, 2), Vec3::ZERO);
     }

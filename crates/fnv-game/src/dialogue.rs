@@ -371,6 +371,8 @@ impl<'a> Game<'a> {
         let resp = &def.responses[r];
         let seconds = self.response_seconds(actor, info, r);
         self.emit(EventKind::ResponseSaid { speaker: actor, info, number: resp.number, chars: def.response_chars[r], emotion: resp.emotion, seconds });
+        // The listener of a conversation's line is the player.
+        self.ask_response_idles(actor, Some(FormId::PLAYER_REF), info, r);
     }
 
     fn run_line_result(&mut self, actor: FormId, def: &InfoDef, end: bool) {

@@ -54,6 +54,7 @@
 //! the arms, as before the unseen body cast anything.
 
 use crate::actors::{part_uses, ActorWorld};
+use crate::idles::{IdleSlot, PlayerIdles};
 use crate::sky::{Sun, ARMS_LAYER, SHADOW_LAYER};
 use crate::world::WorldRoot;
 use bevy::camera::visibility::RenderLayers;
@@ -95,6 +96,9 @@ const TAG_EQUIP: u32 = 60;
 const TAG_ATTACK: u32 = 70; // + 0 level, + 1 up, + 2 down
 const TAG_RELOAD: u32 = 75;
 const TAG_FURNITURE: u32 = 80;
+/// Idles (`idles.rs`): one role per idle started, so an idle keeps its layer while the
+/// next one fades in over it.
+const TAG_SPECIAL: u32 = 1000;
 
 /// Biped slots of headgear hidden in first person when the third-person body has to stand
 /// in for the first-person rig: Head, Hair, Headband, Hat, Eye Glasses, Nose Ring,
@@ -114,10 +118,6 @@ const TURN_RATE: f32 = 1.0;
 const NECK_PITCH: f32 = 0.6;
 /// Blend-in of an attack clip, seconds [engineering choice: a shot should show at once].
 const ATTACK_FADE: f32 = 0.03;
-/// An attack clip with a `Loop` key goes round its repeated part while the shots come no
-/// further apart than this, seconds [engineering choice: the clips that have the key are
-/// the `attackspin` ones, of weapons that fire many times a second; animation.md §9.8].
-const LOOP_HOLD: f32 = 0.25;
 /// The body in first person: how far behind the camera its eyes stand, in the skeleton's
 /// units, so the open neck stays out of the picture looking down [engineering choice].
 const OWN_BODY_BACK: f32 = 4.0;
@@ -131,6 +131,10 @@ const NECK_RETURN_RATE: f32 = 4.0;
 /// And how far down it tilts, radians [engineering choice: 75 degrees, head and eyes;
 /// steeper, the view is down the body's own collar].
 const NECK_DOWN: f32 = 75.0 * std::f32::consts::PI / 180.0;
+/// An attack clip with a `Loop` key goes round its repeated part while the shots come no
+/// further apart than this, seconds [engineering choice: the clips that have the key are
+/// the `attackspin` ones, of weapons that fire many times a second; animation.md §9.8].
+const LOOP_HOLD: f32 = 0.25;
 
 /// The share of the sun's light the arms rig's shade light carries. The materials need
 /// some to work the sun's part of the light out (`nif_material.wgsl`), and the world gets
@@ -303,6 +307,11 @@ struct Rig {
     weapon_model: Option<Entity>,
     /// The weapon model's shapes.
     weapon_parts: Vec<WeaponPart>,
+    /// The way from the `Weapon` node down to the weapon model's `ProjectileNode`, when
+    /// it has one: each node's place in the animator's extra nodes (a named node; the
+    /// clips may move it) and its transform in the model [hypothesis: the node marks
+    /// the muzzle; animation.md §9.9].
+    muzzle: Option<Vec<(Option<usize>, Transform)>>,
     /// Third person: the entities drawn for the body's parts.
     drawn: Vec<Drawn>,
     /// First person: whether the rig is shown (last applied).
@@ -315,6 +324,14 @@ struct Rig {
     /// has one: from and to, seconds into the clip.
     since_attack: f32,
     attack_loop: Option<(f32, f32)>,
+}
+
+/// The node of a weapon model that shots are drawn from, by either of its names
+/// (animation.md §9.9).
+const MUZZLE_NODES: [&str; 2] = ["ProjectileNode", "##ProjectileNode"];
+
+fn affine(t: Transform) -> Affine3A {
+    Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.translation)
 }
 
 /// An entity drawn for a part of the third-person body.
@@ -338,6 +355,19 @@ fn loop_time(time: f32, start: f32, end: f32) -> f32 {
 }
 
 impl Rig {
+    /// Where the weapon's muzzle is in the last pose with the rig at `root` (game
+    /// space): under the node the `Weapon` node hangs from, down the weapon model to its
+    /// `ProjectileNode`, each node where the clips have it.
+    fn muzzle_at(&self, root: Transform) -> Option<Vec3> {
+        let path = self.muzzle.as_ref()?;
+        let a = &self.animator;
+        let mut m = affine(root) * a.model_space(self.weapon_parent?) * affine(a.locals[self.weapon_node?]);
+        for (extra, bind) in path {
+            m *= affine(extra.and_then(|k| a.extra_local(k)).unwrap_or(*bind));
+        }
+        Some(m.translation.into())
+    }
+
     /// The first existing file of a clip choice in this rig's folder (cached, failures
     /// too).
     fn clip(&mut self, ctx: &mut ActorCtx, key: ClipKey) -> Option<Arc<ClipInfo>> {
@@ -399,6 +429,8 @@ struct Motion {
     airborne: f32,
     last_heading: Option<f32>,
     turn_rate: f32,
+    /// The view an idle gave the first-person camera last frame (`Player::body_view`).
+    idle_view: Option<Quat>,
     /// Once-a-second status (debug log).
     log_elapsed: f32,
     /// On furniture with the body in first person: the view has come within the neck's
@@ -437,6 +469,7 @@ impl Default for Motion {
             airborne: 0.0,
             last_heading: None,
             turn_rate: 0.0,
+            idle_view: None,
             log_elapsed: 0.0,
             seat_settled: false,
             seat_facing: None,
@@ -578,6 +611,7 @@ fn ensure_body(
             commands.entity(e).despawn();
         }
         rig.animator.set_extra(Vec::new());
+        rig.muzzle = None;
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
         }
@@ -604,8 +638,19 @@ fn ensure_body(
                 for (n, e) in pm.nodes.iter().zip(&part_nodes) {
                     commands.entity(n.parent.map_or(holder, |p| part_nodes[p])).add_child(*e);
                 }
-                let mut extra: Vec<ExtraNode> =
-                    pm.nodes.iter().zip(&part_nodes).filter_map(|(n, e)| Some(ExtraNode { name: n.name.clone()?, entity: *e, bind: local(&n.local) })).collect();
+                let mut extra: Vec<ExtraNode> = Vec::new();
+                // Each node's place among the extra nodes, if it has a name.
+                let extra_of: Vec<Option<usize>> = pm
+                    .nodes
+                    .iter()
+                    .zip(&part_nodes)
+                    .map(|(n, e)| {
+                        let name = n.name.clone()?;
+                        extra.push(ExtraNode { name, entity: *e, bind: local(&n.local) });
+                        Some(extra.len() - 1)
+                    })
+                    .collect();
+                rig.muzzle = nvf_assets::model::node_path(&pm.nodes, &MUZZLE_NODES).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 for s in &pm.shapes {
                     let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
                     if bone.is_some() && rig.view == View::First {
@@ -640,7 +685,16 @@ fn ensure_body(
                 }
                 rig.weapon_model = Some(holder);
                 rig.seen = None;
-                info!("player weapon model ({:?} person): {path}, {} nodes, {} named parts for the clips", rig.view, pm.nodes.len(), extra.len());
+                info!(
+                    "player weapon model ({:?} person): {path}, {} nodes, {} named parts for the clips, {}",
+                    rig.view,
+                    pm.nodes.len(),
+                    extra.len(),
+                    match &rig.muzzle {
+                        Some(p) => format!("{} {} node(s) down: shots are drawn from it", MUZZLE_NODES[0], p.len()),
+                        None => format!("no {}: shots are drawn from the eye", MUZZLE_NODES[0]),
+                    }
+                );
                 rig.animator.set_extra(extra);
             }
             None => warn!("player weapon {path}: model not loaded"),
@@ -749,6 +803,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         attached: weapon_parent,
         weapon_model: None,
         weapon_parts: Vec::new(),
+        muzzle: None,
         drawn,
         shown: None,
         seen: None,
@@ -788,9 +843,26 @@ struct Frame {
     spin_now: bool,
 }
 
-/// Pose `rig` for the frame, apply the weapon events, place it at `root`; returns the
-/// eye (game space): the camera node in first person, between the eyes in third.
-fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<Vec3> {
+/// Where a rig stands in the frame and what it plays beside its own clips.
+struct Posed<'a> {
+    root: Transform,
+    /// The pitch the first-person rig turns by.
+    look_pitch: f32,
+    /// The idles the rig plays (`idles.rs`).
+    special: &'a IdleSlot<Arc<Clip>>,
+}
+
+/// Pose `rig` for the frame, apply the weapon events, place it at its root; returns the
+/// eye (game space): the camera node in first person, between the eyes in third. With
+/// it, in first person while an idle drives the camera node, the node's rotation (game
+/// space): the view the animation gives.
+///
+/// Once an idle covers the rig (it has faded in, or fades in over the idle before it)
+/// the rig's other clips are not played: a special idle takes the place of what the body
+/// would do by itself [hypothesis: the clips of the opening share track priorities with
+/// the standing idle, so both cannot play; idles.md §4].
+fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
+    let Posed { root, look_pitch, special } = posed;
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
     let put_away = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, false));
     let holster = rig.clip(ctx, ClipKey::Holster(f.stance, f.prefix));
@@ -938,15 +1010,32 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
     }
     let a = &mut rig.animator;
     a.begin();
-    for (c, tag, w, mode) in &want {
+    let covered = special.covers();
+    for (c, tag, w, mode) in want.iter().filter(|_| !covered) {
         let fade = if *tag == TAG_HOLSTER { 0.0 } else { c.fade() };
         a.want(&c.clip, *tag, *w, *mode, fade);
     }
     // Clips that play once to their end once started: landing, attack, reload.
     for (tag, w) in [(TAG_LAND, 1.0), (TAG_ATTACK, aim_w[0].1), (TAG_ATTACK + 1, aim_w[1].1), (TAG_ATTACK + 2, aim_w[2].1), (TAG_RELOAD, 1.0)] {
-        if let Some(c) = a.layers.iter().find(|l| l.tag == tag && !l.finished()).map(|l| l.clip.clone()) {
+        if let Some(c) = a.layers.iter().find(|l| l.tag == tag && !l.finished()).map(|l| l.clip.clone()).filter(|_| !covered) {
             a.want(&c, tag, w, Mode::Once, 0.0);
         }
+    }
+    // The idles: each at the time its playback is at. One that has ended holds its last
+    // pose until it is gone or the next idle takes over from it (a collection's next
+    // idle starts a frame later), so the view it gives does not jump in between; the
+    // rig's other clips are back under it meanwhile.
+    let mut view_driven = false;
+    for (p, w) in special.shown() {
+        let newest = special.cur.as_ref().is_some_and(|c| c.serial == p.serial);
+        let i = a.want(&p.clip, TAG_SPECIAL + p.serial % 1000, if newest { 1.0 } else { w }, Mode::Once, p.play.keys.blend_in);
+        let l = &mut a.layers[i];
+        (l.rate, l.time) = (0.0, p.play.time());
+        if !newest {
+            // The one before: its share shrinks as the new one fades in.
+            l.weight = w;
+        }
+        view_driven |= rig.camera.is_some() && p.clip.tracks.iter().any(|(n, _)| n == crate::idles::CAMERA_NODE);
     }
     a.end();
     // Movement clips play at the speed the character actually moves [hypothesis: the
@@ -966,7 +1055,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
         // The arms rig turns about `Bip01 Looking` with the view's pitch (about the
         // actor's right axis, x) [hypothesis: the node's role, from its name and place].
         let bind = a.skel.locals[l];
-        a.locals[l].rotation = Quat::from_rotation_x(f.pitch) * bind.rotation;
+        a.locals[l].rotation = Quat::from_rotation_x(look_pitch) * bind.rotation;
     }
     a.apply(transforms);
     if let Ok(mut t) = transforms.get_mut(rig.root) {
@@ -974,8 +1063,11 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
     }
     let root_m = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation);
     match rig.view {
-        View::First => rig.camera.map(|c| (root_m * a.model_space(c)).translation.into()),
-        View::Third => rig.head.map(|h| (root_m * a.model_space(h)).transform_point3(rig.eye_local)),
+        View::First => rig.camera.map(|c| {
+            let m = root_m * a.model_space(c);
+            (m.translation.into(), view_driven.then(|| m.to_scale_rotation_translation().1))
+        }),
+        View::Third => rig.head.map(|h| ((root_m * a.model_space(h)).transform_point3(rig.eye_local), None)),
     }
 }
 
@@ -1095,15 +1187,17 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    furniture: Res<crate::furniture::BodyOverride>,
+    (furniture, mut idles, mut seat): (Res<crate::furniture::BodyOverride>, ResMut<PlayerIdles>, ResMut<nvf_play::furniture::PlayerSeat>),
 ) {
     let state = &mut *state;
+    player.body_view = None;
     let own_body = state.first_person_body;
     let Some(body) = state.body.as_mut() else {
         player.body_eye = None;
         view.pivot = None;
         // No body to time the weapon: it is ready as soon as it is wanted out.
         anim.ready = control.weapon_out;
+        anim.muzzle = None;
         return;
     };
     let dt = time.delta_secs();
@@ -1175,6 +1269,7 @@ fn drive_body(
         player.body_eye = eye.map(|e| e.to_array());
         view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0]);
         anim.ready = false;
+        anim.muzzle = None;
         show_rigs(body, &mut commands, &mut visibility, Seen { body: third_view || own_body, head: third_view, arms: true, weapon: true }, false);
         return;
     }
@@ -1235,11 +1330,38 @@ fn drive_body(
         spin_now,
     };
     let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
-    let third_eye = pose_rig(&mut body.third, &frame, &events, root, &mut ctx, &mut transforms);
-    let first_eye = match body.first.as_mut() {
-        Some(f) => pose_rig(f, &frame, &events, root, &mut ctx, &mut transforms),
-        None => None,
-    };
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third };
+    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e);
+    // While an idle turns the first-person view, its rig keeps the heading the idle
+    // started at, and the view's own turning since then (to the side, and up or down)
+    // is added to what the camera node gives [design: the opening leaves looking round
+    // to the player; hypothesis that the body does not swing round with the view].
+    if idles.first.is_empty() && idles.held.take().is_some() {
+        seat.hold = None;
+    }
+    let (held, pitch, at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
+    if let Some(h) = idles.held {
+        // The character stays where the scene plays (and collides with nothing there).
+        seat.hold = Some(h.feet);
+    }
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first };
+    let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
+    let first_eye = first.map(|(e, _)| e);
+    match first.and_then(|(_, v)| v) {
+        Some(v) => {
+            let v = Quat::from_rotation_z(held - player.heading) * v;
+            player.body_view = Some(v);
+            m.idle_view = Some(v);
+        }
+        // The idle is over: the view goes on from where it left it.
+        None => {
+            if let Some(v) = m.idle_view.take() {
+                let fwd = v * Vec3::Y;
+                player.heading = fwd.x.atan2(fwd.y);
+                player.pitch = fwd.z.clamp(-1.0, 1.0).asin();
+            }
+        }
+    }
     m.events = events;
 
     // The eye: the first-person camera node; without that rig, the head's eye, swung
@@ -1295,6 +1417,14 @@ fn drive_body(
     // from inside. With the body in first person, the arms rig's arms and weapon stand
     // in for the body's own while they are up (weapon out, drawing or putting away).
     let has_first = body.first.is_some();
+    // The muzzle of the weapon in hand, for combat (shots are drawn from it;
+    // `WeaponAnim::muzzle`): in the first-person rig while that view is on (its weapon
+    // is the one seen in hand, with or without the body below it), else the body's.
+    let seen = match body.first.as_ref() {
+        Some(f) if !third_view => f,
+        _ => &body.third,
+    };
+    anim.muzzle = if m.hands.in_hand { seen.muzzle_at(root).map(|p| p.to_array()) } else { None };
     let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
     let seen = if frame.upright {
         Seen { body: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }
