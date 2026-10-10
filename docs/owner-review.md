@@ -1143,10 +1143,9 @@ Facts and the survey: docs/spec-notes/nif.md §6 "Multiply blend", actors.md §1
 4. **Applies to the cyberdogs too, not looked at:** by the same rule the police
    cyberdog's cap is a red glass and the military one a yellow glass. Both are Old World
    Blues models; I decoded those two files by name and did not open them in the engine.
-5. **Seen on the way, not touched:** the unlit stain overlays in interior kit pieces
-   (for example the rust under the pipes of the utility halls) flicker against the wall
-   they lie on, because they are drawn in the same plane without the decal offset their
-   flags ask for.
+5. **Seen on the way, and wrong (corrected 2026-10-10, see "Decals" below):** I wrote
+   here that the unlit stain overlays in interior kit pieces (for example the rust under
+   the pipes of the utility halls) flicker against the wall they lie on. They do not.
 
 ## See-through corn (2026-10-10, session "skull cap", your screenshot at Goodsprings)
 
@@ -1166,3 +1165,32 @@ Facts: docs/spec-notes/nif.md §6 "Alpha" (last paragraph), world.md "Texture la
    hard-edged (cut out), because the merged models store a cut-off of 0 where the single
    plant stores 124. If the rows look different from the single plants in the game in a
    way that matters, say so and I will draw the rows cut out as well.
+
+## Decals: stains, dirt and markings on walls and roads (2026-10-10, session "decals")
+
+Facts and the survey: docs/spec-notes/nif.md §6 "Decal flags".
+
+1. **The reported fault was not one.** The task was "stain overlays lie in the plane of
+   the wall and flicker against it". The survey says otherwise: of 2,130 shapes marked
+   as decals in the base meshes, almost all are modelled a little in front of their
+   surface (the rust stain in the utility hall by exactly 0.1 units, most others by 0.2
+   to 0.3), and our depth buffer tells that apart without help. The dark jagged streaks
+   in the viewer's picture of that hall piece are something else: thin pipe and cable
+   cards standing 1.3 units off the wall, seen edge-on from the viewer's default camera.
+2. **Changed anyway, small:** shapes marked as decals are now drawn a hair nearer to the
+   camera than their geometry says, so they always win against the surface under them.
+   This matters for the few decals that really are in the plane of their surface. Seen
+   in the viewer on two of them: the ground layer on a red rock slope and the road
+   surface on a highway overpass each had a ragged or partly missing edge, and are whole
+   now. The hall piece is unchanged (8 pixels of the picture differ).
+3. **A guess, not a finding:** that the game itself offsets marked decals is my reading
+   of what the mark is for. The data shows which shapes carry the mark and where they
+   lie, not what the game does with it. The offset is far smaller than the distance the
+   decals are lifted by, so it cannot make one show through something in front of it.
+4. **Not looked at:** about a thousand see-through shapes that are *not* marked as
+   decals also coincide with another shape (glows and glass over the same triangles,
+   most likely). Whether any of them draws wrongly is unknown.
+5. **For you, if you care:** the cable cards in the hall piece look broken from outside
+   the hall and at a steep angle. From inside, facing the wall, they should read as
+   pipes and cables. If they look jagged in play, that is a separate texture-filtering
+   question.
