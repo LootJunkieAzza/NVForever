@@ -5,6 +5,7 @@
 //! plants in the wind and lowers them into the ground beyond the grass distance.
 //! Facts, sources and confidence tags: docs/spec-notes/grass.md.
 
+use crate::fade::CellFade;
 use crate::world::{bevy_to_game, WorldData};
 use bevy::asset::{embedded_asset, RenderAssetUsages};
 use bevy::ecs::system::SystemParam;
@@ -18,7 +19,7 @@ use bevy::shader::ShaderRef;
 use fnv_nif::scene::{mesh_data, scene_objects, Decoded, SceneObject};
 use fnv_nif::NifFile;
 use fnv_world::grass::{load_grass, place, texture_grasses, Grass, GrassSettings, Plant};
-use fnv_world::land::Land;
+use fnv_world::land::{load_land, Land, LandParts};
 use fnv_world::CELL_SIZE;
 use nvf_assets::model::ModelCtx;
 use std::collections::HashMap;
@@ -89,6 +90,9 @@ impl MaterialExtension for GrassSway {
 /// Grass settings from the command line.
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct GrassConfig {
+    /// Grass grows and is drawn (`--no-grass`; the settings page switches it while the
+    /// game runs: off hides what has grown and grows none on the cells loaded from then
+    /// on, on shows it again and grows what those cells are owed, [`GrassOwed`]).
     pub enabled: bool,
     /// Grass is fully drawn up to this distance from the camera (the game's
     /// `fGrassStartFadeDistance`) and gone `fade_range` further (`fGrassFadeRange`).
@@ -146,6 +150,15 @@ pub struct GrassChunk {
     plants: u32,
 }
 
+/// On a cell whose grass was not grown because grass was switched off: what growing it
+/// takes, once grass is switched on ([`grow_owed`]).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct GrassOwed {
+    land: u32,
+    grid: (i32, i32),
+    water: Option<f32>,
+}
+
 #[derive(SystemParam)]
 pub struct GrassCtx<'w> {
     config: Res<'w, GrassConfig>,
@@ -161,7 +174,9 @@ impl Plugin for GrassPlugin {
         app.add_plugins(MaterialPlugin::<GrassMaterial>::default())
             .insert_resource(self.0)
             .init_resource::<GrassCache>()
-            .add_systems(Update, (wind.after(crate::sky::update_sky), cull.after(crate::world::stream)));
+            .add_systems(Update, (wind.after(crate::sky::update_sky), cull.after(crate::world::stream)))
+            // Before the fades are applied, so the new meshes get their cell's range.
+            .add_systems(Update, grow_owed.after(crate::world::stream).before(crate::fade::fade_cells).before(cull));
     }
 }
 
@@ -196,8 +211,32 @@ fn wind(sky: Res<crate::sky::SkyState>, cache: Res<GrassCache>, mut materials: R
     }
 }
 
+/// Grass was switched on with cells loaded that have none: grow what they are owed, a
+/// cell a frame as streaming loads them.
+fn grow_owed(
+    mut commands: Commands,
+    world: Res<WorldData>,
+    mut streamer: ResMut<crate::world::Streamer>,
+    owed: Query<(Entity, &GrassOwed)>,
+    mut grass: GrassCtx,
+    mut models: ModelCtx,
+) {
+    if !grass.config.enabled {
+        return;
+    }
+    let Some((cell, &o)) = owed.iter().next() else { return };
+    commands.entity(cell).remove::<GrassOwed>();
+    let Some(land) = load_land(world.lo, world.schema, o.land, LandParts::ALL) else { return };
+    grass.spawn(&mut commands, cell, &world, o.land, &land, o.grid, o.water, &mut models);
+    if streamer.fade_secs > 0.0 {
+        // The new meshes need a fade range like the cell's other meshes (fade.rs).
+        streamer.fades.entry(o.grid).and_modify(CellFade::again).or_insert(CellFade::new(1.0, false));
+    }
+}
+
 /// Hide the grass meshes that lie wholly beyond the grass distance (the shader has
-/// lowered all their plants into the ground) and count the plants.
+/// lowered all their plants into the ground), or all of them while grass is switched
+/// off, and count the plants.
 fn cull(
     config: Res<GrassConfig>,
     mut cache: ResMut<GrassCache>,
@@ -209,7 +248,7 @@ fn cull(
     let reach = config.fade_start + config.fade_range;
     let (mut plants, mut near) = (0, 0);
     for (c, mut v) in &mut chunks {
-        let show = eye.distance(c.centre) - c.radius <= reach;
+        let show = config.enabled && eye.distance(c.centre) - c.radius <= reach;
         plants += c.plants as usize;
         near += if show { c.plants as usize } else { 0 };
         v.set_if_neq(if show { Visibility::Inherited } else { Visibility::Hidden });
@@ -262,11 +301,13 @@ impl GrassCtx<'_> {
         made
     }
 
-    /// Generate and draw the grass of one cell's landscape under `cell` (an entity at the
-    /// cell's south-west corner, game space).
+    /// Generate and draw the grass of one cell's landscape (`land`, the LAND record
+    /// `land_id`) under `cell` (an entity at the cell's south-west corner, game space).
+    /// With grass switched off the cell is owed it ([`GrassOwed`]).
     #[allow(clippy::too_many_arguments)]
-    pub fn spawn(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land: &Land, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
+    pub fn spawn(&mut self, commands: &mut Commands, cell: Entity, world: &WorldData, land_id: u32, land: &Land, grid: (i32, i32), water: Option<f32>, models: &mut ModelCtx) {
         if !self.config.enabled {
+            commands.entity(cell).insert(GrassOwed { land: land_id, grid, water });
             return;
         }
         let t0 = std::time::Instant::now();

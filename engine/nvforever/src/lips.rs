@@ -295,13 +295,22 @@ fn drive(
     let st = &mut *state;
     let Some(world) = world else { return };
     if !st.enabled {
-        return;
+        // Switched on again, a response still being said is taken up where it is.
+        st.seen.clear();
+        if st.speaking.is_empty() {
+            return;
+        }
     }
     let now = time.elapsed_secs_f64();
     // With each response, how long its sound has been held so far (a menu that holds the
     // line, the pause menu): the mouth holds and goes on with the sound.
-    let spoken: Vec<(FormId, String, f64, f64, f64)> =
-        voice.spoken().filter_map(|s| Some((s.speaker, s.path?.to_string(), s.started_at, s.ends_at, s.held_secs))).collect();
+    // Switched off while a face moves (the settings page): no response counts as said, so
+    // the faces ease out and are let go.
+    let spoken: Vec<(FormId, String, f64, f64, f64)> = if st.enabled {
+        voice.spoken().filter_map(|s| Some((s.speaker, s.path?.to_string(), s.started_at, s.ends_at, s.held_secs))).collect()
+    } else {
+        Vec::new()
+    };
 
     // Responses that started: animate them, or say why not.
     for (speaker, path, started_at, ends_at, _) in &spoken {
@@ -371,7 +380,7 @@ fn drive(
         let said = now_said.is_some();
         if !said && sp.released_at.is_none() {
             sp.released_at = Some(now);
-            if now < sp.ends_at - CUT_SECONDS {
+            if st.enabled && now < sp.ends_at - CUT_SECONDS {
                 st.cut += 1;
                 info!("lip: cut {} {:.2} s into its {:.2} s (the response was skipped or its speaker interrupted)", sp.path, now - sp.started_at - sp.held_secs, sp.ends_at - sp.started_at - sp.held_secs);
             }
