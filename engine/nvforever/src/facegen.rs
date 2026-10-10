@@ -1,7 +1,8 @@
 //! FaceGen in the game (workstream 5 part C, docs/spec-notes/actors.md §4): an NPC's
 //! FGGS/FGGA coefficients morph every part that has an `.egm` beside its model (head,
-//! eyes, mouth, beards, hats, …), and its FGTS coefficients add the `.egt` colour offset
-//! to the face texture. The combination rules are [hypothesis] (fnv_actor::facegen).
+//! eyes, mouth, beards, hats, …), and its FGTS coefficients plus its race's add the `.egt`
+//! colour offset to the face and skin textures. The combination rules are [hypothesis]
+//! (fnv_actor::facegen, docs/spec-notes/actors.md §4.2).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::VertexAttributeValues;
@@ -82,29 +83,30 @@ impl FaceGenCache {
     }
 
     /// The face texture of an NPC: `texture` (or the shape's own diffuse) plus the
-    /// `.egt` offset beside `model` for its FGTS coefficients.
-    pub fn face_texture(&mut self, ctx: &mut ActorCtx, model: &str, texture: &str, fg: &FaceGen) -> Option<Handle<Image>> {
+    /// `.egt` offset beside `model` for the texture coefficients `fgts`
+    /// (`Appearance::skin_fgts`).
+    pub fn face_texture(&mut self, ctx: &mut ActorCtx, model: &str, texture: &str, fgts: &[f64]) -> Option<Handle<Image>> {
         let egt = self.egt(&ctx.models.data, &sibling(model, "egt"))?;
         let base = self.base(&ctx.models.data, &fnv_vfs::texture_path(texture))?;
         let (w, h, ref px) = *base;
         let mut rgba = px.clone();
-        let offset = egt.offset(&fg.fgts, &[]);
+        let offset = egt.offset(fgts, &[]);
         add_offset(&mut rgba, w, h, &offset, egt.rows, egt.columns);
         self.faces_textured += 1;
         Some(ctx.models.images.add(image_with_mips(w, h, rgba)))
     }
 
     /// An NPC's body skin texture: `texture` plus the race's "Upper Body Texture" `.egt`
-    /// (`egt`, archive path) for its FGTS coefficients, combined as for the face
+    /// (`egt`, archive path) for the texture coefficients `fgts`, combined as for the face
     /// [hypothesis, actors.md §4.1]. The result is halved until at most
     /// [`SKIN_MAX`] wide (the body texture is 1024² [observed], the EGT 32×32), so one
     /// per actor stays small.
-    pub fn skin_texture(&mut self, ctx: &mut ActorCtx, egt: &str, texture: &str, fg: &FaceGen) -> Option<Handle<Image>> {
+    pub fn skin_texture(&mut self, ctx: &mut ActorCtx, egt: &str, texture: &str, fgts: &[f64]) -> Option<Handle<Image>> {
         let egt = self.egt(&ctx.models.data, egt)?;
         let base = self.base(&ctx.models.data, &fnv_vfs::texture_path(texture))?;
         let (mut w, mut h, ref px) = *base;
         let mut rgba = px.clone();
-        let offset = egt.offset(&fg.fgts, &[]);
+        let offset = egt.offset(fgts, &[]);
         add_offset(&mut rgba, w, h, &offset, egt.rows, egt.columns);
         while w > SKIN_MAX && h > 1 {
             (w, h, rgba) = halve(w, h, &rgba);
