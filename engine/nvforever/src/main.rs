@@ -271,13 +271,14 @@ struct Args {
     /// (docs/spec-notes/lipsync.md).
     #[arg(long)]
     no_lip: bool,
-    /// With --play: what a conversation with the player holds. "living": game logic
-    /// only (scripts' game time, the game clock, physics, travelling NPCs, the player's
-    /// movement), while animations, wind, water and sky go on and the player looks around
-    /// freely while the actor speaks. "original": the picture stands still too.
+    /// With --play: what an open menu holds (the dialogue screen, inventory, container,
+    /// message boxes and the menus scripts open). "living": game logic only (scripts'
+    /// game time, the game clock, physics, travelling NPCs, the player's movement), while
+    /// animations, wind, water and sky go on. "original": the picture stands still too.
+    /// The Esc pause menu always holds everything. --dialogue-pause is the old name.
     /// docs/design/dialogue.md, Pausing.
-    #[arg(long, default_value = "living", value_parser = ["living", "original"], requires = "play")]
-    dialogue_pause: String,
+    #[arg(long, alias = "dialogue-pause", default_value = "living", value_parser = ["living", "original"], requires = "play")]
+    menu_pause: String,
 }
 
 #[derive(Component)]
@@ -545,7 +546,7 @@ fn main() -> AppExit {
         app.insert_resource(nvf_play::script::NewGame);
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
-    app.insert_resource(if args.dialogue_pause == "original" { nvf_play::dialogue::PauseMode::Original } else { nvf_play::dialogue::PauseMode::Living });
+    app.insert_resource(if args.menu_pause == "original" { nvf_play::pause::MenuPause::Original } else { nvf_play::pause::MenuPause::Living });
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
@@ -589,6 +590,7 @@ fn main() -> AppExit {
     if let Some(secs) = args.run_seconds {
         #[allow(clippy::too_many_arguments)]
         let summary = move |time: Res<Time>,
+                            clocks: (Res<Time<Virtual>>, Res<Time<Real>>),
                             streamer: Res<Streamer>,
                             lod: Res<lod::LodState>,
                             actors: Option<Res<actors::ActorWorld>>,
@@ -596,7 +598,10 @@ fn main() -> AppExit {
                             actor_anim: Res<locomotion::ActorAnimCost>,
                             mut commands: Commands,
                             mut t: Local<(f32, u32)>| {
-            t.0 += time.delta_secs();
+            // While a menu holds the picture (the virtual clock is paused: --menu-pause
+            // original, the Esc pause menu) the limit counts real time, so a run always
+            // ends.
+            t.0 += if clocks.0.is_paused() { clocks.1.delta_secs().min(0.25) } else { time.delta_secs() };
             t.1 += 1;
             if t.0 >= secs {
                 let (baked, cached) = lod.gen.as_ref().map_or((0, 0), |g| (g.baked, g.cached));

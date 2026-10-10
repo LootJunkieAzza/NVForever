@@ -300,10 +300,17 @@ line per sound: `voice: playing <path> (<seconds> s) <speaker> line <INFO> respo
 a response without a file logs `voice: no file ...`. `--no-voice` plays nothing (lengths
 and log stay), `--voice-volume <x>` scales the volume.
 
-Not done [decision]: 3D placement and distance (voices play flat), pausing the sound
-with the pause menu or a script's menu (script time stops there, the sound plays on),
-the response's sound form (§6) and emotions. Lip sync follows the voice from
-`engine/nvforever/src/lips.rs` (`VoiceState::spoken`; docs/spec-notes/lipsync.md §5).
+A sound is held with its line's timer (2026-10-10, `voice::line_held`): a SayTo or Say
+line stands still in menu mode (the inventory, a container, a message box, a
+conversation with the player), so its sound is paused there and resumed after; a line of
+the conversation itself goes on in real time and is held only by a message box on top
+of it; the pause menu holds every line. Before, the sound played on while the timer
+stood still, ran ahead of it, and the subtitle outlasted the sound after the menu.
+
+Not done [decision]: 3D placement and distance (voices play flat), the response's sound
+form (§6) and emotions. Lip sync follows the voice from
+`engine/nvforever/src/lips.rs` (`VoiceState::spoken`; docs/spec-notes/lipsync.md §5),
+and holds with it.
 
 ## 10. Tools
 

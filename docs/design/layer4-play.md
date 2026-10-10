@@ -350,7 +350,15 @@ keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
   opens a pause menu (`pause.rs`: Resume / Quit, keys and clickable buttons; a
   `PlayState::Menu`, so time, physics and mouse look stop and the cursor is free); Esc in
   a menu still closes it. Without `--play` Esc still quits. `--run-seconds` and the test
-  aids are unaffected.
+  aids are unaffected. Since 2026-10-10 the pause menu holds everything, in both modes of
+  `--menu-pause`: the picture too (Bevy's virtual clock is paused) and the voice of a
+  line being said; the test aids' clock and `--run-seconds` go on in real time meanwhile
+  (`pause.rs`: `AidTime`; test aid `NVF_PLAY_TEST_PAUSE=<open>:<resume>`).
+- `--menu-pause living|original` (default `living`; docs/design/dialogue.md §8) says
+  whether the picture stands still while a menu is open: the container and inventory
+  menus of Part U, message boxes, the menus scripts open and the dialogue screen.
+  `living` is what these menus always did (game logic held, animations and wind
+  running); `original` pauses the virtual clock under them.
 - The status overlay's help line showed the fly camera's keys in `--play`; it now shows
   `nvf_play::HELP` (the play controls).
 - Message-box buttons can be clicked (the original's can [observed by the coordinator]):
