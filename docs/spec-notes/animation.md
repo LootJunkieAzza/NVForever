@@ -490,6 +490,70 @@ clips' start) on `Fallout - Meshes.bsa` and `Update.bsa`, `meshes\characters\_ma
   Reloading (`2hrreloada.kf`, spine at 65, no up or down form) straightens the body in
   ours for the same reason.
 
+### 9.7 The `Weapon` node between clips [observed unless tagged]
+
+Measured with `kf_pose_compare` (`KF_OTHER=1` lists each transform track's place and the
+tracks that are not transforms) on `Fallout - Meshes.bsa` and `Update.bsa`.
+
+- Not every clip of a weapon type drives the `Weapon` node (the node under
+  `Bip01 R Hand` the weapon model hangs from; bind translation 6.17, 1.99, 0.76):
+  - `2hh`: `2hhequip.kf`, `2hhunequip.kf` (priority 55), `2hhattackspin.kf` and
+    `2hhreloade.kf` (57) all put it at (6.40, 2.07, 2.83) with one rotation;
+    `2hhaim.kf`, `2hhaimup.kf`, `2hhaimdown.kf` and the `2hh` movement and turn clips
+    have no `Weapon` track.
+  - `1hp`: `1hpequip.kf` has one (55), `1hpaim.kf` has none (`1hpaimup.kf` and
+    `1hpaimdown.kf` do, at 35).
+  - The Aim clips of `2hr` (45), `2ha` (35), `2hl` (37), `2hm` (45), `1hm` (45) and `h2h`
+    (45) drive it.
+- The arms of `2hhaim.kf` are those of `2hhattackspin.kf` at its start to within 0.1°
+  on every bone.
+- Reading [hypothesis]: a node keeps the pose the last clip gave it while no playing
+  clip drives it, so the minigun stays where its draw clip put it through the aim and
+  movement clips. Returning the node to its bind pose instead turns the minigun in the
+  hand: the left hand then misses the handle while idle and meets it only while firing
+  [observed in ours before 2026-10-10: owner's screenshots].
+- Engine (`nvforever::player_body`): while the weapon is in the hand, the `Weapon`
+  node's rest pose is where the draw clip leaves it at its end
+  (`Animator::set_rest`), in place of the bind pose; clips that drive the node still
+  do. Not the last clip's pose as such: the draw, attack and reload clips checked agree,
+  and a fixed pose does not depend on what played before. Rendered [observed:
+  screenshots, kept privately]: the minigun idle, level and 50° up and down, has the
+  left hand on the top handle as while firing, with no jump when firing stops; the 9mm
+  pistol is held as before.
+- The `2hh` holster, draw and put-away clips also carry visibility tracks
+  (`NiVisController` with `NiBoolInterpolator`) on parts of the weapon model named
+  `##MinigunGun`, `##FlamerGun`, `##GatlingLaserGun` and `##RIL`: off in
+  `2hhholster.kf`; in `2hhequip.kf` off until 0.500 s (0.533 s for the minigun; the
+  `Attach` key is at 0.50) and on after; in `2hhunequip.kf` on until 0.500 s (`Detach`)
+  and off after. `2hhholster.kf` names `prn: Bip01 R Hand`, not a back bone.
+  `weapons\2handhandle\minigun.nif` has the gun under a node `##MinigunGun` and a
+  separate node `Backpack` whose `UPB` string is `Bip01 Spine2`. Reading [hypothesis]:
+  a holstered minigun shows its backpack on the back and no gun; the gun appears half
+  way through the draw.
+- In the game [observed: owner's screenshots 2026-10-10, kept privately]: the minigun
+  holstered, seen from behind, shows the backpack on the upper back and no gun; drawn,
+  the gun is in both hands and the backpack is still on the back.
+- Engine (`nvforever::player_body`, since 2026-10-10):
+  - clips carry their visibility tracks (`fnv_nif::anim::BoolTrack`,
+    `nvf_assets::anim_play::Clip::visibility`); a shape of the weapon model is hidden
+    while any node above it whose name begins `##` is switched off. Among the playing
+    clips the track of the highest priority decides, the latest started of equals
+    (`Animator::visible`); a node no playing clip has a track for stays as it was, and
+    starts shown [hypothesis: as the `Weapon` node keeps its place];
+  - a shape under a node whose `UPB` string names a bone of the skeleton hangs from
+    that bone instead of from the `Weapon` node, with its transform in the model kept
+    [hypothesis: that this is what the string means]; such shapes are not drawn on the
+    first-person rig.
+  - Rendered with the minigun [observed: screenshots, kept privately]: holstered, the
+    backpack on the back and no gun, from behind and from the side as in the owner's
+    game screenshot; 0.3 s into the draw still no gun, 0.8 s in the gun is in the
+    hands; drawn, gun and ammunition box in the hands and the backpack on the back;
+    0.3 s into putting it away the gun still shows, 0.8 s in it is gone.
+  - Not built: the other things these clips animate on weapon parts (the
+    `NiMaterialColorController` tracks on `##GatlingLaserGun:0`, transform tracks on
+    `##` nodes such as `##BBCarton`), and the same for placed NPCs' weapons
+    (`nvforever::weapons`).
+
 ### 9.5 The first-person rig [observed unless tagged]
 
 - `meshes\characters\_1stperson\skeleton.nif` is the only non-`.kf` file of its folder

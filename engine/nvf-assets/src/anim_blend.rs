@@ -113,6 +113,8 @@ pub struct Animator {
     pub locals: Vec<Transform>,
     /// Nodes held at the identity (the accumulation root).
     held: Vec<usize>,
+    /// Nodes with a rest pose of their own in place of the bind pose ([`Self::set_rest`]).
+    rest: Vec<(usize, Transform)>,
     scratch: Vec<Contribution>,
 }
 
@@ -122,7 +124,17 @@ impl Animator {
     pub fn new(skel: Arc<PreparedSkeleton>, nodes: Vec<Entity>, accum_root: Option<&str>) -> Animator {
         let held = accum_root.and_then(|r| clip_target(&skel, r)).into_iter().collect();
         let locals = skel.locals.clone();
-        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, held, scratch: Vec::new() }
+        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, held, rest: Vec::new(), scratch: Vec::new() }
+    }
+
+    /// Give `node` a rest pose in place of its bind pose (`None`: the bind pose again):
+    /// what it takes where no clip drives it, and what fills the part of it that the
+    /// clips leave free.
+    pub fn set_rest(&mut self, node: usize, pose: Option<Transform>) {
+        self.rest.retain(|(n, _)| *n != node);
+        if let Some(p) = pose {
+            self.rest.push((node, p));
+        }
     }
 
     /// Start of a frame's requests: every layer not asked for again by [`Self::end`] fades
@@ -203,6 +215,26 @@ impl Animator {
         self.find(clip, tag).map(|i| &self.layers[i])
     }
 
+    /// Whether the playing clips show or hide the node named `name` (a part of a weapon
+    /// model, animation.md §9.7): the visibility track of the highest priority among
+    /// them, the latest started of equals; `None` when no playing clip has one for it.
+    pub fn visible(&self, name: &str) -> Option<bool> {
+        let mut best: Option<(i32, bool)> = None;
+        for l in self.layers.iter().filter(|l| l.ease > 0.0) {
+            for (n, priority, track) in &l.clip.visibility {
+                if n != name {
+                    continue;
+                }
+                if let Some(v) = track.at(l.sample_time(self.phase)) {
+                    if best.is_none_or(|(p, _)| *priority >= p) {
+                        best = Some((*priority, v));
+                    }
+                }
+            }
+        }
+        best.map(|(_, v)| v)
+    }
+
     /// Advance fades, weights and times by `dt` seconds; synced layers move their shared
     /// phase at `sync_rate` times their own speed (weighted by their shares). Layers
     /// faded out are dropped.
@@ -244,16 +276,21 @@ impl Animator {
             }
         }
         self.scratch.sort_unstable_by_key(|c| (c.bone, Reverse(c.priority)));
-        // Bones without tracks: the bind pose; held nodes: the identity.
+        // Bones without tracks: the bind pose, or their own rest pose; held nodes: the
+        // identity.
         self.locals.clone_from(&skel.locals);
         for &h in &self.held {
             self.locals[h] = Transform::IDENTITY;
+        }
+        for &(n, pose) in &self.rest {
+            self.locals[n] = pose;
         }
         let phase = self.phase;
         let mut i = 0;
         while i < self.scratch.len() {
             let bone = self.scratch[i].bone as usize;
-            let bind = skel.locals[bone];
+            // The bone's rest pose (set above).
+            let bind = self.locals[bone];
             let (mut t, mut q, mut s) = (Vec3::ZERO, Vec4::ZERO, 0.0f32);
             let mut first: Option<Vec4> = None;
             let mut free = 1.0f32;
@@ -371,6 +408,7 @@ mod tests {
             skipped: 0,
             accum_root: Some("Bip01".into()),
             text_keys: Vec::new(),
+            visibility: Vec::new(),
         })
     }
 
@@ -481,6 +519,48 @@ mod tests {
         assert!((t.x - 5.0).abs() < 0.5 && (t.y - 5.0).abs() < 0.5, "{t}");
         let t = step(&mut a, 1.0, None, 1.0);
         assert_eq!(t, Vec3::new(10.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn the_highest_priority_visibility_track_decides() {
+        use fnv_nif::anim::BoolTrack;
+        let with = |priority: i32, track: BoolTrack| {
+            let mut c = (*clip(&[("A", [0.0; 3], 30)], 1.0)).clone();
+            c.visibility = vec![("##Gun".to_string(), priority, track)];
+            Arc::new(c)
+        };
+        let mut a = animator();
+        assert_eq!(a.visible("##Gun"), None);
+        // The holster clip hides the part; the draw clip, above it, shows it half way.
+        let holster = with(0, BoolTrack { value: Some(false), keys: Vec::new() });
+        let draw = with(55, BoolTrack { value: None, keys: vec![(0.0, false), (0.5, true)] });
+        a.want(&holster, 0, 1.0, Mode::Once, 0.0);
+        assert_eq!(a.visible("##Gun"), Some(false));
+        a.want(&draw, 1, 1.0, Mode::Once, 0.0);
+        a.advance(0.25, 1.0);
+        assert_eq!(a.visible("##Gun"), Some(false));
+        a.advance(0.5, 1.0);
+        assert_eq!(a.visible("##Gun"), Some(true));
+        assert_eq!(a.visible("##Other"), None);
+    }
+
+    #[test]
+    fn a_rest_pose_stands_in_for_the_bind_pose() {
+        let mut a = animator();
+        let rest = Transform::from_xyz(0.0, 0.0, 7.0);
+        a.set_rest(3, Some(rest));
+        a.pose();
+        assert_eq!(a.locals[3], rest, "no clip drives the node");
+        // A clip on it, half faded in: the rest pose fills the other half.
+        let c = clip(&[("B", [0.0, 0.0, 1.0], 30)], 1.0);
+        a.want(&c, 0, 1.0, Mode::Loop, 0.0);
+        a.layers[0].ease = 0.5;
+        a.pose();
+        assert!((a.locals[3].translation.z - 4.0).abs() < 1e-5, "{}", a.locals[3].translation);
+        a.layers.clear();
+        a.set_rest(3, None);
+        a.pose();
+        assert_eq!(a.locals[3].translation, Vec3::new(0.0, 2.0, 0.0), "the bind pose again");
     }
 
     #[test]

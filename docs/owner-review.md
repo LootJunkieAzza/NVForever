@@ -1572,6 +1572,37 @@ the further up or down you look, from the hip and down the sights. Branch
    times 30°). A game screenshot looking about 45° up, from the side, would check the
    in-between.
 
+## Minigun: left hand on the handle when not firing (2026-10-10, session "two-hand aim")
+
+Your report: with the minigun, firing looks right at any angle, but when just holding it
+the left hand is too high. Branch `claude/weapon-rest-pose`. Facts:
+`docs/spec-notes/animation.md` §9.7. Pictures: `C:\fnv-private\references\two_hand_aim\`
+(`minigun_*.png`, `pistol_after.png`).
+
+1. **Cause:** the arms were right all along: the holding pose and the firing pose have
+   the same arms. The difference was the gun. The animations for drawing, firing and
+   reloading the minigun say where the gun sits in the right hand; the holding and
+   walking animations do not. When none said, we put the gun back at a default spot in
+   the hand, which turned it away from the left hand.
+2. **Fix:** while a weapon is out, it stays where its draw animation left it unless
+   an animation says otherwise. This also applies to the flamer and gatling laser (same
+   animations) and to pistols, whose holding animation is silent in the same way.
+3. **Checked in ours:** minigun held level and looking 50° up and down, firing, after
+   firing stops, and running: the left hand stays on the top handle and nothing jumps
+   when firing stops. The 9mm pistol looks as before.
+4. **The holstered minigun (your question, then your two game screenshots), built on
+   branch `claude/weapon-parts`:** the game's files switch the gun part of the minigun,
+   flamer and gatling laser off while holstered and on again half a second into the
+   draw, and the minigun's backpack is a separate part meant for the upper back. Ours
+   now reads both. Checked with the minigun (`minigun_parts_sheet.png`): holstered,
+   only the backpack shows, on the back, as in your screenshot; the gun appears half
+   way through the draw and goes half way through putting it away; drawn, the gun is in
+   the hands and the backpack stays on the back.
+5. **Not done:** the flamer and gatling laser were not looked at in ours (same
+   animations, so the gun part should behave the same; whether their models have a
+   back part like the minigun's I did not check). NPCs carrying these weapons still
+   draw them the old way. In first person the backpack is not drawn at all.
+
 ## Actors can be pushed (2026-10-10, session "actor push")
 
 Your request: the player or an NPC that is moving should be able to push another actor
@@ -1617,9 +1648,7 @@ that is standing still, with a capture from the game to say how far. Branch
 6. **Two faults found on the way and fixed:**
    - An NPC walking close past you carried you along with it at its own speed, like a
      moving platform. Easy Pete took you 163 units to the saloon door this way. This
-     was in the game before my change.
+     was in our engine before my change.
    - After being left untouched for a few seconds and then moved by a door or a
      teleport, a character's solid body could stay behind where it arrived while the
      character walked on. Hard to meet in play, but it was there.
-7. **Not mine, flagged separately:** one dialogue test already fails on `main` (the
-   greeting "on the spot" test in `fnv-ai`). It fails the same without my changes.

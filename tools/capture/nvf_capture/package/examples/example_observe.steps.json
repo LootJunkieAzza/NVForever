@@ -1,0 +1,14 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "example_observe",
+ "title": "Example: record the player's position 20 times, every 30 frames",
+ "start": "Any save. Walk around while it runs; End stops it early.",
+ "steps": [
+  {"observe": {
+    "label": "player_track",
+    "fields": {"header": ["game_hour", "pos.x", "pos.y", "pos.z", "heading"]},
+    "header": ["GameHour", "player.GetPos X", "player.GetPos Y", "player.GetPos Z", "player.GetAngle Z"],
+    "every": 30,
+    "max_samples": 20}}
+ ]
+}

@@ -112,7 +112,7 @@ exist. The draw/holster timing follows the clips of the rig in view.
 | Movement keys, mouse look | `engine/nvf-play/src/player.rs` | movement through the bindings; mouse look turns the orbit while Toggle POV is held; `Player::body_eye`, `BodySet` |
 | Body | `engine/nvforever/src/player_body.rs` (`PlayerBodyPlugin`, with `--play` and actors on) | both rigs, weapon models, clip caches, per-frame clip choice, eye and pivot, which rig is shown |
 | Shared part building | `engine/nvforever/src/actors.rs` (`part_uses`) | NPCs and the player build parts the same way |
-| Test aids | `engine/nvf-play/src/test_aid.rs` | `NVF_PLAY_TEST_EQUIP`, `NVF_PLAY_TEST_MOVE`, `NVF_PLAY_TEST_CONTROL` (`sneak`, `weapon`, `aim`, `view`, `jump`, `zoom=`, `orbit=<yaw>:<pitch>`, `release`) |
+| Test aids | `engine/nvf-play/src/test_aid.rs` | `NVF_PLAY_TEST_EQUIP`, `NVF_PLAY_TEST_MOVE`, `NVF_PLAY_TEST_CONTROL` (`sneak`, `weapon`, `aim`, `view`, `jump`, `zoom=`, `orbit=<yaw>:<pitch>`, `release`); for a session played by hand, the debug switches `NVF_PLAY_DEBUG_GIVE` and `NVF_PLAY_DEBUG_EQUIP` (same values as the `TEST` ones, the run stays attended) |
 
 Interface changes in `nvf-play` (coordinator, 2026-10-09): `Player::body_eye`
 (`eye()` returns it when set); `place_camera` in `control.rs`; resources `Bindings`,
@@ -178,6 +178,20 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
   and down, down the sights at 60° up and down, and while firing at 60° up and 45° down
   (`2hrattack8.kf` with `2hrattack8up.kf`/`down`). Walking or running with the rifle
   out the body does not bend with the pitch (open question 5).
+- Minigun idle (2026-10-10, owner report with screenshots: right while firing at any
+  pitch, but idle the left hand is too high, off the handle): `2hhaim.kf` does not
+  drive the `Weapon` node and ours put it back at its bind pose (animation.md §9.7).
+  After the fix [observed: screenshots from the front-left with `orbit=120:<minus the
+  pitch>`, minigun `0000433F` and 9mm pistol `000E3778`]: idle, level and 50° up and
+  down, the left hand is on the top handle as while firing, the same after firing
+  stops and while running; the pistol is held as before.
+- Minigun holstered (2026-10-10, owner question, then game screenshots: holstered only
+  the backpack shows, on the back; drawn the gun is in the hands and the backpack
+  stays): the weapon model's parts follow the clips' visibility tracks, and the
+  `Backpack` node hangs from the bone its `UPB` string names (animation.md §9.7).
+  After [observed: screenshots from behind, from the side and from the front with
+  `orbit=90:0` and `orbit=150:0`]: as in the game screenshots; the gun appears half way
+  through the draw and goes half way through putting it away.
 
 ## 5. Open questions for the owner
 

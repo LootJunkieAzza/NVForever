@@ -503,6 +503,29 @@ Self-tests: `cargo test --release` in `nvf_capture` (32-bit; step runner, automa
 observe step, layouts), `tests/test_capture_steps.py`, `tests/test_capture_run.py` and
 `tests/test_observe.py`.
 
+**Jobs by hand (plugin version 8):** a script may be given in a short form (just the
+expression, condition or statements; forms named once per job and used as `@name`), which
+the plugin writes out as the same function scripts the tools generate. The tools' own jobs
+are full scripts and reach the game unchanged. Guide: `nvf_capture/README.md`; rules:
+`docs/spec-notes/xnvse-capture.md` §8.
+
+**Releasing the plugin** (`package_plugin.py`): the plugin is useful outside this project
+(a job runner for the original game), so it can be published on a mod site.
+```
+python tools/capture/package_plugin.py
+```
+builds the DLL and writes, into `nvf_capture/target/package/` (ignored by git; never commit
+the archives): `nvf_capture-v<N>.zip`, laid out relative to the game's `Data` folder
+(`NVSE/Plugins/` and `Docs/nvf_capture/` with the user's guide `nvf_capture/README.md`, the
+licences, the commit it was built from and the examples of `nvf_capture/package/examples`);
+`nvf_capture-v<N>-source.zip`, the plugin's source at that commit (GPL: the source goes
+up next to the binary); the mod page's text; and checksums. `<N>` is `PLUGIN_VERSION`. The
+DLL is checked before it is packed (32-bit, the two exports xNVSE calls, no C runtime DLL
+needed, no path of the build machine inside). It refuses to run with uncommitted changes
+in the plugin's files; build releases from a pushed commit. Uploading is done by hand, and
+so is a last trial of the packed DLL in the game (copy it, then run the read-only trial
+job above).
+
 **Movement captures** (`capture_moves.py`, Layer 4 physics): jobs made from the
 candidate's own inputs (`fnv.phys.drops/1` files and walk scripts with a `capture` block,
 parity-lab/inputs/layer4/), and goldens from their output; method and facts in

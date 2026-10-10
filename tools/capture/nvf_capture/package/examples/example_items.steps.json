@@ -1,0 +1,16 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "example_items",
+ "title": "Example: add 3 bottle caps, count them, take them away again",
+ "start": "Any save (use a test save: the job changes the inventory, then puts it back).",
+ "forms": {"caps": "FalloutNV.esm:0000000F"},
+ "steps": [
+  {"query": "player.GetItemCount @caps", "field": "before"},
+  {"script": "player.AddItem @caps 3 1"},
+  {"frames": 10},
+  {"query": "player.GetItemCount @caps", "field": "after_adding_3"},
+  {"script": "player.RemoveItem @caps 3"},
+  {"frames": 10},
+  {"query": "player.GetItemCount @caps", "field": "after_removing_3"}
+ ]
+}
