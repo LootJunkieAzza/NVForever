@@ -87,6 +87,9 @@ triangles, its door stops and the door that ends it.
   of real progress past where the actor got stuck; then replan; give up after 5 replans.
 - `Walker` moves an actor along the path on the navmesh surface (height from the
   triangle under it), turning at up to 720°/s, through doors by teleport to the arrival.
+  Standing with its way more than 20° off its heading it first turns on the spot at
+  120°/s (`WalkEvent::Turned`; docs/spec-notes/actors.md §8.9); `Walker::face` turns a
+  standing walker to a heading the same way.
 - At a door stop `Follower` returns `Steer::OpenDoor { door, at }` and keeps returning it,
   wherever the actor is pushed meanwhile, until the caller calls `door_opened` (§6.1).
   `Walker::update_with(nav, dt, open)` asks `open(door)` every update until it reports
