@@ -776,6 +776,11 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   StartConversation (with the player as target: the conversation starts at once),
   GetTalkedToPC, GetDialogueEmotion. All three were stubs before; they are still named
   in the stub list below as it stood after round 4.
+- **Furniture (2026-10-10)**: GetSitting, GetSleeping, GetFurnitureMarkerID,
+  IsCurrentFurnitureRef and IsCurrentFurnitureObj answer from the use set on the actor
+  (`Game::set_furniture_use`, docs/spec-notes/furniture.md §2–3); 0 for an actor on no
+  furniture, as the stubs gave. All five are still named in the stub list below as it
+  stood after round 4.
 - **Layer 6 stubs (170 after round 3; 163 after round 4)**, traced as `stub` with
   their arguments and no effect; `functions::registry()` names each one's system. From
   round 2: AI packages (ResetAI, GetCurrentAIPackage, GetCurrentAIProcedure, SetAlert,

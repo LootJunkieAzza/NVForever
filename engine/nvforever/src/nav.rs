@@ -236,7 +236,8 @@ pub fn drive(
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
     roots: Query<(Entity, &RefVisual, &ChildOf)>,
-    mut actors: Query<(&mut Transform, Option<&mut Locomotion>)>,
+    // An actor using furniture is placed by `furniture.rs`.
+    mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<crate::furniture::OnFurniture>>,
     mut travel: MessageWriter<nvf_play::Travel>,
     mut doors: ResMut<nvf_play::doors::Doors>,
     held: Option<Res<nvf_play::dialogue::WorldHeld>>,
@@ -378,7 +379,7 @@ pub(crate) fn show_actor(
     parts: &mut ActorParts,
     models: &mut ModelCtx,
     roots: &Query<(Entity, &RefVisual, &ChildOf)>,
-    actors: &mut Query<(&mut Transform, Option<&mut Locomotion>)>,
+    actors: &mut Query<(&mut Transform, Option<&mut Locomotion>), Without<crate::furniture::OnFurniture>>,
     who: Who,
     (spawned, root): (&mut bool, &mut Option<Entity>),
     walker: &Walker,

@@ -593,19 +593,47 @@ sessions. You already had it from an earlier playthrough.
       vertex-identical to its `.tri` (same order, up to 0.53 units apart). Nothing
       changes on screen.
 
-38. **Conversation partners look at each other (your request, 2026-10-10): in progress,
-    not merged.** Branch `claude/dialogue-look`, worktree `NVForever-dialogue-look`. In
-    a back-and-forth conversation the NPC's head turns to you (a standing NPC also turns
-    its body; a sitting one turns its head only) and your view eases onto the NPC when
-    the conversation starts. Lines an NPC just says out loud turn nobody. The session
-    that started it reached its usage limit before the work reported, so its PR (if one
-    is open) is unverified and unmerged; the next session should check and merge it.
-    - **For you to confirm:** you earlier chose free look while the NPC speaks. That is
-      kept: after the opening turn you can look around during a line, and the view eases
-      back onto the NPC when the choices appear (a setting, can be turned off). Say if
-      you would rather the view stay locked on the NPC throughout.
-    - Not included: a zoom or cinematic dialogue camera, eye movement, turn-in-place
-      animations.
+38. **Conversation partners look at each other (your request, 2026-10-10): built, PR #133
+    (`claude/dialogue-facing`), waiting for the coordinator's check and merge.** In a
+    back-and-forth conversation (the dialogue screen is open) the NPC turns its head to
+    you, a standing NPC also turns its body on the spot, and your view eases onto the
+    NPC's face. Lines an NPC just says out loud turn nobody: in the unattended intro Doc
+    Mitchell's 23 spoken lines turned no one and his two conversations did. Details and
+    what the screenshots show: `docs/design/dialogue-play.md` §8. Try it:
+    `nvforever --data <Data> --play --cell Goodsprings`, walk up to Easy Pete from the
+    side or from behind and press E.
+    - **Free look against facing: decided 2026-10-10** ("never come back i just want
+      the initial look at npc to happen then allow the player to free look the rest of
+      the time they are in dialogue with them"). Your view turns to the NPC when the
+      conversation starts (0.4 s) and is yours after that; it no longer comes back when
+      the choices appear. The mouse always wins: moving it during the opening turn stops
+      the turn. `--dialogue-recentre` brings the old coming-back behaviour back. Still
+      as you chose earlier: while the choices are shown the cursor is released for
+      clicking, so the view holds until you pick; say if you want free look there too
+      (choosing would then be keys only).
+    - **How far and how fast are our own choices, not the original's.** The head turns
+      at most 60° to a side (that number is the game's own: "Tracking Max Angle" of the
+      head in `DefaultBodyPartData`) and 30° up or down; it takes 0.45 s to turn and
+      0.6 s to ease back. A body more than 30° off turns at about 150° a second and
+      **keeps facing you after the conversation**. Say if any of it looks wrong (too
+      fast, too stiff, should turn back afterwards).
+    - **Sitting NPCs.** A sitting or lying NPC is meant to turn its head only. Nothing
+      in the engine seats anyone yet (every NPC is drawn standing, Doc Mitchell during
+      the psych test included, so he turned on the spot standing by his bed), so today
+      only the hook exists (`BodyHeld`); the furniture work has to set it.
+    - **Seen and left as it is:** NPCs are still drawn where the plugins place them, so
+      a conversation a script starts from afar turns your view to where the NPC stands,
+      even through a wall (Doc Mitchell's farewell, which in the original he walks over
+      for). This goes away when AI packages move NPCs.
+    - **Not included:** the eyes do not move in the head (at 60° the face is turned to
+      you but the eyes look straight out of it); no zoom or dialogue camera (the wiki
+      export does not describe the original's; tell us what it does, or we capture it);
+      creatures, robots and talking activators do not turn; the turn animation is asked
+      for but its pace is not matched to the turn and it was not checked in a picture.
+    - `--no-dialogue-look` turns the whole thing off. With `--menu-pause original` the
+      two are facing each other at once in the frozen picture.
+    - **Please play it by hand**: the turns were checked in screenshots a few frames
+      apart, not in motion, and the mouse during a turn only through a test aid.
 
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
@@ -894,6 +922,13 @@ Facts and figures: `docs/spec-notes/packages.md`; design and the decisions taken
     noreply address). I did not touch the old remote branch `claude/ai-packages`: it
     still holds the old commits with the old address, so you will want to delete it.
     Other old-history branches on the remote are in the same position.
+17. **Furniture with the package routines (your request, 2026-10-10):** residents now use
+    the furniture from main. Easy Pete sits in his porch chair, gets up at noon, sits at
+    his booth in the saloon, and at night lies down on his bed; the walk to the next
+    place waits until he is up. The rule for chairs comes from your captures (the game
+    reported him sitting under those packages); beds for Sleep packages and seats for
+    Eat packages follow the documentation. Not done: sandboxing actors picking
+    furniture on their own, and actors that arrive unseen are seated only once drawn.
 
 ## Loading screens (2026-10-10, session "loading screen")
 
@@ -957,3 +992,34 @@ design and what was checked: `docs/spec-notes/ragdoll.md`.
    them at 10:57; my last four runs (10:46–10:57) overlapped it. Any windowed check or
    capture of that session in that window may need re-running. The two runs
    after that (11:05 and 11:07, on the tree merged with main) took both locks.
+
+## Furniture: sitting (2026-10-10, session "furniture")
+
+Owner request: furniture usable by the player and by NPCs, animated: sit down, stay,
+stand up on moving. Facts, model and what was checked: `docs/spec-notes/furniture.md`.
+Branch `claude/furniture` (worktree `NVForever-furniture`).
+
+1. **Done:** chairs, benches, booths and stools work for NPCs and the player, with the
+   game's own clips (which clip is read from the game's idle records per furniture
+   marker, so left, right and front entries, stools and women's variants come out of the
+   data). You sit by activating the furniture and get up with a movement key or by
+   activating it again. NPCs can also use beds. `GetSitting` and the four related script
+   functions now answer for whoever is seated. New: `--npc-sit ACTOR=FURNITURE[:SECONDS]`
+   and `fnvtool actor furniture`.
+2. **Decisions taken, each reversible (furniture.md §5, §7):**
+   - you are put at the furniture's entry point when you activate it (no walking up);
+   - getting up: any movement key, or Activate on the same furniture;
+   - in first person you see through the seated body's eyes and the body is not drawn;
+   - sitting puts your weapon away;
+   - an actor takes the nearest enabled, free entry point; a chair holds one user, a
+     bench or a table of stools one per seat;
+   - the prompt still says "Activate" (I believe the game says "Sit" but have no source).
+3. **Not built:** you cannot use beds (that needs the sleep menu); NPCs do not pick
+   furniture by themselves yet (that needs AI packages, in progress on
+   `claude/ai-packages`; its session can give an actor a `SitOn` to seat it); work spots
+   such as the bar and workbenches; eating, talking and fidgeting while seated; the fast
+   stand-up when attacked.
+4. **A capture would settle** which side an NPC enters a chair from and when
+   `GetSitting` is 1 (furniture.md §5); not needed for what is built.
+5. Game runs took both locks. The repository move orphaned this session's first
+   worktree mid-way; its two unpushed commits were rebuilt from the files on disk.

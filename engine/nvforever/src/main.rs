@@ -9,11 +9,14 @@
 
 mod actors;
 mod deaths;
+mod dialogue_look;
 mod doors;
 mod emittance;
 mod fade;
 mod facegen;
 mod fly;
+mod furniture;
+mod head_look;
 mod lights;
 mod limbs;
 mod lips;
@@ -235,6 +238,11 @@ struct Args {
     /// seconds (docs/spec-notes/actors.md §9.4).
     #[arg(long)]
     actor_weapon_test: Option<f32>,
+    /// Test aid: standing NPCs within this distance of the camera (game units) turn on
+    /// the spot to face it, playing their turn clips (docs/spec-notes/actors.md §8.9).
+    /// Needs --actor-pose idle; not for --npc-travel travellers.
+    #[arg(long, conflicts_with = "actor_walk_test")]
+    actor_turn_test: Option<f32>,
     /// With --actor-walk-test: only NPCs within this distance of the start position
     /// (game units; 0 = all).
     #[arg(long, default_value_t = 0.0, requires = "actor_walk_test")]
@@ -250,7 +258,13 @@ struct Args {
     /// Walking speed of --npc-travel NPCs, game units per second.
     #[arg(long, default_value_t = nav::WALK_SPEED)]
     npc_speed: f32,
-    /// The free camera follows the first --npc-travel NPC, else the first
+    /// An NPC walks to a piece of furniture and uses it: "ACTOR=FURNITURE[:SECONDS]",
+    /// the actor a placed reference (Editor ID or FormID), the furniture a reference
+    /// FormID; with SECONDS it gets up again after that long on it (repeatable;
+    /// docs/spec-notes/furniture.md).
+    #[arg(long)]
+    npc_sit: Vec<String>,
+    /// The free camera follows the first --npc-travel or --npc-sit NPC, else the first
     /// --npc-packages NPC (through doors too).
     #[arg(long, conflicts_with = "play")]
     follow_npc: bool,
@@ -297,6 +311,30 @@ struct Args {
     /// docs/design/dialogue.md, Pausing.
     #[arg(long, alias = "dialogue-pause", default_value = "living", value_parser = ["living", "original"], requires = "play")]
     menu_pause: String,
+    /// Do not turn actors' heads to the player and to NPCs near them (head_look.rs,
+    /// docs/spec-notes/actors.md §12).
+    #[arg(long)]
+    no_head_tracking: bool,
+    /// Test aid without --play: the free camera stands in for the player, so actors near
+    /// it look at it.
+    #[arg(long, conflicts_with_all = ["play", "no_head_tracking"])]
+    head_track_camera: bool,
+    /// Test aid: every actor near the camera is told to look at this game position
+    /// "x,y,z", the way a conversation or a script forces a head's target.
+    #[arg(long, allow_hyphen_values = true, conflicts_with = "no_head_tracking")]
+    head_track_point: Option<String>,
+    /// With --play: in a conversation, do not turn the actor to the player nor the
+    /// player's view to the actor (docs/design/dialogue-play.md §8).
+    #[arg(long)]
+    no_dialogue_look: bool,
+    /// With --play: in a conversation, bring the view back onto the actor each time the
+    /// choices appear. Off by default (owner decision 2026-10-10): only the opening turn
+    /// happens and the view is the player's own for the rest of the conversation.
+    #[arg(long)]
+    dialogue_recentre: bool,
+    /// Accepted for older command lines; not coming back is the default now.
+    #[arg(long, hide = true)]
+    no_dialogue_recentre: bool,
 }
 
 #[derive(Component)]
@@ -490,8 +528,8 @@ fn main() -> AppExit {
         a
     });
     let open_doors = args.open_doors;
-    if args.follow_npc && args.npc_travel.is_empty() && args.npc_packages.is_empty() {
-        return fail("--follow-npc needs --npc-travel or --npc-packages".to_string());
+    if args.follow_npc && args.npc_travel.is_empty() && args.npc_sit.is_empty() && args.npc_packages.is_empty() {
+        return fail("--follow-npc needs --npc-travel, --npc-sit or --npc-packages".to_string());
     }
     let residents = if args.npc_packages.is_empty() {
         None
@@ -504,10 +542,23 @@ fn main() -> AppExit {
             Err(e) => return fail(e),
         }
     };
-    let nav_state = if args.npc_travel.is_empty() && !args.show_navmesh && residents.is_none() {
+    // Furniture: used by the player in play mode and by --npc-sit travellers.
+    let mut trips = args.npc_travel.clone();
+    let furnishings = if args.play || !args.npc_sit.is_empty() || residents.is_some() {
+        match furniture::Furnishings::build(&world, &args.npc_sit, trips.len()) {
+            Ok((f, sit_trips)) => {
+                trips.extend(sit_trips);
+                Some(f)
+            }
+            Err(e) => return fail(e),
+        }
+    } else {
+        None
+    };
+    let nav_state = if trips.is_empty() && !args.show_navmesh && residents.is_none() {
         None
     } else {
-        match nav::NavState::build(&world, &args.npc_travel, args.npc_speed, args.show_navmesh, args.follow_npc) {
+        match nav::NavState::build(&world, &trips, args.npc_speed, args.show_navmesh, args.follow_npc && (!trips.is_empty() || residents.is_some())) {
             Ok(n) => Some(n),
             Err(e) => return fail(e),
         }
@@ -577,13 +628,19 @@ fn main() -> AppExit {
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
-    .add_systems(Update, (locomotion::walk_test, locomotion::drive, weapons::reparent).chain())
+    .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     .add_systems(Update, timelapse.after(sky::update_sky));
+    if let Some(radius) = args.actor_turn_test {
+        app.insert_resource(locomotion::TurnTest { radius, started: 0, finished: 0, degrees: 0.0 })
+            .add_systems(Update, locomotion::turn_test.before(locomotion::turn_to))
+            .add_systems(Last, locomotion::turn_test_report);
+    }
     if args.new_game {
         app.insert_resource(nvf_play::script::NewGame);
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
     app.insert_resource(if args.menu_pause == "original" { nvf_play::pause::MenuPause::Original } else { nvf_play::pause::MenuPause::Living });
+    app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: args.dialogue_recentre && !args.no_dialogue_recentre });
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
@@ -597,14 +654,33 @@ fn main() -> AppExit {
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);
+        if args.no_head_tracking {
+            info!("head tracking: off (--no-head-tracking)");
+        } else {
+            let force_point = match args.head_track_point.as_deref().map(|p| parse_vec::<3>(p).ok_or(p)) {
+                Some(Err(p)) => return fail(format!("--head-track-point {p}: expected x,y,z")),
+                Some(Ok(p)) => Some(p),
+                None => None,
+            };
+            app.add_plugins(head_look::HeadLookPlugin { camera_is_player: args.head_track_camera, force_point });
+        }
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin));
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
+            // The conversation's actor turns to the player (dialogue_look.rs).
+            app.add_plugins(dialogue_look::DialogueLookPlugin);
         }
     }
     if play.is_some() && !args.still_sky {
         app.add_systems(Update, sky_follows_game.before(sky::update_sky));
+    }
+    if let Some(f) = furnishings {
+        // After the travellers moved, before the actors are posed.
+        app.insert_resource(f)
+            .add_systems(Startup, furniture::log_startup)
+            .add_systems(Update, (furniture::seat_orders, furniture::drive_actors).chain().after(nav::drive).before(locomotion::walk_test))
+            .add_systems(Last, furniture::report);
     }
     if let Some(n) = nav_state {
         let follow = n.follow;
@@ -675,6 +751,7 @@ fn main() -> AppExit {
                     100.0 * c.blend_frames as f64 / c.actor_frames.max(1) as f64,
                     c.tracks as f64 / c.actor_frames as f64
                     );
+                    info!("actor turns: {} actor frames playing a turn-on-the-spot clip", c.turn_frames);
                 }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");
