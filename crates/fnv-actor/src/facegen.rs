@@ -153,6 +153,12 @@ impl Egt {
     }
 }
 
+/// Two sets of FaceGen coefficients added value by value (an actor's and its race's,
+/// docs/spec-notes/actors.md §4.2); a value missing from the shorter set counts as 0.
+pub fn add_coefficients(a: &[f64], b: &[f64]) -> Vec<f64> {
+    (0..a.len().max(b.len())).map(|i| a.get(i).copied().unwrap_or(0.0) + b.get(i).copied().unwrap_or(0.0)).collect()
+}
+
 /// Add an offset image (rows × columns, from [`Egt::offset`]) to an RGBA8 texture of any
 /// size (top row first, as DDS stores it), sampling the offset bilinearly at texel
 /// centres; alpha is kept. The EGT's first row is the texture's bottom row [observed:
@@ -208,6 +214,13 @@ mod tests {
             }
         }
         b
+    }
+
+    #[test]
+    fn coefficients_add_value_by_value() {
+        assert_eq!(add_coefficients(&[1.0, -2.0, 0.5], &[0.25, 2.0]), vec![1.25, 0.0, 0.5]);
+        assert_eq!(add_coefficients(&[], &[3.0]), vec![3.0]);
+        assert!(add_coefficients(&[], &[]).is_empty());
     }
 
     #[test]

@@ -326,9 +326,10 @@ How the game combines them [hypothesis; matches the owner's screenshot of Sunny 
 by eye]: a morphed vertex = base vertex + Σ coefficientᵢ × scaleᵢ × deltaᵢ over the
 symmetric (FGGS) and asymmetric (FGGA) modes, for every part with an `.egm` beside its
 model whose vertex count covers the shape; the face texture = the head's texture (the
-race ICON) + Σ FGTSᵢ × scaleᵢ × EGT modeᵢ, upsampled bilinearly and flipped vertically.
-The race FaceGen data and the RACE "FaceGen - Main clamp" / "Face clamp" values are not
-used (§4.2). In the Goodsprings flight (`--auto-fly 4000`, 40 s) 267 shapes were morphed
+race ICON) + Σ cᵢ × scaleᵢ × EGT modeᵢ, upsampled bilinearly and flipped vertically,
+with cᵢ = the NPC's FGTSᵢ + its race's FGTSᵢ (§4.2, since 2026-10-10; before that the
+NPC's alone). The race's geometry values (FGGS) and the RACE "FaceGen - Main clamp" /
+"Face clamp" values are not used (§4.2). In the Goodsprings flight (`--auto-fly 4000`, 40 s) 267 shapes were morphed
 and 34 faces textured, with no EGM mismatching its shape.
 
 ### 4.1 Body skin
@@ -341,8 +342,9 @@ and 34 faces textured, with no EGM mismatching its shape.
   so FGTS (50 values) fits them as it fits the head's.
 - Rule [hypothesis: the face rule of §4 applied to the body; not checked against the
   game]: the body skin texture = the race's upper body ICON
-  (`characters\male\upperbodymale.dds`, 1024 × 1024 [observed]) + Σ FGTSᵢ × scaleᵢ × EGT
-  modeᵢ, upsampled bilinearly and flipped vertically. The engine gives it to every shape
+  (`characters\male\upperbodymale.dds`, 1024 × 1024 [observed]) + Σ cᵢ × scaleᵢ × EGT
+  modeᵢ (cᵢ as for the face: the NPC's FGTS plus its race's, §4.2; the hands likewise),
+  upsampled bilinearly and flipped vertically. The engine gives it to every shape
   whose diffuse is that texture — the race's upper body and skin shapes inside outfits
   that name it — and halves it to 512 × 512 to keep one copy per actor small
   (`FaceGenCache::skin_texture`). `--no-facegen` turns it off. Only the skin shape of
@@ -380,29 +382,91 @@ and 34 faces textured, with no EGM mismatching its shape.
   in-game picture of the unclothed default character would settle it, and with it the
   strength of the rule].
 
-### 4.2 Race FaceGen data (not used)
+### 4.2 Race FaceGen data (texture values added to the NPC's; geometry values not used)
 
-Each RACE carries FGGS/FGGA/FGTS per sex (§1.1). Over the 3,386 placed NPCs with 50
-FGGS values [observed, `fnvtool actor appearance --all`, FalloutNV.esm]: none has the
-race's values; the median length of an NPC's FGGS vector is 6.0 and of the race's 13.2,
-and the median distance between the two is 17.2 — larger than either. So NPC values are
-not scattered around the race's, as absolute coordinates with a race default would be.
-Whether the game adds the race's coefficients to the NPC's, or uses them only in the
-character generator, is open [hypothesis either way]; faces drawn from the NPC's values
-alone matched the owner's screenshot of Sunny Smiles by eye (§4), so the race data stays
-unused until an in-game comparison of several NPCs of one race settles it.
+Each RACE carries FGGS/FGGA/FGTS per sex (§1.1). The GECK's race form calls them a
+baseline: its "FaceGen Race" and "FaceGen Data" tabs "specify a racial face baseline"
+[documented: GECK wiki, "Race"]. Over the 3,386 placed NPCs with 50 FGGS values
+[observed, `fnvtool actor appearance --all`, FalloutNV.esm]: none has the race's values;
+the median length of an NPC's FGGS vector is 6.0 and of the race's 13.2, and the median
+distance between the two is 17.2 — larger than either. So NPC values are not scattered
+around the race's, as absolute coordinates with a race default would be.
 
-The texture values point the other way [observed, 2026-10-10: the body `.egt` offset
-(§4.1) for the FGTS of 1,270 male NPCs with the adult male body file, and for their
-races' own FGTS]: the 228 AfricanAmerican NPCs have a median offset of (+8, −3, −11) from
-their own values — lighter than the 557 Caucasian NPCs' (−25, −24, −28), on the same body
-and head textures — while the AfricanAmerican race's own FGTS give (−91, −71, −49) and
-the Caucasian race's (+1, −1, −2). The same holds for AfricanAmericanOld (race −92, −72,
-−54) and AfricanAmericanRaider (−48, −35, −32). So from NPC values alone these NPCs are
-drawn lighter than Caucasian ones, which cannot be the game's look [hypothesis: the game
-adds the race's FGTS to the NPC's, and probably the geometry values likewise; not built
-— Joe Cobb in Goodsprings (offset +15, −2, −20 from his own values) is a case to compare
-with an in-game picture].
+**What the values hold** [observed, 2026-10-10; the 1,722 distinct NPC_ records among
+those placed NPCs, colours from the body `.egt` of §4.1 for the sex (one colour per
+mode), in colour units (red, green, blue)]:
+
+| Race, sex (NPC_ records) | NPCs' own FGTS, median | The race's FGTS | Sum, median |
+|---|---|---|---|
+| Caucasian, male (547) | −25, −24, −28 | +1, −1, −2 | −24, −25, −31 |
+| Caucasian, female (200) | 0, −11, −17 | 0, +4, +12 | 0, −7, −6 |
+| Hispanic, male (148) | −16, −19, −24 | −9, −10, −4 | −24, −29, −28 |
+| Asian, male (88) | −15, −17, −22 | +8, +1, −7 | −7, −17, −28 |
+| AfricanAmerican, male (223) | +8, −3, −10 | −91, −71, −49 | −83, −74, −59 |
+| AfricanAmerican, female (60) | +6, −5, −13 | −82, −64, −43 | −76, −68, −57 |
+| AfricanAmericanOld, male (23) | +4, −5, −13 | −92, −72, −54 | −88, −77, −67 |
+| AfricanAmericanRaider, male (18) | +7, +1, −4 | −48, −35, −32 | −41, −34, −36 |
+| AfricanAmericanRaider, female (20) | +8, +9, +8 | −48, −34, −21 | −40, −25, −12 |
+
+- The Caucasian, Hispanic, Asian and AfricanAmerican races of one kind and sex name the
+  same textures and `.egt` files: `characters\male\headhuman.dds` and
+  `upperbodymale.dds` for the plain male races; the Old races `headhumanold.dds`, the
+  OldAged races `characters\old\headhuman.dds` (both with the plain body texture), the
+  Raider and Child races their own folder's head and body textures [observed: `fnvtool
+  actor forms`, `actor appearance`]. So between a Caucasian and an AfricanAmerican NPC
+  only the FaceGen values can differ.
+- From their own values the AfricanAmerican NPCs come out lighter than the Caucasian
+  ones. Their own FGTS hold none of the race's colour: along the direction from the
+  Caucasian race's FGTS to the AfricanAmerican race's (9.5 units long for men) the
+  AfricanAmerican men's own values lie at −0.02 (median; quartiles −1.15 and +1.21),
+  the Caucasian men's at +0.28, the Hispanic men's at +0.15. Absolute coordinates would
+  put the AfricanAmerican NPCs near +9.5.
+- The race colour is large only for the AfricanAmerican races (10 race and sex pairs, 357
+  NPC_ records; offsets from (−31, −31, −26) to (−92, −72, −54)). For every other race
+  and sex the race's offset is within 25 units per channel; CaucasianOld and
+  CaucasianOldAged men have all-zero race FGTS.
+- Geometry shows the same pattern: along the direction from the Caucasian race's FGGS to
+  the AfricanAmerican race's (17.1 units long for men) the AfricanAmerican men's own
+  FGGS lie at −0.59 (median; quartiles −6.03 and +0.08), the Caucasian men's at +0.16.
+  Over all NPCs the cosine between an NPC's FGGS and its race's has a median of −0.10
+  (69% negative); for FGTS −0.07 (67% negative).
+- Every race's FGGA is all zeros (41 race and sex pairs); 2% of the NPC_ records have a
+  non-zero FGGA. Adding the race's FGGA would change nothing.
+
+**Rule for textures** [hypothesis, built 2026-10-10]: the game adds the race's FGTS for
+the actor's sex to the NPC's, value by value, and the sum drives the face, body and hand
+`.egt` (`Appearance::skin_fgts`, `fnv_actor::facegen::add_coefficients`). Reasons: the
+GECK wiki's "baseline"; the NPCs' own values hold none of the race's colour (above), and
+with shared textures nothing else could give AfricanAmerican NPCs a darker skin than
+Caucasian ones. Not yet compared with an in-game picture [open: the owner's picture of
+Joe Cobb and of Easy Pete would settle the rule and its strength]. An actor without
+FaceGen data of its own still gets no tint. `nvforever --no-race-facegen` draws the
+skin from the NPC's values alone, for comparison.
+
+Pictures (our renderer, 2026-10-10, with and without `--no-race-facegen`; kept privately
+in `C:\fnv-private\references\race_facegen\`):
+
+- Joe Cobb (GSJoeCobbRef, AfricanAmerican; body offset own (+15, −2, −20), race (−91,
+  −71, −49), sum (−76, −73, −69)): pale skin from his own values, the lightest face in
+  the saloon; dark brown with the race's added. His reference is initially disabled, so
+  the pictures need `--show-disabled-actors` (§11).
+- Sunny Smiles (SunnyRef; her record's race is Hispanic, female race offset (+4, +2,
+  −2)): no visible change. The face matched the owner's screenshot before (§4).
+- Easy Pete (EasyPeteRef; his record's race is AfricanAmericanOldAged, race offset (−75,
+  −62, −53), sum (−99, −91, −72); his head texture is `characters\old\headhuman.dds`): a
+  pale grey-white face from his own values, a dark red-brown one with the race's added —
+  the largest change among the three, and the one most worth checking against the game,
+  since the sum is darker than Joe Cobb's.
+- The player's record (NPC_ 7, Caucasian male, race offset (+1, −1, −2)) is unaffected,
+  as is the skin tone question of §4.1.
+
+**Geometry** [open; not built]: the numbers above suggest the race's FGGS is a baseline
+in the same way (the NPCs' own FGGS hold none of the race's shape), but there is no
+check for geometry like the skin colour: faces drawn from the NPC's FGGS alone matched
+the owner's screenshot of Sunny Smiles by eye (§4), and no AfricanAmerican face has been
+compared with the game. The engine keeps morphing from the NPC's FGGS and FGGA alone
+until an in-game picture of such a face (Joe Cobb, front and profile) is compared with a
+render of each rule.
 
 ## 5. CLI contract
 
@@ -1198,7 +1262,8 @@ entities carry `RefVisual(reference)` like any actor, so when a script enables i
 (`ref_enabled`, or an enable parent's), nvf-play's visual sync shows it
 (docs/design/layer5-play.md §4). If the simulation already has the reference enabled
 when its cell loads (enabled while the cell was away), a component hook on
-`SpawnedDisabled` shows it at once. Without `--play` such actors stay hidden. Light
+`SpawnedDisabled` shows it at once. Without `--play` such actors stay hidden (the test aid `--show-disabled-actors` draws
+them, e.g. Joe Cobb in the saloon). Light
 sources of such references (LIGH) are spawned the same way under a hidden `RefVisual`
 holder; their models stay with nvf-play's `script_draw.rs` [engine rules]. The run
 summary's `ActorStats` counts hidden actors (`spawned_hidden`); `StreamStats::
