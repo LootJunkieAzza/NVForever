@@ -237,6 +237,29 @@ impl Plugin for DialogueLookPlugin {
         } else if s.recentre_on_choices {
             info!("dialogue look: the view comes back onto the actor when choices appear (--dialogue-recentre)");
         }
+        use crate::settings::{add_setting, Setting};
+        add_setting(
+            app,
+            Setting {
+                key: "dialogue-look",
+                group: crate::pause::GROUP_MENUS,
+                label: "Turn to each other in dialogue",
+                note: "On: at the start of a conversation the actor turns to the player and the view turns to the actor. (--no-dialogue-look)",
+                get: |w| w.resource::<LookSettings>().enabled,
+                set: |w, on| w.resource_mut::<LookSettings>().enabled = on,
+            },
+        );
+        add_setting(
+            app,
+            Setting {
+                key: "dialogue-recentre",
+                group: crate::pause::GROUP_MENUS,
+                label: "Bring the view back when choices appear",
+                note: "On: each time the choices come up the view returns to the actor. Off: only the opening turn; the view is yours for the rest of the conversation. Needs the turn above. (--dialogue-recentre)",
+                get: |w| w.resource::<LookSettings>().recentre_on_choices,
+                set: |w, on| w.resource_mut::<LookSettings>().recentre_on_choices = on,
+            },
+        );
     }
 }
 

@@ -369,6 +369,43 @@ keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
   menus of Part U, message boxes, the menus scripts open and the dialogue screen.
   `living` is what these menus always did (game logic held, animations and wind
   running); `original` pauses the virtual clock under them.
+- **Settings page** (2026-10-10, owner request: "a settings menu on ESC pause menu … all
+  our runtime params such as pausing time on dialogue as toggles"). The pause menu is
+  Resume / Settings / Quit; Settings (S, or a click) lists the on/off choices of the
+  command line that can change while the game runs, each showing the state the game is
+  using. Up/Down (or W/S) choose a row, Enter, Space, Left, Right or a click flip it,
+  Esc or Backspace go back. A flip acts at once and nothing is saved: the next start
+  goes by the command line again. Not the original's settings menu: neither its entries
+  nor its layout are copied [decision].
+  - A switch is an `nvf_play::settings::Setting`: a key, a label, a note, and a `get` and
+    `set` over the state its module already uses (so there is no second copy to keep in
+    step). The owning module registers it (`add_setting`): nvf-play its own in its
+    plugins, nvforever the renderer's in `nvforever/src/settings.rs`.
+  - The switches: `menu-pause` (the picture stands still in dialogue and menus,
+    `--menu-pause`), `voice` (`--no-voice`), `dialogue-look` (`--no-dialogue-look`),
+    `dialogue-recentre` (`--dialogue-recentre`), `lip-sync` (`--no-lip`),
+    `head-tracking` (`--no-head-tracking`), `sky-clock` (`--still-sky`), `sun-shadows`
+    (`--shadow-distance 0`), `grass` (`--no-grass`), `distant-lod` (`--no-lod`), `grade`
+    (`--no-grade`), `overlay` (`--no-overlay`), `navmesh` (`--show-navmesh`).
+  - What switching while the game runs needed: grass switched off is hidden and cells
+    loaded meanwhile are owed theirs (`grass.rs` `GrassOwed`), grown a cell a frame once
+    it is on again; head tracking off lets heads ease back, and actors get their
+    `HeadLook` only while it is on; lip sync off eases a moving face to rest; the sun's
+    shadow cascades are added when shadows come on (`sky::set_shadows`; a run started
+    with `--shadow-distance 0` uses the default distance); distant LOD keeps its
+    generated-terrain job with `--no-lod` so it can come on; `--no-grade` is a flag
+    (`SkyState::grade`) and now turns off an interior cell's grade as well.
+  - Left on the command line: what is fixed when the game starts (`--no-npc-packages`,
+    `--no-actors`, FaceGen, `--no-lodgen`), the numbers (distances, `--msaa`, `--fov`,
+    volumes) and the test aids.
+  - Test aid `NVF_PLAY_TEST_SETTINGS=<seconds>:<key>[,…]`: with the pause menu open
+    (`NVF_PLAY_TEST_PAUSE`), shows the settings page and flips that switch as a click
+    would; the key `page` only shows the page. Check (2026-10-10, Goodsprings): a run
+    started with everything off (`--no-grass --no-lod --shadow-distance 0 --no-grade
+    --no-overlay --no-head-tracking --still-sky`) and switched on from the page ends
+    with the same picture and counts as a default run (20,538 grass plants, 45 LOD
+    chunks, 60 generated); a default run with every switch flipped the other way shows
+    each change behind the open page.
 - The status overlay's help line showed the fly camera's keys in `--play`; it now shows
   `nvf_play::HELP` (the play controls).
 - Message-box buttons can be clicked (the original's can [observed by the coordinator]):

@@ -1474,6 +1474,35 @@ Follows item 4 of "Pale blue frames inside the ruined house in Primm" above. Bra
    fade. If the game fades them, the rule is "the mark, or hand-set values". I know of
    no place in the base game to check one.
 
+## A greeting marked Goodbye is just said at you (2026-10-10, session "greeting goodbye")
+
+You said: when the GREETING line an actor picks is marked Goodbye in the data, the game
+does not pull the player into a dialogue; the line is spoken at the player and the
+player is not locked in.
+
+1. **What was wrong:** we opened a full conversation for that one line. The game
+   paused, the dialogue screen came up and you could not move until the line was over.
+2. **Done:** such a greeting is now said like any line an actor calls out. You hear it
+   and see its subtitle, the game keeps running, you can walk away, and scripts no
+   longer see a dialogue menu. Greetings without the mark open the conversation as
+   before.
+3. **How common it is:** 3,023 of the 5,579 GREETING lines in the ten masters carry the
+   mark, so this is what most actors with nothing particular to say do.
+4. **Checked:** in `--play` in Goodsprings a scripted press of E on settler 04
+   (`GoodspringsSettler04Ref`) made her say her line with no conversation and the run
+   went on; ten seconds later the same press on Easy Pete opened his conversation as
+   before and it ended by his goodbye. I did not watch it by eye (the run was
+   unattended and silent). To see it: `nvforever --data <Data> --cell Goodsprings
+   --play`, walk up to a settler and press E.
+5. **My guesses, please correct any that are wrong:**
+   - The actor still counts as "has talked to the player" afterwards.
+   - Topics the line adds are still added when it ends.
+   - Pressing E again while the actor is still speaking cuts the line and starts the
+     greeting again.
+   - The rule is only for GREETING. A script that starts a conversation with another
+     topic whose first line is marked Goodbye still opens the dialogue screen for that
+     line.
+
 ## Shooting Sunny's bottles (2026-10-10, session "object hits")
 
 Your report: in "Back in the Saddle" the shots at the three bottles did not count, and

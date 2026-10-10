@@ -451,7 +451,8 @@ pub mod menus {
     pub const DIALOGUE: u16 = crate::dialogue::DIALOGUE_MENU;
 }
 
-/// A dialogue line being said (SayTo, Say): docs/spec-notes/scripts.md §7.7.
+/// A dialogue line being said outside a conversation (SayTo, Say, or a greeting with the
+/// Goodbye flag, `Game::start_dialogue`): docs/spec-notes/scripts.md §7.7.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Speech {
     pub speaker: FormId,
@@ -466,6 +467,11 @@ pub struct Speech {
     /// [documented: level-design.md §11.2 D1].
     #[serde(default)]
     pub say_to: bool,
+    /// A greeting with the Goodbye flag, said at the player without a conversation
+    /// (`Game::start_dialogue`, docs/spec-notes/dialogue.md §5): when it ends its Add
+    /// Topics are applied and no SayToDone block runs [hypothesis for both].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub greeting: bool,
 }
 
 pub struct Game<'a> {
@@ -1226,23 +1232,30 @@ impl<'a> Game<'a> {
     /// been said (stage 60 without 55), layer5-captures.md §10.3]. A speaker already
     /// saying a line stops it (its end script does not run) [hypothesis].
     pub fn say(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, say_to: bool) -> Option<FormId> {
-        let data = self.data;
         let listener = target.or(Some(FormId::PLAYER_REF));
         let Some(info) = self.select_line(speaker, listener, topic) else {
             self.emit(EventKind::NoLine { speaker, topic });
             return None;
         };
+        self.say_line(speaker, target, topic, info, say_to, false);
+        Some(info)
+    }
+
+    /// The speaker starts saying the line `info` outside a conversation: a line it was
+    /// saying stops, the line is remembered for Say Once, and its begin result script
+    /// runs ([`Game::say`]; `greeting`: [`Speech::greeting`]).
+    pub(crate) fn say_line(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, info: FormId, say_to: bool, greeting: bool) {
+        let data = self.data;
+        let Some(def) = data.infos.get(&info) else { return };
         self.cut_line(speaker);
-        let def = &data.infos[&info];
         self.mark_said(speaker, info, false);
         let seconds = self.line_seconds(speaker, info);
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to });
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting });
         if let Some(u) = def.begin {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
             self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
         }
-        Some(info)
     }
 
     /// Stop the line a speaker is saying, without its end script.
@@ -1292,6 +1305,19 @@ impl<'a> Game<'a> {
                     self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: Some(speaker) });
                     self.run_result(u, RunCtx { self_ref: Some(speaker), action_ref: None, quest: def.quest });
                 }
+                // A greeting said at the player ends as a conversation's line does
+                // (`Game::start_dialogue`): its Add Topics join the known topics, and it
+                // is no SayTo line [hypothesis for both].
+                if s.greeting {
+                    for &t in &def.add_topics {
+                        if self.player.topics.insert(t) {
+                            self.emit(EventKind::TopicAdded { topic: t, by: Some(info) });
+                        }
+                    }
+                }
+            }
+            if s.greeting {
+                continue;
             }
             // SayToDone follows a line said by Say as well as by SayTo [documented: GECK
             // tutorials, docs/spec-notes/level-design.md §11.2 D1].

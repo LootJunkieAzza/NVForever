@@ -51,6 +51,11 @@ impl CellFade {
         CellFade { level, leaving, applied: None }
     }
 
+    /// Give the cell's meshes their step again: meshes were added to it.
+    pub fn again(&mut self) {
+        self.applied = None;
+    }
+
     /// The level as a dither step (0 hidden … [`STEPS`] fully drawn).
     pub fn step(&self) -> u8 {
         step(self.level)

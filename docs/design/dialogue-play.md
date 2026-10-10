@@ -21,6 +21,18 @@ about the original unless it carries a tag.
    start conversations themselves with `StartConversation` (Doc Mitchell's psych test).
    An actor with nothing to say starts nothing: the line "… has nothing to say" shows as
    before and the log says why (`dialogue: no conversation: …`).
+   **An actor whose greeting has the Goodbye flag starts no conversation either**: it
+   says the line at the player and the player stays free to move, look and act
+   [owner statement 2026-10-10; the runtime's rule, dialogue.md §5]. The line is heard
+   and shown as a SayTo line is (the subtitle of `script_hud.rs`, the voice of
+   `voice.rs`); the state stays `Playing`, nothing pauses and the view is not turned
+   (§8 is for conversations). Log: `dialogue: <actor> says its greeting <line> at the
+   player (a Goodbye line: no conversation)`; `script::ByHand::Greeted`.
+   Checked 2026-10-10: `--cell Goodsprings --play --no-voice --run-seconds 40` with
+   `NVF_PLAY_TEST_TALK="8:GoodspringsSettler04Ref=;18:EasyPeteRef=leave"`: the settler
+   said 0x0015D8AF (2.21 s) with no `conversation … started` line and the run went on;
+   Easy Pete's conversation then started and ended by Goodbye (2 lines); exit 0, "run
+   finished".
 2. **The actor speaks.** The response being said is a subtitle, "Speaker: text", in the
    same place as the subtitles of SayTo lines (`script_hud.rs`), for as long as the
    runtime says it (its voice file's length; `voice.rs` plays the file). Under it a hint
