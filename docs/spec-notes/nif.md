@@ -348,12 +348,14 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   Additive shapes keep ignoring their test. Most of each strip falls from 0.55 to 0 or
   0.3 across its width, so what is above the cutoff is a line a pixel or two wide in
   the corners of the rooms [observed, `nvforever`, with the strips drawn alpha-tested].
-  The strips also keep the default view-angle falloff, which the renderers apply to
-  every blended shape of this property (see "View-angle falloff": alpha × cosine), and
-  0.55 × cosine is above the cutoff only within 24° of facing the strip: from the
-  owner's viewpoint in that house no strip is drawn at all [observed]. The strips do
-  not set the shader flag that goes with authored falloff there (bit 6), so this part
-  stands or falls with that open question.
+  The strips keep the default view-angle falloff values but do not set the shader flag
+  that switches the falloff on (bit 6, see "View-angle falloff"), so the renderers draw
+  them without it, and the lines show: in the owner's view of that house they run along
+  the ceiling edges, down the room corners and along the skirting, 4,151 pixels of
+  1280 × 800 darker than without the strips and none lighter [observed, `nvforever`].
+  While the renderers applied the falloff to every blended shape of this property
+  (alpha × cosine), 0.55 × cosine was above the cutoff only within 24° of facing a
+  strip, and from that viewpoint no strip was drawn at all [observed].
 
   The depth prepass has to test the same alpha as the main pass. Bevy's tests material
   alpha × texture alpha without the vertex alpha, so an alpha-tested shape with vertex
@@ -597,23 +599,62 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   By blending: 6,230 set the NiAlphaProperty blend bit (2,311 of them with destination
   factor ONE), 183 only alpha-test, and 960 have no NiAlphaProperty.
 
-  How the renderers apply it [hypothesis]: they multiply alpha by the opacity for |N·V|.
-  The opacity is linear in the cosine between the two angles and holds its end values
-  outside them. It is applied to blended materials only. An empty range or a constant
-  opacity of 1 means no falloff; read literally, the all-zero shapes would be invisible.
+  How the renderers apply it [hypothesis]: only when the property sets BSShaderFlags
+  bit 6 (below), they multiply alpha by the opacity for |N·V|. The opacity is linear in
+  the cosine between the two angles and holds its end values outside them. It is applied
+  to blended materials only. An empty range or a constant opacity of 1 means no falloff;
+  read literally, the all-zero shapes would be invisible.
 
   Without falloff, the Saloon lamp beam drew as a solid grey cone with hard edges. In
   game it is a faint haze [observed, owner's screenshots].
 
-  A shader flag goes with authored falloff [observed, the same survey over `Fallout -
-  Meshes.bsa` alone: 5,861 shapes]: BSShaderFlags bit 6, which nif.xml names "Empty" for
-  this game, is set on 1,013 of the 1,200 shapes with values of their own, on 95 of the
-  4,495 with the defaults and on 3 of the 166 with an empty range. Both shapes of the
-  Saloon lamp beam set it, one of them with the default values. No shape with a decal
-  bit has values of its own. [hypothesis, not applied: the game uses the falloff only
-  with bit 6, and the defaults without it are fields nobody filled in. The renderers
-  still apply the falloff to every blended shape of this property, which fades 4,400
-  shapes without the bit by the cosine of the view angle; no game frame was compared.]
+  The switch: BSShaderFlags bit 6 [hypothesis; no game frame of a shape without the bit
+  was compared]. nif.xml names the bit "Empty" for this game. For Skyrim and Fallout 4
+  it names the same bit "Use_Falloff" ("Use Falloff value in EffectShaderProperty"),
+  in flag sets that keep this game's names at bits 0, 1, 3, 7, 15, 16, 17, 29 and 31
+  and whose effect shader property stores the same four falloff fields [documented:
+  nif.xml SkyrimShaderPropertyFlags1, Fallout4ShaderPropertyFlags1,
+  BSEffectShaderProperty].
+
+  The same survey over `Fallout - Meshes.bsa` alone (5,861 shapes; `--list` prints the
+  shapes named here) [observed]: the bit is set on 1,013 of the 1,193 shapes with
+  values of their own, on 95 of the 4,495 with the defaults, on 3 of the 166 with an
+  empty range and on none of the 7 whose property has no falloff fields (stream
+  version 26 or lower). The Saloon lamp beam's one drawn shape sets it, with values of
+  its own; the beam file's editor marker sets it too, with the defaults, and is never
+  drawn. No shape with a decal bit has values of its own.
+  - With values and with the bit (1,013): all but 4 are blended, 675 of them additive.
+    Light beams, smoke, dust, muzzle flashes, energy effects.
+  - Defaults without the bit (4,400): 3,467 blended, 758 without a NiAlphaProperty, 175
+    only alpha-tested. 1,936 name no texture (vertex-coloured shade and shadow
+    overlays: the Old Town shadow strips, and the drop shadows of the cards, coins and
+    bills of the Caravan table, 258 of the 262 blended shapes under
+    `terminals\nv_caravan`); the rest are sign lights (`nv_neon-lights.dds`, `striplights01.dds`), screens,
+    holograms and glows. Faded by the cosine, the shadow under a playing card on a
+    table would be half gone when seen from 60° off the vertical.
+  - Values without the bit (180, in 88 files): 38 hold opacity 1 → 1, which changes
+    nothing (scope overlays, ghoul glows; 38 of the 39 shapes with these values). 38
+    hold opacity 0.5 → 1 over cosine 1 → 0 (brighter towards the edges), all 38 shapes
+    with these values: the fluid and field tubes of the brain and stasis pods. 34 are
+    force field panels with 0.985 → 0.174, in files whose glow mesh has the same values
+    and the bit. The rest are sun glare, scan lines, projectiles and beams. 51 of the
+    180 are in the 29 files that also hold a shape with values and the bit. Nothing
+    else separates them from the 1,013: not the blend factors, not another flag bit,
+    not the folder. Read with the bit as the switch, these are values left behind
+    where the falloff is off. The other reading, that values other than the defaults
+    apply without the bit as well, cannot be told from the files; it would draw 140
+    of these shapes differently (the blended ones whose values change something).
+  - Defaults with the bit (95): 84 blended. 38 are the glass of Enclave light panels
+    (`glasstile01.dds`), 26 name no texture, 21 set the decal bits. With the bit they
+    fade by the cosine of the view angle.
+
+  The renderers applied the falloff to every blended shape of this property before,
+  which faded the 3,467 blended default shapes without the bit by the cosine of the
+  view angle. In `nvforever` [observed, same camera before and after]: the Saloon lamp
+  beam is identical to the pixel in two views; the neon tubes on the Saloon's letters
+  and the lit letters of the Bison Steve sign in Primm, seen at a grazing angle, were
+  nearly out and are lit; the Old Town shadow strips show as thin lines
+  (see "Alpha", "Vertex alpha and the test").
 - **Vertex colours** [observed, `crates/fnv-nif/examples/vertex_alpha_survey.rs` over
   `Fallout - Meshes.bsa`, visible shapes with vertex colours and a shader property]:
   with BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml] set, 2,445 shapes have
