@@ -311,7 +311,8 @@ Facts and rules: docs/spec-notes/actors.md §10 (records, resolution, meshes, id
   idle phases (animation.md §8); `nvf-viewer --anim` plays walks in place (actors.md
   §8.8); the body skin `.egt` tints the body texture (actors.md §4.1).
 - **Not done**: creature walk/turn/attack clips and KFFZ special idles (Layer 6); NIFT
-  texture variants; hand `.egt`; race FaceGen data (§4.2 of actors.md).
+  texture variants; race FaceGen data (§4.2 of actors.md). The hand `.egt` followed on
+  2026-10-10 (actors.md §4.1).
 
 Results (2026-10-09): `L3.actors.creatures` 2,346 of 2,346 equal; every skin bone of the
 230 (skeleton, model) pairs is in its skeleton and every rigid shape finds a bone

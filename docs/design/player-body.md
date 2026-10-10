@@ -25,13 +25,17 @@ controls.md (bindings).
 - **Third person**: the player's NPC_ (FormID 7, `fnv_sim::FormId::PLAYER_BASE`)
   resolved like a placed actor (`fnv_actor::Resolver::resolve_wearing`) on
   `characters\_male\skeleton.nif`: race body, head and FaceGen face, hair, eyes, wearing
-  the armour the simulation has equipped on the player. It stands at the character's
+  the armour the simulation has equipped on the player. With nothing worn the race's
+  upper body shows: its skin shape with the tinted skin texture and its underwear shape
+  (grey T-shirt, dark shorts) with its own texture (actors.md §3.1, §4.1). It stands at
+  the character's
   feet, faces the view's heading, and carries no `RefVisual` (the crosshair never
   targets it). Shown in third person and while the camera circles the player.
 - **First person**: the game's arms rig, `characters\_1stperson\skeleton.nif`, with its
   own clips (`characters\_1stperson\`). It draws the hands (their `…1st.nif` meshes) and
   only the `Arms…` shapes of the upper body and of worn upper-body armour (gloves whole;
-  no head, hair or other armour; `fnv_actor::first_person`), and the weapon's
+  no head, hair or other armour; skin tinted as in third person;
+  `fnv_actor::first_person`), and the weapon's
   first-person model (WEAP `WNAM`, a STAT). `Bip01 Looking` turns with the view's pitch,
   so arms and weapon stay in front of the camera, which sits at the rig's `Camera1st`
   node: 118 units above the feet, 78 crouched. Shown in first person.

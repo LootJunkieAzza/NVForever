@@ -93,6 +93,11 @@ pub struct Appearance {
     /// the appearance document).
     #[serde(skip)]
     pub body_texture: Option<String>,
+    /// The race's hand skin texture (body index 1 ICON, else index 2; the two name one
+    /// file in every race of FalloutNV.esm [observed]), whether or not a hand is drawn
+    /// (engine use, as `body_texture`).
+    #[serde(skip)]
+    pub hand_texture: Option<String>,
     /// The weapon the actor draws (part H, §9). Not part of `fnv.actor.appearance/1`.
     #[serde(skip)]
     pub weapon: Option<FormId>,
@@ -173,6 +178,20 @@ pub fn texture_path(p: &str) -> String {
     archive_path("textures\\", p)
 }
 
+/// The `.egt` of a race hand, from the race's body `.egt` (an archive path): beside it,
+/// `lefthand<kind>.egt` or `righthand<kind>.egt`, `<kind>` being what follows
+/// `upperbody` and an optional `human` in the body file's name (`upperbodyhumanmale.egt`
+/// → `lefthandmale.egt`, `upperbodychildfemale.egt` → `righthandchildfemale.egt`)
+/// [hypothesis from the file names: no record names the hand files; every body `.egt`
+/// but `upperbodyhumanghoul.egt`, whose kind has hand files for both sexes, pairs with
+/// existing hand files this way, docs/spec-notes/actors.md §4.1].
+pub fn hand_egt(body_egt: &str, left: bool) -> Option<String> {
+    let (dir, file) = body_egt.rsplit_once('\\')?;
+    let kind = file.strip_suffix(".egt")?.strip_prefix("upperbody")?;
+    let kind = kind.strip_prefix("human").unwrap_or(kind);
+    Some(format!("{dir}\\{}hand{kind}.egt", if left { "left" } else { "right" }))
+}
+
 fn archive_path(root: &str, p: &str) -> String {
     let p = p.trim().replace('/', "\\").to_ascii_lowercase();
     let p = p.trim_start_matches('\\');
@@ -238,9 +257,13 @@ impl<'a> Resolver<'a> {
         let mut parts = Vec::new();
         let mut body_egt = None;
         let mut body_texture = None;
+        let mut hand_texture = None;
         for p in &race.body[sex] {
             if p.index == 0 {
                 body_texture = p.icon.as_deref().map(texture_path);
+            }
+            if matches!(p.index, 1 | 2) && hand_texture.is_none() {
+                hand_texture = p.icon.as_deref().map(texture_path);
             }
             let (role, hidden_by) = match p.index {
                 0 => ("body:upper_body", slot::UPPER_BODY),
@@ -304,6 +327,7 @@ impl<'a> Resolver<'a> {
             race_facegen: race.facegen[sex].clone(),
             body_egt,
             body_texture,
+            hand_texture,
             weapon,
             random: ch.random,
         })
@@ -628,6 +652,16 @@ mod tests {
         let sk = mesh_path(r"creatures\NVBigHorner\skeleton.nif");
         assert_eq!(creature_part_path(&sk, "NVBigHorner.nif"), r"meshes\creatures\nvbighorner\nvbighorner.nif");
         assert_eq!(creature_part_path(&sk, " Sub/Part.NIF"), r"meshes\creatures\nvbighorner\sub\part.nif");
+    }
+
+    #[test]
+    fn hand_egts_sit_beside_the_body_egt() {
+        let body = |f: &str| mesh_path(&format!(r"Characters\_Male\{f}"));
+        assert_eq!(hand_egt(&body("UpperBodyHumanMale.egt"), true).as_deref(), Some(r"meshes\characters\_male\lefthandmale.egt"));
+        assert_eq!(hand_egt(&body("UpperBodyHumanOldFemale.egt"), false).as_deref(), Some(r"meshes\characters\_male\righthandoldfemale.egt"));
+        assert_eq!(hand_egt(&body("UpperBodyChild.egt"), false).as_deref(), Some(r"meshes\characters\_male\righthandchild.egt"));
+        assert_eq!(hand_egt(&body("Body.egt"), true), None);
+        assert_eq!(hand_egt("upperbodyhumanmale.egt", true), None);
     }
 
     #[test]
