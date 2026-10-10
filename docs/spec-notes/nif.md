@@ -290,6 +290,23 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   TEST_GREATER keeps alpha strictly above the threshold; Bevy's mask keeps alpha ≥ the
   cutoff, so the cutoff moves half a step up [hypothesis]. Order-dependent blending
   remains possible for the blended shapes.
+
+  Static collections can lose the threshold [observed, `fnvtool nif decode`]: the single
+  maize plants (`landscape\plants\maize_healthyp.nif`, `maize_withered.nif` and their
+  `_group1` models) have flags 4845 (blend, test GREATER) with threshold 124, while the
+  merged rows built from them (`scol\scolmaizerow1b.nif`, `scolmaizerow2b.nif`,
+  `maizewitheredgroup2b.nif`) have the same flags with threshold 0. So by the rule above
+  the single plants are alpha-tested and the rows blended. Their texture `Maize_D.dds`
+  (DXT3) is a cut-out with soft edges: 31.8% of its texels have alpha 0, 60.2% alpha
+  255 and 8.1% lie between. Blended, the rows look right as long as nothing blended is
+  drawn over them. The terrain's texture layers were: they are blended meshes too, a
+  blended shape writes no depth, and the layers of the ground behind a row were drawn
+  after the row wherever their quadrant sorted as the nearer, which left the corn faint
+  and hid the row behind it entirely [observed: Goodsprings, `--pos -70710,-764,8350
+  --heading 175 --pitch -8 --fov 75`]. Terrain layers are now drawn before every other
+  blended mesh (docs/spec-notes/world.md §"Texture layers"); the rows are solid.
+  Whether the game writes depth for blended shapes is open; within one blended mesh
+  the triangles are drawn in their stored order.
 - **Skin shader type** [observed, `crates/fnv-nif/examples/skin_survey.rs` over
   `Fallout - Meshes.bsa`]: 255 visible shapes have BSShaderPPLightingProperty shader
   type 14 (`SHADER_SKIN` [documented: nif.xml BSShaderType]); the same 255 and no others
@@ -328,6 +345,81 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   so it is not a plain colour multiplier there. How their multipliers (up to 10, e.g.
   the saloon's neon tubes ×7.5) and the 717 NiMaterialColorController / 317
   BSMaterialEmittanceMultController blocks (blinking bulbs) affect brightness is open.
+- **Multiply blend** (NiAlphaProperty with the blend bit, source factor ZERO and
+  destination factor SRC_COLOR): the frame behind the shape is multiplied by the shape's
+  colour, channel by channel, and the shape adds no light of its own [documented:
+  nif.xml AlphaFlags and AlphaFunction]. It can only darken or tint.
+
+  Survey of the 7,121 visible shapes with the blend bit in `Fallout - Meshes.bsa`
+  [observed, `crates/fnv-nif/examples/blend_survey.rs`], by source / destination factor:
+  4,616 SRC_ALPHA / INV_SRC_ALPHA, 1,730 SRC_ALPHA / ONE, 584 ZERO / SRC_COLOR, 182 ONE /
+  ONE, and 9 others (ONE / ZERO 4, ZERO / INV_SRC_ALPHA 2, SRC_ALPHA / SRC_COLOR 1,
+  SRC_COLOR / ZERO 1, ZERO / ZERO 1). The 584 multiply shapes:
+  - 578 are drawn by a BSShaderNoLightingProperty. 571 of them name no texture and carry
+    vertex colours: overlays laid on interior kit pieces (118 under `dlcanch\dungeons`,
+    110 `dlcpitt\dungeons`, 83 `dungeons\utility`, 40 `clutter\consoles`, ...). Example:
+    `utlhallsm1waypipe01.nif`, shape `UtlHallSm1WayPipe01:8`, 46 vertices, white on 31
+    (no change) and browns such as (0.54, 0.40, 0.32) and (0.33, 0.13, 0) on the rest: a
+    rust stain on the wall under the pipes. The other 7 have a texture (a shade
+    gradient, the vault projector's slides, a scope reticle).
+  - 5 are interface shapes (TileShaderProperty).
+  - 1 is drawn by a BSShaderPPLightingProperty, i.e. lit: `##SkullCap:0` of
+    `creatures\dog\rex_skullcap.nif`, the glass over Rex's brain. It is also the only one
+    of the 584 with a non-black emissive colour.
+
+  The skull caps [observed, `fnvtool nif decode`, textures decoded from the archives]:
+  - Rex: texture `rex\skullcap.dds`, one flat colour, sRGB (49, 87, 117); a flat normal
+    map with alpha 50/255; environment cube `chrome_e.dds`; no glow map. Emissive colour
+    0.190 × multiplier 12 = 2.28. A NiMaterialColorController with target colour 3
+    (TC_SELF_ILLUM [documented: nif.xml MaterialColor]) keys the emissive colour between
+    0.128 and 0.208 (39 keys, a 4.0 s loop, mean 0.158). The brain under it
+    (`##BrainMesh:0`) is opaque, emissive 0.099 × 1 keyed 0.088–0.127 the same way.
+  - The cyberdogs' caps lie in `OldWorldBlues - Main.bsa` (the two files were decoded by
+    name; that archive was not surveyed). `cpskullcap.nif` has Rex's properties with a
+    flat texture of (117, 49, 52), the same texture again in the glow slot, and emissive
+    0.816 × 12 = 9.79. `cmskullcap.nif` is unlit (BSShaderNoLightingProperty) with a flat
+    texture of (117, 102, 49).
+
+  How the renderers draw it [hypothesis]. The shape's colour is a factor, formed the way
+  the game is taken to form a lit colour, on display values: texture × (light +
+  emissive colour × emissive multiplier × glow map), and limited to 0..1 when it is
+  written. So
+  - Rex's cap, in the dark: 2.28 × (0.19, 0.34, 0.46) = (0.44, 0.78, 1.05), limited to
+    (0.44, 0.78, 1): a light blue glass. Light on the cap adds to the factor (the glass
+    clears where it is lit), and the keyed emissive colour would move the red factor
+    between 0.30 and 0.48;
+  - the police cyberdog's: 9.79 × (0.46, 0.19, 0.20)² = (2.06, 0.36, 0.41), limited to
+    (1, 0.36, 0.41): a red glass;
+  - the military cyberdog's: its texture, (0.46, 0.40, 0.19): a yellow glass.
+
+  That the three come out as blue, red and yellow glass of about the same depth is the
+  support for this reading: without the limit the red cap would double the brightness
+  of the brain behind it, and without the glow map in the product it would be clear.
+  No game screenshot was compared.
+
+  In the engine (`nif_material.wgsl`, CPU mirror `nif_material::multiply_factor`): the
+  lit colour and the emissive light are each taken to display values (gamma 2.2), summed,
+  limited to 0..1 and taken back; the emissive value of a multiply shape is raised to
+  the gamma first, so that the product with the linear texture is the display-value
+  product above (`nif_spawn::shape_emissive`). The factor is neither fogged nor
+  tonemapped: it is not light, and what lies behind already carries both [hypothesis].
+  Unlit multiply shapes draw their texture × vertex colour as the factor.
+
+  Before, the emissive light was added as light (2.28 × the *linear* texture, a factor
+  of (0.07, 0.22, 0.41)) and the factor then went through fog and the tonemapper. In
+  the King's School of Impersonation the frame was 0 over the whole cap and the brain
+  could not be seen [observed, `nvforever` screenshots]; with the rule above the brain
+  shows through a blue tint.
+
+  Open: the emissive colour controllers are not played (the stored colour is used);
+  the environment map is not drawn (it would add reflections to the factor); whether the
+  game limits the colour depends on its frame format; vertex colours enter as linear
+  factors here as on every other shape, which leaves the overlays lighter than a product
+  of display values would; ZERO / INV_SRC_ALPHA (two scope lens shapes, darkening by
+  alpha) is still drawn as a multiply by colour; the overlays lie in the plane of the
+  surface under them and flicker against it (their shader flags set bits 26 and 27,
+  `decal_single_pass` and `dynamic_decal_single_pass` [documented: nif.xml
+  BSShaderFlags], which the renderers do not use yet).
 - **View-angle falloff** (BSShaderNoLightingProperty, stream version > 26) is stored as
   four floats: a start angle and a stop angle, each the cosine of an angle, and an
   "alpha falloff multiplier" opacity for each [documented: nif.xml].
