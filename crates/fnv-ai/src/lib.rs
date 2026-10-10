@@ -5,9 +5,12 @@
 //!
 //! - [`goal`]: where a package sends its actor
 //! - [`carry`]: the actors the AI moves: reachability, the walk, arrival
+//! - [`sandbox`]: what a sandboxing actor does in its area
 
 pub mod carry;
 pub mod goal;
+pub mod sandbox;
 
 pub use carry::{Activity, Agent, Ai, AiConfig, AiEvent, Logged, Mover};
 pub use goal::{Goal, Route};
+pub use sandbox::{Allowed, Doing, Sandbox};

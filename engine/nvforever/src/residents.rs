@@ -17,11 +17,15 @@
 //! calendar, which the simulation advances at the TimeScale global (`nvf_play::sim`);
 //! this module only sets it to the sky's hour once, at the start.
 //!
-//! **Furniture** (`furniture.rs`). An actor that has arrived uses furniture when its
-//! package gives it some ([`choose_seat`]): the package's location when that reference
-//! is furniture, a bed for a Sleep package, a seat near an Eat location. It is told to
-//! sit ([`SitOn`]) once it is drawn; before it leaves for its next package it is told
-//! to get up ([`GetUp`]) and its walk waits until it has.
+//! **Furniture** (`furniture.rs`). `fnv_ai` says what furniture an actor uses
+//! (`Agent::using`): what its package gives it (`fnv_ai::goal::package_furniture`) or
+//! what its sandbox chose (`fnv_ai::sandbox`: seats, beds at night, a seat for a meal).
+//! The actor is told to sit ([`SitOn`]) once it is drawn; when it is to use something
+//! else, or nothing, it is told to get up ([`GetUp`]) and its walk waits until it has.
+//!
+//! **Sandboxing** (`fnv_ai::sandbox`) is decided headless; here its walks are walked,
+//! its seats sat on, and at an idle marker the actor stands facing the marker's way
+//! (the marker's idles are not played yet).
 //!
 //! **Movement.** With `--play`, an actor walking where the collision world is loaded
 //! (around the player) is moved by the character controller ([`PhysMover`]): it steers
@@ -35,12 +39,11 @@ use crate::locomotion::Locomotion;
 use crate::nav::{self, Lead, NavState};
 use crate::world::{CellKey, Streamer, WorldData, WorldRoot};
 use bevy::prelude::*;
-use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Mover};
+use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Doing, Mover};
 use fnv_game::game::{Game, GameConfig};
-use fnv_game::package::{LocationKind, PackageDef, PackageType};
 use fnv_game::GameData;
 use fnv_nav::follow::{heading_of, turn_towards, Advice, Unstuck};
-use fnv_nav::{NavGraph, Place, Space, Steer, WalkEvent, Walker};
+use fnv_nav::{NavGraph, Space, Steer, WalkEvent, Walker};
 use nvf_play::phys::PhysState;
 use fnv_sim::{clock, FormId, FormStore, RefTable, SimConfig, World};
 use nvf_assets::actor::ActorParts;
@@ -237,10 +240,8 @@ struct Resident {
     doors_opened: usize,
     last_feet: [f32; 3],
     seat: Seat,
-    /// The package the seat was decided for.
-    seat_package: Option<FormId>,
-    /// The actor is where its package wants it and still runs that package.
-    settled: bool,
+    /// The furniture `fnv_ai` has the actor use now.
+    wants: Option<u32>,
 }
 
 /// Everything but the game state the choice runs in.
@@ -264,12 +265,11 @@ struct Core {
     /// Updates in which an actor was moved by physics; times physics gave up; the most
     /// actors moved by physics in one frame.
     physics: [usize; 3],
-    /// Furniture bases: (to sit on, to sleep on).
-    furniture: HashMap<u32, (bool, bool)>,
-    /// Furniture references given to a resident.
-    taken: HashSet<u32>,
     /// Times an actor was told to sit, and to get up.
     seats: [usize; 2],
+    /// Sandbox behaviours begun, by kind (standing, wandering, sitting, idle marker,
+    /// sleeping, eating).
+    sandbox: [usize; 6],
 }
 
 #[derive(Resource)]
@@ -317,12 +317,8 @@ impl Residents {
             unstuck: HashMap::new(),
             skip_until: HashMap::new(),
             physics: [0; 3],
-            furniture: {
-                let mut issues = fnv_sim::extract::Issues::default();
-                fnv_actor::furniture::furniture(world.lo, world.schema, &mut issues).into_iter().map(|f| (f.id.0, (f.sit(), f.sleep()))).collect()
-            },
-            taken: HashSet::new(),
             seats: [0; 2],
+            sandbox: [0; 6],
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -405,8 +401,7 @@ impl Core {
             doors_opened: 0,
             last_feet: placed.pos,
             seat: Seat::None,
-            seat_package: None,
-            settled: false,
+            wants: None,
         });
     }
 
@@ -501,6 +496,16 @@ impl Core {
                 AiEvent::Arrived { .. } => self.counts[1] += 1,
                 AiEvent::Unreachable { .. } => self.counts[2] += 1,
                 AiEvent::Package { .. } => self.counts[3] += 1,
+                AiEvent::Sandbox { doing, .. } => {
+                    self.sandbox[match doing {
+                        Doing::Standing => 0,
+                        Doing::Wandering => 1,
+                        Doing::Sitting(_) => 2,
+                        Doing::AtIdleMarker(_) => 3,
+                        Doing::Sleeping(_) => 4,
+                        Doing::Eating(_) => 5,
+                    }] += 1
+                }
                 _ => {}
             }
             let Some(r) = self.list.iter().find(|r| r.actor == e.actor) else { continue };
@@ -516,18 +521,8 @@ impl Core {
         for r in self.list.iter_mut() {
             r.present = r.joined && !r.failed && game.present(r.actor);
             let Some(agent) = self.ai.agents.get(&r.actor) else { continue };
-            // The furniture of the package, decided once the actor is there.
-            let package = game.extra.get(&r.actor).and_then(|e| e.current_package);
-            r.settled = agent.activity == Activity::There && package.is_some() && (r.seat_package.is_none() || r.seat_package == package);
-            if r.settled && r.seat_package.is_none() {
-                r.seat_package = package;
-                let def = package.and_then(|p| game.data.package_defs.get(&p));
-                let at = Place { space: agent.walker.space, pos: agent.walker.feet };
-                if let Some(f) = def.and_then(|d| choose_seat(game, &self.furniture, &self.taken, r.actor, d, at)) {
-                    self.taken.insert(f);
-                    r.seat = Seat::Wanted(f);
-                }
-            }
+            // The furniture it is to use, once it stands there.
+            r.wants = agent.using.filter(|_| agent.activity == Activity::There).map(|f| f.0);
             // Doors that open in place: when it starts waiting and when it walks on.
             match (agent.waiting_at, r.waiting) {
                 (Some(d), w) if w.is_none_or(|w| w.0 != d) => {
@@ -543,49 +538,6 @@ impl Core {
             }
         }
     }
-}
-
-/// The furniture a package gives an actor that has arrived at `at`, if any:
-/// - the package's location, when that reference is furniture [observed: under Travel
-///   packages to a chair EasyPeteRef and a settler were sitting, GetSitting 3, in 7,395
-///   samples; packages.md §4];
-/// - for a Sleep package, the nearest bed of the actor's cell within the location's
-///   radius, or anywhere in the cell for an "in cell" location [documented: GECK wiki,
-///   Sleep Package];
-/// - for an Eat package, the nearest seat within 256 units [documented: "sitting down
-///   if furniture is available", Eat Package; the distance is our choice].
-///
-/// Furniture another resident was given is left alone. Sandboxing actors choosing
-/// furniture by themselves is not done.
-fn choose_seat(game: &Game, furniture: &HashMap<u32, (bool, bool)>, taken: &HashSet<u32>, actor: FormId, def: &PackageDef, at: Place) -> Option<u32> {
-    let refs = game.world.placed;
-    let kind = |r: FormId| refs.get(r).and_then(|p| furniture.get(&p.base.0)).copied();
-    let loc = def.location?;
-    if let LocationKind::NearReference(Some(r)) = loc.kind {
-        if kind(r).is_some() {
-            return (!taken.contains(&r.0)).then_some(r.0);
-        }
-    }
-    let (want_bed, reach) = match (def.ty, loc.kind) {
-        (PackageType::Sleep, LocationKind::InCell(_)) => (true, f32::INFINITY),
-        (PackageType::Sleep, _) => (true, (loc.radius as f32).max(256.0)),
-        (PackageType::Eat, _) => (false, 256.0),
-        _ => return None,
-    };
-    let cell = fnv_ai::goal::cell_of_place(refs, &at)?;
-    let _ = actor;
-    refs.by_cell
-        .get(&cell)?
-        .iter()
-        .filter(|r| !taken.contains(&r.0))
-        .filter(|r| kind(**r).is_some_and(|(sit, sleep)| if want_bed { sleep } else { sit }))
-        .filter_map(|r| {
-            let p = refs.get(*r)?;
-            let d = (p.pos[0] - at.pos[0]).hypot(p.pos[1] - at.pos[1]);
-            (d <= reach && (p.pos[2] - at.pos[2]).abs() < 200.0).then_some((d, r.0))
-        })
-        .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|x| x.1)
 }
 
 pub fn log_startup(mut res: ResMut<Residents>) {
@@ -619,6 +571,21 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),
         AiEvent::Unreachable { package, why } => format!("cannot reach the place of {}: {why}", n(package)),
         AiEvent::NotCarriedOut { package, why } => format!("stays: {} is {why}, not carried out yet", n(package)),
+        AiEvent::Furniture { furniture: Some(f) } => format!("is to use furniture {f}"),
+        AiEvent::Furniture { furniture: None } => "leaves its furniture".into(),
+        AiEvent::Sandbox { doing, walk } => {
+            let what = match doing {
+                Doing::Standing => "stands".to_string(),
+                Doing::Wandering => "wanders".to_string(),
+                Doing::Sitting(f) => format!("goes to sit on {f}"),
+                Doing::AtIdleMarker(m) => format!("goes to idle marker {m}"),
+                Doing::Sleeping(f) => format!("goes to sleep on {f}"),
+                Doing::Eating(Some(f)) => format!("has a meal on {f}"),
+                Doing::Eating(None) => "has a meal standing".to_string(),
+            };
+            if *walk > 0.0 { format!("sandbox: {what}, {walk:.0} units away") } else { format!("sandbox: {what}") }
+        }
+        AiEvent::PatrolWait { patrol_point, seconds } => format!("waits {seconds:.0}s at patrol point {}", n(patrol_point)),
     }
 }
 
@@ -702,47 +669,36 @@ pub fn drive(
         // Furniture: sit once drawn; get up before leaving.
         let on = on_furniture.contains(&r.actor.0);
         let entity = r.root.filter(|_| r.spawned);
+        let wants = r.wants;
         r.seat = match (r.seat, entity) {
-            (Seat::Wanted(f), Some(e)) if r.settled => {
+            (Seat::None, _) => wants.map_or(Seat::None, Seat::Wanted),
+            (Seat::Wanted(f), Some(e)) if wants == Some(f) => {
                 commands.entity(e).insert(SitOn { furniture: f, stay: None });
                 core.seats[0] += 1;
                 Seat::Ordered(f, false)
             }
-            (Seat::Wanted(f), _) if !r.settled => {
-                core.taken.remove(&f);
-                r.seat_package = None;
-                Seat::None
-            }
+            (Seat::Wanted(f), _) if wants != Some(f) => Seat::None,
             // Its visual went away (its cell unloaded): sit again when it is back.
-            (Seat::Ordered(f, _), None) if r.settled => Seat::Wanted(f),
-            (Seat::Ordered(f, seen), Some(e)) if !r.settled => {
+            (Seat::Ordered(f, _), None) if wants == Some(f) => Seat::Wanted(f),
+            (Seat::Ordered(f, _), Some(e)) if wants != Some(f) => {
                 if on {
                     commands.entity(e).insert(GetUp);
                     core.seats[1] += 1;
                     Seat::GettingUp(f)
                 } else {
                     // Never got on (or the furniture module refused): nothing to undo.
-                    let _ = seen;
                     commands.entity(e).remove::<SitOn>();
-                    core.taken.remove(&f);
-                    r.seat_package = None;
                     Seat::None
                 }
             }
             (Seat::Ordered(f, _), _) if on => Seat::Ordered(f, true),
-            (Seat::Ordered(f, _) | Seat::GettingUp(f), None) => {
-                core.taken.remove(&f);
-                r.seat_package = None;
-                Seat::None
-            }
-            (Seat::GettingUp(f), Some(e)) if !on => {
+            (Seat::Ordered(..) | Seat::GettingUp(_), None) => Seat::None,
+            (Seat::GettingUp(_), Some(e)) if !on => {
                 // Up: the walk goes on from where the furniture left the actor.
                 if let (Ok((t, _)), Some(a)) = (actors.get(e), core.ai.agents.get_mut(&r.actor)) {
                     a.walker.feet = t.translation.to_array();
                     a.walker.tri = fnv_nav::graph::NONE;
                 }
-                core.taken.remove(&f);
-                r.seat_package = None;
                 Seat::None
             }
             (s, _) => s,
@@ -803,7 +759,7 @@ pub fn report(
     each.extend(crowd.into_iter().take(6).filter_map(one));
     let by = |a: Activity| core.ai.agents.values().filter(|x| x.activity == a).count();
     info!(
-        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; physics moved actors in {} updates (at most {} at once), gave up {} times; {}",
+        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; physics moved actors in {} updates (at most {} at once), gave up {} times; {}",
         core.clock_text,
         core.list.len(),
         core.counts[3],
@@ -817,6 +773,12 @@ pub fn report(
         core.seats[0],
         core.seats[1],
         core.list.iter().filter(|r| matches!(r.seat, Seat::Ordered(_, true))).count(),
+        core.sandbox[1],
+        core.sandbox[2],
+        core.sandbox[3],
+        core.sandbox[4],
+        core.sandbox[5],
+        core.sandbox[0],
         core.physics[0],
         core.physics[2],
         core.physics[1],

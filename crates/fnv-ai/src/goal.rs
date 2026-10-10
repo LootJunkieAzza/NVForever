@@ -5,7 +5,7 @@
 //! docs/design/actor-behaviour.md §5.
 
 use fnv_game::game::Game;
-use fnv_game::package::{LocationKind, PackageDef, PackageType};
+use fnv_game::package::{furniture, LocationKind, PackageDef, PackageType};
 use fnv_nav::graph::NONE;
 use fnv_nav::{NavGraph, Place, Space};
 use fnv_sim::{FormId, RefTable};
@@ -192,4 +192,46 @@ pub fn resolve(game: &Game, nav: &NavGraph, actor: FormId, def: &PackageDef) -> 
             Goal::NotCarriedOut("a location given by an object")
         }
     }
+}
+
+/// The furniture a package gives an actor that has arrived at `at`, if any:
+/// - the package's location, when that reference is furniture [observed: under Travel
+///   packages to a chair EasyPeteRef and a settler were sitting, GetSitting 3, in 7,395
+///   samples; packages.md §4];
+/// - for a Sleep package, the nearest bed of the actor's cell within the location's
+///   radius, or anywhere in the cell for an "in cell" location [documented: GECK wiki,
+///   Sleep Package];
+/// - for an Eat package, the nearest seat within 256 units [documented: "sitting down
+///   if furniture is available", Eat Package; the distance is our choice].
+///
+/// Furniture given to another actor (`taken`: furniture to its user) is left alone.
+/// Sandbox and Wander packages choose for themselves (`crate::sandbox`).
+pub fn package_furniture(game: &Game, taken: &std::collections::BTreeMap<FormId, FormId>, actor: FormId, def: &PackageDef, at: Place) -> Option<FormId> {
+    let refs = game.world.placed;
+    let flags = |r: FormId| refs.get(r).and_then(|p| game.data.furniture.get(&p.base)).copied();
+    let free = |r: &FormId| taken.get(r).is_none_or(|a| *a == actor);
+    let loc = def.location?;
+    if let LocationKind::NearReference(Some(r)) = loc.kind {
+        if flags(r).is_some() {
+            return free(&r).then_some(r);
+        }
+    }
+    let (want, reach) = match (def.ty, loc.kind) {
+        (PackageType::Sleep, LocationKind::InCell(_)) => (furniture::SLEEP, f32::INFINITY),
+        (PackageType::Sleep, _) => (furniture::SLEEP, (loc.radius as f32).max(256.0)),
+        (PackageType::Eat, _) => (furniture::SIT, 256.0),
+        _ => return None,
+    };
+    let cell = cell_of_place(refs, &at)?;
+    refs.by_cell
+        .get(&cell)?
+        .iter()
+        .filter(|r| free(r) && flags(**r).is_some_and(|f| f & want != 0))
+        .filter_map(|r| {
+            let p = refs.get(*r)?;
+            let d = (p.pos[0] - at.pos[0]).hypot(p.pos[1] - at.pos[1]);
+            (d <= reach && (p.pos[2] - at.pos[2]).abs() < 200.0).then_some((d, *r))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|x| x.1)
 }

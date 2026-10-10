@@ -84,6 +84,8 @@ impl<'a> Sim<'a> {
             "pos": a.walker.feet.map(|v| (v * 10.0).round() / 10.0),
             "package": package.map(|p| data.name(p)),
             "activity": a.activity,
+            "using": a.using.map(|f| name(data, refs, f)),
+            "sandbox": a.sandbox.as_ref().map(|s| serde_json::to_value(s.doing).unwrap_or(Value::Null)),
         })
     }
 }
@@ -97,7 +99,7 @@ fn events_json(data: &GameData, refs: &RefTable, ai: &Ai, actor: FormId, cap: us
             *counts.entry(k.to_string()).or_default() += 1;
         }
         // Names instead of FormIDs.
-        for key in ["package", "door", "to_door", "patrol_point"] {
+        for key in ["package", "door", "to_door", "patrol_point", "furniture", "object"] {
             if let Some(f) = v.get(key).and_then(Value::as_str).and_then(|s| crate::parse_formid(s).ok()) {
                 v[key] = json!(name(data, refs, FormId(f)));
             }

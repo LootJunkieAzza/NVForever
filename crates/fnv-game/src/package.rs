@@ -439,6 +439,14 @@ pub struct Clock {
     pub yesterday: Day,
 }
 
+/// FURN marker flags [observed: docs/spec-notes/furniture.md §1].
+pub mod furniture {
+    /// Furniture to sit on.
+    pub const SIT: u32 = 1 << 30;
+    /// Furniture to sleep on.
+    pub const SLEEP: u32 = 1 << 31;
+}
+
 /// Why a package may or may not be chosen ([`crate::game::Game::check_package`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]

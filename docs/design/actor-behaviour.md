@@ -255,7 +255,7 @@ given to another. Smoke tests: Easy Pete sits in his porch chair, gets up at 12:
 walks into the saloon and sits at his booth; at 22:04 he gets up, walks home and lies
 down on his bed (`SpecialIdle_BedLeft_Enter`, `DynamicIdle_Sleep`); flying across the
 map with `all`, other actors sit down where their packages send them.
-Not done: sandboxing actors choosing furniture, food or idle markers by themselves;
+Sandboxing actors choose seats, beds and idle markers themselves (§5.5). Not done:
 an actor that arrives while not drawn sits down only when it is next drawn (it walks
 the last steps then, instead of being found seated); `fnvtool ai run` (headless) has no
 furniture.
@@ -266,6 +266,83 @@ Limits that remain:
 - Characters of actors do not push each other or the player's hit volumes aside; two
   actors meeting in a doorway rely on the stuck rule.
 - The chase camera can end up behind furniture indoors.
+
+### 5.5 Sandboxing (2026-10-10, owner request)
+
+`fnv_ai::sandbox` (headless; `crates/fnv-ai/src/sandbox.rs`), carried out by `carry.rs`
+and shown by the engine's residents. A Sandbox or Wander package that has reached its
+location starts a sandbox there; the actor then does one thing after another.
+
+**The flags that bear on it** (`fnvtool ai packages`, `sandbox`; 791 Sandbox and 32
+Wander packages in the masters):
+
+| Flag | In the record | Sandbox packages with the behaviour on | What we do |
+|---|---|---|---|
+| Eating | type-specific bit 0 "No Eating" | 465 of 791 | meals at the rolled times, on a seat if one is free; no food is picked up or eaten |
+| Sleeping | bit 1 "No Sleeping" | 305 | to a bed of the area for the rolled night; no bed, no sleep [hypothesis] |
+| Conversation | bit 2 "No Conversation" | 654 | read, **not carried out** (no actor-to-actor conversations yet) |
+| Idle markers | bit 3 "No Idle Markers" | 706 | goes to a marker and faces its way; the marker's idles are not played |
+| Furniture (other than beds) | bit 4 "No Furniture" | 668 | sits on a seat of the area |
+| Wandering | bit 5 "No Wandering" | 489 | walks to a spot of the navmesh in the area |
+| (all six off) | | 15 | stands |
+| Fallout behaviour: Random Conversations | behaviour bit 1 | 34 | not carried out (with conversations) |
+| Fallout behaviour: Allow Idle Chatter | behaviour bit 7 | 118 | not carried out |
+| No Idle Anims | general bit 24 | 7 | nothing to switch off yet (no idles played) |
+| Package idles | IDLA on the package | 8 | not played ("when not moving or using anything" [documented]) |
+| Must Complete | general bit 2 | 0 | "invalid" for a sandbox [documented]; none has it |
+| Always Run / Always Sneak / Weapon Drawn | general bits | 31 / 6 / 36 | sandbox walks are walked; the three are not acted on |
+| Location radius | PLDT | median 512, 71 "in cell" | objects and wander spots come from within it; the whole cell for "in cell"; 512 when it is 0 |
+
+The six behaviour flags are the record's type-specific bits, read only for Sandbox and
+Wander packages (`PackageDef::sandbox_flag`; the same bits on other types mean nothing,
+packages.md §2). Wander packages are treated as sandboxes with their own flags
+[hypothesis: xEdit gives both types the same flag names].
+
+**Choosing** [documented shape, GECK wiki Sandbox Package; numbers ours]:
+1. In the night's sleep window, with sleeping on and a bed in the area: sleep until the
+   window ends. The window is rolled when the package starts and again each day: start
+   between `fSandboxSleepStartMin` and `Max` (19:00 to 01:00), length between
+   `fSandboxSleepDurationMin` and `Max` (6 to 10 hours) [documented defaults; the
+   masters do not set them].
+2. In a meal window, with eating on: a meal until the window ends (breakfast starting
+   6 to 9, lunch 11 to 14, dinner 17 to 20, lasting 0.5 to 2 hours, rolled likewise).
+3. Otherwise one of: a seat, an idle marker, a wander. Each kind has a weight that drops
+   to zero when the kind was just chosen and grows back by half each time another is;
+   the object just used is not chosen again at once [documented]. Low energy (AIDT
+   energy level) leans towards sitting, high towards idle markers and wandering
+   [documented idea]. Within a kind nearer objects are likelier [ours]. A seat lasts about
+   45 to 165 seconds by energy (give or take a quarter), a marker its idle timer times its idles (15 to 90 s), a
+   wander 4 to 12 seconds at the spot [ours].
+4. Nothing open: stand, look again in 10 seconds.
+
+Sandboxing goes on only where the game is loaded (the cells around the player; anywhere
+in a headless run without a player) [observed: the sandboxers of unloaded cells in the
+owner's captures stood on one spot for hours]; package changes and the walks they bring
+still happen elsewhere.
+
+Objects are references of the area's cell, present, at about the actor's height, not
+given to another actor (a seat is kept for an actor from the moment it chooses it), and
+with a way to them. Random numbers are the sandbox's own (seeded by actor and package),
+so runs repeat and the script runtime's are not disturbed.
+
+**Also in this step**: a patrol waits out a point's idle time (REFR `XPRD`) before going
+on [documented: Idle Markers, Patrol Data]; the furniture a package gives its actor
+(§5.4) is decided headless now (`goal::package_furniture`, `Agent::using`), so
+`fnvtool ai run` reports it too.
+
+**Checks**: 17 tests in `crates/fnv-ai/tests/carry.rs` (only-wander stays inside its
+radius and uses nothing; no-wander alternates chair and idle marker; all off stands; the
+night's bed and the meal's chair at the rolled hours; an idle marker's heading; two
+sandboxers never on one chair; the same run twice; the patrol wait). `fnvtool ai run
+--actor GSChetRef --start-hour 9`: a meal on a chair, an idle marker, a wander, a seat,
+in his store. In `nvforever`: Chet walks about his store and sits down (screenshots);
+flying over the map with `all`, 161 wanders, 37 meals, 6 idle markers at 26 frames a
+second as before.
+
+**Not done**: conversations; food; idles (marker, package, sandbox); sandboxing "at each
+point of a linked patrol route" [documented]; energy changing over the day; the game's
+real scores and durations (to be captured: an observer run in a loaded sandbox area
+recording GetSitting, GetCurrentAIProcedure and positions).
 
 ## 6. Decisions for the owner
 
@@ -309,10 +386,11 @@ From `fnvtool ai reach` (the masters, doors and locks as authored):
    running game has; not exercised yet.
 
 From the comparison with the captures:
-6. **Patrols do not wait at their points.** Victor is in the same place as in the
-   capture a third of the time. Patrol points carry an idle time (idle markers,
-   XMarkerHeading data) that is not read; and what a repeatable patrol does at the end
-   of a chain that does not loop is a guess.
+6. **Patrols wait at their points now** (the point's idle time, `XPRD`, §5.5); the
+   topic and result script a point can carry are not run, and what a repeatable patrol
+   does at the end of a chain that does not loop is a guess. Victor against his capture
+   is no test of it: there he had no package in 2,413 of 2,785 samples (quest state),
+   and matches 30% of the time with the waits as without.
 7. **Sandboxing is "go there and stay".** A settler in its sandbox area stands 608 units
    (median) from where the capture has it: wandering, furniture, idle markers, eating
    and sleeping inside a sandbox are not modelled. (In the engine, actors now sit and

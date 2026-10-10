@@ -79,6 +79,9 @@ pub struct PlacedRef {
     pub teleport: Option<Teleport>,
     pub enable_parent: Option<EnableParent>,
     pub linked: Option<FormId>,
+    /// XPRD: seconds an actor waits at this patrol point before going on to the next
+    /// linked one [documented: xEdit patrol data; GECK wiki, Idle Markers "Idle Time"].
+    pub patrol_idle: Option<f32>,
     /// XMRC on an actor reference: the container holding the actor's merchant stock.
     pub merchant_container: Option<FormId>,
     /// ONAM "Open by Default" (doors) [documented: xEdit wbDefinitionsFNV.pas REFR].
@@ -349,6 +352,7 @@ fn load_ref(
         teleport,
         enable_parent,
         linked: fid(first(&d, b"XLKR"), "XLKR", issues),
+        patrol_idle: first(&d, b"XPRD").and_then(|v| v.as_f64()).map(|x| x as f32),
         merchant_container: fid(first(&d, b"XMRC"), "XMRC", issues),
         open_by_default: first(&d, b"ONAM").is_some(),
     })
