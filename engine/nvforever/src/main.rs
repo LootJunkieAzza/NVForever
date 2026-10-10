@@ -284,9 +284,13 @@ struct Args {
     /// player's view to the actor (docs/design/dialogue-play.md §8).
     #[arg(long)]
     no_dialogue_look: bool,
-    /// With --play: in a conversation, do not bring the view back onto the actor when the
-    /// choices appear (the opening turn stays).
+    /// With --play: in a conversation, bring the view back onto the actor each time the
+    /// choices appear. Off by default (owner decision 2026-10-10): only the opening turn
+    /// happens and the view is the player's own for the rest of the conversation.
     #[arg(long)]
+    dialogue_recentre: bool,
+    /// Accepted for older command lines; not coming back is the default now.
+    #[arg(long, hide = true)]
     no_dialogue_recentre: bool,
 }
 
@@ -556,7 +560,7 @@ fn main() -> AppExit {
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
     app.insert_resource(if args.menu_pause == "original" { nvf_play::pause::MenuPause::Original } else { nvf_play::pause::MenuPause::Living });
-    app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: !args.no_dialogue_recentre });
+    app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: args.dialogue_recentre && !args.no_dialogue_recentre });
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
