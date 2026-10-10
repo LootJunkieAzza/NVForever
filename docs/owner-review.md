@@ -435,19 +435,20 @@ sessions. You already had it from an earlier playthrough.
     priorities, in 76 of quests with equal priority. GREETING has lines of 228 quests.
 
     **Questions for you** (your GECK experience may settle them without a capture):
-    - (a) **Does dialogue pause the game?** Assumed not: scripts and quest timers keep
-      running during a conversation. The only evidence is the Lucky 38 elevator
-      Securitron's script, which waits for the dialogue menu to close while the game
-      runs. If time or scripts stop in dialogue, quest timers during long conversations
-      change.
-    - (b) **AddTopic and a line's "Add Topics" list:** treated as one permanent set of
-      topics the player knows, offered by every actor who has a line for them. Is that
-      how it works, or is a topic added for one actor only?
-    - (c) **Follow-up lines** (the "Follow Up" list on a line): said straight after the
-      line with no player choice, the first eligible of the list. Doc Mitchell's
-      farewell works this way. Correct?
-    - (d) **Random lines:** the wiki contradicts itself on whether a normal line between
-      Random lines ends the pool or is skipped. The runtime ends the pool.
+    - (a) **Does dialogue pause the game?** **Answered 2026-10-10: yes.** A conversation
+      with the player now pauses the game behind it like the other menus (scripts'
+      GameMode and game time stop, MenuMode runs); lines spoken outside a conversation
+      (SayTo) pause nothing. The Securitron script fits this reading better than the
+      first one. The intro still ends at VCG01 200.
+    - (b) **AddTopic and a line's "Add Topics" list:** **Answered 2026-10-10:** every
+      actor offers a known topic if they can say a line of it. That is what the runtime
+      did; it is now recorded as your statement.
+    - (c) **Follow-up lines:** **Answered 2026-10-10: correct**, no player response.
+      Nothing to change; recorded as your statement.
+    - (d) **Random lines:** **Answered 2026-10-10:** Random lines that sit together are
+      a pool, and a normal line between two groups splits them into two pools. Fixed:
+      the runtime used to let a pool run on across a normal line the actor could not
+      say.
     - (e) **Shared lines** (the Info Connection list on 2,435 topics; e.g. GREETING
       lists four lines stored under `VMS07Greeting`): not used, because nothing we have
       says what the game does with them. If the GECK shows these as lines shared
@@ -456,8 +457,10 @@ sessions. You already had it from an earlier playthrough.
       conditions in pass/fail pairs (1,499 lines). The Fallout 3 percentage roll exists
       on 3 left-over lines only and is not modelled. The numbers shown ("Speech 35",
       "30/35") are taken from the line's own skill condition.
-    - (g) **An actor with no eligible greeting cannot be talked to; a line of a stopped
-      quest cannot be said.** Both assumed.
+    - (g) **A line of a stopped quest cannot be said:** **Answered 2026-10-10: right**,
+      and the quest's own conditions must pass as well as the line's (113 of 640 quests
+      have such conditions, covering 8,151 lines; the runtime already checked them).
+      Still assumed: an actor with no eligible greeting cannot be talked to.
 
     **Left as stand-ins in the intro:** sitting on the couch and Doc walking over (AI
     packages), the two walk-in triggers and the menus' OK (the player), and all of Sunny
@@ -466,6 +469,59 @@ sessions. You already had it from an earlier playthrough.
     **Captures when you are away:** the 15 items of `docs/spec-notes/dialogue.md` §7.
     Real-data tests of the dialogue code need `FNVLAB_DATA_DIR=<Data>`; without it they
     are skipped.
+
+    Two small things your answers leave open (#120): when a Random pool's last line
+    carries "Random End" but the actor cannot say that line, does the pool still end
+    there (assumed yes); and do a quest's own conditions run on the speaking actor, like
+    a line's conditions (assumed yes).
+33. **Dialogue voice (#119, 2026-10-10).** Lines last as long as their voice files and
+    are heard in `--play`; 97.3 % of the masters' 37,403 responses have a sound
+    (`docs/spec-notes/voice.md`). Nobody has listened to it yet: playback is confirmed
+    from the log only. Decisions for you:
+    - (a) **A missing 0.3 to 0.4 s per line.** With real sound lengths every captured
+      span of Doc Mitchell's lines comes out short by that much per line (one line
+      2.60 s against 2.9 s; three lines 14.5 s against 15.4 s; the psych intro 11.7 s
+      against about 13 s, where the old estimate gave 18.1 s). Nothing was tuned. Either
+      add a fixed pause per line (a fitted number again) or capture single lines first;
+      the captures so far cannot tell a per-line gap from a per-response one.
+    - (b) Voice lengths are on by default in `fnvtool script run` and `dialogue talk`
+      (the four `L5.intro.*` scenarios pass either way); `--no-voice-lengths` restores
+      the estimate.
+    - (c) Unattended `--play` runs now play voice through the speakers; `--no-voice`
+      keeps them silent. Agents were told to run silent while you are at the desk.
+    - (d) Open hypotheses (voice.md §11): which of `.ogg` and `.wav` the game plays for
+      the 40 lines that have both; what a response's sound form does (228 responses;
+      reported, not played); the voice of actors templated on a levelled list; whether
+      a line with no file shows its subtitle for some fixed time.
+    - (e) Voices play flat (no 3D placement).
+34. **Pausing in conversations: "living pause" now, a live world later (your request,
+    2026-10-10).** You said the original pauses during a conversation but that you would
+    prefer no pause if scripts and outside NPCs can be kept from causing trouble.
+    - **Built now (dialogue screen, `claude/dialogue-screen`):** only what scripts can
+      see is frozen (script time, quest timers, the game clock, NPC decisions, damage,
+      needs). What you see and hear keeps running (idle animation, wind, water, weather,
+      sky, the speaker's voice), with free look. `--dialogue-pause living|original`,
+      default `living`. Quest behaviour is the original's.
+    - **Proposed for when AI packages exist:** NPCs on ordinary schedules keep moving;
+      events that happen meanwhile (a trigger entered, a package finished) are queued
+      and delivered to scripts when the conversation ends; the speaker's schedule is
+      held and hostiles cannot start a fight with the pair; NPCs under script control
+      hold their place.
+    - **Not proposed as default:** scripts running live during dialogue (as in Skyrim).
+      The base game's scripts react to a line's result on the next frame (moving the
+      speaker, opening a box, starting another conversation), which would land in the
+      middle of the line. Could be an experimental option after listing the scripts at
+      risk from the decoded scripts.
+    - **Your call:** (1) should walking away end a conversation where the line would let
+      you leave; (2) should the game clock keep moving while you talk (frozen for now);
+      (3) should being attacked break the conversation, or is the pair untouchable
+      (proposed: untouchable, because a broken line could skip a quest result).
+35. **Lip sync started at your request (2026-10-10, `claude/dialogue-lip`).** Goal: the
+    `.lip` file of a spoken line moves the speaker's mouth and face in `--play`. The
+    format has no official documentation, so the work uses public documentation and
+    observation of the files only; if that is not enough to animate honestly, it stops
+    at the notes and the reader. It touches the NPC side's files
+    (`engine/nvforever/src/actors.rs`, `facegen.rs`) as little as the feature needs.
 
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
