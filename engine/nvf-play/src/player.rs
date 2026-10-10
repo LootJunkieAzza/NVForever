@@ -399,8 +399,24 @@ fn grab_cursor(
 /// The movement controls: Forward, Back, Slide Left and Right; running unless Run is held
 /// while Always Run is on (and the other way round); Auto Move walks forward until
 /// Forward or Back is pressed [hypothesis]; Jump.
-fn read_input(input: ControlInput, state: Res<State<PlayState>>, mut control: ResMut<PlayerControl>, mut intent: ResMut<MoveIntent>) {
+fn read_input(
+    input: ControlInput,
+    state: Res<State<PlayState>>,
+    mut control: ResMut<PlayerControl>,
+    mut intent: ResMut<MoveIntent>,
+    mut seat: ResMut<crate::furniture::PlayerSeat>,
+) {
     if *state.get() != PlayState::Playing {
+        *intent = MoveIntent::default();
+        return;
+    }
+    if seat.hold.is_some() {
+        // Held by furniture: no movement; a movement control asks to get up.
+        let moving = [Control::Forward, Control::Back, Control::SlideLeft, Control::SlideRight, Control::Jump];
+        if moving.into_iter().any(|c| input.just_pressed(c)) {
+            seat.leave = true;
+        }
+        control.auto_move = false;
         *intent = MoveIntent::default();
         return;
     }
@@ -686,9 +702,30 @@ fn step(
     mut player: ResMut<Player>,
     mut status: ResMut<Status>,
     limbs: Option<Res<crate::combat::PlayerLimbs>>,
+    mut seat: ResMut<crate::furniture::PlayerSeat>,
 ) {
     if *state.get() != PlayState::Playing {
         phys.stepper = default();
+        return;
+    }
+    if let Some(at) = seat.hold.filter(|_| phys.player.is_some()) {
+        // Held by furniture (`crate::furniture`): the world steps on, the character
+        // stays where the furniture has it and collides with nothing. Movement asked
+        // for by a test aid (the keys are read in `read_input`) asks to get up.
+        if intent.forward != 0.0 || intent.right != 0.0 || intent.jump {
+            seat.leave = true;
+            intent.jump = false;
+        }
+        let p = &mut *phys;
+        let n = p.stepper.advance(&p.world.params, time.delta_secs());
+        for _ in 0..n {
+            p.world.step();
+        }
+        if let Some(c) = p.player.as_mut() {
+            p.world.place_character(c, at);
+        }
+        p.prev_feet = at;
+        player.feet = at;
         return;
     }
     let Some(feet) = phys.player.as_ref().map(|c| c.feet) else { return };

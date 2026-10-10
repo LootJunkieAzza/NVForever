@@ -14,6 +14,7 @@
 //! lists every function with its evidence.
 
 pub(crate) mod actor;
+mod furniture;
 mod items;
 mod magic;
 pub(crate) mod misc;
@@ -426,12 +427,12 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x10DA, "ShowRaceMenu", Impl(misc::show_race_menu)),
         (0x121A, "SetTagSkills", Impl(misc::set_tag_skills)),
         (0x1268, "ShowTraitMenu", Impl(misc::show_trait_menu)),
-        (0x10A0, "GetFurnitureMarkerID", Stub("AI (furniture)")),
+        (0x10A0, "GetFurnitureMarkerID", Impl(furniture::get_furniture_marker_id)),
         (0x1187, "GetHitLocation", Impl(actor::get_hit_location)),
         (0x106E, "GetCurrentAIPackage", Stub("AI packages")),
         (0x108F, "GetCurrentAIProcedure", Stub("AI packages")),
         (0x10A1, "GetIsCurrentPackage", Impl(actor::get_is_current_package)),
-        (0x10A2, "IsCurrentFurnitureRef", Stub("AI (furniture)")),
+        (0x10A2, "IsCurrentFurnitureRef", Impl(furniture::is_current_furniture_ref)),
         (0x1065, "IsWeaponOut", Stub("combat (weapon drawn)")),
         (0x106C, "GetWeaponAnimType", Stub("combat (weapon)")),
         (0x111E, "IsSneaking", Stub("movement (sneaking)")),
@@ -455,9 +456,9 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x111D, "IsLeftUp", Stub("animation")),
         (0x106A, "IsFacingUp", Stub("animation (ragdoll)")),
         (0x1004, "Rotate", Stub("movement (scripted rotation)")),
-        (0x109F, "GetSitting", Stub("AI (furniture)")),
-        (0x10A3, "IsCurrentFurnitureObj", Stub("AI (furniture)")),
-        (0x1031, "GetSleeping", Stub("AI (sleeping)")),
+        (0x109F, "GetSitting", Impl(furniture::get_sitting)),
+        (0x10A3, "IsCurrentFurnitureObj", Impl(furniture::is_current_furniture_obj)),
+        (0x1031, "GetSleeping", Impl(furniture::get_sleeping)),
         (0x105B, "GetIsAlerted", Stub("AI")),
         (0x10F5, "ForceFlee", Stub("AI")),
         (0x115B, "SetNoAvoidance", Stub("AI")),

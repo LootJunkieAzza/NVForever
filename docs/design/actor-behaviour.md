@@ -239,6 +239,27 @@ Step 4c, first part (2026-10-10):
   in a 50-second run); an hour set with the `[` `]` keys becomes the game's.
   `--still-sky` keeps the old behaviour; `--time-scale` keeps the sky's own clock.
 
+**Furniture** (2026-10-10, with `furniture.rs` from main; `residents::choose_seat`): an
+actor that has arrived uses furniture when its package gives it some:
+- the package's location, when that reference is furniture [observed: under the Travel
+  packages EasyPeteChairPackage8x4 / 14x4 and GoodspringsSettlerSaloonPackage the game
+  reported GetSitting 3 in 7,395 samples; under EasyPeteHideInSaloonPackage in all 968];
+- a Sleep package: the nearest bed of the cell within the location's radius, anywhere
+  in the cell for "in cell" [documented: Sleep Package; not seen in a capture: the
+  sleepers there were in unloaded cells and reported GetSleeping 0];
+- an Eat package: the nearest seat within 256 units [documented: "sitting down if
+  furniture is available"; the distance is our choice].
+It is told to sit once it is drawn (`SitOn`); when its package changes it is told to get
+up (`GetUp`) and its walk waits until it is off. Furniture one resident was given is not
+given to another. Smoke tests: Easy Pete sits in his porch chair, gets up at 12:03,
+walks into the saloon and sits at his booth; at 22:04 he gets up, walks home and lies
+down on his bed (`SpecialIdle_BedLeft_Enter`, `DynamicIdle_Sleep`); flying across the
+map with `all`, other actors sit down where their packages send them.
+Not done: sandboxing actors choosing furniture, food or idle markers by themselves;
+an actor that arrives while not drawn sits down only when it is next drawn (it walks
+the last steps then, instead of being found seated); `fnvtool ai run` (headless) has no
+furniture.
+
 Limits that remain:
 - Without `--play` there is no collision world: actors keep to the navmesh surface, and
   the package choice runs in a game state of its own (no quests).
@@ -294,8 +315,9 @@ From the comparison with the captures:
    of a chain that does not loop is a guess.
 7. **Sandboxing is "go there and stay".** A settler in its sandbox area stands 608 units
    (median) from where the capture has it: wandering, furniture, idle markers, eating
-   and sleeping inside a sandbox are not modelled. Easy Pete sits 28 units off, and 9%
-   of the time is in another cell: he walks at the player's speed and does not sit.
+   and sleeping inside a sandbox are not modelled. (In the engine, actors now sit and
+   sleep where a package names the furniture or is a Sleep or Eat package, §5.4; the
+   headless run still has Easy Pete standing 28 units from his chair.)
 8. **NPC walking and running speeds are not captured**; the player's are used.
 
 Rules that are our choice or a hypothesis (also §6):

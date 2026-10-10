@@ -7,6 +7,7 @@ mod ai_choice;
 mod ai_cmd;
 mod ai_packages;
 mod ai_run;
+mod actor_furniture;
 mod actor_locomotion;
 mod actor_tri;
 mod actor_weapons;
@@ -215,6 +216,21 @@ pub enum ActorCmd {
         /// Skeleton folder (VFS path).
         #[arg(long, default_value = r"meshes\characters\_male")]
         folder: String,
+    },
+    /// Furniture (FURN): the entry points of each model (`BSFurnitureMarker`), marker
+    /// flags, how many references place it, and the clips the IDLE tree names for
+    /// getting on, staying on and getting off per marker ID (fnv.actor.furniture/1).
+    Furniture {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `nif` next to --schema).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+        /// Leave out the per-furniture list.
+        #[arg(long)]
+        summary_only: bool,
     },
     /// Locomotion clips of a skeleton folder (idle, walk, run, turn per body and stance)
     /// and the root motion of each: accumulation-root translation and turn per cycle,

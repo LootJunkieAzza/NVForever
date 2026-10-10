@@ -57,7 +57,11 @@ After AI package changes (`fnv-game` `ai`/`package`, `fnv-ai`), run `fnvtool ai 
 docs/design/actor-behaviour.md §4 and §5.3 and explain any change. After changes to
 `fnv-ai` or the engine's residents, also run the residents smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-packages EasyPeteRef,GSChetRef,GoodspringsSettler04Ref --hour 21.9 --follow-npc --run-seconds 150`
-(expect exit 0 and "ai summary … 3 residents, 6 packages chosen, 4 trips, 4 arrivals, 0 unreachable").
+(expect exit 0, "ai summary … 3 residents, 6 packages chosen, 4 trips, 4 arrivals, 0 unreachable"
+and Easy Pete sitting on 0010634A, getting off it, and on his bed 00176ACE in the "furniture:" lines).
+After furniture changes (docs/spec-notes/furniture.md §7), run the sitting smoke test:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-sit EasyPeteRef=0010634A:8 --follow-npc --run-seconds 45`
+(expect exit 0 and "furniture summary: 1 of 1 actors sat down, 1 got up again").
 
 ## Commits
 

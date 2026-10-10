@@ -17,6 +17,7 @@ const KEY: u32 = 0x101;
 const CHEST: u32 = 0x120;
 const DOOR: u32 = 0x130;
 const TRIGGER: u32 = 0x140;
+const CHAIR: u32 = 0x150;
 const CELL_EXT: u32 = 0x200;
 const CELL_INT: u32 = 0x201;
 const WORLD: u32 = 0x3C;
@@ -26,6 +27,7 @@ const SAFE_REF: u32 = 0x303; // a chest locked at level 50 with KEY
 const DOOR_REF: u32 = 0x304; // -> DOOR_DEST in CELL_INT
 const DOOR_DEST: u32 = 0x305;
 const TRIGGER_REF: u32 = 0x306; // unnamed activator
+const CHAIR_REF: u32 = 0x307;
 
 fn base(id: u32, name: Option<&str>, data: BaseData) -> BaseForm {
     BaseForm { id: FormId(id), sig: *b"MISC", edid: Some(format!("Edid{id:X}")), name: name.map(Into::into), script: None, data }
@@ -70,6 +72,7 @@ fn sim() -> SimState {
         base(CHEST, Some("Chest"), chest()),
         base(DOOR, Some("Door"), BaseData::Door(Door { automatic: false, minimal_use: false })),
         base(TRIGGER, None, BaseData::Activator),
+        base(CHAIR, Some("Chair"), BaseData::Furniture),
         base(FormId::PLAYER_BASE.0, Some("Courier"), BaseData::Actor(ActorBase { entries: Vec::new(), attributes: None })),
     ] {
         forms.bases.insert(b.id, b);
@@ -79,7 +82,7 @@ fn sim() -> SimState {
     let safe = PlacedRef { lock: Some(Lock { level: 50, key: Some(FormId(KEY)), leveled: false }), ..placed(SAFE_REF, CHEST, CELL_EXT) };
     let tp = Teleport { door: FormId(DOOR_DEST), pos: [10.0, 20.0, 30.0], rot: [0.0, 0.0, std::f32::consts::FRAC_PI_2] };
     let door = PlacedRef { teleport: Some(tp), ..placed(DOOR_REF, DOOR, CELL_EXT) };
-    for r in [stim, safe, door, placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT)] {
+    for r in [stim, safe, door, placed(CHEST_REF, CHEST, CELL_EXT), placed(DOOR_DEST, DOOR, CELL_INT), placed(TRIGGER_REF, TRIGGER, CELL_EXT), placed(CHAIR_REF, CHAIR, CELL_EXT)] {
         refs.refs.insert(r.id, r);
     }
     let forms: &'static FormStore = Box::leak(Box::new(forms));
@@ -140,6 +143,7 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .add_message::<TravelRequest>()
         .add_message::<OpenContainer>()
         .add_message::<RefChanged>()
+        .add_message::<crate::furniture::UseFurniture>()
         .add_systems(Update, (find_target, activate, sync_visuals).chain());
     app
 }
@@ -289,4 +293,18 @@ fn a_dropped_item_is_targeted_by_its_collision_and_taken_back() {
     // RefChanged removes its collision (Part P's handler).
     phys.sync_ref(&crate::phys::LoadCtx { d: &d, sim, data: None }, dropped);
     assert!(!phys.has_collision(dropped));
+}
+
+#[test]
+fn activating_furniture_asks_to_use_it_and_says_nothing() {
+    let mut app = scene(&[(CHAIR_REF, 80.0), (CHEST_REF, 150.0)]);
+    app.update();
+    assert_eq!(target(&app), Some((CHAIR_REF, Source::Collision)));
+    assert_eq!(describe(app.world().resource::<SimState>(), index(), CHAIR_REF), Some(("Chair".into(), Action::Activate)));
+    press_e(&mut app);
+    let asked = drain::<crate::furniture::UseFurniture>(&mut app);
+    assert_eq!(asked.iter().map(|m| m.reference).collect::<Vec<_>>(), vec![CHAIR_REF]);
+    // No "nothing happens" line, and nothing else was activated.
+    assert_eq!(app.world().resource::<HudMessage>().text, "");
+    assert!(drain::<OpenContainer>(&mut app).is_empty());
 }

@@ -17,6 +17,12 @@
 //! calendar, which the simulation advances at the TimeScale global (`nvf_play::sim`);
 //! this module only sets it to the sky's hour once, at the start.
 //!
+//! **Furniture** (`furniture.rs`). An actor that has arrived uses furniture when its
+//! package gives it some ([`choose_seat`]): the package's location when that reference
+//! is furniture, a bed for a Sleep package, a seat near an Eat location. It is told to
+//! sit ([`SitOn`]) once it is drawn; before it leaves for its next package it is told
+//! to get up ([`GetUp`]) and its walk waits until it has.
+//!
 //! **Movement.** With `--play`, an actor walking where the collision world is loaded
 //! (around the player) is moved by the character controller ([`PhysMover`]): it steers
 //! along its path and physics decides where it ends up, so it goes round furniture and
@@ -24,15 +30,17 @@
 //! spaces, without `--play`), it moves on the navmesh surface (`fnv_nav::Walker`).
 
 use crate::actors::ActorWorld;
+use crate::furniture::{GetUp, OnFurniture, SitOn};
 use crate::locomotion::Locomotion;
 use crate::nav::{self, Lead, NavState};
 use crate::world::{CellKey, Streamer, WorldData, WorldRoot};
 use bevy::prelude::*;
 use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Mover};
 use fnv_game::game::{Game, GameConfig};
+use fnv_game::package::{LocationKind, PackageDef, PackageType};
 use fnv_game::GameData;
 use fnv_nav::follow::{heading_of, turn_towards, Advice, Unstuck};
-use fnv_nav::{NavGraph, Space, Steer, WalkEvent, Walker};
+use fnv_nav::{NavGraph, Place, Space, Steer, WalkEvent, Walker};
 use nvf_play::phys::PhysState;
 use fnv_sim::{clock, FormId, FormStore, RefTable, SimConfig, World};
 use nvf_assets::actor::ActorParts;
@@ -67,6 +75,8 @@ struct PhysMover<'a> {
     now: f32,
     /// Actors moved by physics in this update; times physics gave up.
     stats: &'a mut [usize; 2],
+    /// Actors on furniture, or getting off it: they do not walk yet.
+    held: &'a HashSet<u32>,
 }
 
 /// A door known here (drawn, with its animation) is opened and waited for.
@@ -84,8 +94,11 @@ impl Mover for PhysMover<'_> {
     }
 
     fn walk(&mut self, actor: FormId, walker: &mut Walker, _nav: &NavGraph, dt: f32) -> Option<WalkEvent> {
-        let phys = self.phys.as_deref_mut()?;
         let id = actor.0;
+        if self.held.contains(&id) {
+            return Some(WalkEvent::Moved);
+        }
+        let phys = self.phys.as_deref_mut()?;
         let here = match (walker.space, phys.space) {
             (Space::Interior(c), nvf_play::phys::cells::Space::Interior(i)) => c == i,
             (Space::World(w), nvf_play::phys::cells::Space::Exterior) => w == phys.worldspace,
@@ -190,6 +203,19 @@ pub struct Clock {
     pub rate: f64,
 }
 
+/// A resident and the furniture its package gives it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Seat {
+    #[default]
+    None,
+    /// To use this furniture reference once the actor is drawn.
+    Wanted(u32),
+    /// Told to; `true` once it was seen on (or walking up to) the furniture.
+    Ordered(u32, bool),
+    /// Told to get up; the walk waits.
+    GettingUp(u32),
+}
+
 struct Resident {
     actor: FormId,
     base: u32,
@@ -210,6 +236,11 @@ struct Resident {
     waiting: Option<(u32, f32)>,
     doors_opened: usize,
     last_feet: [f32; 3],
+    seat: Seat,
+    /// The package the seat was decided for.
+    seat_package: Option<FormId>,
+    /// The actor is where its package wants it and still runs that package.
+    settled: bool,
 }
 
 /// Everything but the game state the choice runs in.
@@ -233,6 +264,12 @@ struct Core {
     /// Updates in which an actor was moved by physics; times physics gave up; the most
     /// actors moved by physics in one frame.
     physics: [usize; 3],
+    /// Furniture bases: (to sit on, to sleep on).
+    furniture: HashMap<u32, (bool, bool)>,
+    /// Furniture references given to a resident.
+    taken: HashSet<u32>,
+    /// Times an actor was told to sit, and to get up.
+    seats: [usize; 2],
 }
 
 #[derive(Resource)]
@@ -280,6 +317,12 @@ impl Residents {
             unstuck: HashMap::new(),
             skip_until: HashMap::new(),
             physics: [0; 3],
+            furniture: {
+                let mut issues = fnv_sim::extract::Issues::default();
+                fnv_actor::furniture::furniture(world.lo, world.schema, &mut issues).into_iter().map(|f| (f.id.0, (f.sit(), f.sleep()))).collect()
+            },
+            taken: HashSet::new(),
+            seats: [0; 2],
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -361,6 +404,9 @@ impl Core {
             waiting: None,
             doors_opened: 0,
             last_feet: placed.pos,
+            seat: Seat::None,
+            seat_package: None,
+            settled: false,
         });
     }
 
@@ -393,6 +439,8 @@ impl Core {
     /// this module's (it is ticked here).
     #[allow(clippy::too_many_arguments)]
     fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, mut phys: Option<&mut PhysState>, dt: f32, now: f32) {
+        // Whoever is on furniture, or getting off it, does not walk yet.
+        let held: HashSet<u32> = self.list.iter().filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_))).map(|r| r.actor.0).collect();
         if !self.prepared {
             self.prepared = true;
             game.cfg.package_interval = Some(PACKAGE_INTERVAL);
@@ -429,7 +477,7 @@ impl Core {
         }
         self.clock_text = clock_text(game);
         let mut moved = [0usize; 2];
-        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, now, stats: &mut moved };
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, now, stats: &mut moved, held: &held };
         self.ai.update_moved(game, &nav.graph, dt, &mut mover);
         self.physics[0] += moved[0];
         self.physics[1] += moved[1];
@@ -468,6 +516,18 @@ impl Core {
         for r in self.list.iter_mut() {
             r.present = r.joined && !r.failed && game.present(r.actor);
             let Some(agent) = self.ai.agents.get(&r.actor) else { continue };
+            // The furniture of the package, decided once the actor is there.
+            let package = game.extra.get(&r.actor).and_then(|e| e.current_package);
+            r.settled = agent.activity == Activity::There && package.is_some() && (r.seat_package.is_none() || r.seat_package == package);
+            if r.settled && r.seat_package.is_none() {
+                r.seat_package = package;
+                let def = package.and_then(|p| game.data.package_defs.get(&p));
+                let at = Place { space: agent.walker.space, pos: agent.walker.feet };
+                if let Some(f) = def.and_then(|d| choose_seat(game, &self.furniture, &self.taken, r.actor, d, at)) {
+                    self.taken.insert(f);
+                    r.seat = Seat::Wanted(f);
+                }
+            }
             // Doors that open in place: when it starts waiting and when it walks on.
             match (agent.waiting_at, r.waiting) {
                 (Some(d), w) if w.is_none_or(|w| w.0 != d) => {
@@ -483,6 +543,49 @@ impl Core {
             }
         }
     }
+}
+
+/// The furniture a package gives an actor that has arrived at `at`, if any:
+/// - the package's location, when that reference is furniture [observed: under Travel
+///   packages to a chair EasyPeteRef and a settler were sitting, GetSitting 3, in 7,395
+///   samples; packages.md §4];
+/// - for a Sleep package, the nearest bed of the actor's cell within the location's
+///   radius, or anywhere in the cell for an "in cell" location [documented: GECK wiki,
+///   Sleep Package];
+/// - for an Eat package, the nearest seat within 256 units [documented: "sitting down
+///   if furniture is available", Eat Package; the distance is our choice].
+///
+/// Furniture another resident was given is left alone. Sandboxing actors choosing
+/// furniture by themselves is not done.
+fn choose_seat(game: &Game, furniture: &HashMap<u32, (bool, bool)>, taken: &HashSet<u32>, actor: FormId, def: &PackageDef, at: Place) -> Option<u32> {
+    let refs = game.world.placed;
+    let kind = |r: FormId| refs.get(r).and_then(|p| furniture.get(&p.base.0)).copied();
+    let loc = def.location?;
+    if let LocationKind::NearReference(Some(r)) = loc.kind {
+        if kind(r).is_some() {
+            return (!taken.contains(&r.0)).then_some(r.0);
+        }
+    }
+    let (want_bed, reach) = match (def.ty, loc.kind) {
+        (PackageType::Sleep, LocationKind::InCell(_)) => (true, f32::INFINITY),
+        (PackageType::Sleep, _) => (true, (loc.radius as f32).max(256.0)),
+        (PackageType::Eat, _) => (false, 256.0),
+        _ => return None,
+    };
+    let cell = fnv_ai::goal::cell_of_place(refs, &at)?;
+    let _ = actor;
+    refs.by_cell
+        .get(&cell)?
+        .iter()
+        .filter(|r| !taken.contains(&r.0))
+        .filter(|r| kind(**r).is_some_and(|(sit, sleep)| if want_bed { sleep } else { sit }))
+        .filter_map(|r| {
+            let p = refs.get(*r)?;
+            let d = (p.pos[0] - at.pos[0]).hypot(p.pos[1] - at.pos[1]);
+            (d <= reach && (p.pos[2] - at.pos[2]).abs() < 200.0).then_some((d, r.0))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|x| x.1)
 }
 
 pub fn log_startup(mut res: ResMut<Residents>) {
@@ -528,6 +631,10 @@ fn drawn(world: &WorldData, streamer: &Streamer, space: Space, feet: [f32; 3]) -
     }
 }
 
+/// The game being played, when there is one: its scripts' state, its simulation and
+/// its collision world.
+type PlayState<'w> = (Option<ResMut<'w, nvf_play::script::ScriptState>>, Option<ResMut<'w, nvf_play::sim::SimState>>, Option<ResMut<'w, PhysState>>);
+
 /// Run the package choice and the walks, log what happens, keep the visuals in step.
 #[allow(clippy::too_many_arguments)]
 pub fn drive(
@@ -542,11 +649,10 @@ pub fn drive(
     mut models: ModelCtx,
     root: Query<Entity, With<WorldRoot>>,
     roots: Query<(Entity, &RefVisual, &ChildOf)>,
-    mut actors: Query<(&mut Transform, Option<&mut Locomotion>)>,
+    mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<OnFurniture>>,
     mut doors: ResMut<nvf_play::doors::Doors>,
-    script: Option<ResMut<nvf_play::script::ScriptState>>,
-    sim: Option<ResMut<nvf_play::sim::SimState>>,
-    mut phys: Option<ResMut<PhysState>>,
+    (script, sim, mut phys): PlayState,
+    seated: Query<&RefVisual, With<OnFurniture>>,
 ) {
     let Ok(root) = root.single() else { return };
     let dt = time.delta_secs().min(0.1);
@@ -590,8 +696,57 @@ pub fn drive(
     if nav.travellers.is_empty() {
         nav.lead = core.list.first().and_then(|r| core.ai.agents.get(&r.actor)).map(|a| Lead { space: a.walker.space, feet: a.walker.feet, heading: a.walker.heading });
     }
+    let on_furniture: HashSet<u32> = seated.iter().map(|v| v.0).collect();
     let mut budget = SPAWNS_PER_FRAME;
     for r in core.list.iter_mut().filter(|r| r.joined && !r.failed) {
+        // Furniture: sit once drawn; get up before leaving.
+        let on = on_furniture.contains(&r.actor.0);
+        let entity = r.root.filter(|_| r.spawned);
+        r.seat = match (r.seat, entity) {
+            (Seat::Wanted(f), Some(e)) if r.settled => {
+                commands.entity(e).insert(SitOn { furniture: f, stay: None });
+                core.seats[0] += 1;
+                Seat::Ordered(f, false)
+            }
+            (Seat::Wanted(f), _) if !r.settled => {
+                core.taken.remove(&f);
+                r.seat_package = None;
+                Seat::None
+            }
+            // Its visual went away (its cell unloaded): sit again when it is back.
+            (Seat::Ordered(f, _), None) if r.settled => Seat::Wanted(f),
+            (Seat::Ordered(f, seen), Some(e)) if !r.settled => {
+                if on {
+                    commands.entity(e).insert(GetUp);
+                    core.seats[1] += 1;
+                    Seat::GettingUp(f)
+                } else {
+                    // Never got on (or the furniture module refused): nothing to undo.
+                    let _ = seen;
+                    commands.entity(e).remove::<SitOn>();
+                    core.taken.remove(&f);
+                    r.seat_package = None;
+                    Seat::None
+                }
+            }
+            (Seat::Ordered(f, _), _) if on => Seat::Ordered(f, true),
+            (Seat::Ordered(f, _) | Seat::GettingUp(f), None) => {
+                core.taken.remove(&f);
+                r.seat_package = None;
+                Seat::None
+            }
+            (Seat::GettingUp(f), Some(e)) if !on => {
+                // Up: the walk goes on from where the furniture left the actor.
+                if let (Ok((t, _)), Some(a)) = (actors.get(e), core.ai.agents.get_mut(&r.actor)) {
+                    a.walker.feet = t.translation.to_array();
+                    a.walker.tri = fnv_nav::graph::NONE;
+                }
+                core.taken.remove(&f);
+                r.seat_package = None;
+                Seat::None
+            }
+            (s, _) => s,
+        };
         let Some(agent) = core.ai.agents.get(&r.actor) else { continue };
         let w = &agent.walker;
         let visible = r.present && drawn(&world, &streamer, w.space, w.feet);
@@ -648,7 +803,7 @@ pub fn report(
     each.extend(crowd.into_iter().take(6).filter_map(one));
     let by = |a: Activity| core.ai.agents.values().filter(|x| x.activity == a).count();
     info!(
-        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; physics moved actors in {} updates (at most {} at once), gave up {} times; {}",
+        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; physics moved actors in {} updates (at most {} at once), gave up {} times; {}",
         core.clock_text,
         core.list.len(),
         core.counts[3],
@@ -659,6 +814,9 @@ pub fn report(
         by(Activity::Travelling),
         by(Activity::Staying),
         core.list.iter().filter(|r| r.spawned).count(),
+        core.seats[0],
+        core.seats[1],
+        core.list.iter().filter(|r| matches!(r.seat, Seat::Ordered(_, true))).count(),
         core.physics[0],
         core.physics[2],
         core.physics[1],
