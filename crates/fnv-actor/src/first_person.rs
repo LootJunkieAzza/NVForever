@@ -3,7 +3,8 @@
 //! hands only. Headless rules on a resolved [`Appearance`].
 //!
 //! - Parts: the upper body and the hands (race parts and worn armour covering Upper Body,
-//!   Left Hand or Right Hand); no head, hair, head parts or other armour [hypothesis].
+//!   Left Hand or Right Hand) and the Pip-Boy (worn armour covering the PipBoy slot, on
+//!   the forearm of the arms rig); no head, hair, head parts or other armour [hypothesis].
 //! - Hands: a `…1st.nif` beside the hand model replaces it when it exists
 //!   (`characters\_male\lefthand1st.nif`, `righthand1st.nif`,
 //!   `lefthandpipboyglove1st.nif` and the female ones [observed: file list]).
@@ -12,6 +13,11 @@
 //!   their sleeves `Arms`, `Arms02`, `Arms2`, `Arms01:0`, `Arms\t` beside `UpperBody`,
 //!   caps and `PipBoyOn`/`PipBoyOff`; the race's `upperbody.nif` names its skin `Arms:0`
 //!   and `Arms:1`]. Hand parts are drawn whole.
+//! - With a Pip-Boy on, the outfit's `PipBoyOn…` sleeve is drawn too [owner statement
+//!   2026-10-10, with two in-game screenshots: "we see a sleeve on the arm with a
+//!   pipboy, it is rendered over the outfit using the pipboy on node"]. Whether the
+//!   actor wears one is decided where the parts are assembled
+//!   ([`crate::mesh::hidden_for_pipboy`]), which leaves that sleeve out otherwise.
 
 use crate::resolve::{slot, Appearance, Part};
 use crate::ActorForms;
@@ -25,7 +31,7 @@ pub const SKELETON: &str = r"meshes\characters\_1stperson\skeleton.nif";
 pub enum Show {
     /// Every shape.
     Whole,
-    /// Only the shapes [`is_arms_shape`] accepts.
+    /// Only the shapes [`is_first_person_shape`] accepts.
     Arms,
 }
 
@@ -40,6 +46,12 @@ pub fn is_arms_shape(name: &str) -> bool {
     name.trim().to_ascii_lowercase().starts_with("arms")
 }
 
+/// Whether a shape of an upper-body model is drawn in first person: the `Arms…` shapes
+/// and the sleeve worn with a Pip-Boy (`PipBoyOn…`).
+pub fn is_first_person_shape(name: &str) -> bool {
+    is_arms_shape(name) || crate::mesh::pipboy_sleeve(name) == Some(true)
+}
+
 /// How part `p` appears in first person, if at all.
 pub fn show(actors: &ActorForms, p: &Part) -> Option<Show> {
     match p.role.as_str() {
@@ -49,7 +61,7 @@ pub fn show(actors: &ActorForms, p: &Part) -> Option<Show> {
             let slots = actors.armors.get(&p.form)?.slots;
             if slots & slot::UPPER_BODY != 0 {
                 Some(Show::Arms)
-            } else if slots & (slot::LEFT_HAND | slot::RIGHT_HAND) != 0 {
+            } else if slots & (slot::LEFT_HAND | slot::RIGHT_HAND | slot::PIPBOY) != 0 {
                 Some(Show::Whole)
             } else {
                 None
@@ -101,6 +113,12 @@ mod tests {
         for n in ["UpperBody", "PipBoyOn", "MeatCapLimbs", "body:0", "RightGlove:0"] {
             assert!(!is_arms_shape(n), "{n:?}");
         }
+        for n in ["Arms", "Arms\t", "PipBoyOn", "PipBoyOn:0", "PipBoy0n:0"] {
+            assert!(is_first_person_shape(n), "{n:?}");
+        }
+        for n in ["UpperBody", "PipBoyOff", "PipBoyOff:0", "MeatCapLimbs"] {
+            assert!(!is_first_person_shape(n), "{n:?}");
+        }
     }
 
     #[test]
@@ -112,6 +130,7 @@ mod tests {
         actors.armors.insert(FormId(0x10), armor(slot::UPPER_BODY | slot::LEFT_HAND));
         actors.armors.insert(FormId(0x11), armor(slot::RIGHT_HAND));
         actors.armors.insert(FormId(0x12), armor(slot::HAT));
+        actors.armors.insert(FormId(0x13), armor(slot::PIPBOY));
         let parts = [
             part("body:upper_body", 1, r"meshes\characters\_male\upperbody.nif"),
             part("body:right_hand", 1, r"meshes\characters\_male\righthand.nif"),
@@ -120,8 +139,9 @@ mod tests {
             part("armor", 0x10, r"meshes\armor\x\outfit.nif"),
             part("armor", 0x11, r"meshes\armor\x\glover.nif"),
             part("armor", 0x12, r"meshes\armor\x\hat.nif"),
+            part("armor", 0x13, r"meshes\pipboy3000\pipboyarm.nif"),
         ];
         let shows: Vec<_> = parts.iter().map(|p| show(&actors, p)).collect();
-        assert_eq!(shows, [Some(Show::Arms), Some(Show::Whole), None, None, Some(Show::Arms), Some(Show::Whole), None]);
+        assert_eq!(shows, [Some(Show::Arms), Some(Show::Whole), None, None, Some(Show::Arms), Some(Show::Whole), None, Some(Show::Whole)]);
     }
 }
