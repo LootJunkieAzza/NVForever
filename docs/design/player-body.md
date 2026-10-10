@@ -192,6 +192,13 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
   After [observed: screenshots from behind, from the side and from the front with
   `orbit=90:0` and `orbit=150:0`]: as in the game screenshots; the gun appears half way
   through the draw and goes half way through putting it away.
+- Moving parts (2026-10-10, owner report: no weapon's parts moved): the weapon model
+  was drawn as loose shapes, so the clips' tracks on its `##` nodes had nothing to
+  drive. It now keeps its node tree and the clips move its parts by name; an attack
+  clip with a `Loop` key keeps going while the trigger is held (animation.md §9.8).
+  After [observed: first-person screenshots of the 10mm pistol, and the body's debug
+  lines]: the slide goes back at the shot, the magazine leaves the grip in the left
+  hand during the reload, and the minigun's barrel turns for as long as it fires.
 
 ## 5. Open questions for the owner
 
