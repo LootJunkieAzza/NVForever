@@ -161,7 +161,9 @@ What it does now:
   are actually loaded (cells stream in one per frame; cutting it for the cells merely
   wanted left the far edge empty until they arrived, the "pop" seen at a distance).
   Object blocks are drawn whole over squares with no loaded cell and split by cell
-  elsewhere. Cells streamed in after the start fade in, and cells streamed out fade
+  elsewhere, by the block's own segments: each holds the objects of one cell whole, so
+  an object reaching over the edge of the loaded cells is neither cut nor drawn twice
+  (world.md §7 "Objects"). Cells streamed in after the start fade in, and cells streamed out fade
   out before they are dropped (`--cell-fade`, default 1 s, 0 off; fade.rs): their
   meshes are dithered with Bevy's visibility-range crossfade driven by time, and the
   cell's part of the object block with the complementary pattern; the LOD terrain
