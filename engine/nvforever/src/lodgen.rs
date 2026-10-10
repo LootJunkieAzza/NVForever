@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// Bumped whenever the generated output changes for the same inputs (part of the cache key).
-pub const GENERATOR_VERSION: u32 = 2;
+pub const GENERATOR_VERSION: u32 = 3;
 /// Cells per chunk side (the game's level-4 grid, world.md §7).
 pub const CHUNK_CELLS: i32 = 4;
 const CHUNK_SIZE: f32 = CHUNK_CELLS as f32 * CELL_SIZE;
@@ -141,8 +141,8 @@ pub fn bake_diffuse(cells: &ChunkCells, res: usize, tile: f32, origin: Vec2) -> 
             let Some(cell) = &cells[c] else { continue };
             let q = usize::from(lx >= half) + 2 * usize::from(ly >= half);
             let quad = &cell.quads[q];
-            // Same repeat as the loaded terrain: uv = (wx, -wy) / tile.
-            let (u, v) = ((origin.x + x) / tile, -(origin.y + y) / tile);
+            // Same repeat as the loaded terrain: uv = (wx, wy) / tile.
+            let (u, v) = ((origin.x + x) / tile, (origin.y + y) / tile);
             let mut col = quad.base.as_ref().map_or(no_base, |m| m.sample(u, v));
             let (qx, qy) = ((lx - if q % 2 == 1 { half } else { 0.0 }) / SPACING, (ly - if q >= 2 { half } else { 0.0 }) / SPACING);
             for (tex, alpha) in &quad.layers {
