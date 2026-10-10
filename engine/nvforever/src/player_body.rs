@@ -33,7 +33,7 @@ use crate::world::WorldRoot;
 use bevy::math::Affine3A;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
-use fnv_actor::first_person::{self, is_arms_shape, Show};
+use fnv_actor::first_person::{self, is_first_person_shape, Show};
 use fnv_actor::player_clips::{
     aim_clips, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
     move_clips, reload_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
@@ -418,10 +418,10 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         warn!("player {view:?} rig: {} parts not loaded", stats.parts_missing);
     }
     if let Some(shows) = shows {
-        // Upper-body models show their `Arms` shapes only.
+        // Upper-body models show their `Arms` shapes and the Pip-Boy sleeve only.
         for (i, u) in &mut uses {
             if shows[*i] == Show::Arms {
-                let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_arms_shape(n)));
+                let hide = u.part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| !is_first_person_shape(n)));
                 u.hidden_shapes.extend(hide);
             }
         }

@@ -13,6 +13,11 @@
 //!   their sleeves `Arms`, `Arms02`, `Arms2`, `Arms01:0`, `Arms\t` beside `UpperBody`,
 //!   caps and `PipBoyOn`/`PipBoyOff`; the race's `upperbody.nif` names its skin `Arms:0`
 //!   and `Arms:1`]. Hand parts are drawn whole.
+//! - With a Pip-Boy on, the outfit's `PipBoyOn…` sleeve is drawn too [owner statement
+//!   2026-10-10, with two in-game screenshots: "we see a sleeve on the arm with a
+//!   pipboy, it is rendered over the outfit using the pipboy on node"]. Whether the
+//!   actor wears one is decided where the parts are assembled
+//!   ([`crate::mesh::hidden_for_pipboy`]), which leaves that sleeve out otherwise.
 
 use crate::resolve::{slot, Appearance, Part};
 use crate::ActorForms;
@@ -26,7 +31,7 @@ pub const SKELETON: &str = r"meshes\characters\_1stperson\skeleton.nif";
 pub enum Show {
     /// Every shape.
     Whole,
-    /// Only the shapes [`is_arms_shape`] accepts.
+    /// Only the shapes [`is_first_person_shape`] accepts.
     Arms,
 }
 
@@ -39,6 +44,12 @@ pub fn first_person_variant(model: &str) -> Option<String> {
 /// Whether a shape of an upper-body model is drawn in first person.
 pub fn is_arms_shape(name: &str) -> bool {
     name.trim().to_ascii_lowercase().starts_with("arms")
+}
+
+/// Whether a shape of an upper-body model is drawn in first person: the `Arms…` shapes
+/// and the sleeve worn with a Pip-Boy (`PipBoyOn…`).
+pub fn is_first_person_shape(name: &str) -> bool {
+    is_arms_shape(name) || crate::mesh::pipboy_sleeve(name) == Some(true)
 }
 
 /// How part `p` appears in first person, if at all.
@@ -100,6 +111,12 @@ mod tests {
         }
         for n in ["UpperBody", "PipBoyOn", "MeatCapLimbs", "body:0", "RightGlove:0"] {
             assert!(!is_arms_shape(n), "{n:?}");
+        }
+        for n in ["Arms", "Arms\t", "PipBoyOn", "PipBoyOn:0", "PipBoy0n:0"] {
+            assert!(is_first_person_shape(n), "{n:?}");
+        }
+        for n in ["UpperBody", "PipBoyOff", "PipBoyOff:0", "MeatCapLimbs"] {
+            assert!(!is_first_person_shape(n), "{n:?}");
         }
     }
 

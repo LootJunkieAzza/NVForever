@@ -30,8 +30,9 @@ controls.md (bindings).
   targets it). Shown in third person and while the camera circles the player.
 - **First person**: the game's arms rig, `characters\_1stperson\skeleton.nif`, with its
   own clips (`characters\_1stperson\`). It draws the hands (their `…1st.nif` meshes) and
-  only the `Arms…` shapes of the upper body and of worn upper-body armour (gloves and
-  the Pip-Boy whole; no head, hair or other armour; `fnv_actor::first_person`), and the weapon's
+  only the `Arms…` shapes of the upper body and of worn upper-body armour, with the
+  outfit's `PipBoyOn…` sleeve (gloves and the Pip-Boy whole; no head, hair or other
+  armour; `fnv_actor::first_person`), and the weapon's
   first-person model (WEAP `WNAM`, a STAT). `Bip01 Looking` turns with the view's pitch,
   so arms and weapon stay in front of the camera, which sits at the rig's `Camera1st`
   node: 118 units above the feet, 78 crouched. Shown in first person.
@@ -163,10 +164,9 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
 2. Toggle POV held in the game: does the camera stay where it was circled to after
    letting go? Does holding it in first person zoom out instead?
 3. The Pip-Boy (drawn on the left forearm in both views since 2026-10-10, actors.md
-   §1.2): (a) in first person the outfit's `PipBoyOn` sleeve is not drawn, by your rule
-   that only shapes called `Arms` show, so bare wrist shows between the glove and the
-   Pip-Boy in a jumpsuit: does the game show sleeve there? (b) With the light off, are
-   the three orange button lights and the screen dark, lit, or as the menu left them?
-   (c) The light itself is not built: the glow shape is hidden until it is.
+   §1.2). Answered 2026-10-10: the three orange button lights are always lit; the
+   outfit's `PipBoyOn` sleeve shows in first person too (now drawn). Open: (a) is the
+   screen dark with the light off, as drawn now? (b) The light itself is not built: the
+   glow shape is hidden until it is.
 4. In-game references would settle the hypotheses of animation.md §9 (captures listed
    in its §7): holster positions, aim poses, sneak speeds sideways and backwards.
