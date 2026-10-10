@@ -21,10 +21,11 @@
 //!   (`PlayState::Menu`, `script::hold_player`), and script time stops (the runtime's
 //!   `Game::menu`).
 //! - **Subtitles**: the dialogue lines being said (`Game::speech`), bottom centre, as
-//!   "Speaker: text", one response of the INFO at a time, each for its share of the line's
-//!   length (`fnv_game::game::line_seconds` per response, the runtime's stand-in for the
-//!   voice file); and the response being said in the conversation with the player
-//!   (`Game::dialogue`, `crate::dialogue::subtitle`), for as long as the runtime says it.
+//!   "Speaker: text", one response of the INFO at a time in response-number order, each
+//!   for as long as it lasts (`crate::voice::speech_response`: its voice file's length,
+//!   or the length fitted to its text without one); and the response being said in the
+//!   conversation with the player (`Game::dialogue`, `crate::dialogue::subtitle`), for as
+//!   long as the runtime says it.
 
 use crate::script::{ScriptState, MENU_MESSAGE};
 use crate::script_events::BoxMessage;
@@ -205,19 +206,6 @@ pub fn box_lines(b: &BoxMessage) -> String {
 /// What the panel shows: text and button labels.
 type Panel = (String, Vec<String>);
 
-/// Which response of a line is being said, `elapsed` seconds into it: each response
-/// takes its share of the line (`fnv_game::game::line_seconds` of its length).
-pub fn response_at(chars: &[usize], elapsed: f64) -> usize {
-    let mut end = 0.0;
-    for (i, &c) in chars.iter().enumerate() {
-        end += fnv_game::game::line_seconds(&[c]);
-        if elapsed < end {
-            return i;
-        }
-    }
-    chars.len().saturating_sub(1)
-}
-
 /// What the overlay shows this frame: the panel (a message box or a menu placeholder),
 /// the box on screen, and the subtitles.
 fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<Panel>, Option<BoxMessage>, String) {
@@ -235,9 +223,7 @@ fn view(hud: &ScriptHud, script: &ScriptState, sim: &SimState) -> (Option<Panel>
     let mut subs = Vec::new();
     for s in &g.speech {
         let Some(texts) = hud.lines.get(&s.info.0) else { continue };
-        let chars: Vec<usize> = g.data.infos.get(&s.info).map(|d| d.response_chars.clone()).unwrap_or_default();
-        let total = fnv_game::game::line_seconds(&chars);
-        let i = response_at(&chars, total - s.remaining);
+        let i = crate::voice::speech_response(g, sim, s);
         let Some(text) = texts.get(i).or_else(|| texts.last()) else { continue };
         let base = sim.base_of(s.speaker.0).unwrap_or(s.speaker);
         let who = sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(s.speaker));
