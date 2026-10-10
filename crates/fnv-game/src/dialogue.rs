@@ -579,11 +579,11 @@ impl<'a> Game<'a> {
     /// the `line_ended` (not cut) simply comes early.
     ///
     /// Returns whether a response was skipped: not outside a conversation, not while the
-    /// player chooses, and not while a loading screen or a menu other than the dialogue
-    /// menu itself (a message box a result script showed) holds the conversation
-    /// ([`Game::tick`]).
+    /// player chooses, and not while a loading screen or a menu opened on top of the
+    /// conversation (a message box a result script showed, [`Game::menu`]) holds its
+    /// lines ([`Game::tick`]).
     pub fn skip_response(&mut self) -> bool {
-        if self.loading || self.menu.is_some_and(|m| m != DIALOGUE_MENU) {
+        if self.loading || self.menu.is_some() {
             return false;
         }
         let Some(line) = self.dialogue.as_mut().and_then(|c| c.line.as_mut()) else { return false };
