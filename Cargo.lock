@@ -360,6 +360,7 @@ dependencies = [
  "fnv-esm",
  "fnv-nif",
  "fnv-sim",
+ "fnv-vfs",
  "fnv-world",
  "rand_chacha",
  "rand_core",
