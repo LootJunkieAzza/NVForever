@@ -87,23 +87,59 @@ pub struct BaseObject {
     pub edid: Option<String>,
     /// MODL as stored: relative to `meshes\`.
     pub model: Option<String>,
+    /// The item's own world model as stored, when its record names one: ARMO MOD2, WEAP
+    /// MOD4 ([`world_model_sub`]).
+    pub world_model: Option<String>,
+}
+
+/// The subrecord naming the model an item shows lying in the world, for the record types
+/// whose MODL is something else (docs/spec-notes/simulation.md §3 "Item models"):
+/// - ARMO: MODL is the worn (biped) model, MOD2 the "Male world model" [documented: xEdit
+///   `wbDefinitionsFNV.pas` ARMO], usually a `...GO.NIF` ground object; armour on the
+///   ground shows MOD2 [observed in game, male player].
+/// - WEAP: MODL is the model in the hand, MOD4 the "World Model" (MOD2 is the "Shell
+///   Casing Model", MOD3 the "Scope Model") [documented: xEdit `wbDefinitionsFNV.pas`
+///   WEAP]; where MOD4 differs from MODL it is a `...GO.NIF` or `...WorldObject.NIF`, and
+///   eight fist weapons have it and no MODL [observed in the records]. That the game
+///   draws it for a weapon on the ground is not captured [hypothesis].
+///
+/// Every other item type has MODL only [observed].
+pub fn world_model_sub(sig: &[u8; 4]) -> Option<&'static [u8; 4]> {
+    match sig {
+        b"ARMO" => Some(b"MOD2"),
+        b"WEAP" => Some(b"MOD4"),
+        _ => None,
+    }
+}
+
+/// Archive path of a model stored relative to `meshes\`, lower case: `meshes\...`, except
+/// SpeedTree models (`.spt`, used by TREE), which live under `trees\` [observed: all ten
+/// `.spt` files in the archives are in `trees\`, and TREE MODL values name them without a
+/// folder].
+fn archive_path(stored: &str) -> Option<String> {
+    let m = stored.trim();
+    if m.is_empty() {
+        return None;
+    }
+    // TREE models are stored with a leading separator, e.g. "\WastelandShrub01.spt"
+    // [observed]; the file is trees\wastelandshrub01.spt.
+    let m = m.replace('/', "\\").to_ascii_lowercase();
+    let m = m.trim_start_matches('\\');
+    let root = if m.ends_with(".spt") { "trees\\" } else { "meshes\\" };
+    Some(if m.starts_with(root) { m.to_string() } else { format!("{root}{m}") })
 }
 
 impl BaseObject {
-    /// Archive path of the model, lower case: `meshes\...`, except SpeedTree models
-    /// (`.spt`, used by TREE), which live under `trees\` [observed: all ten `.spt` files
-    /// in the archives are in `trees\`, and TREE MODL values name them without a folder].
+    /// Archive path of MODL ([`archive_path`]).
     pub fn model_path(&self) -> Option<String> {
-        let m = self.model.as_deref()?.trim();
-        if m.is_empty() {
-            return None;
-        }
-        // TREE models are stored with a leading separator, e.g. "\WastelandShrub01.spt"
-        // [observed]; the file is trees\wastelandshrub01.spt.
-        let m = m.replace('/', "\\").to_ascii_lowercase();
-        let m = m.trim_start_matches('\\');
-        let root = if m.ends_with(".spt") { "trees\\" } else { "meshes\\" };
-        Some(if m.starts_with(root) { m.to_string() } else { format!("{root}{m}") })
+        archive_path(self.model.as_deref()?)
+    }
+
+    /// Archive path of the model the object shows (and collides with) in the world,
+    /// placed or dropped: an item's world model when its record names one
+    /// ([`world_model_sub`]), else MODL.
+    pub fn world_model_path(&self) -> Option<String> {
+        self.world_model.as_deref().and_then(archive_path).or_else(|| self.model_path())
     }
 
     pub fn is_speedtree(&self) -> bool {
@@ -114,7 +150,8 @@ impl BaseObject {
 pub fn base_object(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<BaseObject> {
     let (pi, r) = winner(lo, fid)?;
     let f = Fields::new(r, pi, schema).ok()?;
-    Some(BaseObject { form_id: fid, sig: r.header.sig, edid: f.string(b"EDID"), model: f.string(b"MODL") })
+    let world_model = world_model_sub(&r.header.sig).and_then(|s| f.string(s));
+    Some(BaseObject { form_id: fid, sig: r.header.sig, edid: f.string(b"EDID"), model: f.string(b"MODL"), world_model })
 }
 
 /// A TREE's billboard: its size (TREE BNAM width, height) and texture,
@@ -125,7 +162,7 @@ pub fn tree_billboard(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<([f32
     let f = Fields::new(r, pi, schema).ok()?;
     let b = f.get(b"BNAM")?;
     let size = [num(&b, "width")? as f32, num(&b, "height")? as f32];
-    let model = BaseObject { form_id: fid, sig: r.header.sig, edid: None, model: f.string(b"MODL") }.model_path()?;
+    let model = f.string(b"MODL").as_deref().and_then(archive_path)?;
     let stem = model.rsplit('\\').next()?.strip_suffix(".spt")?;
     Some((size, format!("textures\\trees\\billboards\\{stem}.dds")))
 }
@@ -155,7 +192,7 @@ pub struct TreeRecord {
 pub fn tree_record(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<TreeRecord> {
     let (pi, r) = winner(lo, fid)?;
     let f = Fields::new(r, pi, schema).ok()?;
-    let model = BaseObject { form_id: fid, sig: r.header.sig, edid: None, model: f.string(b"MODL") }.model_path()?;
+    let model = f.string(b"MODL").as_deref().and_then(archive_path)?;
     let leaf_texture = f.string(b"ICON").map(|i| i.trim().replace('/', "\\").to_ascii_lowercase()).filter(|i| !i.is_empty());
     let leaf_texture = leaf_texture.map(|i| format!("textures\\trees\\leaves\\{}", i.trim_start_matches('\\')));
     let obnd = f.get(b"OBND").and_then(|b| num(b.get("max")?, "z")).map(|z| z as f32).filter(|&z| z > 0.0);
@@ -195,7 +232,7 @@ pub fn door_record(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<DoorReco
         return None;
     }
     let f = Fields::new(r, pi, schema).ok()?;
-    let model = BaseObject { form_id: fid, sig: r.header.sig, edid: None, model: f.string(b"MODL") }.model_path();
+    let model = f.string(b"MODL").as_deref().and_then(archive_path);
     let sound = |s: &[u8; 4]| f.formid(s, lo).filter(|&v| v != 0);
     let flags = f.get(b"FNAM").and_then(|v| num(&v, "value")).map_or(0, |v| v as u8);
     let corner = |v: &serde_json::Value, k: &str| -> Option<[f32; 3]> {
@@ -212,12 +249,36 @@ mod tests {
 
     #[test]
     fn model_paths() {
-        let b = |m: &str| BaseObject { form_id: 1, sig: *b"STAT", edid: None, model: Some(m.into()) };
+        let b = |m: &str| BaseObject { form_id: 1, sig: *b"STAT", edid: None, model: Some(m.into()), world_model: None };
         assert_eq!(b("Clutter\\Junk\\Can.NIF").model_path().unwrap(), "meshes\\clutter\\junk\\can.nif");
         assert_eq!(b("meshes/a.nif").model_path().unwrap(), "meshes\\a.nif");
         assert_eq!(b("  ").model_path(), None);
         assert_eq!(b("WastelandShrub01.spt").model_path().unwrap(), "trees\\wastelandshrub01.spt");
         assert_eq!(b("\\WastelandShrub01.spt").model_path().unwrap(), "trees\\wastelandshrub01.spt");
         assert!(b("WastelandShrub01.spt").is_speedtree() && !b("a.nif").is_speedtree());
+    }
+
+    #[test]
+    fn world_model_paths() {
+        let b = |sig: &[u8; 4], model: Option<&str>, world: Option<&str>| BaseObject {
+            form_id: 1,
+            sig: *sig,
+            edid: None,
+            model: model.map(Into::into),
+            world_model: world.map(Into::into),
+        };
+        // Armour: the ground object, not the worn suit; MODL stays what `model_path` gives.
+        let leather = b(b"ARMO", Some("Armor\\LeatherArmor\\M\\OutfitM.NIF"), Some("Armor\\LeatherArmor\\M\\GO.NIF"));
+        assert_eq!(leather.world_model_path().unwrap(), "meshes\\armor\\leatherarmor\\m\\go.nif");
+        assert_eq!(leather.model_path().unwrap(), "meshes\\armor\\leatherarmor\\m\\outfitm.nif");
+        // A world model and no MODL (fist weapons).
+        let knuckles = b(b"WEAP", None, Some("Weapons\\Hand2Hand\\BrassKnucklesWorldObject.NIF"));
+        assert_eq!(knuckles.world_model_path().unwrap(), "meshes\\weapons\\hand2hand\\brassknucklesworldobject.nif");
+        assert_eq!(knuckles.model_path(), None);
+        // No world model, or an empty one: MODL.
+        assert_eq!(b(b"WEAP", Some("Weapons\\2HandMelee\\BaseballBat.NIF"), None).world_model_path().unwrap(), "meshes\\weapons\\2handmelee\\baseballbat.nif");
+        assert_eq!(b(b"ARMO", Some("a.nif"), Some(" ")).world_model_path().unwrap(), "meshes\\a.nif");
+        assert_eq!(b(b"MISC", None, None).world_model_path(), None);
+        assert_eq!((world_model_sub(b"ARMO"), world_model_sub(b"WEAP"), world_model_sub(b"MISC")), (Some(b"MOD2"), Some(b"MOD4"), None));
     }
 }

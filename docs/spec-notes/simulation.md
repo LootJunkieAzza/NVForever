@@ -299,6 +299,37 @@ not visible in the data and stays **[hypothesis]** until the in-game captures of
   Rule for the engine: draw MOD2 for placed and dropped armour [observed for a male
   player]; MOD4 for a female player [hypothesis, open]; MODL when there is no MOD2
   [hypothesis].
+- **Item models: which one lies in the world, per record type** (`FalloutNV.esm` alone,
+  winning records; `cargo run --release -p fnv-world --example item_models`). Only ARMO
+  and WEAP name more than one model; AMMO, MISC, ALCH, BOOK, KEYM, NOTE, IMOD, CHIP, CMNY
+  and CCRD have MODL only [observed], which is then the model in the world.
+  - ARMO (389): MODL 381, MOD2 345, MOD3 245, MOD4 107. 330 of the MOD2 paths end in
+    `GO.NIF`; the other 15 are the `GOm.NIF` of nine children's, doctors' and mercenary outfits, the four Pip-Boys
+    and the psychic nullifier (MOD2 = MODL) and `MountedVaultSuit101Armored`
+    (`ArmorMounted.NIF`); 44 have no MOD2 (none of them has a MOD4, 8 have no MODL
+    either) [observed].
+  - WEAP (261): MODL "Model", MOD2 "Shell Casing Model", MOD3 "Scope Model", MOD4 "World
+    Model", MWD1–MWD7 "Model - Mod 1" … "Model - Mod 1, 2 and 3" [documented: xEdit
+    `wbDefinitionsFNV.pas` WEAP]. Counts: MODL 207, MOD2 78, MOD3 26, MOD4 57, MWD1 34
+    [observed]. 64 of the MOD2 paths name a casing or shell
+    (`weapons\2handautomatic\assaultrifleshellcasing.nif`; the rest are `GrenadeFrag.NIF`
+    13 times and a minigun projectile) and all 26 MOD3 paths are scope overlays in an
+    `interface` folder (`interface\HUD\varmitscope.NIF`), so neither is a world model
+    [observed]. Of the 57 MOD4: 35 end in `GO.NIF` (`44magnumrevolvernoscopeGO.nif`,
+    `MinigunGO.NIF`, `boxingglove_GO.NIF`), 6 in `WorldObject.NIF` (fist weapons: MODL
+    `PowerFistRigid.NIF`, MOD4 `PowerFistWorldObject.NIF`), 15 repeat MODL and one names
+    another model (`WeapNV357RevolverUnique`: `357revolverCustom.nif`); 8 fist weapons
+    (`WeapBrassKnuckles`, `WeapSpikedKnuckles`, `WeapDeathclawGauntlet`, the bladed and
+    mantis gauntlets, …) have a MOD4 and **no MODL** [observed]. The other 46 without
+    MODL have no model at all (`Fists`, creature, robot and turret weapons). 204 weapons
+    have no MOD4: MODL is their only model that can lie in the world.
+  - Rule for the engine (`fnv_world::placed::world_model_sub`,
+    `BaseObject::world_model_path`): an item placed in the world or dropped is drawn with,
+    and collides by, ARMO MOD2 / WEAP MOD4 when the record names one, else MODL
+    [ARMO: observed in game, above; WEAP: documented field name and the paths, not
+    captured in game: hypothesis]. Open: which model a dropped weapon with mods attached
+    shows (a weapon with both MOD4 and MWD models, e.g. `WeapNV44Revolver`); the engine
+    draws MOD4. `fnvtool world refs` keeps reporting MODL as `model` (docs/cli-contract.md).
 - **Quest items**: an item marked as a quest item cannot be dropped from the player's
   inventory and cannot be sold, and a dead body holding one is not cleaned up until it is
   taken out [documented: GECK wiki Category:Items and SetQuestObject, owner exports

@@ -473,7 +473,7 @@ fn load_cell(
             stats.refs_speedtree += 1;
             continue;
         }
-        let Some(path) = base.model_path() else {
+        let Some(path) = base.world_model_path() else {
             stats.refs_no_model += 1;
             continue;
         };
