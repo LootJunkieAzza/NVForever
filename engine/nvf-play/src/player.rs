@@ -435,6 +435,7 @@ fn read_input(
 
 /// Mouse look while the cursor is grabbed; while Toggle POV is held it circles the camera
 /// instead (control.rs).
+#[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     state: Res<State<PlayState>>,
@@ -443,6 +444,7 @@ fn mouse_look(
     look: Option<Res<crate::dialogue::FreeLook>>,
     mut control: ResMut<PlayerControl>,
     mut player: ResMut<Player>,
+    mut seat: ResMut<crate::furniture::PlayerSeat>,
 ) {
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     // The player looks around freely while an actor speaks in a conversation.
@@ -461,6 +463,12 @@ fn mouse_look(
         return;
     }
     (player.heading, player.pitch) = look_with(player.heading, player.pitch, motion.delta, s, inv);
+    if seat.hold.is_some() {
+        // Held by furniture: what was asked for, for a holder with a frame of its own.
+        let dy = if inv { -motion.delta.y } else { motion.delta.y };
+        seat.look[0] += motion.delta.x * s;
+        seat.look[1] -= dy * s;
+    }
 }
 
 /// Put the character on the ground under the start position once its cell is loaded: a

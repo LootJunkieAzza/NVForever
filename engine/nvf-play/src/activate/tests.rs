@@ -142,6 +142,7 @@ fn scene(colliding: &[(u32, f32)]) -> App {
         .init_resource::<crate::bindings::Bindings>()
         .init_resource::<Target>()
         .init_resource::<HudMessage>()
+        .init_resource::<crate::furniture::PlayerSeat>()
         .add_message::<TravelRequest>()
         .add_message::<OpenContainer>()
         .add_message::<RefChanged>()

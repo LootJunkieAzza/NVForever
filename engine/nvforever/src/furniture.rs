@@ -15,7 +15,9 @@
 //! - The player uses furniture by activating it (`nvf_play::furniture`) and gets up by
 //!   pressing a movement control or activating it again. Its third-person body plays the
 //!   clips ([`BodyOverride`], read by `player_body.rs`); in first person the view is that
-//!   body's eye and the body is not drawn [design]. Beds are left to a sleep menu.
+//!   body's eye and the body is not drawn [design]. Beds are used the same way: the
+//!   player lies down as a sleeping actor does [owner request 2026-10-10]. No game time
+//!   passes and there is no sleep menu (not built).
 //!
 //! While a clip plays, `GetSitting` / `GetSleeping` and the other furniture functions of
 //! the script runtime answer for the user (`nvf_play::furniture::set_use`).
@@ -511,6 +513,9 @@ pub struct BodyClip {
     pub serial: u32,
     pub pos: [f32; 3],
     pub heading: f32,
+    /// The furniture is a bed: the body lies down, and the first-person view lies down
+    /// with it (`player_body.rs`).
+    pub lying: bool,
 }
 
 #[derive(Resource, Default)]
@@ -567,15 +572,12 @@ pub fn drive_player(
             Some(u) if u.plan.furniture == reference => seat.leave = true,
             Some(_) => {}
             None => match f.plan(&world, &mut ctx, reference, player.feet, who) {
-                // Beds: the player sleeps through a menu, not by lying down [hypothesis
-                // from how the game is played; the sleep menu is not built].
-                Ok(plan) if furn::is_bed(plan.entry.marker_id) => {
-                    info!("furniture: the player cannot sleep on {reference:08X} yet");
-                    hud.show("Sleeping is not available yet.".to_string());
-                }
+                // Beds as seats: the player lies down as a sleeping actor does [owner
+                // request 2026-10-10; the original's sleep menu is not built].
                 Ok(plan) => {
                     info!(
-                        "furniture: the player uses {reference:08X} by marker {} (ID {}); clips {} / {}",
+                        "furniture: the player {} {reference:08X} by marker {} (ID {}); clips {} / {}",
+                        if furn::is_bed(plan.entry.marker_id) { "lies down on" } else { "uses" },
                         plan.entry.index,
                         plan.entry.marker_id,
                         plan.get_on.name,
@@ -619,23 +621,35 @@ pub fn drive_player(
         tell_scripts(&mut script, who.reference, Some((&u.plan, state::GETTING_OFF)));
     }
     let frames = u.plan.frames;
+    let lying = u.usage.is_bed();
     let shown = match u.usage.phase {
-        Phase::GettingOn => {
-            Some(BodyClip { clip: u.plan.get_on.clone(), looped: false, serial: st.serial, pos: root_at(&frames.clip, &u.plan.get_on, u.usage.t), heading: frames.clip.heading })
-        }
+        Phase::GettingOn => Some(BodyClip {
+            clip: u.plan.get_on.clone(),
+            looped: false,
+            serial: st.serial,
+            pos: root_at(&frames.clip, &u.plan.get_on, u.usage.t),
+            heading: frames.clip.heading,
+            lying,
+        }),
         Phase::On => Some(match &u.plan.stay {
-            Some(stay) => BodyClip { clip: stay.clone(), looped: true, serial: st.serial, pos: frames.on.pos, heading: frames.on.heading },
+            Some(stay) => BodyClip { clip: stay.clone(), looped: true, serial: st.serial, pos: frames.on.pos, heading: frames.on.heading, lying },
             None => BodyClip {
                 clip: u.plan.get_on.clone(),
                 looped: false,
                 serial: st.serial,
                 pos: root_at(&frames.clip, &u.plan.get_on, f32::MAX),
                 heading: frames.clip.heading,
+                lying,
             },
         }),
-        Phase::GettingOff if ev != Some(UseEvent::GotOff) => {
-            u.get_off.as_ref().map(|(c, _)| BodyClip { clip: c.clone(), looped: false, serial: st.serial, pos: root_at(&frames.clip, c, u.usage.t), heading: frames.clip.heading })
-        }
+        Phase::GettingOff if ev != Some(UseEvent::GotOff) => u.get_off.as_ref().map(|(c, _)| BodyClip {
+            clip: c.clone(),
+            looped: false,
+            serial: st.serial,
+            pos: root_at(&frames.clip, c, u.usage.t),
+            heading: frames.clip.heading,
+            lying,
+        }),
         Phase::GettingOff => None,
     };
     match shown {
