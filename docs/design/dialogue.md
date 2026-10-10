@@ -51,8 +51,16 @@ question and is listed in docs/owner-review.md until a capture settles it.
 
 - **Who can say a line.** A line's conditions run with the speaker as subject and the
   listener as target [documented: quests-dialogue.md §3, Run On]; a fixed speaker acts as
-  a GetIsID condition [documented: §4]; the line's quest must be running
-  [hypothesis: holds for the SayTo captures; not tested with a stopped quest].
+  a GetIsID condition [documented: §4]; the line's quest must be running and the
+  quest's own conditions must pass as well as the line's [owner statement 2026-10-10;
+  documented for the quest conditions: Quest Data Tab]. Topics the player knows are
+  global: every actor that can say a line of one offers it [owner statement
+  2026-10-10].
+- **A conversation pauses the game.** While the player is in a conversation the game
+  is in menu mode like the other menus: GameMode blocks and game time stop, `MenuMode`
+  and `MenuMode 1009` read 1, MenuMode blocks run; the conversation's own lines go on
+  in real time. Lines said outside a conversation (SayTo, Say) pause nothing
+  [owner statement 2026-10-10; details by the existing menu rules].
 - **Which line of a topic** (greetings, chosen topics, SayTo and Say alike;
   docs/spec-notes/dialogue.md §4):
   1. When lines of several quests are eligible, quest priority decides: the
@@ -61,9 +69,12 @@ question and is listed in docs/owner-review.md until a capture settles it.
   2. Between quests of the same priority, the first in stored order wins
      [owner statement 2026-10-10, from GECK use; not yet captured].
   3. Inside one quest the game takes the first eligible line from the top of the
-     editor's list, unless lines carry the Random flag; then qualifying Random lines form
-     a stack from which one is picked [owner statement 2026-10-10, from GECK use; not yet
-     captured; the Random stack is documented: §4; observed for SayTo: scripts.md §7.7].
+     editor's list, unless lines carry the Random flag [owner statement 2026-10-10, from
+     GECK use; not yet captured; observed for SayTo: scripts.md §7.7].
+  4. Random lines that sit together form a pool; a plain line between two groups splits
+     them into two pools whether or not it can be said; a pool is taken if any of its
+     lines can be said, and one of those is picked at random [owner statement
+     2026-10-10; the pick and Random End are documented: §4].
   The runtime does this with a stable sort of the topic's stored order by quest
   priority, highest first, and takes the first line the speaker can say. Stored order
   is file order, which agrees with the previous-info links in 5,677 of the 5,686 lines
@@ -83,6 +94,8 @@ question and is listed in docs/owner-review.md until a capture settles it.
   choices their order in the record [documented: Category:Dialogue, sorting order of
   links] and for the topic list [hypothesis] record order. The shown text is the line's
   prompt if it has one, else the topic's name [documented: §4].
+- **Follow-up lines.** A line's follow-up is said next with no choice by the player
+  [owner statement 2026-10-10].
 - **Saying a line.** Responses are said one after another in response-number order. The
   begin result runs when the line starts and the end result when it finishes
   [documented: §4; observed for SayTo]. Run Immediately moves the results to when the
@@ -143,13 +156,15 @@ or `intro`; capture work never reads `crates/fnv-game/src/dialogue.rs`.
 3. Whether a topic with no line the actor can say is hidden.
 4. When the begin and end results run relative to the sound, and what happens to the end
    result when the player skips the line.
-5. Whether a line of a stopped quest can be said.
+5. To confirm [owner statement 2026-10-10]: a line of a stopped quest cannot be said;
+   a conversation pauses the game; follow-ups need no player choice; Random pools are
+   split by any plain line between them; known topics are offered by every actor.
 6. Say Once across two actors sharing a line; Say Once a Day.
 7. Speech challenge pass and fail routing, and the text shown.
 8. What `IsTalking`, `GetIsCurrentPackage` and `MenuMode 1009` read during a conversation
    [the menu code is a hypothesis].
 
-The full list of what D1 and D2 left as hypotheses (15 items, these among them) is
+The full list (six owner statements to confirm, and the open hypotheses) is
 docs/spec-notes/dialogue.md §7.
 
 How to observe 2 and 3 without reading the screen is open: the capture plugin can log
