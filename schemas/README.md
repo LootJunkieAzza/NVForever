@@ -12,6 +12,7 @@ so a wrong layout is fixed by editing JSON, not code.
 - `objects.json` — base objects (STAT, WEAP, ARMO, CONT, …)
 - `combat.json` — PROJ, EXPL, BPTD, AMEF, ENCH, SPEL (docs/spec-notes/combat-data.md)
 - `gameplay.json` — GLOB, SCPT, QUST, DIAL, INFO, NPC_, CREA, RACE, HAIR, EYES, HDPT, FACT, levelled lists, …
+- `ai.json` — PACK (AI packages) and IDLM (idle markers); facts in `docs/spec-notes/packages.md`
 
 **Record header flags.** A record entry may name bits of its record header's flags
 field (the u32 after the data size), next to `name` and `subrecords`:

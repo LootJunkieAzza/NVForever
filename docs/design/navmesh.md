@@ -235,10 +235,13 @@ Decode PACK (types, locations, targets, schedules, conditions), evaluate the cur
 package per actor, and send Travel/Sandbox locations to `door_route` / `find_path`. Keys
 come from the actor's inventory (fnv-sim); a package location the actor cannot reach
 should fall to the next package, as `can_reach` allows checking cheaply.
+Done headless (2026-10-10): the records, the reader, the choice and the walk to the
+package's location (`fnv-ai`); see docs/design/actor-behaviour.md §5, and §5.4 for the
+engine.
 
 ### 6.3 Travelling NPCs with physics in the game
 
-In `--play`, travellers near the player should move by the character controller
+(Done for residents, 2026-10-10: docs/design/actor-behaviour.md §5.4.) In `--play`, travellers near the player should move by the character controller
 (`Follower` + `Unstuck`, as in `fnvtool nav walk`) where the physics world is loaded, and
 by `Walker` elsewhere (the game's high and low processing levels are the model;
 [hypothesis] on how they divide).

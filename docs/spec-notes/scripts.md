@@ -1066,8 +1066,11 @@ Read: every `PACK`'s conditions (the `CTDA` before its begin/end/change sections
 every actor base's package list (`PKID`, in order), through the template (`TPLT`) when
 its template flags include "AI Packages" [documented: xEdit PACK and NPC_ layouts].
 
-- An actor's package is the **first package of its list whose conditions pass**, with
-  the actor as the subject [observed: the three Goodsprings settlers took
+- An actor's package is the **first valid package of its list**: in its schedule, with
+  the linked reference it needs, not a Once Per Day package chosen within the last 24
+  hours, and its conditions passing with the actor as the subject (packages.md §3–§4,
+  docs/design/actor-behaviour.md §3); with none valid the actor keeps its current list
+  package [observed for the conditions: the three Goodsprings settlers took
   GoodspringsFleePackage, their first, exactly when its conditions held and the next one
   otherwise; Sunny Smiles took her third package when the two before it failed;
   `L5.quest.condition_groups`; hypothesis: list order decides, as these cases show
@@ -1078,10 +1081,12 @@ its template flags include "AI Packages" [documented: xEdit PACK and NPC_ layout
   `package_chosen`); `GetIsCurrentPackage` compares with it, choosing first if the
   actor never chose (an actor in the world always runs a package [hypothesis]). The
   runner's `package` input with `start`/`change` also makes its package current.
-- Not modelled yet (Layer 6): schedules (`PSDT` is not decoded by the schema yet), the
-  package's procedure, locations and targets, starting a package (its begin result
-  script and OnPackageStart run only through the runner's `package` input), must-complete
-  flags, and when the game re-evaluates on its own.
+- The game's own periodic choice and the packages' begin / end / change scripts run only
+  with `GameConfig::package_interval` set (`fnv_game::ai`); without it, as in every
+  Layer 5 run, a package starts only through the runner's `package` input.
+- Not modelled yet (Layer 6): the package's procedure (what the actor does), locations
+  and the flags other than Once Per Day, Must Complete, Must Reach Location and Continue
+  If PC Near.
 
 ## 8. The runner (`fnvtool script run`, `fnv_game::runner`)
 

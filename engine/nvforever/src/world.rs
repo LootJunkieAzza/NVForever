@@ -123,6 +123,9 @@ pub struct Streamer {
     /// References another system draws (NPCs travelling on the navmesh, nav.rs): cells
     /// do not spawn them.
     pub managed: std::collections::HashSet<u32>,
+    /// Every placed actor and creature is another system's (`residents.rs`, with
+    /// `--npc-packages all`): cells spawn none.
+    pub manage_actors: bool,
     pub stats: StreamStats,
 }
 
@@ -138,7 +141,7 @@ impl Streamer {
 }
 
 /// Which cell to load.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CellKey {
     Exterior((i32, i32)),
     Interior(u32),
@@ -364,6 +367,7 @@ fn load_cell(
     streamer: &mut Streamer,
 ) -> Entity {
     let (hide, light_scale, managed, stats) = (&streamer.hide, streamer.light_scale, &streamer.managed, &mut streamer.stats);
+    let manage_actors = streamer.manage_actors;
     let (origin, cell, name) = match key {
         CellKey::Exterior(g) => {
             (Vec3::new(g.0 as f32 * CELL_SIZE, g.1 as f32 * CELL_SIZE, 0.0), world.grid_cell(g), format!("Cell {},{}", g.0, g.1))
@@ -395,6 +399,9 @@ fn load_cell(
             continue;
         }
         let Some(p) = placement(world.lo, world.schema, r) else { continue };
+        if manage_actors && p.base.and_then(|b| base_object(world.lo, world.schema, b)).is_some_and(|b| matches!(&b.sig, b"NPC_" | b"CREA")) {
+            continue;
+        }
         if !world.enabled(&p, 0) {
             // Actors, creatures and light sources are spawned hidden, so a script's
             // Enable can show them (actors.rs `SpawnedDisabled`); other models are

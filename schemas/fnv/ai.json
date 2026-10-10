@@ -1,0 +1,544 @@
+{
+ "format": "fnv.schema/1",
+ "types": {
+  "PackageLocation": {
+   "struct": [
+    {
+     "name": "type",
+     "type": {
+      "enum": "i32",
+      "values": {
+       "0": "Near reference",
+       "1": "In cell",
+       "2": "Near current location",
+       "3": "Near editor location",
+       "4": "Object ID",
+       "5": "Object Type",
+       "6": "Near linked reference",
+       "7": "At package location"
+      }
+     }
+    },
+    {
+     "name": "location_raw",
+     "type": "u32"
+    },
+    {
+     "name": "radius",
+     "type": "i32"
+    }
+   ]
+  },
+  "PackageTarget": {
+   "struct": [
+    {
+     "name": "type",
+     "type": {
+      "enum": "i32",
+      "values": {
+       "0": "Specific Reference",
+       "1": "Object ID",
+       "2": "Object Type",
+       "3": "Linked Reference"
+      }
+     }
+    },
+    {
+     "name": "target_raw",
+     "type": "u32"
+    },
+    {
+     "name": "count_distance",
+     "type": "i32"
+    },
+    {
+     "name": "unknown",
+     "type": "f32",
+     "optional": true
+    }
+   ]
+  },
+  "IdleCount": {
+   "struct": [
+    {
+     "name": "animation_count",
+     "type": "u8"
+    },
+    {
+     "name": "unused",
+     "type": {
+      "array": "u8",
+      "count": 3
+     },
+     "optional": true
+    }
+   ]
+  }
+ },
+ "records": {
+  "PACK": {
+   "name": "Package",
+   "header_flags": {
+    "bits": {
+     "27": "Unknown 27"
+    },
+    "confidence": "documented",
+    "note": "xEdit wbDefinitionsFNV.pas PACK record"
+   },
+   "subrecords": {
+    "PKDT": {
+     "name": "General",
+     "type": {
+      "struct": [
+       {
+        "name": "general_flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Offers Services",
+          "1": "Must Reach Location",
+          "2": "Must Complete",
+          "3": "Lock Doors At Package Start",
+          "4": "Lock Doors At Package End",
+          "5": "Lock Doors At Location",
+          "6": "Unlock Doors At Package Start",
+          "7": "Unlock Doors At Package End",
+          "8": "Unlock Doors At Location",
+          "9": "Continue If PC Near",
+          "10": "Once Per Day",
+          "12": "Skip Fallout Behavior",
+          "13": "Always Run",
+          "17": "Always Sneak",
+          "18": "Allow Swimming",
+          "19": "Allow Falls",
+          "20": "Head-Tracking Off",
+          "21": "Weapons Unequipped",
+          "22": "Defensive Combat",
+          "23": "Weapon Drawn",
+          "24": "No Idle Anims",
+          "25": "Pretend In Combat",
+          "26": "Continue During Combat",
+          "27": "No Combat Alert",
+          "28": "No Warn/Attack Behavior"
+         }
+        }
+       },
+       {
+        "name": "type",
+        "type": {
+         "enum": "u8",
+         "values": {
+          "0": "Find",
+          "1": "Follow",
+          "2": "Escort",
+          "3": "Eat",
+          "4": "Sleep",
+          "5": "Wander",
+          "6": "Travel",
+          "7": "Accompany",
+          "8": "Use Item At",
+          "9": "Ambush",
+          "10": "Flee Not Combat",
+          "12": "Sandbox",
+          "13": "Patrol",
+          "14": "Guard",
+          "15": "Dialogue",
+          "16": "Use Weapon"
+         }
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 1
+        },
+        "optional": true
+       },
+       {
+        "name": "fallout_behavior_flags",
+        "type": {
+         "flags": "u16",
+         "bits": {
+          "0": "Hellos To Player",
+          "1": "Random Conversations",
+          "2": "Observe Combat Behavior",
+          "3": "Unknown 4",
+          "4": "Reaction To Player Actions",
+          "5": "Friendly Fire Comments",
+          "6": "Aggro Radius Behavior",
+          "7": "Allow Idle Chatter",
+          "8": "Avoid Radiation"
+         }
+        },
+        "optional": true
+       },
+       {
+        "name": "type_specific_flags_raw",
+        "type": "u16",
+        "optional": true
+       },
+       {
+        "name": "unused2",
+        "type": {
+         "array": "u8",
+         "count": 2
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas PACK PKDT, SetOptionalFrom(2); flag names from wbDefinitionsCommon.pas wbPackageFlags (the FO3 names apply to FNV, wbIsFallout3 covers both games). Bit 20 is 'Head-Tracking Off' there and in the GECK wiki's flag list, 'Armor Unequipped' in JIP's GetPackageFlag list. The type-specific flags are a union decided by the package type (wbPKDTSpecificFlagsDecider): Find/Escort/Eat bits 8-10 Allow Buying/Killing/Stealing; Wander/Sandbox bits 0-5 No Eating/Sleeping/Conversation/Idle Markers/Furniture/Wandering; Use Item At bit 2 Sit Down plus 8-10; Ambush bit 0 Hide While Ambushing; Guard bit 3 Remain Near Reference to Guard. Kept as u16 here; fnv-ai reads it by type."
+    },
+    "PLDT": {
+     "name": "Location 1",
+     "type": "PackageLocation",
+     "confidence": "documented",
+     "note": "xEdit PACK PLDT; the location field is a union decided by the type (wbPxDTLocationDecider): 0 reference FormID, 1 cell FormID, 4 base object FormID, 5 object type (wbObjectTypeEnum), otherwise unused. Kept as u32; fnv-ai maps FormIDs by type."
+    },
+    "PLD2": {
+     "name": "Location 2",
+     "type": "PackageLocation",
+     "confidence": "documented",
+     "note": "xEdit PACK PLD2 (it appears twice in xEdit's list, the second as 'Location 2 (again??)'), same layout as PLDT"
+    },
+    "PSDT": {
+     "name": "Schedule",
+     "type": {
+      "struct": [
+       {
+        "name": "month",
+        "type": "i8"
+       },
+       {
+        "name": "day_of_week",
+        "type": {
+         "enum": "i8",
+         "values": {
+          "-1": "Any",
+          "0": "Sunday",
+          "1": "Monday",
+          "2": "Tuesday",
+          "3": "Wednesday",
+          "4": "Thursday",
+          "5": "Friday",
+          "6": "Saturday",
+          "7": "Weekdays (MTWTF)",
+          "8": "Weekends (SS)",
+          "9": "Monday, Wednesday, Friday",
+          "10": "Tuesday, Thursday"
+         }
+        }
+       },
+       {
+        "name": "date",
+        "type": "i8"
+       },
+       {
+        "name": "time",
+        "type": "i8"
+       },
+       {
+        "name": "duration_hours",
+        "type": "u32"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit PACK PSDT: month -1 Any, 0-11 January-December, 12-15 Spring/Summer/Autumn/Winter (records of form version below 122 store it zero-based; FNV records are version 15); date 0 Any, else day of month; time -1 Any, else 0-23 hour"
+    },
+    "PTDT": {
+     "name": "Target 1",
+     "type": "PackageTarget",
+     "confidence": "documented",
+     "note": "xEdit PACK PTDT, SetOptionalFrom(3); the target field is a union decided by the type: 0 reference FormID, 1 base object FormID, 2 object type (wbObjectTypeEnum), 3 unused (linked reference)"
+    },
+    "PTD2": {
+     "name": "Target 2",
+     "type": "PackageTarget",
+     "confidence": "documented",
+     "note": "xEdit PACK PTD2, same layout as PTDT"
+    },
+    "IDLF": {
+     "name": "Idle Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Run In Sequence",
+       "2": "Do Once"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsCommon.pas wbIdleAnimation (FO3/FNV names)"
+    },
+    "IDLC": {
+     "name": "Idle Count",
+     "type": "IdleCount",
+     "confidence": "documented",
+     "note": "xEdit wbIdleAnimation; 3 unused bytes only below form version 14"
+    },
+    "IDLT": {
+     "name": "Idle Timer Setting",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbIdleAnimation"
+    },
+    "IDLA": {
+     "name": "Animations",
+     "type": {
+      "array": "formid"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbIdleAnimation: IDLE FormIDs"
+    },
+    "CNAM": {
+     "name": "Combat Style",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit PACK CNAM (CSTY)"
+    },
+    "PKED": {
+     "name": "Eat Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit PACK PKED"
+    },
+    "PKE2": {
+     "name": "Escort Distance",
+     "type": "u32",
+     "confidence": "documented",
+     "note": "xEdit PACK PKE2"
+    },
+    "PKFD": {
+     "name": "Follow - Start Location - Trigger Radius",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit PACK PKFD"
+    },
+    "PKPT": {
+     "name": "Patrol Flags",
+     "type": {
+      "struct": [
+       {
+        "name": "repeatable",
+        "type": "BoolU8"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 1
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit PACK PKPT, SetOptionalFrom(1)"
+    },
+    "PKW3": {
+     "name": "Use Weapon Data",
+     "type": {
+      "struct": [
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "Always Hit",
+          "8": "Do No Damage",
+          "16": "Crouch To Reload",
+          "24": "Hold Fire When Blocked"
+         }
+        }
+       },
+       {
+        "name": "fire_rate",
+        "type": {
+         "enum": "u8",
+         "values": {
+          "0": "Auto Fire",
+          "1": "Volley Fire"
+         }
+        }
+       },
+       {
+        "name": "fire_count",
+        "type": {
+         "enum": "u8",
+         "values": {
+          "0": "Number of Bursts",
+          "1": "Repeat Fire"
+         }
+        }
+       },
+       {
+        "name": "number_of_bursts",
+        "type": "u16"
+       },
+       {
+        "name": "shots_per_volley_min",
+        "type": "u16"
+       },
+       {
+        "name": "shots_per_volley_max",
+        "type": "u16"
+       },
+       {
+        "name": "pause_between_volleys_min",
+        "type": "f32"
+       },
+       {
+        "name": "pause_between_volleys_max",
+        "type": "f32"
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 4
+        }
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit PACK PKW3"
+    },
+    "PUID": {
+     "name": "Use Item Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit PACK PUID"
+    },
+    "PKAM": {
+     "name": "Ambush Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit PACK PKAM"
+    },
+    "PKDD": {
+     "name": "Dialogue Data",
+     "type": {
+      "struct": [
+       {
+        "name": "fov",
+        "type": "f32"
+       },
+       {
+        "name": "topic",
+        "type": "formid"
+       },
+       {
+        "name": "flags",
+        "type": {
+         "flags": "u32",
+         "bits": {
+          "0": "No Headtracking",
+          "8": "Don't Control Target Movement"
+         }
+        }
+       },
+       {
+        "name": "unused",
+        "type": {
+         "array": "u8",
+         "count": 4
+        },
+        "optional": true
+       },
+       {
+        "name": "dialogue_type",
+        "type": {
+         "enum": "u32",
+         "values": {
+          "0": "Conversation",
+          "1": "Say To"
+         }
+        },
+        "optional": true
+       },
+       {
+        "name": "unknown",
+        "type": {
+         "array": "u8",
+         "count": 4
+        },
+        "optional": true
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "xEdit PACK PKDD, SetOptionalFrom(3)"
+    },
+    "POBA": {
+     "name": "OnBegin Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit PACK OnBegin group: POBA, then INAM idle, an embedded script, TNAM topic"
+    },
+    "POEA": {
+     "name": "OnEnd Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit PACK OnEnd group, as OnBegin"
+    },
+    "POCA": {
+     "name": "OnChange Marker",
+     "type": "Empty",
+     "confidence": "documented",
+     "note": "xEdit PACK OnChange group, as OnBegin"
+    },
+    "INAM": {
+     "name": "Idle",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit PACK OnBegin/OnEnd/OnChange INAM (IDLE or null)"
+    },
+    "TNAM": {
+     "name": "Topic",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit PACK OnBegin/OnEnd/OnChange TNAM (DIAL or null)"
+    }
+   }
+  },
+  "IDLM": {
+   "name": "Idle Marker",
+   "subrecords": {
+    "IDLF": {
+     "name": "Idle Flags",
+     "type": {
+      "flags": "u8",
+      "bits": {
+       "0": "Run In Sequence",
+       "2": "Do Once"
+      }
+     },
+     "confidence": "documented",
+     "note": "xEdit wbIdleAnimation"
+    },
+    "IDLC": {
+     "name": "Idle Count",
+     "type": "IdleCount",
+     "confidence": "documented",
+     "note": "xEdit wbIdleAnimation"
+    },
+    "IDLT": {
+     "name": "Idle Timer Setting",
+     "type": "f32",
+     "confidence": "documented",
+     "note": "xEdit wbIdleAnimation"
+    },
+    "IDLA": {
+     "name": "Animations",
+     "type": {
+      "array": "formid"
+     },
+     "confidence": "documented",
+     "note": "xEdit wbIdleAnimation: IDLE FormIDs"
+    }
+   }
+  }
+ }
+}

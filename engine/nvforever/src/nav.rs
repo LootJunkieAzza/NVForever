@@ -11,8 +11,9 @@
 //! headlessly by `fnvtool nav walk`. At a door that opens in place, a traveller stops,
 //! opens it (`nvf_play::doors`, which the drawn door and its collision follow) and waits
 //! until its "Open" sequence has ended (docs/design/navmesh.md §6.1); a door that is not
-//! drawn (its cell not loaded) has nothing to wait for. Behaviour (what an actor does on arrival, speeds) is
-//! an engine choice until AI packages exist (Layer 6).
+//! drawn (its cell not loaded) has nothing to wait for. A trip here is a fixed A to B;
+//! actors that live by their AI packages are `residents.rs`, which shares the drawing
+//! (`show_actor`) and the graph.
 
 use crate::actors::ActorWorld;
 use crate::locomotion::Locomotion;
@@ -33,6 +34,8 @@ pub const WALK_SPEED: f32 = 86.8;
 pub struct Traveller {
     pub reference: u32,
     pub base: u32,
+    /// The reference's scale (XSCL).
+    pub scale: f32,
     pub label: String,
     pub target_label: String,
     pub walker: Walker,
@@ -50,12 +53,22 @@ pub struct Traveller {
     pub doors_opened: Vec<(u32, f32)>,
 }
 
+/// The actor `--follow-npc` follows: the first traveller, else the first resident
+/// (`residents.rs`).
+#[derive(Clone, Copy)]
+pub struct Lead {
+    pub space: Space,
+    pub feet: [f32; 3],
+    pub heading: f32,
+}
+
 #[derive(Resource)]
 pub struct NavState {
     pub graph: NavGraph,
     pub travellers: Vec<Traveller>,
     pub show: bool,
     pub follow: bool,
+    pub lead: Option<Lead>,
     /// Smoothed chase-camera position, game space.
     cam: Option<Vec3>,
     /// The camera follows the first traveller into another space: travel asked for.
@@ -64,7 +77,7 @@ pub struct NavState {
     startup: Vec<(bool, String)>,
 }
 
-fn space_of_cell(world: &WorldData, cell: u32) -> Option<Space> {
+pub(crate) fn space_of_cell(world: &WorldData, cell: u32) -> Option<Space> {
     let c = world.index.cells.get(&cell)?;
     Some(match c.world {
         Some(w) => Space::World(w),
@@ -72,7 +85,7 @@ fn space_of_cell(world: &WorldData, cell: u32) -> Option<Space> {
     })
 }
 
-fn space_name(world: &WorldData, s: Space) -> String {
+pub(crate) fn space_name(world: &WorldData, s: Space) -> String {
     match s {
         Space::World(w) => world.index.worldspaces.get(&w).and_then(|w| w.edid.clone()).unwrap_or_else(|| format!("{w:08X}")),
         Space::Interior(c) => world.index.cells.get(&c).and_then(|c| c.edid.clone()).unwrap_or_else(|| format!("{c:08X}")),
@@ -162,6 +175,7 @@ impl NavState {
                 travellers.push(Traveller {
                     reference,
                     base,
+                    scale: refs.get(fnv_sim::FormId(reference)).and_then(|r| r.scale).unwrap_or(1.0),
                     label,
                     target_label,
                     walker,
@@ -174,7 +188,7 @@ impl NavState {
                 });
             }
         }
-        Ok(NavState { graph, travellers, show, follow, cam: None, travel_asked: false, startup })
+        Ok(NavState { graph, travellers, show, follow, lead: None, cam: None, travel_asked: false, startup })
     }
 }
 
@@ -190,7 +204,7 @@ fn to_bevy(p: Vec3) -> Vec3 {
 }
 
 /// The space drawn now.
-fn drawn_space(world: &WorldData, streamer: &Streamer) -> Space {
+pub(crate) fn drawn_space(world: &WorldData, streamer: &Streamer) -> Space {
     match streamer.interior {
         Some(c) => Space::Interior(c),
         None => Space::World(world.world),
@@ -236,18 +250,20 @@ pub fn drive(
     let now = time.elapsed_secs();
     let drawn = drawn_space(&world, &streamer);
     let nav = &mut *nav;
-    // Following: draw the space the first traveller is in (it may start indoors, or
-    // have gone through a door).
-    if let Some(first) = nav.travellers.first().filter(|_| nav.follow) {
-        let space = first.walker.space;
-        if space == drawn {
+    if let Some(first) = nav.travellers.first() {
+        nav.lead = Some(Lead { space: first.walker.space, feet: first.walker.feet, heading: first.walker.heading });
+    }
+    // Following: draw the space the lead is in (it may start indoors, or have gone
+    // through a door).
+    if let Some(lead) = nav.lead.filter(|_| nav.follow) {
+        if lead.space == drawn {
             nav.travel_asked = false;
         } else if !nav.travel_asked {
-            let (w, interior) = match space {
+            let (w, interior) = match lead.space {
                 Space::World(w) => (Some(w), None),
                 Space::Interior(c) => (None, Some(c)),
             };
-            travel.write(nvf_play::Travel { world: w, interior, feet: first.walker.feet, heading_deg: first.walker.heading.to_degrees() });
+            travel.write(nvf_play::Travel { world: w, interior, feet: lead.feet, heading_deg: lead.heading.to_degrees() });
             nav.travel_asked = true;
             nav.cam = None;
         }
@@ -331,48 +347,91 @@ pub fn drive(
         }
         // The visual: drawn while the traveller is in the space drawn.
         let visible = tr.walker.space == drawn;
-        if !visible {
-            if let Some(e) = tr.root.take() {
-                commands.entity(e).despawn();
-            }
-            tr.spawned = false;
-            continue;
-        }
-        let Some(aw) = actor_world.as_deref() else { continue };
-        if !tr.spawned {
-            let at = Vec3::from_array(tr.walker.feet);
-            let rt = bevy::math::Affine3A::from_rotation_translation(Quat::from_rotation_z(-tr.walker.heading), at);
-            let mut ctx = ActorCtx { cache: &mut parts, models: &mut models };
-            let mut stats = Default::default();
-            if !crate::actors::spawn(&mut commands, root, rt, at, tr.reference, tr.base, aw, &mut ctx, &mut stats, false) {
-                warn!("nav: {} could not be drawn", tr.label);
-                tr.failed = Some("not drawn".into());
-                continue;
-            }
-            tr.spawned = true;
-        }
-        // The actor's root: the entity of its reference placed directly under the world
-        // root (spawned last frame; its parts sit below it).
-        if tr.root.is_none() {
-            tr.root = roots.iter().find(|(_, v, p)| v.0 == tr.reference && p.parent() == root).map(|(e, _, _)| e);
-        }
-        let Some(e) = tr.root else { continue };
-        let Ok((mut t, lo)) = actors.get_mut(e) else { continue };
-        let before = (t.translation, tr_heading(&t));
-        t.translation = Vec3::from_array(tr.walker.feet);
-        t.rotation = Quat::from_rotation_z(-tr.walker.heading);
-        // Locomotion takes the velocity in the actor's axes and own scale (y forward)
-        // and the turn rate (positive = left, counter-clockwise; the compass heading
-        // turns the other way).
-        if let Some(mut lo) = lo {
-            let scale = t.scale.x.max(1e-3);
-            let moved = before.0.truncate().distance(t.translation.truncate());
-            let speed = if dt > 0.0 && ev == WalkEvent::Moved { moved / dt } else { 0.0 };
-            lo.velocity = [0.0, speed / scale];
-            let d = (tr.walker.heading - before.1 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-            lo.turn = if dt > 0.0 { -d / dt } else { 0.0 };
+        let moving = ev == WalkEvent::Moved;
+        let stage = (&mut tr.spawned, &mut tr.root);
+        if let Err(e) = show_actor(&mut commands, root, visible, actor_world.as_deref(), &mut parts, &mut models, &roots, &mut actors, Who { reference: tr.reference, base: tr.base, creature: false, scale: tr.scale }, stage, &tr.walker, moving, dt) {
+            warn!("nav: {} could not be drawn", tr.label);
+            tr.failed = Some(e.into());
         }
     }
+}
+
+/// The actor a walker moves: its reference, its base, whether the base is a creature,
+/// and the reference's scale (XSCL).
+#[derive(Clone, Copy)]
+pub(crate) struct Who {
+    pub reference: u32,
+    pub base: u32,
+    pub creature: bool,
+    pub scale: f32,
+}
+
+/// Keep the visual of an actor that a walker moves in step with it: drawn while
+/// `visible` (its space is the one drawn), spawned on demand (`spawned`, and `root` once
+/// its entity is found), placed at the walker's feet and heading, its locomotion fed the
+/// speed and turn rate. An error: the actor cannot be drawn.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn show_actor(
+    commands: &mut Commands,
+    world_root: Entity,
+    visible: bool,
+    actor_world: Option<&ActorWorld>,
+    parts: &mut ActorParts,
+    models: &mut ModelCtx,
+    roots: &Query<(Entity, &RefVisual, &ChildOf)>,
+    actors: &mut Query<(&mut Transform, Option<&mut Locomotion>), Without<crate::furniture::OnFurniture>>,
+    who: Who,
+    (spawned, root): (&mut bool, &mut Option<Entity>),
+    walker: &Walker,
+    moving: bool,
+    dt: f32,
+) -> Result<(), &'static str> {
+    let Who { reference, base, creature, scale } = who;
+    if !visible {
+        if let Some(e) = root.take() {
+            commands.entity(e).despawn();
+        }
+        *spawned = false;
+        return Ok(());
+    }
+    let Some(aw) = actor_world else { return Ok(()) };
+    if !*spawned {
+        let at = Vec3::from_array(walker.feet);
+        let rt = bevy::math::Affine3A::from_scale_rotation_translation(Vec3::splat(scale), Quat::from_rotation_z(-walker.heading), at);
+        let mut ctx = ActorCtx { cache: parts, models };
+        let mut stats = Default::default();
+        let drawn = if creature {
+            crate::actors::spawn_creature(commands, world_root, rt, reference, base, aw, &mut ctx, &mut stats, false)
+        } else {
+            crate::actors::spawn(commands, world_root, rt, at, reference, base, aw, &mut ctx, &mut stats, false)
+        };
+        if !drawn {
+            return Err("not drawn");
+        }
+        *spawned = true;
+    }
+    // The actor's root: the entity of its reference placed directly under the world
+    // root (spawned last frame; its parts sit below it).
+    if root.is_none() {
+        *root = roots.iter().find(|(_, v, p)| v.0 == reference && p.parent() == world_root).map(|(e, _, _)| e);
+    }
+    let Some(e) = *root else { return Ok(()) };
+    let Ok((mut t, lo)) = actors.get_mut(e) else { return Ok(()) };
+    let before = (t.translation, tr_heading(&t));
+    t.translation = Vec3::from_array(walker.feet);
+    t.rotation = Quat::from_rotation_z(-walker.heading);
+    // Locomotion takes the velocity in the actor's axes and own scale (y forward)
+    // and the turn rate (positive = left, counter-clockwise; the compass heading
+    // turns the other way).
+    if let Some(mut lo) = lo {
+        let scale = t.scale.x.max(1e-3);
+        let moved = before.0.truncate().distance(t.translation.truncate());
+        let speed = if dt > 0.0 && moving { moved / dt } else { 0.0 };
+        lo.velocity = [0.0, speed / scale];
+        let d = (walker.heading - before.1 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        lo.turn = if dt > 0.0 { -d / dt } else { 0.0 };
+    }
+    Ok(())
 }
 
 /// `--follow-npc`: the camera behind the first traveller, a little above, looking at it.
@@ -380,10 +439,10 @@ pub fn follow_camera(time: Res<Time>, mut nav: ResMut<NavState>, mut cams: Query
     if !nav.follow {
         return;
     }
-    let Some(tr) = nav.travellers.first() else { return };
+    let Some(lead) = nav.lead else { return };
     let Ok((mut t, mut fly)) = cams.single_mut() else { return };
-    let feet = Vec3::from_array(tr.walker.feet);
-    let (s, c) = tr.walker.heading.sin_cos();
+    let feet = Vec3::from_array(lead.feet);
+    let (s, c) = lead.heading.sin_cos();
     let want = feet - Vec3::new(s, c, 0.0) * 280.0 + Vec3::Z * 160.0;
     let k = 1.0 - (-4.0 * time.delta_secs()).exp();
     let cam = match nav.cam {

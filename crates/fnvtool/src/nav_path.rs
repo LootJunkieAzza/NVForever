@@ -749,73 +749,20 @@ fn pct(v: &mut [f32], q: f32) -> f32 {
     v[((v.len() - 1) as f32 * q).round() as usize]
 }
 
-/// Read AI observer output (docs/spec-notes/ai-observer.md §3): per actor, its samples in
-/// file order, FormIDs mapped from the game's load order to `lo`'s by plugin name.
+/// Read AI observer output ([`crate::observer`]): per actor, its samples in file order.
 fn read_observed(lo: &LoadOrder, files: &[std::path::PathBuf]) -> anyhow::Result<BTreeMap<u32, Vec<Seen>>> {
     let mut actors: BTreeMap<u32, Vec<Seen>> = BTreeMap::new();
-    for f in files {
-        let text = std::fs::read_to_string(f).map_err(|e| anyhow!("{}: {e}", f.display()))?;
-        let mut game_index: BTreeMap<u8, usize> = BTreeMap::new();
-        let mut parts: Vec<Vec<String>> = Vec::new();
-        for line in text.lines() {
-            let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
-            match v["kind"].as_str() {
-                Some("result") if v["label"] == "__modindex__" => {
-                    if let (Some(name), Some(i)) = (v["field"].as_str(), v["value"].as_f64()) {
-                        if let Some(pi) = lo.plugins.iter().position(|p| p.name.eq_ignore_ascii_case(name)) {
-                            game_index.insert(i as u8, pi);
-                        }
-                    }
-                }
-                Some("observing") => {
-                    parts = v["fields"]["parts"]
-                        .as_array()
-                        .map(|ps| {
-                            ps.iter()
-                                .map(|p| p.as_array().map(|fs| fs.iter().filter_map(|f| f[0].as_str().map(str::to_string)).collect()).unwrap_or_default())
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                }
-                Some("sample") => {
-                    let Some(groups) = v["groups"].as_object() else { continue };
-                    let mut this_sample = std::collections::HashSet::new();
-                    for subjects in groups.values().filter_map(Value::as_array) {
-                        for s in subjects.iter().filter_map(Value::as_array) {
-                            let mut m: BTreeMap<&str, &str> = BTreeMap::new();
-                            for (pi, part) in s.iter().enumerate() {
-                                let (Some(text), Some(names)) = (part.as_str(), parts.get(pi)) else { continue };
-                                for (n, val) in names.iter().zip(text.split('|')) {
-                                    m.insert(n.as_str(), val);
-                                }
-                            }
-                            let map = |hex: &str| -> Option<u32> {
-                                let raw = u32::from_str_radix(hex, 16).ok().filter(|&x| x != 0)?;
-                                let pi = *game_index.get(&((raw >> 24) as u8))?;
-                                Some(((pi as u32) << 24) | (raw & 0x00FF_FFFF))
-                            };
-                            let num = |k: &str| m.get(k).and_then(|x| x.parse::<f32>().ok());
-                            let id = m.get("id").and_then(|h| map(h));
-                            let cell = m.get("cell").and_then(|h| map(h));
-                            let (Some(id), Some(cell), Some(x), Some(y), Some(z)) = (id, cell, num("x"), num("y"), num("z")) else { continue };
-                            // An actor both tracked and nearby is in a sample twice.
-                            if !this_sample.insert(id) {
-                                continue;
-                            }
-                            let flag = |k: &str| num(k).is_some_and(|v| v != 0.0);
-                            actors.entry(id).or_default().push(Seen {
-                                cell,
-                                pos: [x, y, z],
-                                moving: flag("moving"),
-                                off_feet: flag("sitting") || flag("sleeping") || flag("dead") || flag("disabled"),
-                            });
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
+    crate::observer::read(lo, files, |row| {
+        let (Some(id), Some(cell), Some(x), Some(y), Some(z)) = (row.id("id"), row.id("cell"), row.num("x"), row.num("y"), row.num("z")) else {
+            return;
+        };
+        actors.entry(id).or_default().push(Seen {
+            cell,
+            pos: [x, y, z],
+            moving: row.flag("moving"),
+            off_feet: row.flag("sitting") || row.flag("sleeping") || row.flag("dead") || row.flag("disabled"),
+        });
+    })?;
     Ok(actors)
 }
 
