@@ -5,7 +5,8 @@ animated from the controls with layered clips (docs/design/player-body.md).
 
 Status 2026-10-08: **parts A, B and C done** (C: geometry and face-texture FaceGen;
 since 2026-10-09 the body skin `.egt` too, actors.md §4.1; since 2026-10-10 the
-race's FGTS is added to the NPC's for the skin tint, its FGGS stays unused, §4.2); part
+race's FGTS is added to the NPC's for the skin tint (§4.2) and its FGGS for the face
+shape, and the hair models' per-shape `.egm` files are used (§4.3)); part
 D (creatures) done 2026-10-09 (§8 below); part E (animation
 playback) done: `nvforever` (default `--actor-pose idle`) plays `mtidle.kf` on each actor's skeleton, all 60 transform tracks binding to
 `skeleton.nif`, with skinned, rigid and FaceGen parts following (actors.md §7); since
@@ -312,8 +313,8 @@ Facts and rules: docs/spec-notes/actors.md §10 (records, resolution, meshes, id
   idle phases (animation.md §8); `nvf-viewer --anim` plays walks in place (actors.md
   §8.8); the body skin `.egt` tints the body texture (actors.md §4.1).
 - **Not done**: creature walk/turn/attack clips and KFFZ special idles (Layer 6); NIFT
-  texture variants; the race's FaceGen geometry values (§4.2 of actors.md; its texture
-  values are added since 2026-10-10). The hand `.egt` followed on
+  texture variants. The race's FaceGen values are added since 2026-10-10 (texture
+  values: §4.2 of actors.md; geometry values: §4.3). The hand `.egt` followed on
   2026-10-10 (actors.md §4.1).
 
 Results (2026-10-09): `L3.actors.creatures` 2,346 of 2,346 equal; every skin bone of the
