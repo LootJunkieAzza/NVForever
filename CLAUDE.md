@@ -74,6 +74,11 @@ docs/design/actor-behaviour.md §5.6), also run the force-greet smoke test, with
 After furniture changes (docs/spec-notes/furniture.md §7), run the sitting smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-sit EasyPeteRef=0010634A:8 --follow-npc --run-seconds 45`
 (expect exit 0 and "furniture summary: 1 of 1 actors sat down, 1 got up again").
+After actor collision or pushing changes (`nvf-play` `blocking`, docs/spec-notes/physics.md §6.8),
+run the push smoke test (the player stands on Easy Pete's noon walk):
+`NVF_PLAY_TEST_SCRIPT_MENUS=1 NVF_PLAY_TEST_GOTO=1:-67790:3450:8425 engine/target/release/nvforever --data <Data> --cell Goodsprings --play --npc-packages EasyPeteRef --hour 12 --run-seconds 30`
+(expect exit 0, Easy Pete's "used door 0x0010636F", and in the "actors pushed aside:" line
+"one the player in" about 200 steps: he pushes the player ahead of him and goes on).
 After idle animation changes (docs/spec-notes/idles.md §7: `fnv-game` `idles`, `fnv-actor`
 `idle_play`, the engine's `idles.rs`, the player body's idles or view), run the opening:
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.05 engine/target/release/nvforever --data <Data> --play --new-game --no-voice --run-seconds 90`

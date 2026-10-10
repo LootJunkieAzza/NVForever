@@ -176,6 +176,12 @@ pub struct Character {
     pub since_landing: Option<f32>,
     /// Seconds since the character left the ground (0 on the ground).
     pub air_time: f32,
+    /// Other characters do not block this one: its caller keeps characters apart by
+    /// other means. (Off, the controller also carries a character along with any
+    /// kinematic body that comes within its contact distance, another character's
+    /// included, as with a moving platform [observed: an actor walking past the standing
+    /// player took it along at its own speed from 3.5 units away, rapier 0.36.0].)
+    pub passes_characters: bool,
 }
 
 impl Character {
@@ -265,6 +271,7 @@ impl PhysWorld {
             air_full: false,
             since_landing: None,
             air_time: 0.0,
+            passes_characters: false,
         };
         let body =
             self.insert_body(RigidBodyBuilder::kinematic_position_based().translation(c.center(self.k)).user_data(owner.encode()));
@@ -287,7 +294,11 @@ impl PhysWorld {
         c.since_landing = None;
         let center = c.center(self.k);
         self.w.bodies[c.body].set_translation(center, true);
-        self.mark_dirty();
+        // A body that had gone to sleep (a character not moved for a while) stayed where
+        // it was put while the character walked on [observed: test
+        // `a_placed_character_takes_its_body_along`, rapier 0.36.0; the query before the
+        // next step consumed its wake-up, as for a sleeping body that is struck].
+        self.body_placed(c.body);
     }
 
     /// One fixed step of character movement (call once per [`PhysWorld::step`], before
@@ -336,10 +347,12 @@ impl PhysWorld {
         let k = self.k;
         let fall = c.vertical_speed * dt;
         let ignore = c.ignore_layers;
+        let passes = c.passes_characters;
         let solid = move |_: ColliderHandle, co: &Collider| match Owner::decode(co.user_data) {
             Some(Owner::Ref { layer, .. }) => !ignore.contains(layer),
             // Actor hit volumes are for shots, not for walking (combat.md §5.2).
             Some(Owner::Actor { .. }) => false,
+            Some(Owner::Character { .. }) => !passes,
             _ => true,
         };
         let filter = QueryFilter::default().exclude_sensors().exclude_rigid_body(c.body).predicate(&solid);
