@@ -443,14 +443,16 @@ Mitchell's FGTS the EGT offset spans about −60…+20 colour units; one EGM mod
 vertex by at most 0.29 units per unit of coefficient. The EGT's first row is the face
 texture's bottom row: taken top-down, the offset puts the mouth above the eyes.
 
-How the game combines them [hypothesis; matches the owner's screenshot of Sunny Smiles
-by eye]: a morphed vertex = base vertex + Σ coefficientᵢ × scaleᵢ × deltaᵢ over the
-symmetric (FGGS) and asymmetric (FGGA) modes, for every part with an `.egm` beside its
-model whose vertex count covers the shape; the face texture = the head's texture (the
+How the game combines them [hypothesis; compared with the owner's in-game picture of
+Sunny Smiles, §4.3]: a morphed vertex = base vertex + Σ coefficientᵢ × scaleᵢ × deltaᵢ
+over the symmetric (FGGS) and asymmetric (FGGA) modes, the coefficients being the NPC's
+plus its race's (§4.3, since 2026-10-10; before that the NPC's alone), for every part
+with an `.egm` beside its model whose vertex count covers the shape, and for the hair
+shapes that have an `.egm` each (§4.3); the face texture = the head's texture (the
 race ICON) + Σ cᵢ × scaleᵢ × EGT modeᵢ, upsampled bilinearly and flipped vertically,
 with cᵢ = the NPC's FGTSᵢ + its race's FGTSᵢ (§4.2, since 2026-10-10; before that the
-NPC's alone). The race's geometry values (FGGS) and the RACE "FaceGen - Main clamp" /
-"Face clamp" values are not used (§4.2). In the Goodsprings flight (`--auto-fly 4000`, 40 s) 267 shapes were morphed
+NPC's alone). The RACE "FaceGen - Main clamp" / "Face clamp" values are not used. In the
+Goodsprings flight (`--auto-fly 4000`, 40 s) 267 shapes were morphed
 and 34 faces textured, with no EGM mismatching its shape.
 
 ### 4.1 Body skin
@@ -504,7 +506,7 @@ and 34 faces textured, with no EGM mismatching its shape.
   in-game picture of the unclothed default character would settle it, and with it the
   strength of the rule].
 
-### 4.2 Race FaceGen data (texture values added to the NPC's; geometry values not used)
+### 4.2 Race FaceGen data (added to the NPC's: texture values here, geometry values in §4.3)
 
 Each RACE carries FGGS/FGGA/FGTS per sex (§1.1). The GECK's race form calls them a
 baseline: its "FaceGen Race" and "FaceGen Data" tabs "specify a racial face baseline"
@@ -573,7 +575,8 @@ in `C:\fnv-private\references\race_facegen\`):
   the saloon; dark brown with the race's added. His reference is initially disabled, so
   the pictures need `--show-disabled-actors` (§11).
 - Sunny Smiles (SunnyRef; her record's race is Hispanic, female race offset (+4, +2,
-  −2)): no visible change. The face matched the owner's screenshot before (§4).
+  −2)): no visible change in skin colour. (Her face shape did not match the game from
+  her own values alone, §4.3.)
 - Easy Pete (EasyPeteRef; his record's race is AfricanAmericanOldAged, race offset (−75,
   −62, −53), sum (−99, −91, −72); his head texture is `characters\old\headhuman.dds`): a
   pale grey-white face from his own values, a dark red-brown one with the race's added —
@@ -582,13 +585,69 @@ in `C:\fnv-private\references\race_facegen\`):
 - The player's record (NPC_ 7, Caucasian male, race offset (+1, −1, −2)) is unaffected,
   as is the skin tone question of §4.1.
 
-**Geometry** [open; not built]: the numbers above suggest the race's FGGS is a baseline
-in the same way (the NPCs' own FGGS hold none of the race's shape), but there is no
-check for geometry like the skin colour: faces drawn from the NPC's FGGS alone matched
-the owner's screenshot of Sunny Smiles by eye (§4), and no AfricanAmerican face has been
-compared with the game. The engine keeps morphing from the NPC's FGGS and FGGA alone
-until an in-game picture of such a face (Joe Cobb, front and profile) is compared with a
-render of each rule.
+**Geometry**: the numbers above suggest the race's FGGS is a baseline in the same way
+(the NPCs' own FGGS hold none of the race's shape). Built 2026-10-10 after the owner's
+in-game picture of Sunny Smiles showed that her own values alone give the wrong face:
+§4.3.
+
+### 4.3 Face shape: the race's geometry values, and the hair's morph files
+
+Owner's report (2026-10-10): Sunny Smiles has "a strange face shape, almost more
+masculine", with an in-game dialogue close-up of her. Pictures (the game's, ours before
+and after) are kept privately in `C:\fnv-private\references\face_shape\`.
+
+**The camera matters** [observed]: in the game's picture her head is 0.31 of the frame
+height and her shoulders 0.39 of its width, which at the default field of view puts the
+camera about 46 units from her, looking down (the frame's centre is on her throat). A
+long lens from further away flattens a face and widens its jaw, so shape comparisons use
+that camera: `nvforever --cell 0x00106185 --pos 277,-492.7,3574 --heading 270 --pitch -17
+--fov 75 --size 1280x720 --actor-pose bind` (the Prospector Saloon; she stands at
+(230.9, −492.7, 3456) facing east, scale 0.95).
+
+**Rule for geometry** [hypothesis, built]: the coefficients that morph the head and every
+part fitted to it (eyes, mouth, brows, beards, hair, hats) are the NPC's FGGS plus its
+race's FGGS for its sex, value by value (`Appearance::shape_facegen`; FGGA likewise,
+though every race's is zero, §4.2). The lip rig starts from the same shape
+(`lips.rs`). `nvforever --no-race-facegen` draws faces from the NPC's values alone.
+
+- Sunny Smiles [observed: NPC_ GSSunnySmiles, race Hispanic, female, head
+  `headfemale.nif`]: her own FGGS has length 17.1, the race's 22.5, the sum 19.4 — the
+  two partly cancel (mode 39: +7.18 and −8.07; mode 48: +6.77 and −9.78).
+- From her own values: a long lower face, a heavy square jaw, small eyes. From the sum:
+  a shorter lower face, a jaw tapering to a small chin, larger eyes — the game's face.
+  With the pictures scaled to the same distance between the eyes, the eye line to the
+  chin is about 1.6 eye distances in the game's picture, 1.85 from her own values and
+  1.7 from the sum [observed, read off the pictures by eye, ±0.05].
+- Still different [open]: in the game's picture her eyes are more open and her lips
+  fuller, and the chin is a little shorter still. There she stands in her idle pose
+  looking up at the player; ours is the bind pose. Whether the rest is pose, expression
+  or the rule's strength is not known.
+- The authored values agree [observed, `fnvtool actor appearance --all`]: in each of the
+  23 race and sex groups with 8 or more distinct NPC_ records, the mean of the NPCs' own
+  FGGS points away from the race's FGGS (cosine −0.04 to −0.68) — what faces edited on
+  top of the race's shape and pulled part of the way back to a common taste would give,
+  and not what unused race values would give.
+- Other faces in the saloon, ours before and after, not compared with the game: Trudy
+  (Caucasian, female; own 7.0, race 19.5) turns from a long narrow face into a round
+  one; Joe Cobb (AfricanAmerican, male; own 26.5, race 16.1) gets a broader nose and
+  jaw; a male Caucasian settler (own 6.3, race 13.2) changes least.
+
+**Hair morph files are per shape** [observed, `Fallout - Meshes.bsa`]: of its 275 `.egm`
+files, 121 sit beside a `.nif` of the same name; 134 are named after a hair model plus
+one of its two shapes — `hairbunnohat.egm` (V 947) and `hairbunhat.egm` (V 472) for the
+`NoHat` and `Hat` shapes of `hairbun.nif` (§2.4). Of the 105 models in
+`characters\hair\`, 67 have that pair and no `.egm` of their own, 30 (brows, beards, glasses, an eye patch, a wig)
+have their own, and 8 (`glasses…go.nif`, `powderedwiggo.nif`, `shadesgo.nif`)
+have none. The engine looked only beside the model, so those 67 hair models were never
+morphed: the hair kept the base head's shape and the scalp came through it once the
+race's shape was added. Now a shape of a model without an `.egm` takes
+`<model stem><shape name>.egm` when the file has exactly the shape's vertex count
+(`FaceGenCache::morph`, `shape_sibling`). In the saloon 85 shapes are morphed and no
+`.egm` mismatches its shape. The other 20 `.egm` files (headgear, e.g.
+`armor\headgear\beanie\hatbeanie.egm`, `dlc05\armor\cowboyoutfit\cowboyhatm.egm`)
+have no `.nif` of their name; which model each belongs to is [open].
+
+Hair shine is a material question: docs/spec-notes/nif.md §6, "Hair".
 
 ## 5. CLI contract
 

@@ -78,7 +78,9 @@ pub fn show(actors: &ActorForms, p: &Part) -> Option<Show> {
 pub fn appearance(actors: &ActorForms, a: &Appearance, exists: impl Fn(&str) -> bool) -> (Appearance, Vec<Show>) {
     let mut out = a.clone();
     out.skeleton = SKELETON.to_string();
-    out.facegen = a.facegen.as_ref().map(|f| crate::records::FaceGen { fgts: f.fgts.clone(), ..Default::default() });
+    let tint_only = |f: &crate::records::FaceGen| crate::records::FaceGen { fgts: f.fgts.clone(), ..Default::default() };
+    out.facegen = a.facegen.as_ref().map(tint_only);
+    out.race_facegen = a.race_facegen.as_ref().map(tint_only);
     out.parts.clear();
     let mut shows = Vec::new();
     for p in &a.parts {
