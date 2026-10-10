@@ -26,6 +26,15 @@
 //! and out, nvforever `fade.rs`) are dithered in every pass. Bevy's depth-only prepass
 //! skips the dither, so the pixels the main pass discards would still hold depth there and
 //! hide what lies behind them; [`fade_prepass`] gives that prepass a fragment that dithers.
+//!
+//! Vertex alpha: the main pass tests material alpha × texture alpha × vertex alpha, while
+//! Bevy's depth-only prepass leaves the vertex alpha out. NIF shapes get a prepass
+//! fragment that tests what the main pass tests ([`nif_prepass`], `nif_prepass.wgsl`), for
+//! the same reason as the dither.
+//!
+//! Blend and test together: a blended shape can carry the threshold of its alpha test as
+//! a cut ([`NifSurface::alpha_cut`]): fragments below it are dropped, the rest blend
+//! (docs/spec-notes/nif.md §6 "Alpha", "Vertex alpha and the test").
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -37,6 +46,9 @@ use bevy::shader::{ShaderDefVal, ShaderRef};
 /// fade_prepass.wgsl.
 const FADE_PREPASS_SHADER: Handle<Shader> = uuid_handle!("6f0c9b51-2a7e-4f43-9d0e-5b8c1e7a4d21");
 
+/// nif_prepass.wgsl.
+const NIF_PREPASS_SHADER: Handle<Shader> = uuid_handle!("b1d6a2f4-7c35-4e0a-8f29-3a5d9c0e6b17");
+
 /// Make a depth-only prepass pipeline of a crossfading mesh dither as the main pass does
 /// (module docs). Call from `MaterialExtension::specialize` of materials whose meshes
 /// can fade; other pipelines are left alone.
@@ -44,10 +56,28 @@ pub fn fade_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPip
     if !mesh_key.contains(MeshPipelineKey::VISIBILITY_RANGE_DITHER) {
         return;
     }
+    depth_prepass_fragment(descriptor, FADE_PREPASS_SHADER);
+}
+
+/// The depth-only prepass fragment of NIF shapes (module docs, "Vertex alpha"): the
+/// dither of [`fade_prepass`] and the main pass's alpha test, vertex alpha and
+/// [`NifSurface::alpha_cut`] included. Pipelines that neither dither nor discard keep
+/// having no fragment stage.
+fn nif_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    if !mesh_key.intersects(MeshPipelineKey::VISIBILITY_RANGE_DITHER | MeshPipelineKey::MAY_DISCARD) {
+        return;
+    }
+    depth_prepass_fragment(descriptor, NIF_PREPASS_SHADER);
+}
+
+/// Give a depth-only prepass pipeline (the shadow passes included) `shader` as its
+/// fragment stage; other pipelines are left alone.
+fn depth_prepass_fragment(descriptor: &mut RenderPipelineDescriptor, shader: Handle<Shader>) {
     let defs = &descriptor.vertex.shader_defs;
     let has = |d: &str| defs.contains(&ShaderDefVal::from(d));
     // Prepasses with colour targets (or unclipped depth) run Bevy's full prepass
-    // fragment, which already dithers.
+    // fragment, which already dithers (and tests without the vertex alpha: the
+    // renderers use no such prepass).
     if !has("PREPASS_PIPELINE") || has("PREPASS_FRAGMENT") {
         return;
     }
@@ -55,7 +85,7 @@ pub fn fade_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPip
         Some(f) => (f.shader_defs, f.targets),
         None => (defs.clone(), Vec::new()),
     };
-    descriptor.fragment = Some(FragmentState { shader: FADE_PREPASS_SHADER, shader_defs, targets, ..default() });
+    descriptor.fragment = Some(FragmentState { shader, shader_defs, targets, ..default() });
 }
 
 /// Anti-alias the cut-out edges of an alpha-tested material in the main pass of a
@@ -82,7 +112,8 @@ pub fn soft_edges(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipel
     }
 }
 
-/// The extension part: the falloff parameters, the decal switch and the fragment shader.
+/// The extension part: the falloff parameters, the alpha cut, the decal switch and the
+/// fragment shader.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 #[bind_group_data(NifSurfaceKey)]
 pub struct NifSurface {
@@ -90,6 +121,11 @@ pub struct NifSurface {
     /// when the shape has no falloff ([`Falloff::NONE`]).
     #[uniform(100)]
     pub falloff: Vec4,
+    /// Fragments whose alpha is below this are not drawn: the alpha test of a shape that
+    /// is drawn blended (`nif_spawn::blend_cut`); 0 on every other shape, which drops
+    /// nothing.
+    #[uniform(100)]
+    pub alpha_cut: f32,
     /// The shape lies on another surface (a decal shader flag is set): drawn with
     /// [`decal_bias`].
     pub decal: bool,
@@ -99,7 +135,7 @@ pub struct NifSurface {
 
 impl Default for NifSurface {
     fn default() -> Self {
-        NifSurface { falloff: Falloff::NONE.params, decal: false, hard_edges: false }
+        NifSurface { falloff: Falloff::NONE.params, alpha_cut: 0.0, decal: false, hard_edges: false }
     }
 }
 
@@ -131,7 +167,7 @@ impl MaterialExtension for NifSurface {
         _: &MeshVertexBufferLayoutRef,
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        fade_prepass(descriptor, key.mesh_key);
+        nif_prepass(descriptor, key.mesh_key);
         if !key.bind_group_data.hard_edges {
             soft_edges(descriptor, key.mesh_key);
         }
@@ -263,6 +299,7 @@ impl Plugin for NifMaterialPlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "nif_material.wgsl");
         load_internal_asset!(app, FADE_PREPASS_SHADER, "fade_prepass.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, NIF_PREPASS_SHADER, "nif_prepass.wgsl", Shader::from_wgsl);
         app.add_plugins(MaterialPlugin::<NifMaterial>::default());
     }
 }
@@ -329,11 +366,13 @@ mod tests {
         let lod = decal_bias(DepthBiasState { constant: -50, ..default() });
         assert_eq!(lod.constant, DECAL_BIAS - 50);
         assert_eq!(raster_bias(decal.constant), decal.constant);
-        // Only the decal and hard-edge switches select the pipeline; the falloff is a
-        // uniform.
+        // Only the decal and hard-edge switches select the pipeline; the falloff and the
+        // alpha cut are uniforms.
         let mut surface = NifSurface::default();
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, hard_edges: false });
+        assert_eq!(surface.alpha_cut, 0.0);
         surface.falloff = Vec4::new(0.9, 0.2, 1.0, 0.0);
+        surface.alpha_cut = 0.5;
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: false });
