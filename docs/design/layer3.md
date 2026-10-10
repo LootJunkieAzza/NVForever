@@ -296,6 +296,10 @@ game units unchanged.
    Originally planned: an image comparator in the lab (perceptual metric with region masks,
    standard library only), a capture procedure for the original game, and fixed-camera
    scenarios.
+12. **Anti-aliasing** (done): the main view is multisampled (`--msaa`, default 4; the
+   owner's game runs 8), and the cut-out edges of alpha-tested shapes (plants, fences,
+   hair, tree leaves and billboards, grass) are smoothed with it, standing in for the
+   game's transparency multisampling (nif.md §6 "Alpha", soft edges; grass.md §5).
 11. **Grass** (done: generation from the landscape textures, soft strand edges, wind,
    distance fade; the placement rule is a hypothesis and the light weights are fitted,
    both checked against the owner's screenshots at the Goodsprings sign): LTEX `GNAM` →

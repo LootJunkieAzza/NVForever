@@ -17,6 +17,11 @@
 //! Opaque, alpha-tested and alpha-blended shapes with a black emissive colour, no falloff
 //! and no decal flag render exactly as with StandardMaterial.
 //!
+//! Soft edges: where the view is multisampled, the cut-out edges of alpha-tested shapes
+//! (plants, fences, hair) are anti-aliased ([`soft_edges`]), as the game's transparency
+//! multisampling does [observed: the owner's `FalloutPrefs.ini` has `iMultiSample=8` and
+//! `bTransparencyMultisampling=1`; docs/spec-notes/nif.md §6 "Alpha"].
+//!
 //! Crossfades: meshes with a crossfading `VisibilityRange` (the streamed cells' fade in
 //! and out, nvforever `fade.rs`) are dithered in every pass. Bevy's depth-only prepass
 //! skips the dither, so the pixels the main pass discards would still hold depth there and
@@ -53,6 +58,30 @@ pub fn fade_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPip
     descriptor.fragment = Some(FragmentState { shader: FADE_PREPASS_SHADER, shader_defs, targets, ..default() });
 }
 
+/// Anti-alias the cut-out edges of an alpha-tested material in the main pass of a
+/// multisampled view: the fragment shader gets `SOFT_EDGES` and must write, as its alpha,
+/// the share of the pixel's samples it covers (alpha to coverage). Call from
+/// `MaterialExtension::specialize`; pipelines of other materials and passes, and views
+/// without multisampling, are left alone (the alpha is tested per pixel there).
+///
+/// The share the shaders write is 1 at and above the material's cutoff and falls to 0
+/// within one pixel outside it: `(alpha - cutoff) / fwidth(alpha) + 1`. The depth prepass
+/// tests at the cutoff, so every pixel it has written depth for is fully covered and
+/// nothing behind the shape is wrongly hidden [chosen: Bevy's own alpha-to-coverage mode
+/// centres the edge on the cutoff and drops the prepass's alpha test].
+pub fn soft_edges(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPipelineKey) {
+    if !mesh_key.contains(MeshPipelineKey::MAY_DISCARD) || descriptor.multisample.count <= 1 {
+        return;
+    }
+    if descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+        return;
+    }
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.shader_defs.push("SOFT_EDGES".into());
+        descriptor.multisample.alpha_to_coverage_enabled = true;
+    }
+}
+
 /// The extension part: the falloff parameters, the decal switch and the fragment shader.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
 #[bind_group_data(NifSurfaceKey)]
@@ -64,11 +93,13 @@ pub struct NifSurface {
     /// The shape lies on another surface (a decal shader flag is set): drawn with
     /// [`decal_bias`].
     pub decal: bool,
+    /// An alpha-tested shape whose edges stay hard ([`soft_edges`] is not applied).
+    pub hard_edges: bool,
 }
 
 impl Default for NifSurface {
     fn default() -> Self {
-        NifSurface { falloff: Falloff::NONE.params, decal: false }
+        NifSurface { falloff: Falloff::NONE.params, decal: false, hard_edges: false }
     }
 }
 
@@ -76,11 +107,12 @@ impl Default for NifSurface {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NifSurfaceKey {
     pub decal: bool,
+    pub hard_edges: bool,
 }
 
 impl From<&NifSurface> for NifSurfaceKey {
     fn from(surface: &NifSurface) -> Self {
-        NifSurfaceKey { decal: surface.decal }
+        NifSurfaceKey { decal: surface.decal, hard_edges: surface.hard_edges }
     }
 }
 
@@ -100,6 +132,9 @@ impl MaterialExtension for NifSurface {
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         fade_prepass(descriptor, key.mesh_key);
+        if !key.bind_group_data.hard_edges {
+            soft_edges(descriptor, key.mesh_key);
+        }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
         if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
             depth_stencil.bias.constant = raster_bias(depth_stencil.bias.constant);
@@ -294,13 +329,37 @@ mod tests {
         let lod = decal_bias(DepthBiasState { constant: -50, ..default() });
         assert_eq!(lod.constant, DECAL_BIAS - 50);
         assert_eq!(raster_bias(decal.constant), decal.constant);
-        // Only the decal switch selects the pipeline; the falloff is a uniform.
+        // Only the decal and hard-edge switches select the pipeline; the falloff is a
+        // uniform.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, hard_edges: false });
         surface.falloff = Vec4::new(0.9, 0.2, 1.0, 0.0);
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: false });
+        surface.hard_edges = true;
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: true });
+    }
+
+    /// CPU mirror of the shaders' edge formula (nif_material.wgsl, tree.wgsl).
+    fn edge(alpha: f32, cutoff: f32, width: f32) -> f32 {
+        ((alpha - cutoff) / width.max(0.0001) + 1.0).clamp(0.0, 1.0)
+    }
+
+    #[test]
+    fn soft_edge_covers_what_the_alpha_test_keeps() {
+        // `width` is how much the alpha changes across one pixel.
+        for (cutoff, width) in [(0.5, 0.25), (0.36, 0.05), (128.5 / 255.0, 1.0)] {
+            // At and above the cutoff (where the depth prepass writes depth): all samples.
+            assert_eq!(edge(cutoff, cutoff, width), 1.0);
+            assert_eq!(edge(1.0, cutoff, width), 1.0);
+            // One pixel's change below the cutoff: nothing; half way: half the samples.
+            assert_eq!(edge(cutoff - width, cutoff, width), 0.0);
+            assert!((edge(cutoff - width / 2.0, cutoff, width) - 0.5).abs() < 1e-5);
+        }
+        // Constant alpha (no change across the pixel): the plain alpha test.
+        assert_eq!(edge(0.49, 0.5, 0.0), 0.0);
+        assert_eq!(edge(0.5, 0.5, 0.0), 1.0);
     }
 
     #[test]

@@ -155,6 +155,11 @@ struct Args {
     /// from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
     #[arg(long, default_value_t = 16_000.0)]
     shadow_distance: f32,
+    /// Samples per pixel for anti-aliasing: 1 (off), 2, 4 or 8. The cut-out edges of
+    /// alpha-tested shapes (plants, fences, hair, grass) are smoothed with it too, like
+    /// the game's transparency multisampling; with 1 they are tested per pixel.
+    #[arg(long, default_value_t = 4)]
+    msaa: u32,
     /// Do not grow grass on the landscape (docs/spec-notes/grass.md).
     #[arg(long)]
     no_grass: bool,
@@ -513,6 +518,13 @@ fn main() -> AppExit {
             None => return fail(format!("--fog {f}: expected near,far")),
         }
     }
+    let msaa = match args.msaa {
+        1 => Msaa::Off,
+        2 => Msaa::Sample2,
+        4 => Msaa::Sample4,
+        8 => Msaa::Sample8,
+        n => return fail(format!("--msaa {n}: expected 1, 2, 4 or 8")),
+    };
     let Some(grass_light) = parse_vec::<2>(&args.grass_light) else {
         return fail(format!("--grass-light {}: expected ambient,sun", args.grass_light));
     };
@@ -663,6 +675,7 @@ fn main() -> AppExit {
         fov: args.fov,
         overlay: !args.no_overlay && args.frame_json.is_none(),
         play: play.is_some(),
+        msaa,
     })
     .insert_resource(args.clone())
     .add_systems(Startup, (world::setup_root, setup, sky::setup_sky))
@@ -821,6 +834,8 @@ struct StartPose {
     overlay: bool,
     /// The camera is the player (`--play`).
     play: bool,
+    /// Anti-aliasing samples of the main view (`--msaa`).
+    msaa: Msaa,
 }
 
 /// Vertical field of view (radians) for the game's FOV setting (degrees): the setting is the
@@ -844,6 +859,7 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         }),
         Transform::from_translation(pos).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)),
         FlyCam { yaw, pitch, speed: 800.0 },
+        start.msaa,
         imagespace::ImageSpaceGrade::default(),
         sky::initial_fog(),
         // Water reads the depth of what lies behind it (water.rs).

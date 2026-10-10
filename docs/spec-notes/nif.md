@@ -291,6 +291,24 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   cutoff, so the cutoff moves half a step up [hypothesis]. Order-dependent blending
   remains possible for the blended shapes.
 
+  Soft edges. The owner's game runs with `iMultiSample=8` and
+  `bTransparencyMultisampling=1` [observed: `FalloutPrefs.ini`, 2026-10-10], and in its
+  screenshots the cut-out edges of plants are smooth where a per-pixel alpha test gives
+  steps [observed]. How the game's transparency multisampling turns alpha into coverage is
+  not known. The renderers anti-alias alpha-tested shapes where the view is multisampled
+  (`--msaa`, default 4; `nvf_assets::soft_edges`, `nif_material.wgsl`, and `tree.wgsl` for
+  leaf cards and tree billboards): the fragment covers a share of the pixel's samples that
+  is 1 at and above the cutoff and falls to 0 within one pixel outside it,
+  (alpha − cutoff) / (change of alpha across the pixel) + 1 [chosen]. The depth prepass
+  still tests at the cutoff, so every pixel it has written depth for is fully covered and
+  nothing behind a shape is wrongly hidden; Bevy's own alpha-to-coverage mode was not
+  used because it centres the edge on the cutoff and its depth prepass drops the alpha
+  test. A shape's outline grows by at most a pixel. Not softened: object LOD geometry,
+  whose atlases hold near-black colour where the alpha is 0 [observed], so a soft edge
+  would outline every cut-out in black; and blended shapes, which have no edge to
+  soften. Grass uses a wider rule of its own (grass.md §5). Without multisampling
+  (`--msaa 1`, and in the water's reflection) the alpha is tested per pixel as before.
+
   Static collections can lose the threshold [observed, `fnvtool nif decode`]: the single
   maize plants (`landscape\plants\maize_healthyp.nif`, `maize_withered.nif` and their
   `_group1` models) have flags 4845 (blend, test GREATER) with threshold 124, while the
