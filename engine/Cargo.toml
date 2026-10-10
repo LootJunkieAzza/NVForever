@@ -28,6 +28,7 @@ fnv-phys = { path = "../crates/fnv-phys" }
 fnv-collide = { path = "../crates/fnv-collide" }
 fnv-nav = { path = "../crates/fnv-nav" }
 fnv-install = { path = "../crates/fnv-install" }
+fnv-voice = { path = "../crates/fnv-voice" }
 nvf-assets = { path = "nvf-assets" }
 nvf-play = { path = "nvf-play" }
 clap = { version = "4", features = ["derive", "env"] }

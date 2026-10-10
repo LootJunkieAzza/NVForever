@@ -53,6 +53,12 @@ pub enum ScriptCmd {
         /// Actions file (JSON, fnv.script.actions/1).
         #[arg(long)]
         actions: PathBuf,
+        /// Keep every dialogue line at the length fitted to its text. By default a line
+        /// lasts as long as its voice files, read from the archives next to the plugins;
+        /// a line without a file keeps the fitted length (docs/spec-notes/voice.md §8).
+        /// The environment variable FNVTOOL_VOICE_LENGTHS=0 does the same.
+        #[arg(long)]
+        no_voice_lengths: bool,
     },
 }
 
@@ -113,7 +119,7 @@ pub fn run(cmd: ScriptCmd) -> anyhow::Result<Value> {
             let fjson = functions_json(&a)?;
             with_load_order(&a, |l, lo, schema| Ok(coverage(l, lo, schema, &fjson)))
         }
-        ScriptCmd::Run { a, actions } => run_actions(&a, &actions),
+        ScriptCmd::Run { a, actions, no_voice_lengths } => run_actions(&a, &actions, !no_voice_lengths),
     }
 }
 
@@ -596,8 +602,12 @@ fn coverage(l: &Loaded, lo: &LoadOrder<'_>, schema: &Schema, fjson: &Value) -> V
     })
 }
 
+/// Environment switch for `script run --no-voice-lengths` (`0`: fitted line lengths), to
+/// run unchanged lab scenarios both ways.
+pub const VOICE_LENGTHS_ENV: &str = "FNVTOOL_VOICE_LENGTHS";
+
 /// `script run`: build the Layer 4 world and the Layer 5 data, run the actions.
-fn run_actions(a: &ScriptArgs, actions: &std::path::Path) -> anyhow::Result<Value> {
+fn run_actions(a: &ScriptArgs, actions: &std::path::Path, voice_lengths: bool) -> anyhow::Result<Value> {
     let text = std::fs::read_to_string(actions).with_context(|| actions.display().to_string())?;
     let input: fnv_game::runner::Input =
         serde_json::from_str(&text).with_context(|| format!("{}: not a fnv.script.actions/1 document", actions.display()))?;
@@ -611,5 +621,23 @@ fn run_actions(a: &ScriptArgs, actions: &std::path::Path) -> anyhow::Result<Valu
     let forms = fnv_sim::FormStore::build(&lo, &schema);
     let refs = fnv_sim::RefTable::build(&lo, &schema);
     let data = fnv_game::GameData::build(&lo, &schema, table, &fjson, &refs);
-    fnv_game::runner::run(&data, &forms, &refs, &input).map_err(anyhow::Error::msg)
+    let voice = voice_lengths_hook(a, &lo, voice_lengths);
+    fnv_game::runner::run_with_voice(&data, &forms, &refs, &input, voice).map_err(anyhow::Error::msg)
+}
+
+/// The line-length hook of a headless run: the voice files in the archives next to the
+/// plugins (docs/spec-notes/voice.md §8), unless `wanted` is false or the environment
+/// says [`VOICE_LENGTHS_ENV`]`=0`. Without archives (synthetic plugins, a folder of
+/// plugins only) no line has a file and every line keeps its fitted length.
+pub fn voice_lengths_hook(a: &ScriptArgs, lo: &LoadOrder<'_>, wanted: bool) -> Option<fnv_game::runner::Voice> {
+    if !wanted || std::env::var(VOICE_LENGTHS_ENV).is_ok_and(|v| v == "0") {
+        return None;
+    }
+    match crate::voice_cmd::open_vfs(&a.lo.data_dir, &a.lo.plugins) {
+        Ok(vfs) => Some(std::sync::Arc::new(fnv_voice::VoiceBank::build(lo, std::sync::Arc::new(vfs)))),
+        Err(e) => {
+            tracing::warn!("voice files not read, dialogue lines keep their fitted length: {e:#}");
+            None
+        }
+    }
 }

@@ -560,6 +560,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-voice"
+version = "0.1.0"
+dependencies = [
+ "fnv-esm",
+ "fnv-game",
+ "fnv-sim",
+ "fnv-vfs",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "fnv-world"
 version = "0.1.0"
 dependencies = [
@@ -593,6 +606,7 @@ dependencies = [
  "fnv-spt",
  "fnv-util",
  "fnv-vfs",
+ "fnv-voice",
  "fnv-world",
  "rayon",
  "serde_json",
