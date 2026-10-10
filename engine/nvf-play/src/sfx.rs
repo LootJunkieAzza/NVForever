@@ -17,8 +17,10 @@
 //!   not panned.
 //! - **Pitch**: the frequency adjustment, and ±5% at random with the Random Frequency
 //!   Shift flag [design: the size of the shift].
-//! - Not built: looping sounds, panning, reverb, the sounds animations name in their
-//!   text keys (reloads, footsteps), ambient sounds.
+//! - **Loops.** A [`LoopSound`] starts a SOUN going round and stops it again (a
+//!   weapon's Shoot 3D Looping sound while it fires).
+//! - Not built: panning, reverb, the sounds animations name in their text keys (reloads,
+//!   footsteps), ambient sounds.
 //!
 //! [`SfxSettings`] turns them off (`nvforever --no-sound`) and sets the volume.
 
@@ -55,8 +57,19 @@ pub struct PlaySound {
     pub at: Option<[f32; 3]>,
 }
 
+/// Start (`on`) or stop a SOUN that goes round until it is stopped, at the listener.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct LoopSound {
+    pub sound: FormId,
+    pub on: bool,
+}
+
+/// A looping sound being played.
+#[derive(Component)]
+struct Looping(FormId);
+
 /// Decoded samples of a sound file.
-#[derive(Asset, TypePath, Clone)]
+#[derive(Asset, TypePath, Clone, Debug)]
 pub struct PcmSound {
     samples: Arc<[f32]>,
     channels: u16,
@@ -137,9 +150,9 @@ impl PcmSound {
                     let (tag, channels, rate, bits) = fmt.ok_or("data before fmt")?;
                     let samples: Vec<f32> = match (tag, bits) {
                         (1, 8) => body.iter().map(|&b| (b as f32 - 128.0) / 128.0).collect(),
-                        (1, 16) => body.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0).collect(),
-                        (1, 24) => body.chunks_exact(3).map(|c| (i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8) as f32 / 8_388_608.0).collect(),
-                        (3, 32) => body.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect(),
+                        (1, 16) => body.as_chunks::<2>().0.iter().map(|c| i16::from_le_bytes(*c) as f32 / 32768.0).collect(),
+                        (1, 24) => body.as_chunks::<3>().0.iter().map(|c| (i32::from_le_bytes([0, c[0], c[1], c[2]]) >> 8) as f32 / 8_388_608.0).collect(),
+                        (3, 32) => body.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect(),
                         _ => return Err(format!("format tag {tag} with {bits} bits is not decoded")),
                     };
                     if channels == 0 || rate == 0 {
@@ -221,10 +234,46 @@ fn pick_file(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, file: &str) -> Option<String> {
     Some(files[k.min(files.len() - 1)].clone())
 }
 
+/// The record, name, file and decoded samples of a SOUN for this playing of it; a
+/// sound without a file we can play is counted and reported once.
+fn source(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, assets: &mut Assets<PcmSound>, sound: FormId) -> Option<(Sound, String, String, Handle<PcmSound>)> {
+    let s = sfx.forms.sounds.get(&sound).cloned()?;
+    let name = s.edid.clone().unwrap_or_else(|| sound.to_string());
+    let Some(path) = s.file.as_deref().and_then(|f| pick_file(sfx, vfs, f)) else {
+        sfx.failed += 1;
+        if sfx.reported.insert(name.clone()) {
+            warn!("sfx: {name}: no file for {:?}", s.file);
+        }
+        return None;
+    };
+    if !sfx.files.contains_key(&path) {
+        let decoded = match vfs.read(&path) {
+            Some(Ok(bytes)) => PcmSound::from_wav(&bytes).map_err(|e| format!("{path}: {e}")),
+            Some(Err(e)) => Err(format!("{path}: {e}")),
+            None => Err(format!("{path}: not in the archives")),
+        };
+        let handle = match decoded {
+            Ok(p) => Some(assets.add(p)),
+            Err(e) => {
+                warn!("sfx: {name}: {e}");
+                None
+            }
+        };
+        sfx.files.insert(path.clone(), handle);
+    }
+    let Some(handle) = sfx.files[&path].clone() else {
+        sfx.failed += 1;
+        return None;
+    };
+    Some((s, name, path, handle))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn play(
     mut commands: Commands,
     mut requests: MessageReader<PlaySound>,
+    mut loops: MessageReader<LoopSound>,
+    looping: Query<(Entity, &Looping)>,
     sfx: Option<ResMut<Sfx>>,
     settings: Res<SfxSettings>,
     player: Option<Res<Player>>,
@@ -233,38 +282,31 @@ fn play(
 ) {
     let (Some(mut sfx), Some(data)) = (sfx, data) else {
         requests.clear();
+        loops.clear();
         return;
     };
     let sfx = &mut *sfx;
-    for r in requests.read() {
-        let Some(s) = sfx.forms.sounds.get(&r.sound).cloned() else { continue };
-        let name = s.edid.clone().unwrap_or_else(|| r.sound.to_string());
-        let Some(path) = s.file.as_deref().and_then(|f| pick_file(sfx, &data.vfs, f)) else {
-            sfx.failed += 1;
-            if sfx.reported.insert(name.clone()) {
-                warn!("sfx: {name}: no file for {:?}", s.file);
+    for l in loops.read() {
+        for (e, playing) in &looping {
+            if playing.0 == l.sound {
+                commands.entity(e).try_despawn();
             }
-            continue;
-        };
-        if !sfx.files.contains_key(&path) {
-            let decoded = match data.vfs.read(&path) {
-                Some(Ok(bytes)) => PcmSound::from_wav(&bytes).map_err(|e| format!("{path}: {e}")),
-                Some(Err(e)) => Err(format!("{path}: {e}")),
-                None => Err(format!("{path}: not in the archives")),
-            };
-            let handle = match decoded {
-                Ok(p) => Some(assets.add(p)),
-                Err(e) => {
-                    warn!("sfx: {name}: {e}");
-                    None
-                }
-            };
-            sfx.files.insert(path.clone(), handle);
         }
-        let Some(handle) = sfx.files[&path].clone() else {
-            sfx.failed += 1;
+        if !l.on {
             continue;
-        };
+        }
+        let Some((s, name, path, handle)) = source(sfx, &data.vfs, &mut assets, l.sound) else { continue };
+        let gain = static_gain(&s) * settings.volume.max(0.0);
+        debug!("sfx: {name} {path} looping, gain {gain:.3}");
+        if settings.play {
+            sfx.played += 1;
+            commands.spawn((AudioPlayer::<PcmSound>(handle), PlaybackSettings::LOOP.with_volume(Volume::Linear(gain)), Looping(l.sound), SfxSound));
+        } else {
+            sfx.silent += 1;
+        }
+    }
+    for r in requests.read() {
+        let Some((s, name, path, handle)) = source(sfx, &data.vfs, &mut assets, r.sound) else { continue };
         let distance = r.at.zip(player.as_deref()).map(|(at, p)| {
             let e = p.eye();
             ((at[0] - e[0]).powi(2) + (at[1] - e[1]).powi(2) + (at[2] - e[2]).powi(2)).sqrt()
@@ -299,6 +341,7 @@ impl Plugin for SfxPlugin {
         app.init_resource::<SfxSettings>()
             .add_audio_source::<PcmSound>()
             .add_message::<PlaySound>()
+            .add_message::<LoopSound>()
             .add_systems(Startup, init)
             .add_systems(Update, play.after(crate::PlaySet::Activation))
             .add_systems(Last, report);

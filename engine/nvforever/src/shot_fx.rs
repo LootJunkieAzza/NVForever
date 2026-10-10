@@ -21,14 +21,23 @@
 //!   frame: about its own y axis for the "rotate about up" modes (1, 5, 9), freely for
 //!   the others [documented: nif.xml BillboardMode names; hypothesis: that the node's +z
 //!   is the side shown and +y the "up" it turns about].
-//! - Not built: the add-on nodes of these models (`BSValueNode`: particle effects), the
-//!   controllers inside the flash models, sounds, impact effects, NPCs' shots.
+//! - **Add-on nodes.** A `BSValueNode` of these models becomes an emitter of its ADDN's
+//!   particle effect for as long as the model is there (`crate::particles`): the sparks
+//!   and smoke of a flash, a missile's trail, the flamer's flame.
+//! - **Impacts.** A shot that lands ([`ImpactFx`]) shows its IPCT's model at the point
+//!   for the IPCT's effect duration, its +z along the IPCT's orientation: the surface's
+//!   normal, the projectile's direction or its reflection [documented: the IPCT fields;
+//!   hypothesis: that +z is the axis turned, from the impact models' add-on nodes
+//!   standing along +z].
+//! - **Shell casings.** [`CasingFx`]: the WEAP's casing model, falling and bouncing.
+//! - Not built: the controllers inside the flash and impact models (they grow and
+//!   fade), impact decals, explosion models, NPCs' shots.
 
 use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use nvf_assets::model::{ModelCtx, PreparedModel};
-use nvf_play::combat::{CasingFx, Combat, ShotFired, ShotVisuals};
+use nvf_play::combat::{CasingFx, Combat, ImpactFx, ShotFired, ShotVisuals};
 use nvf_play::phys::PhysState;
 use nvf_play::sfx::Sfx;
 use std::collections::{HashMap, HashSet};
@@ -59,17 +68,22 @@ struct Casing {
 const CASING_BOUNCE: f32 = 0.35;
 const CASING_REST: f32 = 25.0;
 
-/// A muzzle flash and how long it has left.
+/// A muzzle flash or an impact effect and how long it has left.
 #[derive(Component)]
 struct Flash {
     left: f32,
 }
 
+/// The systems that put shot effects in the world; particles are emitted after them.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ShotFxSet;
+
 #[derive(Resource, Default)]
 struct ShotFx {
     /// The model drawn for each projectile in flight (`ShotVisual::id`); `None`: it has
-    /// none to draw. With the y its model's `BeamEnd` node is at, if it has one.
-    flying: HashMap<u64, Option<(Entity, Option<f32>)>>,
+    /// none to draw. With the y its model's `BeamEnd` node is at, if it has one, and how
+    /// far the model reaches behind its origin.
+    flying: HashMap<u64, Option<(Entity, Option<f32>, f32)>>,
     /// Model paths that were reported.
     reported: HashSet<String>,
     flashes: u32,
@@ -77,6 +91,7 @@ struct ShotFx {
     projectiles: u32,
     no_model: u32,
     casings: u32,
+    impacts: u32,
 }
 
 pub struct ShotFxPlugin;
@@ -84,7 +99,7 @@ pub struct ShotFxPlugin;
 impl Plugin for ShotFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShotFx>()
-            .add_systems(Update, (preload, flash, draw_flying, casings, face_camera).chain().after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (preload, flash, draw_flying, casings, impacts, face_camera).chain().in_set(ShotFxSet).after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -105,6 +120,9 @@ fn spawn_model(commands: &mut Commands, parent: Entity, pm: &PreparedModel, plac
             let mut e = commands.spawn((t, Visibility::Inherited));
             if let Some(mode) = n.billboard {
                 e.insert(Billboard { mode, bind: t.rotation });
+            }
+            if let Some(index) = n.addon {
+                e.insert(crate::particles::AddonEmitter::new(index));
             }
             e.id()
         })
@@ -213,6 +231,10 @@ fn draw_flying(
         let dir = Vec3::from_array(v.dir);
         let known = fx.flying.get(&v.id).copied();
         let beam_end = known.flatten().and_then(|k| k.1);
+        // A model is not shown until it has flown its own length behind it: a tracer's
+        // streak (220 units behind the bullet) would otherwise run back through the gun
+        // and the shooter in its first frame [design].
+        let out = |tail: f32| if v.beam.is_some() || v.travelled >= tail { Visibility::Inherited } else { Visibility::Hidden };
         let place = |beam_end: Option<f32>| Transform {
             translation: Vec3::from_array(v.pos),
             rotation: Quat::from_rotation_arc(Vec3::Y, dir.normalize_or(Vec3::Y)),
@@ -222,10 +244,11 @@ fn draw_flying(
             },
         };
         match known {
-            Some(Some((e, _))) => {
+            Some(Some((e, _, tail))) => {
                 if let Ok(mut t) = transforms.get_mut(e) {
                     *t = place(beam_end);
                 }
+                commands.entity(e).try_insert(out(tail));
             }
             Some(None) => {}
             None => {
@@ -241,7 +264,10 @@ fn draw_flying(
                         v.pos[2],
                         v.beam.map_or(String::new(), |l| format!(", a beam {l:.0} units long"))
                     );
-                    (spawn_model(&mut commands, world_root, &pm, place(end)), end)
+                    let tail = pm.bounds.map_or(0.0, |(lo, _)| (-lo.y).max(0.0));
+                    let e = spawn_model(&mut commands, world_root, &pm, place(end));
+                    commands.entity(e).insert(out(tail));
+                    (e, end, tail)
                 });
                 match spawned {
                     Some(_) => fx.projectiles += 1,
@@ -253,7 +279,7 @@ fn draw_flying(
     }
     fx.flying.retain(|id, drawn| {
         let keep = visuals.flying.iter().any(|v| v.id == *id);
-        if let (false, Some((e, _))) = (keep, drawn) {
+        if let (false, Some((e, _, _))) = (keep, drawn) {
             commands.entity(*e).try_despawn();
         }
         keep
@@ -319,6 +345,35 @@ fn casings(
     }
 }
 
+/// Impact effects: the IPCT's model where a shot landed, for the IPCT's duration.
+fn impacts(
+    mut commands: Commands,
+    mut landed: MessageReader<ImpactFx>,
+    sfx: Option<Res<Sfx>>,
+    mut models: ModelCtx,
+    mut fx: ResMut<ShotFx>,
+    root: Query<Entity, With<WorldRoot>>,
+) {
+    let (Some(sfx), Ok(world_root)) = (sfx, root.single()) else {
+        landed.clear();
+        return;
+    };
+    for hit in landed.read() {
+        let Some(i) = sfx.forms.impacts.get(&hit.impact) else { continue };
+        let Some(pm) = i.model.as_deref().and_then(|m| load(&mut models, &mut fx, "impact", m)) else { continue };
+        let (normal, dir) = (Vec3::from_array(hit.normal).normalize_or(Vec3::Z), Vec3::from_array(hit.dir).normalize_or(Vec3::NEG_Z));
+        let along = match i.orientation.as_deref() {
+            Some("Projectile Vector") => dir,
+            Some("Projectile Reflection") => (dir - 2.0 * dir.dot(normal) * normal).normalize_or(normal),
+            _ => normal,
+        };
+        let place = Transform { translation: Vec3::from_array(hit.point), rotation: Quat::from_rotation_arc(Vec3::Z, along), scale: Vec3::ONE };
+        let holder = spawn_model(&mut commands, world_root, &pm, place);
+        commands.entity(holder).insert(Flash { left: i.effect_duration });
+        fx.impacts += 1;
+    }
+}
+
 /// Turn the billboards of the effect models to the camera (see the module notes).
 fn face_camera(
     camera: Query<Entity, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
@@ -361,8 +416,8 @@ fn face_camera(
 fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
     if exit.read().last().is_some() && fx.flashes + fx.projectiles + fx.no_model > 0 {
         info!(
-            "shot fx: {} muzzle flashes ({} with a light), {} projectile models drawn, {} projectiles without a model, {} shell casings",
-            fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings
+            "shot fx: {} muzzle flashes ({} with a light), {} projectile models drawn, {} projectiles without a model, {} shell casings, {} impact effects",
+            fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings, fx.impacts
         );
     }
 }

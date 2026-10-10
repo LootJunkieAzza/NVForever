@@ -87,7 +87,7 @@ use fnv_phys::{layers, Filter, Key, Owner, Queries};
 use fnv_sim::FormId;
 
 use crate::activate::HudMessage;
-use crate::sfx::{PlaySound, Sfx};
+use crate::sfx::{LoopSound, PlaySound, Sfx};
 use crate::hitvol::ActorParts;
 use fnv_combat::data::{BodyPart, WeaponStats};
 use fnv_game::combat::LimbHit;
@@ -152,6 +152,8 @@ pub struct ShotVisual {
     pub dir: V3,
     /// A beam: its length from `pos` along `dir`.
     pub beam: Option<f32>,
+    /// How far it has flown since it left.
+    pub travelled: f32,
 }
 
 /// The player's projectiles to draw this frame (nvforever `shot_fx` draws their models).
@@ -445,6 +447,8 @@ impl Mark {
     }
 }
 
+/// How long a looping shoot sound goes on after the last shot, seconds [design].
+const LOOP_SOUND_HOLD: f32 = 0.25;
 /// The size of the test aid's marker at the muzzle, units.
 const FLASH_SIZE: f32 = 2.5;
 
@@ -487,6 +491,9 @@ pub struct Combat {
     kick: Kick,
     flying: Vec<Flying>,
     ghosts: Vec<Ghost>,
+    /// The weapon's looping shoot sound while it plays, and the seconds it has left
+    /// unless another shot comes.
+    looping: Option<(FormId, f32)>,
     /// The next [`ShotVisual::id`].
     next_visual: u64,
     pending: Vec<Pending>,
@@ -585,6 +592,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         kick: Kick::default(),
         flying: Vec::new(),
         ghosts: Vec::new(),
+        looping: None,
         next_visual: 0,
         pending: Vec::new(),
         marks: Vec::new(),
@@ -739,10 +747,19 @@ fn fire(
     sfx: Option<Res<Sfx>>,
     mut sounds: MessageWriter<PlaySound>,
     mut casings: MessageWriter<CasingFx>,
+    mut loops: MessageWriter<LoopSound>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
     c.time += dt;
+    // The looping shoot sound stops a moment after the last shot.
+    if let Some((sound, left)) = c.looping.as_mut() {
+        *left -= dt;
+        if *left <= 0.0 {
+            loops.write(LoopSound { sound: *sound, on: false });
+            c.looping = None;
+        }
+    }
     // Recoil recovers whatever happens.
     let back = c.kick.recover(&c.tuning, dt);
     player.pitch = (player.pitch - back.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
@@ -808,6 +825,17 @@ fn fire(
                 // [hypothesis: one a shot, at the shot; the game's timing is not known].
                 if let (Some((point, dir)), true) = (anim.casing, weapon_fx.is_some_and(|f| f.shell_casing_model.is_some())) {
                     casings.write(CasingFx { weapon: id, point, velocity: vec::scale(dir, c.rules.shell_eject_speed), life: c.rules.shell_lifetime });
+                }
+                // A weapon with a looping shoot sound (the minigun has no other) plays
+                // it for as long as shots keep coming [hypothesis: when the game does].
+                if let Some(sound) = weapon_fx.and_then(|f| f.shoot_loop) {
+                    if c.looping.is_none_or(|(s, _)| s != sound) {
+                        if let Some((old, _)) = c.looping {
+                            loops.write(LoopSound { sound: old, on: false });
+                        }
+                        loops.write(LoopSound { sound, on: true });
+                    }
+                    c.looping = Some((sound, LOOP_SOUND_HOLD));
                 }
                 // The player's own shot: the 2D sound where the weapon has one.
                 if let Some(sound) = weapon_fx.and_then(|f| f.shoot_2d.or(f.shoot_3d)) {
@@ -1254,12 +1282,12 @@ fn fly(
         }
     });
     visuals.flying.clear();
-    visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None }));
+    visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None, travelled: f.p.travelled }));
     visuals.flying.extend(c.ghosts.iter().map(|g| {
         let d = vec::sub(g.to, g.from);
         let len = vec::len(d);
         let dir = if len > 1e-3 { vec::scale(d, 1.0 / len) } else { [0.0, 1.0, 0.0] };
-        ShotVisual { id: g.id, projectile: g.proj, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len) }
+        ShotVisual { id: g.id, projectile: g.proj, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len), travelled: g.travelled }
     }));
     let weapon = c.weapon;
     // Explosions, with those they set off, a bounded number per frame.

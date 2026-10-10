@@ -760,11 +760,101 @@ animation.md §9.9.
   - Before the flash time was the record's alone it was held to at least 0.05 s, and
     the test aid held it for seconds: the owner saw the minigun's flash "sticking
     around way too long". Now 0.04 s is one frame at 25 frames a second.
-- **Not built:** the add-on nodes (particle effects: smoke, sparks, the missile's
-  trail), the controllers inside the flash models, the PROJ's own light and sounds,
-  impact effects, shell casings, NPCs' shots. Not looked at in a run: the 10mm bullet,
-  missile, plasma bolt, flame and grenade models (their PROJs go the same way).
+- **Not built:** the controllers inside the flash models, the PROJ's own light, NPCs'
+  shots. Add-on nodes are docs/spec-notes/particles.md; sounds, impacts and shell
+  casings are §16. Not looked at in a run: the 10mm bullet, plasma bolt and grenade
+  models (their PROJs go the same way).
+- A model is not shown until it has flown the length it reaches behind its origin
+  [design]: the minigun round's streak (220 units behind the bullet) ran back through
+  the gun and the shooter in its first frame [observed].
 - **Open:** whether the game draws a hitscan bullet at all outside its tracer chance,
   and at what speed; whether a billboard shows +z or −z (the flash glows and the beam
-  show with +z); the flame's model has no shape of its own (add-on nodes only), so
-  the flamer shows a flash and no flame.
+  show with +z); the flame's model has no shape of its own (add-on nodes only): its
+  flame is particles (particles.md).
+
+## 16. Sounds, impacts and shell casings
+
+Owner request 2026-10-11: build what §15 left out. Particle effects are
+docs/spec-notes/particles.md.
+
+- **The records** [documented: xEdit; schemas/fnv `objects.json`, `combat.json`,
+  `placed.json`], read by `fnv_combat::fx` (`fnvtool combat fx --form <weapon>` prints
+  a weapon's):
+  - WEAP: `SNAM` twice (Shoot 3D, Shoot Dist), `XNAM` Shoot 2D, `NAM7` Shoot 3D
+    Looping, `TNAM` Melee Swing / Gun No Ammo, `NAM9` Equip, `NAM8` Unequip, `INAM`
+    impact data set, `MOD2` shell casing model (read from the raw subrecord: the WEAP
+    layout in the schema does not list it);
+  - SOUN: `FNAM` a file or a folder under `sound\`, `SNDD` flags, minimum and maximum
+    attenuation distance (stored ÷ 5 and ÷ 100), static attenuation in hundredths of a
+    decibel, frequency adjustment in percent;
+  - PROJ `DATA` sound; EXPL `DATA` sound 1, sound 2, impact data set;
+  - IPDS: an IPCT for each of twelve materials (stone, dirt, grass, glass, metal, wood,
+    organic, cloth, water, hollow metal, organic bug, organic glow);
+  - IPCT: model, effect duration, effect orientation (Surface Normal, Projectile
+    Vector, Projectile Reflection), texture set, sound 1, sound 2.
+  - Read [observed, FalloutNV.esm]: 3,190 SOUN, 125 IPCT in 60 IPDS, 37 ADDN.
+- **Examples** [observed]: the 10mm pistol's Shoot 2D is `WPN10mmFire2D`, the folder
+  `fx\wpn\10mm_pistol\fire_2d\` (flag 2D, static attenuation 13.22 dB); its No Ammo
+  `WPNPistol10mmFireDry` is one `.wav`; its casing `Projectiles\45CalCasing.NIF`; its
+  impact data set gives `BallisticStoneImpact` (`Effects\ImpactBallisticConcrete01.NIF`,
+  0.25 s, Projectile Reflection) for stone, `BalisticDirtImpact` for dirt and grass, and
+  `BallisticOrganicImpact` (blood, 0.08 s, Surface Normal) for organic.
+  `fGunShellEjectSpeed` is 160.
+- **Sounds** (`nvf_play::sfx`):
+  - a `PlaySound` names a SOUN and, for a sound with a place, a point. A folder stands
+    for the `.wav` files directly in it, one picked at random [hypothesis];
+  - WAV is decoded here (PCM of 8, 16 and 24 bits, 32-bit float) and played through
+    Bevy's audio as a source of our own; another encoding is reported once;
+  - loudness [design]: gain 10^(−static attenuation ÷ 20); with a place, full within
+    the minimum distance of the player's eye, then minimum ÷ distance, fading to
+    nothing at the maximum distance. Not panned. The record's attenuation curve is not
+    used;
+  - pitch: the frequency adjustment, and ±5% at random with Random Frequency Shift
+    [design: the size];
+  - combat plays: Shoot 2D (else Shoot 3D) for each shot of the player's [hypothesis:
+    that the 2D sound is the shooter's own]; the Shoot 3D Looping sound going round
+    from a weapon's first shot until 0.25 s after its last [hypothesis: when; design:
+    the 0.25 s]; No Ammo on an empty trigger; Equip and
+    Unequip when the player starts to draw or put away [hypothesis: when]; an impact's
+    sounds at the impact; an explosion's at the explosion;
+  - `nvforever --no-sound` turns them off.
+- **Impacts.** A shot that lands takes the IPCT its weapon's impact data set gives for
+  the surface:
+  - the collision material of the triangle hit [documented: nif.xml
+    `Fallout3HavokMaterial`, 32 materials repeated as platforms and stairs] is mapped
+    to one of the twelve by its name [hypothesis: `fnv_combat::fx::impact_material`];
+    terrain, which has no code, counts as dirt [design]; an actor counts as organic
+    [design: bug and glow are not told apart];
+  - `nvforever::shot_fx` shows the IPCT's model at the point for its effect duration,
+    its +z along the orientation the IPCT names [hypothesis: +z, from the impact
+    models' add-on nodes standing along +z]. The model's add-on nodes emit dust and
+    debris (particles.md).
+- **Shell casings.** The player body gives the weapon model's `ShellCasingNode` place
+  and its +z axis to combat (`WeaponAnim::casing`). Each shot of a weapon with a casing
+  model throws one from there along that axis at `fGunShellEjectSpeed`; it falls under
+  the world's gravity, bounces (keeping 0.35 of its speed [design]) and is removed
+  after `fGunShellLifetime`.
+  - For +z as the way out [observed: `muzzle_node_survey --list`]: in the 59 models
+    whose node is turned by no right angle, its z axis points to the side the node sits
+    on and up (9mm (−0.38, 0.36, 0.85), service rifle (0.17, 0.59, 0.79)); the cowboy
+    repeater's points up (lever actions throw up).
+- **Checked** [observed 2026-10-11, `--play` at Goodsprings, exit 0, "run finished"]:
+  - 10mm pistol: "sfx: 4 sounds played": `WPNPistol0Equip`, `WPN10mmFire2D` (gain
+    0.218), `FXBulletImpactEarth` at 656 units (gain 0.276, `BalisticDirtImpact` on
+    terrain), `WPNPistol0EquipUn`. No file failed to decode. Nobody listened: the check
+    is that the files are found, decoded and handed to the audio output.
+  - Minigun burst: "40 shell casings, 40 impact effects"; impacts named concrete, dirt
+    and wood by surface; casings fall to the right of the gun and lie on the ground.
+  - The minigun has neither a Shoot 2D nor a Shoot 3D sound [observed: `fnvtool combat
+    fx --form WeapMinigun`]: its only shoot sound is the loop `WPNMinigunSpinLPM`
+    (`fx\wpn\minigun\wpn_minigun_spin_lpm.wav`). Where its gunfire sound comes from is
+    open [hypothesis: the attack clip's text keys].
+- **Not built:** the Shoot Dist
+  sound, panning and reverb, sounds named by animation text keys (reloads), the PROJ's
+  own sound (a bullet passing), impact decals (the IPCT's texture set), the animations
+  inside impact models (they grow and fade), explosion models, casings hitting the
+  ground with a sound.
+- **NPCs' shots** are not built and cannot be on their own: NPCs do not attack yet (no
+  combat packages, detection or combat styles; docs/design/combat.md §8). What a shot
+  shows and sounds like is ready to be used by them: the messages carry places, not
+  the player.

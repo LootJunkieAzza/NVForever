@@ -1846,3 +1846,46 @@ arent invisible along with the muzzle flash effects". Same branch. Facts:
 8. **Not done:** smoke, sparks and the missile's trail (a separate kind of effect in
    the files), impact effects, sounds. The flamer shows its flash but no flame, because
    its flame is made only of that kind of effect.
+
+### Added 2026-10-11: sounds, smoke and sparks, impact effects, shell casings
+
+Your request: build the "not built" list (smoke, sparks and the missile's trail; the
+flamer's flame; impact effects, sounds, shell casings and NPCs' shots). Branch
+`claude/shot-effects`. Facts: `docs/spec-notes/particles.md` and
+`docs/spec-notes/combat-rules.md` §16. Pictures: `C:\fnv-private\references\muzzle\`
+(`minigun-smoke-dust-casings.png`, `missile-trail.png`, `flamer.png`).
+
+1. **Sounds:** your gun now plays the game's own sounds: firing, the click when empty,
+   drawing and putting away. Bullets make the impact sound of what they hit (earth,
+   concrete, wood, metal, flesh and so on), and explosions make theirs. I cannot hear,
+   so what I checked is that each file is found, decoded and sent to the speakers. You
+   are the first to listen: tell me if anything is too loud, too quiet or wrong.
+   `--no-sound` turns them off.
+2. **Smoke, sparks and trails:** the game stores these as particle effects attached to
+   the flash, the projectile and the impact. Ours now plays them: sparks and a wisp of
+   smoke at the muzzle, a smoke trail behind a missile, dust and debris where a bullet
+   lands.
+3. **Impact effects:** a bullet that lands shows the game's effect for that surface.
+4. **Shell casings:** each shot throws the weapon's casing out of the ejection port; it
+   falls, bounces and lies on the ground for the game's own time.
+5. **The flamer is only half there:** flame is drawn, but as a thin run of puffs that
+   burns about 6 metres out, not the solid jet you know. I think I know why (ours keeps
+   each puff's source alive for too short a time) but not what the game does instead.
+   A recording of the game's flamer from the side would settle it.
+6. **How particles behave is my reading of the files:** the files give numbers with
+   names (speed, gravity, grow time, colours over life) and I worked out what each
+   does from the name and from how the effect should look. Nothing was compared with
+   the game. If an effect looks wrong to you (too big, too fast, wrong colour), say
+   which and I will look at that one.
+7. **NPCs' shots: not done, and it needs something else first.** NPCs do not attack
+   yet. That is the combat-AI work (detection, combat behaviour), which is its own
+   project. Everything built here (flash, projectile, casing, sounds, impacts) is
+   written so NPC shots can use it when they exist. Say if you want NPC combat started.
+8. **The minigun may sound thin:** its record names no firing sound at all, only a
+   looping "spin" sound, which ours now plays while you fire. I think the gunfire
+   itself is triggered from the firing animation, which is a kind of sound cue not
+   built yet. Tell me what you hear.
+9. **Not done:** sound coming
+   from the left or right; reload sounds (they are tied to the animations); bullet
+   holes; the fireball of an explosion (you get its sound and the dust); the flash and
+   impact pictures do not yet grow and fade as the files animate them.

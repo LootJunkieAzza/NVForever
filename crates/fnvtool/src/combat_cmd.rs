@@ -149,6 +149,8 @@ pub fn run(cmd: CombatCmd) -> Result<Value> {
                     Some((m.to_string(), json!({"impact": i, "sound_1": sound(i.sound_1), "sound_2": sound(i.sound_2)})))
                 })
                 .collect();
+            let mut addons: Vec<&fnv_combat::fx::AddonNode> = fx.addons.values().collect();
+            addons.sort_by_key(|a| a.index);
             Ok(json!({
                 "schema": "fnv.combat.fx/1",
                 "counts": {"sounds": fx.sounds.len(), "weapons": fx.weapons.len(), "projectiles": fx.projectiles.len(), "explosions": fx.explosions.len(), "addon_nodes": fx.addons.len(), "impacts": fx.impacts.len(), "impact_sets": fx.impact_sets.len()},
@@ -162,6 +164,7 @@ pub fn run(cmd: CombatCmd) -> Result<Value> {
                 "projectile_sound": sound(proj.and_then(|p| fx.projectiles.get(&p)).and_then(|p| p.sound)),
                 "explosion": expl.and_then(|e| fx.explosions.get(&e)),
                 "impacts": impacts,
+                "addon_nodes": addons,
             }))
         }
         CombatCmd::Weapon { lo, schema, form, ammo } => {

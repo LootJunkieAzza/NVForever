@@ -709,7 +709,9 @@ Measured with `crates/fnv-nif/examples/muzzle_node_survey.rs` (every `.nif` unde
   origin (the node's x, y, z along the model's z, x, y in 179). The five others:
   `1handpistol\camera.nif`, `2handhandle\25mmgrndlnchr.nif` (turned by no right angle),
   `hand2hand\ballisticfistrigid.nif` and the two plasma casters (not turned).
-- `ShellCasingNode`: 123 of the 362, 112 directly under the root.
+- `ShellCasingNode`: 123 of the 362, 112 directly under the root. Ours throws the
+  shell casing from it along its own +z [hypothesis; the reasons and the build are in
+  docs/spec-notes/combat-rules.md §16].
 - First-person models: 10 files named `1st…`, nine of them melee weapons and one
   `2handrifle\1stpersongaussrifleunique.nif` (the only one with the node). The 10mm
   pistol and the minigun use one model for both rigs [observed: the engine's "player
@@ -754,8 +756,8 @@ Measured with `crates/fnv-nif/examples/muzzle_node_survey.rs` (every `.nif` unde
     trigger held 0.5 s: "ProjectileNode 2 node(s) down" for both rigs; muzzle
     (−71659.6, 2119.2, 8426.8) at the first shot; "16 shots (16 drawn from the muzzle,
     0 from behind cover)".
-- Not built: shell casings from `ShellCasingNode`, NPCs' shots. The muzzle flash and
-  the projectiles' models are in docs/spec-notes/combat-rules.md §15.
+- Not built: NPCs' shots. The muzzle flash and the projectiles' models are in
+  docs/spec-notes/combat-rules.md §15, shell casings in §16.
 
 ### 9.5 The first-person rig [observed unless tagged]
 

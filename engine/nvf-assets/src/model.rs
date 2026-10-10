@@ -87,6 +87,10 @@ pub struct ModelNode {
     pub local: Affine3A,
     /// A `NiBillboardNode`: its billboard mode [documented: nif.xml BillboardMode].
     pub billboard: Option<u16>,
+    /// A `BSValueNode`: its value, the node index of the ADDN whose particle effect it
+    /// stands for [observed: the value is the number in the node's name `AddOnNode<n>`
+    /// in every file looked at; docs/spec-notes/particles.md].
+    pub addon: Option<i32>,
 }
 
 /// The nodes of a file below its roots, parents before children, and each one's index
@@ -110,7 +114,8 @@ pub fn model_nodes(objects: &[SceneObject]) -> (Vec<ModelNode>, HashMap<usize, u
             // The mode is the caller's to fill in (`ModelCtx::load`): it is not among
             // a scene object's fields.
             let billboard = (co.type_name == "NiBillboardNode").then_some(0);
-            nodes.push(ModelNode { name: co.name.clone(), parent: index.get(&b).copied(), local: affine(&co.transform), billboard });
+            let addon = (co.type_name == "BSValueNode").then_some(-1);
+            nodes.push(ModelNode { name: co.name.clone(), parent: index.get(&b).copied(), local: affine(&co.transform), billboard, addon });
             queue.push(c);
         }
     }
@@ -243,6 +248,8 @@ pub type MeshAndMaterial = (Handle<Mesh>, Handle<NifMaterial>);
 #[derive(Resource, Default)]
 pub struct ModelCache {
     map: HashMap<String, Option<Arc<PreparedModel>>>,
+    /// The particle systems of files by archive path (`particles.rs`).
+    pub(crate) particles: HashMap<String, Option<Arc<crate::particles::PreparedParticles>>>,
     /// Tree billboards keyed by TREE FormID; `None` remembers a failure.
     billboards: HashMap<u32, Option<MeshAndMaterial>>,
     pub failures: Vec<String>,
@@ -341,6 +348,9 @@ impl ModelCtx<'_> {
         for (block, i) in &node_index {
             if nodes[*i].billboard.is_some() {
                 nodes[*i].billboard = Some(dec.blocks[*block].as_ref().ok().and_then(|s| s.int("billboard_mode")).unwrap_or(0) as u16);
+            }
+            if nodes[*i].addon.is_some() {
+                nodes[*i].addon = dec.blocks[*block].as_ref().ok().and_then(|s| s.int("value")).map(|v| v as i32);
             }
         }
         out.nodes = nodes;
