@@ -169,7 +169,7 @@ untested, since none exists].
   with a `bext` chunk before `fmt ` [observed]. Which of the two the game plays is [hypothesis: unknown]; the reader takes
   the `.ogg` [decision: same length, and the engine's audio decodes Ogg Vorbis].
 - **`.lip`**: lip-sync data, one per sound for 60,702 of the 61,290 sounds; none without
-  its sound [observed]. Not decoded (out of scope, dialogue.md §7).
+  its sound [observed]. Not decoded (out of scope, docs/design/dialogue.md §7).
 
 ## 5. Length from the headers
 
@@ -226,14 +226,16 @@ Check [observed]: both readers give 125,359 samples (5.223 s) for the first Kimb
 `fnv-game` has a hook (`fnv_game::voice::VoiceLengths`, `Game::voice`): when set, a
 response lasts as long as its voice file for the speaker's voice type; a response
 without a file, and every response when the hook is not set, keeps the fitted length
-(1.1 s + 1/16 s per character, scripts.md §7.7). A line lasts the sum of its responses.
-`fnv_voice::VoiceBank` implements the hook; `fnvtool script run` sets it by default
-(`--no-voice-lengths` or `FNVTOOL_VOICE_LENGTHS=0` keep the fitted length) and
-`nvforever --play` sets it once the index is built (`NVF_PLAY_VOICE_LENGTHS=0` keeps
-the fitted length).
+(1.1 s + 1/16 s per character, scripts.md §7.7). Every response is timed in one place
+(`Game::response_seconds`), so SayTo and Say lines (which last the sum of their
+responses) and the lines of a conversation (docs/spec-notes/dialogue.md §5) follow alike.
+`fnv_voice::VoiceBank` implements the hook; `fnvtool script run` and `fnvtool dialogue
+talk` set it by default (`--no-voice-lengths` or `FNVTOOL_VOICE_LENGTHS=0` keep the
+fitted length) and `nvforever --play` sets it once the index is built
+(`NVF_PLAY_VOICE_LENGTHS=0` keeps the fitted length).
 
-**Doc Mitchell's intro lines** (headless walk-through,
-`crates/fnv-game/walkthrough/intro.actions.json`; all 23 are single responses in
+**Doc Mitchell's intro lines** (the 23 he says by SayTo in the headless walk-through,
+`crates/fnv-game/walkthrough/intro.actions.json`; all are single responses in
 `maleuniquedocmitchell`) [observed: file headers]:
 
 | Line (INFO) | Characters | Fitted s | Sound s | | Line (INFO) | Characters | Fitted s | Sound s |
@@ -277,7 +279,10 @@ intro, 18.1 s against about 13 s), and every timed span now comes out **short by
 −0.4 for one, about −1.3 for three). The fit had absorbed that. The cause is [hypothesis]: a pause the game leaves
 after a sound before the end result script runs, or the time it takes to start one.
 Nothing was tuned to close it: it needs a capture that times single lines (owner review;
-dialogue.md §6 question 4). Which stage follows which, and by what, is unchanged.
+docs/design/dialogue.md §6 question 4). Which stage follows which, and by what, is unchanged. The
+walk-through's conversations with Doc Mitchell (the psych test and the farewell, 20
+more lines) run on the sound lengths as well: all 44 lines of the run take 219.1 s
+instead of 271.7 s.
 
 **Lab.** The four `L5.intro.*` scenarios pass with both lengths, with identical
 observations: their timed steps are timers, not spans of lines [observed].
@@ -285,8 +290,10 @@ observations: their timed steps are timers, not spans of lines [observed].
 ## 9. Playback (`nvforever --play`)
 
 `engine/nvf-play/src/voice.rs`: each response of a line being said (`Game::speech`:
-SayTo and Say today) has its file read from the archive and played through Bevy's audio
-when it starts; subtitles switch with the responses; a line that is cut (another line by
+SayTo and Say; and the line of a conversation, `Game::dialogue`, once the dialogue
+screen starts conversations in the game) has its file read from the archive and played
+through Bevy's audio when it starts, the responses in response-number order; subtitles
+switch with the responses; a line that is cut (another line by
 the same speaker, the speaker disabled, deleted or dead) has its sound stopped. One log
 line per sound: `voice: playing <path> (<seconds> s) <speaker> line <INFO> response <n>`;
 a response without a file logs `voice: no file ...`. `--no-voice` plays nothing (lengths

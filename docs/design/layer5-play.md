@@ -382,8 +382,9 @@ second):
 
 ### 6.4 Voice (2026-10-10, dialogue step D3)
 
-The §6.2 run again (same command and aids, 230 s) with dialogue voice
-(`engine/nvf-play/src/voice.rs`, docs/spec-notes/voice.md): exit 0, "run finished", 53.6
+The §6.2 run again (same command and aids, 230 s; after merging main up to #117) with
+dialogue voice
+(`engine/nvf-play/src/voice.rs`, docs/spec-notes/voice.md): exit 0, "run finished", 54.7
 frames per second, the same stages in the same order to **VCG01 200** (completed), and
 one `voice: playing <path> (<seconds> s)` log line for each of the 23 lines Doc Mitchell
 says by SayTo (23 `says` lines, 23 sounds, none missing, none stopped). The three lines
@@ -395,19 +396,19 @@ capture: scripts.md §9):
 
 | Stage | Fitted length (§6.2) | Voice length | Capture |
 |---|---|---|---|
-| 5 (one line) | +2.91 | +2.61 | 2.9 |
-| 10 (three lines) | +15.36 | +14.50 | 15.4 |
-| 25, 30 | +10.52, +14.77 | +8.88, +12.76 | lines |
-| 36 | +1.78 | +0.86 | a line |
-| 45 | +11.08 | +10.68 | lines |
-| 55 (two lines) | +10.20 | +9.20 | about 10 |
-| 75 after 70 | +7.47 | +5.77 | not timed |
+| 5 (one line) | +2.91 | +2.60 | 2.9 |
+| 10 (three lines) | +15.36 | +14.49 | 15.4 |
+| 25, 30 | +10.52, +14.77 | +8.85, +12.76 | lines |
+| 36 | +1.78 | +0.87 | a line |
+| 45 | +11.08 | +10.67 | lines |
+| 55 (two lines) | +10.20 | +9.22 | about 10 |
+| 75 after 70 | +7.47 | +5.78 | not timed |
 | 80 (psych intro lines) | +18.06 | +11.73 | about 13 |
 | 98 | +17.95 | +13.15 | lines |
-| 110 | +3.47 | +2.35 | lines |
+| 110 | +3.47 | +2.34 | lines |
 
 All other steps (timers, menus, triggers) are as in §6.2 within 0.05 s. The 23 lines
-take 103.5 s instead of 125.3 s, so the run reaches VCG01 200 at 136.6 game seconds. The
+take 103.5 s instead of 125.3 s, so the run reaches VCG01 200 at 136.4 game seconds. The
 voice lengths end the fit's large error at 80 and leave every timed span 0.3 to 0.4 s per
 line shorter than the capture (voice.md §8); nothing was tuned.
 

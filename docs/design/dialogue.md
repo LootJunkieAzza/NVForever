@@ -2,7 +2,8 @@
 
 Status 2026-10-10: **D1 and D2 done** (branch `claude/dialogue-core`: records,
 `fnvtool dialogue`, headless conversations; facts and rules in
-docs/spec-notes/dialogue.md); D3 in progress (`claude/dialogue-voice`); D4 and D5 open. Owner request 2026-10-10: "now that quests have been done are we
+docs/spec-notes/dialogue.md) and **D3 done** (branch `claude/dialogue-voice`: voice
+paths, sound lengths, playback in `--play`; docs/spec-notes/voice.md); D4 and D5 open. Owner request 2026-10-10: "now that quests have been done are we
 able to work on dialogue lines".
 
 Where it sits: dialogue is Layer 6 (README; layer5.md §1 lists it with AI packages and
