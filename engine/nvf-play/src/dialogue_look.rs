@@ -14,11 +14,12 @@
 //!   the actor speaks the mouse looks around as before. An ease never fights it: if
 //!   anything else moved the view since the ease last wrote it (the mouse, a test aid),
 //!   the ease is dropped ([`Ease::step`]).
-//! - **Choices.** When the choices appear (the cursor is released and the view holds) the
-//!   view eases back onto the face over [`RECENTRE_SECONDS`], unless
-//!   [`LookSettings::recentre_on_choices`] is off (`nvforever --no-dialogue-recentre`)
-//!   [the coordinator's reading of the owner's two requests together, 2026-10-10; to be
-//!   confirmed by the owner].
+//! - **Choices.** The view does not come back by itself: after the opening turn it is the
+//!   player's own for the rest of the conversation [owner decision 2026-10-10: "never
+//!   come back i just want the initial look at npc to happen then allow the player to
+//!   free look the rest of the time"]. With [`LookSettings::recentre_on_choices`] on
+//!   (`nvforever --dialogue-recentre`) the view eases back onto the face over
+//!   [`RECENTRE_SECONDS`] each time the choices appear.
 //! - **No roll, no zoom.** Only the view's heading and pitch change (`Player::heading`,
 //!   `Player::pitch`); the camera's field of view and place are left alone. A dialogue
 //!   camera is not built (dialogue-play.md §8.5).
@@ -62,9 +63,9 @@ pub const FACE_SHARE_OF_HEIGHT: f32 = 0.9;
 /// [hypothesis: about the eye height of a standing human, `crate::player::EYE_HEIGHT`].
 pub const FACE_ABOVE_REFERENCE: f32 = 112.0;
 
-/// Whether the two turn to each other in a conversation, and whether the view comes back
-/// onto the actor when the choices appear (`nvforever --no-dialogue-look`,
-/// `--no-dialogue-recentre`).
+/// Whether the two turn to each other in a conversation (`nvforever --no-dialogue-look`
+/// switches it off), and whether the view comes back onto the actor when the choices
+/// appear (off unless `--dialogue-recentre`; owner decision 2026-10-10).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LookSettings {
     pub enabled: bool,
@@ -73,7 +74,7 @@ pub struct LookSettings {
 
 impl Default for LookSettings {
     fn default() -> Self {
-        LookSettings { enabled: true, recentre_on_choices: true }
+        LookSettings { enabled: true, recentre_on_choices: false }
     }
 }
 
@@ -233,8 +234,8 @@ impl Plugin for DialogueLookPlugin {
         let s = app.world().resource::<LookSettings>();
         if !s.enabled {
             info!("dialogue look is off (--no-dialogue-look)");
-        } else if !s.recentre_on_choices {
-            info!("dialogue look: the view does not come back onto the actor when choices appear (--no-dialogue-recentre)");
+        } else if s.recentre_on_choices {
+            info!("dialogue look: the view comes back onto the actor when choices appear (--dialogue-recentre)");
         }
     }
 }

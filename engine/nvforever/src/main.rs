@@ -235,6 +235,11 @@ struct Args {
     /// seconds (docs/spec-notes/actors.md §9.4).
     #[arg(long)]
     actor_weapon_test: Option<f32>,
+    /// Test aid: standing NPCs within this distance of the camera (game units) turn on
+    /// the spot to face it, playing their turn clips (docs/spec-notes/actors.md §8.9).
+    /// Needs --actor-pose idle; not for --npc-travel travellers.
+    #[arg(long, conflicts_with = "actor_walk_test")]
+    actor_turn_test: Option<f32>,
     /// With --actor-walk-test: only NPCs within this distance of the start position
     /// (game units; 0 = all).
     #[arg(long, default_value_t = 0.0, requires = "actor_walk_test")]
@@ -284,9 +289,13 @@ struct Args {
     /// player's view to the actor (docs/design/dialogue-play.md §8).
     #[arg(long)]
     no_dialogue_look: bool,
-    /// With --play: in a conversation, do not bring the view back onto the actor when the
-    /// choices appear (the opening turn stays).
+    /// With --play: in a conversation, bring the view back onto the actor each time the
+    /// choices appear. Off by default (owner decision 2026-10-10): only the opening turn
+    /// happens and the view is the player's own for the rest of the conversation.
     #[arg(long)]
+    dialogue_recentre: bool,
+    /// Accepted for older command lines; not coming back is the default now.
+    #[arg(long, hide = true)]
     no_dialogue_recentre: bool,
 }
 
@@ -549,14 +558,19 @@ fn main() -> AppExit {
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()
-    .add_systems(Update, (locomotion::walk_test, locomotion::drive, weapons::reparent).chain())
+    .add_systems(Update, (locomotion::walk_test, locomotion::turn_to, locomotion::drive, weapons::reparent).chain())
     .add_systems(Update, timelapse.after(sky::update_sky));
+    if let Some(radius) = args.actor_turn_test {
+        app.insert_resource(locomotion::TurnTest { radius, started: 0, finished: 0, degrees: 0.0 })
+            .add_systems(Update, locomotion::turn_test.before(locomotion::turn_to))
+            .add_systems(Last, locomotion::turn_test_report);
+    }
     if args.new_game {
         app.insert_resource(nvf_play::script::NewGame);
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
     app.insert_resource(if args.menu_pause == "original" { nvf_play::pause::MenuPause::Original } else { nvf_play::pause::MenuPause::Living });
-    app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: !args.no_dialogue_recentre });
+    app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: args.dialogue_recentre && !args.no_dialogue_recentre });
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
@@ -641,6 +655,7 @@ fn main() -> AppExit {
                     100.0 * c.blend_frames as f64 / c.actor_frames.max(1) as f64,
                     c.tracks as f64 / c.actor_frames as f64
                     );
+                    info!("actor turns: {} actor frames playing a turn-on-the-spot clip", c.turn_frames);
                 }
                 if let Some(a) = actors {
                     let fg = a.facegen.lock().expect("facegen cache");

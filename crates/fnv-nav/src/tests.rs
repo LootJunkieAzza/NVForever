@@ -238,7 +238,7 @@ fn doors_join_spaces_into_legs() {
     let mut events = Vec::new();
     for _ in 0..2000 {
         match w.update(&g, 0.05) {
-            WalkEvent::Moved => {}
+            WalkEvent::Moved | WalkEvent::Turned => {}
             e => events.push(e),
         }
         if w.follower.is_none() {

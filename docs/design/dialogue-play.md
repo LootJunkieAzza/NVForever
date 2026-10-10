@@ -419,11 +419,12 @@ original's values, unless a line carries another tag. What is known of the origi
   looks around as before. An ease never fights the mouse: if anything else moved the
   view since the ease last wrote it (the mouse, a test aid), the ease is dropped and
   the view is left where it was put.
-- **Choices.** When the choices appear (the cursor is released, the view holds) the
-  view eases back onto the actor's face over 0.35 s, if it is more than 0.5° off.
-  **This is the coordinator's reading of the owner's two requests together (free look
-  while the actor speaks; the two look at each other), 2026-10-10, to be confirmed by
-  the owner.** `--no-dialogue-recentre` switches it off (the opening turn stays).
+- **Choices.** The view does not come back by itself. **Owner decision 2026-10-10:**
+  "never come back i just want the initial look at npc to happen then allow the player
+  to free look the rest of the time they are in dialogue". Only the opening turn
+  happens. With `--dialogue-recentre` the view eases back onto the actor's face over
+  0.35 s each time the choices appear, if it is more than 0.5° off (the behaviour first
+  built; kept as an option).
 - **Only the view's heading and pitch change**: no roll, no zoom, no change of the field
   of view, and the camera stays where the player's eye is. In third person the camera
   stays behind the shoulder and turns with the view.
@@ -445,8 +446,9 @@ original's values, unless a line carries another tag. What is known of the origi
 ### 8.4 Switches, test aid, log
 
 - `nvforever --no-dialogue-look`: nobody turns (actor and view).
-- `nvforever --no-dialogue-recentre`: the view does not come back onto the actor when
-  the choices appear.
+- `nvforever --dialogue-recentre`: the view comes back onto the actor each time the
+  choices appear (off by default; `--no-dialogue-recentre` is still accepted and does
+  nothing).
 - Test aid `NVF_PLAY_TEST_TALK_HEAD_ONLY=1`: no actor turns its body (as if all were
   `BodyHeld`), to see the head at its limit. Not a game behaviour.
 - Log, each line starting `dialogue look:`:
@@ -563,6 +565,10 @@ and turned away by `NVF_PLAY_TEST_LOOK`.
   200.0° to 310.7°, pitch -10.0° to 12.3°, over 0.35 s", and the screenshot with the
   choices has him in the middle. With `--no-dialogue-recentre` the same run logs no
   coming back, and the choices are shown over the landscape the view was left on.
+  (These runs were made when coming back was the default. Since the owner's decision of
+  2026-10-10 the second behaviour is the default and the first needs
+  `--dialogue-recentre`; the runs in this section whose logs show "the view comes back"
+  correspond to that flag now.)
 - **`--no-dialogue-look`**: the only `dialogue look` line is "dialogue look is off"; the
   conversation ran as before.
 - **A traveller** (`--npc-travel EasyPeteRef=GSChetRef`, talked to on his way at 14 s):
