@@ -256,6 +256,8 @@ pub enum WalkEvent {
     /// No path, or standing at its end.
     Idle,
     Moved,
+    /// Stood and turned on the spot towards the way to walk (not there yet, or just now).
+    Turned,
     /// Used a door; the walker is now at its arrival, in another space or place.
     UsedDoor(DoorEdge),
     /// Reached the end of the path in this update.
@@ -276,12 +278,28 @@ pub struct Walker {
     /// The triangle under the feet, or [`NONE`].
     pub tri: u32,
     pub speed: f32,
-    /// Fastest turn, radians per second.
+    /// Fastest turn while walking, radians per second.
     pub turn_rate: f32,
+    /// Turn speed standing, radians per second ([`SPOT_TURN_RATE`]).
+    pub spot_turn_rate: f32,
+    /// Standing, a way to walk further than this off the heading (radians) is turned to
+    /// on the spot before setting off ([`SPOT_TURN_START`]).
+    pub spot_turn_start: f32,
+    /// Turning on the spot before walking on.
+    pub turning: bool,
+    /// Moved in the last update (a walker that did not is standing).
+    pub moving: bool,
     pub follower: Option<Follower>,
     /// Horizontal distance moved so far.
     pub travelled: f32,
 }
+
+/// Turn speed of a standing actor, radians per second (120 degrees per second) [design:
+/// the turn clips carry no rotation, docs/spec-notes/actors.md §8.2 and §8.9].
+pub const SPOT_TURN_RATE: f32 = 120.0 * std::f32::consts::PI / 180.0;
+/// A standing actor turns on the spot before walking when its way lies further than
+/// this off its heading, radians (20 degrees) [design, actors.md §8.9].
+pub const SPOT_TURN_START: f32 = 20.0 * std::f32::consts::PI / 180.0;
 
 /// Compass heading of a horizontal direction (0 north = +y, π/2 east = +x).
 pub fn heading_of(dir: [f32; 2]) -> f32 {
@@ -296,9 +314,40 @@ pub fn turn_towards(from: f32, to: f32, max: f32) -> f32 {
     (r + PI).rem_euclid(TAU) - PI
 }
 
+/// The turn from heading `from` to `to`, radians in [-π, π): positive is clockwise seen
+/// from above (to the right), as compass headings grow.
+pub fn heading_delta(from: f32, to: f32) -> f32 {
+    use std::f32::consts::{PI, TAU};
+    (to - from + PI).rem_euclid(TAU) - PI
+}
+
+/// Headings closer than this count as the same (radians).
+const FACING: f32 = 1e-4;
+
 impl Walker {
     pub fn new(space: Space, feet: [f32; 3], heading: f32, speed: f32) -> Walker {
-        Walker { space, feet, heading, tri: NONE, speed, turn_rate: 4.0 * std::f32::consts::PI, follower: None, travelled: 0.0 }
+        Walker {
+            space,
+            feet,
+            heading,
+            tri: NONE,
+            speed,
+            turn_rate: 4.0 * std::f32::consts::PI,
+            spot_turn_rate: SPOT_TURN_RATE,
+            spot_turn_start: SPOT_TURN_START,
+            turning: false,
+            moving: false,
+            follower: None,
+            travelled: 0.0,
+        }
+    }
+
+    /// Turn on the spot towards `heading` for `dt` seconds, at the standing turn speed.
+    /// Returns whether the walker faces it now. For an actor standing with nowhere to
+    /// go (facing whoever it talks to, say); on a path the walker turns by itself.
+    pub fn face(&mut self, heading: f32, dt: f32) -> bool {
+        self.heading = turn_towards(self.heading, heading, self.spot_turn_rate * dt.max(0.0));
+        heading_delta(self.heading, heading).abs() <= FACING
     }
 
     /// Plan a path from the walker's feet to `to` and start following it.
@@ -320,12 +369,16 @@ impl Walker {
     pub fn update_with(&mut self, nav: &NavGraph, dt: f32, open: &mut dyn FnMut(u32) -> bool) -> WalkEvent {
         let Some(mut f) = self.follower.take() else { return WalkEvent::Idle };
         let ev = self.advance(nav, &mut f, dt, open);
+        self.moving = ev == WalkEvent::Moved;
         // Keep the path unless it ended (an idle update with the path not finished keeps it).
         let keep = match ev {
             WalkEvent::Arrived => false,
             WalkEvent::Idle => f.steer(self.feet) != Steer::Arrived,
-            WalkEvent::Moved | WalkEvent::UsedDoor(_) | WalkEvent::WaitingForDoor(_) => true,
+            WalkEvent::Moved | WalkEvent::Turned | WalkEvent::UsedDoor(_) | WalkEvent::WaitingForDoor(_) => true,
         };
+        if !keep {
+            self.turning = false;
+        }
         if keep {
             self.follower = Some(f);
         }
@@ -358,7 +411,15 @@ impl Walker {
                     if budget <= 1e-4 {
                         break;
                     }
-                    self.heading = turn_towards(self.heading, heading_of(dir), self.turn_rate * dt);
+                    // Standing and facing away from the way to go: turn on the spot
+                    // first (the turn clips play, actors.md §8.9), then set off.
+                    let want = heading_of(dir);
+                    let standing = !self.moving && !moved;
+                    if dir != [0.0, 0.0] && (self.turning || (standing && heading_delta(self.heading, want).abs() > self.spot_turn_start)) {
+                        self.turning = !self.face(want, dt);
+                        return WalkEvent::Turned;
+                    }
+                    self.heading = turn_towards(self.heading, want, self.turn_rate * dt);
                     let step = budget.min(to_target);
                     let start = self.feet;
                     let mut p = [start[0] + dir[0] * step, start[1] + dir[1] * step, start[2]];
@@ -485,5 +546,81 @@ mod tests {
         assert!((turn_towards(0.0, 0.05, 1.0) - 0.05).abs() < 1e-6);
         assert!((heading_of([1.0, 0.0]) - PI / 2.0).abs() < 1e-6);
         assert!(heading_of([0.0, 1.0]).abs() < 1e-6);
+        assert!((heading_delta(0.9 * PI, -0.9 * PI) - 0.2 * PI).abs() < 1e-5);
+        assert!((heading_delta(0.1, -0.1) + 0.2).abs() < 1e-6);
+    }
+
+    /// A walker on a path with no navmesh under it (heights come from the path).
+    fn walker(heading: f32, points: Vec<[f32; 3]>) -> (NavGraph, Walker) {
+        let mut w = Walker::new(Space::Interior(1), points[0], heading, 100.0);
+        w.follower = Some(Follower::new(path(points)));
+        (NavGraph::default(), w)
+    }
+
+    #[test]
+    fn a_standing_walker_turns_on_the_spot_before_it_sets_off() {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        // Facing north, the way lies east: a quarter turn to the right at 120°/s.
+        let (g, mut w) = walker(0.0, vec![[0.0, 0.0, 0.0], [200.0, 0.0, 0.0]]);
+        let dt = 0.05;
+        let mut turned = 0;
+        loop {
+            let before = w.heading;
+            match w.update(&g, dt) {
+                WalkEvent::Turned => {
+                    turned += 1;
+                    assert_eq!(w.feet, [0.0, 0.0, 0.0], "it stands while it turns");
+                    let step = heading_delta(before, w.heading);
+                    assert!(step > 0.0 && step <= SPOT_TURN_RATE * dt + 1e-5, "{step}");
+                }
+                WalkEvent::Moved => break,
+                e => panic!("{e:?}"),
+            }
+            assert!(turned < 100);
+        }
+        // 90° at 120°/s is 0.75 s: fifteen steps of 0.05 s (one more for rounding).
+        assert!((15..=16).contains(&turned), "{turned}");
+        assert!((w.heading - FRAC_PI_2).abs() < 1e-4 && !w.turning && w.moving);
+        // The other way round it turns left.
+        let (g, mut w) = walker(PI, vec![[0.0, 0.0, 0.0], [200.0, 0.0, 0.0]]);
+        assert_eq!(w.update(&g, dt), WalkEvent::Turned);
+        assert!(heading_delta(PI, w.heading) < 0.0);
+        // Nearly facing the way (within 20°): it sets off at once.
+        let (g, mut w) = walker(FRAC_PI_2 - 0.3, vec![[0.0, 0.0, 0.0], [200.0, 0.0, 0.0]]);
+        assert_eq!(w.update(&g, dt), WalkEvent::Moved);
+        assert!((w.heading - FRAC_PI_2).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_walker_on_its_way_takes_corners_without_stopping() {
+        // East, then a right angle north: walking, it steers round the corner.
+        let (g, mut w) = walker(std::f32::consts::FRAC_PI_2, vec![[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [100.0, 100.0, 0.0]]);
+        let mut events = Vec::new();
+        for _ in 0..100 {
+            let ev = w.update(&g, 0.05);
+            events.push(ev);
+            if ev == WalkEvent::Arrived {
+                break;
+            }
+        }
+        assert_eq!(events.last(), Some(&WalkEvent::Arrived));
+        assert!(!events.contains(&WalkEvent::Turned), "{events:?}");
+        // (It cuts the corner within the arrival radius, so it ends a little east of north.)
+        assert!(w.heading.abs() < 0.2 && !w.moving, "{}", w.heading);
+    }
+
+    #[test]
+    fn facing_a_heading_standing() {
+        use std::f32::consts::PI;
+        let (_, mut w) = walker(0.0, vec![[0.0, 0.0, 0.0], [200.0, 0.0, 0.0]]);
+        w.follower = None;
+        // Half a turn at 120°/s: 1.5 s.
+        let mut t = 0.0f32;
+        while !w.face(PI, 0.1) {
+            t += 0.1;
+            assert!(t < 3.0);
+        }
+        assert!((t - 1.4).abs() < 0.11, "{t}");
+        assert!(heading_delta(w.heading, PI).abs() < 1e-4);
     }
 }

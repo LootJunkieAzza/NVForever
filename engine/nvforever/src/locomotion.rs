@@ -2,11 +2,14 @@
 //! each animated actor carries its clip set and a [`Blend`] state; every frame the move
 //! is chosen from its velocity and turn rate (`fnv_actor::locomotion::choose`) and up to
 //! two clips are blended onto its skeleton (`nvf_assets::anim_play::BlendPlayer`).
-//! Nothing moves actors yet but the test aid `--actor-walk-test` ([`WalkTest`]); Layer 6
-//! will set [`Locomotion::velocity`] and [`Locomotion::turn`] from AI.
+//! Actors are moved by the test aid `--actor-walk-test` ([`WalkTest`]) and by `nav.rs`
+//! (travellers on the navmesh); Layer 6 will set [`Locomotion::velocity`] and
+//! [`Locomotion::turn`] from AI. A standing actor is turned on the spot by [`TurnTo`]
+//! (actors.md §8.9), which plays its turn clip; `--actor-turn-test` ([`TurnTest`]) tries it.
 
 use bevy::prelude::*;
 use fnv_actor::locomotion::{choose, Blend, Body, ClipInfo, LocomotionSet, Move};
+use fnv_nav::follow::{heading_delta, SPOT_TURN_RATE, SPOT_TURN_START};
 use nvf_assets::actor::{bind_clip, clip_binding, ActorCtx, PreparedSkeleton};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
 use std::collections::BTreeMap;
@@ -172,6 +175,8 @@ pub struct ActorAnimCost {
     pub tracks: u64,
     /// Frames in which an actor sampled more than one clip, summed over actors.
     pub blend_frames: u64,
+    /// Frames in which an actor's clip was a turn on the spot, summed over actors.
+    pub turn_frames: u64,
     pub peak: usize,
 }
 
@@ -205,6 +210,7 @@ pub fn drive(
         if !lo.hold {
             lo.step(dt);
         }
+        cost.turn_frames += u64::from(lo.blend.cur.mv.is_turn());
         lo.layers(&mut player);
         if let Some(mut w) = weapon {
             if !w.hold {
@@ -229,6 +235,114 @@ pub fn drive(
     cost.frames += 1;
     cost.actor_frames += n as u64;
     cost.peak = cost.peak.max(n);
+}
+
+/// A standing actor turning on the spot to a compass heading (radians: 0 north, +y;
+/// π/2 east, +x), at [`SPOT_TURN_RATE`]; its turn clip plays meanwhile (actors.md §8.9).
+/// Put it on an actor's root (the entity with its [`Locomotion`]); [`turn_to`] takes it
+/// off again once the actor faces the heading. Not for actors something else turns every
+/// frame (`nav.rs` travellers: `fnv_nav::Walker::face`; the walk test).
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct TurnTo {
+    pub heading: f32,
+}
+
+/// The compass heading an actor's root faces: its forward (+y) turned by `rotation`.
+pub fn heading_of_rotation(rotation: Quat) -> f32 {
+    let f = rotation * Vec3::Y;
+    f.x.atan2(f.y)
+}
+
+/// One step of a turn on the spot from `heading` to `target` over `dt` seconds: how far
+/// to turn (radians, positive = clockwise seen from above, as headings grow) and whether
+/// that reaches the target.
+pub fn spot_turn(heading: f32, target: f32, dt: f32) -> (f32, bool) {
+    let (d, max) = (heading_delta(heading, target), SPOT_TURN_RATE * dt.max(0.0));
+    (d.clamp(-max, max), d.abs() <= max)
+}
+
+/// Turn the actors with a [`TurnTo`]: the root about its parent's z, and the turn rate
+/// that makes [`drive`] choose the turn clip. An actor whose `TurnTo` is taken away
+/// mid-turn stops turning.
+pub fn turn_to(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut turning: Query<(Entity, &TurnTo, &mut Transform, &mut Locomotion), Without<Dying>>,
+    mut ended: RemovedComponents<TurnTo>,
+    mut others: Query<&mut Locomotion, Without<TurnTo>>,
+    test: Option<ResMut<TurnTest>>,
+) {
+    for e in ended.read() {
+        if let Ok(mut lo) = others.get_mut(e) {
+            lo.turn = 0.0;
+        }
+    }
+    let dt = time.delta_secs();
+    if dt <= 0.0 {
+        return;
+    }
+    let mut done_now = 0;
+    for (e, to, mut tr, mut lo) in &mut turning {
+        if lo.hold {
+            continue;
+        }
+        let (step, done) = spot_turn(heading_of_rotation(tr.rotation), to.heading, dt);
+        // Headings grow clockwise; rotations about z and `Locomotion::turn` the other way.
+        tr.rotation = Quat::from_rotation_z(-step) * tr.rotation;
+        lo.turn = if done { 0.0 } else { -step / dt };
+        if done {
+            commands.entity(e).remove::<TurnTo>();
+            done_now += 1;
+        }
+    }
+    if let Some(mut t) = test {
+        t.finished += done_now;
+    }
+}
+
+/// `--actor-turn-test <radius>`: standing actors within `radius` game units of the
+/// camera turn on the spot to face it whenever it is more than [`SPOT_TURN_START`] off
+/// their heading (actors.md §8.9).
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct TurnTest {
+    pub radius: f32,
+    /// Turns begun and finished, and the degrees asked for in all.
+    pub started: u32,
+    pub finished: u32,
+    pub degrees: f32,
+}
+
+type TurnTestActors = (Without<TurnTo>, Without<WalkTest>, Without<Dying>);
+
+/// Give the actors near the camera a [`TurnTo`] towards it.
+pub fn turn_test(
+    mut commands: Commands,
+    mut test: ResMut<TurnTest>,
+    camera: Query<&GlobalTransform, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
+    actors: Query<(Entity, &GlobalTransform, &Transform, &Locomotion), TurnTestActors>,
+) {
+    let Ok(cam) = camera.single() else { return };
+    let eye = crate::world::bevy_to_game(cam.translation());
+    for (e, at, tr, lo) in &actors {
+        let d = (eye - crate::world::bevy_to_game(at.translation())).truncate();
+        if lo.hold || lo.velocity != [0.0; 2] || d.length() > test.radius || d.length() < 1.0 {
+            continue;
+        }
+        let heading = d.x.atan2(d.y);
+        let off = heading_delta(heading_of_rotation(tr.rotation), heading);
+        if off.abs() > SPOT_TURN_START {
+            commands.entity(e).insert(TurnTo { heading });
+            test.started += 1;
+            test.degrees += off.abs().to_degrees();
+        }
+    }
+}
+
+/// The turn test's outcome when the app exits.
+pub fn turn_test_report(mut exit: MessageReader<AppExit>, test: Res<TurnTest>) {
+    if exit.read().next().is_some() {
+        info!("turn test: {} turns on the spot begun, {} finished, {:.0} degrees in all", test.started, test.finished, test.degrees);
+    }
 }
 
 /// The walk test's line length (units) and turn speed (radians per second), its pause,
@@ -370,6 +484,38 @@ mod tests {
             let (a, b) = (at(edge - 1e-3), at(edge + 1e-3));
             assert!((a.offset - b.offset).abs() < 0.2 && (a.heading - b.heading).abs() < 0.01, "leg {k}: {a:?} {b:?}");
         }
+    }
+
+    #[test]
+    fn turning_on_the_spot_to_a_heading() {
+        // Facing north; east is a quarter turn to the right at 120°/s: 0.75 s.
+        let mut rot = Quat::IDENTITY;
+        assert!(heading_of_rotation(rot).abs() < 1e-6);
+        let (dt, mut steps) = (0.05, 0);
+        loop {
+            let (step, done) = spot_turn(heading_of_rotation(rot), FRAC_PI_2, dt);
+            assert!(step > 0.0 && step <= SPOT_TURN_RATE * dt + 1e-6);
+            rot = Quat::from_rotation_z(-step) * rot;
+            steps += 1;
+            if done {
+                break;
+            }
+            assert!(steps < 100);
+        }
+        assert!((15..=16).contains(&steps), "{steps}");
+        assert!((heading_of_rotation(rot) - FRAC_PI_2).abs() < 1e-4);
+        // The actor's forward now points east (+x), and it stands upright.
+        assert!((rot * Vec3::Y - Vec3::X).length() < 1e-4 && (rot * Vec3::Z - Vec3::Z).length() < 1e-5);
+        // West from north is to the left, through north-west rather than round by south.
+        let (step, done) = spot_turn(0.0, -FRAC_PI_2, dt);
+        assert!(step < 0.0 && !done);
+        let (step, _) = spot_turn(0.9 * PI, -0.9 * PI, dt);
+        assert!(step > 0.0);
+        // The turn rate that goes with a step makes the chooser play the turn clips.
+        let s = set();
+        let turn = |step: f32| choose(|m| s.info(m), [0.0; 2], -step / dt).mv;
+        assert_eq!(turn(SPOT_TURN_RATE * dt), Move::TurnRight);
+        assert_eq!(turn(-SPOT_TURN_RATE * dt), Move::TurnLeft);
     }
 
     fn set() -> Arc<ClipSet> {

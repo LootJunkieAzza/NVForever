@@ -215,10 +215,9 @@ everything a script can see.
   [owner decision 2026-10-10: "go with the first option"].
 - **Facing each other** (step D7) is presentation: the actor turning to the player and
   the view turning to the actor run while game logic is held. The view turns to the
-  actor when the conversation starts and comes back onto them when the choices appear;
-  in between the mouse is free as decided above [the coordinator's reading of the two
-  owner requests together, 2026-10-10; to be confirmed by the owner; `--no-dialogue-recentre`
-  switches the coming back off]. With `original` the turns are completed at once, so
+  actor when the conversation starts and is the player's own after that [owner decision
+  2026-10-10; `--dialogue-recentre` brings it back onto the actor each time the choices
+  appear]. With `original` the turns are completed at once, so
   the frozen picture shows the two facing each other; the Esc pause menu holds them
   like everything else (docs/design/dialogue-play.md §8.3).
 - **One switch for all menus** [owner decision 2026-10-10: "add the pause switch to all
