@@ -1,6 +1,7 @@
 # The dialogue screen in `nvforever --play` (step D4)
 
-Status 2026-10-10: built on `claude/dialogue-screen`. The plan is docs/design/dialogue.md
+Status 2026-10-10: built on `claude/dialogue-screen` (#122); the owner's decisions on it
+(one pause switch for all menus, the debug switch) on `claude/menu-pause`, §6.1. The plan is docs/design/dialogue.md
 (step D4, and its Pausing section); the rules a conversation follows are the runtime's
 (`crates/fnv-game/src/dialogue.rs`, docs/spec-notes/dialogue.md §4–§6). This note is the
 engine side: `engine/nvf-play/src/dialogue.rs`.
@@ -254,6 +255,50 @@ mode in conversations #120), `RUST_LOG=info`, each exit 0 with "run finished".
   arrived".
 - Not run: the moving-camera smoke test and the time-lapse (no rendering, sky or
   lighting change).
+
+### 6.1 Follow-up: one pause switch for all menus (2026-10-10, `claude/menu-pause`)
+
+Owner decisions of 2026-10-10 applied: Shift+Tab behind a debug switch (§4), the cursor
+as built (§3), `--menu-pause` for every menu with the Esc pause menu holding everything
+(§3). Found and fixed on the way: a SayTo or Say line's sound played on in real time
+while a menu held the line's timer, so it ran ahead of the timer and the subtitle
+outlasted it after the menu (`voice::line_held`; the mouth of the lip sync holds with
+the sound, `Spoken::held_secs`).
+
+Windowed runs, unattended, on main 95a90f6 merged in (lip sync #125), each exit 0 with
+"run finished" and no WARN or ERROR line:
+
+- **The intro** (§5, `living`, `--no-voice`, 300 s): **VCG01 completed at stage 200**,
+  both conversations as before (15 and 5 lines, ended by Goodbye). Doc's SayTo line
+  0x00104BF9, started while the race menu was open, was held for the second the menu
+  stayed and went on when it closed (`voice: … held` / `goes on`).
+- **`--menu-pause original`** (Goodsprings, `NVF_PLAY_TEST_SCRIPT_MENUS=1`,
+  `NVF_PLAY_TEST_MENU=nearest` with `NVF_PLAY_TEST_DELAY=20`,
+  `NVF_PLAY_TEST_TALK="40:EasyPeteRef=0|leave"`): the picture stood still eleven times:
+  under the pack and add-on message boxes (1 s each), the container menu (the Mailbox,
+  6 s), the inventory (5 s) and the conversation (29 s), and ran again after each. The
+  aids went on throughout (they read `AidTime`) and the run counted its 85 s and
+  finished. Screenshots: two taken 0.5 s apart in the inventory are identical pixel for
+  pixel, and so are two taken 2 s apart during one response of the conversation.
+- **For comparison, `living`**: two screenshots 2 s apart during one response differ in
+  about 41,500 of 1,024,000 pixels (the picture lives).
+- **Shift+Tab**, by the aid's `break` step, which goes through the same switch as the
+  key (key presses cannot be injected): without `NVF_PLAY_DEBUG_TALK_BREAK` the log says
+  "Shift+Tab does nothing" and the conversation goes on to its Goodbye (3 lines); with
+  `NVF_PLAY_DEBUG_TALK_BREAK=1` the conversation ends at once (`left`, 2 lines, the
+  line's voice stopped 7 s before its end). The key's own branch (Shift held with Tab)
+  was not pressed by a hand.
+- **The Esc pause menu** (`NVF_PLAY_TEST_PAUSE=17:21` during Easy Pete's answer, with
+  sound and lip sync, under the old flag name `--dialogue-pause living`): on opening,
+  the line was held and the picture stood still; two screenshots 2 s apart under the
+  menu are identical; on resuming, the line went on, and its next response started
+  4.0 s later than its length alone would give (7.48 s + the 4.0 s held). No audio
+  warning or error. That the sound was silent for those 4 s, and that the mouth stood
+  still, was not heard or seen by this session (the speaker was not in view).
+- **Goodsprings `--play`, 40 s, no aid**: exit 0.
+
+Under `original` the game is `Playing` for a frame or two between two message boxes
+shown one after the other, so the picture moves by that much between them (§7).
 
 ## 7. Open
 

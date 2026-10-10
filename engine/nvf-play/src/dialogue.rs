@@ -779,6 +779,7 @@ fn input(
 /// (which would put the player in `Menu` for a message box): in a conversation the box
 /// is answered from the `Dialogue` state, and when the conversation ends under an open
 /// box the player goes to `Menu`.
+#[allow(clippy::too_many_arguments)]
 fn sync_state(
     script: Option<Res<ScriptState>>,
     active: Res<ActiveMenu>,
