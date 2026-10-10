@@ -55,6 +55,10 @@ pub enum DialogueCmd {
         /// Include the texts said and offered (game data: for reading, never to commit).
         #[arg(long)]
         text: bool,
+        /// Keep every response at the length fitted to its text instead of its voice
+        /// file's (as `script run --no-voice-lengths`, docs/spec-notes/voice.md §8).
+        #[arg(long)]
+        no_voice_lengths: bool,
     },
 }
 
@@ -101,7 +105,7 @@ pub fn run(cmd: DialogueCmd) -> anyhow::Result<Value> {
     match cmd {
         DialogueCmd::Topics { a, f, top_level, ty } => with_data(&a, |l| topics(l, &f, top_level, ty.as_deref())),
         DialogueCmd::Lines { a, f, info } => with_data(&a, |l| lines(l, &f, info)),
-        DialogueCmd::Talk { a, actions, text } => talk(&a, &actions, text),
+        DialogueCmd::Talk { a, actions, text, no_voice_lengths } => talk(&a, &actions, text, !no_voice_lengths),
     }
 }
 
@@ -635,7 +639,7 @@ fn lines(l: &Loaded, f: &Filter, info: Option<u32>) -> anyhow::Result<Value> {
 }
 
 /// `dialogue talk`: the Layer 4 world, the Layer 5 data, and the conversation run.
-fn talk(a: &ScriptArgs, actions: &std::path::Path, text: bool) -> anyhow::Result<Value> {
+fn talk(a: &ScriptArgs, actions: &std::path::Path, text: bool, voice_lengths: bool) -> anyhow::Result<Value> {
     let doc = std::fs::read_to_string(actions).with_context(|| actions.display().to_string())?;
     let input: fnv_game::runner::Input =
         serde_json::from_str(&doc).with_context(|| format!("{}: not a fnv.dialogue.actions/1 document", actions.display()))?;
@@ -649,5 +653,6 @@ fn talk(a: &ScriptArgs, actions: &std::path::Path, text: bool) -> anyhow::Result
     let forms = fnv_sim::FormStore::build(&lo, &schema);
     let refs = RefTable::build(&lo, &schema);
     let data = GameData::build(&lo, &schema, table, &fjson, &refs);
-    fnv_game::runner::run_dialogue(&data, &forms, &refs, &input, text).map_err(anyhow::Error::msg)
+    let voice = crate::script_cmd::voice_lengths_hook(a, &lo, voice_lengths);
+    fnv_game::runner::run_dialogue_with_voice(&data, &forms, &refs, &input, text, voice).map_err(anyhow::Error::msg)
 }

@@ -1604,8 +1604,17 @@ fn new_game_start(g: &mut Game) {
 
 /// Run an input document against a fresh world and game state.
 pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -> Result<Json, String> {
-    run_as(data, forms, refs, input, ACTIONS_FORMAT)
+    run_with_voice(data, forms, refs, input, None)
 }
+
+/// [`run`], with dialogue responses as long as their voice files where `voice` knows
+/// them (`crate::voice`, docs/spec-notes/voice.md §8).
+pub fn run_with_voice(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, voice: Option<Voice>) -> Result<Json, String> {
+    run_as(data, forms, refs, input, ACTIONS_FORMAT, voice)
+}
+
+/// The line-length hook a run is given ([`crate::game::Game::voice`]).
+pub type Voice = std::sync::Arc<dyn crate::voice::VoiceLengths>;
 
 /// Trace kinds a dialogue trace keeps (docs/spec-notes/dialogue.md §8).
 const DIALOGUE_KINDS: &[&str] = &[
@@ -1630,7 +1639,20 @@ const DIALOGUE_KINDS: &[&str] = &[
 /// with Editor IDs and text lengths. With `text`, the texts themselves are included
 /// (for reading at home; a trace with texts holds game data and is never committed).
 pub fn run_dialogue(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, text: bool) -> Result<Json, String> {
-    let full = run_as(data, forms, refs, input, DIALOGUE_ACTIONS_FORMAT)?;
+    run_dialogue_with_voice(data, forms, refs, input, text, None)
+}
+
+/// [`run_dialogue`], with responses as long as their voice files where `voice` knows
+/// them.
+pub fn run_dialogue_with_voice(
+    data: &GameData,
+    forms: &FormStore,
+    refs: &RefTable,
+    input: &Input,
+    text: bool,
+    voice: Option<Voice>,
+) -> Result<Json, String> {
+    let full = run_as(data, forms, refs, input, DIALOGUE_ACTIONS_FORMAT, voice)?;
     let form = |v: &Json| v.as_str().and_then(|s| s.parse::<FormId>().ok());
     let edid = |v: &Json| form(v).and_then(|f| data.edid_of.get(&f).cloned());
     let mut events = Vec::new();
@@ -1690,7 +1712,7 @@ pub fn run_dialogue(data: &GameData, forms: &FormStore, refs: &RefTable, input: 
     }))
 }
 
-fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, format: &str) -> Result<Json, String> {
+fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, format: &str, voice: Option<Voice>) -> Result<Json, String> {
     if input.format != format {
         return Err(format!("unsupported actions format {:?} (expected {format})", input.format));
     }
@@ -1716,6 +1738,7 @@ fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, fo
         ..GameConfig::default()
     };
     let mut g = Game::new(data, world, cfg);
+    g.voice = voice;
     if input.new_game {
         g.new_game();
         new_game_start(&mut g);
