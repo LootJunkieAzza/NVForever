@@ -20,6 +20,8 @@
 //! - [`first_person`]: what the player's first-person rig draws (arms and hands)
 //! - [`furniture`]: furniture an actor can use: the entry points on its model, the clip
 //!   the IDLE tree names for getting on, staying on and getting off, and the phases of a use
+//! - [`head_look`]: head tracking: whom an actor looks at, the limits of the turn and its
+//!   easing (an NVForever design feature)
 //!
 //! Facts and rules with confidence tags: docs/spec-notes/actors.md and (animation data)
 //! docs/spec-notes/animation.md.
@@ -28,6 +30,7 @@ pub mod anims;
 pub mod facegen;
 pub mod first_person;
 pub mod furniture;
+pub mod head_look;
 pub mod idle;
 pub mod locomotion;
 pub mod mesh;
