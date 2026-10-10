@@ -7,7 +7,7 @@
 //! own [`Playing`] component, advanced by [`advance_instances`].
 
 use bevy::prelude::*;
-use fnv_nif::anim::{Sequence, TrackData, TransformTrack};
+use fnv_nif::anim::{BoolTrack, Sequence, TrackData, TransformTrack};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -29,6 +29,9 @@ pub struct Clip {
     pub accum_root: Option<String>,
     /// Text keys (time, text).
     pub text_keys: Vec<(f32, String)>,
+    /// Visibility tracks (`NiVisController`): node name, priority, shown over time
+    /// (docs/spec-notes/animation.md §9.7).
+    pub visibility: Vec<(String, i32, BoolTrack)>,
 }
 
 impl Clip {
@@ -36,7 +39,11 @@ impl Clip {
         let mut tracks = Vec::new();
         let mut priorities = Vec::new();
         let mut skipped = 0;
+        let mut visibility = Vec::new();
         for t in &seq.tracks {
+            if let (Some(n), Some(b), Some("NiVisController")) = (&t.node_name, &t.bools, t.controller_type.as_deref()) {
+                visibility.push((n.clone(), t.priority.unwrap_or(0) as i32, b.clone()));
+            }
             match (&t.node_name, &t.data) {
                 (Some(n), TrackData::Transform(tt)) => {
                     tracks.push((n.clone(), Arc::new(tt.clone())));
@@ -56,6 +63,7 @@ impl Clip {
             skipped,
             accum_root: seq.accum_root_name.clone().filter(|n| !n.is_empty()),
             text_keys: seq.text_keys.clone(),
+            visibility,
         }
     }
 
@@ -520,6 +528,7 @@ mod tests {
             node_name: Some(n.to_string()),
             controller_type: None,
             priority: None,
+            bools: None,
             data: TrackData::Transform(TransformTrack {
                 translation: Channel::Static(Some([0.0, -0.296, 66.33])),
                 rotation: Channel::Static(None),
@@ -591,6 +600,7 @@ mod tests {
             skipped: 0,
             accum_root: Some("Bip01".into()),
             text_keys: Vec::new(),
+            visibility: Vec::new(),
         })
     }
 

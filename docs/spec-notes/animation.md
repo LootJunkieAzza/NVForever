@@ -529,8 +529,30 @@ tracks that are not transforms) on `Fallout - Meshes.bsa` and `Update.bsa`.
   `weapons\2handhandle\minigun.nif` has the gun under a node `##MinigunGun` and a
   separate node `Backpack` whose `UPB` string is `Bip01 Spine2`. Reading [hypothesis]:
   a holstered minigun shows its backpack on the back and no gun; the gun appears half
-  way through the draw. Not built: the player body reads neither the visibility tracks
-  nor the backpack's bone.
+  way through the draw.
+- In the game [observed: owner's screenshots 2026-10-10, kept privately]: the minigun
+  holstered, seen from behind, shows the backpack on the upper back and no gun; drawn,
+  the gun is in both hands and the backpack is still on the back.
+- Engine (`nvforever::player_body`, since 2026-10-10):
+  - clips carry their visibility tracks (`fnv_nif::anim::BoolTrack`,
+    `nvf_assets::anim_play::Clip::visibility`); a shape of the weapon model is hidden
+    while any node above it whose name begins `##` is switched off. Among the playing
+    clips the track of the highest priority decides, the latest started of equals
+    (`Animator::visible`); a node no playing clip has a track for stays as it was, and
+    starts shown [hypothesis: as the `Weapon` node keeps its place];
+  - a shape under a node whose `UPB` string names a bone of the skeleton hangs from
+    that bone instead of from the `Weapon` node, with its transform in the model kept
+    [hypothesis: that this is what the string means]; such shapes are not drawn on the
+    first-person rig.
+  - Rendered with the minigun [observed: screenshots, kept privately]: holstered, the
+    backpack on the back and no gun, from behind and from the side as in the owner's
+    game screenshot; 0.3 s into the draw still no gun, 0.8 s in the gun is in the
+    hands; drawn, gun and ammunition box in the hands and the backpack on the back;
+    0.3 s into putting it away the gun still shows, 0.8 s in it is gone.
+  - Not built: the other things these clips animate on weapon parts (the
+    `NiMaterialColorController` tracks on `##GatlingLaserGun:0`, transform tracks on
+    `##` nodes such as `##BBCarton`), and the same for placed NPCs' weapons
+    (`nvforever::weapons`).
 
 ### 9.5 The first-person rig [observed unless tagged]
 
