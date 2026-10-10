@@ -116,7 +116,10 @@ actor-behaviour.md §1 (packages that send actors to furniture), ai-observer.md 
 
 Measured on the first sequence of each clip: the translation of the `Bip01` track and the
 turn about Z of the `Bip01 NonAccum` track, at the sequence's start and stop [observed].
-The sequences name no accumulation root.
+Every one of these sequences names `Bip01` as its accumulation root (88 clips over the
+marker IDs in use); the getting-on and getting-off clips move it and never turn it, the
+loops have no track for it [observed]. An accumulation root's motion is the actor's own
+movement (actors.md §7.2), so these clips move the actor.
 
 | Clip | `Bip01` start → stop (x, y) | `Bip01 NonAccum` z, turn start → stop |
 |---|---|---|
@@ -157,16 +160,17 @@ What this shows:
 
 1. The actor stands at the entry point, facing along the marker's heading (§2).
 2. Getting on plays in a frame placed so that the clip's first `Bip01` position is the
-   entry point (for chair clips, the entry point itself), with the whole `Bip01` track
-   applied.
-3. When it ends the actor's root moves to where the clip left `Bip01` and turns by the
-   difference between the clip's last turn and the loop's; the loop plays there.
-4. Getting off plays in the frame of step 2 again; when it ends the root moves to the
-   clip's last `Bip01` position and turns by the difference from the standing turn.
+   entry point (for chair clips, the entry point itself); the actor's root follows the
+   `Bip01` track from there, keeping the entry heading.
+3. When it ends the root is where the clip left `Bip01`, and it turns by the difference
+   between the clip's last body turn and the loop's; the loop plays there.
+4. Getting off plays in the frame of step 2 again, the root following the clip's `Bip01`
+   track; when it ends the root turns by the difference from the standing turn.
 
 Checked on `chair01` from the left and the front, unturned and turned: the seat frame
 lands within 2.5 units of the model's origin facing its +Y, and the actor ends within 1.5
-units of the entry point with its back to the chair (`fnv_actor::furniture` tests).
+units of the entry point with its back to the chair (`fnv_actor::furniture` tests). Seen
+in the engine: §7.
 
 ## 5. Open questions
 
@@ -180,9 +184,15 @@ units of the entry point with its back to the chair (`fnv_actor::furniture` test
    marker [design].
 4. **GetSitting 1**, and whether the loop is chosen once or looked up again.
 5. **The blend keys** and how the game crosses from clip to loop.
-6. **Camera**: what the first-person view does while getting on.
+6. **Camera**: what the first-person view does while getting on. Here the view is the
+   third-person body's eye, the body not drawn [design].
 7. **MNAM bits 30 and 31** against the editor's own labels.
 8. **Marker ID 10** (one model) and the six furniture bases without markers.
+9. **How sitting ends for the player** and what the prompt says (the crosshair shows
+   "Activate" here). Here: a movement control or activating the furniture again
+   [design].
+10. **Beds and the player.** The player sleeps through a menu [hypothesis from how the
+    game is played]; there is none yet, so the player cannot use beds. Actors can.
 
 A capture can answer 1, 3 and 4: an NPC sent to `Chair01F`, `Chair01L` and a bench from
 different sides with the observer logging GetSitting and GetFurnitureMarkerID per frame.
@@ -204,3 +214,47 @@ different sides with the observer logging GetSitting and GetFurnitureMarkerID pe
 - `furniture` (unless `--summary-only`): per base its FormID, editor ID, name, model,
   marker flags, sit and sleep bits, enabled marker indices, script flag, placed count,
   marker IDs and markers.
+
+## 7. In the engine
+
+Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::furniture`
+(the activation message, the hold on the player, telling the script runtime),
+`locomotion::drive` (an actor's furniture clip replaces its other clips),
+`player_body.rs` (`pose_furniture`).
+
+- **Actors.** A `SitOn { furniture, stay }` component on an actor's root starts a use:
+  the nearest enabled, free marker is the entry point; the actor is moved the last steps
+  to it at walking speed (no path; refused beyond 400 units) [design]; then the clips and
+  frames of §3–4. `GetUp`, or `stay` seconds on the furniture, starts getting off. When
+  it is off, the components are removed and a traveller's position and heading are
+  updated. One user per reference, except where every marker has ID 14 or 15 (one per
+  marker) [design, §5 item 3].
+- **`--npc-sit ACTOR=FURNITURE[:SECONDS]`** sends a travelling NPC (docs/design/navmesh.md
+  §5) to a furniture reference (hex FormID) and gives it a `SitOn` on arrival.
+- **The player** uses furniture by activating it. The third-person body plays the clips
+  at the frames of §4; movement, jumping and the character's collision are off
+  (`PlayerSeat`), the weapon is put away [design], and a movement control or activating
+  the furniture again gets up [design, §5 item 9]. Afterwards the character stands at the
+  entry point. In first person the view is the body's eye and the body is not drawn.
+- **Scripts.** While a use lasts, `GetSitting` / `GetSleeping` give 2, 3 and 4 for the
+  phases and `GetFurnitureMarkerID`, `IsCurrentFurnitureRef` and `IsCurrentFurnitureObj`
+  answer for the user. State 1 is never reported (§5 item 4).
+- **Clips change without a cross-fade**: the clips of one use play in different frames
+  (§4), so blending two of them would swing the body [design].
+- **Not done**: work spots (marker 22: no getting-on clip), fidgets, eating and talking
+  idles while seated (value 3 of §3), the fast exits (nothing sets alerted or attacked),
+  children, checking the entry point against the navmesh, the player sleeping, and
+  actors choosing furniture by themselves (AI packages).
+
+Seen on the owner's install, 2026-10-10 [observed in NVForever, not in the original
+game]:
+
+- `--cell Goodsprings --play --npc-sit EasyPeteRef=0010634A:14`: Easy Pete walks to his
+  chair on the saloon porch (`HotelChair01F`, front marker, ID 14), turns and sits facing
+  away from the wall, and after 14 s stands up in front of it with his back to it. The
+  player, started next to the neighbouring chair (0x00106349), sits on activating it and
+  stands on pressing Forward.
+- `--cell GSProspectorSaloonInterior --play --npc-sit SunnyRef=00106194:30 --npc-sit
+  00104F08=00107C9E:30`: Sunny Smiles sits on a bar stool (ID 15, `SpecialIdle_StoolEnter`),
+  a settler slides into a booth from its left (`DinerBooth02TableL`, ID 11,
+  `SpecialIdle_Chair_LeftEnter`), and the player sits on the next stool.

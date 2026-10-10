@@ -176,7 +176,7 @@ pub struct ActorAnimCost {
 }
 
 /// What [`drive`] reads and writes of an actor.
-type ActorAnimParts = (&'static mut Locomotion, &'static mut BlendPlayer, Option<&'static mut crate::weapons::WeaponHold>, Option<&'static mut Dying>, Option<&'static mut Flinch>);
+type ActorAnimParts = (&'static mut Locomotion, &'static mut BlendPlayer, Option<&'static mut crate::weapons::WeaponHold>, Option<&'static mut Dying>, Option<&'static mut Flinch>, Option<&'static crate::furniture::OnFurniture>);
 
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
 /// (`weapons.rs`) layered on top.
@@ -190,7 +190,7 @@ pub fn drive(
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
     let mut n = 0;
-    for (mut lo, mut player, weapon, dying, flinch) in &mut actors {
+    for (mut lo, mut player, weapon, dying, flinch, seated) in &mut actors {
         if let Some(mut d) = dying {
             // Dead: the death pose to its end and held; without one the pose stays.
             let Some(clip) = d.clip.clone() else { continue };
@@ -198,6 +198,14 @@ pub fn drive(
             d.t = (d.t + dt).min(len);
             player.layers = Default::default();
             player.layers[0] = Some(Layer { clip, phase: (d.t / len).min(0.999), weight: 1.0 });
+            cost.tracks += player.pose(&mut scratch, &mut transforms) as u64;
+            n += 1;
+            continue;
+        }
+        if let Some((clip, phase)) = seated.and_then(|s| s.pose.clone()) {
+            // Getting onto, on, or getting off furniture (`furniture.rs`): its clip alone.
+            player.layers = Default::default();
+            player.layers[0] = Some(Layer { clip, phase, weight: 1.0 });
             cost.tracks += player.pose(&mut scratch, &mut transforms) as u64;
             n += 1;
             continue;

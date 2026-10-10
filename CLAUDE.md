@@ -51,6 +51,9 @@ After navmesh, pathing or travelling-NPC changes, run the headless NPC walks in
 docs/design/navmesh.md §5 (`fnvtool nav walk`, all must arrive) and the travel smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-travel DocMitchellREF=GSChetRef --npc-travel SunnyRef=EasyPeteRef --follow-npc --run-seconds 105`
 (expect exit 0 and "nav summary: 2 of 2 travellers arrived").
+After furniture changes (docs/spec-notes/furniture.md §7), run the sitting smoke test:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-sit EasyPeteRef=0010634A:8 --follow-npc --run-seconds 45`
+(expect exit 0 and "furniture summary: 1 of 1 actors sat down, 1 got up again").
 
 ## Commits
 
