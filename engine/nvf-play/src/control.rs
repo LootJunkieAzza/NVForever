@@ -343,8 +343,7 @@ pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
 }
 
 /// The controls that are bound but not built yet.
-const NOT_BUILT: [Control; 12] = [
-    Control::Rest,
+const NOT_BUILT: [Control; 11] = [
     Control::Vats,
     Control::Hotkey1,
     Control::Hotkey3,

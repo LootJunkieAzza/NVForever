@@ -134,7 +134,7 @@ fn f9_opens_nearest_container(
 /// turned the Pip-Boy off [documented: GECK wiki DisablePlayerControls, PipboyFlag]; a
 /// container still opens (a script's own `Activate` asks for it).
 #[allow(clippy::too_many_arguments)]
-fn open_menus(
+pub(crate) fn open_menus(
     mut containers: MessageReader<OpenContainer>,
     mut inventory: MessageReader<OpenInventory>,
     state: Res<State<PlayState>>,
@@ -144,6 +144,7 @@ fn open_menus(
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
+    wait: Option<Res<crate::wait::WaitMenu>>,
 ) {
     let container = containers.read().last().copied();
     let mut inv = inventory.read().count() > 0;
@@ -157,7 +158,7 @@ fn open_menus(
     if container.is_none() && !inv {
         return;
     }
-    if *state.get() != PlayState::Playing || active.0.is_some() {
+    if *state.get() != PlayState::Playing || active.0.is_some() || wait.is_some_and(|w| w.is_open()) {
         info!("menu request ignored: a menu is already open");
         return;
     }

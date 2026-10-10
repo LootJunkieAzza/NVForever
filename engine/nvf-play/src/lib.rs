@@ -38,6 +38,7 @@ pub mod sim;
 pub mod space;
 mod test_aid;
 pub mod voice;
+pub mod wait;
 
 use bevy::prelude::*;
 use fnv_esm::{LoadOrder, Schema};
@@ -74,7 +75,7 @@ pub struct PlayData {
 
 /// The controls in `--play`, for nvforever's help line.
 pub const HELP: &str =
-    "WASD move  Shift walk  Caps Lock always run  Ctrl sneak  Q auto move  Space jump  mouse look  E use  Tab inventory  Esc pause  [ ] hour  F12 screenshot";
+    "WASD move  Shift walk  Caps Lock always run  Ctrl sneak  Q auto move  Space jump  mouse look  E use  Tab inventory  T wait  Esc pause  [ ] hour  F12 screenshot";
 
 /// [`PlayData`] as a resource, for systems that read the plugins.
 #[derive(Resource, Clone, Copy, Deref)]
@@ -214,7 +215,7 @@ impl Plugin for PlayPlugin {
             .add_message::<furniture::UseFurniture>()
             .init_resource::<furniture::PlayerSeat>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
-            .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin))
+            .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin, wait::WaitPlugin))
             .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin));
         test_aid::setup(app);
     }

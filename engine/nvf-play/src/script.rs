@@ -105,6 +105,11 @@ pub const MENU_CONTAINER: u16 = 1008;
 /// checked against a capture].
 pub const MENU_INVENTORY: u16 = 1002;
 
+/// The Sleep / Wait menu (`crate::wait`) [observed: `Begin MenuMode 1012` blocks of six
+/// FalloutNV.esm scripts, one commented as the rest menu; docs/spec-notes/wait-menu.md
+/// §5].
+pub const MENU_SLEEP_WAIT: u16 = 1012;
+
 /// The MenuMode code of an engine menu.
 pub fn menu_code(mode: Mode) -> u16 {
     match mode {
@@ -114,10 +119,10 @@ pub fn menu_code(mode: Mode) -> u16 {
 }
 
 /// A menu the scripts opened (a message box, a character-creation menu), as opposed to
-/// the engine's container and inventory menus: the script overlay shows it and the
+/// the engine's container, inventory and wait menus: the script overlay shows it and the
 /// player closes it there.
 pub fn is_script_menu(code: u16) -> bool {
-    code != MENU_CONTAINER && code != MENU_INVENTORY
+    code != MENU_CONTAINER && code != MENU_INVENTORY && code != MENU_SLEEP_WAIT
 }
 
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
@@ -1107,11 +1112,13 @@ fn hold_player(
     script: Res<ScriptState>,
     active: Res<ActiveMenu>,
     paused: Res<crate::pause::Paused>,
+    wait: Res<crate::wait::WaitMenu>,
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
     // The pause menu is also a `PlayState::Menu` without an engine menu: it is its own.
-    if active.0.is_some() || paused.0 {
+    // So is the wait menu (`crate::wait`).
+    if active.0.is_some() || paused.0 || wait.is_open() {
         return;
     }
     let held = script.rt.as_ref().and_then(|rt| rt.game.menu).is_some_and(is_script_menu);
