@@ -1258,15 +1258,15 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
         }
         Action::WaitMenu { menu, max_frames, label: l, stopwatch } => {
             lab = Some(l.clone());
-            let holds = |g: &Game| Ok(g.menu == Some(*menu));
+            let holds = |g: &Game| Ok(g.menu_open(*menu));
             wait_until(g, *max_frames, holds)?;
             g.tick();
-            let found = g.menu == Some(*menu);
+            let found = g.menu_open(*menu);
             waited(g, st, &mut obs, found, *stopwatch)?;
         }
         Action::GetMenus { menus: codes, label: l } => {
             for c in codes {
-                obs.insert(format!("menu.{c}"), json!(g.menu == Some(*c)));
+                obs.insert(format!("menu.{c}"), json!(g.menu_open(*c)));
                 g.tick();
             }
             lab = Some(l.clone());

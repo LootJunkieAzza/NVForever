@@ -611,6 +611,20 @@ fn lines(l: &Loaded, f: &Filter, info: Option<u32>) -> anyhow::Result<Value> {
     summary.insert("challenge_difficulty".into(), count(&difficulty));
     summary.insert("record_flags".into(), count(&record_flags));
     summary.insert("previous_info".into(), count(&previous));
+    // Quests whose own conditions (QUST CTDA before the stages) gate their lines.
+    let gated: BTreeSet<FormId> = d.quests.values().filter(|q| !q.conditions.is_empty()).map(|q| q.form).collect();
+    let gated_lines = all.iter().filter(|(_, def)| def.quest.is_some_and(|q| gated.contains(&q))).count();
+    let gated_with_lines: BTreeSet<FormId> = all.iter().filter_map(|(_, def)| def.quest.filter(|q| gated.contains(q))).collect();
+    summary.insert(
+        "quest_conditions".into(),
+        json!({
+            "quests": d.quests.len(),
+            "quests_with_conditions": gated.len(),
+            "conditions": d.quests.values().map(|q| q.conditions.len()).sum::<usize>(),
+            "quests_with_conditions_and_lines": gated_with_lines.len(),
+            "lines_of_quests_with_conditions": gated_lines,
+        }),
+    );
     Ok(json!({
         "format": "fnv.dialogue.lines/1",
         "load_order": d.load_order,
