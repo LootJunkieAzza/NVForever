@@ -330,6 +330,22 @@ impl SkyState {
         self.changed = true;
     }
 
+    /// `--play`: the sky shows the game's time of day (GameHour, which the simulation
+    /// advances at TimeScale). Steps of half a game minute, so the weather is not
+    /// re-evaluated every frame.
+    pub fn follow_game_clock(&mut self, hour: f32, days_passed: f32) {
+        let ahead = (hour - self.hour).rem_euclid(24.0);
+        if (1.0 / 120.0..12.0).contains(&ahead) {
+            self.days_passed = days_passed.floor();
+            self.advance_fade(ahead);
+            self.set_hour(hour, false);
+        } else if ahead >= 12.0 {
+            // The game's clock was set back (or far on): a jump, not time passing.
+            self.days_passed = days_passed.floor();
+            self.set_hour(hour, true);
+        }
+    }
+
     /// Advance a weather fade by `hours` of game time.
     fn advance_fade(&mut self, hours: f32) {
         if self.prev.is_some() {

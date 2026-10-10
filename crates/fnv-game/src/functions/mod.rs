@@ -17,7 +17,7 @@ pub(crate) mod actor;
 mod furniture;
 mod items;
 mod magic;
-mod misc;
+pub(crate) mod misc;
 mod objects;
 mod player;
 mod quest;
