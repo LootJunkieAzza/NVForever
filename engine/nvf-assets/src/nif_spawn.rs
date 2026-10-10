@@ -105,6 +105,9 @@ pub(crate) struct Props {
     external_emittance: bool,
     /// A decal shader flag is set ([`is_decal`]).
     decal: bool,
+    /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
+    /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
+    lod_building: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -187,6 +190,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
         p.external_emittance = flags & (1 << 29) != 0;
         p.decal = is_decal(flags);
+        p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
         p.falloff = None;
     }
     match ty {
@@ -264,6 +268,28 @@ pub(crate) fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
         (true, _, 1 | 4, _) => AlphaMode::Multiply,
         (true, ..) => AlphaMode::Blend,
         _ => AlphaMode::Opaque,
+    }
+}
+
+/// Alpha cutoff for object LOD geometry: alpha above 128 is drawn [hypothesis: the game's
+/// value is not known; 128 with TEST_GREATER is the most common setting of the
+/// alpha-tested `*_lod.nif` meshes, 45 of 128 shapes, and `watertower01_lod.nif` has 127;
+/// observed: `crates/fnv-nif/examples/lod_alpha_survey.rs`].
+pub(crate) const LOD_BUILDING_CUT: f32 = 128.5 / 255.0;
+
+/// How a shape's alpha is drawn: by its NiAlphaProperty when it has one. Without one,
+/// shapes whose shader sets "LOD_Building" are alpha-tested at [`LOD_BUILDING_CUT`]
+/// [hypothesis, docs/spec-notes/world.md §7 "Objects": all 355 object LOD block shapes
+/// in `Fallout - Meshes.bsa` set the flag (no other shape does) and none has a
+/// NiAlphaProperty, yet their atlases carry cut-outs in alpha (trees, pylons, the water
+/// tower's legs: 14% of `WastelandNV.Buildings.dds` is alpha 0, near black in colour);
+/// drawn opaque those were black boxes on the hills around Goodsprings]. Everything else
+/// without the property is opaque.
+pub(crate) fn shape_alpha_mode(props: &Props) -> AlphaMode {
+    match props.alpha {
+        Some((flags, threshold)) => alpha_mode(flags, threshold),
+        None if props.lod_building => AlphaMode::Mask(LOD_BUILDING_CUT),
+        None => AlphaMode::Opaque,
     }
 }
 
@@ -366,7 +392,7 @@ pub(crate) fn shape_material(
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
     let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
-    let alpha_mode = props.alpha.map_or(AlphaMode::Opaque, |(flags, threshold)| alpha_mode(flags, threshold));
+    let alpha_mode = shape_alpha_mode(props);
     let gloss = props.glossiness.unwrap_or(10.0);
     // Emitted light × glow map, or uniform without a glow map. Not scaled by the camera
     // exposure (Bevy's default emissive_exposure_weight 0).
@@ -688,6 +714,17 @@ mod tests {
         assert!(matches!(alpha_mode(0x12EC, 0), AlphaMode::Mask(t) if t > 0.0 && t < 1.0 / 255.0));
         // GREATER_EQUAL keeps the threshold itself.
         assert!(matches!(alpha_mode(0x200 | (6 << 10), 128), AlphaMode::Mask(t) if (t - 128.0 / 255.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn lod_building_is_alpha_tested() {
+        // Object LOD blocks: the flag and no NiAlphaProperty.
+        let block = Props { shader: true, has_properties: true, lod_building: true, ..Default::default() };
+        assert!(matches!(shape_alpha_mode(&block), AlphaMode::Mask(t) if (t - 128.5 / 255.0).abs() < 1e-6));
+        // A NiAlphaProperty wins; without the flag nothing is cut.
+        assert!(matches!(shape_alpha_mode(&Props { alpha: Some((0x12ED, 0)), ..block.clone() }), AlphaMode::Blend));
+        assert!(matches!(shape_alpha_mode(&Props { lod_building: false, ..block }), AlphaMode::Opaque));
+        assert!(matches!(shape_alpha_mode(&Props { alpha: Some((4844, 64)), ..Default::default() }), AlphaMode::Mask(_)));
     }
 
     #[test]
