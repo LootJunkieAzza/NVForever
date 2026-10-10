@@ -191,6 +191,35 @@ pub fn texture_path(p: &str) -> String {
     archive_path("textures\\", p)
 }
 
+impl Appearance {
+    /// The FaceGen texture coefficients that tint the actor's skin (face, body, hands):
+    /// its own FGTS, plus its race's for its sex value by value when `with_race`
+    /// [hypothesis: the race's values are a baseline the actor's are added to,
+    /// docs/spec-notes/actors.md §4.2]. `None` for an actor without FaceGen data.
+    pub fn skin_fgts(&self, with_race: bool) -> Option<Vec<f64>> {
+        let own = &self.facegen.as_ref()?.fgts;
+        Some(match self.race_facegen.as_ref().filter(|_| with_race) {
+            Some(race) => crate::facegen::add_coefficients(own, &race.fgts),
+            None => own.clone(),
+        })
+    }
+
+    /// The FaceGen coefficients that shape the actor's face and the parts fitted to it
+    /// (FGGS and FGGA; FGTS left empty, see [`Appearance::skin_fgts`]): its own, plus its
+    /// race's for its sex value by value when `with_race` [hypothesis, checked against
+    /// the owner's in-game picture of Sunny Smiles, docs/spec-notes/actors.md §4.3].
+    /// `None` for an actor without FaceGen data.
+    pub fn shape_facegen(&self, with_race: bool) -> Option<FaceGen> {
+        let own = self.facegen.as_ref()?;
+        let add = crate::facegen::add_coefficients;
+        let (fggs, fgga) = match self.race_facegen.as_ref().filter(|_| with_race) {
+            Some(race) => (add(&own.fggs, &race.fggs), add(&own.fgga, &race.fgga)),
+            None => (own.fggs.clone(), own.fgga.clone()),
+        };
+        Some(FaceGen { fggs, fgga, fgts: Vec::new() })
+    }
+}
+
 /// The `.egt` of a race hand, from the race's body `.egt` (an archive path): beside it,
 /// `lefthand<kind>.egt` or `righthand<kind>.egt`, `<kind>` being what follows
 /// `upperbody` and an optional `human` in the body file's name (`upperbodyhumanmale.egt`

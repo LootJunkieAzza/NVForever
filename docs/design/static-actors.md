@@ -4,8 +4,10 @@ Since 2026-10-09 the same assembly also draws the player's own body in `--play`,
 animated from the controls with layered clips (docs/design/player-body.md).
 
 Status 2026-10-08: **parts A, B and C done** (C: geometry and face-texture FaceGen;
-since 2026-10-09 the body skin `.egt` too, actors.md §4.1; the race FaceGen data stays
-unused, §4.2); part D (creatures) done 2026-10-09 (§8 below); part E (animation
+since 2026-10-09 the body skin `.egt` too, actors.md §4.1; since 2026-10-10 the
+race's FGTS is added to the NPC's for the skin tint (§4.2) and its FGGS for the face
+shape, and the hair models' per-shape `.egm` files are used (§4.3)); part
+D (creatures) done 2026-10-09 (§8 below); part E (animation
 playback) done: `nvforever` (default `--actor-pose idle`) plays `mtidle.kf` on each actor's skeleton, all 60 transform tracks binding to
 `skeleton.nif`, with skinned, rigid and FaceGen parts following (actors.md §7); since
 2026-10-09 this is the default (owner decision: the owner asked for working NPCs; set by
@@ -302,7 +304,8 @@ Facts and rules: docs/spec-notes/actors.md §10 (records, resolution, meshes, id
   ten masters (all equal).
 - **Engine**: `actors::spawn_creature` assembles each placed creature with
   `nvf_assets::actor::spawn_actor` (`PartUse::by_ancestor`: unskinned shapes hang from
-  their nearest ancestor that the skeleton has), scales it by XSCL × BNAM, and plays the
+  their nearest ancestor that the skeleton has, else from their `Prn` bone as ordinary
+  children, actors.md §10.2), scales it by XSCL × BNAM, and plays the
   skeleton's `mtidle.kf` through the locomotion player (male body lookup, spread phase).
   `world.rs` calls it for CREA bases next to the NPC call.
 - **Also in this round**: actors and creatures that are not enabled at the start are
@@ -311,7 +314,8 @@ Facts and rules: docs/spec-notes/actors.md §10 (records, resolution, meshes, id
   idle phases (animation.md §8); `nvf-viewer --anim` plays walks in place (actors.md
   §8.8); the body skin `.egt` tints the body texture (actors.md §4.1).
 - **Not done**: creature walk/turn/attack clips and KFFZ special idles (Layer 6); NIFT
-  texture variants; race FaceGen data (§4.2 of actors.md). The hand `.egt` followed on
+  texture variants. The race's FaceGen values are added since 2026-10-10 (texture
+  values: §4.2 of actors.md; geometry values: §4.3). The hand `.egt` followed on
   2026-10-10 (actors.md §4.1).
 
 Results (2026-10-09): `L3.actors.creatures` 2,346 of 2,346 equal; every skin bone of the

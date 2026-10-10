@@ -248,7 +248,8 @@ of whose partitions sets part flag bit 0 ("editor visible", nif.xml BSPartFlag) 
 hidden [hypothesis: an intact actor shows none]. Pose: the skeleton's bind pose, frozen
 (default), or the idle clip on the skeleton's bones (§7).
 The race's height scales the actor [hypothesis]. Texture overrides: the race part ICONs,
-the EYES texture and the HAIR texture replace the model's diffuse. Hair colour: texture ×
+the EYES texture and the HAIR texture replace the model's diffuse; a skin shape also
+takes the normal map beside its new diffuse (§3.1, "Normal maps"). Hair colour: texture ×
 2 × HCLR in gamma space [hypothesis: a plain multiply leaves Sunny Smiles' hair dark
 brown where the owner's screenshot shows auburn; doubled, it matches by eye].
 
@@ -330,14 +331,79 @@ three Great Khans of the raider races at Quarry Junction (QJMelissa, QJGreatKhan
 QJGreatKhanHM) had light untinted arms and legs under dark faces, and now arms and legs
 of the faces' colour.
 
+**Normal maps** (built 2026-10-10). Until then a replaced diffuse texture left the
+normal map (texture slot 1) the one the model names. Survey [observed: `fnvtool bsa list`
+and `fnvtool dds list` on `Fallout - Textures.bsa`; texture slots of the part models of
+every placed NPC (`fnvtool actor appearance --all`, `fnvtool nif decode`); which meshes
+of `Fallout - Meshes.bsa` name a texture, and in which slot,
+`crates/fnv-nif/examples/texture_refs.rs`]:
+
+- Skin. The skin folders under `textures\characters\` (`male`, `female`, `ghoul`,
+  `ghoulfemale`, `raider`, `raiderfemale`, `child`, `childfemale`, and `old` /
+  `oldfemale` for heads only) hold, beside each diffuse (`upperbody….dds`, `hand….dds`,
+  `headhuman.dds`, and `headhumanold.dds` in `male` and `female`), a file of the same
+  name with `_n` (1024 × 1024 DXT5 for bodies and heads): 30 files, no two with the
+  same content (SHA-256).
+- All 139 skin shader properties in the models of placed NPCs name in slot 1 the `_n`
+  file beside their slot 0. But the models name the adult human's maps whoever uses
+  them: all eight head models (`headhuman`, `headfemale`, `headghoul`,
+  `headghoulfemale`, `headold`, `headoldfemale`, `headchild`, `headchildfemale`) name
+  `characters\male\headhuman.dds` and `characters\male\headhuman_n.dds`, the women's
+  ones included; the hand and body models name the `male` or `female` files.
+- No mesh names the `_n` files of `ghoul` (but the upper body one, by Raul's jumpsuit),
+  `ghoulfemale`, `raider`, `raiderfemale`, `child`, `old`, `oldfemale`, the head and
+  hand ones of `childfemale`, or `female\headhumanold_n.dds`; `female\headhuman_n.dds`
+  is named by one mesh, `characters\head\headfemalefacegen.nif`, which is no placed
+  NPC's head part (theirs is `headfemale.nif`). The game can reach these files only by
+  their names.
+- The `_sk` maps (slot 2) need no switch: the head and body ones are one file in every
+  folder (128 × 128; the first-person hands' too), the hand ones another (32 × 32).
+- Not skin (shader type 1). Eye textures have no `_n` file. The mouth, teeth and tongue
+  ones have one for the human textures only, a 1 × 1 pixel stand-in (the same content as
+  `characters\head\earshuman.dds`) that no mesh names; those models name
+  `textures\shared\flat_n.dds`. Hair: 34 of the 37 diffuse textures in
+  `characters\hair\` have an `_n` file, and a mesh names every one of them but three
+  whose diffuse no placed NPC uses (`hairf`, `shades`, `shades01`); the models do not
+  always name the file beside their own diffuse (`hairfemaleb.nif`: `hairf02.dds` with
+  `hairf01_n.dds`, there being no `hairf02_n.dds`).
+
+Rule used [hypothesis: the game finds the normal map of a skin texture it puts in by its
+name; the unnamed files above fit that, and no in-game picture was compared]: when the
+diffuse of a skin shape (shader type 14) is replaced — a race part's ICON on the race's
+head, hand and body models, or the race's texture on a worn model's skin — its normal
+map becomes the file named like the new diffuse with `_n` before the extension, when
+the virtual file system has that file; otherwise the model's own stays
+(`fnv_vfs::normal_map_beside`, `nvf_assets::actor::skin_normal_map`, applied in
+`ActorCtx::material_with_texture`). Shapes that are not skin keep the normal map their
+model names: for eyes and mouth parts the files above speak against a switch, for hair
+they do not decide (below). FaceGen face and body tints replace only the base colour
+image afterwards (§4), so they keep the switched normal map.
+
+What it changes among the 3,386 placed NPCs of FalloutNV.esm that resolve: 1,107 heads
+(489 adult women, who had the men's head relief; 131 old men and women; 384 of the
+raider races; 74 ghouls; 29 children), the hands of 491 (raider races, ghouls,
+children), and the skin inside outfits of the wearers counted under "Worn models". A man
+of a young adult human race (`male\headhuman.dds`, `male\handmale.dds`,
+`male\upperbodymale.dds`) keeps every map: for him the file beside the texture is the
+one the model names.
+
+Checked on screen, before and after (2026-10-10, owner's install, pictures private,
+`C:\fnv-private\frames\skin-normal-maps\`): the Gomorrah ghoul above gains the ghoul
+relief on face and neck (sunken nose, bared jaw, sinews) and a rougher surface on arms,
+chest and legs; pixels change on him only. Of the three Great Khans, the woman's face
+(QJMelissa) loses the men's heavy brow and jaw relief; the raider maps differ little
+from the human ones at that distance (about 1,000 pixels of 1,440,000 differ by more
+than 6/255). A settler of the Caucasian race in the Prospector Saloon (GSSettlerCM):
+the two pictures are the same file, byte for byte.
+
 Open:
 
-- The normal map stays the model's (the adult human `…_n.dds`). Each kind has its own
-  (`characters\ghoul\upperbodymale_n.dds` and the raider and child ones are different
-  files from the human one [observed]; the `_sk` maps are all one file), so a ghoul's
-  skin has the ghoul colours over the human surface relief. The same holds for the
-  race's own body, hand and head parts, whose models name the human maps
-  [hypothesis: the game takes the `_n` file beside the texture it puts in; not built].
+- Hair. 216 placed NPCs have a HAIR texture that is not their hair model's own and has
+  an `_n` file of other content than the one the model names (`hairbase.nif` and
+  `hairbaseold.nif`, which name `hairbase_n.dds`, with `hairafricanamericanbase.dds`
+  (187) or `hairbalding.dds` (29)). They keep the model's normal map [hypothesis: the
+  files do not show which the game uses; a picture of such a head from the original,
+  close up, would]. The hair's `_hl` map (slot 2) is in the same position.
 - The hand-to-hand weapon models (`weapons\hand2hand\*.nif`, 12 skin shapes: a hand
   inside boxing tape, knuckles and the like) are not worn models; a hand in them keeps
   the texture it names, untinted.
@@ -377,13 +443,16 @@ Mitchell's FGTS the EGT offset spans about −60…+20 colour units; one EGM mod
 vertex by at most 0.29 units per unit of coefficient. The EGT's first row is the face
 texture's bottom row: taken top-down, the offset puts the mouth above the eyes.
 
-How the game combines them [hypothesis; matches the owner's screenshot of Sunny Smiles
-by eye]: a morphed vertex = base vertex + Σ coefficientᵢ × scaleᵢ × deltaᵢ over the
-symmetric (FGGS) and asymmetric (FGGA) modes, for every part with an `.egm` beside its
-model whose vertex count covers the shape; the face texture = the head's texture (the
-race ICON) + Σ FGTSᵢ × scaleᵢ × EGT modeᵢ, upsampled bilinearly and flipped vertically.
-The race FaceGen data and the RACE "FaceGen - Main clamp" / "Face clamp" values are not
-used (§4.2). In the Goodsprings flight (`--auto-fly 4000`, 40 s) 267 shapes were morphed
+How the game combines them [hypothesis; compared with the owner's in-game picture of
+Sunny Smiles, §4.3]: a morphed vertex = base vertex + Σ coefficientᵢ × scaleᵢ × deltaᵢ
+over the symmetric (FGGS) and asymmetric (FGGA) modes, the coefficients being the NPC's
+plus its race's (§4.3, since 2026-10-10; before that the NPC's alone), for every part
+with an `.egm` beside its model whose vertex count covers the shape, and for the hair
+shapes that have an `.egm` each (§4.3); the face texture = the head's texture (the
+race ICON) + Σ cᵢ × scaleᵢ × EGT modeᵢ, upsampled bilinearly and flipped vertically,
+with cᵢ = the NPC's FGTSᵢ + its race's FGTSᵢ (§4.2, since 2026-10-10; before that the
+NPC's alone). The RACE "FaceGen - Main clamp" / "Face clamp" values are not used. In the
+Goodsprings flight (`--auto-fly 4000`, 40 s) 267 shapes were morphed
 and 34 faces textured, with no EGM mismatching its shape.
 
 ### 4.1 Body skin
@@ -396,10 +465,12 @@ and 34 faces textured, with no EGM mismatching its shape.
   so FGTS (50 values) fits them as it fits the head's.
 - Rule [hypothesis: the face rule of §4 applied to the body; not checked against the
   game]: the body skin texture = the race's upper body ICON
-  (`characters\male\upperbodymale.dds`, 1024 × 1024 [observed]) + Σ FGTSᵢ × scaleᵢ × EGT
-  modeᵢ, upsampled bilinearly and flipped vertically. The engine gives it to every shape
-  whose diffuse is that texture — the race's upper body and the body skin shapes inside outfits,
-  which take that texture (§3.1, worn models) — and halves it to 512 × 512 to keep one copy per actor small
+  (`characters\male\upperbodymale.dds`, 1024 × 1024 [observed]) + Σ cᵢ × scaleᵢ × EGT
+  modeᵢ (cᵢ as for the face: the NPC's FGTS plus its race's, §4.2; the hands likewise),
+  upsampled bilinearly and flipped vertically. The engine gives it to every shape
+  whose diffuse is that texture — the race's upper body and the body skin shapes inside
+  outfits, which take that texture (§3.1, worn models) — and halves it to 512 × 512 to
+  keep one copy per actor small
   (`FaceGenCache::skin_texture`). `--no-facegen` turns it off. Only the skin shape of
   the race's upper body takes it; the underwear shape keeps its own texture (§3.1).
 - The body file holds one colour per mode [observed, 2026-10-10]: within a mode of
@@ -435,29 +506,148 @@ and 34 faces textured, with no EGM mismatching its shape.
   in-game picture of the unclothed default character would settle it, and with it the
   strength of the rule].
 
-### 4.2 Race FaceGen data (not used)
+### 4.2 Race FaceGen data (added to the NPC's: texture values here, geometry values in §4.3)
 
-Each RACE carries FGGS/FGGA/FGTS per sex (§1.1). Over the 3,386 placed NPCs with 50
-FGGS values [observed, `fnvtool actor appearance --all`, FalloutNV.esm]: none has the
-race's values; the median length of an NPC's FGGS vector is 6.0 and of the race's 13.2,
-and the median distance between the two is 17.2 — larger than either. So NPC values are
-not scattered around the race's, as absolute coordinates with a race default would be.
-Whether the game adds the race's coefficients to the NPC's, or uses them only in the
-character generator, is open [hypothesis either way]; faces drawn from the NPC's values
-alone matched the owner's screenshot of Sunny Smiles by eye (§4), so the race data stays
-unused until an in-game comparison of several NPCs of one race settles it.
+Each RACE carries FGGS/FGGA/FGTS per sex (§1.1). The GECK's race form calls them a
+baseline: its "FaceGen Race" and "FaceGen Data" tabs "specify a racial face baseline"
+[documented: GECK wiki, "Race"]. Over the 3,386 placed NPCs with 50 FGGS values
+[observed, `fnvtool actor appearance --all`, FalloutNV.esm]: none has the race's values;
+the median length of an NPC's FGGS vector is 6.0 and of the race's 13.2, and the median
+distance between the two is 17.2 — larger than either. So NPC values are not scattered
+around the race's, as absolute coordinates with a race default would be.
 
-The texture values point the other way [observed, 2026-10-10: the body `.egt` offset
-(§4.1) for the FGTS of 1,270 male NPCs with the adult male body file, and for their
-races' own FGTS]: the 228 AfricanAmerican NPCs have a median offset of (+8, −3, −11) from
-their own values — lighter than the 557 Caucasian NPCs' (−25, −24, −28), on the same body
-and head textures — while the AfricanAmerican race's own FGTS give (−91, −71, −49) and
-the Caucasian race's (+1, −1, −2). The same holds for AfricanAmericanOld (race −92, −72,
-−54) and AfricanAmericanRaider (−48, −35, −32). So from NPC values alone these NPCs are
-drawn lighter than Caucasian ones, which cannot be the game's look [hypothesis: the game
-adds the race's FGTS to the NPC's, and probably the geometry values likewise; not built
-— Joe Cobb in Goodsprings (offset +15, −2, −20 from his own values) is a case to compare
-with an in-game picture].
+**What the values hold** [observed, 2026-10-10; the 1,722 distinct NPC_ records among
+those placed NPCs, colours from the body `.egt` of §4.1 for the sex (one colour per
+mode), in colour units (red, green, blue)]:
+
+| Race, sex (NPC_ records) | NPCs' own FGTS, median | The race's FGTS | Sum, median |
+|---|---|---|---|
+| Caucasian, male (547) | −25, −24, −28 | +1, −1, −2 | −24, −25, −31 |
+| Caucasian, female (200) | 0, −11, −17 | 0, +4, +12 | 0, −7, −6 |
+| Hispanic, male (148) | −16, −19, −24 | −9, −10, −4 | −24, −29, −28 |
+| Asian, male (88) | −15, −17, −22 | +8, +1, −7 | −7, −17, −28 |
+| AfricanAmerican, male (223) | +8, −3, −10 | −91, −71, −49 | −83, −74, −59 |
+| AfricanAmerican, female (60) | +6, −5, −13 | −82, −64, −43 | −76, −68, −57 |
+| AfricanAmericanOld, male (23) | +4, −5, −13 | −92, −72, −54 | −88, −77, −67 |
+| AfricanAmericanRaider, male (18) | +7, +1, −4 | −48, −35, −32 | −41, −34, −36 |
+| AfricanAmericanRaider, female (20) | +8, +9, +8 | −48, −34, −21 | −40, −25, −12 |
+
+- The Caucasian, Hispanic, Asian and AfricanAmerican races of one kind and sex name the
+  same textures and `.egt` files: `characters\male\headhuman.dds` and
+  `upperbodymale.dds` for the plain male races; the Old races `headhumanold.dds`, the
+  OldAged races `characters\old\headhuman.dds` (both with the plain body texture), the
+  Raider and Child races their own folder's head and body textures [observed: `fnvtool
+  actor forms`, `actor appearance`]. So between a Caucasian and an AfricanAmerican NPC
+  only the FaceGen values can differ.
+- From their own values the AfricanAmerican NPCs come out lighter than the Caucasian
+  ones. Their own FGTS hold none of the race's colour: along the direction from the
+  Caucasian race's FGTS to the AfricanAmerican race's (9.5 units long for men) the
+  AfricanAmerican men's own values lie at −0.02 (median; quartiles −1.15 and +1.21),
+  the Caucasian men's at +0.28, the Hispanic men's at +0.15. Absolute coordinates would
+  put the AfricanAmerican NPCs near +9.5.
+- The race colour is large only for the AfricanAmerican races (10 race and sex pairs, 357
+  NPC_ records; offsets from (−31, −31, −26) to (−92, −72, −54)). For every other race
+  and sex the race's offset is within 25 units per channel; CaucasianOld and
+  CaucasianOldAged men have all-zero race FGTS.
+- Geometry shows the same pattern: along the direction from the Caucasian race's FGGS to
+  the AfricanAmerican race's (17.1 units long for men) the AfricanAmerican men's own
+  FGGS lie at −0.59 (median; quartiles −6.03 and +0.08), the Caucasian men's at +0.16.
+  Over all NPCs the cosine between an NPC's FGGS and its race's has a median of −0.10
+  (69% negative); for FGTS −0.07 (67% negative).
+- Every race's FGGA is all zeros (41 race and sex pairs); 2% of the NPC_ records have a
+  non-zero FGGA. Adding the race's FGGA would change nothing.
+
+**Rule for textures** [hypothesis, built 2026-10-10]: the game adds the race's FGTS for
+the actor's sex to the NPC's, value by value, and the sum drives the face, body and hand
+`.egt` (`Appearance::skin_fgts`, `fnv_actor::facegen::add_coefficients`). Reasons: the
+GECK wiki's "baseline"; the NPCs' own values hold none of the race's colour (above), and
+with shared textures nothing else could give AfricanAmerican NPCs a darker skin than
+Caucasian ones. Not yet compared with an in-game picture [open: the owner's picture of
+Joe Cobb and of Easy Pete would settle the rule and its strength]. An actor without
+FaceGen data of its own still gets no tint. `nvforever --no-race-facegen` draws the
+skin from the NPC's values alone, for comparison.
+
+Pictures (our renderer, 2026-10-10, with and without `--no-race-facegen`; kept privately
+in `C:\fnv-private\references\race_facegen\`):
+
+- Joe Cobb (GSJoeCobbRef, AfricanAmerican; body offset own (+15, −2, −20), race (−91,
+  −71, −49), sum (−76, −73, −69)): pale skin from his own values, the lightest face in
+  the saloon; dark brown with the race's added. His reference is initially disabled, so
+  the pictures need `--show-disabled-actors` (§11).
+- Sunny Smiles (SunnyRef; her record's race is Hispanic, female race offset (+4, +2,
+  −2)): no visible change in skin colour. (Her face shape did not match the game from
+  her own values alone, §4.3.)
+- Easy Pete (EasyPeteRef; his record's race is AfricanAmericanOldAged, race offset (−75,
+  −62, −53), sum (−99, −91, −72); his head texture is `characters\old\headhuman.dds`): a
+  pale grey-white face from his own values, a dark red-brown one with the race's added —
+  the largest change among the three, and the one most worth checking against the game,
+  since the sum is darker than Joe Cobb's.
+- The player's record (NPC_ 7, Caucasian male, race offset (+1, −1, −2)) is unaffected,
+  as is the skin tone question of §4.1.
+
+**Geometry**: the numbers above suggest the race's FGGS is a baseline in the same way
+(the NPCs' own FGGS hold none of the race's shape). Built 2026-10-10 after the owner's
+in-game picture of Sunny Smiles showed that her own values alone give the wrong face:
+§4.3.
+
+### 4.3 Face shape: the race's geometry values, and the hair's morph files
+
+Owner's report (2026-10-10): Sunny Smiles has "a strange face shape, almost more
+masculine", with an in-game dialogue close-up of her. Pictures (the game's, ours before
+and after) are kept privately in `C:\fnv-private\references\face_shape\`.
+
+**The camera matters** [observed]: in the game's picture her head is 0.31 of the frame
+height and her shoulders 0.39 of its width, which at the default field of view puts the
+camera about 46 units from her, looking down (the frame's centre is on her throat). A
+long lens from further away flattens a face and widens its jaw, so shape comparisons use
+that camera: `nvforever --cell 0x00106185 --pos 277,-492.7,3574 --heading 270 --pitch -17
+--fov 75 --size 1280x720 --actor-pose bind` (the Prospector Saloon; she stands at
+(230.9, −492.7, 3456) facing east, scale 0.95).
+
+**Rule for geometry** [hypothesis, built]: the coefficients that morph the head and every
+part fitted to it (eyes, mouth, brows, beards, hair, hats) are the NPC's FGGS plus its
+race's FGGS for its sex, value by value (`Appearance::shape_facegen`; FGGA likewise,
+though every race's is zero, §4.2). The lip rig starts from the same shape
+(`lips.rs`). `nvforever --no-race-facegen` draws faces from the NPC's values alone.
+
+- Sunny Smiles [observed: NPC_ GSSunnySmiles, race Hispanic, female, head
+  `headfemale.nif`]: her own FGGS has length 17.1, the race's 22.5, the sum 19.4 — the
+  two partly cancel (mode 39: +7.18 and −8.07; mode 48: +6.77 and −9.78).
+- From her own values: a long lower face, a heavy square jaw, small eyes. From the sum:
+  a shorter lower face, a jaw tapering to a small chin, larger eyes — the game's face.
+  With the pictures scaled to the same distance between the eyes, the eye line to the
+  chin is about 1.6 eye distances in the game's picture, 1.85 from her own values and
+  1.7 from the sum [observed, read off the pictures by eye, ±0.05].
+- Still different [open]: in the game's picture her eyes are more open and her lips
+  fuller, and the chin is a little shorter still. There she stands in her idle pose
+  looking up at the player; ours is the bind pose. Whether the rest is pose, expression
+  or the rule's strength is not known.
+- The authored values agree [observed, `fnvtool actor appearance --all`]: in each of the
+  23 race and sex groups with 8 or more distinct NPC_ records, the mean of the NPCs' own
+  FGGS points away from the race's FGGS (cosine −0.04 to −0.68) — what faces edited on
+  top of the race's shape and pulled part of the way back to a common taste would give,
+  and not what unused race values would give.
+- Other faces in the saloon, ours before and after, not compared with the game: Trudy
+  (Caucasian, female; own 7.0, race 19.5) turns from a long narrow face into a round
+  one; Joe Cobb (AfricanAmerican, male; own 26.5, race 16.1) gets a broader nose and
+  jaw; a male Caucasian settler (own 6.3, race 13.2) changes least.
+
+**Hair morph files are per shape** [observed, `Fallout - Meshes.bsa`]: of its 275 `.egm`
+files, 121 sit beside a `.nif` of the same name; 134 are named after a hair model plus
+one of its two shapes — `hairbunnohat.egm` (V 947) and `hairbunhat.egm` (V 472) for the
+`NoHat` and `Hat` shapes of `hairbun.nif` (§2.4). Of the 105 models in
+`characters\hair\`, 67 have that pair and no `.egm` of their own, 30 (brows, beards, glasses, an eye patch, a wig)
+have their own, and 8 (`glasses…go.nif`, `powderedwiggo.nif`, `shadesgo.nif`)
+have none. The engine looked only beside the model, so those 67 hair models were never
+morphed: the hair kept the base head's shape and the scalp came through it once the
+race's shape was added. Now a shape of a model without an `.egm` takes
+`<model stem><shape name>.egm` when the file has exactly the shape's vertex count
+(`FaceGenCache::morph`, `shape_sibling`). In the saloon 85 shapes are morphed and no
+`.egm` mismatches its shape. The other 20 `.egm` files (headgear, e.g.
+`armor\headgear\beanie\hatbeanie.egm`, `dlc05\armor\cowboyoutfit\cowboyhatm.egm`)
+have no `.nif` of their name; which model each belongs to is [open].
+
+Hair shine is a material question: docs/spec-notes/nif.md §6, "Hair".
 
 ## 5. CLI contract
 
@@ -1173,9 +1363,60 @@ skull caps), 8 have no shapes (`nvvoid.nif` and similar placeholders), 3 files a
 missing (`ghoul\mmm_ghoulvariant_v1.nif` for 26 creatures,
 `nvpenthouemaincomputer\nvpenthousemaincomputer_housescreen.nif` for 2 and
 `radscorpion\nvdlc03superlaserstingenergize.nif` for 51). Every skin bone of every
-skinned model is a node of its skeleton. Every unskinned shape has an ancestor node in
-its own file whose name is a skeleton node (e.g. the Securitron's `Screen01` under the
-file's copy of a skeleton bone), so none needs the `Prn` or root fallback.
+skinned model is a node of its skeleton.
+
+Where the unskinned shapes hang [observed 2026-10-10, FalloutNV.esm, the four add-on
+masters and GunRunnersArsenal.esm: 266 unskinned shapes in the 81 rigid pairs;
+this replaces an earlier statement here that every such shape has an ancestor named
+like a skeleton node, which counted the part's root]:
+- All 266 are in a part whose root names a `Prn` bone that the skeleton has. None has
+  a node between the root and the shape that is named like a skeleton node, so the
+  nearest-ancestor rule below is used by none of them, and none falls to the root.
+- The part's root is the identity for all but the parts below. 57 shapes have a root
+  that is itself named like a skeleton node (the Securitron's `Screen01Root`, the
+  Protectron's `DomeRoot`, the dog's `EyesBlue` and `EyesOneBlue`); 209 do not (the
+  dog's `EyesVicious` and `EyesSetYellow` among them), so the name is not what
+  attaches a part.
+- Parts on `Bip01 Head` whose root is not the identity: the four dog eye models
+  (`eyessetblue.nif`, `eyessetoneblue.nif`, `eyessetvicious.nif` and
+  `eyessetyellow.nif` in `creatures\dog`; root a half turn, rows (0.40, 0.92, 0),
+  (0.92, −0.40, 0), (0, 0, −1), no translation) and the Protectron's
+  `blowawaydome.nif`, `blowawaydomebos.nif` and `cowboyhat.nif`. Parts on `Bip01 Head`
+  with an identity root: the cyberdog skull caps (`cmskullcap.nif`, `cpskullcap.nif`
+  and `rex_skullcap.nif` in `creatures\dog`). Off the head, only
+  `nvdlc01_ghostbreathe.nif` (`Bip01 Neck1`), `fxmrhandyjetaddon.nif` (`Bip01 Pelvis`)
+  and `nvdlc03needlesaddon.nif` (`Bip01`) have a root that is not the identity.
+- **These head parts are ordinary children of the bone: bone ∘ root ∘ shape** (not in
+  the skeleton's axes as NPC head parts are, §1.2) [observed, bind pose, positions in
+  the skeleton's space, where the dog faces +y and x = 0 is its plane of symmetry]:
+  - Dog eyes: as a child, the two eyes are centred at (±3.46, 52.96, 59.53); the skin's
+    vertices weighted to `Bip01 Head2 Eyeleds` (the eyelids) are centred at
+    (±3.75, 54.00, 59.95), 1.2 units in front of them. In the skeleton's axes at the
+    bone (the NPC rule) both eyes are at x = 6.94, one at z = 53.2 and one at z = 60.1:
+    on one side of the head, one above the other. With the root dropped they are 7.4
+    units from the eyelids.
+  - Skull caps (identity root): as a child the cap spans x −7.0 to 7.0 on top of the
+    skull (z 63 to 72); in the skeleton's axes it is centred at x = 13, beside the head.
+  - Protectron: the skeleton has a node `DomeRoot` under `Bip01 Head` with the same
+    local rotation as the root of `blowawaydome.nif` and no translation, so the part's
+    root is that node's transform relative to the bone. As a child the dome spans
+    x −6.4 to 6.4 and the hat is centred on the head bone's x; in the skeleton's axes
+    they are centred 6 and 10 units to one side.
+  - The dog skeleton's `EyesBlue`, `Eyes` and `EyesOneBlue` nodes (children of
+    `Bip01 Head`) store the inverse of the head's bind rotation instead, which is not
+    the eye models' root rotation; hanging the eyes from them gives the one-sided
+    placement too. The eye models' root rotation is the local rotation of the
+    skeleton's `Bip01 Head2 Eyeleds` [hypothesis: the eyes were modelled in the eyelid
+    bone's axes; those three nodes are leftovers of the export].
+- Dogs without an eye model: coyotes (`coyote.nif`, 75 placed) and Legion mongrels
+  (`nv_mongrel.nif`, 57) are one skinned model each, eyes included. Placed creatures
+  with one of the head parts above: 135 (75 with dog eyes, 28 with a skull cap, 60 with
+  a Protectron dome, 1 with the hat).
+- The dog eye shapes use the body's texture (`textures\creatures\dog\dog.dds`, a patch
+  at u 0.45–0.54, v 0.92–1.0), no alpha property, and BSShaderFlags 0x82000181
+  (Specular, Environment Mapping, Alpha Texture, Remappable Textures, ZBuffer Test
+  [documented: nif.xml BSShaderFlags]) with an empty environment slot in the texture
+  set; they are drawn as plain textured shapes.
 
 Rules (engine, `nvf_assets::actor`, `PartUse::by_ancestor`):
 - Skinned shapes bind to the skeleton's bones by name, as NPC parts (§3).
@@ -1183,8 +1424,10 @@ Rules (engine, `nvf_assets::actor`, `PartUse::by_ancestor`):
   in the part file that the skeleton has, keeping the transforms of the nodes between
   (its own included) [hypothesis: the part file's copy of the bone has the skeleton's
   bind transform, so the shape lands where the file puts it]; else from the part's `Prn`
-  bone (NPC rule, §1.2); else from the skeleton's root with the whole transform below the
-  part's root.
+  bone as an ordinary child, bone ∘ root ∘ shape, on every bone including `Bip01 Head`
+  [observed above; until 2026-10-10 the NPC head rule of §1.2 was applied here, which
+  put dog eyes, skull caps and the Protectron's dome and hat beside the head]; else from
+  the skeleton's root with the whole transform below the part's root.
 - Hidden nodes, editor markers and dismemberment caps are left out as for NPCs.
 - Textures are the models' own (NIFT texture hashes are not read).
 
@@ -1241,6 +1484,19 @@ widened), `parts` [{`role`, `form`, `model`}], `anims` [name], `random`}; or
   `nvsecuritron`, `blowfly`, `nvvoid`, `nvcazadores`, `nvmantis`, each with its idle
   (1.7–16.7 s) and every idle track bound except two Securitron prop nodes
   (`Screen01`, `##VoiceBox_talk`).
+- **Head parts** (2026-10-10, `nvforever` screenshots before and after the `Prn` rule
+  of §10.2 changed; no game screenshot was compared) [observed]: Cheyenne (Prospector
+  Saloon, `--cell 0x00106185 --pos 156,-590,3520 --heading 0 --pitch -4 --fov 30`) had
+  two eyeballs on one side of her head and empty sockets, and now has a pale blue eye
+  in each socket; Rex (`--cell 0x0010E03B --pos 290,-1790,545 --heading 221 --pitch -17
+  --fov 30`) had his eyes beside his head and his skull cap beside his neck, and now
+  has both in place; Primm Slim (`--cell 0x000D7845 --pos 2052,3300,7360 --heading 201
+  --pitch -3 --fov 35`) had his hat on edge beside his head and now wears it. Still
+  wrong: Rex's skull cap is drawn black. Its `##SkullCap:0` shape has NiAlphaProperty
+  flags 4163 (blend, source factor 1, destination factor 2 [documented: nif.xml
+  AlphaFlags; zero and source colour, a multiply]) and NiMaterialProperty emissive
+  0.19 × 12; the engine multiplies by the lit colour, which is near black indoors
+  [hypothesis: the game's result is a tinted glass over the brain].
 
 ## 11. Actors not enabled at the start
 
@@ -1253,7 +1509,8 @@ entities carry `RefVisual(reference)` like any actor, so when a script enables i
 (`ref_enabled`, or an enable parent's), nvf-play's visual sync shows it
 (docs/design/layer5-play.md §4). If the simulation already has the reference enabled
 when its cell loads (enabled while the cell was away), a component hook on
-`SpawnedDisabled` shows it at once. Without `--play` such actors stay hidden. Light
+`SpawnedDisabled` shows it at once. Without `--play` such actors stay hidden (the test aid `--show-disabled-actors` draws
+them, e.g. Joe Cobb in the saloon). Light
 sources of such references (LIGH) are spawned the same way under a hidden `RefVisual`
 holder; their models stay with nvf-play's `script_draw.rs` [engine rules]. The run
 summary's `ActorStats` counts hidden actors (`spawned_hidden`); `StreamStats::

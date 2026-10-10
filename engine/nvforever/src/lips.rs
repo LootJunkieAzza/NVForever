@@ -96,8 +96,9 @@ pub struct LipRig {
 /// The rig of a freshly spawned actor (`actors::spawn`): `uses[i]` is part
 /// `a.parts[part_index[i]]`, and `spawned.drawn` lists the shapes `spawn_actor` drew in
 /// the order it walks them (caps and hidden shapes left out). `None` when no part has a
-/// `.tri`, or when that order cannot be followed.
-pub fn rig(a: &Appearance, part_index: &[usize], uses: &[PartUse], spawned: &SpawnedActor, data: &GameData, facegen: bool) -> Option<LipRig> {
+/// `.tri`, or when that order cannot be followed. `facegen` is what shaped the face
+/// (`Appearance::shape_facegen`; `None` with FaceGen off).
+pub fn rig(a: &Appearance, part_index: &[usize], uses: &[PartUse], spawned: &SpawnedActor, data: &GameData, facegen: Option<FaceGen>) -> Option<LipRig> {
     let mut shapes = Vec::new();
     let mut drawn = spawned.drawn.iter().zip(&spawned.part_of);
     for (ui, u) in uses.iter().enumerate() {
@@ -117,7 +118,7 @@ pub fn rig(a: &Appearance, part_index: &[usize], uses: &[PartUse], spawned: &Spa
             }
         }
     }
-    (!shapes.is_empty()).then(|| LipRig { shapes, facegen: a.facegen.clone().filter(|_| facegen) })
+    (!shapes.is_empty()).then(|| LipRig { shapes, facegen })
 }
 
 /// One morph of a shape at full weight: the vertices it moves and by how much.
