@@ -7,17 +7,22 @@
 //! Hypotheses here, each to be checked against screenshots:
 //! - VTXT positions index the 17 × 17 quadrant grid row by row, rows south → north;
 //! - layers draw in ascending `layer` order over the quadrant's base texture;
-//! - textures repeat every [`TerrainSettings::tile`] world units;
+//! - the normal map (TXST TX01) is a tangent-space map in the frame of the texture
+//!   coordinates: red towards +u (east), green towards +v (north), [`TANGENT_SIGN`];
+//!   its alpha (a specular mask on NIF shapes) and the LTEX specular exponent are unused;
 //! - each grid square is split along its south-west → north-east diagonal;
 //! - a quadrant without BTXT, or a layer with a null texture, uses the INI default
 //!   ([`DEFAULT_DIFFUSE`]); drawing such quadrants untextured left hard-edged patches.
+//!
+//! Measured [observed, world.md §3 "Texture repeat"]: textures repeat every 256 world
+//! units ([`TerrainSettings::tile`]) with u = x / 256 and v = y / 256, v growing northwards.
 
 use crate::world::WorldData;
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use fnv_world::land::{land_texture, load_land, Land, LandParts, DEFAULT_DIFFUSE, QUAD_SIDE, SIDE, SPACING};
+use fnv_world::land::{land_texture, load_land, Land, LandParts, DEFAULT_DIFFUSE, DEFAULT_NORMAL, QUAD_SIDE, SIDE, SPACING};
 use nvf_assets::model::ModelCtx;
 use nvf_assets::nif_material::sort_first;
 use nvf_assets::{nif_material, NifMaterial};
@@ -25,7 +30,7 @@ use std::collections::HashMap;
 
 #[derive(Resource)]
 pub struct TerrainSettings {
-    /// World units per texture repeat [hypothesis, see module docs].
+    /// World units per texture repeat (256 in the game [observed, see module docs]).
     pub tile: f32,
 }
 
@@ -33,6 +38,8 @@ pub struct TerrainSettings {
 pub struct TerrainCache {
     /// LTEX FormID → diffuse texture path.
     textures: HashMap<u32, Option<String>>,
+    /// Diffuse texture path → normal map path (the LTEX's TXST TX01).
+    normals: HashMap<String, String>,
     base: HashMap<Option<String>, Handle<NifMaterial>>,
     layer: HashMap<(String, usize), Handle<NifMaterial>>,
     pub quadrants_without_base: usize,
@@ -55,32 +62,51 @@ pub struct TerrainCtx<'a, 'w1, 'w2> {
 impl TerrainCtx<'_, '_, '_> {
     /// Diffuse path of an LTEX; `None` (no BTXT, or a null layer texture) is the default.
     fn texture_of(&mut self, world: &WorldData, ltex: Option<u32>) -> Option<String> {
-        let Some(id) = ltex else { return Some(DEFAULT_DIFFUSE.to_string()) };
-        self.tm
-            .cache
-            .textures
-            .entry(id)
-            .or_insert_with(|| land_texture(world.lo, world.schema, id).and_then(|t| t.diffuse))
-            .clone()
+        let cache = &mut *self.tm.cache;
+        let Some(id) = ltex else {
+            cache.normals.entry(DEFAULT_DIFFUSE.to_string()).or_insert_with(|| DEFAULT_NORMAL.to_string());
+            return Some(DEFAULT_DIFFUSE.to_string());
+        };
+        if let Some(diffuse) = cache.textures.get(&id) {
+            return diffuse.clone();
+        }
+        let tex = land_texture(world.lo, world.schema, id);
+        let diffuse = tex.as_ref().and_then(|t| t.diffuse.clone());
+        if let (Some(d), Some(n)) = (&diffuse, tex.and_then(|t| t.normal)) {
+            cache.normals.entry(d.clone()).or_insert(n);
+        }
+        cache.textures.insert(id, diffuse.clone());
+        diffuse
     }
 
-    fn image(&mut self, path: &str) -> Option<Handle<Image>> {
+    fn image(&mut self, path: &str, srgb: bool) -> Option<Handle<Image>> {
         let a = &mut *self.assets;
-        a.textures.get(path, true, &a.data, &mut a.images, a.formats.as_deref())
+        a.textures.get(path, srgb, &a.data, &mut a.images, a.formats.as_deref())
+    }
+
+    /// The lit surface of a landscape texture: diffuse and normal map. `None` for the
+    /// diffuse path (an LTEX without a texture set) gives a plain grey.
+    fn surface(&mut self, tex: Option<&str>) -> StandardMaterial {
+        let image = tex.and_then(|t| self.image(t, true));
+        let normal = tex.and_then(|t| self.tm.cache.normals.get(t).cloned()).and_then(|n| self.image(&n, false));
+        StandardMaterial {
+            base_color: if image.is_some() { Color::WHITE } else { Color::srgb(0.45, 0.42, 0.38) },
+            base_color_texture: image,
+            normal_map_texture: normal,
+            // Green points down the image, as on NIF shapes (docs/spec-notes/nif.md §6
+            // "Normal maps").
+            flip_normal_map_y: true,
+            perceptual_roughness: 0.95,
+            reflectance: 0.2,
+            ..default()
+        }
     }
 
     fn base_material(&mut self, tex: Option<String>) -> Handle<NifMaterial> {
         if let Some(h) = self.tm.cache.base.get(&tex) {
             return h.clone();
         }
-        let image = tex.as_deref().and_then(|t| self.image(t));
-        let m = StandardMaterial {
-            base_color: if image.is_some() { Color::WHITE } else { Color::srgb(0.45, 0.42, 0.38) },
-            base_color_texture: image,
-            perceptual_roughness: 0.95,
-            reflectance: 0.2,
-            ..default()
-        };
+        let m = self.surface(tex.as_deref());
         let h = self.assets.materials.add(nif_material(m));
         self.tm.cache.base.insert(tex, h.clone());
         h
@@ -90,18 +116,16 @@ impl TerrainCtx<'_, '_, '_> {
         if let Some(h) = self.tm.cache.layer.get(&(tex.clone(), rank)) {
             return Some(h.clone());
         }
-        let image = self.image(&tex)?;
+        let surface = self.surface(Some(&tex));
+        surface.base_color_texture.as_ref()?;
         let m = StandardMaterial {
-            base_color_texture: Some(image),
-            perceptual_roughness: 0.95,
-            reflectance: 0.2,
             alpha_mode: AlphaMode::Blend,
             // Draw over the base and earlier layers (also orders the blending), and before
             // every other blended mesh: one without depth (the corn rows of
             // `scol\scolmaizerow*.nif`) was painted over by the layers of the ground
             // behind it and looked see-through [observed].
             depth_bias: sort_first(2.0 * (rank as f32 + 1.0)),
-            ..default()
+            ..surface
         };
         let h = self.assets.materials.add(nif_material(m));
         self.tm.cache.layer.insert((tex, rank), h.clone());
@@ -118,12 +142,19 @@ fn srgb_to_linear(c: u8) -> f32 {
     }
 }
 
+/// Sign (w) of the terrain's vertex tangents: the one Bevy's tangent generator gives a mesh
+/// whose texture coordinates grow with x and y (checked in the tests), so the normal maps
+/// are read in the same frame as on NIF shapes. With `flip_normal_map_y`, red tilts the
+/// normal towards +u (east) and green towards +v (north).
+const TANGENT_SIGN: f32 = -1.0;
+
 /// Mesh of one quadrant (17 × 17 vertices) in cell-local game space.
 fn quadrant_mesh(land: &Land, q: u8, alpha: Option<&[f32]>, cell_origin: Vec2, tile: f32) -> Option<Mesh> {
     let h = land.heights.as_ref()?;
     let (qx, qy) = ((q % 2) as usize * (QUAD_SIDE - 1), (q / 2) as usize * (QUAD_SIDE - 1));
     let n = QUAD_SIDE * QUAD_SIDE;
     let (mut pos, mut nor, mut uv, mut col) = (Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n));
+    let mut tan = Vec::with_capacity(n);
     for r in 0..QUAD_SIDE {
         for c in 0..QUAD_SIDE {
             let (gr, gc) = (qy + r, qx + c);
@@ -136,8 +167,11 @@ fn quadrant_mesh(land: &Land, q: u8, alpha: Option<&[f32]>, cell_origin: Vec2, t
                 .map(|v| Vec3::new(v[i][0] as f32, v[i][1] as f32, v[i][2] as f32).normalize_or(Vec3::Z))
                 .unwrap_or(Vec3::Z);
             nor.push(normal.to_array());
+            // East (the direction of +u) laid into the surface.
+            let east = (Vec3::X - normal * normal.x).normalize_or(Vec3::X);
+            tan.push([east.x, east.y, east.z, TANGENT_SIGN]);
             let (wx, wy) = (cell_origin.x + x, cell_origin.y + y);
-            uv.push([wx / tile, -wy / tile]);
+            uv.push([wx / tile, wy / tile]);
             let rgb = land.colors.as_ref().map_or([1.0; 3], |v| v[i].map(srgb_to_linear));
             let a = alpha.map_or(1.0, |a| a[r * QUAD_SIDE + c]);
             col.push([rgb[0], rgb[1], rgb[2], a]);
@@ -156,6 +190,7 @@ fn quadrant_mesh(land: &Land, q: u8, alpha: Option<&[f32]>, cell_origin: Vec2, t
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nor);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, tan);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
     mesh.insert_indices(Indices::U32(idx));
     Some(mesh)
@@ -204,4 +239,45 @@ pub fn spawn_terrain(
         }
     }
     Some(land)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::mesh::VertexAttributeValues;
+
+    fn sloped_land() -> Land {
+        // A slope rising to the east and, less, to the north.
+        let heights = (0..SIDE * SIDE).map(|i| (i % SIDE) as f32 * 40.0 + (i / SIDE) as f32 * 15.0).collect();
+        let n = Vec3::new(-40.0 / SPACING, -15.0 / SPACING, 1.0).normalize() * 127.0;
+        Land { heights: Some(heights), normals: Some(vec![[n.x as i8, n.y as i8, n.z as i8]; SIDE * SIDE]), ..Default::default() }
+    }
+
+    #[test]
+    fn texture_repeat_and_direction() {
+        // Quadrant 3 (north-east) of cell (-17, 0): u and v grow with world x and y.
+        let origin = Vec2::new(-17.0 * 4096.0, 0.0);
+        let mesh = quadrant_mesh(&sloped_land(), 3, None, origin, 256.0).unwrap();
+        let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!() };
+        assert_eq!(uv[0], [(origin.x + 2048.0) / 256.0, 2048.0 / 256.0]);
+        // One repeat every two grid squares, eastwards and northwards.
+        assert_eq!(uv[2][0] - uv[0][0], 1.0);
+        assert_eq!(uv[2 * QUAD_SIDE][1] - uv[0][1], 1.0);
+    }
+
+    #[test]
+    fn tangents_match_the_generator() {
+        let mesh = quadrant_mesh(&sloped_land(), 0, None, Vec2::ZERO, 256.0).unwrap();
+        let Some(VertexAttributeValues::Float32x4(ours)) = mesh.attribute(Mesh::ATTRIBUTE_TANGENT).cloned() else { panic!() };
+        let mut generated = mesh.clone();
+        generated.generate_tangents().unwrap();
+        let Some(VertexAttributeValues::Float32x4(theirs)) = generated.attribute(Mesh::ATTRIBUTE_TANGENT) else { panic!() };
+        let Some(VertexAttributeValues::Float32x3(normals)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL) else { panic!() };
+        for ((a, b), n) in ours.iter().zip(theirs).zip(normals) {
+            let (ta, tb) = (Vec3::new(a[0], a[1], a[2]), Vec3::new(b[0], b[1], b[2]));
+            assert!(ta.dot(tb) > 0.99, "{a:?} {b:?}");
+            assert_eq!(a[3], b[3]);
+            assert!(ta.dot(Vec3::from_array(*n)).abs() < 1e-3 && (ta.length() - 1.0).abs() < 1e-4);
+        }
+    }
 }

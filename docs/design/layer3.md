@@ -78,7 +78,8 @@ What it does now:
   model; actors, sounds, idle markers, editor marker meshes and SpeedTree trees are
   counted, not drawn. Transform = position · `Rx(−x)Ry(−y)Rz(−z)` · scale.
 - Terrain: per quadrant, base texture + alpha-blended layers (ADR-0002 §4), stored
-  normals, vertex colours (sRGB → linear).
+  normals, vertex colours (sRGB → linear). Textures repeat every 256 units and are lit
+  with their normal maps (world.md §3 "Texture repeat", "Landscape normal maps").
 - Materials as in the viewer, plus: nodes named `EditorMarker*` are skipped, additive and
   multiplicative NIF blend modes are honoured, alpha test wins over blending, and
   BSShaderNoLightingProperty is unlit (nif.md §6). NIF shapes use `NifMaterial`
@@ -239,8 +240,12 @@ Measured on the owner's machine (i7-7700HQ, GTX 1050): 5 × 5 cells around Goods
 and terrain heights look as expected compared with the original game. Still open:
 terrain texturing details, lighting, sky, water, LOD and SpeedTree (below).
 
-Rendering hypotheses to check against screenshots: terrain texture repeat
-(`--terrain-tile`, default 4096/6 units), alpha-grid orientation, layer order, triangle
+Terrain texture repeat: measured against the reference frames on 2026-10-10 as 256 units
+with v growing northwards (world.md §3 "Texture repeat"; `--terrain-tile` now defaults to
+256, the earlier guess was 4096/6). The tangent frame of the landscape normal maps is a
+hypothesis and terrain specular is open (world.md §3 "Landscape normal maps").
+
+Rendering hypotheses to check against screenshots: alpha-grid orientation, layer order, triangle
 diagonal, the alpha test/blend rule, the default texture for the 43 quadrants without a
 base layer seen around Goodsprings (drawn neutral grey).
 

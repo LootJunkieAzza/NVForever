@@ -21,6 +21,9 @@ pub const QUAD_SIDE: usize = 17;
 /// `landscape\` is a [hypothesis] (the only file of that name in the archives
 /// [observed]). See docs/spec-notes/world.md §3.
 pub const DEFAULT_DIFFUSE: &str = "landscape\\dirtwasteland01.dds";
+/// Its normal map: `SDefaultLandNormalTexture=DirtWasteland01_N.dds` in the same INI
+/// [documented]; the folder is the same [hypothesis].
+pub const DEFAULT_NORMAL: &str = "landscape\\dirtwasteland01_n.dds";
 /// Names of the quadrant enum in `schemas/fnv/world.json` (LandQuadrant), by index.
 pub const QUADRANTS: [&str; 4] = ["Bottom Left", "Bottom Right", "Top Left", "Top Right"];
 
