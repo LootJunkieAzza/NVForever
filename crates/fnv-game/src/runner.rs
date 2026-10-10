@@ -19,6 +19,10 @@ use std::collections::BTreeMap;
 
 pub const ACTIONS_FORMAT: &str = "fnv.script.actions/1";
 pub const TRACE_FORMAT: &str = "fnv.script.trace/1";
+/// `fnvtool dialogue talk`: the same input document under its own name, and the trace
+/// it prints (docs/spec-notes/dialogue.md §8).
+pub const DIALOGUE_ACTIONS_FORMAT: &str = "fnv.dialogue.actions/1";
+pub const DIALOGUE_TRACE_FORMAT: &str = "fnv.dialogue.trace/1";
 
 fn default_frame() -> f64 {
     1.0 / 60.0
@@ -28,6 +32,10 @@ fn one() -> u16 {
 }
 fn yes() -> bool {
     true
+}
+/// Frames `choose` and `wait_talk` wait for the actor to finish speaking (2 minutes).
+fn talk_frames() -> u64 {
+    7200
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -319,6 +327,41 @@ pub enum Action {
     Consume { item: String, #[serde(default)] actor: Option<String>, #[serde(default)] label: Option<String> },
     /// A comment in the input (why the next stand-in is there); no effect, no frames.
     Note { text: String },
+    // ---- conversations (docs/spec-notes/dialogue.md §8) ----
+    /// A conversation between the player and `actor` starts (`Game::start_dialogue`):
+    /// the player activating the actor, or the actor's dialogue package; with `topic`,
+    /// that topic instead of GREETING. Observation `info`: the line said.
+    Talk { actor: String, #[serde(default)] topic: Option<String>, #[serde(default)] label: Option<String> },
+    /// Waits (at most `max_frames`) until the actor has finished speaking, then picks
+    /// one of the choices offered: by `topic` (Editor ID or FormID), by `prompt` (the
+    /// text shown, ignoring case; a part of it when no entry matches whole) or by
+    /// `index` (0-based). Observation `info`: the line said in answer.
+    Choose {
+        #[serde(default)]
+        topic: Option<String>,
+        #[serde(default)]
+        prompt: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default = "talk_frames")]
+        max_frames: u64,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// Waits (at most `max_frames`) until choices are offered or the conversation has
+    /// ended; with `start`, first until a conversation is running (one a script starts
+    /// with StartConversation). Observations `state` (`choosing`, `ended`), `choices`
+    /// (how many) and, with `start`, `actor`.
+    WaitTalk {
+        #[serde(default = "talk_frames")]
+        max_frames: u64,
+        #[serde(default)]
+        start: bool,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// The player leaves the conversation (`Game::end_dialogue`).
+    EndTalk {},
 }
 
 /// Frames that pass after an action (layer5-captures.md §4.1).
@@ -828,6 +871,54 @@ fn waited(g: &Game, st: &RunState, obs: &mut Map<String, Json>, found: bool, sto
         obs.insert("seconds".into(), json!(g.time - t0));
     }
     Ok(())
+}
+
+/// Run frames until the conversation offers choices or has ended. A menu that is open
+/// (a message box a result script showed) holds the conversation: that is an error here,
+/// the input has to close it.
+fn wait_talk(g: &mut Game, max: u64) -> Result<(), String> {
+    for _ in 0..=max {
+        match &g.dialogue {
+            None => return Ok(()),
+            Some(c) if !c.choices.is_empty() => return Ok(()),
+            Some(_) => {}
+        }
+        if let Some(m) = g.menu {
+            return Err(format!("menu {m} is open and holds the conversation"));
+        }
+        g.tick();
+    }
+    Err(format!("the actor was still speaking after {max} frames"))
+}
+
+/// The entry of the offered list an input names.
+fn pick_choice(g: &Game, topic: &Option<String>, prompt: &Option<String>, index: &Option<usize>) -> Result<usize, String> {
+    let choices = g.dialogue_choices();
+    if choices.is_empty() {
+        return Err("no choices are offered (the conversation has ended)".into());
+    }
+    let listed = || choices.iter().map(|c| format!("{} {:?}", g.data.name(c.topic), g.choice_text(c))).collect::<Vec<_>>().join(", ");
+    match (topic, prompt, index) {
+        (Some(t), None, None) => {
+            let t = resolve(g, t)?;
+            choices.iter().position(|c| c.topic == t).ok_or_else(|| format!("{} is not offered (offered: {})", g.data.name(t), listed()))
+        }
+        (None, Some(p), None) => {
+            let want = p.trim().to_lowercase();
+            let text = |c: &crate::dialogue::Choice| g.choice_text(c).trim().to_lowercase();
+            let whole: Vec<usize> = (0..choices.len()).filter(|&i| text(&choices[i]) == want).collect();
+            let part: Vec<usize> = (0..choices.len()).filter(|&i| text(&choices[i]).contains(&want)).collect();
+            match (whole.as_slice(), part.as_slice()) {
+                ([i, ..], _) => Ok(*i),
+                ([], [i]) => Ok(*i),
+                ([], []) => Err(format!("no choice reads {p:?} (offered: {})", listed())),
+                _ => Err(format!("{p:?} matches several choices (offered: {})", listed())),
+            }
+        }
+        (None, None, Some(i)) if *i < choices.len() => Ok(*i),
+        (None, None, Some(i)) => Err(format!("no choice {i} ({} offered: {})", choices.len(), listed())),
+        _ => Err("choose needs exactly one of 'topic', 'prompt' and 'index'".into()),
+    }
 }
 
 /// The runner's own state across actions.
@@ -1424,6 +1515,40 @@ fn step(g: &mut Game, st: &mut RunState, a: &Action) -> Result<Observed, String>
                 .collect();
             obs.insert("lags".into(), json!(lags));
         }
+        Action::Talk { actor, topic, label: l } => {
+            let a = resolve(g, actor)?;
+            let t = match topic {
+                Some(t) => Some(resolve(g, t)?),
+                None => None,
+            };
+            let info = g.start_dialogue(a, t)?;
+            obs.insert("info".into(), json!(info.to_string()));
+            lab = l.clone();
+        }
+        Action::Choose { topic, prompt, index, max_frames, label: l } => {
+            wait_talk(g, *max_frames)?;
+            let i = pick_choice(g, topic, prompt, index)?;
+            let info = g.choose(i)?;
+            obs.insert("info".into(), json!(info.to_string()));
+            lab = l.clone();
+        }
+        Action::WaitTalk { max_frames, start, label: l } => {
+            if *start {
+                if !wait_until(g, *max_frames, |g| Ok(g.dialogue.is_some()))? {
+                    return Err(format!("no conversation started in {max_frames} frames"));
+                }
+                obs.insert("actor".into(), json!(g.dialogue_actor().map(|a| a.to_string())));
+            }
+            wait_talk(g, *max_frames)?;
+            obs.insert("state".into(), json!(if g.dialogue.is_some() { "choosing" } else { "ended" }));
+            obs.insert("choices".into(), json!(g.dialogue_choices().len()));
+            lab = l.clone();
+        }
+        Action::EndTalk {} => {
+            if !g.end_dialogue() {
+                return Err("no conversation is running".into());
+            }
+        }
         Action::Consume { item, actor, label: l } => {
             let who = match actor {
                 Some(a) => resolve(g, a)?,
@@ -1479,8 +1604,95 @@ fn new_game_start(g: &mut Game) {
 
 /// Run an input document against a fresh world and game state.
 pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -> Result<Json, String> {
-    if input.format != ACTIONS_FORMAT {
-        return Err(format!("unsupported actions format {:?} (expected {ACTIONS_FORMAT})", input.format));
+    run_as(data, forms, refs, input, ACTIONS_FORMAT)
+}
+
+/// Trace kinds a dialogue trace keeps (docs/spec-notes/dialogue.md §8).
+const DIALOGUE_KINDS: &[&str] = &[
+    "dialogue_started",
+    "line_started",
+    "response_said",
+    "line_ended",
+    "result_script",
+    "choices_offered",
+    "choice_made",
+    "topic_added",
+    "dialogue_ended",
+    "no_line",
+    "stage_set",
+    "menu_opened",
+    "menu_closed",
+];
+
+/// `fnvtool dialogue talk`: run a `fnv.dialogue.actions/1` document (the fields and
+/// operations of `fnv.script.actions/1`, the conversation operations among them) and
+/// reduce the run to a `fnv.dialogue.trace/1`: the conversation's events in order,
+/// with Editor IDs and text lengths. With `text`, the texts themselves are included
+/// (for reading at home; a trace with texts holds game data and is never committed).
+pub fn run_dialogue(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, text: bool) -> Result<Json, String> {
+    let full = run_as(data, forms, refs, input, DIALOGUE_ACTIONS_FORMAT)?;
+    let form = |v: &Json| v.as_str().and_then(|s| s.parse::<FormId>().ok());
+    let edid = |v: &Json| form(v).and_then(|f| data.edid_of.get(&f).cloned());
+    let mut events = Vec::new();
+    for e in full["events"].as_array().into_iter().flatten() {
+        let kind = e["kind"].as_str().unwrap_or_default();
+        if !DIALOGUE_KINDS.contains(&kind) {
+            continue;
+        }
+        let mut e = e.clone();
+        if let Some(n) = edid(&e["topic"]) {
+            e["topic_edid"] = json!(n);
+        }
+        let info = form(&e["info"]).and_then(|i| data.infos.get(&i));
+        match kind {
+            "line_started" => {
+                if let Some(d) = info {
+                    e["chars"] = json!(d.response_chars.iter().sum::<usize>());
+                    e["responses"] = json!(d.responses.len());
+                    e["flags"] = json!(crate::data::info_flag::NAMES.iter().filter(|(b, _)| d.has(*b)).map(|(_, n)| *n).collect::<Vec<_>>());
+                }
+            }
+            "response_said" if text => {
+                let number = e["number"].as_u64();
+                if let Some(r) = info.and_then(|d| d.responses.iter().find(|r| Some(r.number as u64) == number)) {
+                    e["text"] = json!(r.text);
+                }
+            }
+            "choices_offered" => {
+                for c in e["choices"].as_array_mut().into_iter().flatten() {
+                    if let Some(n) = edid(&c["topic"]) {
+                        c["topic_edid"] = json!(n);
+                    }
+                    if let (true, Some(t), Some(i)) = (text, form(&c["topic"]), form(&c["info"])) {
+                        c["text"] = json!(data.choice_text(t, i));
+                    }
+                }
+            }
+            _ => {}
+        }
+        events.push(e);
+    }
+    Ok(json!({
+        "format": DIALOGUE_TRACE_FORMAT,
+        "seed": full["seed"],
+        "frame_seconds": full["frame_seconds"],
+        "title": full["title"],
+        "observations": full["observations"],
+        "steps": full["steps"],
+        "given_errors": full["given_errors"],
+        "events": events,
+        "final": {
+            "frames": full["final"]["frames"],
+            "dialogue": full["final"]["dialogue"],
+            "topics": full["final"]["player"]["topics"],
+            "quests": full["final"]["quests"],
+        },
+    }))
+}
+
+fn run_as(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input, format: &str) -> Result<Json, String> {
+    if input.format != format {
+        return Err(format!("unsupported actions format {:?} (expected {format})", input.format));
     }
     if input.frame_seconds.is_nan() || input.frame_seconds <= 0.0 {
         return Err("frame_seconds must be positive".into());
@@ -1633,6 +1845,7 @@ pub fn run(data: &GameData, forms: &FormStore, refs: &RefTable, input: &Input) -
             "frames": g.frame,
             "quests": quests_json(&g),
             "player": g.player,
+            "dialogue": g.dialogue,
             "references": report,
             "unhandled": unhandled,
             "stubbed": stubbed,
@@ -1659,6 +1872,9 @@ fn action_label(a: &Action) -> Option<String> {
         | Action::GetAv { label, .. }
         | Action::SampleAv { label, .. }
         | Action::SampleAvDamage { label, .. }
+        | Action::Talk { label, .. }
+        | Action::Choose { label, .. }
+        | Action::WaitTalk { label, .. }
         | Action::SampleJumps { label, .. } => label.clone(),
         Action::DismissMessageBoxes { label, .. } => label.clone(),
         Action::WaitQuest { label, .. }

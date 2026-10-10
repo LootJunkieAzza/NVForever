@@ -1,7 +1,8 @@
 # Dialogue design: topics, lines, conversations, voice
 
-Status 2026-10-10: **plan; steps D1–D3 started** (branches `claude/dialogue-core`,
-`claude/dialogue-voice`). Owner request 2026-10-10: "now that quests have been done are we
+Status 2026-10-10: **D1 and D2 done** (branch `claude/dialogue-core`: records,
+`fnvtool dialogue`, headless conversations; facts and rules in
+docs/spec-notes/dialogue.md); D3 in progress (`claude/dialogue-voice`); D4 and D5 open. Owner request 2026-10-10: "now that quests have been done are we
 able to work on dialogue lines".
 
 Where it sits: dialogue is Layer 6 (README; layer5.md §1 lists it with AI packages and
@@ -51,10 +52,25 @@ question and is listed in docs/owner-review.md until a capture settles it.
   listener as target [documented: quests-dialogue.md §3, Run On]; a fixed speaker acts as
   a GetIsID condition [documented: §4]; the line's quest must be running
   [hypothesis: holds for the SayTo captures; not tested with a stopped quest].
-- **Which line of a topic.** The first line in topic order that the speaker can say
-  [observed for SayTo: scripts.md §7.7], except that consecutive qualifying Random lines
-  form a stack from which one is picked [documented: §4]. Whether lines of
-  higher-priority quests come first inside one topic is [hypothesis].
+- **Which line of a topic** (greetings, chosen topics, SayTo and Say alike;
+  docs/spec-notes/dialogue.md §4):
+  1. When lines of several quests are eligible, quest priority decides: the
+     higher-priority quest's line wins [documented: Quest Data Tab, owner export; owner
+     statement 2026-10-10].
+  2. Between quests of the same priority, the first in stored order wins
+     [owner statement 2026-10-10, from GECK use; not yet captured].
+  3. Inside one quest the game takes the first eligible line from the top of the
+     editor's list, unless lines carry the Random flag; then qualifying Random lines form
+     a stack from which one is picked [owner statement 2026-10-10, from GECK use; not yet
+     captured; the Random stack is documented: §4; observed for SayTo: scripts.md §7.7].
+  The runtime does this with a stable sort of the topic's stored order by quest
+  priority, highest first, and takes the first line the speaker can say. Stored order
+  is file order, which agrees with the previous-info links in 5,677 of the 5,686 lines
+  that have one (dialogue.md §3.1). Only 102 topics of the masters have lines of several
+  quests; in 76 of them one actor could say lines of two quests of equal priority
+  (GREETING foremost), which is what rule 2 decides (dialogue.md §3.2). AI packages are
+  chosen the same way, first eligible from the top of the actor's list [owner statement
+  2026-10-10], which `Game::select_package` already does.
 - **Greeting.** Activating an actor who has something to say starts with a line of the
   GREETING topic [documented: Topics Tab]. An actor with no qualifying greeting cannot be
   talked to [hypothesis].
@@ -62,8 +78,10 @@ question and is listed in docs/owner-review.md until a capture settles it.
   otherwise the top-level topics plus the topics added so far (by lines' Add Topic lists
   and by `AddTopic`), each shown only if it has a line the actor can say now
   [documented: Category:Dialogue for top-level and choices; the "has a line" filter is
-  hypothesis]. Order: topic priority, then [hypothesis] record order. The shown text is
-  the line's prompt if it has one, else the topic's name [documented: §4].
+  hypothesis]. Order: topic priority (DIAL PNAM, not the quest's), then for a line's
+  choices their order in the record [documented: Category:Dialogue, sorting order of
+  links] and for the topic list [hypothesis] record order. The shown text is the line's
+  prompt if it has one, else the topic's name [documented: §4].
 - **Saying a line.** Responses are said one after another in response-number order. The
   begin result runs when the line starts and the end result when it finishes
   [documented: §4; observed for SayTo]. Run Immediately moves the results to when the
@@ -115,7 +133,9 @@ or `intro`; capture work never reads `crates/fnv-game/src/dialogue.rs`.
 
 ## 6. Capture questions (D5)
 
-1. Which greeting an actor gives when several qualify (quest priority, record order).
+1. Which greeting an actor gives when several qualify: **to confirm** the rules of §3
+   (quest priority; equal priorities by stored order; first eligible line from the top
+   inside a quest) [owner statement 2026-10-10].
 2. The list of topics offered and its order, for a few actors at known quest states.
 3. Whether a topic with no line the actor can say is hidden.
 4. When the begin and end results run relative to the sound, and what happens to the end
@@ -125,6 +145,9 @@ or `intro`; capture work never reads `crates/fnv-game/src/dialogue.rs`.
 7. Speech challenge pass and fail routing, and the text shown.
 8. What `IsTalking`, `GetIsCurrentPackage` and `MenuMode 1009` read during a conversation
    [the menu code is a hypothesis].
+
+The full list of what D1 and D2 left as hypotheses (15 items, these among them) is
+docs/spec-notes/dialogue.md §7.
 
 How to observe 2 and 3 without reading the screen is open: the capture plugin can log
 the lines said (it logs `SayTo` today) but has no list of offered topics. Screenshots of

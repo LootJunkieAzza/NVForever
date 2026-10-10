@@ -70,9 +70,197 @@ pub struct InfoDef {
     /// Category:Dialogue, owner export 2026-10-09]) and Goodbye.
     pub say_once: bool,
     pub goodbye: bool,
-    /// Characters of each response text (NAM1), in order: the stand-in for the length of
-    /// the voice file (docs/spec-notes/scripts.md §7.7).
+    /// Characters of each response text (NAM1), in record order: the stand-in for the
+    /// length of the voice file (docs/spec-notes/scripts.md §7.7). Same order as
+    /// [`InfoDef::responses`].
     pub response_chars: Vec<usize>,
+    /// The record's header flags (0x2000 is set on about a quarter of the masters'
+    /// lines; its meaning on INFO is not documented, docs/spec-notes/dialogue.md §2).
+    pub record_flags: u32,
+    /// DATA type code (0 Topic … 7 Radio, [`topic_type`]) [documented: xEdit INFO DATA].
+    pub info_type: u8,
+    /// DATA next speaker (0 Target, 1 Self, 2 Either) [documented: xEdit wbNextSpeaker];
+    /// read, not used (conversations between NPCs).
+    pub next_speaker: u8,
+    /// DATA flags: the first flag byte in bits 0–7, the second in bits 8–15
+    /// ([`info_flag`]) [documented: xEdit INFO DATA; the same combined value the GECK
+    /// wiki's GetDialogueInfoFlags page lists, owner export].
+    pub flags: u16,
+    /// RNAM: the text shown to the player instead of the topic's name
+    /// [documented: Category:Dialogue, owner export].
+    pub prompt: Option<String>,
+    /// The responses (TRDT with its NAM1, NAM2, NAM3, SNAM, LNAM), in record order.
+    pub responses: Vec<Response>,
+    /// TCLT, in record order: the topics offered after this line ("Choices" in the
+    /// editor; xEdit calls the list "Link To") [documented: xEdit INFO; Category:Dialogue].
+    pub choices: Vec<FormId>,
+    /// TCLF, in record order ("Link From") [documented: xEdit INFO]. Read, not used
+    /// (dialogue.md §5).
+    pub link_from: Vec<FormId>,
+    /// TCFU, in record order: follow-up lines (INFO) [documented: xEdit INFO "Follow Up"].
+    pub follow_ups: Vec<FormId>,
+    /// NAME, in record order: topics the line adds [documented: xEdit INFO "Add Topics"].
+    pub add_topics: Vec<FormId>,
+    /// KNAM: the actor value (AVIF) or perk shown with the choice [documented: xEdit
+    /// INFO "ActorValue/Perk"; Category:Dialogue "AV/Perk"].
+    pub challenge_form: Option<FormId>,
+    /// DNAM: speech challenge difficulty code (0 none, 1 Very Easy … 5 Very Hard)
+    /// [documented: xEdit INFO "Speech Challenge"].
+    pub challenge_difficulty: Option<u32>,
+    /// PNAM "Previous INFO": whether the record has one, and the line it names (none:
+    /// the field is 0) [documented: xEdit INFO; Category:Dialogue "Edit Response Order"].
+    pub has_previous: bool,
+    pub previous: Option<FormId>,
+    /// TPIC "Previous Topic" [documented: xEdit INFO]; absent in the ten masters.
+    pub previous_topic: Option<FormId>,
+}
+
+/// One response of a line (TRDT and the subrecords after it) [documented: xEdit INFO
+/// "Responses"; schema `gameplay.json`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Response {
+    /// TRDT response number (the order responses are said in).
+    pub number: u8,
+    /// TRDT emotion type code (0 Neutral, 1 Anger, 2 Disgust, 3 Fear, 4 Sad, 5 Happy,
+    /// 6 Surprise, 7 Pained) and value.
+    pub emotion: u8,
+    pub emotion_value: i32,
+    /// TRDT sound (SOUN), played instead of the voice [documented: Category:Dialogue].
+    pub sound: Option<FormId>,
+    pub use_emotion_animation: bool,
+    /// NAM1: the response text.
+    pub text: String,
+    /// NAM2 "Script Notes" (acting notes).
+    pub notes: String,
+    /// SNAM / LNAM: speaker and listener idle animations (IDLE).
+    pub speaker_idle: Option<FormId>,
+    pub listener_idle: Option<FormId>,
+}
+
+/// INFO DATA flag bits in [`InfoDef::flags`] [documented: xEdit INFO DATA flag names;
+/// meanings: GECK wiki Category:Dialogue, owner export].
+pub mod info_flag {
+    pub const GOODBYE: u16 = 0x0001;
+    pub const RANDOM: u16 = 0x0002;
+    pub const SAY_ONCE: u16 = 0x0004;
+    pub const RUN_IMMEDIATELY: u16 = 0x0008;
+    pub const INFO_REFUSAL: u16 = 0x0010;
+    pub const RANDOM_END: u16 = 0x0020;
+    pub const RUN_FOR_RUMORS: u16 = 0x0040;
+    pub const SPEECH_CHALLENGE: u16 = 0x0080;
+    pub const SAY_ONCE_A_DAY: u16 = 0x0100;
+    pub const ALWAYS_DARKEN: u16 = 0x0200;
+    pub const LOW_INTELLIGENCE: u16 = 0x1000;
+    pub const HIGH_INTELLIGENCE: u16 = 0x2000;
+    /// Names for listings.
+    pub const NAMES: &[(u16, &str)] = &[
+        (GOODBYE, "Goodbye"),
+        (RANDOM, "Random"),
+        (SAY_ONCE, "Say Once"),
+        (RUN_IMMEDIATELY, "Run Immediately"),
+        (INFO_REFUSAL, "Info Refusal"),
+        (RANDOM_END, "Random End"),
+        (RUN_FOR_RUMORS, "Run for Rumors"),
+        (SPEECH_CHALLENGE, "Speech Challenge"),
+        (SAY_ONCE_A_DAY, "Say Once a Day"),
+        (ALWAYS_DARKEN, "Always Darken"),
+        (0x0400, "Unknown 2"),
+        (0x0800, "Unknown 3"),
+        (LOW_INTELLIGENCE, "Low Intelligence"),
+        (HIGH_INTELLIGENCE, "High Intelligence"),
+    ];
+}
+
+/// DIAL / INFO DATA type codes [documented: xEdit DIAL DATA].
+pub mod topic_type {
+    pub const TOPIC: u8 = 0;
+    pub const CONVERSATION: u8 = 1;
+    pub const COMBAT: u8 = 2;
+    pub const PERSUASION: u8 = 3;
+    pub const DETECTION: u8 = 4;
+    pub const SERVICE: u8 = 5;
+    pub const MISCELLANEOUS: u8 = 6;
+    pub const RADIO: u8 = 7;
+    pub const NAMES: [&str; 8] = ["Topic", "Conversation", "Combat", "Persuasion", "Detection", "Service", "Miscellaneous", "Radio"];
+}
+
+impl InfoDef {
+    pub fn has(&self, flag: u16) -> bool {
+        self.flags & flag != 0
+    }
+
+    /// Indices into [`InfoDef::responses`] in the order they are said: by response
+    /// number, record order among equal numbers [documented: xEdit "Response number";
+    /// hypothesis that the number, not the record order, decides where the two differ,
+    /// dialogue.md §2].
+    pub fn response_order(&self) -> Vec<usize> {
+        let mut ix: Vec<usize> = (0..self.responses.len()).collect();
+        ix.sort_by_key(|&i| self.responses[i].number);
+        ix
+    }
+}
+
+/// A dialogue topic (DIAL) [documented: xEdit DIAL; schema `gameplay.json`].
+#[derive(Debug, Clone)]
+pub struct TopicDef {
+    pub form: FormId,
+    pub edid: Option<String>,
+    /// FULL: the text shown to the player when the line has no prompt
+    /// [documented: Category:Dialogue "Prompt"].
+    pub name: Option<String>,
+    /// DATA type code ([`topic_type`]).
+    pub topic_type: u8,
+    /// DATA flags: 1 Rumors, 2 Top-level.
+    pub flags: u8,
+    /// PNAM: priority, 50 when absent [documented: xEdit default].
+    pub priority: f32,
+    /// QSTI of the winning record, in record order ("Added Quests").
+    pub quests: Vec<FormId>,
+    /// QSTR ("Removed Quests"); none in the masters.
+    pub removed_quests: Vec<FormId>,
+    /// INFC / INFX pairs ("Shared Infos") with the QSTI they follow. What the game does
+    /// with them is not documented; they are kept raw and not used (dialogue.md §1.2).
+    pub shared_infos: Vec<SharedInfo>,
+    /// TDUM "Dumb Response" [documented: xEdit DIAL]; not used.
+    pub dumb_response: Option<String>,
+    /// Where the topic was first defined: plugin index and record ordinal in that file
+    /// (the "record order" tie-break of the offered list).
+    pub order: (usize, usize),
+}
+
+/// One INFC / INFX pair of a DIAL.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SharedInfo {
+    pub quest: Option<FormId>,
+    pub info: Option<FormId>,
+    pub index: Option<i32>,
+}
+
+impl Default for TopicDef {
+    fn default() -> Self {
+        TopicDef {
+            form: FormId(0),
+            edid: None,
+            name: None,
+            topic_type: 0,
+            flags: 0,
+            priority: 50.0,
+            quests: Vec::new(),
+            removed_quests: Vec::new(),
+            shared_infos: Vec::new(),
+            dumb_response: None,
+            order: (usize::MAX, 0),
+        }
+    }
+}
+
+impl TopicDef {
+    pub const RUMORS: u8 = 1;
+    pub const TOP_LEVEL: u8 = 2;
+
+    pub fn top_level(&self) -> bool {
+        self.flags & Self::TOP_LEVEL != 0
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -222,6 +410,15 @@ pub struct GameData {
     /// plugin adds follow the earlier plugins' [hypothesis: the masters' INFOs carry no
     /// PNAM ordering, so file order stands for the editor's list order].
     pub topics: HashMap<FormId, Vec<FormId>>,
+    /// Every topic (DIAL) from its winning record.
+    pub topic_defs: HashMap<FormId, TopicDef>,
+    /// The top-level topics of type Topic, in the order they are offered: priority,
+    /// highest first, then record order ([`TopicDef::order`]).
+    pub top_level: Vec<FormId>,
+    /// The special topics GREETING and GOODBYE, by Editor ID [documented: GECK wiki
+    /// Topics Tab and Conversation Tab, owner export].
+    pub greeting: Option<FormId>,
+    pub goodbye: Option<FormId>,
     /// PACK begin / end / change result scripts.
     pub packages: HashMap<FormId, [Option<UnitId>; 3]>,
     /// Every PACK with its conditions.
@@ -280,6 +477,7 @@ struct Read {
     script: Option<FormId>,
     quest: Option<QuestDef>,
     info: Option<InfoDef>,
+    topic: Option<TopicDef>,
     message: Option<MessageDef>,
     form_list: Option<Vec<FormId>>,
     actor: Option<ActorDef>,
@@ -326,6 +524,10 @@ impl GameData {
             quests: BTreeMap::new(),
             infos: HashMap::new(),
             topics: HashMap::new(),
+            topic_defs: HashMap::new(),
+            top_level: Vec::new(),
+            greeting: None,
+            goodbye: None,
             packages: HashMap::new(),
             package_defs: HashMap::new(),
             messages: HashMap::new(),
@@ -422,6 +624,10 @@ impl GameData {
                 }
                 _ => {}
             }
+            if let Some(mut t) = r.topic {
+                t.form = id;
+                d.topic_defs.insert(id, t);
+            }
             if let Some(m) = r.message {
                 d.messages.insert(id, m);
             }
@@ -462,7 +668,8 @@ impl GameData {
                 d.weapon_skills.insert(id, v);
             }
         }
-        d.topics = topic_lines(lo);
+        let (lines, order) = topic_lines(lo);
+        d.topics = lines;
         for (topic, lines) in &d.topics {
             for i in lines {
                 if let Some(info) = d.infos.get_mut(i) {
@@ -470,6 +677,14 @@ impl GameData {
                 }
             }
         }
+        for (id, t) in d.topic_defs.iter_mut() {
+            t.order = order.get(id).copied().unwrap_or((usize::MAX, 0));
+        }
+        let mut top: Vec<&TopicDef> = d.topic_defs.values().filter(|t| t.top_level() && t.topic_type == topic_type::TOPIC).collect();
+        top.sort_by(|a, b| b.priority.total_cmp(&a.priority).then(a.order.cmp(&b.order)));
+        d.top_level = top.into_iter().map(|t| t.form).collect();
+        d.greeting = d.by_edid("GREETING").filter(|t| d.topic_defs.contains_key(t));
+        d.goodbye = d.by_edid("GOODBYE").filter(|t| d.topic_defs.contains_key(t));
         for (id, p) in &refs.refs {
             if let (Some(cell), Some(_)) = (p.cell, d.script_of_base(p.base)) {
                 d.scripted_by_cell.entry(cell).or_default().push(*id);
@@ -510,17 +725,52 @@ impl GameData {
     pub fn is_quest(&self, id: FormId) -> bool {
         self.quests.contains_key(&id)
     }
+
+    /// The priority of the quest a line belongs to (0 without a quest).
+    pub fn line_priority(&self, info: FormId) -> u8 {
+        self.infos.get(&info).and_then(|d| d.quest).and_then(|q| self.quests.get(&q)).map_or(0, |q| q.priority)
+    }
+
+    /// A topic's lines in the order they are tried: lines of higher-priority quests
+    /// first, and within one priority the stored order ([`GameData::topics`]); a stable
+    /// sort, so lines of one quest stay top to bottom [documented: GECK wiki Quest Data
+    /// Tab, priority; owner statement 2026-10-10 for equal priorities and for the order
+    /// inside a quest; docs/spec-notes/dialogue.md §4].
+    pub fn lines_by_priority(&self, topic: FormId) -> Vec<FormId> {
+        let mut lines: Vec<FormId> = self.topics.get(&topic).cloned().unwrap_or_default();
+        lines.sort_by_key(|i| std::cmp::Reverse(self.line_priority(*i)));
+        lines
+    }
+
+    /// The text the player sees for a topic whose line would be `info`: the line's
+    /// prompt, else the topic's name, else nothing [documented: GECK wiki
+    /// Category:Dialogue, "Prompt"].
+    pub fn choice_text(&self, topic: FormId, info: FormId) -> &str {
+        match self.infos.get(&info).and_then(|d| d.prompt.as_deref()) {
+            Some(p) => p,
+            None => self.topic_defs.get(&topic).and_then(|t| t.name.as_deref()).unwrap_or(""),
+        }
+    }
 }
 
-/// Every topic's dialogue lines in topic order ([`GameData::topics`]).
-fn topic_lines(lo: &LoadOrder) -> HashMap<FormId, Vec<FormId>> {
+/// Every topic's dialogue lines in topic order ([`GameData::topics`]), and where each
+/// topic (DIAL) is first defined (plugin, record ordinal).
+type TopicLines = (HashMap<FormId, Vec<FormId>>, HashMap<FormId, (usize, usize)>);
+
+fn topic_lines(lo: &LoadOrder) -> TopicLines {
     use fnv_esm::raw::{group_type, visit_records};
     // Line -> (topic, plugin, ordinal) of its first definition.
     let mut first: HashMap<u32, (u32, usize, usize)> = HashMap::new();
+    let mut dial: HashMap<FormId, (usize, usize)> = HashMap::new();
     for (pi, p) in lo.plugins.iter().enumerate() {
         let mut ord = 0usize;
         visit_records(p.nodes.get(1..).unwrap_or_default(), &mut |r, groups| {
             ord += 1;
+            if &r.header.sig == b"DIAL" {
+                if let Some(t) = lo.to_global(pi, r.header.form_id) {
+                    dial.entry(FormId(t)).or_insert((pi, ord));
+                }
+            }
             if &r.header.sig != b"INFO" {
                 return;
             }
@@ -533,13 +783,14 @@ fn topic_lines(lo: &LoadOrder) -> HashMap<FormId, Vec<FormId>> {
     for (info, (topic, pi, ord)) in first {
         by_topic.entry(FormId(topic)).or_default().push((pi, ord, FormId(info)));
     }
-    by_topic
+    let lines = by_topic
         .into_iter()
         .map(|(t, mut v)| {
             v.sort();
             (t, v.into_iter().map(|x| x.2).collect())
         })
-        .collect()
+        .collect();
+    (lines, dial)
 }
 
 fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usize, r: &Record) -> Read {
@@ -559,6 +810,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
         &sig,
         b"QUST"
             | b"INFO"
+            | b"DIAL"
             | b"MESG"
             | b"FLST"
             | b"NPC_"
@@ -733,18 +985,84 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             out.quest = Some(q);
         }
         b"INFO" => {
-            let mut info = InfoDef::default();
+            let mut info = InfoDef { record_flags: r.header.flags, ..Default::default() };
             let mut after_next = false;
+            let text = |v: &Option<Json>| v.as_ref().and_then(Json::as_str).unwrap_or_default().to_string();
+            // FormID 0 is "none".
+            let link = |v: &Option<Json>| v.as_ref().and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId);
             for (s, v) in &decoded {
                 match *s {
                     b"QSTI" => info.quest = fid(v),
-                    b"ANAM" => info.speaker = fid(v),
+                    b"ANAM" => info.speaker = link(v),
                     b"DATA" => {
-                        let f = v.as_ref().and_then(|v| v.get("flags1"));
-                        info.say_once = has_flag(f, "Say Once");
-                        info.goodbye = has_flag(f, "Goodbye");
+                        let Some(v) = v else { continue };
+                        let code = |k: &str| v.get(k).and_then(|t| field_code(schema, &sig, b"DATA", Some(k), t)).unwrap_or(0) as u8;
+                        info.info_type = code("type");
+                        info.next_speaker = code("next_speaker");
+                        info.flags = (flag_bits(v.get("flags1")) as u16 & 0xFF) | ((flag_bits(v.get("flags2")) as u16 & 0xFF) << 8);
+                        info.say_once = info.has(info_flag::SAY_ONCE);
+                        info.goodbye = info.has(info_flag::GOODBYE);
                     }
-                    b"NAM1" => info.response_chars.push(v.as_ref().and_then(Json::as_str).map_or(0, |s| s.chars().count())),
+                    b"TPIC" => info.previous_topic = link(v),
+                    b"PNAM" => {
+                        info.has_previous = true;
+                        info.previous = link(v);
+                    }
+                    b"NAME" => info.add_topics.extend(link(v)),
+                    b"TRDT" => {
+                        let mut resp = Response::default();
+                        if let Some(v) = v {
+                            resp.number = v.get("response_number").and_then(Json::as_u64).unwrap_or(0) as u8;
+                            resp.emotion =
+                                v.get("emotion_type").and_then(|t| field_code(schema, &sig, b"TRDT", Some("emotion_type"), t)).unwrap_or(0) as u8;
+                            resp.emotion_value = v.get("emotion_value").and_then(Json::as_i64).unwrap_or(0) as i32;
+                            resp.sound = v.get("sound").and_then(hexid).filter(|&x| x != 0).and_then(map).map(FormId);
+                            resp.use_emotion_animation = match v.get("use_emotion_animation") {
+                                Some(Json::Bool(b)) => *b,
+                                Some(x) => x.as_u64().unwrap_or(0) != 0,
+                                None => false,
+                            };
+                        }
+                        info.responses.push(resp);
+                        info.response_chars.push(0);
+                    }
+                    b"NAM1" => {
+                        let t = text(v);
+                        // A text without its TRDT (none in the masters) is a response of
+                        // its own.
+                        if info.responses.len() != info.response_chars.len() || info.responses.last().is_none_or(|x| !x.text.is_empty()) {
+                            info.responses.push(Response::default());
+                            info.response_chars.push(0);
+                        }
+                        if let (Some(resp), Some(n)) = (info.responses.last_mut(), info.response_chars.last_mut()) {
+                            *n = t.chars().count();
+                            resp.text = t;
+                        }
+                    }
+                    b"NAM2" => {
+                        if let Some(resp) = info.responses.last_mut() {
+                            resp.notes = text(v);
+                        }
+                    }
+                    b"SNAM" => {
+                        if let Some(resp) = info.responses.last_mut() {
+                            resp.speaker_idle = link(v);
+                        }
+                    }
+                    b"LNAM" => {
+                        if let Some(resp) = info.responses.last_mut() {
+                            resp.listener_idle = link(v);
+                        }
+                    }
+                    b"TCLT" => info.choices.extend(link(v)),
+                    b"TCLF" => info.link_from.extend(link(v)),
+                    b"TCFU" => info.follow_ups.extend(link(v)),
+                    b"RNAM" => info.prompt = Some(text(v)).filter(|t| !t.is_empty()),
+                    b"KNAM" => info.challenge_form = link(v),
+                    b"DNAM" => {
+                        info.challenge_difficulty =
+                            v.as_ref().and_then(|t| field_code(schema, &sig, b"DNAM", None, t)).map(|c| c as u32);
+                    }
                     b"NEXT" => after_next = true,
                     b"CTDA" if !after_next => {
                         if let Some(c) = cond(v, &mut out.issues) {
@@ -755,6 +1073,38 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                 }
             }
             out.info = Some(info);
+        }
+        b"DIAL" => {
+            let mut t = TopicDef { form: FormId(g), edid: out.edid.clone(), ..Default::default() };
+            let mut quest: Option<FormId> = None;
+            for (s, v) in &decoded {
+                match *s {
+                    b"FULL" => t.name = v.as_ref().and_then(|v| v.as_str().map(str::to_string)),
+                    b"PNAM" => t.priority = v.as_ref().and_then(Json::as_f64).unwrap_or(50.0) as f32,
+                    b"TDUM" => t.dumb_response = v.as_ref().and_then(|v| v.as_str().map(str::to_string)),
+                    b"DATA" => {
+                        if let Some(v) = v {
+                            t.topic_type = v.get("type").and_then(|x| field_code(schema, &sig, b"DATA", Some("type"), x)).unwrap_or(0) as u8;
+                            t.flags = flag_bits(v.get("flags")) as u8;
+                        }
+                    }
+                    b"QSTI" => {
+                        quest = fid(v);
+                        t.quests.extend(quest);
+                    }
+                    b"QSTR" => t.removed_quests.extend(fid(v)),
+                    b"INFC" => t.shared_infos.push(SharedInfo { quest, info: fid(v).filter(|f| f.0 != 0), index: None }),
+                    b"INFX" => {
+                        let x = v.as_ref().and_then(Json::as_i64).map(|x| x as i32);
+                        match t.shared_infos.last_mut() {
+                            Some(si) if si.index.is_none() => si.index = x,
+                            _ => t.shared_infos.push(SharedInfo { quest, info: None, index: x }),
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            out.topic = Some(t);
         }
         b"MESG" => {
             let mut m = MessageDef::default();
