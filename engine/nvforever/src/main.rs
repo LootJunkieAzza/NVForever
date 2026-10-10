@@ -154,8 +154,9 @@ struct Args {
     /// from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
     #[arg(long, default_value_t = 16_000.0)]
     shadow_distance: f32,
-    /// World units per terrain texture repeat [hypothesis; docs/design/layer3.md].
-    #[arg(long, default_value_t = 4096.0 / 6.0)]
+    /// World units per terrain texture repeat (the game's is 256 [observed;
+    /// docs/spec-notes/world.md §3 "Texture repeat"]).
+    #[arg(long, default_value_t = 256.0)]
     terrain_tile: f32,
     /// Do not draw models whose path contains any of these texts (diagnostics).
     #[arg(long, value_delimiter = ',')]

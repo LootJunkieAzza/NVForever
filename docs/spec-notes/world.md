@@ -110,12 +110,49 @@ apart and the last row/column coincides with the neighbour's first.
   44,753 edges inside cells and 35,100 of 43,039 across cells in WastelandNV. The best
   of the other seven orientations of the square agrees for 21,946 and 20,033.
   Reproduce with `crates/fnv-world/examples/land_layers.rs`.
+- **Texture repeat** [observed, 2026-10-10]: landscape textures repeat every **256 world
+  units** (16 times across a cell, once per two grid squares), with u = x / 256 and
+  v = y / 256 in world coordinates: v grows **northwards**, so the image's top edge lies
+  to the south and the texture is mirrored when seen from above. Method: for the
+  reference frames `goodsprings_hill_lod` and `goodsprings_noon` (camera.md §2), each
+  ground pixel's world position was found by intersecting its view ray with the LAND
+  heights, the cell's base texture and layers (blended by VTXT opacity) were sampled
+  there for a candidate repeat and direction, and the result was correlated with the
+  frame (luminance, high-passed at 6 pixels, bare ground only, best shift within ±24
+  pixels). Repeats of 4096 / n for n = 2..48 in both v directions score 0.01–0.04, except
+  n = 16 with v northwards: 0.147 (hill) and 0.124 (noon); n = 15.75 and 16.25 fall back
+  to 0.02. `nvforever`'s own render of the hill camera scores 0.051 with the earlier
+  guess (4096 / 6 units, v southwards) and 0.153 with this rule, at the same shift as the
+  simulation (6, −10 pixels: camera registration, not resolved further). The textures
+  are 512 × 512 (all ten LTEX of cells (−18, 0), (−17, 0) and (−16, −1)), so the ground
+  carries 2 texels per unit; the earlier guess stretched them to 0.75.
+  `Fallout_default.ini` has `fLandTextureTilingMult=2.0000` under `[Landscape]`
+  [documented]; how it enters the repeat is not known (256 = 2 × the 128-unit vertex
+  spacing fits [hypothesis]).
+- **Landscape normal maps**: an LTEX's texture set names a normal map in TX01
+  [documented], 512 × 512 for the ten LTEX above: six DXT5 or DXT3 with a sparse alpha
+  (mean 0.01–0.11) and three DXT1 (alpha reads 1) [observed]. Each LTEX also stores a
+  "texture specular exponent" (SNAM, 30 on all ten) [documented: schema; observed]. The
+  reference frames show per-pixel relief on the ground at noon (pebbles and cracks with
+  a lit and a shadowed side) [observed]. `nvforever` lights each base texture and layer
+  with its normal map read as a tangent-space map in the frame of the texture
+  coordinates (red towards +u = east, green towards +v = north, the DirectX-style green
+  of nif.md §6) [hypothesis]. Support: at the hill camera the change the normal maps make
+  to the render correlates with the reference frame at 0.16–0.22 on the near ground
+  (noise 0.03), i.e. the bumps are lit from the same side; it does not separate the
+  frame convention from the light's direction. The relief in the game is stronger than
+  in the render at noon (high-pass contrast of the same ground: game 0.070, render 0.058
+  with normal maps, 0.056 without, 0.048 before the repeat was corrected). Open: whether
+  the normal map's alpha is a specular mask on terrain and how the exponent is used (the
+  renderer draws terrain with a constant low specular); the game's light direction on
+  terrain at a given hour.
 - **Default texture** [documented: the game's `Fallout_default.ini`,
   `SDefaultLandDiffuseTexture=DirtWasteland01.dds`]: 51,000 of 65,552 WastelandNV
   quadrants have no BTXT (most of them outside the map; cell (−14, −6) south of
   Goodsprings has one), and some ATXT layers name a null LTEX [observed]. The renderer
   uses `textures\landscape\dirtwasteland01.dds` for both. It is the only file of that
-  name in the archives, so it is probably the INI's file [hypothesis]. Before this change
+  name in the archives, so it is probably the INI's file [hypothesis]; its normal map is
+  `SDefaultLandNormalTexture=DirtWasteland01_N.dds` [documented]. Before this change
   those quadrants were drawn untextured, which showed as hard-edged patches along quadrant
   edges (owner's screenshot, 2026-10-08) [observed].
 
