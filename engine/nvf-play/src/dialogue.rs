@@ -14,11 +14,11 @@
 //!   the game is in [`PlayState::Dialogue`]. Game logic stands still as in the container
 //!   and inventory menus and under a script's message box: the player cannot move or
 //!   act, and the player's character, the physics world, the game clock, combat and
-//!   travelling NPCs ([`WorldHeld`]) hold; what scripts see meanwhile (GameMode or
-//!   MenuMode, their game time) is the runtime's rule, not decided here, and the screen
-//!   works with either, also if the runtime names 1009 as the open menu ([`held`])
-//!   [owner ruling 2026-10-10: a conversation with the player pauses the game; lines
-//!   said outside one, SayTo and Say, do not]. The actor's lines go on in real time.
+//!   travelling NPCs ([`WorldHeld`]) hold; scripts are in menu mode by the runtime's own
+//!   rule (`Game::in_menu`: MenuMode blocks with code 1009, game time and quest delays
+//!   stand still) [owner ruling 2026-10-10: a conversation with the player pauses the
+//!   game; lines said outside one, SayTo and Say, do not]. The actor's lines go on in
+//!   real time (`Game::tick` advances them in menu mode too).
 //!   What the picture does is [`PauseMode`] (`--dialogue-pause`): `living` (the default)
 //!   keeps everything that is only presentation running (animations, wind, water, sky,
 //!   effects) and lets the player look around with the mouse while the actor speaks
@@ -521,12 +521,11 @@ impl Plugin for DialoguePlugin {
     }
 }
 
-/// Whether a menu other than the dialogue menu itself is open (a message box a result
-/// script showed, a character-creation menu): it holds the conversation and takes the
-/// keys. The dialogue menu's own code does not count, should the runtime keep it in
-/// `Game::menu` while a conversation runs.
+/// Whether a menu is open on top of the conversation (a message box a result script
+/// showed, a character-creation menu; `Game::menu`, which a conversation itself never
+/// sets): it holds the conversation's lines and takes the keys first.
 pub fn held(g: &Game) -> bool {
-    g.menu.is_some_and(|m| m != fnv_game::dialogue::DIALOGUE_MENU)
+    g.menu.is_some()
 }
 
 /// The test aid's due steps and the player's keys and clicks, as actions on the runtime.
