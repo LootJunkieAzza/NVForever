@@ -720,7 +720,8 @@ the Prospector Saloon porch, Goodsprings [observed]:
   (animation.md §3.2). Sneak and swim sets sit directly in `characters\_male\`
   (`sneakmt*`, `swimmt*`) and would need `clip_candidates` to look there too.
 - **Turn speed**: turn clips carry no root rotation (§8.2); the game's turn speed and
-  whether it scales the turn clip's rate are open. The walk test turns at 90°/s.
+  whether it scales the turn clip's rate are open. The walk test turns at 90°/s; actors
+  turning on the spot turn at 120°/s (§8.9).
 - **Ground following**: the walk test moves in the placement's plane; a real mover needs
   the ground height (Layer 4 physics) per step.
 - **`nvf-viewer --anim`** (done 2026-10-09): the viewer's single-clip player
@@ -730,6 +731,59 @@ the Prospector Saloon porch, Goodsprings [observed]:
   too. World objects' clips keep their travel.
 - **Creatures (part D)**: done for the idle (§10.3); creature walk and turn clips are
   not surveyed and not played.
+
+### 8.9 Turning on the spot
+
+Added 2026-10-10. The turn clips were already chosen for a standing actor that turns
+(§8.3), but nothing made an actor stand and turn: travellers swung to their path's
+direction at 720°/s while already walking, so `mtturnleft.kf` and `mtturnright.kf` played
+only in the walk test and on the player's body. All rules here are engine choices
+[design]; none is a measured game value.
+
+- **What the data says.** The turn clips are 1 s loops with no accumulation-root track
+  and a pelvis (`Bip01 NonAccum`) that stays at yaw 90° and between 64.0 and 66.9 units
+  up for the whole loop; text keys `Blend: 3`, `Enum: Left` at 0.5 s and
+  `Enum: Right` at 0.93 s in `mtturnleft.kf`, `Enum: Left` at 0.37 s in `mtturnright.kf`
+  [observed: `fnvtool actor locomotion --samples 9`, owner's install, 2026-10-10]. So
+  the clip holds no turn angle or speed (§8.2). `FalloutNV.esm` has no game setting
+  whose Editor ID contains "turn", and only `fVATSTargetRotateMult` with "rotat"
+  [observed: `fnvtool esm inventory`]; the speed is not in the plugin data.
+- **Turn speed**: 120°/s standing (`fnv_nav::follow::SPOT_TURN_RATE`) [design: half a
+  turn in 1.5 s, three footfalls]. The clip plays at rate 1 whatever the angle. The AI
+  observer captures record each actor's heading per sample (ai-observer.md), so a
+  capture of an NPC turning to a new package target could replace this number [open].
+- **Before walking** (`fnv_nav::Walker`): a walker that stands (it did not move in its
+  last update: at the start of a path, after waiting at a door, after arriving through a
+  teleport door) and whose way lies more than 20° off its heading
+  (`SPOT_TURN_START`) turns on the spot until it faces the way, then sets off; its
+  updates return `WalkEvent::Turned` meanwhile. Smaller differences, and every corner
+  met while walking, are steered at the walking turn rate as before (720°/s). The feet
+  do not move during the turn, so path following is unchanged; a trip takes up to 1.5 s
+  longer per standing start.
+- **Standing with nowhere to go**: `Walker::face(heading, dt)` turns a walker-moved
+  actor (travellers; the AI packages' agents) towards a compass heading at the same
+  speed and says when it faces it. For an actor nothing else moves, the component
+  `TurnTo { heading }` on its root (`engine/nvforever/src/locomotion.rs`) does the
+  same: the system `turn_to` turns the root about z, sets `Locomotion::turn` so the turn
+  clip plays, and removes the component when the actor faces the heading (a component
+  taken away mid-turn stops the turn). Headings are compass headings in game space
+  (0 = +y north, π/2 = +x east), as `Walker::heading`. The conversation partner's body
+  turn (`engine/nvforever/src/dialogue_look.rs`, `BodyTurn`) is separate: it eases its
+  own turn and sets `Locomotion::turn` itself; `TurnTo` is for turns at a steady speed.
+- **Clip choice** is §8.3's, unchanged: both movers give the actor zero velocity and a
+  turn rate of ±120°/s, above the 15°/s threshold; the turn clip fades in over its
+  `Blend: 3` (0.1 s) and the idle or walk that follows over its own blend time.
+- **Test aid `--actor-turn-test <radius>`**: standing NPCs within `<radius>` game units
+  of the camera get a `TurnTo` towards it whenever it is more than 20° off their
+  heading. On exit the log says `turn test: N turns on the spot begun, M finished, D
+  degrees in all`. Not with `--actor-walk-test`; `--npc-travel` travellers are turned by
+  their walker, which overrides it. The `--run-seconds` summary gains the line `actor
+  turns: N actor frames playing a turn-on-the-spot clip`.
+- **Not done**: weapon-stance turn clips (`1hpturnleft.kf`, …; the player's body picks
+  them, `fnv_actor::player_clips::turn_clips`, NPCs play `mt` only); creature turns
+  (§10.3: their turn clips sit in the skeleton's folder and are found by
+  `clip_candidates`, not checked on screen); scaling the clip's rate with the turn
+  speed; an actor facing its target on arrival (left to AI packages).
 
 ## 9. Weapons: holstering and drawing (part H)
 
