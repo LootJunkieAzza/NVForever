@@ -1066,3 +1066,26 @@ Follows item 4 of "The player's unclothed body" above. Numbers and reasons:
 4. **Added, off by default:** `--show-disabled-actors` draws the actors a script has not
    enabled yet. Joe Cobb is one of them (hidden in the saloon until the story shows
    him), so the pictures needed it.
+
+## Dog eyes (2026-10-10, session "dog-eyes")
+
+Your report: on dogs, the eyes are not showing correctly. Facts and measurements:
+docs/spec-notes/actors.md §10.2 and §10.5.
+
+1. **Fixed, cause:** a dog's eyes are a separate model that hangs from the head bone.
+   It was being turned the way hats and hair have to be turned on a person's head, which
+   put both eyeballs on one side of the dog's head, one above the other, and left the
+   sockets empty. Creature parts now hang from their bone as the files give them. Checked
+   on Cheyenne against the dog's own eyelids: the eyes now sit just behind them.
+2. **Fixed by the same change (135 placed creatures):** every dog with an eye model
+   (Cheyenne, Rex, NCR and wild dogs, cyberdogs), the cyberdogs' skull caps including
+   Rex's, the dome on every Protectron's head, and Primm Slim's hat (it was on edge
+   beside his head). Coyotes and Legion mongrels have their eyes in the body model and
+   were not affected.
+3. **Not compared with the game:** I had no base-game screenshot of a dog's face. The
+   placement is settled by the data, but the look of the eye (colour, shine) is drawn
+   from the plain texture and is my render only. A close game screenshot of Cheyenne's
+   face would confirm it.
+4. **Seen on the way, not touched:** Rex's glass skull cap is drawn solid black, so the
+   brain under it cannot be seen (a material problem, not a placement one; notes in
+   §10.5).
