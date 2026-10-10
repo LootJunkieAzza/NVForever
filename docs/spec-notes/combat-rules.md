@@ -276,14 +276,15 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   body part); applying it is step C5.
 - **Feedback** [design, until impact effects and audio]:
   - an impact marker for 0.3 s (0.6 s for explosions);
-  - tracers at the PROJ tracer chance, from the muzzle, and a flash marker at the
-    muzzle for 0.06 s per shot; a hitscan tracer that hits nothing is drawn to the end
-    of its range;
+  - a line from the muzzle along every hitscan shot for 0.08 s, to the hit or to the
+    end of the range (for other projectiles at the PROJ tracer chance); the muzzle
+    flash and the projectiles' models are §15;
   - an ammo counter (magazine / carried, the ammo's abbreviation).
 - **Test aids.** `NVF_PLAY_TEST_CONTROL` presses `fire`, `reload`, `swap` and
   `aimactor` (look at the nearest actor's hit volume). `NVF_PLAY_TEST_TRACERS=<seconds>`
-  gives every projectile a tracer and keeps tracers and flash markers that long, so
-  one screenshot shows where shots were drawn from.
+  gives every projectile a line and keeps the lines and a marker at the muzzle that
+  long, so one screenshot shows where shots were drawn from (muzzle flashes and
+  projectile models are not held).
 - **Checked** [observed 2026-10-09, `nvforever --cell Goodsprings --play`, exit 0, "run
   finished"]:
   - **9mm pistol** (50 rounds given): magazine 13/13, one shot per trigger pull. Two
@@ -669,3 +670,93 @@ bottles (quest `VCG02`, "Back in the Saddle"), which a shot neither counted nor 
   ```
 - **Open:** the `GetWeaponAnimType` table (owner-review.md); how hard the game's shots
   push clutter (the planned projectile captures); impact effects and sounds.
+
+## 15. What is drawn of a shot: muzzle flash and projectiles
+
+Owner request 2026-10-10: "actual bullet projectiles that aren't invisible along with
+the muzzle flash effects". Where a shot is drawn from is docs/design/combat.md §5.1 and
+animation.md §9.9.
+
+- **The records** [documented: xEdit PROJ; GECK wiki Projectile, §4.2 of combat.md]:
+  a PROJ has a model, a tracer chance ("how often the projectile is drawn"), a fade
+  duration (beams), and with its Muzzle Flash flag a flash model (`NAM1`), a flash
+  duration and a flash light (LIGH). Read with `fnvtool combat weapon` [observed]:
+
+  | Weapon | PROJ | Type, flags | Speed | Tracer chance | Model | Flash model, duration |
+  |---|---|---|---|---|---|---|
+  | 10mm pistol | `10mmBulletProjectile` | Missile, Hitscan | 27,520 | 0 | `projectiles\10mmprojectile.nif` | `handgunmuzzleflash01.nif`, 0.04 s |
+  | Minigun | `MinigunTracerProjectile` | Missile, Hitscan | 7,000 | 0.3 | `projectiles\762mmprojectile.nif` | `minigunmuzzleflash01.nif`, 0.04 s |
+  | Laser rifle | `BeamLaserProjectile` | Beam | 10,000 | 0 | `projectiles\testlaserbeamsteady.nif` (fade 0.14 s) | `laserriflemuzzleflash.nif`, 0.14 s |
+  | Missile launcher | `MissileProjectile` | Missile, Explosion | 1,550 | 0 | `projectiles\mlprojectile.nif` | `assaultriflemuzzleflash.nif`, 0 s |
+  | Plasma rifle | `PlasmaProjectile` | Missile | 7,500 | 0 | `projectiles\plasmaprojectile01.nif` | `plasmariflemuzzleflash.nif`, 0.12 s |
+  | Flamer | `FlameProjectile` | Flame, Hitscan | 12,000 (range 640) | 0 | `projectiles\flamerflame01.nif` | `flamermuzzleflash01.nif`, 0.2 s |
+  | Frag grenade | `GrenadeFragProjectile` | Lobber, Explosion | 1,200 | 0 | the grenade's own model | none |
+
+- **The models** [observed: `crates/fnv-nif/examples/effect_model_survey.rs` on
+  `Fallout - Meshes.bsa` and `Update.bsa`; 63 files under `meshes\projectiles`, 16
+  under `meshes\effects\muzzleflashes`]:
+  - they are built along +y: the 10mm bullet fills y 0 to 1.5 (1 unit across), the
+    missile y −55.7 to 12.7 with its flame behind, the laser beam y −2.7 to 2048 with
+    a node `BeamEnd` at (0, 2048, 0), the handgun flash y −5 to 31.7 and the minigun's
+    y −10.6 to 77;
+  - `762mmprojectile.nif` holds a bullet (`Projectile`, 0.8 by 3 units) and a streak
+    244 units long and 4 across under a `NiBillboardNode` named `Tracer`;
+  - `10mmprojectile.nif` holds one shape, the bullet, under a node `10mm`, beside
+    empty nodes named for other calibres;
+  - `NiBillboardNode`: in 10 of the 63 projectile models and 13 of the 16 flashes, 31
+    nodes in all, with billboard mode 1 (12), 4 (13) and 2 (6). The mode-1 nodes of the
+    files looked at hold geometry that is long in y (the tracer streak, the laser
+    beam), and the handgun flash's mode-1 node is turned a quarter turn about y in the
+    file, the others not at all;
+  - they also hold `BSValueNode`s named `AddOnNode<n>` (two in each bullet flash,
+    three behind the missile, four in the plasma bolt), and the flash planes have a
+    `NiTransformController` with no sequence in the file.
+- **Readings** [hypothesis]: +y is the models' forward axis; the flash model is
+  attached at the weapon's `ProjectileNode` with the node's rotation (whose y axis lies
+  along the barrel, animation.md §9.9); `BeamEnd` marks the beam's far end so the model
+  can be stretched to the beam's length; a billboard node shows its +z side and, in the
+  "rotate about up" modes, turns about its own y [documented: the mode names, nif.xml
+  BillboardMode]. How the game draws a hitscan bullet is not known.
+- **Engine** (since 2026-10-10):
+  - combat sends a `ShotFired` (the PROJ) for each shot and lists every projectile to
+    draw in `ShotVisuals` (PROJ, place, direction; `nvf_play::combat`):
+    - a projectile stepped in flight (missile, plasma, grenade): where it is seen
+      (from the muzzle, closing on its path);
+    - one whose hit is found at once (hitscan) [design]: a bullet flying from the
+      muzzle to where it landed at the PROJ's speed, gone on arrival;
+    - a beam [design]: from the muzzle to its end, for the PROJ's fade duration;
+    - every projectile is listed, not the tracer chance of them
+      (`DRAW_EVERY_PROJECTILE`) [design: the owner's request];
+  - `nvforever::shot_fx` draws them:
+    - the flash model under the `ProjectileNode` entity of the rig in view
+      (`PlayerBody::muzzle_entity`), for the PROJ's flash duration and always for the
+      frame it is made in, with a point light of the LIGH's colour, fade and radius
+      (no shadows);
+    - the PROJ's model at each listed projectile, +y along the flight; a beam's model
+      scaled along y by its length ÷ `BeamEnd`'s y;
+    - billboard nodes turned to the camera each frame (`ModelNode::billboard`);
+    - the models of the weapon in use are loaded when it is equipped, so the first
+      flash is not lost to loading;
+  - a weapon without a `ProjectileNode` (or a run without a player body) shows no
+    flash; its projectiles are still drawn.
+- **Checked** [observed 2026-10-10, `--play` at Goodsprings, `--hour 12`, third person
+  from the side (`orbit=75:5` at the screenshot's time), exit 0 and "run finished";
+  screenshots kept privately]:
+  - Minigun, trigger held: "46 muzzle flashes (46 with a light), 46 projectile models
+    drawn, 0 projectiles without a model". During the burst one flash stands at the end
+    of the barrel, pointing along it; 0.4 s after the trigger is let go there is none.
+    A frame of another run shows a tracer streak in flight ahead of the barrel.
+  - Laser rifle, one shot: "BeamLaserProjectile drawn at (−71672.1, 2091.8, 8437.5),
+    a beam 628 units long"; 0.02 s after the shot the red beam runs from the muzzle
+    along the shot.
+  - Before the flash time was the record's alone it was held to at least 0.05 s, and
+    the test aid held it for seconds: the owner saw the minigun's flash "sticking
+    around way too long". Now 0.04 s is one frame at 25 frames a second.
+- **Not built:** the add-on nodes (particle effects: smoke, sparks, the missile's
+  trail), the controllers inside the flash models, the PROJ's own light and sounds,
+  impact effects, shell casings, NPCs' shots. Not looked at in a run: the 10mm bullet,
+  missile, plasma bolt, flame and grenade models (their PROJs go the same way).
+- **Open:** whether the game draws a hitscan bullet at all outside its tracer chance,
+  and at what speed; whether a billboard shows +z or −z (the flash glows and the beam
+  show with +z); the flame's model has no shape of its own (add-on nodes only), so
+  the flamer shows a flash and no flame.

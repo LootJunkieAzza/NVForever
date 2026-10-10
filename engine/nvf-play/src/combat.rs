@@ -56,9 +56,14 @@
 //!   strikes its loose body with the projectile's impact force ([`OBJECT_PUSH`]), so
 //!   bottles and cans are knocked away [design]. The scripts are told when the player's
 //!   weapon is out (`IsWeaponOut`): [`WeaponAnim::ready`].
+//! - **What is drawn of a shot** (docs/spec-notes/combat-rules.md §15): each shot sends
+//!   a [`ShotFired`] (the renderer shows the PROJ's muzzle flash) and every projectile
+//!   in flight is listed in [`ShotVisuals`] (the renderer draws the PROJ's model there).
+//!   A hitscan bullet, whose hit is found at once, is drawn flying from the muzzle to
+//!   where it lands at the PROJ's speed; a beam is drawn from the muzzle to its end for
+//!   the PROJ's fade duration [design].
 //! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
-//!   a flash at the muzzle for each shot, tracers from the muzzle at the projectile's
-//!   tracer chance, an ammo counter, a hit marker at the
+//!   a line from the muzzle along each hitscan shot, an ammo counter, a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
 //!   health, and a line for kills with their XP.
 
@@ -66,7 +71,7 @@ use bevy::prelude::*;
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
 use fnv_combat::damage::{self, Attacker, AttackKind, HitInput, HitPart, NoPerks, Target};
 use fnv_combat::data::AmmoEffect;
-use fnv_combat::projectile::{blast, ActorId, CombatWorld, ProjEvent, Projectile, WorldHit};
+use fnv_combat::projectile::{blast, ActorId, CombatWorld, Motion, ProjEvent, Projectile, WorldHit};
 use fnv_combat::rng::SplitMix;
 use fnv_combat::shot::Seen;
 use fnv_combat::spread::{self, Kick, Stance};
@@ -117,6 +122,38 @@ pub struct WeaponAnim {
     /// without a body, a weapon in hand or such a node: shots are drawn from the eye.
     pub muzzle: Option<[f32; 3]>,
 }
+
+/// The player fired a shot this frame: the PROJ it fires. The renderer shows the
+/// PROJ's muzzle flash at the weapon's muzzle (nvforever `shot_fx`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ShotFired {
+    pub projectile: FormId,
+}
+
+/// One projectile to draw this frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShotVisual {
+    /// The same number for as long as the projectile is drawn.
+    pub id: u64,
+    /// Its PROJ.
+    pub projectile: FormId,
+    /// Where it is drawn (game space) and the way it points (unit).
+    pub pos: V3,
+    pub dir: V3,
+    /// A beam: its length from `pos` along `dir`.
+    pub beam: Option<f32>,
+}
+
+/// The player's projectiles to draw this frame (nvforever `shot_fx` draws their models).
+#[derive(Resource, Default)]
+pub struct ShotVisuals {
+    pub flying: Vec<ShotVisual>,
+}
+
+/// Every projectile is drawn, not only the PROJ's tracer chance of them [design: the
+/// owner asked for bullets that are not invisible, 2026-10-10; the game draws a
+/// projectile at its tracer chance, documented: GECK wiki Projectile].
+pub const DRAW_EVERY_PROJECTILE: bool = true;
 
 /// An actor was hit (and maybe died) by combat.
 #[derive(Message, Clone, Copy, Debug)]
@@ -286,6 +323,13 @@ struct Swing {
 /// draws a tracer.
 struct Flying {
     p: Projectile,
+    /// Its number among the drawn projectiles ([`ShotVisual::id`]) and its PROJ.
+    id: u64,
+    proj: FormId,
+    /// Its model is drawn.
+    shown: bool,
+    /// The way it last flew.
+    dir: V3,
     origin: V3,
     seen: Seen,
     tracer: bool,
@@ -307,6 +351,22 @@ struct Pending {
     dir: V3,
     projectiles: u32,
     force: f32,
+}
+
+/// What is drawn of a projectile whose hit was found at once: a bullet flying from the
+/// muzzle to where it landed, or a beam between the two [design].
+struct Ghost {
+    id: u64,
+    proj: FormId,
+    from: V3,
+    to: V3,
+    /// Units per second (a bullet); a beam stays for `left` seconds instead.
+    speed: f32,
+    travelled: f32,
+    beam: bool,
+    left: f32,
+    /// Made this frame: drawn at its start before it moves.
+    fresh: bool,
 }
 
 /// What a [`Mark`] shows.
@@ -337,10 +397,14 @@ impl Mark {
     }
 }
 
-/// How long the flash at the muzzle shows, seconds, and its size, units [design, until
-/// the PROJ's muzzle flash model and light are drawn].
-const FLASH_LIFE: f32 = 0.06;
+/// The size of the test aid's marker at the muzzle, units.
 const FLASH_SIZE: f32 = 2.5;
+
+/// Whether a projectile's hit is found at once, on its first step (hitscan, beams), as
+/// `Projectile::step` decides it.
+fn instant(p: &Projectile) -> bool {
+    (p.hitscan || p.motion == Motion::Beam) && p.motion != Motion::Lobber
+}
 /// The reach of the view ray that finds the aim point when the projectile has no range
 /// of its own, units [design].
 const AIM_REACH: f32 = 100_000.0;
@@ -374,6 +438,9 @@ pub struct Combat {
     cycle: Option<Cycle>,
     kick: Kick,
     flying: Vec<Flying>,
+    ghosts: Vec<Ghost>,
+    /// The next [`ShotVisual::id`].
+    next_visual: u64,
     pending: Vec<Pending>,
     marks: Vec<Mark>,
     rng: SplitMix,
@@ -381,10 +448,18 @@ pub struct Combat {
     /// Test aid `NVF_PLAY_TEST_NO_SPREAD=1`: shots leave exactly along the view (no
     /// spread, no bloom), so an unattended check hits what it aims at.
     no_spread: bool,
-    /// Test aid `NVF_PLAY_TEST_TRACERS=<seconds>`: every projectile draws a tracer, and
-    /// tracers and muzzle flashes stay that long, so one screenshot of an unattended
-    /// check shows where the shots were drawn from.
+    /// Test aid `NVF_PLAY_TEST_TRACERS=<seconds>`: every projectile draws a line, and
+    /// the lines and a marker at the muzzle stay that long, so one screenshot of an
+    /// unattended check shows where the shots were drawn from. The muzzle flashes and
+    /// the projectile models are not held: they are drawn as in play.
     tracer_hold: Option<f32>,
+}
+
+impl Combat {
+    /// The PROJ the weapon in use fires with the ammunition loaded, if it fires one.
+    pub fn projectile(&self) -> Option<FormId> {
+        self.forms.chain(self.weapon?, self.ammo)?.projectile
+    }
 }
 
 pub struct CombatPlugin;
@@ -393,6 +468,8 @@ impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WeaponAnim>()
             .init_resource::<CombatStats>()
+            .init_resource::<ShotVisuals>()
+            .add_message::<ShotFired>()
             .init_resource::<HitFeedback>()
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
@@ -433,6 +510,7 @@ fn weapon_state(anim: Res<WeaponAnim>, mut script: Option<ResMut<ScriptState>>) 
 
 fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
     let t = std::time::Instant::now();
+    let tracer_hold = std::env::var("NVF_PLAY_TEST_TRACERS").ok().and_then(|v| v.trim().parse().ok()).filter(|s: &f32| *s > 0.0);
     let forms = CombatForms::build(d.lo, d.schema);
     let rules = Rules::from_forms(&forms);
     let fists = forms.by_edid("Fists");
@@ -455,12 +533,14 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         cycle: None,
         kick: Kick::default(),
         flying: Vec::new(),
+        ghosts: Vec::new(),
+        next_visual: 0,
         pending: Vec::new(),
         marks: Vec::new(),
         rng: SplitMix(1),
         time: 0.0,
         no_spread: std::env::var_os("NVF_PLAY_TEST_NO_SPREAD").is_some_and(|v| v != "0"),
-        tracer_hold: std::env::var("NVF_PLAY_TEST_TRACERS").ok().and_then(|v| v.trim().parse().ok()).filter(|s: &f32| *s > 0.0),
+        tracer_hold,
     });
 }
 
@@ -590,6 +670,7 @@ fn fire(
     mut stats: ResMut<CombatStats>,
     mut script: Option<ResMut<ScriptState>>,
     limbs: Res<PlayerLimbs>,
+    mut fired: MessageWriter<ShotFired>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -648,10 +729,11 @@ fn fire(
                         info!("combat: OnFire of {} ran", w.edid.as_deref().unwrap_or("?"));
                     }
                 }
-                if chain.projectile.is_none() {
+                let Some(proj) = chain.projectile else {
                     debug!("combat: {} fires no projectile", w.edid.as_deref().unwrap_or("?"));
                     continue;
-                }
+                };
+                fired.write(ShotFired { projectile: proj });
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
                 let stance = Stance {
                     aiming: control.aiming,
@@ -684,12 +766,20 @@ fn fire(
                 let shots = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, cone, Some(PLAYER), gravity, &c.tuning, &mut rand);
                 stats.projectiles += shots.len() as u32;
                 for p in shots {
-                    let tracer = c.rng.next_f32() < tracer_chance || c.tracer_hold.is_some();
-                    c.flying.push(Flying { p, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force });
+                    let rolled = c.rng.next_f32() < tracer_chance || c.tracer_hold.is_some();
+                    let shown = rolled || DRAW_EVERY_PROJECTILE;
+                    // A line along the shot: for what is too fast to follow (found at
+                    // once), and at the tracer chance for the rest [design].
+                    let tracer = rolled || (shown && instant(&p));
+                    let dir = vec::normalize(p.vel);
+                    c.next_visual += 1;
+                    c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
-                if anim.muzzle.is_some() {
-                    c.marks.push(Mark::at(seen_from, c.tracer_hold.unwrap_or(FLASH_LIFE), MarkKind::Flash));
+                // The flash itself is the renderer's (`ShotFired`); the test aid marks
+                // the point shots are drawn from.
+                if let (Some(hold), true) = (c.tracer_hold, anim.muzzle.is_some()) {
+                    c.marks.push(Mark::at(seen_from, hold, MarkKind::Flash));
                 }
                 stats.muzzle_shots += (seen_from != eye) as u32;
                 stats.covered_shots += leaving.covered as u32;
@@ -972,6 +1062,7 @@ fn fly(
     mut messages: MessageWriter<ActorHit>,
     mut pushes: MessageWriter<ActorPush>,
     parts: Res<ActorParts>,
+    mut visuals: ResMut<ShotVisuals>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -995,7 +1086,10 @@ fn fly(
             queue_destruction(c, &sim, r, &ch);
         }
     }
-    if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() {
+    if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() && c.ghosts.is_empty() {
+        if !visuals.flying.is_empty() {
+            visuals.flying.clear();
+        }
         return;
     }
     {
@@ -1005,6 +1099,12 @@ fn fly(
             let before = f.p.pos;
             // Where it is drawn: from the muzzle, closing on its path (`Seen`).
             let seen_before = f.seen.at(before, f.p.travelled);
+            // Found at once: what is drawn flies (or, a beam, stands) from there to
+            // where it ended.
+            let fade = c.forms.projectiles.get(&f.proj).map_or(0.0, |p| p.fade_duration);
+            let (id, proj, speed, beam) = (f.id, f.proj, f.p.speed, f.p.motion == Motion::Beam);
+            let ghost = move |to: V3| Ghost { id, proj, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fresh: true };
+            let at_once = instant(&f.p) && f.p.age == 0.0;
             for e in f.p.step(&world, dt) {
                 match e {
                     ProjEvent::Hit { actor, part, object, point, delay, .. } => {
@@ -1019,6 +1119,9 @@ fn fly(
                             );
                             c.marks.push(Mark::tracer(seen_before, point, hold.unwrap_or(0.08)));
                         }
+                        if at_once && f.shown {
+                            c.ghosts.push(ghost(point));
+                        }
                     }
                     ProjEvent::Explode { explosion, point } => c.boom.push((explosion, point)),
                     // A tracer that meets nothing is drawn to where it ends.
@@ -1026,15 +1129,43 @@ fn fly(
                         if f.tracer {
                             c.marks.push(Mark::tracer(seen_before, point, hold.unwrap_or(0.08)));
                         }
+                        if at_once && f.shown {
+                            c.ghosts.push(ghost(point));
+                        }
                     }
                 }
             }
             if f.tracer && f.p.alive {
                 c.marks.push(Mark::tracer(seen_before, f.seen.at(f.p.pos, f.p.travelled), hold.unwrap_or(0.05)));
             }
+            if vec::len(f.p.vel) > 1.0 {
+                f.dir = vec::normalize(f.p.vel);
+            }
         }
         c.flying.retain(|f| f.p.alive);
     }
+    // What is drawn this frame: the projectiles in flight where they are seen, and
+    // those found at once on their way.
+    c.ghosts.retain_mut(|g| {
+        if std::mem::take(&mut g.fresh) {
+            return true;
+        }
+        if g.beam {
+            g.left -= dt;
+            g.left > 0.0
+        } else {
+            g.travelled += g.speed.max(1.0) * dt;
+            g.travelled < vec::len(vec::sub(g.to, g.from))
+        }
+    });
+    visuals.flying.clear();
+    visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None }));
+    visuals.flying.extend(c.ghosts.iter().map(|g| {
+        let d = vec::sub(g.to, g.from);
+        let len = vec::len(d);
+        let dir = if len > 1e-3 { vec::scale(d, 1.0 / len) } else { [0.0, 1.0, 0.0] };
+        ShotVisual { id: g.id, projectile: g.proj, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len) }
+    }));
     let weapon = c.weapon;
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;

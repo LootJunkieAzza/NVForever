@@ -1803,7 +1803,42 @@ and you thought something in the weapon model controls it. Both were right. Bran
    before. The fix
    would be to aim from the camera's own line in third person; that changes where
    shots land, so I left it.
-8. **Not done:** the game's real muzzle flash effect and light (ours draws a small
-   marker), shell casings (the models have a marker for those too), models for missiles
-   and grenades in flight, and NPCs' shots (they do not shoot yet). Weapons without the
-   marker still draw from the eye.
+8. **Not done:** shell casings (the models have a marker for those too) and NPCs'
+   shots (they do not shoot yet). Weapons without the marker still draw from the eye.
+
+### Added the same day: bullets you can see, and muzzle flashes
+
+Your request, passed on by the weapon parts session: "actual bullet projectiles that
+arent invisible along with the muzzle flash effects". Same branch. Facts:
+`docs/spec-notes/combat-rules.md` §15. Pictures in the same folder
+(`minigun-flash-side.png`, `minigun-tracer-in-flight.png`, `laser-rifle-beam.png`).
+
+1. **Muzzle flash:** each projectile record names a flash model, how long it shows and
+   a light. Ours now shows that model at the end of the barrel, pointing along it,
+   with the light, for the record's time (0.04 seconds for bullets).
+2. **Your note that the minigun's flash stayed too long:** two causes, both mine. The
+   picture was taken with a test switch that held every flash for 3 seconds, and in
+   normal play I had padded the time to at least 0.05 seconds, so at the minigun's
+   rate one flash ran into the next. Both are gone: the flash lasts the record's time
+   and is off the moment you stop firing.
+3. **Projectiles:** every shot now draws the game's own projectile model in flight,
+   starting at the barrel: tracer rounds, laser beams, missiles, plasma bolts,
+   grenades. Checked in a run: the minigun and the laser rifle. The others use the
+   same code but I did not look at them.
+4. **Decision taken, every shot is drawn:** the game draws only a share of bullets
+   (the minigun's record says 30%, the 10mm's 0%). You asked for bullets that are not
+   invisible, so ours draws all of them. Say if you want the game's shares back.
+5. **Decision taken, how fast a drawn bullet flies:** the game works out a bullet's
+   hit at once; how it then draws the bullet I do not know. Ours flies the model from
+   the barrel to the hit at the record's speed. For a pistol that is very fast (about
+   390 metres a second) and the model is a bullet the size of a real one, so you will
+   see it for a frame or two at most. To keep the shot visible I also draw a thin line
+   along it for a moment. The minigun's rounds are slower and carry their own glowing
+   streak, which shows well.
+6. **For you to decide:** if pistol and rifle bullets should be easier to see, the
+   choices are to slow the drawn bullet down (it would arrive after the hit lands) or
+   to give every bullet a streak like the minigun's. Both are our invention, so I
+   left them.
+7. **Not done:** smoke, sparks and the missile's trail (a separate kind of effect in
+   the files), impact effects, sounds. The flamer shows its flash but no flame, because
+   its flame is made only of that kind of effect.

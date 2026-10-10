@@ -236,6 +236,8 @@ struct Rig {
     /// clips may move it) and its transform in the model [hypothesis: the node marks
     /// the muzzle; animation.md §9.9].
     muzzle: Option<Vec<(Option<usize>, Transform)>>,
+    /// That node's entity (muzzle flashes are spawned under it; `shot_fx.rs`).
+    muzzle_entity: Option<Entity>,
     /// Third person: drawn entities to hide when it stands in for the first-person rig.
     head_entities: Vec<Entity>,
     /// Third person: the drawn entities the first-person rig has its own of (arms, hands,
@@ -401,6 +403,8 @@ pub struct PlayerBody {
     /// Draw the body in first person too (`--first-person-body`, the settings page).
     pub first_person_body: bool,
     body: Option<Body>,
+    /// The muzzle node of the weapon in hand in the rig in view, this frame.
+    muzzle_entity: Option<Entity>,
     motion: Motion,
     /// Why the body could not be built (reported once).
     failed: Option<String>,
@@ -410,6 +414,12 @@ impl PlayerBody {
     /// Whether the body drawn is a woman's; `None` without a body.
     pub fn female(&self) -> Option<bool> {
         self.body.as_ref().map(|b| b.female)
+    }
+
+    /// The entity of the muzzle node (`ProjectileNode`) of the weapon in hand, in the
+    /// rig in view; `None` without a body, a weapon in hand or such a node.
+    pub fn muzzle_entity(&self) -> Option<Entity> {
+        self.muzzle_entity
     }
 }
 
@@ -527,6 +537,7 @@ fn ensure_body(
         }
         rig.animator.set_extra(Vec::new());
         rig.muzzle = None;
+        rig.muzzle_entity = None;
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
         }
@@ -565,7 +576,9 @@ fn ensure_body(
                         Some(extra.len() - 1)
                     })
                     .collect();
-                rig.muzzle = nvf_assets::model::node_path(&pm.nodes, &MUZZLE_NODES).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
+                let muzzle = nvf_assets::model::node_path(&pm.nodes, &MUZZLE_NODES);
+                rig.muzzle_entity = muzzle.as_ref().and_then(|path| path.last()).map(|&i| part_nodes[i]);
+                rig.muzzle = muzzle.map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 for s in &pm.shapes {
                     let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
                     if bone.is_some() && rig.view == View::First {
@@ -699,6 +712,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         weapon_model: None,
         weapon_parts: Vec::new(),
         muzzle: None,
+        muzzle_entity: None,
         head_entities,
         arm_entities,
         shown: None,
@@ -1043,6 +1057,7 @@ fn drive_body(
         // No body to time the weapon: it is ready as soon as it is wanted out.
         anim.ready = control.weapon_out;
         anim.muzzle = None;
+        state.muzzle_entity = None;
         return;
     };
     let dt = time.delta_secs();
@@ -1115,6 +1130,7 @@ fn drive_body(
         view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0]);
         anim.ready = false;
         anim.muzzle = None;
+        state.muzzle_entity = None;
         show_rigs(body, &mut visibility, Shown { third: third_view || own_body, first: false, head: third_view, arms: true, weapon: true });
         return;
     }
@@ -1243,6 +1259,7 @@ fn drive_body(
         _ => &body.third,
     };
     anim.muzzle = if m.hands.in_hand { seen.muzzle_at(root).map(|p| p.to_array()) } else { None };
+    state.muzzle_entity = seen.muzzle_entity.filter(|_| m.hands.in_hand);
     let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
     let shown = if frame.upright {
         Shown { third: true, first: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }

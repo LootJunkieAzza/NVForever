@@ -730,8 +730,10 @@ Measured with `crates/fnv-nif/examples/muzzle_node_survey.rs` (every `.nif` unde
     node the `Weapon` node hangs from, the `Weapon` node, then down the model's nodes,
     each where the clips have it (`nvforever::player_body`, `Rig::muzzle_at`). It
     gives that to combat as `nvf_play::combat::WeaponAnim::muzzle` (game space);
-  - combat draws shots from it (tracers, the flash marker) and uses it for the
-    third-person cover rule. The node's rotation is not used: the aim is the view's;
+  - combat draws shots from it and uses it for the third-person cover rule; the aim
+    is the view's, not the node's;
+  - the PROJ's muzzle flash model is spawned under the node, so the node's rotation
+    points it (`nvforever::shot_fx`; docs/spec-notes/combat-rules.md §15);
   - a weapon model without the node, a holstered weapon and a run without a player
     body (`--no-actors`) give no muzzle, and shots are drawn from the eye as before.
 - Checked in ours [observed 2026-10-10, `--play` at Goodsprings, `--hour 12`, exit 0
@@ -752,8 +754,8 @@ Measured with `crates/fnv-nif/examples/muzzle_node_survey.rs` (every `.nif` unde
     trigger held 0.5 s: "ProjectileNode 2 node(s) down" for both rigs; muzzle
     (−71659.6, 2119.2, 8426.8) at the first shot; "16 shots (16 drawn from the muzzle,
     0 from behind cover)".
-- Not built: the PROJ's muzzle flash model and light (ours draws a marker), shell
-  casings from `ShellCasingNode`, NPCs' shots.
+- Not built: shell casings from `ShellCasingNode`, NPCs' shots. The muzzle flash and
+  the projectiles' models are in docs/spec-notes/combat-rules.md §15.
 
 ### 9.5 The first-person rig [observed unless tagged]
 
