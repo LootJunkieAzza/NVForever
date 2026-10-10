@@ -304,7 +304,8 @@ Facts and rules: docs/spec-notes/actors.md §10 (records, resolution, meshes, id
   ten masters (all equal).
 - **Engine**: `actors::spawn_creature` assembles each placed creature with
   `nvf_assets::actor::spawn_actor` (`PartUse::by_ancestor`: unskinned shapes hang from
-  their nearest ancestor that the skeleton has), scales it by XSCL × BNAM, and plays the
+  their nearest ancestor that the skeleton has, else from their `Prn` bone as ordinary
+  children, actors.md §10.2), scales it by XSCL × BNAM, and plays the
   skeleton's `mtidle.kf` through the locomotion player (male body lookup, spread phase).
   `world.rs` calls it for CREA bases next to the NPC call.
 - **Also in this round**: actors and creatures that are not enabled at the start are
