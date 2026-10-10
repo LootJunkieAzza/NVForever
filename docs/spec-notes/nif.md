@@ -290,6 +290,27 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   TEST_GREATER keeps alpha strictly above the threshold; Bevy's mask keeps alpha ≥ the
   cutoff, so the cutoff moves half a step up [hypothesis]. Order-dependent blending
   remains possible for the blended shapes.
+
+  Static collections can lose the threshold [observed, `fnvtool nif decode`]: the single
+  maize plants (`landscape\plants\maize_healthyp.nif`, `maize_withered.nif` and their
+  `_group1` models) have flags 4845 (blend, test GREATER) with threshold 124, while the
+  merged rows built from them (`scol\scolmaizerow1b.nif`, `scolmaizerow2b.nif`,
+  `maizewitheredgroup2b.nif`) have the same flags with threshold 0. So by the rule above
+  the single plants are alpha-tested and the rows blended. Their texture `Maize_D.dds`
+  (DXT3) is a cut-out with soft edges: 31.8% of its texels have alpha 0, 60.2% alpha
+  255 and 8.1% lie between. Blended, the rows look right as long as nothing blended is
+  drawn over them. The terrain's texture layers were: they are blended meshes too, a
+  blended shape writes no depth, and the layers of the ground behind a row were drawn
+  after the row wherever their quadrant sorted as the nearer, which left the corn faint
+  and hid the row behind it entirely [observed: Goodsprings, `--pos -70710,-764,8350
+  --heading 175 --pitch -8 --fov 75`]. Terrain layers are now drawn before every other
+  blended mesh (docs/spec-notes/world.md §"Texture layers"); the rows are solid.
+  Whether the game writes depth for blended shapes is open; within one blended mesh
+  the triangles are drawn in their stored order.
+
+  One kind of shape is cut by alpha without a NiAlphaProperty: object LOD blocks, whose
+  shader sets BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]. The renderers
+  alpha-test those at alpha above 128 [hypothesis; evidence in world.md §7 "Objects"].
 - **Skin shader type** [observed, `crates/fnv-nif/examples/skin_survey.rs` over
   `Fallout - Meshes.bsa`]: 255 visible shapes have BSShaderPPLightingProperty shader
   type 14 (`SHADER_SKIN` [documented: nif.xml BSShaderType]); the same 255 and no others
@@ -328,6 +349,159 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   so it is not a plain colour multiplier there. How their multipliers (up to 10, e.g.
   the saloon's neon tubes ×7.5) and the 717 NiMaterialColorController / 317
   BSMaterialEmittanceMultController blocks (blinking bulbs) affect brightness is open.
+- **Multiply blend** (NiAlphaProperty with the blend bit, source factor ZERO and
+  destination factor SRC_COLOR): the frame behind the shape is multiplied by the shape's
+  colour, channel by channel, and the shape adds no light of its own [documented:
+  nif.xml AlphaFlags and AlphaFunction]. It can only darken or tint.
+
+  Survey of the 7,121 visible shapes with the blend bit in `Fallout - Meshes.bsa`
+  [observed, `crates/fnv-nif/examples/blend_survey.rs`], by source / destination factor:
+  4,616 SRC_ALPHA / INV_SRC_ALPHA, 1,730 SRC_ALPHA / ONE, 584 ZERO / SRC_COLOR, 182 ONE /
+  ONE, and 9 others (ONE / ZERO 4, ZERO / INV_SRC_ALPHA 2, SRC_ALPHA / SRC_COLOR 1,
+  SRC_COLOR / ZERO 1, ZERO / ZERO 1). The 584 multiply shapes:
+  - 578 are drawn by a BSShaderNoLightingProperty. 571 of them name no texture and carry
+    vertex colours: overlays laid on interior kit pieces (118 under `dlcanch\dungeons`,
+    110 `dlcpitt\dungeons`, 83 `dungeons\utility`, 40 `clutter\consoles`, ...). Example:
+    `utlhallsm1waypipe01.nif`, shape `UtlHallSm1WayPipe01:8`, 46 vertices, white on 31
+    (no change) and browns such as (0.54, 0.40, 0.32) and (0.33, 0.13, 0) on the rest: a
+    rust stain on the wall under the pipes. The other 7 have a texture (a shade
+    gradient, the vault projector's slides, a scope reticle).
+  - 5 are interface shapes (TileShaderProperty).
+  - 1 is drawn by a BSShaderPPLightingProperty, i.e. lit: `##SkullCap:0` of
+    `creatures\dog\rex_skullcap.nif`, the glass over Rex's brain. It is also the only one
+    of the 584 with a non-black emissive colour.
+
+  The skull caps [observed, `fnvtool nif decode`, textures decoded from the archives]:
+  - Rex: texture `rex\skullcap.dds`, one flat colour, sRGB (49, 87, 117); a flat normal
+    map with alpha 50/255; environment cube `chrome_e.dds`; no glow map. Emissive colour
+    0.190 × multiplier 12 = 2.28. A NiMaterialColorController with target colour 3
+    (TC_SELF_ILLUM [documented: nif.xml MaterialColor]) keys the emissive colour between
+    0.128 and 0.208 (39 keys, a 4.0 s loop, mean 0.158). The brain under it
+    (`##BrainMesh:0`) is opaque, emissive 0.099 × 1 keyed 0.088–0.127 the same way.
+  - The cyberdogs' caps lie in `OldWorldBlues - Main.bsa` (the two files were decoded by
+    name; that archive was not surveyed). `cpskullcap.nif` has Rex's properties with a
+    flat texture of (117, 49, 52), the same texture again in the glow slot, and emissive
+    0.816 × 12 = 9.79. `cmskullcap.nif` is unlit (BSShaderNoLightingProperty) with a flat
+    texture of (117, 102, 49).
+
+  How the renderers draw it [hypothesis]. The shape's colour is a factor, formed the way
+  the game is taken to form a lit colour, on display values: texture × (light +
+  emissive colour × emissive multiplier × glow map), and limited to 0..1 when it is
+  written. So
+  - Rex's cap, in the dark: 2.28 × (0.19, 0.34, 0.46) = (0.44, 0.78, 1.05), limited to
+    (0.44, 0.78, 1): a light blue glass. Light on the cap adds to the factor (the glass
+    clears where it is lit), and the keyed emissive colour would move the red factor
+    between 0.30 and 0.48;
+  - the police cyberdog's: 9.79 × (0.46, 0.19, 0.20)² = (2.06, 0.36, 0.41), limited to
+    (1, 0.36, 0.41): a red glass;
+  - the military cyberdog's: its texture, (0.46, 0.40, 0.19): a yellow glass.
+
+  That the three come out as blue, red and yellow glass of about the same depth is the
+  support for this reading: without the limit the red cap would double the brightness
+  of the brain behind it, and without the glow map in the product it would be clear.
+  No game screenshot was compared.
+
+  In the engine (`nif_material.wgsl`, CPU mirror `nif_material::multiply_factor`): the
+  lit colour and the emissive light are each taken to display values (gamma 2.2), summed,
+  limited to 0..1 and taken back; the emissive value of a multiply shape is raised to
+  the gamma first, so that the product with the linear texture is the display-value
+  product above (`nif_spawn::shape_emissive`). The factor is neither fogged nor
+  tonemapped: it is not light, and what lies behind already carries both [hypothesis].
+  Unlit multiply shapes draw their texture × vertex colour as the factor.
+
+  Before, the emissive light was added as light (2.28 × the *linear* texture, a factor
+  of (0.07, 0.22, 0.41)) and the factor then went through fog and the tonemapper. In
+  the King's School of Impersonation the frame was 0 over the whole cap and the brain
+  could not be seen [observed, `nvforever` screenshots]; with the rule above the brain
+  shows through a blue tint.
+
+  Open: the emissive colour controllers are not played (the stored colour is used);
+  the environment map is not drawn (it would add reflections to the factor); whether the
+  game limits the colour depends on its frame format; vertex colours enter as linear
+  factors here as on every other shape, which leaves the overlays lighter than a product
+  of display values would; ZERO / INV_SRC_ALPHA (two scope lens shapes, darkening by
+  alpha) is still drawn as a multiply by colour. The overlays are decals: see "Decal
+  flags" below (an earlier version of this note had them in the plane of the surface
+  under them and flickering against it; the survey there shows neither).
+- **Decal flags** (BSShaderFlags bit 26 `decal_single_pass` and bit 27
+  `dynamic_decal_single_pass`; BSShaderFlags2 bit 21 `alpha_decal` [documented: nif.xml,
+  schemas/nif/scene.json]). Survey of the visible shapes in `Fallout - Meshes.bsa`
+  [observed, `crates/fnv-nif/examples/decal_survey.rs`]:
+  - 2,130 shapes in 1,517 files set a decal bit: 2,089 both, 41 only bit 26, none only
+    bit 27. No visible shape sets `alpha_decal`. All 2,130 also set bit 31
+    (`zbuffer_test`); 1,958 set `zbuffer_write` (BSShaderFlags2 bit 0) and 172 do not.
+  - By shader property: 1,435 BSShaderPPLightingProperty (lit), 695
+    BSShaderNoLightingProperty; none of any other type.
+  - By blend: 1,301 alpha-tested only, 458 SRC_ALPHA / INV_SRC_ALPHA, 336 multiply, 20
+    additive, 15 neither blended nor tested. So the flags are not tied to a blend mode.
+    Of the 578 multiply shapes of BSShaderNoLightingProperty (see "Multiply blend"), 336
+    set the bits and 242 do not.
+  - What they are: dirt, stains, cracks, road markings, signs and insignia on kit
+    pieces, most under `dlc03\architecture` (250), `architecture\urban` (244),
+    `dlcanch\dungeons` (214), `dungeons\utility` (125), `dlcpitt\dungeons` (110) and
+    `dungeons\caves` (109). 120 are alone in their file (e.g.
+    `architecture\urban\decals\dirtdecal01.nif`): decals placed in the world as
+    objects, which the editor's guidance puts one unit above their surface
+    (level-design.md §7 "Clutter settling").
+  - Where they lie. For each flagged shape with another shape in its file (2,010), the
+    survey takes the centres of its triangles, finds the nearest triangle of any shape
+    without a decal bit, and takes the median distance along that triangle's normal over
+    the centres within one unit of it. **They are not in the plane of the surface: they
+    are lifted off it.** 1,473 lie in front of it: 19 by 0.001 to 0.05 units, 288 by
+    0.05 to 0.15, 638 by 0.15 to 0.3, 326 by 0.3 to 0.6 and 202 by 0.6 to 1. 16 lie in
+    the plane (within 0.001), 59 behind it, and 462 have no triangle centre within one
+    unit of another shape. The multiply overlays sit mostly at 0.1 (190 of 336 in the
+    0.05 to 0.15 bin) and the alpha-tested decals mostly at 0.2 to 0.3 (490 of 1,301 in
+    the 0.15 to 0.3 bin).
+  - Example: in `dungeons\utility\hall\utlhallsm1waypipe01.nif` the walls of shape `:0`
+    are at y = ±112. The rust stain `UtlHallSm1WayPipe01:8` (multiply, flags 0x8c000000)
+    has every vertex at y = ±111.9, 0.1 in front, and the textured decal `:24`
+    (alpha-tested, flags 0x8e000101) at ±111.8, 0.2 in front.
+  - Shapes that are in the plane: `landscape\nv_rocks\nvn_rocksloperrdrk.nif`
+    `NVN_RockSlopeRRED:2` (the ground layer on a rock slope, 204 triangles, every centre
+    within 0.0001 of the rock), `architecture\wasteland\highway\overpassroad01.nif`
+    `OverpassRoad01:61` (the road surface on the overpass, median 0, at most 0.07), and
+    the shadows under the Caravan money (`terminals\nv_caravan\currency-*.nif`, within
+    0.002).
+  - Control: the flag does not mean "lies on another shape". Of the 6,295 blended
+    shapes without a decal bit, 1,018 have a median centre distance of 0.001 or less to
+    another shape (697 of 4,146 SRC_ALPHA / INV_SRC_ALPHA, 317 of 1,710 additive),
+    against 12 of the 2,130 flagged ones. Those were not looked at.
+
+  What the game does with the bits is not known from the data [hypothesis: it draws
+  such shapes with a depth offset towards the camera; an offset of 0.1 units is below
+  the step of a 24-bit depth buffer at some distance, so the art's offset alone would
+  not hold everywhere, and the shapes in the plane need one at any distance].
+
+  How the renderers draw them [hypothesis]: a shape with either bit gets a depth offset
+  towards the camera in the rasteriser (`nif_material::decal_bias`: 64 steps of the
+  depth buffer plus one pixel's depth slope), in every pass, whatever its blend mode. In
+  the 32-bit reversed depth buffer the constant part is at most 7.6e-6 of the distance
+  to the camera (0.008 units at 1,000), so it cannot pull a decal through anything a
+  decal's own offset would not. The draw order of blended decals is not changed
+  (`StandardMaterial::depth_bias` would move it too, so the offset goes through the
+  material's pipeline key instead).
+
+  Effect [observed, `nvf-viewer --screenshot`, before and after]:
+  - the lifted decals drew correctly before: the reversed 32-bit depth buffer resolves
+    0.1 units at these distances. `utlhallsm1waypipe01.nif` differs in 8 pixels of
+    1280 × 800, and two runs of the same build in none;
+  - the shapes in the plane change: on `nvn_rocksloperrdrk.nif` the ground layer's edge
+    and on `overpassroad01.nif` the road surface's edge and one corner were partly
+    covered by the shape under them, and are whole now.
+
+  The dark jagged streaks across `utlhallsm1waypipe01.nif` in the viewer are not the
+  stain and not depth fighting. They are the pipe and cable cards of shape `:1`
+  (`PipeFlatsSheet01.dds`, alpha-tested with threshold 128, no decal bit), which stand
+  1.3 units off the walls (y = ±110.7) and are seen nearly edge-on from the viewer's
+  default camera [observed, `fnvtool nif decode`]. The offset leaves them as they were.
+
+  Open: whether the game offsets, and by how much (a screenshot of a wall stain at a
+  distance would not tell: the art's offset already holds in our depth buffer); decals
+  on a blended surface are ordered by distance only; the 1,018 unflagged blended shapes
+  that coincide with another shape; at world coordinates beyond about 65,000 units
+  single-precision positions step by 0.008 units, which leaves little of a 0.05 unit
+  offset, and no exterior decal was examined there.
 - **View-angle falloff** (BSShaderNoLightingProperty, stream version > 26) is stored as
   four floats: a start angle and a stop angle, each the cosine of an angle, and an
   "alpha falloff multiplier" opacity for each [documented: nif.xml].

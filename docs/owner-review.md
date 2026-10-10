@@ -831,6 +831,114 @@ an NPC waits until the open animation has finished. Design: `docs/design/navmesh
    `run.lock` had been held since 11:39 with no owner file and no FalloutNV or
    nvforever process running (stale-looking); removed at your request (15:45).
 
+## AI packages (2026-10-10, steps 1 to 4b of the plan)
+
+Facts and figures: `docs/spec-notes/packages.md`; design and the decisions taken:
+`docs/design/actor-behaviour.md` (§6). Branch `claude/ai-packages`.
+
+1. **Done:** every AI package record of the six masters decodes (step 1), and the game
+   data now holds each package as typed data: type, flags, where, what it targets, when,
+   its conditions and the per-type extras (step 2; `fnv_game::package`). Nothing uses
+   the new fields for choosing a package yet: that is step 3.
+2. **Checked against your observer captures** (eleven Goodsprings runs, 354,983 actor
+   samples; `fnvtool ai observed`): the game reported the expected package type for
+   every one of the 30 packages seen (10 of the 15 types), the record's target whenever
+   it named a reference, and 39 of 42 actor/package pairs came from the actor's list
+   (the other three are packages scripts add).
+3. **A documented rule the game narrows:** the wiki says a patrol is skipped when the
+   actor has no linked reference. Victor has none and patrols all day: his patrol names
+   a marker and follows the markers linked from it. Only patrols located "near linked
+   reference" (the default patrols) need the actor's own link.
+4. **Corrected from step 1:** "location 2" was counted twice (each record stores it in
+   two identical copies): 236 packages have one, not 472.
+5. **Would help if captured:** an actor running Find, Follow, Escort, Wander, Use Item
+   At or Use Weapon packages (their in-game type codes are paired by name only; set
+   aside at your request), and the sandbox settings (`GetGameSetting`), as noted for
+   step 1.
+6. **Step 3, done:** actors now choose their package as the game does: by the hour
+   (a package runs from its starting hour for its duration), top to bottom, skipping
+   packages that need a linked reference the actor lacks, with Once Per Day, Must
+   Complete and Continue If PC Near. `fnvtool ai day --actor EasyPeteRef` prints an
+   actor's day. Replayed over your captures, the choice matches wherever quest state
+   does not decide (186,563 samples the same; 51 differ, all in the seconds a switch
+   takes).
+7. **Taken from your captures, not from the documentation:** an actor with no valid
+   package keeps the one it has (a Goodsprings settler sandboxes all night because its
+   sleep package's conditions fail). And a rule the documentation states that the
+   captures contradict, left as it was: a script package without Must Complete is said
+   to end at the next evaluation, but Ringo's ran for 887 samples.
+8. **Captures that would settle open points:** the evaluation interval at a timescale
+   other than 30, and an actor under a Once Per Day or Must Complete package.
+9. **Step 4, done headless:** an actor now goes where its package sends it, over the
+   navmesh and through doors, and the game is told when it arrives (new crate `fnv-ai`).
+   `fnvtool ai run --actor EasyPeteRef --start-hour 6` shows his day: chair, bed, chair,
+   the saloon at noon, chair, bed, each walk with its doors and length. Started from
+   your captures, the simulated actors are in the same cell as in the game 91–100% of
+   the time (Chet, Ringo, two settlers, Easy Pete, Cheyenne).
+10. **Can every actor get where its packages send it?** `fnvtool ai reach` answers for
+    the whole game in 16 seconds: of the 9,938 destinations it can judge, 9,434 are
+    reachable (up to eight doors away) and 504 are not.
+11. **Notes to look into** (the full list of twenty: `docs/design/actor-behaviour.md`
+    §7). The ones that matter most:
+    - 200 destinations have no chain of doors (Primm deputies, Nellis tower guards, Yes
+      Man walking to his terminal): ladders, lifts, quest-enabled navmeshes or doors?
+    - 112 are behind doors a quest unlocks; game-side lock changes do not reach the nav
+      graph yet.
+    - 186 actors are placed with no navmesh within 512 units.
+    - Patrols do not wait at their points (Victor matches his capture only a third of
+      the time); sandboxing is "go there and stay" (no wandering, sitting, sleeping in
+      beds).
+    - What the game does when a package cannot be carried out is unknown; we set it
+      aside for an hour and take the next one.
+    - Not carried out yet: Follow, Accompany, Escort, Find, Use Item At, Use Weapon,
+      Dialogue, Ambush and Flee packages (1,107 actor/package pairs).
+12. **Step 4b, done: NPCs live by their packages in `nvforever`.** Try
+    `nvforever --data <Data> --cell Goodsprings --npc-packages EasyPeteRef --hour 11.8
+    --follow-npc`: at noon Easy Pete gets up from his chair and walks into the saloon to
+    eat; with `--hour 21.9` and `EasyPeteRef,GSChetRef,GoodspringsSettler04Ref` the town
+    goes to bed. Limits: only the actors you name; their package choice runs in a game
+    state of its own, so in `--play` quests do not affect it yet; they walk on the
+    navmesh without physics (design §5.4).
+13. **Your question about Doc Mitchell's route** (he leaves his room through the living
+    room instead of the doorway beside him): it is the game's navmesh, not the test or
+    our pathfinder. The house's navmesh has no triangles in that doorway (a gap of about
+    50 units, read straight from FalloutNV.esm), though the doorway is physically open.
+    I could not confirm what the original game's NPCs do there: the captures only have
+    Doc standing still. Watching an NPC walk through that house in the game, or the
+    cell's navmesh in the GECK, would settle it (design §7, note 21).
+
+14. **Step 4c, done:** `--npc-packages all` hands every actor of the loaded cells to the
+    package layer; with `--play` the choice uses the game's own state (quests, deaths,
+    menus pausing it); and near the player actors are moved by the character controller
+    (they go round furniture and follow the floor), falling back to the navmesh surface
+    when stuck and for the last steps to a chair or bed.
+15. **A change you will see in `--play`: the sky now follows the game's clock.** Time
+    passes at the game's TimeScale (one game hour in two minutes), starting at `--hour`.
+    `--still-sky` gives the old fixed sky back. Say if you would rather have it off by
+    default.
+16. **Your rewrite of `main`'s history** (commits re-authored with the GitHub noreply
+    address) left `claude/ai-packages` on the old history. This work is now one commit
+    on the new history, on **`claude/ai-packages-v2`** (same files; authored with the
+    noreply address). I did not touch the old remote branch `claude/ai-packages`: it
+    still holds the old commits with the old address, so you will want to delete it.
+    Other old-history branches on the remote are in the same position.
+17. **Furniture with the package routines (your request, 2026-10-10):** residents now use
+    the furniture from main. Easy Pete sits in his porch chair, gets up at noon, sits at
+    his booth in the saloon, and at night lies down on his bed; the walk to the next
+    place waits until he is up. The rule for chairs comes from your captures (the game
+    reported him sitting under those packages); beds for Sleep packages and seats for
+    Eat packages follow the documentation. Not done: sandboxing actors picking
+    furniture on their own, and actors that arrive unseen are seated only once drawn.
+18. **Sandboxing (your request, 2026-10-10):** actors under Sandbox and Wander packages
+    now do things in their area: walk about, sit on seats, stand at idle markers, go to
+    bed at night and take meals, as the package's flags allow. The six behaviour flags
+    are read and five are acted on. **Conversation is read but not carried out** (no
+    NPC-to-NPC talk yet), and so are Random Conversations, Idle Chatter, No Idle Anims
+    and the package's own idles: nothing plays idle animations yet. The sleep and meal
+    hours are the documented ones; how long an actor sits or stands, and how it scores
+    what is around it, are my numbers until a capture shows the game's (design §5.5).
+    Patrols now wait at their points for the point's idle time.
+
 ## Loading screens (2026-10-10, session "loading screen")
 
 Your request: pause and show a loading screen when changing cell, everything on hold
@@ -1088,7 +1196,7 @@ docs/spec-notes/actors.md §10.2 and §10.5.
    face would confirm it.
 4. **Seen on the way, not touched:** Rex's glass skull cap is drawn solid black, so the
    brain under it cannot be seen (a material problem, not a placement one; notes in
-   §10.5).
+   §10.5). Fixed since: see "Rex's glass skull cap" below.
 
 ## Sunny Smiles' face shape and shiny hair (2026-10-10, session "face shape")
 
@@ -1119,6 +1227,81 @@ ours after; `saloon_before_after.png`: Sunny, Trudy, Joe Cobb, a settler;
    picture. `--no-race-facegen` shows the old faces for comparison.
 6. Your other request, the dogs' eyes, was done separately: the "Dog eyes" section
    above (#145).
+
+## Rex's glass skull cap (2026-10-10, session "skull cap")
+
+Facts and the survey: docs/spec-notes/nif.md §6 "Multiply blend", actors.md §10.5.
+
+1. **Fixed, cause:** the cap is the game's one lit shape that *multiplies* what is behind
+   it by its own colour (584 shapes use that blend in the base meshes; the other 583 are
+   unlit stains, shades and interface parts). Its colour comes almost entirely from a
+   strong glow setting on a flat blue texture. We were adding that glow as light and then
+   fogging and tonemapping the result, which left a factor so dark that the cap came out
+   black in the King's School. The cap's colour is now worked out as a factor: Rex's
+   leaves about 44% of the red, 78% of the green and all of the blue of what is behind
+   it, so the brain shows through a light blue glass.
+2. **Please check against the game:** I had no base-game screenshot of Rex's head, so
+   the tint's colour is from the data but its strength rests on my reading of how the
+   game combines the glow with the texture. A close screenshot of Rex's head in the
+   King's School (or outside in daylight) would settle it. If the glass looks darker or
+   clearer in the game, that one rule changes; the placement and the blend do not.
+3. **Not built:** the cap and the brain pulse in the game's data (a four-second glow
+   loop) and the cap carries a chrome reflection map. Neither is drawn yet, so the cap
+   is steady and has no reflections.
+4. **Applies to the cyberdogs too, not looked at:** by the same rule the police
+   cyberdog's cap is a red glass and the military one a yellow glass. Both are Old World
+   Blues models; I decoded those two files by name and did not open them in the engine.
+5. **Seen on the way, and wrong (corrected 2026-10-10, see "Decals" below):** I wrote
+   here that the unlit stain overlays in interior kit pieces (for example the rust under
+   the pipes of the utility halls) flicker against the wall they lie on. They do not.
+
+## See-through corn (2026-10-10, session "skull cap", your screenshot at Goodsprings)
+
+Facts: docs/spec-notes/nif.md §6 "Alpha" (last paragraph), world.md "Texture layers".
+
+1. **Fixed, cause:** the ground's texture layers are drawn as see-through sheets over
+   the base ground. The corn *rows* (the merged models, not the single plants) are also
+   drawn see-through, with soft leaf edges, and such models leave no depth behind. So
+   whenever the ground piece behind a row counted as nearer than the row, its layers
+   were painted on top of the corn. That made the near row faint and hid the row behind
+   it completely. Ground layers are now always drawn before any other see-through
+   model. Checked from your position: both rows are solid, and the ground is unchanged.
+2. **Wider than corn:** the same fault could fade any see-through model seen against
+   the ground (dirty glass, some signs). They get the fix too. I did not go looking for
+   other cases.
+3. **Left as it is:** the rows stay soft-edged (blended) while the single plants are
+   hard-edged (cut out), because the merged models store a cut-off of 0 where the single
+   plant stores 124. If the rows look different from the single plants in the game in a
+   way that matters, say so and I will draw the rows cut out as well.
+
+## Decals: stains, dirt and markings on walls and roads (2026-10-10, session "decals")
+
+Facts and the survey: docs/spec-notes/nif.md §6 "Decal flags".
+
+1. **The reported fault was not one.** The task was "stain overlays lie in the plane of
+   the wall and flicker against it". The survey says otherwise: of 2,130 shapes marked
+   as decals in the base meshes, almost all are modelled a little in front of their
+   surface (the rust stain in the utility hall by exactly 0.1 units, most others by 0.2
+   to 0.3), and our depth buffer tells that apart without help. The dark jagged streaks
+   in the viewer's picture of that hall piece are something else: thin pipe and cable
+   cards standing 1.3 units off the wall, seen edge-on from the viewer's default camera.
+2. **Changed anyway, small:** shapes marked as decals are now drawn a hair nearer to the
+   camera than their geometry says, so they always win against the surface under them.
+   This matters for the few decals that really are in the plane of their surface. Seen
+   in the viewer on two of them: the ground layer on a red rock slope and the road
+   surface on a highway overpass each had a ragged or partly missing edge, and are whole
+   now. The hall piece is unchanged (8 pixels of the picture differ).
+3. **A guess, not a finding:** that the game itself offsets marked decals is my reading
+   of what the mark is for. The data shows which shapes carry the mark and where they
+   lie, not what the game does with it. The offset is far smaller than the distance the
+   decals are lifted by, so it cannot make one show through something in front of it.
+4. **Not looked at:** about a thousand see-through shapes that are *not* marked as
+   decals also coincide with another shape (glows and glass over the same triangles,
+   most likely). Whether any of them draws wrongly is unknown.
+5. **For you, if you care:** the cable cards in the hall piece look broken from outside
+   the hall and at a steep angle. From inside, facing the wall, they should read as
+   pipes and cables. If they look jagged in play, that is a separate texture-filtering
+   question.
 
 ## Grass (2026-10-10, session "grass")
 

@@ -8,7 +8,7 @@
 //! by −90° about X.
 
 use crate::data::GameData;
-use crate::nif_material::{nif_material, Falloff, NifMaterial};
+use crate::nif_material::{multiply_emissive, nif_material, Falloff, NifMaterial};
 use crate::texture::TextureCache;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -103,6 +103,11 @@ pub(crate) struct Props {
     falloff: Option<Falloff>,
     /// BSShaderFlags bit 29 "External_Emittance" [documented: nif.xml].
     external_emittance: bool,
+    /// A decal shader flag is set ([`is_decal`]).
+    decal: bool,
+    /// BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]: object LOD block
+    /// geometry, cut out by its atlas's alpha (`shape_alpha_mode`).
+    lod_building: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -154,6 +159,17 @@ fn glow_map(shader_flags: i64, textures: &[String]) -> Option<String> {
     textures.get(2).filter(|t| !t.is_empty()).cloned()
 }
 
+/// The shape is a decal: BSShaderFlags bit 26 "Decal_Single_Pass" or bit 27
+/// "Dynamic_Decal_Single_Pass" [documented: nif.xml BSShaderFlags]. 2,130 visible shapes
+/// in `Fallout - Meshes.bsa` set one (41 only bit 26, none only bit 27): dirt, stains,
+/// cracks, markings and insignia laid 0.05 to 1 unit in front of another shape of their
+/// file, a few exactly in its plane [observed: `crates/fnv-nif/examples/decal_survey.rs`,
+/// docs/spec-notes/nif.md §6 "Decal flags"]. They are drawn with a depth offset towards
+/// the camera (`nif_material::decal_bias`) [hypothesis].
+pub(crate) fn is_decal(shader_flags: i64) -> bool {
+    shader_flags & (1 << 26 | 1 << 27) != 0
+}
+
 fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     let Some(s) = dec.get(r) else { return };
     let ty = file.blocks[r as usize].type_name.as_str();
@@ -173,6 +189,8 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.hair = flags & (1 << 18) != 0;
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
         p.external_emittance = flags & (1 << 29) != 0;
+        p.decal = is_decal(flags);
+        p.lod_building = s.int("shader_flags_2").unwrap_or(0) & (1 << 2) != 0;
         p.falloff = None;
     }
     match ty {
@@ -253,6 +271,28 @@ pub(crate) fn alpha_mode(flags: i64, threshold: i64) -> AlphaMode {
     }
 }
 
+/// Alpha cutoff for object LOD geometry: alpha above 128 is drawn [hypothesis: the game's
+/// value is not known; 128 with TEST_GREATER is the most common setting of the
+/// alpha-tested `*_lod.nif` meshes, 45 of 128 shapes, and `watertower01_lod.nif` has 127;
+/// observed: `crates/fnv-nif/examples/lod_alpha_survey.rs`].
+pub(crate) const LOD_BUILDING_CUT: f32 = 128.5 / 255.0;
+
+/// How a shape's alpha is drawn: by its NiAlphaProperty when it has one. Without one,
+/// shapes whose shader sets "LOD_Building" are alpha-tested at [`LOD_BUILDING_CUT`]
+/// [hypothesis, docs/spec-notes/world.md §7 "Objects": all 355 object LOD block shapes
+/// in `Fallout - Meshes.bsa` set the flag (no other shape does) and none has a
+/// NiAlphaProperty, yet their atlases carry cut-outs in alpha (trees, pylons, the water
+/// tower's legs: 14% of `WastelandNV.Buildings.dds` is alpha 0, near black in colour);
+/// drawn opaque those were black boxes on the hills around Goodsprings]. Everything else
+/// without the property is opaque.
+pub(crate) fn shape_alpha_mode(props: &Props) -> AlphaMode {
+    match props.alpha {
+        Some((flags, threshold)) => alpha_mode(flags, threshold),
+        None if props.lod_building => AlphaMode::Mask(LOD_BUILDING_CUT),
+        None => AlphaMode::Opaque,
+    }
+}
+
 /// Properties of a shape: its ancestors' first, then its own.
 pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_block: &HashMap<usize, &SceneObject>) -> Props {
     let mut chain = vec![o.block];
@@ -324,6 +364,18 @@ pub(crate) fn shape_falloff(props: &Props, alpha_mode: AlphaMode) -> Option<Fall
     props.falloff.filter(|_| matches!(alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied))
 }
 
+/// Emitted light of a shape: emissive colour × emissive multiplier (× the glow map and the
+/// surface colour in the shader) [hypothesis, docs/spec-notes/nif.md §6 "Emissive light"],
+/// `None` when the colour is black. A multiply-blended shape's light is part of the factor
+/// it puts on what lies behind it, which is formed in display values, so its value is
+/// raised to the display gamma ([`multiply_emissive`], nif.md §6 "Multiply blend").
+pub(crate) fn shape_emissive(props: &Props, alpha_mode: AlphaMode) -> Option<LinearRgba> {
+    let e = props.emissive.filter(|e| e.iter().any(|&c| c > 0.0))?;
+    let m = props.emissive_mult.unwrap_or(1.0).max(0.0);
+    let value = |c: f32| if matches!(alpha_mode, AlphaMode::Multiply) { multiply_emissive(c * m) } else { c * m };
+    Some(LinearRgba::rgb(value(e[0]), value(e[1]), value(e[2])))
+}
+
 /// The material for a shape's properties; also returns the base texture path when it
 /// could not be loaded. Adds tangents to `mesh` when a normal map is used.
 pub(crate) fn shape_material(
@@ -340,15 +392,11 @@ pub(crate) fn shape_material(
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
     let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
-    let alpha_mode = props.alpha.map_or(AlphaMode::Opaque, |(flags, threshold)| alpha_mode(flags, threshold));
+    let alpha_mode = shape_alpha_mode(props);
     let gloss = props.glossiness.unwrap_or(10.0);
-    // Emitted light = emissive colour × emissive multiplier × glow map, or uniform without
-    // a glow map [hypothesis, docs/spec-notes/nif.md §6 "Emissive light"]. Not scaled by
-    // the camera exposure (Bevy's default emissive_exposure_weight 0).
-    let emissive = props.emissive.filter(|e| e.iter().any(|&c| c > 0.0)).map(|e| {
-        let m = props.emissive_mult.unwrap_or(1.0).max(0.0);
-        LinearRgba::rgb(e[0] * m, e[1] * m, e[2] * m)
-    });
+    // Emitted light × glow map, or uniform without a glow map. Not scaled by the camera
+    // exposure (Bevy's default emissive_exposure_weight 0).
+    let emissive = shape_emissive(props, alpha_mode);
     let glow = emissive.and(props.glow.as_deref()).and_then(|t| textures.get(t, true, data, images, formats));
     let (reflectance, masked) = specular(props, normal.is_some());
     let material = StandardMaterial {
@@ -374,6 +422,7 @@ pub(crate) fn shape_material(
     if let Some(f) = shape_falloff(props, alpha_mode) {
         material.extension.falloff = f.params;
     }
+    material.extension.decal = props.decal;
     (material, missing)
 }
 
@@ -668,6 +717,17 @@ mod tests {
     }
 
     #[test]
+    fn lod_building_is_alpha_tested() {
+        // Object LOD blocks: the flag and no NiAlphaProperty.
+        let block = Props { shader: true, has_properties: true, lod_building: true, ..Default::default() };
+        assert!(matches!(shape_alpha_mode(&block), AlphaMode::Mask(t) if (t - 128.5 / 255.0).abs() < 1e-6));
+        // A NiAlphaProperty wins; without the flag nothing is cut.
+        assert!(matches!(shape_alpha_mode(&Props { alpha: Some((0x12ED, 0)), ..block.clone() }), AlphaMode::Blend));
+        assert!(matches!(shape_alpha_mode(&Props { lod_building: false, ..block }), AlphaMode::Opaque));
+        assert!(matches!(shape_alpha_mode(&Props { alpha: Some((4844, 64)), ..Default::default() }), AlphaMode::Mask(_)));
+    }
+
+    #[test]
     fn falloff_only_when_blended() {
         let props = Props { falloff: Falloff::from_fields(0.985, 0.174, 1.0, 0.0), ..Default::default() };
         assert!(shape_falloff(&props, AlphaMode::Add).is_some());
@@ -675,6 +735,25 @@ mod tests {
         assert!(shape_falloff(&props, AlphaMode::Opaque).is_none());
         assert!(shape_falloff(&props, AlphaMode::Mask(0.5)).is_none());
         assert!(shape_falloff(&Props::default(), AlphaMode::Add).is_none());
+    }
+
+    #[test]
+    fn multiply_blended_emissive() {
+        // Rex's skull cap (rex_skullcap.nif `##SkullCap:0`): NiAlphaProperty flags 4163
+        // (blend, source ZERO, destination SRC_COLOR), emissive 0.19 × 12.
+        let cap = Props { alpha: Some((4163, 0)), emissive: Some([0.190_283_18; 3]), emissive_mult: Some(12.0), ..Default::default() };
+        let mode = alpha_mode(4163, 0);
+        assert!(matches!(mode, AlphaMode::Multiply));
+        // Its light is a display-value factor of 2.28 on the texture, 2.28^2.2 in linear.
+        let e = shape_emissive(&cap, mode).unwrap();
+        assert!((e.red - 2.283_398_f32.powf(2.2)).abs() < 1e-3 && e.red == e.green && e.green == e.blue);
+        // The same material on a shape that is not multiply-blended keeps the plain product.
+        assert!((shape_emissive(&cap, AlphaMode::Blend).unwrap().red - 2.283_398).abs() < 1e-5);
+        assert!((shape_emissive(&cap, AlphaMode::Opaque).unwrap().red - 2.283_398).abs() < 1e-5);
+        // A black emissive colour emits nothing, whatever the multiplier.
+        let dark = Props { emissive: Some([0.0; 3]), emissive_mult: Some(10.0), ..Default::default() };
+        assert!(shape_emissive(&dark, mode).is_none());
+        assert!(shape_emissive(&Props::default(), mode).is_none());
     }
 
     #[test]
@@ -687,6 +766,22 @@ mod tests {
         // A shader property, or a texture from NiTexturingProperty: drawn.
         assert!(!Props { shader: true, ..material_only.clone() }.is_helper());
         assert!(!Props { textures: vec!["textures\\a.dds".into()], ..material_only }.is_helper());
+    }
+
+    #[test]
+    fn decal_flags() {
+        // utlhallsm1waypipe01.nif: the rust stain `:8` (bits 26, 27 and 31) and the
+        // alpha-tested decal `:24` are decals, the wall `:0` and the pipe cards `:1` not.
+        assert!(is_decal(0x8c00_0000));
+        assert!(is_decal(0x8e00_0101));
+        assert!(!is_decal(0x8200_0001));
+        assert!(!is_decal(0x8200_0101));
+        // Either bit alone (creatures\protectron\decalflame.nif sets only bit 26).
+        assert!(is_decal(1 << 26));
+        assert!(is_decal(1 << 27));
+        assert!(!is_decal(0xffff_ffff & !(1 << 26 | 1 << 27)));
+        // The flags reach the material's properties from the shader property.
+        assert!(!Props::default().decal);
     }
 
     #[test]

@@ -576,9 +576,12 @@ pub fn reset_health(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String>
 pub fn add_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let p = a.form(0)?;
-    let e = g.extra.entry(r).or_default();
-    e.packages.push(p);
-    e.current_package = Some(p);
+    g.extra.entry(r).or_default().packages.push(p);
+    if g.runs_packages() {
+        g.set_package(r, Some(p));
+    } else {
+        g.extra.entry(r).or_default().current_package = Some(p);
+    }
     g.stub_note(ctx, a.0);
     none()
 }
@@ -589,7 +592,11 @@ pub fn remove_script_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value,
     let r = ctx.subject()?;
     if let Some(e) = g.extra.get_mut(&r) {
         e.packages.pop();
-        e.current_package = None;
+        if !g.runs_packages() {
+            g.extra.entry(r).or_default().current_package = None;
+        } else {
+            g.evaluate_package(r);
+        }
     }
     g.stub_note(ctx, a.0);
     none()
