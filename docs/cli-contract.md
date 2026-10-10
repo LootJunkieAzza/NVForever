@@ -399,6 +399,16 @@ docs/spec-notes/actors.md §10.4 together with the creature notes.
 and unequip clips with their `prn:` keys and track priorities, and the weapon each placed
 NPC draws) is defined in docs/spec-notes/actors.md §9.5 together with the weapon notes.
 
+# Dialogue voice
+
+`fnvtool voice line` (`fnv.voice.line/1`: a line's sound files per voice type and their
+lengths), `voice coverage` (`fnv.voice.coverage/1`: the voice files of an install against
+the lines of a load order) and `voice length` (`fnv.voice.length/1`: the headers of loose
+sound files) are defined in docs/spec-notes/voice.md §10 together with the voice notes.
+`fnvtool script run` and `fnvtool dialogue talk` read voice file lengths by default
+(`--no-voice-lengths` or `FNVTOOL_VOICE_LENGTHS=0` keep the fitted line length; voice.md
+§8).
+
 # Navigation (navmeshes)
 
 `fnvtool nav survey` (`fnv.nav.survey/1`), `nav graph` (`fnv.nav.graph/1`), `nav near`

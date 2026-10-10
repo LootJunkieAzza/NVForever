@@ -22,6 +22,7 @@ mod phys_cmd;
 mod script_cmd;
 mod sim_cmd;
 mod source;
+mod voice_cmd;
 mod world_cmd;
 
 use clap::{Args, Parser, Subcommand};
@@ -94,6 +95,9 @@ enum Cmd {
     /// Navmeshes: records, the nav graph, paths and path-following walks.
     #[command(subcommand)]
     Nav(nav_cmd::NavCmd),
+    /// Dialogue voice files: a line's sound path and length, coverage over a load order.
+    #[command(subcommand)]
+    Voice(voice_cmd::VoiceCmd),
 }
 
 #[derive(Subcommand)]
@@ -702,6 +706,7 @@ fn main() -> ExitCode {
         Cmd::Actor(c) => actor_cmd::run(c),
         Cmd::Combat(c) => combat_cmd::run(c),
         Cmd::Nav(c) => nav_cmd::run(c),
+        Cmd::Voice(c) => voice_cmd::run(c),
     };
     match res {
         Ok(v) => {
