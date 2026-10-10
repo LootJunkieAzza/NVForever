@@ -178,6 +178,13 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
   and down, down the sights at 60° up and down, and while firing at 60° up and 45° down
   (`2hrattack8.kf` with `2hrattack8up.kf`/`down`). Walking or running with the rifle
   out the body does not bend with the pitch (open question 5).
+- Minigun idle (2026-10-10, owner report with screenshots: right while firing at any
+  pitch, but idle the left hand is too high, off the handle): `2hhaim.kf` does not
+  drive the `Weapon` node and ours put it back at its bind pose (animation.md §9.7).
+  After the fix [observed: screenshots from the front-left with `orbit=120:<minus the
+  pitch>`, minigun `0000433F` and 9mm pistol `000E3778`]: idle, level and 50° up and
+  down, the left hand is on the top handle as while firing, the same after firing
+  stops and while running; the pistol is held as before.
 
 ## 5. Open questions for the owner
 

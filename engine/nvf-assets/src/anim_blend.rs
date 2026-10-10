@@ -113,6 +113,8 @@ pub struct Animator {
     pub locals: Vec<Transform>,
     /// Nodes held at the identity (the accumulation root).
     held: Vec<usize>,
+    /// Nodes with a rest pose of their own in place of the bind pose ([`Self::set_rest`]).
+    rest: Vec<(usize, Transform)>,
     scratch: Vec<Contribution>,
 }
 
@@ -122,7 +124,17 @@ impl Animator {
     pub fn new(skel: Arc<PreparedSkeleton>, nodes: Vec<Entity>, accum_root: Option<&str>) -> Animator {
         let held = accum_root.and_then(|r| clip_target(&skel, r)).into_iter().collect();
         let locals = skel.locals.clone();
-        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, held, scratch: Vec::new() }
+        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, held, rest: Vec::new(), scratch: Vec::new() }
+    }
+
+    /// Give `node` a rest pose in place of its bind pose (`None`: the bind pose again):
+    /// what it takes where no clip drives it, and what fills the part of it that the
+    /// clips leave free.
+    pub fn set_rest(&mut self, node: usize, pose: Option<Transform>) {
+        self.rest.retain(|(n, _)| *n != node);
+        if let Some(p) = pose {
+            self.rest.push((node, p));
+        }
     }
 
     /// Start of a frame's requests: every layer not asked for again by [`Self::end`] fades
@@ -244,16 +256,21 @@ impl Animator {
             }
         }
         self.scratch.sort_unstable_by_key(|c| (c.bone, Reverse(c.priority)));
-        // Bones without tracks: the bind pose; held nodes: the identity.
+        // Bones without tracks: the bind pose, or their own rest pose; held nodes: the
+        // identity.
         self.locals.clone_from(&skel.locals);
         for &h in &self.held {
             self.locals[h] = Transform::IDENTITY;
+        }
+        for &(n, pose) in &self.rest {
+            self.locals[n] = pose;
         }
         let phase = self.phase;
         let mut i = 0;
         while i < self.scratch.len() {
             let bone = self.scratch[i].bone as usize;
-            let bind = skel.locals[bone];
+            // The bone's rest pose (set above).
+            let bind = self.locals[bone];
             let (mut t, mut q, mut s) = (Vec3::ZERO, Vec4::ZERO, 0.0f32);
             let mut first: Option<Vec4> = None;
             let mut free = 1.0f32;
@@ -481,6 +498,25 @@ mod tests {
         assert!((t.x - 5.0).abs() < 0.5 && (t.y - 5.0).abs() < 0.5, "{t}");
         let t = step(&mut a, 1.0, None, 1.0);
         assert_eq!(t, Vec3::new(10.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn a_rest_pose_stands_in_for_the_bind_pose() {
+        let mut a = animator();
+        let rest = Transform::from_xyz(0.0, 0.0, 7.0);
+        a.set_rest(3, Some(rest));
+        a.pose();
+        assert_eq!(a.locals[3], rest, "no clip drives the node");
+        // A clip on it, half faded in: the rest pose fills the other half.
+        let c = clip(&[("B", [0.0, 0.0, 1.0], 30)], 1.0);
+        a.want(&c, 0, 1.0, Mode::Loop, 0.0);
+        a.layers[0].ease = 0.5;
+        a.pose();
+        assert!((a.locals[3].translation.z - 4.0).abs() < 1e-5, "{}", a.locals[3].translation);
+        a.layers.clear();
+        a.set_rest(3, None);
+        a.pose();
+        assert_eq!(a.locals[3].translation, Vec3::new(0.0, 2.0, 0.0), "the bind pose again");
     }
 
     #[test]

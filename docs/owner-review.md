@@ -1571,3 +1571,28 @@ the further up or down you look, from the hip and down the sights. Branch
    in between (half way at 45°). The rifle files support 90° (the back bends three
    times 30°). A game screenshot looking about 45° up, from the side, would check the
    in-between.
+
+## Minigun: left hand on the handle when not firing (2026-10-10, session "two-hand aim")
+
+Your report: with the minigun, firing looks right at any angle, but when just holding it
+the left hand is too high. Branch `claude/weapon-rest-pose`. Facts:
+`docs/spec-notes/animation.md` §9.7. Pictures: `C:\fnv-private\references\two_hand_aim\`
+(`minigun_*.png`, `pistol_after.png`).
+
+1. **Cause:** the arms were right all along: the holding pose and the firing pose have
+   the same arms. The difference was the gun. The animations for drawing, firing and
+   reloading the minigun say where the gun sits in the right hand; the holding and
+   walking animations do not. When none said, we put the gun back at a default spot in
+   the hand, which turned it away from the left hand.
+2. **Fix:** while a weapon is out, it stays where its draw animation left it unless
+   an animation says otherwise. This also applies to the flamer and gatling laser (same
+   animations) and to pistols, whose holding animation is silent in the same way.
+3. **Checked in ours:** minigun held level and looking 50° up and down, firing, after
+   firing stops, and running: the left hand stays on the top handle and nothing jumps
+   when firing stops. The 9mm pistol looks as before.
+4. **Found on the way, not built yet (your earlier question about the holstered
+   minigun):** the game's files switch the gun part of the minigun, flamer and gatling
+   laser off while holstered and on again half a second into the draw, and the
+   minigun's backpack is a separate part meant for the upper back. Ours does not read
+   either yet, so what you see holstered is not built on purpose. A game screenshot of
+   the minigun holstered and drawn, from behind, would confirm what to build.
