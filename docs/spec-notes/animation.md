@@ -596,6 +596,15 @@ track) on `Fallout - Meshes.bsa` and `Update.bsa`.
   - The `Loop` key is on the `attackspin` clips only: 30 of the 938 clips directly in
     `characters\_male` (`1hm`, `2hm` and `2hh`; `attackspin` and `attackspin2`, with
     their up, down and sneak forms), each with a `Fire` key before it.
+  - The keys' meaning [documented: GECK wiki NiTextKeyExtraData, owner export; quoted
+    in docs/design/combat.md §4.2]: `Fire` works like `Hit` (the shot leaves) and also
+    starts the internal loop of a clamped sequence; `Loop` jumps back to it. The
+    barrel's speed above fits: the steady part is the loop.
+  - On the owner's install the engine resolves a different `2hhattackspin.kf`, in both
+    folders [observed: the body's debug line, which now gives each chosen clip's length
+    and keys]: 1.733 s long, `Fire` at 0.200 s, `Loop` at 0.867 s. A later archive of
+    the install overrides the base file; which one was not looked up, and that file
+    was not measured (surveys read the base archives only).
 - One clip carries the tracks for the parts of every weapon of its type; a weapon takes
   the tracks whose names its model has. Which clip plays comes from the WEAP record
   (attack and reload animation), so two weapons of one type can move differently.
@@ -605,8 +614,7 @@ track) on `Fallout - Meshes.bsa` and `Update.bsa`.
   (`##Display01:0`) and `NiGeomMorpherController` (`##dgRubberBand:0`).
 - Reading [hypothesis]: the weapon model is attached below the skeleton's `Weapon` node
   and the clip's tracks find their targets by name in the whole tree, the weapon's nodes
-  included. While the trigger is held the game repeats the part of an `attackspin`
-  clip from `Fire` to `Loop`, and plays the rest when it is let go.
+  included.
 - Engine (since 2026-10-10):
   - a prepared model keeps its nodes below the root and each shape's node and own
     transform (`nvf_assets::model::PreparedModel::nodes`, `PreparedShape::node`, `own`);
@@ -618,8 +626,16 @@ track) on `Fallout - Meshes.bsa` and `Update.bsa`.
   - an attack clip with a `Loop` key is not started again by the shots that follow
     while it runs; it goes round from its `Fire` key to its `Loop` key while shots come
     no more than 0.25 s apart [engineering choice], then plays out from where it is
-    (`nvforever::player_body`, `LOOP_HOLD`). A shot during the way out takes it back
-    into the repeated part [engineering choice];
+    (`nvforever::player_body`, `LOOP_HOLD`);
+  - spin-up [owner decision 2026-10-10]: an automatic weapon with such a clip fires its
+    first shot at the clip's `Fire` key. On the pull, combat starts the spin-up
+    (`fnv_combat::attack`, `Phase::SpinUp`, `Event::SpinUp`) and the body starts the
+    clip from its beginning (`WeaponAnim::spin_ups`), so the shot and the key meet;
+    the shots then come at the weapon's rate while the trigger stays held. Letting go
+    before the first shot fires nothing and the clip plays out; every new pull, and
+    firing on after a reload, spins up again [design]. The time is the key's time in
+    the clip the rig in view resolves, not scaled by the weapon's animation
+    multipliers, because the body plays attack clips at their own speed;
   - the body's once-a-second debug line lists the parts the clips hold away from their
     place, and each attack or reload clip that starts lists the parts it moves
     (`RUST_LOG=info,nvforever::player_body=debug`).
@@ -632,11 +648,15 @@ track) on `Fallout - Meshes.bsa` and `Update.bsa`.
     left hand, and at 0.6 s the hand is bringing it back up. The clips report
     `##Hammer`, `##Slide`, `##Trigger` (attack) and `##Clip`, `##Hammer`, `##Slide`
     (reload; the third-person clip `##Clip`, `##Slide`).
-  - Minigun (`0000433F`), trigger held 4 s (80 shots): `AttackSpin` stays for the
-    whole burst and about a second after it (the spin-down), with the barrel at a
-    different angle in each status line (46°, 141°, 45°, 70°, 170°, 148°), then the
-    barrel is back at its place. Before, each shot started the clip again, so it never
-    got past its first twentieth of a second.
+  - Minigun (`0000433F`), trigger held 4 s (80 shots), before the spin-up rule:
+    `AttackSpin` stays for the whole burst and about a second after it, with the
+    barrel at a different angle in each status line (46°, 141°, 45°, 70°, 170°, 148°),
+    then the barrel is back at its place. Before, each shot started the clip again,
+    so it never got past its first twentieth of a second.
+  - Minigun with the spin-up rule (the install's clip, `Fire` at 0.2 s): the first
+    shot left 0.18 s after the pull ("spins up, first shot in 0.20 s", then the first
+    "shot" line); a 3 s hold gave 57 shots at 20 a second; a pull let go 0.1 s into
+    the spin-up fired nothing while the clip and the barrel ran on.
   - Parts reported for other weapons: varmint rifle `2hrattack8.kf` `##VRBolt`,
     `##VRClip`, `##VRTrigger`; 9mm pistol `##nmBar`, `##nmHammer`, `##nmTrigger`; cowboy
     repeater `2hrattack5.kf` `##BoltLock`, `##CRHammer`, `##CRLever`, `##LeverBolt`,
@@ -647,8 +667,8 @@ track) on `Fallout - Meshes.bsa` and `Update.bsa`.
 - Not built: the colour, texture-transform and morph tracks on weapon parts; shell
   casings and muzzle flashes (`ShellCasingNode`, `ProjectileNode`); placed NPCs'
   weapons, which are still drawn as one rigid model (`nvforever::weapons`; NPCs play no
-  attack or reload clips yet). The minigun fires from the first frame of the trigger
-  (combat gives automatic weapons no delay) while its clip has `Fire` 0.97 s in.
+  attack or reload clips yet). The spinning melee weapons (`1hm` and `2hm`
+  `attackspin`) keep combat's swing timing: no spin-up for them.
 - Open: whether the game holds a part where the last clip left it when no clip drives
   it (as §9.7 reads the `Weapon` node) rather than at its place in the model: the
   10mm's parts have no track in `1hpaim.kf`, so the two readings differ wherever a clip

@@ -1630,9 +1630,17 @@ slide on firing, the minigun's barrel). Branch `claude/weapon-moving-parts`. Fac
    repeats the full-speed part while you hold the trigger, and spins down when you let
    go. That the game repeats exactly that part is my reading of the markers, not
    something I saw in the game; if it does it differently, say so.
-5. **For you to decide:** our minigun shoots the moment you press, while its animation
-   puts the first shot about a second in (after the spin-up). Combat is ours to design,
-   so I left the timing alone. Say if you want the spin-up delay.
+5. **The spin-up delay (you asked for it, 2026-10-10):** built. The minigun now waits
+   for the animation's `Fire` marker before the first shot, then fires at its normal
+   rate while you hold the trigger. Letting go before the first shot fires nothing
+   (the barrel still spins and winds down); every new press spins up again, and so
+   does firing on after a reload. Those last two rules are my choice.
+   **A correction to what I told you:** I quoted about a second of spin-up. That is
+   the file in the base game archive. Your install uses a different version of that
+   animation from a later archive (1.7 s long, `Fire` marker 0.2 s in), so the delay
+   you will see is 0.2 s. I did not look up which archive it comes from. If 0.2 s
+   feels too short, say so and say what you want instead; a fixed time would be our
+   own number rather than the file's.
 6. **Not done:** NPCs' weapons (they do not fire or reload with animations yet, so
    there is nothing to move); shell casings and muzzle flashes; the glow on the gatling
    laser and the screens on a few energy weapons, which are other kinds of animation.

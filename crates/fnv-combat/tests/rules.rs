@@ -210,6 +210,46 @@ fn automatic_fire_rate_and_regen() {
     assert_eq!(shots(&run(&mut c, &t, 10, 0.05, |k| k == 0, 0)), 1);
 }
 
+/// A minigun: its attack clip puts the first shot 0.967 s in (`2hhattackspin.kf`).
+#[test]
+fn a_spinning_weapon_fires_after_its_spin_up() {
+    let t = CombatTuning::default();
+    let w = WeaponStats { automatic: true, fire_rate: 20.0, clip_size: 240, ..gun(10) };
+    let clips = ClipTiming { spin_up: Some(0.967), ..Default::default() };
+    let timing = Timing::of(&w, &clips, &t);
+    assert!(close(timing.spin_up, 0.967));
+    let dt = 1.0 / 60.0;
+    // Held for 2 s: the spin-up starts at once, nothing leaves for 0.967 s, then 20 a
+    // second for the rest.
+    let mut c = Cycle::new(&w, timing, false, 240);
+    let ev = run(&mut c, &t, 120, dt, |_| true, 0);
+    assert_eq!(ev[0], Event::SpinUp);
+    assert_eq!(ev.iter().filter(|e| **e == Event::SpinUp).count(), 1);
+    let mut c = Cycle::new(&w, timing, false, 240);
+    assert_eq!(shots(&run(&mut c, &t, 57, dt, |_| true, 0)), 0, "0.95 s in");
+    assert_eq!(shots(&run(&mut c, &t, 3, dt, |_| true, 0)), 1, "1 s in");
+    let n = shots(&run(&mut c, &t, 60, dt, |_| true, 0));
+    assert!((19..=21).contains(&n), "{n}");
+    // Let go half way through the spin-up: nothing leaves, and the next pull spins up
+    // again from the start.
+    let mut c = Cycle::new(&w, timing, false, 240);
+    let ev = run(&mut c, &t, 60, dt, |k| k < 30, 0);
+    assert_eq!(ev, vec![Event::SpinUp]);
+    let ev = run(&mut c, &t, 57, dt, |_| true, 0);
+    assert_eq!(ev, vec![Event::SpinUp]);
+    // A pause in a burst spins up again too.
+    let mut c = Cycle::new(&w, timing, false, 240);
+    let ev = run(&mut c, &t, 240, dt, |k| !(90..100).contains(&k), 0);
+    assert_eq!(ev.iter().filter(|e| **e == Event::SpinUp).count(), 2);
+    // A semi-automatic weapon does not spin up, whatever its clip; neither does an
+    // automatic one whose clip has no loop.
+    let semi = gun(20);
+    assert_eq!(Timing::of(&semi, &clips, &t).spin_up, 0.0);
+    assert_eq!(Timing::of(&w, &ClipTiming::default(), &t).spin_up, 0.0);
+    let mut c = Cycle::new(&w, Timing::of(&w, &ClipTiming::default(), &t), false, 240);
+    assert_eq!(shots(&run(&mut c, &t, 2, dt, |_| true, 0)), 1, "at once");
+}
+
 /// Floor at z = 0, spherical actors, and an optional small-transparent fence at x = 500.
 struct Toy {
     actors: Vec<(ActorId, V3, f32)>,

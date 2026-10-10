@@ -323,10 +323,11 @@ pub struct ClipKeys {
     /// strikes [documented: GECK wiki NiTextKeyExtraData, owner export 2026-10-09].
     pub hit: Option<f32>,
     /// `Loop`: where the part of an attack clip that repeats while the trigger is held
-    /// ends; it starts at `Fire` and the rest of the clip is the way out [observed: in
-    /// `2hhattackspin.kf` the minigun's barrel speeds up until `Fire`, turns at one speed
-    /// from there to `Loop` and slows down after it; hypothesis: that the game repeats
-    /// that part; animation.md §9.8].
+    /// ends; it starts at `Fire` and the rest of the clip is the way out [documented:
+    /// GECK wiki NiTextKeyExtraData, `Fire` "starts the internal loop of a clamped
+    /// sequence; `Loop` jumps back to it" (combat.md §4.2); observed: in the base
+    /// archives' `2hhattackspin.kf` the minigun's barrel speeds up until `Fire`, turns at
+    /// one speed from there to `Loop` and slows down after it; animation.md §9.8].
     pub loop_end: Option<f32>,
 }
 

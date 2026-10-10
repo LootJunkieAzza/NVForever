@@ -243,7 +243,7 @@ impl Rig {
             Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
-            Some(c) => debug!("player {:?} rig: {key:?} plays {}", self.view, c.path),
+            Some(c) => debug!("player {:?} rig: {key:?} plays {} ({:.3} s, shot at {:?}, repeats to {:?})", self.view, c.path, c.clip.length(), c.keys.hit, c.keys.loop_end),
             None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
         }
         self.clips.insert(key, found.clone());
@@ -295,9 +295,10 @@ struct Motion {
     turn_rate: f32,
     /// Once-a-second status (debug log).
     log_elapsed: f32,
-    /// The attack and reload counts last acted on (`WeaponAnim`).
+    /// The attack, reload and spin-up counts last acted on (`WeaponAnim`).
     attacks_seen: u32,
     reloads_seen: u32,
+    spin_ups_seen: u32,
     /// Interned clip names (attack stems, reload names) for the clip keys.
     names: HashMap<String, &'static str>,
 }
@@ -328,6 +329,7 @@ impl Default for Motion {
             log_elapsed: 0.0,
             attacks_seen: 0,
             reloads_seen: 0,
+            spin_ups_seen: 0,
             names: HashMap::new(),
         }
     }
@@ -634,6 +636,8 @@ struct Frame {
     reload: Option<&'static str>,
     attack_now: bool,
     reload_now: bool,
+    /// The weapon starts to spin up this frame: its attack clip plays from the start.
+    spin_now: bool,
 }
 
 /// Pose `rig` for the frame, apply the weapon events, place it at `root`; returns the
@@ -743,14 +747,16 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
             want.push((c.clone(), TAG_HOLSTER, 1.0, Mode::Once));
         }
     }
-    if f.hands.in_hand && f.attack_now {
+    if f.hands.in_hand && (f.attack_now || f.spin_now) {
         if let Some(c) = f.attack.and_then(|a| rig.clip(ctx, ClipKey::Attack(f.stance, f.prefix, a, f.aiming))) {
             // A clip with a `Loop` key plays on through the shots that follow while it
             // runs (a minigun's spin) instead of starting again at each, going round from
-            // its `Fire` key to its `Loop` key [observed: the barrel turns at one speed
-            // between the two; hypothesis: the rule; animation.md §9.8].
+            // its `Fire` key to its `Loop` key [documented: GECK wiki NiTextKeyExtraData,
+            // combat.md §4.2; observed: the barrel turns at one speed between the two,
+            // animation.md §9.8]. A spin-up starts it from the beginning, so the first
+            // shot, which combat holds back until then, meets the `Fire` key.
             rig.attack_loop = c.keys.hit.zip(c.keys.loop_end).filter(|(from, to)| from < to).map(|(from, to)| (from - c.clip.start, to - c.clip.start));
-            let going = rig.attack_loop.is_some() && rig.animator.layers.iter().any(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, &c.clip) && !l.finished());
+            let going = !f.spin_now && rig.attack_loop.is_some() && rig.animator.layers.iter().any(|l| l.tag == TAG_ATTACK && Arc::ptr_eq(&l.clip, &c.clip) && !l.finished());
             if !going {
                 rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
                 debug!("player {:?} rig: {} moves the weapon's {:?}", rig.view, c.path, rig.animator.extra_driven(&c.clip));
@@ -764,7 +770,10 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
                     }
                 }
             }
-            rig.since_attack = 0.0;
+            // A spin-up is not a shot: the clip runs on to its `Fire` key by itself.
+            if f.attack_now {
+                rig.since_attack = 0.0;
+            }
         }
     }
     if f.hands.in_hand && f.reload_now {
@@ -959,14 +968,16 @@ fn drive_body(
     let attack_clip = timing_rig.clip(&mut ctx, ClipKey::Attack(stance, prefix, attack, control.aiming));
     let reload_clip = reload.and_then(|r| timing_rig.clip(&mut ctx, ClipKey::Reload(stance, prefix, r)));
     anim.timing = nvf_play::combat::clip_timing(
-        attack_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit)),
+        attack_clip.as_ref().map(|c| (c.clip.length(), c.keys.hit, c.keys.hit.zip(c.keys.loop_end).is_some_and(|(fire, back)| fire < back))),
         reload_clip.as_ref().map(|c| c.clip.length()),
     );
     anim.ready = m.hands.phase == WeaponPhase::Drawn && m.hands.in_hand;
     let attack_now = anim.attacks != m.attacks_seen;
     let reload_now = anim.reloads != m.reloads_seen;
+    let spin_now = anim.spin_ups != m.spin_ups_seen;
     m.attacks_seen = anim.attacks;
     m.reloads_seen = anim.reloads;
+    m.spin_ups_seen = anim.spin_ups;
 
     let frame = Frame {
         dt,
@@ -987,6 +998,7 @@ fn drive_body(
         reload,
         attack_now,
         reload_now,
+        spin_now,
     };
     let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
     let third_eye = pose_rig(&mut body.third, &frame, &events, root, &mut ctx, &mut transforms);
