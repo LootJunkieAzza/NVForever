@@ -532,16 +532,25 @@ sessions. You already had it from an earlier playthrough.
     - (a) **Shift+Tab breaks a conversation off at any point** (the line is cut, no end
       script). It is ours, a way out of a conversation the data gives no end to; it can
       skip a quest result. Keep it, hide it behind a debug switch, or remove it?
+      **Decided 2026-10-10 ("hide the shift tab cut line to a debug switch this should
+      not be in the release version"):** done on `claude/menu-pause`: off unless
+      `NVF_PLAY_DEBUG_TALK_BREAK=1` is set, no on-screen hint; debug switches and test
+      aids are to be compiled out of packaged releases once packaging exists.
     - (b) **Tab says goodbye only where a Goodbye choice is offered** (so the psych
       test cannot be left). How the original's Tab behaves is not captured.
     - (c) **Skipping a line** (Space, Enter, E or a click) still runs its end script
       [hypothesis].
     - (d) **Cursor in `living` mode:** free look while the actor speaks, cursor released
       while choosing (the view holds then). The alternative is keys-only choosing with
-      free look throughout.
+      free look throughout. **Decided 2026-10-10 ("go with the first option"):** as
+      built; recorded in docs/design/dialogue.md §8.
     - (e) **`--dialogue-pause original` is stricter than today's menus**, which never
       stopped animations. Should the inventory, container and message boxes follow the
-      same switch, or stay as they are?
+      same switch, or stay as they are? **Decided 2026-10-10 ("add the pause switch to
+      all menus except the actual ESC pause menu"):** done on `claude/menu-pause`:
+      `--menu-pause living|original` (default `living`, `--dialogue-pause` still works)
+      covers every menu; the Esc pause menu always holds everything, picture and voice
+      included.
     - (f) **A question asked once disappears from the list** when its line is Say Once
       and has no choices (all of Easy Pete's did). Whether the original hides or dims
       it needs a capture; nothing was ever shown dimmed in the runs.
