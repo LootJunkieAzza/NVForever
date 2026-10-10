@@ -30,8 +30,8 @@
 //!   body keeps its new heading afterwards [design: AI packages will take over].
 //! - **Head only** for an actor whose body something else places or holds: a
 //!   `--npc-travel` traveller (its heading is the walker's), an actor under the walk test,
-//!   and one marked [`BodyHeld`] (in furniture or lying down: nothing marks actors so
-//!   yet, since the engine seats nobody; every living actor is drawn standing).
+//!   and one marked [`BodyHeld`] (in furniture or lying down: `furniture.rs` marks the
+//!   actors it seats).
 //! - **Nobody turns** when the actor is dead or a ragdoll (never touched), is not a
 //!   human-style NPC (a creature, a robot, a talking activator), has no such bone, or its
 //!   body part data does not allow head tracking. The view still turns to it.
@@ -102,7 +102,7 @@ const HEADTRACKING_FLAG: &str = "IK Data - Headtracking";
 const HEAD_BONE: &str = "Bip01 Head";
 
 /// On an actor's root: its body must not be turned to face anyone (it sits or lies in
-/// furniture). Nothing inserts it yet: the engine seats nobody (AI packages, Layer 6).
+/// furniture; inserted and removed by `furniture.rs`).
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct BodyHeld;
 
