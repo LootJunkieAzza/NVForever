@@ -33,9 +33,15 @@ controls.md (bindings).
   targets it). Shown in third person and while the camera circles the player.
 - **First person**: the game's arms rig, `characters\_1stperson\skeleton.nif`, with its
   own clips (`characters\_1stperson\`). It draws the hands (their `…1st.nif` meshes) and
+<<<<<<< HEAD
+  only the `Arms…` shapes of the upper body and of worn upper-body armour, with the
+  outfit's `PipBoyOn…` sleeve (gloves and the Pip-Boy whole; no head, hair or other
+  armour; `fnv_actor::first_person`), and the weapon's
+=======
   only the `Arms…` shapes of the upper body and of worn upper-body armour (gloves whole;
   no head, hair or other armour; skin tinted as in third person;
   `fnv_actor::first_person`), and the weapon's
+>>>>>>> origin/main
   first-person model (WEAP `WNAM`, a STAT). `Bip01 Looking` turns with the view's pitch,
   so arms and weapon stay in front of the camera, which sits at the rig's `Camera1st`
   node: 118 units above the feet, 78 crouched. Shown in first person.
@@ -151,6 +157,14 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
   person without turning them; after `release` the camera is back behind.
 - Checks: workspace tests and clippy (root and engine), the Python suites, the
   moving-camera smoke test (CLAUDE.md) — see the commit messages for the runs.
+- The Pip-Boy (2026-10-10, owner report: it "looks off" on the arm, and its screen
+  glows): the model hangs from `Bip01 L ForeTwist` by `Prn` and was given the rotation
+  that head parts need, which put it on the back of the upper arm; and its light's glow
+  shape was always drawn (actors.md §1.2). After the fix [observed: screenshots circling
+  the player with `orbit=90:-5`, `-150:-10`, `30:-10`, bare and in a Vault 21 jumpsuit
+  `00104184`]: a cuff on the left forearm from below the elbow to the glove, screen
+  outwards and dark, the three button lights lit; in first person with the varmint
+  rifle up, on the left forearm in view (it was not drawn there before).
 
 ## 5. Open questions for the owner
 
@@ -158,7 +172,10 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
    `FalloutPrefs.ini`'s)? Should NVForever's own config allow rebinding?
 2. Toggle POV held in the game: does the camera stay where it was circled to after
    letting go? Does holding it in first person zoom out instead?
-3. The Pip-Boy: in first person the game shows `pipboy3000\pipboyarm.nif` on the left
-   arm; the simulation does not equip the Pip-Boy at the start, so it is not drawn yet.
+3. The Pip-Boy (drawn on the left forearm in both views since 2026-10-10, actors.md
+   §1.2). Answered 2026-10-10: the three orange button lights are always lit; the
+   outfit's `PipBoyOn` sleeve shows in first person too (now drawn). Open: (a) is the
+   screen dark with the light off, as drawn now? (b) The light itself is not built: the
+   glow shape is hidden until it is.
 4. In-game references would settle the hypotheses of animation.md §9 (captures listed
    in its §7): holster positions, aim poses, sneak speeds sideways and backwards.

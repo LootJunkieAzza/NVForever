@@ -79,17 +79,59 @@ actor meshes`]:
   `Prn` whose string names the parent bone (`Bip01 Head` for hair, beards and eyes); 19
   headgear models (cowboy hats, fiend helmets, NCR trooper helmets, berets) and the
   child-female mouth parts have none.
-- A rigid part's vertices end up in the **skeleton's axes** with the origin at the
-  parent bone: hair spans z −0.7…15.3 and a cowboy hat z 3.8…17.5 above `Bip01 Head`
-  (bind position (0, 0.4, 112.8) in `skeleton.nif`), while the head bone's own x axis
-  points up. Node rotations of the 206 rigid shapes placed NPCs use: all identity 112
-  (hats, helmets, beards); root and shape rotations that cancel 66 (most hair, e.g.
-  `hairbun.nif`); a root equal to the inverse of `Bip01 Head`'s bind rotation with
-  identity below 16 (eyes and the other race head parts); identity root with real
-  offsets below 12 (Pip-Boy arm parts). Rule [observed, all four kinds render in place]:
-  a part whose root stores the bone's inverse bind rotation is an ordinary child of the
-  bone; any other part gets that inverse rotation from the attachment; node transforms
-  are kept in both cases.
+- A rigid part on the head has its vertices in the **skeleton's axes** with the origin
+  at the parent bone: hair spans z −0.7…15.3 and a cowboy hat z 3.8…17.5 above
+  `Bip01 Head` (bind position (0, 0.4, 112.8) in `skeleton.nif`), while the head bone's
+  own x axis points up. Node rotations of the 206 rigid shapes placed NPCs use: all
+  identity 112 (hats, helmets, beards); root and shape rotations that cancel 66 (most
+  hair, e.g. `hairbun.nif`); a root equal to the inverse of `Bip01 Head`'s bind rotation
+  with identity below 16 (eyes and the other race head parts); identity root with real
+  offsets below 12 (Pip-Boy arm parts). Rule for head parts [observed, those three kinds
+  render in place]: a part whose root stores the bone's inverse bind rotation is an
+  ordinary child of the bone; any other part gets that inverse rotation from the
+  attachment; node transforms are kept in both cases.
+- A rigid part on **another bone is in that bone's own axes**: an ordinary child, node
+  transforms kept, no rotation added. Over the worn models of every ARMO in the ten
+  masters (498 models, placed or not; `fnvtool actor meshes`, `armor_rigid_bones`), 61
+  have unskinned shapes: 35 name `Bip01 Head`, 20 have no `Prn`, and 6 name
+  `Bip01 L ForeTwist`, all of them Pip-Boys (`pipboy3000\pipboyarm.nif`,
+  `pipboyarmfemale.nif`, `pipboyarmnpc.nif`, `pipboyarmfemalenpc.nif`,
+  `pimpboy3billion\pimpboyarm.nif`, `pimpboynpc.nif`) [observed]. `pipboyarm.nif`: the
+  root is the identity; the casing shape sits 8.09 along x, turned 11° about x, and its
+  vertices then reach x 4.4…17.1. `Bip01 L ForeTwist` starts at the elbow with its x
+  axis down the forearm, and `Bip01 L Hand` is 18.13 along it. As a plain child the
+  casing is a cuff round the forearm from 4.4 to 17.1 units below the elbow, 1.8…6.1
+  from the bone's line; with the head rule's rotation it lands 1.9…15.8 units *above*
+  the elbow, 0.2…11.4 from the line, which is what `--play` drew until 2026-10-10 (the
+  Pip-Boy on the back of the upper arm, askew) [observed: computed from the two files,
+  and in screenshots before and after]. Why the head differs is open [hypothesis: the
+  game builds the head, with hair and headgear, in the skeleton's axes as one unit, as
+  the skinned head model is].
+- The player's Pip-Boy models (`pipboyarm.nif`, `pipboyarmfemale.nif`, `pimpboyarm.nif`:
+  19 shapes; the NPC ones have 6) hold a shape `PipboyLightEffect:0`: an unlit sheet
+  textured `effects\fxwhite.dds`, 11.5 × 9.8 units over the 5.9 × 4.5 screen, emissive
+  white, alpha-blended, with vertex colours (0.10, 1.0, 0.35) whose alpha runs 0…0.125
+  [observed]. It is the glow of the Pip-Boy light and shows only while that light is on
+  [owner statement 2026-10-10]. NVForever has no Pip-Boy light yet, so the shape is not
+  drawn (`fnv_actor::mesh::is_light_effect_shape`); drawn, it was a flat bright green
+  square over the screen. The three orange button lights (`StatsGlow`, `ItemsGlow`,
+  `DataGlow`) are always lit [owner statement 2026-10-10] and are drawn. Drawn as they
+  are, and open: the `glare` sheet, and `ScreenLit` beside `pipboyscreen` [hypothesis:
+  one of the two screens is for the light or the menu].
+- Outfits hold two left sleeves: 170 of the 498 worn models have shapes named
+  `PipBoyOff…`, 159 of them also `PipBoyOn…` (`PipBoyOn`, `PipBoyOn:0`, `PipBoyOn1:0`,
+  `PipBoy0n:0`, `PipBoyOnLegate:0`, …) [observed: `armor_pipboy_sleeves`]. In
+  `vaultsuitarmor\m\outfitm.nif` `PipBoyOff` (175 vertices) covers the left forearm from
+  3 to 18 units below the elbow and the hand's cuff; `PipBoyOn` (111 vertices) leaves
+  out 3 to 15, where the Pip-Boy sits [observed]. Rule: an actor wearing an item in the
+  PipBoy biped slot (bit 6) draws the `PipBoyOn…` shapes [owner statement 2026-10-10:
+  "we see a sleeve on the arm with a pipboy, it is rendered over the outfit using the
+  pipboy on node"; two in-game first-person screenshots: a jumpsuit's blue sleeve from
+  the elbow to the Pip-Boy, and another outfit's brown cuff between the Pip-Boy and the
+  glove], any other actor the `PipBoyOff…` shapes [hypothesis, from the names]
+  (`fnv_actor::mesh::pipboy_sleeve`). The same holds in first person, where the sleeve
+  is drawn beside the `Arms…` shapes (`fnv_actor::first_person::is_first_person_shape`).
+  Before 2026-10-10 both sleeves were drawn on everyone, and none in first person.
 - Hair-shader shapes (BSShaderFlags bit 18) carry a mask in their vertex colours, not a
   colour: red 0.04–0.39 with green and blue at 1 in `hairbase.nif` and
   `beardmustachecurly.nif` [observed]; multiplied in, hair turns cyan. They are not
@@ -199,7 +241,9 @@ similar helmets) 132, Hair alone (a wig) 2 [observed].
 One entity per actor: the skeleton's node hierarchy is spawned once; skinned part shapes
 bind their skins to the skeleton's bones by name (the part's own bone copies are not
 spawned); rigid parts are parented to their attachment bone by the rule of §1.2 (`Prn`,
-else `Bip01 Head`). Hair shows `NoHat` or `Hat` (§2.4); dismemberment caps — shapes none
+else `Bip01 Head`; the head rule's rotation on `Bip01 Head` only). Hair shows `NoHat` or
+`Hat` (§2.4); outfits show the left sleeve that matches whether a Pip-Boy is worn, and
+the Pip-Boy light's glow is not drawn (§1.2); dismemberment caps — shapes none
 of whose partitions sets part flag bit 0 ("editor visible", nif.xml BSPartFlag) — are
 hidden [hypothesis: an intact actor shows none]. Pose: the skeleton's bind pose, frozen
 (default), or the idle clip on the skeleton's bones (§7).
@@ -240,10 +284,65 @@ cap (`nvf_assets::actor::texture_targets`). Before 2026-10-10 the engine put it 
 shape, which painted the underwear with the skin texture (and the body tint of §4.1
 over that): the whole body was one skin colour.
 
-Open: worn models' skin shapes keep the texture they name (the human one), so a ghoul
-or raider-race NPC (`characters\ghoul\…`, `characters\raider\…` body and hand textures,
-5 races) shows human skin inside an outfit and no tint (§4.1 matches by texture)
-[hypothesis: the game gives skin shapes the race's texture; not built].
+**Worn models** (built 2026-10-10). The skin shapes of worn models (role `armor`:
+outfits, gloves, the Pip-Boy glove), from the same survey, which also lists the skin
+shapes by texture and the files by the kinds of skin shape they hold [observed,
+`Fallout - Meshes.bsa`]:
+
+- 187 files under `meshes\armor\` hold skin shapes: 141 only upper body textures, 43
+  only hand textures, 1 an upper body and a head texture, 2 only a shape without a
+  texture. No file mixes hand and upper body skin.
+- The texture a shape names is fixed in the file, whoever wears the model, and several
+  are plainly not the wearer's: 13 shapes in six adult women's outfits
+  (`leatherarmor\f\outfitf.nif`, `republicans\republicanf_01…04.nif`,
+  `wastelandclothing03\outfitf.nif`) name the child's
+  `characters\childfemale\upperbodyfemale.dds`, a different file from the
+  adult `characters\female\upperbodyfemale.dds` (48 placed adult NPCs wear them), and
+  the child outfits name the adult texture; `combatarmor\m\outfitm.nif` `Upperbody`
+  names the head texture `characters\male\headhuman.dds` (its twin in the women's
+  model, `Upperbody02`, names the upper body texture; 11 placed NPCs wear the men's
+  model); `eulogyjones\outfitf.nif` `upperbody` and `bigbattle\encsciencebattlearmor.nif`
+  `UpperBody:0` name none (no placed NPC wears them). The one model that names a
+  ghoul or raider texture is Raul's `raoul\raoul_armorjumpsuit.nif`
+  (`characters\ghoul\upperbodymale.dds`).
+- Nine races have skin textures of their own kind (body index 0 and 1 ICON): Ghoul
+  (`characters\ghoul\…`, `ghoulfemale\…`), the four raider races (`characters\raider\…`, `raiderfemale\…`),
+  and the four child races (`characters\child\…`, `childfemale\…`). Of the 3,386 placed
+  NPCs of FalloutNV.esm that resolve, 21 ghouls, 350 of the raider races and 30
+  children wear a model with skin shapes (`fnvtool actor appearance --all`).
+
+Rule used [hypothesis: the game gives a worn model's skin shapes the wearer's race
+texture; the files above fit that, and no in-game picture was compared]:
+a skin shape of a worn model takes the race's upper body texture (body index 0 ICON)
+or hand texture (index 1 ICON) in place of the one it names, then the tint of §4.1.
+Which of the two is decided by the file name of the texture the shape names, when it
+lies in a `characters` folder: `hand…` → hand; `upperbody…` or `head…` → upper body; a
+shape that names no texture → upper body; a shape that names any other texture keeps
+it (none in the base game). Dismemberment caps are left alone
+(`fnv_actor::resolve::worn_skin`, `Appearance::worn_skin_texture`; engine
+`actors.rs` `part_uses`). Choosing by the slot the worn item covers would give the same
+result for every file above, since no file mixes the two.
+
+Checked on screen, before and after (2026-10-10, owner's install, pictures private): a
+ghoul in `prostitutes\prosmale02.nif` (reference 0x0011A2FB, Gomorrah) had pale human
+arms, chest and legs under a ghoul head and hands, and now has ghoul skin throughout;
+three Great Khans of the raider races at Quarry Junction (QJMelissa, QJGreatKhanAAM,
+QJGreatKhanHM) had light untinted arms and legs under dark faces, and now arms and legs
+of the faces' colour.
+
+Open:
+
+- The normal map stays the model's (the adult human `…_n.dds`). Each kind has its own
+  (`characters\ghoul\upperbodymale_n.dds` and the raider and child ones are different
+  files from the human one [observed]; the `_sk` maps are all one file), so a ghoul's
+  skin has the ghoul colours over the human surface relief. The same holds for the
+  race's own body, hand and head parts, whose models name the human maps
+  [hypothesis: the game takes the `_n` file beside the texture it puts in; not built].
+- The hand-to-hand weapon models (`weapons\hand2hand\*.nif`, 12 skin shapes: a hand
+  inside boxing tape, knuckles and the like) are not worn models; a hand in them keeps
+  the texture it names, untinted.
+- Skin-coloured shapes without the skin type (`armor\caesar\caesar_f.nif` `Arms:0`,
+  above) keep their texture.
 
 ## 4. FaceGen (part C)
 
@@ -301,8 +400,9 @@ and 34 faces textured, with no EGM mismatching its shape.
   (`characters\male\upperbodymale.dds`, 1024 × 1024 [observed]) + Σ cᵢ × scaleᵢ × EGT
   modeᵢ (cᵢ as for the face: the NPC's FGTS plus its race's, §4.2; the hands likewise),
   upsampled bilinearly and flipped vertically. The engine gives it to every shape
-  whose diffuse is that texture — the race's upper body and skin shapes inside outfits
-  that name it — and halves it to 512 × 512 to keep one copy per actor small
+  whose diffuse is that texture — the race's upper body and the body skin shapes inside
+  outfits, which take that texture (§3.1, worn models) — and halves it to 512 × 512 to
+  keep one copy per actor small
   (`FaceGenCache::skin_texture`). `--no-facegen` turns it off. Only the skin shape of
   the race's upper body takes it; the underwear shape keeps its own texture (§3.1).
 - The body file holds one colour per mode [observed, 2026-10-10]: within a mode of
@@ -325,8 +425,8 @@ and 34 faces textured, with no EGM mismatching its shape.
   like the race's body `.egt` (`upperbody[human]<kind>.egt` → `lefthand<kind>.egt`,
   `fnv_actor::resolve::hand_egt`; the left file serves both hands, the right one
   differing by 0.02 units) and adds its offset to the race's hand texture (body index 1
-  ICON), for every shape that names that texture: the race hands and skin inside gloves
-  (the Pip-Boy glove's fingers and wrist). Untinted, the hands stayed the light colour of
+  ICON), for every shape with that texture: the race hands and hand skin inside gloves
+  (the Pip-Boy glove's fingers and wrist; they take the race's texture, §3.1). Untinted, the hands stayed the light colour of
   the texture beside arms darkened by the body offset.
 - The player's first-person arms and hands take the same tint (the first-person
   appearance keeps FGTS; `fnv_actor::first_person`).
@@ -450,7 +550,12 @@ render of each rule.
 - `fnvtool actor meshes <Data> <plugins…> --schema <dir> [--nif-schema <dir>]` →
   `fnv.actor.meshes/1`: `pairs`, `part_kinds` (role × skinned/rigid/+Prn), `hair_variants`,
   `textures`, `missing_textures`, `problems` [{`skeleton`, `model`, `role`, `actors`,
-  `problems`}].
+  `problems`}]. Over the worn models (MODL, MOD3) of every ARMO, placed or not:
+  `armor_models` (how many), `armor_rigid_bones` (models with unskinned shapes by the
+  `Prn` they name, or `(no Prn)`), `armor_rigid_off_head` [{`model`, `prn`,
+  `skinned_shapes`, `rigid_shapes`}] (those naming another bone than `Bip01 Head`),
+  `armor_pipboy_sleeves` (models with `PipBoyOn…` and `PipBoyOff…` shapes: `on and off`,
+  `on only`, `off only`), `armor_light_effect` (models with the Pip-Boy light's glow).
 
 ## 6. Captures wanted
 
