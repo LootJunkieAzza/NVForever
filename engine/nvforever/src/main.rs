@@ -258,6 +258,13 @@ struct Args {
     /// --pos and --heading are ignored.
     #[arg(long, requires = "play")]
     new_game: bool,
+    /// With --play: do not play dialogue voice (lines still last as long as their sound;
+    /// the log still names each file).
+    #[arg(long)]
+    no_voice: bool,
+    /// With --play: dialogue voice volume, 1 = as recorded.
+    #[arg(long, default_value_t = 1.0)]
+    voice_volume: f32,
     /// With --play: what a conversation with the player holds. "living": game logic
     /// only (scripts' game time, the game clock, physics, travelling NPCs, the player's
     /// movement), while animations, wind, water and sky go on and the player looks around
@@ -531,6 +538,7 @@ fn main() -> AppExit {
     if args.new_game {
         app.insert_resource(nvf_play::script::NewGame);
     }
+    app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
     app.insert_resource(if args.dialogue_pause == "original" { nvf_play::dialogue::PauseMode::Original } else { nvf_play::dialogue::PauseMode::Living });
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in

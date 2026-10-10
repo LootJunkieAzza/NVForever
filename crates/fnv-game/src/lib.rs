@@ -13,6 +13,7 @@
 //! - [`dialogue`]: conversations between the player and an actor (Layer 6, step D2)
 //! - [`intro`]: the intro chain's units (coverage)
 //! - [`runner`]: `fnv.script.actions/1` → `fnv.script.trace/1`
+//! - [`voice`]: the hook that gives a dialogue response the length of its voice file
 //!
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
@@ -26,6 +27,7 @@ pub mod intro;
 pub mod quest;
 pub mod runner;
 pub mod trace;
+pub mod voice;
 
 pub use data::GameData;
 pub use game::{Game, GameConfig, InstKey};
