@@ -181,10 +181,18 @@ pub struct ActorAnimCost {
 }
 
 /// What [`drive`] reads and writes of an actor.
-type ActorAnimParts = (&'static mut Locomotion, &'static mut BlendPlayer, Option<&'static mut crate::weapons::WeaponHold>, Option<&'static mut Dying>, Option<&'static mut Flinch>, Option<&'static crate::furniture::OnFurniture>);
+type ActorAnimParts = (
+    &'static mut Locomotion,
+    &'static mut BlendPlayer,
+    Option<&'static mut crate::weapons::WeaponHold>,
+    Option<&'static mut Dying>,
+    Option<&'static mut Flinch>,
+    Option<&'static crate::furniture::OnFurniture>,
+    Option<&'static crate::idles::ActorIdle>,
+);
 
 /// Choose, blend and pose every actor with a [`Locomotion`], with its weapon clips
-/// (`weapons.rs`) layered on top.
+/// (`weapons.rs`) and the idles it plays (`idles.rs`) layered on top.
 pub fn drive(
     time: Res<Time>,
     mut actors: Query<ActorAnimParts>,
@@ -195,7 +203,7 @@ pub fn drive(
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
     let mut n = 0;
-    for (mut lo, mut player, weapon, dying, flinch, seated) in &mut actors {
+    for (mut lo, mut player, weapon, dying, flinch, seated, idle) in &mut actors {
         if let Some(mut d) = dying {
             // Dead: the death pose to its end and held; without one the pose stays.
             let Some(clip) = d.clip.clone() else { continue };
@@ -208,9 +216,13 @@ pub fn drive(
             continue;
         }
         if let Some((clip, phase)) = seated.and_then(|s| s.pose.clone()) {
-            // Getting onto, on, or getting off furniture (`furniture.rs`): its clip alone.
+            // Getting onto, on, or getting off furniture (`furniture.rs`): its clip, and
+            // over it the idle the actor plays there (a seated speaker's gesture).
             player.layers = Default::default();
             player.layers[0] = Some(Layer { clip, phase, weight: 1.0 });
+            if let Some(i) = idle {
+                i.layers(&mut player);
+            }
             cost.tracks += player.pose(&mut scratch, &mut transforms) as u64;
             n += 1;
             continue;
@@ -225,6 +237,11 @@ pub fn drive(
                 w.step(dt);
             }
             w.layers(&mut player);
+        }
+        let idles = crate::idles::IDLE_LAYER;
+        (player.layers[idles], player.layers[idles + 1]) = (None, None);
+        if let Some(i) = idle {
+            i.layers(&mut player);
         }
         if let Some(mut f) = flinch {
             let len = f.clip.clip.length().max(1e-3);

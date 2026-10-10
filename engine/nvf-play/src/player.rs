@@ -61,6 +61,16 @@ pub struct Player {
     /// (nvforever's player body writes it in [`BodySet`]): its head, crouching and
     /// swaying with the animation.
     pub body_eye: Option<[f32; 3]>,
+    /// The rotation of the first-person view this frame (game space, of a node looking
+    /// along its +Y with +Z up), when the body's animation turns the view (an idle that
+    /// drives the camera node, a body lying on a bed); the heading and pitch give it
+    /// otherwise.
+    pub body_view: Option<Quat>,
+    /// Where the game last put the player (the start of a game, a door, a script's
+    /// move), until the player moves by themselves. The collision may have pushed the
+    /// character away from it since (a start marker in a bed): a scripted scene plays
+    /// where the game put the player, not where the collision left them.
+    pub placed: Option<[f32; 3]>,
 }
 
 impl Player {
@@ -360,7 +370,7 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
         info!("interior start at the cell's own spot ({:?}): ({:.1}, {:.1}, {:.1}), heading {:.0}°", spot.source, spot.feet[0], spot.feet[1], spot.feet[2], spot.heading.to_degrees());
         (feet, heading) = (spot.feet, spot.heading);
     }
-    commands.insert_resource(Player { heading, pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet, body_eye: None });
+    commands.insert_resource(Player { heading, pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet, body_eye: None, body_view: None, placed: None });
     let settings = MoveSpeeds::from_settings(sim.forms.setting_f32("fMoveBaseSpeed"), sim.forms.setting_f32("fMoveRunMult"));
     let speeds = MoveSpeeds::OBSERVED;
     info!(
@@ -541,6 +551,7 @@ fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>, mut ne
     }
     let feet = phys.player.as_ref().expect("placed").feet;
     player.feet = feet;
+    player.placed = Some(feet);
     info!(
         "player placed: feet ({:.0}, {:.0}, {:.1}), ground {}, terrain z {}",
         feet[0],
@@ -738,6 +749,7 @@ fn step(
         }
         if let Some(c) = p.player.as_mut() {
             p.world.place_character(c, at);
+            p.prev_feet = at;
         }
         p.prev_feet = at;
         player.feet = at;
@@ -753,6 +765,10 @@ fn step(
     if let Some(t) = phys.terrain_z(feet[0], feet[1]).filter(|t| feet[2] < t - FELL_THROUGH) {
         warn!("player fell through at ({:.0}, {:.0}, {:.0}), terrain z {t:.0}: back on the ground", feet[0], feet[1], feet[2]);
         phys.place_player([feet[0], feet[1], t], 100_000.0, 100_000.0);
+    }
+    if intent.forward != 0.0 || intent.right != 0.0 || intent.jump {
+        // Moving by themselves: the player is no longer where the game put them.
+        player.placed = None;
     }
     let p = &mut *phys;
     let dt = p.world.params.dt;

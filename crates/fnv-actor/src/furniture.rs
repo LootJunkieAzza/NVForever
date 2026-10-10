@@ -137,6 +137,7 @@ pub fn furniture(lo: &LoadOrder, schema: &Schema, issues: &mut Issues) -> Vec<Fu
 /// `IS_CHILD` are xEdit's indices, not seen in a compiled script].
 pub mod func {
     pub const GET_SLEEPING: u16 = 0x31;
+    pub const GET_STAGE: u16 = 0x3A;
     pub const GET_ATTACKED: u16 = 0x3F;
     pub const GET_IS_SEX: u16 = 0x46;
     pub const GET_IS_ID: u16 = 0x48;
@@ -215,6 +216,12 @@ impl User {
     }
 }
 
+/// What the game's state answers for a condition function the user of the furniture
+/// does not decide: the function's index and its first parameter as a form; `None` when
+/// it is not known [observed: Doc Mitchell's own way of getting up from a chair is
+/// chosen by `GetStage` of the opening quest, idles.md §6].
+pub type World<'a> = &'a dyn Fn(u16, Option<FormId>) -> Option<f32>;
+
 /// A condition with its form parameter resolved against the load order.
 #[derive(Debug, Clone, PartialEq)]
 struct Cond {
@@ -231,9 +238,10 @@ struct Cond {
 
 impl Cond {
     /// Whether the condition holds; false when its function or value is not known here
-    /// [design: an idle that cannot be judged is not chosen].
-    fn holds(&self, user: &User) -> bool {
-        let (Some(a), Some(b)) = (user.value(self), self.value) else { return false };
+    /// [design: an idle that cannot be judged is not chosen]. A function that is not
+    /// about the user (a quest's stage) is asked of `world`.
+    fn holds(&self, user: &User, world: World) -> bool {
+        let (Some(a), Some(b)) = (user.value(self).or_else(|| world(self.function, self.param1)), self.value) else { return false };
         match self.op {
             0 => a == b,
             1 => a != b,
@@ -249,12 +257,12 @@ impl Cond {
 /// All conditions hold, where a run of conditions joined by "Or" counts as one that
 /// holds when any of the run does [documented: GECK wiki condition rules as summarised in
 /// docs/spec-notes/quests-dialogue.md §3]. An "Or" on the last condition joins nothing.
-fn all_hold(conds: &[Cond], user: &User) -> bool {
+fn all_hold(conds: &[Cond], user: &User, world: World) -> bool {
     let mut i = 0;
     while i < conds.len() {
         let mut any = false;
         loop {
-            any |= conds[i].holds(user);
+            any |= conds[i].holds(user, world);
             i += 1;
             if !conds[i - 1].or || i == conds.len() {
                 break;
@@ -354,17 +362,23 @@ impl UseIdles {
     /// owner's "first eligible from the top" for stored lists; the tree puts special
     /// cases before the general one throughout, furniture.md §3].
     pub fn pick(&self, user: &User) -> Option<Pick> {
-        self.roots.iter().find_map(|&r| self.walk(r, user))
+        self.pick_in(user, &|_, _| None)
     }
 
-    fn walk(&self, n: usize, user: &User) -> Option<Pick> {
+    /// [`UseIdles::pick`] in a game: `world` answers the conditions that are about the
+    /// game's state, not the user.
+    pub fn pick_in(&self, user: &User, world: World) -> Option<Pick> {
+        self.roots.iter().find_map(|&r| self.walk(r, user, world))
+    }
+
+    fn walk(&self, n: usize, user: &User, world: World) -> Option<Pick> {
         let node = &self.nodes[n];
-        if !all_hold(&node.conds, user) {
+        if !all_hold(&node.conds, user, world) {
             return None;
         }
         node.children
             .iter()
-            .find_map(|&c| self.walk(c, user))
+            .find_map(|&c| self.walk(c, user, world))
             .or_else(|| node.clip.clone().map(|clip| Pick { idle: node.id, edid: node.edid.clone(), clip }))
     }
 }
@@ -654,6 +668,31 @@ mod tests {
         t.pick(u).map(|p| p.clip)
     }
 
+    /// No game: nothing but the user is known.
+    const NO_WORLD: World = &|_, _| None;
+
+    #[test]
+    fn a_quest_stage_chooses_a_special_way_of_getting_up() {
+        // The shape of Doc Mitchell's chair exit: before the plain exit, for the stages
+        // 10 to 50 of one quest.
+        let quest = FormId(0x900);
+        let staged = |op, v| Cond { param1: Some(quest), ..cond(func::GET_STAGE, op, v) };
+        let nodes = vec![
+            node(1, Some("help_up"), vec![staged(3, 10.0), staged(5, 50.0), cond(func::GET_FURNITURE_MARKER_ID, 0, 14.0)], vec![]),
+            node(2, Some("front_exit"), vec![cond(func::GET_FURNITURE_MARKER_ID, 0, 14.0)], vec![]),
+            node(3, None, vec![cond(func::GET_SITTING, 0, 4.0)], vec![0, 1]),
+        ];
+        let t = UseIdles { nodes, roots: vec![2] };
+        let u = user(state::GETTING_OFF, 14);
+        let at = |stage: f32| t.pick_in(&u, &|f, q| (f == func::GET_STAGE && q == Some(quest)).then_some(stage)).map(|p| p.clip);
+        assert_eq!(at(45.0).as_deref(), Some("help_up"));
+        assert_eq!(at(10.0).as_deref(), Some("help_up"));
+        assert_eq!(at(55.0).as_deref(), Some("front_exit"));
+        assert_eq!(at(0.0).as_deref(), Some("front_exit"));
+        // Without a game the stage is not known: the plain exit.
+        assert_eq!(clip(&t, &u).as_deref(), Some("front_exit"));
+    }
+
     #[test]
     fn picks_by_state_and_marker() {
         let t = tree();
@@ -697,25 +736,25 @@ mod tests {
         let t = cond(func::GET_SITTING, 0, 3.0);
         let f = cond(func::GET_SITTING, 0, 0.0);
         let or = |c: &Cond| Cond { or: true, ..c.clone() };
-        assert!(all_hold(&[or(&f), t.clone()], &u));
-        assert!(!all_hold(&[or(&f), f.clone(), t.clone()], &u));
-        assert!(all_hold(&[t.clone(), or(&f), or(&f), t.clone()], &u));
-        assert!(all_hold(&[or(&t)], &u));
-        assert!(!all_hold(&[t.clone(), or(&f)], &u));
-        assert!(all_hold(&[], &u));
+        assert!(all_hold(&[or(&f), t.clone()], &u, NO_WORLD));
+        assert!(!all_hold(&[or(&f), f.clone(), t.clone()], &u, NO_WORLD));
+        assert!(all_hold(&[t.clone(), or(&f), or(&f), t.clone()], &u, NO_WORLD));
+        assert!(all_hold(&[or(&t)], &u, NO_WORLD));
+        assert!(!all_hold(&[t.clone(), or(&f)], &u, NO_WORLD));
+        assert!(all_hold(&[], &u, NO_WORLD));
     }
 
     #[test]
     fn form_parameters_compare_resolved_ids() {
         let u = user(state::ON, 11);
         let c = |function, id: u32| Cond { param1: Some(FormId(id)), ..cond(function, 0, 1.0) };
-        assert!(c(func::IS_CURRENT_FURNITURE_OBJ, 0x100).holds(&u));
-        assert!(!c(func::IS_CURRENT_FURNITURE_OBJ, 0x101).holds(&u));
-        assert!(c(func::IS_CURRENT_FURNITURE_REF, 0x200).holds(&u));
-        assert!(c(func::GET_IS_ID, 0x300).holds(&u));
+        assert!(c(func::IS_CURRENT_FURNITURE_OBJ, 0x100).holds(&u, NO_WORLD));
+        assert!(!c(func::IS_CURRENT_FURNITURE_OBJ, 0x101).holds(&u, NO_WORLD));
+        assert!(c(func::IS_CURRENT_FURNITURE_REF, 0x200).holds(&u, NO_WORLD));
+        assert!(c(func::GET_IS_ID, 0x300).holds(&u, NO_WORLD));
         // GetIsSex Female on a male actor.
-        assert!(!Cond { param1_raw: 1, ..cond(func::GET_IS_SEX, 0, 1.0) }.holds(&u));
-        assert!(Cond { param1_raw: 0, ..cond(func::GET_IS_SEX, 0, 1.0) }.holds(&u));
+        assert!(!Cond { param1_raw: 1, ..cond(func::GET_IS_SEX, 0, 1.0) }.holds(&u, NO_WORLD));
+        assert!(Cond { param1_raw: 0, ..cond(func::GET_IS_SEX, 0, 1.0) }.holds(&u, NO_WORLD));
     }
 
     #[test]

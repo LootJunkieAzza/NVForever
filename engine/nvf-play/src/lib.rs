@@ -66,6 +66,10 @@ pub struct PlayData {
     /// No start position was asked for: an interior start goes where the console's `coc`
     /// puts the player (`player::safe::cell_spot`), facing that way.
     pub start_at_cell_spot: bool,
+    /// Actors live by their AI packages (nvforever's residents): the game runs the
+    /// packages' begin, end and change scripts and idles from the start, the player's
+    /// script packages included (`fnv_game::ai`).
+    pub packages: bool,
 }
 
 /// The controls in `--play`, for nvforever's help line.

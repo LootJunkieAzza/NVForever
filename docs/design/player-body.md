@@ -129,8 +129,8 @@ and "Body in first person" on the settings page (key `first-person-body`).
   (`lying_view`). That code does not assume an upright body: the frame is the pelvis's
   whole turn since the bind pose (`bone_turn`), not only its turn about the vertical.
   The view keeps its turn and tilt in that frame while the body lies down and gets up,
-  so the picture leans with the body (`BodyView::axes`: the camera takes a view
-  direction and a top of the picture, not a heading and pitch) and the mouse moves the
+  so the picture leans with the body (`Player::body_view`: the camera takes a whole
+  rotation, not a heading and pitch, as it does for an idle that turns the view) and the mouse moves the
   head in the frame (`PlayerSeat::look`). Limits: the seated 80° and 75° about the
   body's own axes, and no more than 10° below level once lying (`LYING_DOWN`), as lower
   is the pillow. With the switch on the eyes go round the neck about the body's length.

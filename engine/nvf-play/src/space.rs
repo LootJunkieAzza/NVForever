@@ -19,6 +19,12 @@ pub fn look_rotation(heading: f32, pitch: f32) -> Quat {
     Quat::from_euler(EulerRot::YXZ, -heading, pitch, 0.0)
 }
 
+/// Camera rotation (Bevy space) for a view given as a game-space rotation of a node
+/// that looks along its +Y with +Z up (an actor's or a camera node's axes).
+pub fn view_rotation(node: Quat) -> Quat {
+    Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2) * node * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)
+}
+
 /// Game-space unit vector of a view direction.
 pub fn look_dir(heading: f32, pitch: f32) -> [f32; 3] {
     let (sh, ch) = heading.sin_cos();
@@ -36,6 +42,17 @@ mod tests {
         let g = [1.0, 2.0, 3.0];
         assert_eq!(to_game(to_bevy(g)), g);
         assert_eq!(to_bevy([0.0, 0.0, 1.0]), Vec3::Y);
+    }
+
+    #[test]
+    fn a_node_facing_a_heading_views_as_that_heading() {
+        // An actor's root at heading h, pitched about its right axis.
+        for (h, p) in [(0.0, 0.0), (FRAC_PI_2, 0.0), (1.0, -0.4), (-2.5, 0.7)] {
+            let node = Quat::from_rotation_z(-h) * Quat::from_rotation_x(p);
+            let (got, want) = (view_rotation(node), look_rotation(h, p));
+            // The same rotation (either sign of the quaternion).
+            assert!(got.dot(want).abs() > 1.0 - 1e-5, "{h} {p}: {got} vs {want}");
+        }
     }
 
     #[test]

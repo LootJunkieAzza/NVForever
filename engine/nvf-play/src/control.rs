@@ -333,10 +333,6 @@ impl ControlSettings {
 pub struct BodyView {
     /// Third-person pivot (game space): above the body, following crouching.
     pub pivot: Option<[f32; 3]>,
-    /// First person, when the body's head is not upright (lying on a bed): the way the
-    /// view looks and the top of the picture, game space. The picture leans with the
-    /// head; the player's heading and pitch are then the level view nearest to it.
-    pub axes: Option<([f32; 3], [f32; 3])>,
 }
 
 pub fn init_settings(mut commands: Commands, sim: Res<SimState>) {
@@ -496,10 +492,7 @@ pub fn place_camera(
     let (Some(p), Ok(mut t)) = (player, cams.single_mut()) else { return };
     let eye = p.eye();
     if !control.third_person_view() {
-        t.rotation = match body.axes {
-            Some((forward, up)) => Transform::IDENTITY.looking_to(space::to_bevy(forward), space::to_bevy(up)).rotation,
-            None => space::look_rotation(p.heading, p.pitch),
-        };
+        t.rotation = p.body_view.map_or_else(|| space::look_rotation(p.heading, p.pitch), space::view_rotation);
         t.translation = space::to_bevy(eye);
         return;
     }
