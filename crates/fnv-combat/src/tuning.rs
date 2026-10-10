@@ -243,6 +243,10 @@ pub struct CombatTuning {
     pub power_time: f32,
     /// Share of a melee hit a block stops.
     pub block: f32,
+    /// Seconds after an actor's hit reaction ends before a hit on a crippled body part
+    /// starts another, so that fast hits cannot hold it in the reaction
+    /// ([`crate::damage::staggers`]).
+    pub stagger_cooldown: f32,
 }
 
 impl Default for CombatTuning {
@@ -270,6 +274,7 @@ impl Default for CombatTuning {
             power_damage: 1.5,
             power_time: 1.3,
             block: 0.6,
+            stagger_cooldown: 3.0,
         }
     }
 }

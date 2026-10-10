@@ -33,7 +33,8 @@
 //!   armour (`CombatForms::worn_armor` over its inventory) goes to the script runtime's
 //!   `Game::hit` (Health's damage part, OnHit/OnHitWith, death and OnDeath, kill XP), so
 //!   scripts see what combat did. Explosions hit with location −1. Each hit sends an
-//!   [`ActorHit`] (nvforever plays a flinch or the death pose). Without the script runtime
+//!   [`ActorHit`] (nvforever plays a hit reaction, when the hit cripples a body part or
+//!   lands on a crippled one, or the death pose). Without the script runtime
 //!   (`NVF_PLAY_SCRIPTS=0`) hits are only logged.
 //! - **Limb hits** (step C8): an actor whose hit volume has body parts
 //!   (`crate::hitvol::ActorParts`) is hit on a part of its BPTD: the part's damage
@@ -206,6 +207,8 @@ pub struct ActorHit {
     pub location: i32,
     /// The hit crippled a limb.
     pub crippled: bool,
+    /// The body part hit is crippled (by this hit or an earlier one).
+    pub part_crippled: bool,
 }
 
 /// A hit shoves an actor's body at a point (game space): the ragdoll of a dead actor is
@@ -974,7 +977,7 @@ fn apply_hit(
         feedback.marker_age = Some(0.0);
         feedback.kill = r.died;
         feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
-        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled });
+        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0) });
     }
     Some(r)
 }

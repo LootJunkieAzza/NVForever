@@ -1,6 +1,8 @@
 //! Hits and deaths of placed actors on screen (docs/design/combat.md §5.6–5.7, step C5):
 //! `nvf_play::combat` reports each hit ([`ActorHit`]); a living actor plays the hit
-//! reaction for where it was hit (step C8) once over its other clips.
+//! reaction for where it was hit (step C8) once over its other clips, when the hit
+//! cripples a body part, or lands on a crippled one and the actor's last reaction ended
+//! long enough ago (`fnv_combat::damage::staggers`) [design: the owner's rule].
 //!
 //! A dead actor whose skeleton has a ragdoll becomes a [`crate::ragdoll::Corpse`]: killed
 //! in sight on loaded ground, its pose stops where it is and the ragdoll drops it
@@ -15,7 +17,7 @@ use crate::locomotion::{Dying, Flinch, Locomotion};
 use crate::ragdoll::Ragdolls;
 use bevy::prelude::*;
 use nvf_assets::data::GameData;
-use nvf_play::combat::{is_dead, ActorHit};
+use nvf_play::combat::{is_dead, ActorHit, Combat};
 use nvf_play::phys::PhysState;
 use nvf_play::script::ScriptState;
 use nvf_play::RefVisual;
@@ -32,9 +34,20 @@ impl Plugin for DeathsPlugin {
 const END: f32 = 1.0e6;
 
 /// What [`show_hits_and_deaths`] reads of an actor that is not yet shown dead.
-type Living = (Entity, &'static RefVisual, &'static ActorRig, Option<&'static Locomotion>, &'static mut Transform, &'static GlobalTransform);
+type Living = (
+    Entity,
+    &'static RefVisual,
+    &'static ActorRig,
+    Option<&'static Locomotion>,
+    Option<&'static Flinch>,
+    &'static mut Transform,
+    &'static GlobalTransform,
+);
 
+#[allow(clippy::too_many_arguments)]
 fn show_hits_and_deaths(
+    time: Res<Time>,
+    combat: Option<Res<Combat>>,
     mut commands: Commands,
     mut hits: MessageReader<ActorHit>,
     script: Option<Res<ScriptState>>,
@@ -44,7 +57,9 @@ fn show_hits_and_deaths(
     mut actors: Query<Living, Without<Dying>>,
 ) {
     let fresh: Vec<ActorHit> = hits.read().copied().collect();
-    for (e, r, rig, lo, mut t, gt) in &mut actors {
+    let now = time.elapsed_secs();
+    let tuning = combat.map(|c| c.tuning.clone()).unwrap_or_default();
+    for (e, r, rig, lo, flinch, mut t, gt) in &mut actors {
         let hit = fresh.iter().rev().find(|h| h.form_id == r.0);
         let dead = is_dead(script.as_deref(), r.0);
         if dead {
@@ -67,9 +82,18 @@ fn show_hits_and_deaths(
             if let Some(c) = corpse {
                 ec.insert(c);
             }
-        } else if let (Some(h), Some(lo)) = (hit, lo) {
+        } else if let Some(lo) = lo {
+            // Of this frame's hits (a shotgun's pellets), the crippling one comes first.
+            let mine = || fresh.iter().rev().filter(|h| h.form_id == r.0);
+            let since = flinch.map(|f| now - f.at - f.clip.clip.length());
+            let Some(h) = mine().find(|h| h.crippled).or_else(|| mine().find(|h| h.part_crippled)) else { continue };
+            if !fnv_combat::damage::staggers(&tuning, h.crippled, h.part_crippled, since) {
+                continue;
+            }
             if let Some(c) = lo.set.flinch_for(h.location) {
-                commands.entity(e).insert(Flinch { clip: c, t: 0.0 });
+                let why = if h.crippled { "crippled now" } else { "crippled part hit" };
+                info!("hit reaction: {:08X} staggers for {:.1} s (location {}, {why})", r.0, c.clip.length(), h.location);
+                commands.entity(e).insert(Flinch { clip: c, at: now });
             }
         }
     }

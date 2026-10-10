@@ -74,11 +74,14 @@ pub struct Dying {
     pub t: f32,
 }
 
-/// A hit reaction playing once over the actor's other clips (combat C5).
+/// A hit reaction playing once over the actor's other clips (combat C5). It stays on the
+/// actor after the clip's end: `deaths.rs` reads from it how long ago the actor's last
+/// reaction ended.
 #[derive(Component)]
 pub struct Flinch {
     pub clip: Arc<BoundClip>,
-    pub t: f32,
+    /// When it started (`Time::elapsed_secs`).
+    pub at: f32,
 }
 
 impl ClipSet {
@@ -186,7 +189,7 @@ type ActorAnimParts = (
     &'static mut BlendPlayer,
     Option<&'static mut crate::weapons::WeaponHold>,
     Option<&'static mut Dying>,
-    Option<&'static mut Flinch>,
+    Option<&'static Flinch>,
     Option<&'static crate::furniture::OnFurniture>,
     Option<&'static crate::idles::ActorIdle>,
 );
@@ -201,7 +204,7 @@ pub fn drive(
     mut scratch: Local<Vec<(usize, Transform)>>,
 ) {
     let t0 = std::time::Instant::now();
-    let dt = time.delta_secs();
+    let (dt, now) = (time.delta_secs(), time.elapsed_secs());
     let mut n = 0;
     for (mut lo, mut player, weapon, dying, flinch, seated, idle) in &mut actors {
         if let Some(mut d) = dying {
@@ -243,11 +246,10 @@ pub fn drive(
         if let Some(i) = idle {
             i.layers(&mut player);
         }
-        if let Some(mut f) = flinch {
-            let len = f.clip.clip.length().max(1e-3);
-            f.t += dt;
-            if f.t < len {
-                player.layers[3] = Some(Layer { clip: f.clip.clone(), phase: f.t / len, weight: 1.0 });
+        if let Some(f) = flinch {
+            let (len, t) = (f.clip.clip.length().max(1e-3), now - f.at);
+            if t < len {
+                player.layers[3] = Some(Layer { clip: f.clip.clone(), phase: t / len, weight: 1.0 });
             }
         }
         let layers = player.layers.iter().flatten().count() as u64;

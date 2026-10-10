@@ -556,8 +556,9 @@ engine:
     where it lands at the PROJ's speed, and a line marker along the shot stays 0.08 s,
     because at those speeds the bullet's model is on screen for a frame or two;
   - a beam is drawn from the muzzle to its end for the PROJ's fade duration.
-- Hit reactions: a flinch clip layered over the current animation and an impulse to
-  the hit body part once ragdolls exist.
+- Hit reactions: a flinch clip layered over the current animation, when a hit cripples
+  a body part and, after a cooldown, on later hits to a crippled part (owner's rule,
+  combat-rules.md §12), and an impulse to the hit body part once ragdolls exist.
 
 ### 5.7 Death
 
