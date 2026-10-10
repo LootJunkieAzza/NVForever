@@ -92,6 +92,11 @@ pub enum EventKind {
     TopicAdded { topic: FormId, #[serde(skip_serializing_if = "Option::is_none")] by: Option<FormId> },
     /// The conversation ended: `goodbye`, `no_choices`, `left` or `actor_gone`.
     DialogueEnded { actor: FormId, reason: &'static str, lines: u32 },
+    /// An image space modifier started playing on the screen (ApplyImageSpaceModifier).
+    ImageModifierApplied { modifier: FormId },
+    /// An image space modifier left the screen: removed by a script, or (`ended`) an
+    /// animated one reached the end of its duration.
+    ImageModifierRemoved { modifier: FormId, #[serde(skip_serializing_if = "std::ops::Not::not")] ended: bool },
     /// A reputation changed: infamy (axis 0) or fame (axis 1), the new value.
     ReputationChanged { reputation: FormId, axis: usize, value: f64 },
 }

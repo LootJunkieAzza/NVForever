@@ -37,6 +37,8 @@ const ALCH: u32 = 0x852;
 const ACTI: u32 = 0x860;
 const CONT: u32 = 0x861;
 const REGN: u32 = 0x870;
+const IMAD_FADE: u32 = 0x880;
+const IMAD_WHITE: u32 = 0x881;
 const WRLD: u32 = 0x900;
 const EXT_CELL: u32 = 0x910;
 const CELL: u32 = 0x200;
@@ -149,6 +151,13 @@ fn plugin_bytes() -> Vec<u8> {
         REGN,
         &[sub(b"EDID", z("TestRegion")), sub(b"WNAM", WRLD.to_le_bytes().to_vec()), sub(b"RPLI", u32s(&[1024])), sub(b"RPLD", rpld)],
     );
+    // IMAD DNAM: animatable, duration, then the key counts (not read here).
+    let imad_dnam = |animatable: u32, seconds: f32| sub(b"DNAM", [u32s(&[animatable]), f32b(seconds), vec![0; 236]].concat());
+    let imad = [
+        record(b"IMAD", 0, IMAD_FADE, &[sub(b"EDID", z("FadeTest")), imad_dnam(1, 0.5)]),
+        record(b"IMAD", 0, IMAD_WHITE, &[sub(b"EDID", z("WhiteTest")), imad_dnam(0, 1.0)]),
+    ]
+    .concat();
     let wrld = record(b"WRLD", 0, WRLD, &[sub(b"EDID", z("TestWorld"))]);
     let ext = record(b"CELL", 0, EXT_CELL, &[sub(b"EDID", z("TestExterior")), sub(b"XCLC", [0i32.to_le_bytes(), 0i32.to_le_bytes()].concat())]);
     let world_children = group(WRLD.to_le_bytes(), 1, &group(0i32.to_le_bytes(), 4, &group(0i32.to_le_bytes(), 5, &ext)));
@@ -180,6 +189,7 @@ fn plugin_bytes() -> Vec<u8> {
         top(b"ACTI", &acti),
         top(b"CONT", &cont),
         top(b"REGN", &regn),
+        top(b"IMAD", &imad),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &[cell, children].concat()))),
         top(b"WRLD", &[wrld, world_children].concat()),
     ]
@@ -565,4 +575,56 @@ fn destruction_stages_from_combat_damage() {
     assert_eq!((c.after, c.destroyed), (2, true));
     assert!(g.damage_object(acti, 10.0).is_none());
     assert_eq!(call(&mut g, 0x11D7, Some(ACTI_REF), &[]), 2.0);
+}
+
+/// Image space modifiers (docs/spec-notes/image-modifiers.md §3): an animatable one
+/// ends by itself after its duration, the other stays until removed; menus hold their
+/// time; a snapshot keeps them.
+#[test]
+fn image_space_modifiers_play_end_and_are_removed() {
+    const APPLY: u16 = 0x1191;
+    const REMOVE: u16 = 0x1192;
+    const ACTIVE: u16 = 0x1232;
+    let f = fixture();
+    assert_eq!(f.data.image_modifiers[&FormId(IMAD_FADE)], fnv_game::data::ImageModifierDef { animatable: true, duration: 0.5 });
+    assert!(!f.data.image_modifiers[&FormId(IMAD_WHITE)].animatable);
+    let mut g = game(&f);
+    assert_eq!(call(&mut g, ACTIVE, None, &[r(IMAD_FADE)]), 0.0);
+    call(&mut g, APPLY, None, &[r(IMAD_WHITE)]);
+    call(&mut g, APPLY, None, &[r(IMAD_FADE)]);
+    assert_eq!(g.image_modifiers.iter().map(|m| m.modifier.0).collect::<Vec<_>>(), [IMAD_WHITE, IMAD_FADE]);
+    assert_eq!(call(&mut g, ACTIVE, None, &[r(IMAD_FADE)]), 1.0);
+    g.frames(12);
+    assert!((g.image_modifiers[1].elapsed - 0.2).abs() < 1e-9);
+    // A menu holds the modifiers' time.
+    g.menu = Some(1002);
+    g.frames(120);
+    g.menu = None;
+    assert!((g.image_modifiers[1].elapsed - 0.2).abs() < 1e-9);
+    let snap = g.snapshot();
+    assert_eq!(snap.image_modifiers.len(), 2);
+    // Applied again, it starts again.
+    call(&mut g, APPLY, None, &[r(IMAD_FADE)]);
+    assert_eq!(g.image_modifiers[1].elapsed, 0.0);
+    g.frames(29);
+    assert_eq!(call(&mut g, ACTIVE, None, &[r(IMAD_FADE)]), 1.0);
+    g.frames(1);
+    // The animated one has ended; the other is still on the screen.
+    assert_eq!(call(&mut g, ACTIVE, None, &[r(IMAD_FADE)]), 0.0);
+    assert_eq!(call(&mut g, ACTIVE, None, &[r(IMAD_WHITE)]), 1.0);
+    assert!(g.events.iter().any(|e| e.kind == EventKind::ImageModifierRemoved { modifier: FormId(IMAD_FADE), ended: true }));
+    g.frames(600);
+    assert_eq!(call(&mut g, ACTIVE, None, &[r(IMAD_WHITE)]), 1.0);
+    call(&mut g, REMOVE, None, &[r(IMAD_WHITE)]);
+    assert!(g.image_modifiers.is_empty());
+    assert!(g.events.iter().any(|e| e.kind == EventKind::ImageModifierRemoved { modifier: FormId(IMAD_WHITE), ended: false }));
+    // Removing one that is not on the screen does nothing.
+    let n = g.events.len();
+    call(&mut g, REMOVE, None, &[r(IMAD_WHITE)]);
+    assert_eq!(g.events.len(), n);
+    // A form that is no image space modifier fails the call.
+    let ctx = Ctx { unit: "test".into(), opcode: APPLY, on: None, self_ref: None, action_ref: None, quest: None, inst: None, in_condition: false };
+    g.call_function(&ctx, &[r(MISC)]);
+    assert!(matches!(&g.events.last().unwrap().kind, EventKind::CallFailed { name, .. } if name == "ApplyImageSpaceModifier"));
+    assert!(g.image_modifiers.is_empty());
 }
