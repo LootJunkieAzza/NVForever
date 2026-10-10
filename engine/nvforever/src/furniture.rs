@@ -22,7 +22,8 @@
 //!
 //! Not done: work spots without getting-on clips (marker 22), fidgets and eating while
 //! seated (state 3 of the IDLE tree), checking the entry point against the navmesh, and
-//! actors choosing furniture themselves (AI packages).
+//! sandboxing actors choosing furniture themselves (residents use the furniture their
+//! package names, a bed for Sleep and a seat for Eat packages: `residents.rs`).
 
 use crate::actors::ActorWorld;
 use crate::limbs::ActorRig;

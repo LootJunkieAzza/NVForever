@@ -344,9 +344,9 @@ actors standing still; the condition grouping of package conditions (quests-dial
 |---|---|---|---|
 | 1 | An actor holds one script package; a second AddScriptPackage replaces the first (catalogue notes) | keeps a stack: RemoveScriptPackage pops back to the earlier script package | `functions/actor.rs` add/remove_script_package |
 | 2 | EvaluatePackage drops even a must-complete package; a script package without must-complete or must-reach-location is dropped at the next re-evaluation (catalogue notes) | a script package wins every evaluation until RemoveScriptPackage | `Game::select_package` |
-| 3 | A package is chosen only while its schedule is valid (Category:Packages) | schedules ignored (PSDT not decoded) | scripts.md §7.5 |
-| 4 | Package conditions may Run on Target, the package's target (Category:Packages) | no package target; target conditions have no reference | `select_package` passes none |
-| 5 | Once Per Day, Must Complete, Continue if PC Near and the other flags | not read (PKDT not in the schema) | Layer 6 |
+| 3 | A package is chosen only while its schedule is valid (Category:Packages) | done 2026-10-10: schedules applied (`fnv_game::ai`, packages.md §3–§4) | scripts.md §7.5 |
+| 4 | Package conditions may Run on Target, the package's target (Category:Packages) | done 2026-10-10: the package's reference or linked-reference target is the conditions' target | `Game::package_target` |
+| 5 | Once Per Day, Must Complete, Continue if PC Near and the other flags | done 2026-10-10 for these three (`fnv_game::ai`); the other flags are read, not used yet | Layer 6 |
 | 6 | Begin result script, then topic and idle; End idle only with a done state | the runner's `package` input runs the result script and the OnPackage* blocks; order between them not documented | runner |
 | 7 | Detection formula, states, events | GetDetected, GetLineOfSight, CreateDetectionEvent and the other detection functions are stubs | scripts.md §7.3 |
 | 8 | Faction disposition modifier; Track Crime; Evil (Karma); Allow Sell | not used (GetDisposition stub; crime only as flags) | Layer 6 |

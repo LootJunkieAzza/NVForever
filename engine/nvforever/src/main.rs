@@ -28,6 +28,7 @@ mod nav;
 mod player_body;
 mod ragdoll;
 mod reflection;
+mod residents;
 mod ripples;
 mod imagespace;
 mod sky;
@@ -272,9 +273,26 @@ struct Args {
     /// docs/spec-notes/furniture.md).
     #[arg(long)]
     npc_sit: Vec<String>,
-    /// The free camera follows the first --npc-travel or --npc-sit NPC (through doors too).
+    /// The free camera follows the first --npc-travel or --npc-sit NPC, else the first
+    /// --npc-packages NPC (through doors too).
     #[arg(long, conflicts_with = "play")]
     follow_npc: bool,
+    /// With --play: the sky keeps the hour of --hour instead of following the game's
+    /// clock (GameHour, which runs at the TimeScale global, 30).
+    #[arg(long, requires = "play")]
+    still_sky: bool,
+    /// NPCs that live by their AI packages: placed actors (Editor ID or FormID, comma
+    /// separated or repeated), or `all` for every actor and creature of the cells
+    /// loaded around the camera, choose their package by the hour and walk to where it
+    /// sends them (docs/design/actor-behaviour.md §5.4). Their clock starts at --hour
+    /// and runs at --time-scale, or at --npc-timescale when the sky stands still. With
+    /// --play the choice uses the game's own state (quests, scripts).
+    #[arg(long, value_delimiter = ',')]
+    npc_packages: Vec<String>,
+    /// Game seconds per second for --npc-packages when --time-scale is 0 (the game's
+    /// TimeScale is 30).
+    #[arg(long, default_value_t = 30.0, requires = "npc_packages")]
+    npc_timescale: f32,
     /// Draw the navmesh near the camera and the travellers' paths.
     #[arg(long)]
     show_navmesh: bool,
@@ -521,9 +539,23 @@ fn main() -> AppExit {
         a
     });
     let open_doors = args.open_doors;
+    if args.follow_npc && args.npc_travel.is_empty() && args.npc_sit.is_empty() && args.npc_packages.is_empty() {
+        return fail("--follow-npc needs --npc-travel, --npc-sit or --npc-packages".to_string());
+    }
+    let residents = if args.npc_packages.is_empty() {
+        None
+    } else {
+        // Game hours per second: the sky's rate when it runs, else the NPCs' own.
+        let rate = if sky_state.time_scale > 0.0 { sky_state.time_scale as f64 } else { args.npc_timescale.max(0.0) as f64 / 3600.0 };
+        let clock = residents::Clock { hour: sky_state.hour, days_passed: sky_state.days_passed, rate };
+        match residents::Residents::build(&world, &args.npc_packages, clock, args.npc_speed, args.play) {
+            Ok(r) => Some(r),
+            Err(e) => return fail(e),
+        }
+    };
     // Furniture: used by the player in play mode and by --npc-sit travellers.
     let mut trips = args.npc_travel.clone();
-    let furnishings = if args.play || !args.npc_sit.is_empty() {
+    let furnishings = if args.play || !args.npc_sit.is_empty() || residents.is_some() {
         match furniture::Furnishings::build(&world, &args.npc_sit, trips.len()) {
             Ok((f, sit_trips)) => {
                 trips.extend(sit_trips);
@@ -534,10 +566,10 @@ fn main() -> AppExit {
     } else {
         None
     };
-    let nav_state = if trips.is_empty() && !args.show_navmesh {
+    let nav_state = if trips.is_empty() && !args.show_navmesh && residents.is_none() {
         None
     } else {
-        match nav::NavState::build(&world, &trips, args.npc_speed, args.show_navmesh, args.follow_npc && !trips.is_empty()) {
+        match nav::NavState::build(&world, &trips, args.npc_speed, args.show_navmesh, args.follow_npc && (!trips.is_empty() || residents.is_some())) {
             Ok(n) => Some(n),
             Err(e) => return fail(e),
         }
@@ -581,7 +613,12 @@ fn main() -> AppExit {
         hide: args.hide.iter().map(|h| h.to_ascii_lowercase()).collect(),
         interior,
         light_scale: args.light_scale,
-        managed: nav_state.as_ref().map(|n| n.travellers.iter().map(|t| t.reference).collect()).unwrap_or_default(),
+        managed: nav_state
+            .iter()
+            .flat_map(|n| n.travellers.iter().map(|t| t.reference))
+            .chain(residents.iter().flat_map(|r| r.references()))
+            .collect(),
+        manage_actors: residents.as_ref().is_some_and(|r| r.all),
         stats: Default::default(),
     })
     .insert_resource(world)
@@ -646,6 +683,9 @@ fn main() -> AppExit {
             app.add_plugins(dialogue_look::DialogueLookPlugin);
         }
     }
+    if play.is_some() && !args.still_sky {
+        app.add_systems(Update, sky_follows_game.before(sky::update_sky));
+    }
     if let Some(f) = furnishings {
         // After the travellers moved, before the actors are posed.
         app.insert_resource(f)
@@ -662,6 +702,12 @@ fn main() -> AppExit {
             Last,
             nav::report,
         );
+        if let Some(r) = residents {
+            app.insert_resource(r)
+                .add_systems(Startup, residents::log_startup)
+                .add_systems(Update, residents::drive.after(world::stream).after(nvf_play::PlaySet::Scripts).before(nav::drive))
+                .add_systems(Last, residents::report);
+        }
         if play.is_none() {
             // Travellers' door trips (and the camera following one) use the play mode's
             // travel message; without --play, the renderer applies it alone.
@@ -834,6 +880,27 @@ fn keys(
 }
 
 /// The lab's frame document: where the image is and how it was made.
+/// `--play`: one clock. The game's GameHour starts at the sky's hour (`--hour`); from
+/// then on the sky shows the game's time of day, which the simulation advances at the
+/// TimeScale global. An hour set by hand (the `[` and `]` keys) becomes the game's. The
+/// time-lapse test aid (`--time-scale`) keeps the sky's own clock.
+fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, mut shown: Local<Option<f32>>) {
+    if sky.time_scale > 0.0 {
+        return;
+    }
+    let set_by_hand = shown.is_none_or(|h| (h - sky.hour).abs() > 1e-4);
+    if set_by_hand {
+        if let Some((id, _)) = sim.world.forms.global_by_edid(fnv_sim::clock::GAME_HOUR) {
+            if let Err(e) = sim.world.set_global(id, sky.hour) {
+                warn!("game clock: {e}");
+            }
+        }
+    } else if let Ok(c) = sim.world.calendar() {
+        sky.follow_game_clock(c.hour, c.days_passed);
+    }
+    *shown = Some(sky.hour);
+}
+
 fn write_frame_json(out: &std::path::Path, image: &std::path::Path, args: &Args, sky: &sky::SkyState) -> std::io::Result<()> {
     let abs = std::path::absolute(image)?;
     let doc = serde_json::json!({
