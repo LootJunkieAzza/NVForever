@@ -312,11 +312,15 @@ impl Plugin for PlayerPlugin {
             .init_resource::<Status>()
             .init_resource::<Net>()
             .init_resource::<PlayerControl>()
+            .init_resource::<crate::control::ControlLocks>()
+            .init_resource::<crate::control::LockStats>()
             .init_resource::<Bindings>()
             .init_resource::<crate::control::BodyView>()
             .insert_resource(NearAid::from_env())
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
+            .add_systems(Update, crate::control::enforce_locks.after(PlaySet::Input).before(PlaySet::Physics))
+            .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
                 Update,
@@ -434,20 +438,23 @@ fn read_input(
 }
 
 /// Mouse look while the cursor is grabbed; while Toggle POV is held it circles the camera
-/// instead (control.rs).
+/// instead (control.rs). Not while a script has locked looking: the view stays where it
+/// is [documented: GECK wiki DisablePlayerControls, LookingFlag].
+#[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
     look: Option<Res<crate::dialogue::FreeLook>>,
+    locks: Res<crate::control::ControlLocks>,
     mut control: ResMut<PlayerControl>,
     mut player: ResMut<Player>,
 ) {
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     // The player looks around freely while an actor speaks in a conversation.
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
-    if !grabbed || !playing || motion.delta == Vec2::ZERO {
+    if !grabbed || !playing || locks.looking || motion.delta == Vec2::ZERO {
         return;
     }
     let (s, inv) = (bindings.mouse_sensitivity, bindings.invert_y);
