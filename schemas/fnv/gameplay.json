@@ -2636,6 +2636,43 @@
      "note": "xEdit wbDefinitionsFNV.pas MGEF record"
     }
    }
+  },
+  "LSCR": {
+   "name": "Load Screen",
+   "confidence": "documented",
+   "subrecords": {
+    "LNAM": {
+     "name": "Location",
+     "type": {
+      "struct": [
+       {
+        "name": "direct",
+        "type": "formid"
+       },
+       {
+        "name": "indirect_world",
+        "type": "formid"
+       },
+       {
+        "name": "indirect_grid_y",
+        "type": "i16"
+       },
+       {
+        "name": "indirect_grid_x",
+        "type": "i16"
+       }
+      ]
+     },
+     "confidence": "documented",
+     "note": "fopdoc FalloutNV/Records/LSCR (tes5edit.github.io/fopdoc, from xEdit wbDefinitionsFNV.pas); direct is a CELL or WRLD, or null; indirect names a worldspace and a grid square (y first). Observed: 12 bytes, 0 to 4 per record, 23 in FalloutNV.esm (see docs/spec-notes/loading-screens.md)"
+    },
+    "WMI1": {
+     "name": "Load Screen Type",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "fopdoc FalloutNV/Records/LSCR (tes5edit.github.io/fopdoc, from xEdit wbDefinitionsFNV.pas); an LSCT record. Observed: every LSCR of FalloutNV.esm names StandardLoadingTip"
+    }
+   }
   }
  }
 }
