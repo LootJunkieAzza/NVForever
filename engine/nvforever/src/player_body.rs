@@ -35,7 +35,7 @@ use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use fnv_actor::first_person::{self, is_first_person_shape, Show};
 use fnv_actor::player_clips::{
-    aim_clips, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
+    aim_clips, aim_variant, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
     move_clips, reload_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
 };
 use fnv_actor::weapon::AnimType;
@@ -63,8 +63,8 @@ const TAG_LAND: u32 = 31;
 const TAG_AIM: u32 = 40; // + 0 level, + 1 up, + 2 down
 const TAG_HOLSTER: u32 = 50;
 const TAG_EQUIP: u32 = 60;
-const TAG_ATTACK: u32 = 70;
-const TAG_RELOAD: u32 = 71;
+const TAG_ATTACK: u32 = 70; // + 0 level, + 1 up, + 2 down
+const TAG_RELOAD: u32 = 75;
 const TAG_FURNITURE: u32 = 80;
 
 /// Biped slots of headgear hidden in first person when the third-person body has to stand
@@ -150,6 +150,8 @@ struct Rig {
     folder: String,
     animator: Animator,
     clips: HashMap<ClipKey, Option<Arc<ClipInfo>>>,
+    /// The up and down forms of clips, by path (failures too).
+    variants: HashMap<String, Option<Arc<ClipInfo>>>,
     /// Third person: the head bone and the eye in its space.
     head: Option<usize>,
     eye_local: Vec3,
@@ -188,6 +190,22 @@ impl Rig {
             None => debug!("player {:?} rig: {key:?}: none of {:?} in {}", self.view, key.candidates(), self.folder),
         }
         self.clips.insert(key, found.clone());
+        found
+    }
+
+    /// The up or down form of clip `c` (`2hrattackleftup.kf` beside `2hrattackleft.kf`),
+    /// if its folder has one (cached, failures too).
+    fn variant(&mut self, ctx: &mut ActorCtx, c: &ClipInfo, aim: Aim) -> Option<Arc<ClipInfo>> {
+        let path = aim_variant(&c.path, aim);
+        if let Some(v) = self.variants.get(&path) {
+            return v.clone();
+        }
+        let found = if ctx.models.data.vfs.exists(&path) { ctx.clip(&path) } else { None }.map(|clip| {
+            let keys = ClipKeys::parse(&clip.text_keys);
+            Arc::new(ClipInfo { speed: None, path: path.clone(), clip, keys })
+        });
+        debug!("player {:?} rig: {aim:?} form of {}: {}", self.view, c.path, if found.is_some() { &path } else { "none" });
+        self.variants.insert(path, found.clone());
         found
     }
 
@@ -480,6 +498,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         folder,
         animator,
         clips: HashMap::new(),
+        variants: HashMap::new(),
         head,
         eye_local,
         looking,
@@ -589,19 +608,23 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
             rig.animator.restart(&c.clip, TAG_LAND, 1.0, Mode::Once, c.fade());
         }
     }
+    // First person pitches the whole arms rig instead of bending the body.
+    let aim_w = match rig.view {
+        View::First => [(Aim::Level, 1.0), (Aim::Up, 0.0), (Aim::Down, 0.0)],
+        View::Third => aim_weights(f.pitch),
+    };
     if f.hands.in_hand && f.hands.phase != WeaponPhase::Drawing {
         if f.aiming && blocks(f.prefix) {
             if let Some(c) = rig.clip(ctx, ClipKey::Block(f.stance, f.prefix)) {
                 want.push((c, TAG_AIM, 1.0, Mode::Loop));
             }
         } else {
-            // First person pitches the whole arms rig instead of bending the body.
-            let weights = match rig.view {
-                View::First => [(Aim::Level, 1.0), (Aim::Up, 0.0), (Aim::Down, 0.0)],
-                View::Third => aim_weights(f.pitch),
-            };
-            for (i, (aim, w)) in weights.into_iter().enumerate() {
-                if w <= 0.0 {
+            for (i, (aim, w)) in aim_w.into_iter().enumerate() {
+                // The level clip plays at any weight: the up and down clips of rifles
+                // and two-handed melee weapons drive the spine only, so the arms are the
+                // level clip's alone and both hands stay on the weapon [observed:
+                // animation.md §9.6].
+                if w <= 0.0 && aim != Aim::Level {
                     continue;
                 }
                 if let Some(c) = rig.clip(ctx, ClipKey::Aim(f.stance, f.prefix, aim, f.aiming)) {
@@ -617,7 +640,16 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
     }
     if f.hands.in_hand && f.attack_now {
         if let Some(c) = f.attack.and_then(|a| rig.clip(ctx, ClipKey::Attack(f.stance, f.prefix, a, f.aiming))) {
-            rig.animator.restart(&c.clip, TAG_ATTACK, 1.0, Mode::Once, ATTACK_FADE);
+            rig.animator.restart(&c.clip, TAG_ATTACK, aim_w[0].1, Mode::Once, ATTACK_FADE);
+            // The attack's own up and down forms keep the body bent with the pitch while
+            // it plays, as the aim's do [observed: `2hrattackleftup.kf`, §9.6].
+            for (i, (aim, w)) in aim_w.into_iter().enumerate().skip(1) {
+                let tag = TAG_ATTACK + i as u32;
+                rig.animator.cut(tag);
+                if let Some(v) = (rig.view == View::Third).then(|| rig.variant(ctx, &c, aim)).flatten() {
+                    rig.animator.restart(&v.clip, tag, w, Mode::Once, ATTACK_FADE);
+                }
+            }
         }
     }
     if f.hands.in_hand && f.reload_now {
@@ -638,9 +670,9 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
         a.want(&c.clip, *tag, *w, *mode, fade);
     }
     // Clips that play once to their end once started: landing, attack, reload.
-    for tag in [TAG_LAND, TAG_ATTACK, TAG_RELOAD] {
+    for (tag, w) in [(TAG_LAND, 1.0), (TAG_ATTACK, aim_w[0].1), (TAG_ATTACK + 1, aim_w[1].1), (TAG_ATTACK + 2, aim_w[2].1), (TAG_RELOAD, 1.0)] {
         if let Some(c) = a.layers.iter().find(|l| l.tag == tag && !l.finished()).map(|l| l.clip.clone()) {
-            a.want(&c, tag, 1.0, Mode::Once, 0.0);
+            a.want(&c, tag, w, Mode::Once, 0.0);
         }
     }
     a.end();
@@ -874,7 +906,7 @@ fn drive_body(
     if m.log_elapsed >= 1.0 {
         m.log_elapsed = 0.0;
         let layers = |r: &Rig| {
-            r.animator.layers.iter().filter(|l| l.weight > 0.01).map(|l| format!("{}:{}×{:.2}", l.tag, l.clip.name, l.weight)).collect::<Vec<_>>().join(" ")
+            r.animator.layers.iter().filter(|l| l.ease > 0.01).map(|l| format!("{}:{}×{:.2}", l.tag, l.clip.name, l.weight)).collect::<Vec<_>>().join(" ")
         };
         debug!(
             "player body: {stance:?} speed {:.0} weapon {:?} {} in hand {} airborne {:.2}s view {} eye z {:.1} (feet {:.1}); third [{}]; first [{}]",

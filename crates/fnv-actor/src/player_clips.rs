@@ -129,17 +129,34 @@ pub enum Aim {
     Down,
 }
 
+impl Aim {
+    /// What a clip's file name ends in for this aim (`2hraim.kf`, `2hraimup.kf`,
+    /// `2hraimdown.kf`).
+    fn ending(self) -> &'static str {
+        match self {
+            Aim::Level => "",
+            Aim::Up => "up",
+            Aim::Down => "down",
+        }
+    }
+}
+
+/// The up or down form of the clip at `path`: the same name with `up` or `down` added
+/// (`2hrattackleft.kf` → `2hrattackleftup.kf`, `2hrattackleftis.kf` →
+/// `2hrattackleftisdown.kf`) [observed: file names, animation.md §9.6]. Aims and attacks
+/// have them; whether a given clip does is for the caller to look up.
+pub fn aim_variant(path: &str, aim: Aim) -> String {
+    let stem = path.strip_suffix(".kf").unwrap_or(path);
+    format!("{stem}{}.kf", aim.ending())
+}
+
 /// The pose of holding weapon `prefix` out (its `Aim` group: `1hpaim.kf`, `aimup`,
 /// `aimdown`), sneaking first when crouched [hypothesis: the game's weapon-out stance is
 /// the Aim group; the clip loops]. With `sights`, aiming down the sights (`AimIS`:
 /// `2hraimis.kf`, `aimisup`, `aimisdown`; pistols, rifles and automatics have them
 /// [observed: file list]), falling back to the plain aim.
 pub fn aim_clips(stance: Stance, prefix: &str, aim: Aim, sights: bool) -> Vec<String> {
-    let a = match aim {
-        Aim::Level => "",
-        Aim::Up => "up",
-        Aim::Down => "down",
-    };
+    let a = aim.ending();
     let mut out = Vec::new();
     for is in if sights { &["is", ""][..] } else { &[""][..] } {
         if stance == Stance::Sneak {
@@ -151,8 +168,12 @@ pub fn aim_clips(stance: Stance, prefix: &str, aim: Aim, sights: bool) -> Vec<St
 }
 
 /// Weights of the level, up and down aim clips for a view pitch (radians, negative looks
-/// down): linear between level and the extremes at ±90° [hypothesis: the angle the
-/// extreme clips stand for is not known].
+/// down): linear between level and the extremes at ±90° [observed: the rifles' up and
+/// down clips turn each of the three spine bones 30° from the level clip's pose,
+/// animation.md §9.6; hypothesis: that the three add up to the 90° the extremes stand
+/// for, and that the game's weights are linear in the pitch]. The level clip's weight
+/// reaches 0 at the extremes but it is still to be played: it may be the only one of the
+/// three with the arms.
 pub fn aim_weights(pitch: f32) -> [(Aim, f32); 3] {
     let t = (pitch.abs() / std::f32::consts::FRAC_PI_2).clamp(0.0, 1.0);
     let (up, down) = if pitch >= 0.0 { (t, 0.0) } else { (0.0, t) };
@@ -481,6 +502,9 @@ mod tests {
     fn weapon_files() {
         assert_eq!(aim_clips(Stance::Sneak, "1hp", Aim::Up, false), ["sneak1hpaimup.kf", "1hpaimup.kf"]);
         assert_eq!(aim_clips(Stance::Stand, "2hr", Aim::Level, true), ["2hraimis.kf", "2hraim.kf"]);
+        assert_eq!(aim_variant(r"meshes\characters\_male\2hrattackleftis.kf", Aim::Down), r"meshes\characters\_male\2hrattackleftisdown.kf");
+        assert_eq!(aim_variant("2hrattackleft.kf", Aim::Up), "2hrattackleftup.kf");
+        assert_eq!(aim_variant("2hraim.kf", Aim::Level), "2hraim.kf");
         assert_eq!(holster_clips(Stance::Stand, "2hr"), ["2hrholster.kf"]);
         assert_eq!(equip_clips(Stance::Sneak, "h2h", false), ["sneakh2hunequip.kf", "h2hunequip.kf"]);
         assert_eq!(
