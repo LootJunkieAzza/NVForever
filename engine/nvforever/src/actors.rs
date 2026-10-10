@@ -223,6 +223,19 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
                 materials[i] = ctx.material_with_texture(&p.model, &part, i, t);
             }
         }
+        // A worn model's skin shapes (skin showing inside an outfit or a glove) take the
+        // race's skin texture in place of the one they name, so a ghoul's or a raider's
+        // arms are not human skin [hypothesis, actors.md §3.1].
+        let mut worn_skin: Vec<Option<&str>> = vec![None; part.shapes.len()];
+        if p.role == "armor" {
+            for (i, s) in part.shapes.iter().enumerate().filter(|(_, s)| !s.cap && s.is_skin()) {
+                let Some(t) = a.worn_skin_texture(s.base_texture()) else { continue };
+                if s.base_texture().map(fnv_vfs::texture_path) != Some(fnv_vfs::texture_path(t)) {
+                    materials[i] = ctx.material_with_texture(&p.model, &part, i, t);
+                }
+                worn_skin[i] = Some(t);
+            }
+        }
         let mut meshes = vec![None; part.shapes.len()];
         if let Some(fg) = a.facegen.as_ref().filter(|_| world.facegen_enabled) {
             let mut cache = world.facegen.lock().expect("facegen cache");
@@ -244,7 +257,8 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         // [hypothesis, actors.md §4.1].
         if let Some(fg) = fgts {
             for (i, s) in part.shapes.iter().enumerate() {
-                let tex = if s.cap { None } else { p.texture.as_deref().filter(|_| takes_texture[i]).or_else(|| s.base_texture()) };
+                let given = worn_skin[i].or(p.texture.as_deref().filter(|_| takes_texture[i]));
+                let tex = if s.cap { None } else { given.or_else(|| s.base_texture()) };
                 let Some(tex) = tex.map(fnv_vfs::texture_path) else { continue };
                 let Some(skin) = skins.iter_mut().find(|k| k.texture == tex) else { continue };
                 let img = skin
