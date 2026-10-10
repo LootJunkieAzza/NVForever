@@ -29,6 +29,7 @@ them.
 | `explosion_edge` | 0.25 | blast damage at the edge of the radius |
 | `default_bounce` | 0.3 | lobbers whose PROJ has no bounce value |
 | `auto_reload`, `fallback_reload` | true, 2 s | empty-trigger reload; reload without a clip length |
+| `stagger_cooldown` | 3 s | after a hit reaction ends, how long hits on a crippled part start no other (§12) |
 
 The bloom values were lowered after the first `combat sim` runs: at 0.15 × Min Spread
 with a cap of 1.0, the 10mm SMG hit 2 of 60 shots at 1000 units from the hip [observed
@@ -332,7 +333,8 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   - An `ActorHit` message goes out with each hit.
   - Without the script runtime, hits are only logged.
 - **On screen** (`engine/nvforever/src/deaths.rs`, `locomotion.rs`):
-  - A living actor flinches with `idleanims\mt_hittorso.kf` over its other clips.
+  - A living actor plays a hit reaction over its other clips when the hit cripples a
+    body part or lands on a crippled one (the rule and the clips: §12).
   - A dead one whose skeleton has a ragdoll drops as one (ragdoll.md §4;
     `ragdoll.rs`): the Havok bodies and constraints of its skeleton as jointed rigid
     bodies, shoved by the hit that killed it and by later hits.
@@ -534,10 +536,27 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   - the HUD's health line lists crippled limbs.
 
   Nothing hurts the player yet (no NPC attacks); scripts can (`DamageActorValue`).
-- **Hit reactions:** a living actor plays the hit clip for where it was hit:
-  `mt_hithead`, `mt_hittorso`, `mt_hitarmleft`/`right` or `mt_hitlegleft`/`right`
-  (`idleanims`, the `_male` folder) [observed: the clips exist; design: which location
-  plays which].
+- **Hit reactions** (`damage::staggers`, `deaths.rs`) [design: the owner's rule,
+  2026-10-11; before it every hit played one, and fast hits held an actor in it]:
+  - The hit that cripples a body part always plays one.
+  - A later hit on a part that is already crippled plays one when the actor's last
+    reaction ended at least `stagger_cooldown` seconds ago (3 s; one clock per actor,
+    whichever part was hit).
+  - Any other hit plays none: a hit on a healthy part, or a blast (no part).
+  - The clip is the one for where the hit landed: `mt_hithead`, `mt_hittorso`,
+    `mt_hitarmleft`/`right` or `mt_hitlegleft`/`right` (`idleanims`, the `_male`
+    folder) [observed: the clips exist; design: which location plays which].
+  - The log names each one ("hit reaction: … staggers").
+  - Checked [observed 2026-10-11, `nvforever --play`, exit 0, "run finished"; the
+    Goodsprings Settler 0x00104F0A, 9mm pistol, `aimpart=0` and `aimnpc`]:
+    - Four torso hits and an arm hit on healthy parts played nothing.
+    - The fifth torso hit crippled the torso and played `mt_hittorso` (1.4 s).
+    - The hit that crippled the head played `mt_hithead` (4.5 s); a second head hit
+      1.2 s later played nothing.
+    - A head hit 3.4 s after the crippling one played the reaction again. That run
+      counted the cooldown from the reaction's start; counting from its end was not
+      seen in play (the settler walks behind a wall before it runs out) and rests on
+      the rule's test.
 - **Test aids:**
   - `aimpart=<n>` aims at the nearest NPC's part `n`;
   - `aimnpc=<share>` aims at a share of its height;
