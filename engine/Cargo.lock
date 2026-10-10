@@ -2903,6 +2903,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-voice"
+version = "0.1.0"
+dependencies = [
+ "fnv-esm",
+ "fnv-game",
+ "fnv-sim",
+ "fnv-vfs",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "fnv-world"
 version = "0.1.0"
 dependencies = [
@@ -4192,6 +4205,7 @@ dependencies = [
  "fnv-phys",
  "fnv-script",
  "fnv-sim",
+ "fnv-voice",
  "fnv-world",
  "nvf-assets",
  "serde",
