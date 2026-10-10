@@ -772,6 +772,10 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
 - **Added in round 4 (7, §7.7)**: SayTo, Say (dialogue lines), IsTalking (a line in
   progress), and the menus GetPlayerName, ShowRaceMenu, SetTagSkills, ShowTraitMenu,
   ShowLoveTesterMenuParams (each opens its menu). All seven were stubs before.
+- **Added with dialogue (3, 2026-10-10, docs/spec-notes/dialogue.md §6)**:
+  StartConversation (with the player as target: the conversation starts at once),
+  GetTalkedToPC, GetDialogueEmotion. All three were stubs before; they are still named
+  in the stub list below as it stood after round 4.
 - **Layer 6 stubs (170 after round 3; 163 after round 4)**, traced as `stub` with
   their arguments and no effect; `functions::registry()` names each one's system. From
   round 2: AI packages (ResetAI, GetCurrentAIPackage, GetCurrentAIProcedure, SetAlert,
@@ -1008,7 +1012,11 @@ Mercenary, Caravan, Tribal. In the game the next box came 0.45–1.4 s after a c
 [observed, §10.2]; here 1 frame (they were all due) — a difference.
 
 **Dialogue lines** (`Game::say`, `Game::speech`). `speaker.SayTo target topic` and
-`speaker.Say topic` say the topic's first line the speaker can say:
+`speaker.Say topic` say the topic's first line the speaker can say. Since 2026-10-10 the
+choice of the line is shared with conversations (`Game::select_line`,
+docs/spec-notes/dialogue.md §4: quest priority, then stored order, Random stacks picked
+at random, Say Once a Day), and a response is timed in one place
+(`Game::response_seconds`). As first written:
 - The topic's lines (INFO) come from the "topic children" group after each DIAL, in file
   order of the plugin that first defines each [documented: group types, xEdit;
   hypothesis that file order is the editor's list order; the masters' INFOs have no PNAM].
@@ -1037,8 +1045,10 @@ Mercenary, Caravan, Tribal. In the game the next box came 0.45–1.4 s after a c
   stage 10; the first line of the topic is said again at stage 60 when it was never said
   (stage 5 then set while GetStage stays 60); VCG01DocReactions picks the reaction by
   `nDocReaction`.
-- Not modelled: the dialogue menu (player choices, StartConversation, topics the player
-  picks), Run Immediately, Say Once a Day, the voice file lengths, Goodbye.
+- Conversations with the player (the greeting, choices, StartConversation, Goodbye, Run
+  Immediately, follow-up lines) are docs/spec-notes/dialogue.md §5–6
+  (`crate::dialogue`). Not modelled: the voice file lengths (step D3), conversations
+  between NPCs.
 
 ### 7.5 AI packages (the start of Layer 6, `Game::select_package`)
 
@@ -1091,6 +1101,10 @@ Additions (headless stand-ins for Layer 6 and the engine; scripted inputs, like
 | `kill {actor, killer?}` | combat ending in a death (KillActor, OnDeath) |
 | `consume {item, actor?, label?}` | the player (or an actor) using an aid item: `Game::consume`, effect scripts start (§7.6); observation `effects` |
 | `note {text}` | a comment; no effect |
+| `talk {actor, topic?, label?}` | a conversation starting (`Game::start_dialogue`): the player activating the actor, or the actor's dialogue package; observation `info` (docs/spec-notes/dialogue.md §8) |
+| `choose {topic \| prompt \| index, max_frames?, label?}` | the player picking one of the choices offered, after waiting for the actor to finish speaking; observation `info` |
+| `wait_talk {start?, max_frames?, label?}` | waiting until choices are offered or the conversation is over (with `start`: until a script's StartConversation has started one first); observations `state`, `choices`, `actor` |
+| `end_talk {}` | the player leaving the conversation |
 
 Round 2 of the contract (layer5-captures.md §8.2), as the capture issues them:
 
@@ -1166,7 +1180,9 @@ to another script's variables (own locals with `trace_locals`), `global_set`,
 buttons, `moved`, `activated`, `block_run`, `result_script`, `stub` (each distinct call
 once per unit), `unhandled`, `call_failed`, `script_error`, `skipped`,
 `undeclared_variable`, and from round 4 `menu_opened`, `menu_closed`, `line_started`,
-`line_ended`, `no_line`); `final` (frames, every touched quest with stages, objectives and
+`line_ended`, `no_line`, and from the dialogue work `dialogue_started`, `response_said`,
+`choices_offered`, `choice_made`, `topic_added`, `dialogue_ended`); `final` (frames,
+the running conversation `dialogue`, every touched quest with stages, objectives and
 named variables, the player state, reported references, unhandled and stubbed call
 counts).
 
@@ -1189,14 +1205,18 @@ Round 4: the walk-through starts from the facts of the new-game save `nvfnew`
 its 3 s countdown (stages 0 and 90 done, `bRunTimer` 1), VCG01 running with nothing
 done, VCG01Test, CGTutorial and the pack quests running, VCG02–VCG04, VMQ01 and
 VGenericTimer stopped, S.P.E.C.I.A.L. all 5, the player at the opening's start marker.
-From there the game's own timers, Doc Mitchell's SayTo lines (§7.7) and the menus drive
-the chain. Stand-ins are left only for what the player does: the OK / Done of the boxes
-and menus, walking into the two triggers (60, 115), the couch and the psych test (their
-result scripts: the scores, the calculation, objective 40, the verdict line that sets
-85), Doc's farewell dialogue (two lines; the second starts VGenericTimer's event 3) and
-the hardcore question (button 0). Run with `fnvtool script run <Data> <ten masters>
---schema schemas/fnv --actions crates/fnv-game/walkthrough/intro.actions.json` (10,618
-frames, about 2 s). The VCG02 / VCG03 part is the round 3 one (Sunny's lines, packages,
+From there the game's own timers, Doc Mitchell's SayTo lines (§7.7), his two
+conversations and the menus drive the chain. Since 2026-10-10 the psych test and the
+farewell are real conversations (docs/spec-notes/dialogue.md §9): the couch trigger's
+own script calls StartConversation, the player's fourteen answers are `choose` inputs,
+and the farewell runs from its greeting through follow-up lines to the Goodbye line
+that starts VGenericTimer's event 3. Stand-ins are left for what the player does and
+for AI: the OK / Done of the boxes and menus, walking into the two triggers (60, 115),
+sitting on the couch (objective 40 and the trigger's `bRunTimer`), Doc's dialogue
+package for the farewell (`talk`) and the hardcore question (button 0). Run with
+`fnvtool script run <Data> <ten masters> --schema schemas/fnv --actions
+crates/fnv-game/walkthrough/intro.actions.json` (19,369 frames, about 3 s; the
+conversations' lines take their fitted lengths). The VCG02 / VCG03 part is the round 3 one (Sunny's lines, packages,
 deaths and crafting as inputs).
 
 Results: VCG00 stages done 0, 90, 95, 100; VCG01 all defined stages but 9, 17, 20, 37,
@@ -1226,12 +1246,12 @@ each step from the stage before it; capture: §10.2, §10.3, §10.7, natural ord
 | 70 | 1.02 after the menu | 0.96 | |
 | 75, 76, 79 | one frame | one frame | |
 | 80 | +18.1 (three psych intro lines) | about 13 s | **line lengths** |
-| 85 → 90, menu 1048 | 1.02 | 1 s | 85 by stand-in |
+| 85 → 90, menu 1048 | 1.0 | 1 s | 85 by the end script of the last psych answer's line |
 | 95 | 1.02 after the menu | 0.96 | |
 | 98, 100, 102, menu 1084 | lines (17.9), +1.02, +1 frame | lines, 1 s (0.98), next frame | |
 | 105 | 1.02 after the menu | 0.97 | |
 | 110 | +3.47 (lines) | lines | |
-| 115, 200 | by input; 200 0.4 s after the farewell | by the job; event 3 | |
+| 115, 200 | 115 by input; 200 0.4 s after the farewell conversation's Goodbye line | by the job; event 3 | |
 
 Differences: (1) the pack boxes came 5 s after the start (the pack quests' 5 s delay
 from a new game) and then one frame after each close; in the game they came 0.45–1.4 s
@@ -1247,8 +1267,9 @@ reached the same stages done; its round 3 note on the 85 → 90 countdown expiri
 is gone with the GetSecondsPassed rule of §5.
 
 What still blocks a run without inputs: the player's own actions (menus' OK, the walk,
-the couch, the psych test and farewell dialogue choices, the hardcore answer), AI
-packages finishing and combat (VCG02), crafting (VCG03).
+the couch, the answers in the two conversations, the hardcore answer), AI packages
+(Doc's dialogue package, Sunny's travel) and combat (VCG02), crafting (VCG03). Sunny's
+and Trudy's lines in the VCG02 / VCG03 part are still `say_info` / `say_first` inputs.
 
 ## 10. Open questions (5B)
 
