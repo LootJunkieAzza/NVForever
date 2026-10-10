@@ -248,7 +248,8 @@ of whose partitions sets part flag bit 0 ("editor visible", nif.xml BSPartFlag) 
 hidden [hypothesis: an intact actor shows none]. Pose: the skeleton's bind pose, frozen
 (default), or the idle clip on the skeleton's bones (§7).
 The race's height scales the actor [hypothesis]. Texture overrides: the race part ICONs,
-the EYES texture and the HAIR texture replace the model's diffuse. Hair colour: texture ×
+the EYES texture and the HAIR texture replace the model's diffuse; a skin shape also
+takes the normal map beside its new diffuse (§3.1, "Normal maps"). Hair colour: texture ×
 2 × HCLR in gamma space [hypothesis: a plain multiply leaves Sunny Smiles' hair dark
 brown where the owner's screenshot shows auburn; doubled, it matches by eye].
 
@@ -330,14 +331,79 @@ three Great Khans of the raider races at Quarry Junction (QJMelissa, QJGreatKhan
 QJGreatKhanHM) had light untinted arms and legs under dark faces, and now arms and legs
 of the faces' colour.
 
+**Normal maps** (built 2026-10-10). Until then a replaced diffuse texture left the
+normal map (texture slot 1) the one the model names. Survey [observed: `fnvtool bsa list`
+and `fnvtool dds list` on `Fallout - Textures.bsa`; texture slots of the part models of
+every placed NPC (`fnvtool actor appearance --all`, `fnvtool nif decode`); which meshes
+of `Fallout - Meshes.bsa` name a texture, and in which slot,
+`crates/fnv-nif/examples/texture_refs.rs`]:
+
+- Skin. The skin folders under `textures\characters\` (`male`, `female`, `ghoul`,
+  `ghoulfemale`, `raider`, `raiderfemale`, `child`, `childfemale`, and `old` /
+  `oldfemale` for heads only) hold, beside each diffuse (`upperbody….dds`, `hand….dds`,
+  `headhuman.dds`, and `headhumanold.dds` in `male` and `female`), a file of the same
+  name with `_n` (1024 × 1024 DXT5 for bodies and heads): 30 files, no two with the
+  same content (SHA-256).
+- All 139 skin shader properties in the models of placed NPCs name in slot 1 the `_n`
+  file beside their slot 0. But the models name the adult human's maps whoever uses
+  them: all eight head models (`headhuman`, `headfemale`, `headghoul`,
+  `headghoulfemale`, `headold`, `headoldfemale`, `headchild`, `headchildfemale`) name
+  `characters\male\headhuman.dds` and `characters\male\headhuman_n.dds`, the women's
+  ones included; the hand and body models name the `male` or `female` files.
+- No mesh names the `_n` files of `ghoul` (but the upper body one, by Raul's jumpsuit),
+  `ghoulfemale`, `raider`, `raiderfemale`, `child`, `old`, `oldfemale`, the head and
+  hand ones of `childfemale`, or `female\headhumanold_n.dds`; `female\headhuman_n.dds`
+  is named by one mesh, `characters\head\headfemalefacegen.nif`, which is no placed
+  NPC's head part (theirs is `headfemale.nif`). The game can reach these files only by
+  their names.
+- The `_sk` maps (slot 2) need no switch: the head and body ones are one file in every
+  folder (128 × 128; the first-person hands' too), the hand ones another (32 × 32).
+- Not skin (shader type 1). Eye textures have no `_n` file. The mouth, teeth and tongue
+  ones have one for the human textures only, a 1 × 1 pixel stand-in (the same content as
+  `characters\head\earshuman.dds`) that no mesh names; those models name
+  `textures\shared\flat_n.dds`. Hair: 34 of the 37 diffuse textures in
+  `characters\hair\` have an `_n` file, and a mesh names every one of them but three
+  whose diffuse no placed NPC uses (`hairf`, `shades`, `shades01`); the models do not
+  always name the file beside their own diffuse (`hairfemaleb.nif`: `hairf02.dds` with
+  `hairf01_n.dds`, there being no `hairf02_n.dds`).
+
+Rule used [hypothesis: the game finds the normal map of a skin texture it puts in by its
+name; the unnamed files above fit that, and no in-game picture was compared]: when the
+diffuse of a skin shape (shader type 14) is replaced — a race part's ICON on the race's
+head, hand and body models, or the race's texture on a worn model's skin — its normal
+map becomes the file named like the new diffuse with `_n` before the extension, when
+the virtual file system has that file; otherwise the model's own stays
+(`fnv_vfs::normal_map_beside`, `nvf_assets::actor::skin_normal_map`, applied in
+`ActorCtx::material_with_texture`). Shapes that are not skin keep the normal map their
+model names: for eyes and mouth parts the files above speak against a switch, for hair
+they do not decide (below). FaceGen face and body tints replace only the base colour
+image afterwards (§4), so they keep the switched normal map.
+
+What it changes among the 3,386 placed NPCs of FalloutNV.esm that resolve: 1,107 heads
+(489 adult women, who had the men's head relief; 131 old men and women; 384 of the
+raider races; 74 ghouls; 29 children), the hands of 491 (raider races, ghouls,
+children), and the skin inside outfits of the wearers counted under "Worn models". A man
+of a young adult human race (`male\headhuman.dds`, `male\handmale.dds`,
+`male\upperbodymale.dds`) keeps every map: for him the file beside the texture is the
+one the model names.
+
+Checked on screen, before and after (2026-10-10, owner's install, pictures private,
+`C:\fnv-private\frames\skin-normal-maps\`): the Gomorrah ghoul above gains the ghoul
+relief on face and neck (sunken nose, bared jaw, sinews) and a rougher surface on arms,
+chest and legs; pixels change on him only. Of the three Great Khans, the woman's face
+(QJMelissa) loses the men's heavy brow and jaw relief; the raider maps differ little
+from the human ones at that distance (about 1,000 pixels of 1,440,000 differ by more
+than 6/255). A settler of the Caucasian race in the Prospector Saloon (GSSettlerCM):
+the two pictures are the same file, byte for byte.
+
 Open:
 
-- The normal map stays the model's (the adult human `…_n.dds`). Each kind has its own
-  (`characters\ghoul\upperbodymale_n.dds` and the raider and child ones are different
-  files from the human one [observed]; the `_sk` maps are all one file), so a ghoul's
-  skin has the ghoul colours over the human surface relief. The same holds for the
-  race's own body, hand and head parts, whose models name the human maps
-  [hypothesis: the game takes the `_n` file beside the texture it puts in; not built].
+- Hair. 216 placed NPCs have a HAIR texture that is not their hair model's own and has
+  an `_n` file of other content than the one the model names (`hairbase.nif` and
+  `hairbaseold.nif`, which name `hairbase_n.dds`, with `hairafricanamericanbase.dds`
+  (187) or `hairbalding.dds` (29)). They keep the model's normal map [hypothesis: the
+  files do not show which the game uses; a picture of such a head from the original,
+  close up, would]. The hair's `_hl` map (slot 2) is in the same position.
 - The hand-to-hand weapon models (`weapons\hand2hand\*.nif`, 12 skin shapes: a hand
   inside boxing tape, knuckles and the like) are not worn models; a hand in them keeps
   the texture it names, untinted.

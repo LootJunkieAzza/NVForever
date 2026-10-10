@@ -106,6 +106,21 @@ pub fn texture_targets(shapes: &[(bool, bool)]) -> Vec<bool> {
     shapes.iter().map(|&(cap, skin)| !cap && (skin || !any_skin)).collect()
 }
 
+/// The normal map a shape takes when its diffuse is replaced by `texture`, or `None` to
+/// keep the one its model names: for a skin shape, the file beside `texture` named with
+/// `_n` ([`fnv_vfs::normal_map_beside`]) when `exists` finds it (asked with the VFS
+/// path). The race part models and the worn models name the adult human's skin maps
+/// (every head model names `characters\male\headhuman_n.dds`) while each kind of skin
+/// has its own beside its diffuse, most of them named by no mesh. Shapes that are not
+/// skin keep theirs: eye textures have no such file, the mouth, teeth and tongue ones a
+/// 1 × 1 stand-in where the models name a flat map, and for hair the files do not show
+/// which map the game uses [observed: `crates/fnv-nif/examples/texture_refs.rs`;
+/// hypothesis for the rule, docs/spec-notes/actors.md §3.1 "Normal maps"].
+pub fn skin_normal_map(skin: bool, texture: &str, exists: impl Fn(&str) -> bool) -> Option<String> {
+    let normal = fnv_vfs::normal_map_beside(texture).filter(|_| skin)?;
+    exists(&fnv_vfs::texture_path(&normal)).then_some(normal)
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PreparedPart {
     pub shapes: Vec<PartShape>,
@@ -252,7 +267,8 @@ impl ActorCtx<'_, '_> {
     }
 
     /// The material of shape `i` of the part at `path` with its base texture replaced by
-    /// `texture` (a texture path; cached).
+    /// `texture` (a texture path; cached). A skin shape also takes the normal map that
+    /// lies beside `texture` ([`skin_normal_map`]).
     pub fn material_with_texture(&mut self, path: &str, part: &PreparedPart, i: usize, texture: &str) -> Handle<NifMaterial> {
         let key = (fnv_vfs::normalize(path), i, fnv_vfs::normalize(texture));
         if let Some(m) = self.cache.materials.get(&key) {
@@ -264,6 +280,13 @@ impl ActorCtx<'_, '_> {
             props.textures.push(String::new());
         }
         props.textures[0] = texture.to_string();
+        let vfs = &self.models.data.vfs;
+        if let Some(normal) = skin_normal_map(s.is_skin(), texture, |p| vfs.exists(p)) {
+            if props.textures.len() < 2 {
+                props.textures.push(String::new());
+            }
+            props.textures[1] = normal;
+        }
         let mut mesh = (*s.cpu).clone();
         let m = &mut *self.models;
         let (material, missing) = shape_material(&props, &mut mesh, &mut m.textures, &m.data, &mut m.images, m.formats.as_deref());
@@ -563,6 +586,20 @@ mod tests {
         // A cap of the skin type does not make the part a skin part.
         assert_eq!(texture_targets(&[(false, false), (true, true)]), [true, false]);
         assert_eq!(texture_targets(&[]), Vec::<bool>::new());
+    }
+
+    #[test]
+    fn a_skin_shape_takes_the_normal_map_beside_its_new_texture() {
+        let archive = ["textures\\characters\\ghoul\\upperbodymale_n.dds", "textures\\characters\\mouth\\mouthhuman_n.dds"];
+        let exists = |p: &str| archive.contains(&p);
+        // As an ICON gives it (no `textures\` in front, mixed case): found by its VFS path,
+        // returned as written.
+        assert_eq!(skin_normal_map(true, "Characters\\Ghoul\\UpperBodyMale.dds", exists).as_deref(), Some("Characters\\Ghoul\\UpperBodyMale_n.dds"));
+        // No such file: the model's own normal map stays.
+        assert_eq!(skin_normal_map(true, "characters\\ghoul\\handmale.dds", exists), None);
+        // Not a skin shape (mouth, eyes, hair): the model's own stays even when the file exists.
+        assert_eq!(skin_normal_map(false, "characters\\mouth\\mouthhuman.dds", exists), None);
+        assert_eq!(skin_normal_map(true, "", exists), None);
     }
 
     #[test]
