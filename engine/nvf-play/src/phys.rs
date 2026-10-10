@@ -71,6 +71,9 @@ pub struct PhysState {
     pub stepper: Stepper,
     /// The player's character, once placed.
     pub player: Option<Character>,
+    /// Characters of actors another system walks (`nvforever`'s residents), by
+    /// reference: each is moved by its velocity at every fixed step, with the player.
+    pub npcs: BTreeMap<u32, NpcBody>,
     /// The worldspace whose exterior cells and persistent references load outdoors
     /// (FormID; set with [`PhysState::set_world`]).
     pub worldspace: u32,
@@ -111,6 +114,7 @@ impl Default for PhysState {
             world: PhysWorld::new(PhysParams::default()),
             stepper: Stepper::default(),
             player: None,
+            npcs: BTreeMap::new(),
             worldspace: 0,
             space: Space::Exterior,
             cells: BTreeMap::new(),
@@ -129,6 +133,18 @@ impl Default for PhysState {
         }
     }
 }
+
+/// An actor's character in the physics world: who moves it sets `velocity`.
+pub struct NpcBody {
+    pub ch: Character,
+    /// Wanted horizontal velocity (x, y), game units per second.
+    pub velocity: [f32; 2],
+}
+
+/// The steepest slope an actor's character walks: navmeshes cross slopes a little above
+/// the player's limit [observed: 46 to 49 degrees on paths of the walk tests,
+/// docs/design/navmesh.md §5; the value is an engine choice].
+pub const NPC_MAX_SLOPE_DEG: f32 = 60.0;
 
 /// A loaded cell.
 #[derive(Debug, Clone, Default)]
@@ -775,7 +791,36 @@ impl PhysState {
     }
 
     /// Unload everything and switch to `space`.
+    /// Give actor `id` a character standing on what is under `feet` (a ray from a little
+    /// above them, as actors are placed under furniture and roofs). False when the
+    /// collision around `feet` is not loaded or nothing is under them. The character
+    /// passes through actor hit volumes (its own included).
+    pub fn add_npc(&mut self, id: u32, feet: [f32; 3]) -> bool {
+        if self.npcs.contains_key(&id) {
+            return true;
+        }
+        if !self.ready_at(feet) {
+            return false;
+        }
+        let Some(hit) = self.ground_below(feet, 48.0, 400.0) else { return false };
+        let params = CharacterParams { max_slope_deg: NPC_MAX_SLOPE_DEG, ..CharacterParams::default() };
+        let start = [feet[0], feet[1], hit.point[2] + params.rest_gap(hit.shell)];
+        let mut ch = self.world.add_character(id, params, start);
+        ch.ignore_layers = fnv_phys::layers::character_ignores().union(fnv_phys::layers::actor_volumes());
+        self.npcs.insert(id, NpcBody { ch, velocity: [0.0, 0.0] });
+        true
+    }
+
+    pub fn remove_npc(&mut self, id: u32) {
+        if let Some(b) = self.npcs.remove(&id) {
+            self.world.remove_character(b.ch);
+        }
+    }
+
     pub fn reset(&mut self, space: Space) {
+        for id in self.npcs.keys().copied().collect::<Vec<_>>() {
+            self.remove_npc(id);
+        }
         self.loader.clear();
         let all: Vec<PhysCell> = self.cells.keys().copied().collect();
         for c in all {

@@ -94,6 +94,14 @@ pub struct GameConfig {
     /// the menus of their save, docs/spec-notes/scripts.md §8).
     #[serde(default = "yes")]
     pub modal_message_boxes: bool,
+    /// The AI runs packages: actors around the player choose their package again every
+    /// this many seconds ([`Game::tick`], `crate::ai`), and a package's begin, end and
+    /// change scripts run when it starts, finishes and is replaced. `None` (the
+    /// default): packages change only when a script or an input asks
+    /// (`EvaluatePackage`, the runner's `package` input), as in Layer 5. The game's
+    /// interval is about 10 seconds [documented: GECK wiki, How Are Packages Evaluated].
+    #[serde(default)]
+    pub package_interval: Option<f64>,
 }
 
 fn yes() -> bool {
@@ -102,7 +110,7 @@ fn yes() -> bool {
 
 impl Default for GameConfig {
     fn default() -> Self {
-        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true }
+        GameConfig { frame_seconds: 1.0 / 60.0, strict: false, trace_locals: false, seed: 0, max_steps: 100_000, modal_message_boxes: true, package_interval: None }
     }
 }
 
@@ -180,6 +188,19 @@ pub struct RefExtra {
     /// ([`Game::evaluate_package`]); `None` until then.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub current_package: Option<FormId>,
+    /// The current package reached its goal ([`Game::package_goal_met`]).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub package_goal_met: bool,
+    /// Once Per Day packages: GameDaysPassed when the actor last chose each.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub package_chosen_at: BTreeMap<FormId, f32>,
+    /// Game time ([`Game::time`]) of the actor's next periodic package choice.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub package_due: Option<f64>,
+    /// Packages whose location the actor could not reach: not chosen until
+    /// GameDaysPassed reaches the value ([`Game::block_package`]).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub package_blocked: BTreeMap<FormId, f32>,
     /// SetActorRefEssential (the reference only; the base's flag is separate).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub essential: Option<bool>,
@@ -514,6 +535,8 @@ pub struct Game<'a> {
     depth: u32,
     /// A function asked the running script to stop as `Return` does (RemoveMe).
     stop_run: bool,
+    /// Game time of the next scan for actors whose package choice is due (`crate::ai`).
+    pub(crate) package_scan_due: f64,
 }
 
 /// Snapshot of the Layer 5 state plus the world's (`fnv.game.state/1`).
@@ -629,6 +652,7 @@ impl<'a> Game<'a> {
             effect_elapsed: 0.0,
             depth: 0,
             stop_run: false,
+            package_scan_due: 0.0,
         }
     }
 
@@ -1055,6 +1079,7 @@ impl<'a> Game<'a> {
         // another menu on top of it (a message box) holds it.
         if self.menu.is_none() {
             self.update_dialogue(dt);
+            self.tick_packages();
         }
     }
 
@@ -1341,6 +1366,8 @@ impl<'a> Game<'a> {
     pub fn set_loaded(&mut self, cells: BTreeSet<FormId>) {
         let new: Vec<FormId> = cells.difference(&self.loaded_cells).copied().collect();
         self.loaded_cells = cells;
+        // Actors of the new cells choose their package at the next tick.
+        self.package_scan_due = 0.0;
         for c in new {
             let refs = self.data.scripted_by_cell.get(&c).cloned().unwrap_or_default();
             for r in refs {
@@ -1471,69 +1498,7 @@ impl<'a> Game<'a> {
         self.ref_event(actor, ev, Some(Value::Ref(package.0)), None);
     }
 
-    // ---- AI packages (the start of Layer 6) ---------------------------------------
-
-    /// The AI package list of an actor reference: its base form's `PKID` list, or its
-    /// template's when the template supplies the AI packages (followed through
-    /// templates that are actors; a leveled-actor template is not resolved and the
-    /// base's own list is used) [documented: xEdit template flags; hypothesis on the
-    /// leveled case].
-    pub fn package_list(&self, actor: FormId) -> Vec<FormId> {
-        let Some(mut base) = functions::base_of(self, actor) else { return Vec::new() };
-        for _ in 0..8 {
-            let Some(a) = self.data.actors.get(&base) else { break };
-            match a.template.filter(|t| a.template_packages && self.data.actors.contains_key(t)) {
-                Some(t) => base = t,
-                None => return a.packages.clone(),
-            }
-        }
-        self.data.actors.get(&base).map(|a| a.packages.clone()).unwrap_or_default()
-    }
-
-    /// The package an actor runs when it evaluates its packages: a script package
-    /// (AddScriptPackage) overrides the list [documented: catalogue summary of
-    /// AddScriptPackage]; otherwise the first package of the list whose conditions pass,
-    /// evaluated with the actor as the subject [observed: the Goodsprings settlers took
-    /// their flee package or the next one, and Sunny Smiles her third package, as their
-    /// conditions decided, `L5.quest.condition_groups`, layer5-captures.md §8.3 b;
-    /// hypothesis: the first passing package in list order]. Schedules (`PSDT`),
-    /// locations and the package procedure are not read yet (Layer 6).
-    pub fn select_package(&mut self, actor: FormId) -> Option<FormId> {
-        if let Some(p) = self.extra.get(&actor).and_then(|e| e.packages.last()).copied() {
-            return Some(p);
-        }
-        let data = self.data;
-        for p in self.package_list(actor) {
-            let Some(def) = data.package_defs.get(&p) else { continue };
-            if self.conditions_pass(&def.conditions, Some(actor), None, &format!("PACK {p}")) {
-                return Some(p);
-            }
-        }
-        None
-    }
-
-    /// `EvaluatePackage`: the actor picks its package again ([`Game::select_package`])
-    /// and keeps it as its current package. Starting the package (its begin result
-    /// script, OnPackageStart) is Layer 6 and not done here; the runner's `package`
-    /// input stands in for it.
-    pub fn evaluate_package(&mut self, actor: FormId) -> Option<FormId> {
-        let p = self.select_package(actor);
-        let e = self.extra.entry(actor).or_default();
-        if e.current_package != p {
-            e.current_package = p;
-            self.emit(EventKind::PackageChosen { actor, package: p });
-        }
-        p
-    }
-
-    /// The actor's current package: the one last chosen, or chosen now when it never
-    /// evaluated its packages (an actor always runs a package once loaded [hypothesis]).
-    pub fn current_package(&mut self, actor: FormId) -> Option<FormId> {
-        match self.extra.get(&actor).and_then(|e| e.current_package) {
-            Some(p) => Some(p),
-            None => self.evaluate_package(actor),
-        }
-    }
+    // AI package choice: crate::ai.
 
     // ---- magic effects (docs/spec-notes/scripts.md §7.6) --------------------------
 
