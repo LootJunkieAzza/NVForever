@@ -1371,6 +1371,41 @@ sign, before on top; `msaa_1_4_8.png`: the same yucca with 1, 4 and 8 samples).
    dark, visible when a frame is enlarged. It comes from having only four samples;
    `--msaa 8` reduces it.
 
+## Pale blue frames inside the ruined house in Primm (2026-10-10, session "white trim")
+
+Your screenshot from inside the house at the NCR camp (cell -16,-14). Branch
+`claude/white-trim`. Facts and the surveys: `docs/spec-notes/nif.md` §6 "Alpha" (vertex
+alpha and the test) and "View-angle falloff". Picture:
+`C:\fnv-private\references\shadow_strips\before_after.png` (before on top).
+
+1. **What they were:** not a missing texture. The house has black, see-through shadow
+   strips along its inner edges (ceiling, skirting, door and window openings), which fade
+   out across their width. We hid the faded part of each strip but still let the whole
+   strip block the wall behind it, so the empty background colour showed through the
+   wall. Fixed: the frames are gone (59,183 background-coloured pixels in that view
+   before, none after).
+2. **Where else:** seven building pieces carry such strips, all ruined Old Town houses
+   (two house bodies, three upper floors, two corner pieces). One part of the giant rat
+   and one terminal screen are built in a way that was open to the same fault; I did not
+   look at those two in the engine.
+3. **A guess, for you to check in the game:** how much of each strip the game shows. The
+   files say "blend, and drop everything fainter than half". Read that way, only the
+   darkest edge of each strip survives: a dark line a pixel or two wide in the corners.
+   We now follow that reading, and from where you stood we draw no shadow at all (see
+   item 4 for why not even the line). If the game shows soft dark shading a hand wide
+   along those edges, the "drop" setting is not applied to these strips and ours are
+   wrong. One game screenshot from inside that house would settle it; the rule is one
+   function (`blend_cut` in `engine/nvf-assets/src/nif_spawn.rs`).
+4. **Found on the way, not changed:** we fade every unlit see-through shape (signs,
+   glows, stains, these strips) as it turns edge-on to the camera. The data suggests the
+   game does that only for shapes that carry a certain mark: 84% of the shapes with a
+   hand-set fade carry it, 2% of the rest, and the Saloon lamp beam carries it. If so,
+   about 4,400 shapes are drawn too faint at an angle, and these strips lose their thin
+   line for the same reason. That is a change to the look of the whole game, so I left
+   it for a task of its own.
+5. **Not changed:** see-through glow shapes with the same "drop" setting (force fields,
+   stasis pod fields) still ignore it, as before.
+
 ## Dropped items use their world model (2026-10-10, session "world model")
 
 Your request: a dropped item should use the world model its record names, normally a

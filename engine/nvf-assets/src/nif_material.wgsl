@@ -1,7 +1,8 @@
-// NIF surface material (nif_material.rs): Bevy's standard PBR fragment with four changes,
+// NIF surface material (nif_material.rs): Bevy's standard PBR fragment with five changes,
 // all [hypothesis, docs/spec-notes/nif.md §6 "Emissive light", "Specular", "View-angle
-// falloff", "Multiply blend"]:
+// falloff", "Multiply blend", "Alpha"]:
 // - the alpha is scaled by the view-angle falloff (blended effect shapes only);
+// - a blended shape that is also alpha-tested drops the fragments below its cut;
 // - the emissive light is modulated by the surface colour (diffuse texture × vertex
 //   colour), as NIF emissive is;
 // - ambient light is diffuse only: the specular part Bevy adds for its ambient light is
@@ -44,6 +45,9 @@ struct NifSurface {
     // x start angle (cosine), y stop angle (cosine), z start opacity, w stop opacity;
     // (1, 0, 1, 1) when the shape has no falloff.
     falloff: vec4<f32>,
+    // Fragments with a lower alpha are not drawn (the alpha test of a shape that is
+    // drawn blended); 0 on every other shape. nif_prepass.wgsl has the same struct.
+    alpha_cut: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> surface: NifSurface;
@@ -80,6 +84,9 @@ fn fragment(
     // shapes; abs() also covers single-sided ones seen edge-on.
     let cos_angle = abs(dot(normalize(pbr_input.world_normal), pbr_input.V));
     pbr_input.material.base_color.a *= falloff_opacity(cos_angle, surface.falloff);
+    if pbr_input.material.base_color.a < surface.alpha_cut {
+        discard;
+    }
 #ifdef SOFT_EDGES
     // Alpha-tested shape in a multisampled view (nif_material.rs `soft_edges`): the share
     // of the pixel's samples the shape covers, 1 at the cutoff and above, falling to 0
