@@ -558,6 +558,41 @@ sessions. You already had it from an earlier playthrough.
       player; the panel shows neither the player's own line nor the actor's last line
       while choosing; AI packages, when they exist, must honour the hold on travellers.
 
+    **#126 (merged) applies your decisions (a), (d), (e).** Please try by hand:
+    `--menu-pause original`, open the inventory (Tab), then talk to Easy Pete (the world
+    should freeze under both); and without the flag, Esc while he is speaking (voice and
+    mouth should stop and pick up on Resume). Found and fixed on the way: lines NPCs say
+    outside conversations (Doc Mitchell in the intro) used to talk on underneath a menu
+    or message box while their timer stood still; the sound now holds with the timer.
+    Not verified unattended: a hand pressing Shift+Tab, that the sound is really silent
+    while held, and that the mouth stands still while held. Rough edge: under `original`
+    the picture moves a frame or two between message boxes shown back to back.
+37. **Lip sync (#125, 2026-10-10): you compared it and found it identical to the base
+    game** (Doc Mitchell's lines, with sound). Recorded in `docs/spec-notes/lipsync.md`
+    §6 as your observation. The `.lip` format had no public documentation; all 60,702
+    files decode and re-encode byte for byte. `--no-lip` turns it off. Left open:
+    - (a) **Head and eye movement while talking is not shown.** The files carry look and
+      head pitch/roll/yaw channels whose unit could not be established. A frame-by-frame
+      video of one line in the original game would show how far the head turns.
+    - (b) **Channel names by position.** The vowel shapes and the brow, look and squint
+      names follow the order of the game's `MFG` console lists and are not confirmed one
+      by one. In the original, `MFG phoneme <n> 100` and `MFG modifier <n> 100` on an
+      NPC with a screenshot each would confirm them; an export of the GECK wiki page
+      "ModifyFaceGen" would help too (it could not be fetched directly).
+    - (c) **Emotions.** A response's emotion type and value and the heads' expression
+      morphs are not applied; how the game blends them with speech is unknown. Is a
+      plain design acceptable (the emotion morph at its value while the response is
+      said), or do you want a capture first?
+    - (d) **Speakers without a human head** (robots, Mr. House, creatures) have `.lip`
+      files but nothing moves for them.
+    - (e) Child and ghoul heads were not looked at on screen (their morph files parse
+      and fit their models). Blinking outside speech and head tracking are not done.
+    - (f) A private dump of all `.lip` and `.tri` files (about 345 MB) is in
+      `C:\Users\Loot\coord-bin\dlg-lip\priv\`, outside the repo. Delete it when you like.
+    - (g) Correction to `docs/spec-notes/actors.md` §4: `headhuman.nif` is not
+      vertex-identical to its `.tri` (same order, up to 0.53 units apart). Nothing
+      changes on screen.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
