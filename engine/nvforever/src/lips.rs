@@ -183,6 +183,9 @@ struct Speaking {
     started_at: f64,
     /// Real time at which the sound is over.
     ends_at: f64,
+    /// Real seconds the sound has been held so far (`nvf_play::voice::Spoken::held_secs`):
+    /// the mouth's time is `now - started_at - held_secs`.
+    held_secs: f64,
     lip: Arc<Lip>,
     shapes: Vec<Moving>,
     /// Real time at which the voice stopped saying the response (its end, or a cut).
@@ -294,10 +297,13 @@ fn drive(
         return;
     }
     let now = time.elapsed_secs_f64();
-    let spoken: Vec<(FormId, String, f64, f64)> = voice.spoken().filter_map(|s| Some((s.speaker, s.path?.to_string(), s.started_at, s.ends_at))).collect();
+    // With each response, how long its sound has been held so far (a menu that holds the
+    // line, the pause menu): the mouth holds and goes on with the sound.
+    let spoken: Vec<(FormId, String, f64, f64, f64)> =
+        voice.spoken().filter_map(|s| Some((s.speaker, s.path?.to_string(), s.started_at, s.ends_at, s.held_secs))).collect();
 
     // Responses that started: animate them, or say why not.
-    for (speaker, path, started_at, ends_at) in &spoken {
+    for (speaker, path, started_at, ends_at, _) in &spoken {
         if st.seen.get(speaker).is_some_and(|(p, t)| p == path && t == started_at) {
             continue;
         }
@@ -350,19 +356,23 @@ fn drive(
         );
         st.speaking.insert(
             *speaker,
-            Speaking { path: path.clone(), started_at: *started_at, ends_at: *ends_at, lip, shapes, released_at: None, last: [0.0; CHANNELS] },
+            Speaking { path: path.clone(), started_at: *started_at, ends_at: *ends_at, held_secs: 0.0, lip, shapes, released_at: None, last: [0.0; CHANNELS] },
         );
     }
 
     // Move the faces; ease out and let go of those whose response is over.
     let mut done = Vec::new();
     for (speaker, sp) in st.speaking.iter_mut() {
-        let said = spoken.iter().any(|(s, p, t, _)| s == speaker && *p == sp.path && *t == sp.started_at);
+        let now_said = spoken.iter().find(|(s, p, t, ..)| s == speaker && *p == sp.path && *t == sp.started_at);
+        if let Some((.., ends_at, held_secs)) = now_said {
+            (sp.ends_at, sp.held_secs) = (*ends_at, *held_secs);
+        }
+        let said = now_said.is_some();
         if !said && sp.released_at.is_none() {
             sp.released_at = Some(now);
             if now < sp.ends_at - CUT_SECONDS {
                 st.cut += 1;
-                info!("lip: cut {} {:.2} s into its {:.2} s (the response was skipped or its speaker interrupted)", sp.path, now - sp.started_at, sp.ends_at - sp.started_at);
+                info!("lip: cut {} {:.2} s into its {:.2} s (the response was skipped or its speaker interrupted)", sp.path, now - sp.started_at - sp.held_secs, sp.ends_at - sp.started_at - sp.held_secs);
             }
         }
         let ease = match sp.released_at {
@@ -373,7 +383,7 @@ fn drive(
             done.push(*speaker);
             continue;
         }
-        let w = weights_at(&sp.lip, now - sp.started_at, ease);
+        let w = weights_at(&sp.lip, now - sp.started_at - sp.held_secs, ease);
         if w.iter().zip(&sp.last).all(|(a, b)| (a - b).abs() < SMALL) {
             continue;
         }
