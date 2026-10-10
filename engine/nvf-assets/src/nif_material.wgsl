@@ -14,6 +14,10 @@
 // Meshes in a crossfade (VisibilityRange; streamed cells fading in and out) are dithered
 // first, as Bevy's own PBR fragment does.
 //
+// SHADE_LIGHT (shapes with NifSurface::shade_light, the player's first-person arms): the
+// sun's shadows on the shape are those in the shade light's shadow map
+// (`with_shade_light`) [engineering choice].
+//
 // SOFT_EDGES (alpha-tested shapes in the main pass of a multisampled view): instead of
 // the alpha test, the fragment's alpha is the share of the pixel's samples it covers
 // (nif_material.rs `soft_edges`).
@@ -39,6 +43,14 @@
     lighting::{EnvBRDFApprox, F_AB},
     mesh_view_bindings::{lights, view},
 }
+#ifdef SHADE_LIGHT
+#import bevy_pbr::{
+    pbr_types::PbrInput,
+    mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT,
+    mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT,
+    shadows::fetch_directional_shadow,
+}
+#endif
 #endif
 
 struct NifSurface {
@@ -70,6 +82,72 @@ fn multiply_factor(lit: vec3<f32>, emissive: vec3<f32>) -> vec3<f32> {
     let display = pow(max(lit, vec3(0.0)), vec3(1.0 / 2.2)) + pow(max(emissive, vec3(0.0)), vec3(1.0 / 2.2));
     return pow(saturate(display), vec3(2.2));
 }
+
+#ifndef PREPASS_PIPELINE
+#ifdef SHADE_LIGHT
+// The lit colour of a fragment whose sun shadows are those of the shade light
+// (nif_material.rs, "Shade light"). Of the directional lights with shadows, the brightest
+// is the sun and the next the shade light, which has the sun's colour at `share` of its
+// strength. `shadowed` is Bevy's lighting of `in`, each light with its own shadows.
+// Without two such lights it is the result.
+//
+// Bevy's lighting has no opening for another shadow value, so the result is put together
+// from two of its results. With S the sun's unshadowed light on the fragment and R the
+// rest of its light:
+//   shadowed = R + S * (own + share * shade)    (the shadow values of the two maps)
+//   lit      = R + S * (1 + share)              (the same without shadows)
+// so S = (lit - shadowed) / ((1 - own) + share * (1 - shade)), and the colour wanted,
+// R + S * shade, is lit - S * (1 + share - shade).
+fn with_shade_light(in: PbrInput, shadowed: vec4<f32>) -> vec4<f32> {
+    if (in.flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) == 0u {
+        return shadowed;
+    }
+    let none = lights.n_directional_lights;
+    var sun = none;
+    var sun_amount = 0.0;
+    var shade_light = none;
+    var shade_amount = 0.0;
+    for (var i = 0u; i < none; i += 1u) {
+        if (lights.directional_lights[i].flags & DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) == 0u {
+            continue;
+        }
+        let colour = lights.directional_lights[i].color.rgb;
+        let amount = max(colour.r, max(colour.g, colour.b));
+        if sun == none || amount > sun_amount {
+            shade_light = sun;
+            shade_amount = sun_amount;
+            sun = i;
+            sun_amount = amount;
+        } else if shade_light == none || amount > shade_amount {
+            shade_light = i;
+            shade_amount = amount;
+        }
+    }
+    if shade_light == none || shade_amount <= 0.0 {
+        return shadowed;
+    }
+    let share = shade_amount / sun_amount;
+    // As in apply_pbr_lighting.
+    let view_z = dot(vec4(
+        view.view_from_world[0].z,
+        view.view_from_world[1].z,
+        view.view_from_world[2].z,
+        view.view_from_world[3].z
+    ), in.world_position);
+    let own = fetch_directional_shadow(sun, in.world_position, in.world_normal, view_z, in.frag_coord.xy);
+    let shade = fetch_directional_shadow(shade_light, in.world_position, in.world_normal, view_z, in.frag_coord.xy);
+    let missing = (1.0 - own) + share * (1.0 - shade);
+    if missing < 0.000001 {
+        // Neither map has a shadow here.
+        return shadowed;
+    }
+    var unshadowed = in;
+    unshadowed.flags &= ~MESH_FLAGS_SHADOW_RECEIVER_BIT;
+    let lit = apply_pbr_lighting(unshadowed);
+    return lit - (lit - shadowed) * ((1.0 + share - shade) / missing);
+}
+#endif
+#endif
 
 @fragment
 fn fragment(
@@ -115,6 +193,9 @@ fn fragment(
     var out: FragmentOutput;
     if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u {
         out.color = apply_pbr_lighting(pbr_input);
+#ifdef SHADE_LIGHT
+        out.color = with_shade_light(pbr_input, out.color);
+#endif
         // Bevy's ambient specular, with the same inputs as in apply_pbr_lighting and
         // bevy_pbr::ambient::ambient_light (no lightmaps are used here).
         let m = pbr_input.material;

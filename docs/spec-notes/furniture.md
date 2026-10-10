@@ -185,14 +185,18 @@ in the engine: §7.
 4. **GetSitting 1**, and whether the loop is chosen once or looked up again.
 5. **The blend keys** and how the game crosses from clip to loop.
 6. **Camera**: what the first-person view does while getting on. Here the view is the
-   third-person body's eye, the body not drawn [design].
+   third-person body's eye, the body not drawn [design]. On a bed the view lies down
+   with the body (§7) [engineering choice].
 7. **MNAM bits 30 and 31** against the editor's own labels.
 8. **Marker ID 10** (one model) and the six furniture bases without markers.
 9. **How sitting ends for the player** and what the prompt says (the crosshair shows
-   "Activate" here). Here: a movement control or activating the furniture again
-   [design].
-10. **Beds and the player.** The player sleeps through a menu [hypothesis from how the
-    game is played]; there is none yet, so the player cannot use beds. Actors can.
+   "Activate" here). Here: a movement control, activating the furniture again, or
+   Activate with nothing under the crosshair [design].
+10. **Beds and the player.** In the original the player sleeps through a menu and does
+    not lie down [hypothesis from how the game is played]. Here the player lies down on
+    a bed as a sleeping actor does [owner request 2026-10-10; not the original's]: the
+    same markers, clips and frames as an actor on that bed, by the rules of a seat (§7).
+    The sleep menu is not built and no game time passes.
 
 A capture can answer 1, 3 and 4: an NPC sent to `Chair01F`, `Chair01L` and a bench from
 different sides with the observer logging GetSitting and GetFurnitureMarkerID per frame.
@@ -238,6 +242,32 @@ Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::fu
   entry point. In first person the view is the body's eye and the body is not drawn
   (with `--first-person-body` it is, and the view is held to a neck's reach:
   docs/design/player-body.md §1.5).
+- **The player on a bed** [owner request 2026-10-10; engineering choices, the original's
+  player never lies down]. Activating a bed is a use like any other: the entry point is
+  the nearest enabled marker (IDs 1–6), the clips are the ones the IDLE tree names under
+  `GetSleeping` (on `NVbedtwin01` from marker ID 1: `SpecialIdle_BedLeft_Enter`, 3.0 s,
+  then the loop `DynamicIdle_Sleep`, then a getting-off clip of 3.1 s [observed in
+  NVForever]), and the rules are a seat's: movement, jumping and collision off, weapon
+  away, up again on a movement control or Activate, standing at the entry point
+  afterwards. Scripts see `GetSleeping` 2, 3 and 4 for the player and `GetSitting` 0.
+  - **The loop lies on its side** [observed in NVForever on that bed: the pelvis faces
+    along the mattress, one side down, knees drawn up, a hand by the face].
+  - **First-person view** (`player_body::lying_view`), the same with the body drawn or
+    not: the view keeps its place in the body's own frame (its pelvis's turn since the
+    bind pose) while the body lies down and gets up, so the picture leans over with the
+    body and, lying, shows the room as a head on a pillow sees it, on its side [owner
+    request 2026-10-10: "sideways the camera when laying"]. The mouse turns and tilts the
+    head in that frame, at most 80° to either side and 75° towards the feet (the seated
+    limits of player-body.md §1.5), and, the further the body has lain back, the less
+    below level, down to 10°: lower is the pillow and the mattress. With
+    `--first-person-body` the eye also goes round the neck with the view, about the
+    body's length. The player's heading and pitch are the level view nearest to the
+    leaning one (what the crosshair and scripts use).
+  - **Third-person view**: the camera's pivot is lifted up to 40 units above the head as
+    the body lies back; left by the head, the camera's way round the body ran into the
+    bed and the picture was the inside of the mattress [observed in NVForever].
+  - The crosshair lying down is rarely on the bed, so Activate with nothing under it
+    gets up (§5 item 9).
 - **Scripts.** While a use lasts, `GetSitting` / `GetSleeping` give 2, 3 and 4 for the
   phases and `GetFurnitureMarkerID`, `IsCurrentFurnitureRef` and `IsCurrentFurnitureObj`
   answer for the user. State 1 is never reported (§5 item 4).
@@ -245,8 +275,10 @@ Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::fu
   (§4), so blending two of them would swing the body [design].
 - **Not done**: work spots (marker 22: no getting-on clip), fidgets, eating and talking
   idles while seated (value 3 of §3), the fast exits (nothing sets alerted or attacked),
-  children, checking the entry point against the navmesh, the player sleeping, and
-  actors choosing furniture by themselves (AI packages).
+  children, checking the entry point against the navmesh, the sleep menu and passing
+  game time on a bed (the player only lies down), a bed's owner or a sleeper already on
+  it (the bed is then "in use"), and actors choosing furniture by themselves (AI
+  packages).
 
 Seen on the owner's install, 2026-10-10 [observed in NVForever, not in the original
 game]:
@@ -260,3 +292,11 @@ game]:
   00104F08=00107C9E:30`: Sunny Smiles sits on a bar stool (ID 15, `SpecialIdle_StoolEnter`),
   a settler slides into a booth from its left (`DinerBooth02TableL`, ID 11,
   `SpecialIdle_Chair_LeftEnter`), and the player sits on the next stool.
+- `--cell GSHouseInterior03 --play` started next to Easy Pete's bed (0x00176ACE,
+  `NVbedtwin01`), unattended, in third person and in first person with and without
+  `--first-person-body`: the player sits on the edge, lies down on its side, and gets up
+  to stand beside the bed on Activate; lying, the first-person picture is on its side
+  with the pillow along one edge, shows the ceiling, the walls and the foot of the bed
+  when turned there, the body's own shoulder and arm at the limit towards the feet, and
+  never the inside of the body or the mattress. Before the view was adapted the picture
+  lying down was the mattress or the inside of the body, in both modes.
