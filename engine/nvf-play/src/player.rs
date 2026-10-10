@@ -63,7 +63,8 @@ pub struct Player {
     pub body_eye: Option<[f32; 3]>,
     /// The rotation of the first-person view this frame (game space, of a node looking
     /// along its +Y with +Z up), when the body's animation turns the view (an idle that
-    /// drives the camera node); the heading and pitch give it otherwise.
+    /// drives the camera node, a body lying on a bed); the heading and pitch give it
+    /// otherwise.
     pub body_view: Option<Quat>,
     /// Where the game last put the player (the start of a game, a door, a script's
     /// move), until the player moves by themselves. The collision may have pushed the
@@ -459,6 +460,7 @@ fn mouse_look(
     locks: Res<crate::control::ControlLocks>,
     mut control: ResMut<PlayerControl>,
     mut player: ResMut<Player>,
+    mut seat: ResMut<crate::furniture::PlayerSeat>,
 ) {
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     // The player looks around freely while an actor speaks in a conversation.
@@ -477,6 +479,12 @@ fn mouse_look(
         return;
     }
     (player.heading, player.pitch) = look_with(player.heading, player.pitch, motion.delta, s, inv);
+    if seat.hold.is_some() {
+        // Held by furniture: what was asked for, for a holder with a frame of its own.
+        let dy = if inv { -motion.delta.y } else { motion.delta.y };
+        seat.look[0] += motion.delta.x * s;
+        seat.look[1] -= dy * s;
+    }
 }
 
 /// Put the character on the ground under the start position once its cell is loaded: a

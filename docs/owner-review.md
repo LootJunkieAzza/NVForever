@@ -1863,6 +1863,52 @@ test. Branch `claude/idles`. Facts and sources: `docs/spec-notes/idles.md`.
    next step failed before reading the output; I deleted the file unread and used
    base-game archives by name from then on.
 
+
+## Lying down on beds (2026-10-10, session "player beds")
+
+Your request: sitting in chairs should also work for beds, so you can lie down the same
+as a sleeping NPC; and, while I was testing, "sideways the camera when laying". Branch
+`claude/player-beds`. Facts: `docs/spec-notes/furniture.md` §5 item 10 and §7. Pictures:
+`C:\fnv-private\references\player_beds\` (`v1-third-sheet.png`, `v2-first-off-sheet.png`,
+`v2-first-on-sheet.png`; the `base-*` ones are before the camera was changed).
+
+1. **What works now:** look at a bed and press E. You sit on the edge, swing your legs
+   up and lie down, with the same animations a sleeping NPC uses on that bed. Any
+   movement key or E gets you up, and you stand beside the bed. As with chairs: you
+   cannot move while on it, your weapon is put away, and quest scripts that ask "is
+   the player sleeping" get a yes.
+2. **Why it did not work before:** I had blocked beds for the player on purpose, with
+   the message "Sleeping is not available yet", because the original opens a sleep
+   menu instead of lying you down. That block is gone.
+3. **The sleeping pose is on its side**, not on the back: that is what the game's own
+   sleep animation is, the same one NPCs get.
+4. **The camera, first person (my choices; the original has nothing to copy here):**
+   - Your view now lies down with your body: the picture leans over as you lie down
+     and ends on its side, the way a head on a pillow sees the room. It straightens up
+     again as you get up. This is the same whether "Body in first person" is on or off.
+   - Lying, the mouse turns your head on the pillow: up to the ceiling, along the bed
+     to your feet, and a little to the side. It stops before the view goes into the
+     pillow or the mattress, and with the body drawn, before it goes into your own
+     body (you see your shoulder and arm there).
+   - Before this change the lying view was broken in both modes: the picture was the
+     inside of the mattress or of your own body.
+5. **The camera, third person:** it circled into the bed, so the picture was the inside
+   of the mattress. It now sits higher above you while you lie.
+6. **E with nothing under the crosshair gets you up** from any furniture. Lying down
+   you are usually looking at the ceiling, so "press E on the bed again" would not
+   have worked. With a chair you could already do it with a movement key.
+7. **For you to decide:**
+   - The sideways picture is strong. If it is too much, a milder version keeps the
+     horizon level and only looks up from the pillow. Say which you prefer after
+     trying it.
+   - I checked one bed in Goodsprings (Easy Pete's). Bedrolls and mattresses on the
+     floor use other animations from the same family; they should work the same way
+     but I did not look at them.
+8. **Not done:** actually sleeping. No sleep menu, no time passes, no healing, no
+   "well rested". You only lie down. A bed someone else owns can be used freely, and a
+   bed an NPC is already lying on says it is in use. Tell me if you want the sleep
+   menu next.
+
 ## Your shadow in first person (2026-10-11, session "player shadow")
 
 Your report: in first person your sun shadow was wrong. Arms only: a shadow of floating

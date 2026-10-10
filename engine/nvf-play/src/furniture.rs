@@ -3,7 +3,8 @@
 //! `furniture.rs`) plays the clips and holds the player meanwhile ([`PlayerSeat`]):
 //! movement, jumping and the character's collision are off, and pressing a movement
 //! control asks to get up [design: how the original game ends sitting is not captured;
-//! moving is what its players know].
+//! moving is what its players know], and so does Activate with nothing under the
+//! crosshair [design: lying on a bed the furniture itself is out of view].
 
 use bevy::prelude::*;
 
@@ -20,6 +21,10 @@ pub struct PlayerSeat {
     pub hold: Option<[f32; 3]>,
     /// A movement control was pressed while held; cleared by whoever acts on it.
     pub leave: bool,
+    /// The mouse's look since the holder last took it, while held: the heading and pitch
+    /// it asked for, radians, the pitch not stopped at straight up or down. For a holder
+    /// that turns the view in a frame of its own (a body lying on a bed).
+    pub look: [f32; 2],
 }
 
 /// Tell the script runtime which furniture `actor` uses, so GetSitting and the other
