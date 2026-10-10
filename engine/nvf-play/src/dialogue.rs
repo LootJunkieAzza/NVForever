@@ -9,7 +9,9 @@
 //!   its greeting (`script::Runtime::talk_after`); so does a script's `Activate player`
 //!   on an actor, and scripts start conversations themselves with StartConversation. An
 //!   actor with nothing to say starts none (the line "… has nothing to say" and a log
-//!   line).
+//!   line). Nor does an actor whose greeting has the Goodbye flag: it says the line at
+//!   the player (a subtitle and its voice, like a SayTo line) and the player is never
+//!   held [owner statement 2026-10-10; the runtime's rule, `Game::start_dialogue`].
 //! - **State and pausing** (docs/design/dialogue.md, Pausing). While a conversation runs
 //!   the game is in [`PlayState::Dialogue`]. Game logic stands still as in the container
 //!   and inventory menus and under a script's message box: the player cannot move or
@@ -580,6 +582,10 @@ fn input(
             Ok((r, ByHand::Talk)) => {
                 info!("test aid NVF_PLAY_TEST_TALK: the player activated {who} ({r}); {} steps answer the conversation", s.steps.len());
                 sc.aid.driver = rt.game.dialogue_actor().map(|actor| Driver { actor, steps: s.steps.into() });
+                None
+            }
+            Ok((r, ByHand::Greeted)) => {
+                info!("test aid NVF_PLAY_TEST_TALK: the player activated {who} ({r}); it said its greeting at the player (a Goodbye line), no conversation to answer");
                 None
             }
             Ok(_) => Some(format!("activating {who} started no conversation")),
