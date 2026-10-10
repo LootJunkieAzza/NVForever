@@ -109,11 +109,8 @@ pub fn menu_code(mode: Mode) -> u16 {
 /// A menu the scripts opened (a message box, a character-creation menu), as opposed to
 /// the engine's container and inventory menus: the script overlay shows it and the
 /// player closes it there.
-///
-/// Not the dialogue menu (1009), should the runtime name it as the open menu during a
-/// conversation: that one is `crate::dialogue`'s screen, with its own keys.
 pub fn is_script_menu(code: u16) -> bool {
-    code != MENU_CONTAINER && code != MENU_INVENTORY && code != menus::DIALOGUE
+    code != MENU_CONTAINER && code != MENU_INVENTORY
 }
 
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
@@ -933,7 +930,11 @@ pub(crate) fn run_scripts(
         }
         due.clear();
         let from = rt.game.events.len();
-        crate::script_trigger::update(rt, &play, player_capsule);
+        // A conversation with the player pauses the game: nobody moves, and no trigger
+        // block runs (OnTrigger would, every frame) until it is over.
+        if rt.game.dialogue.is_none() {
+            crate::script_trigger::update(rt, &play, player_capsule);
+        }
         rt.game.loading = loading;
         rt.game.cfg.frame_seconds = dt;
         rt.game.tick();
