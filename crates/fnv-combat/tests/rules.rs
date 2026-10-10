@@ -139,6 +139,24 @@ fn knockdown_knockback_explosion_falloff() {
 }
 
 #[test]
+fn hit_reactions_on_crippling_and_crippled_parts() {
+    let t = CombatTuning { stagger_cooldown: 3.0, ..CombatTuning::default() };
+    // A hit on a healthy part does nothing, however long ago the last reaction was.
+    assert!(!damage::staggers(&t, false, false, None));
+    assert!(!damage::staggers(&t, false, false, Some(100.0)));
+    // The crippling hit always reacts, also right after another reaction.
+    assert!(damage::staggers(&t, true, true, None));
+    assert!(damage::staggers(&t, true, true, Some(-0.5)));
+    // Later hits on the crippled part: not while the last reaction plays, and only
+    // once the cooldown after it has run out.
+    assert!(damage::staggers(&t, false, true, None));
+    assert!(!damage::staggers(&t, false, true, Some(-0.5)));
+    assert!(!damage::staggers(&t, false, true, Some(0.1)));
+    assert!(!damage::staggers(&t, false, true, Some(2.9)));
+    assert!(damage::staggers(&t, false, true, Some(3.0)));
+}
+
+#[test]
 fn spread_formula_cone_bloom_recoil() {
     let r = Rules::defaults();
     let t = CombatTuning::default();

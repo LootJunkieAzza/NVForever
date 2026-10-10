@@ -30,6 +30,8 @@ mod weapons;
 mod lodgen;
 mod nav;
 mod player_body;
+mod particles;
+mod shot_fx;
 mod ragdoll;
 mod reflection;
 mod residents;
@@ -348,6 +350,9 @@ struct Args {
     /// the log still names each file).
     #[arg(long)]
     no_voice: bool,
+    /// With --play: do not play sound effects (weapons, impacts, explosions).
+    #[arg(long)]
+    no_sound: bool,
     /// With --play: dialogue voice volume, 1 = as recorded.
     #[arg(long, default_value_t = 1.0)]
     voice_volume: f32,
@@ -749,6 +754,7 @@ fn main() -> AppExit {
         app.insert_resource(nvf_play::script::NewGame);
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
+    app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, ..Default::default() });
     app.insert_resource(if args.menu_pause == "original" { nvf_play::pause::MenuPause::Original } else { nvf_play::pause::MenuPause::Living });
     app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: args.dialogue_recentre && !args.no_dialogue_recentre });
     if let Some(data) = play {
@@ -773,7 +779,7 @@ fn main() -> AppExit {
         app.add_plugins(head_look::HeadLookPlugin { enabled: !args.no_head_tracking, camera_is_player: args.head_track_camera, force_point });
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
-            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
@@ -926,8 +932,9 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         sky::initial_fog(),
         // Water reads the depth of what lies behind it (water.rs).
         bevy::core_pipeline::prepass::DepthPrepass,
-        // The world and the water (which the reflection camera leaves out).
-        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER]),
+        // The world, the water (which the reflection camera leaves out) and the
+        // player's first-person arms.
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER]),
     )).id();
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);

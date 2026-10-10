@@ -133,7 +133,9 @@ fn main() {
             let axes: Option<Vec<String>> = (0..3).map(|k| along([r[k], r[3 + k], r[6 + k]])).collect();
             let facing = axes.map_or("other".to_string(), |a| a.join(" "));
             *c.facing.entry(facing.clone()).or_default() += 1;
-            line.push(format!("{} at ({:.2}, {:.2}, {:.2}) axes {facing}", o.name.as_deref().unwrap_or(name), t[0], t[1], t[2]));
+            // Where the axes point exactly, for nodes turned by no right angle.
+            let exact = if facing == "other" { (0..3).map(|k| format!(" ({:.2}, {:.2}, {:.2})", r[k], r[3 + k], r[6 + k])).collect::<String>() } else { String::new() };
+            line.push(format!("{} at ({:.2}, {:.2}, {:.2}) axes {facing}{exact}", o.name.as_deref().unwrap_or(name), t[0], t[1], t[2]));
         }
         if list {
             println!("{path}: {}", if line.is_empty() { "neither".to_string() } else { line.join("; ") });
