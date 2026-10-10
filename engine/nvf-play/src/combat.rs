@@ -1275,7 +1275,9 @@ fn spawn_hit_hud(mut commands: Commands) {
     ));
 }
 
-/// The hit marker, the last target's health and the player's health [design].
+/// The hit marker, the last target's health and the player's health [design]. The
+/// player's health is hidden while a script has the player's movement off [documented:
+/// GECK wiki DisablePlayerControls, MovementFlag: the health part of the HUD].
 #[allow(clippy::too_many_arguments)]
 fn update_hit_hud(
     time: Res<Time>,
@@ -1287,9 +1289,11 @@ fn update_hit_hud(
     mut target: Query<&mut Text, (With<TargetText>, Without<PlayerHealthText>)>,
     mut health: Query<&mut Text, (With<PlayerHealthText>, Without<TargetText>)>,
     limbs: Res<PlayerLimbs>,
+    locks: Option<Res<crate::control::ControlLocks>>,
 ) {
     let dt = time.delta_secs();
     let playing = *state.get() == PlayState::Playing;
+    let health_shown = playing && !locks.is_some_and(|l| l.movement);
     let mut col = Color::NONE;
     if let Some(a) = fb.marker_age.as_mut() {
         *a += dt;
@@ -1318,7 +1322,7 @@ fn update_hit_hud(
         }
     }
     let hp = match script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
-        Some(rt) if playing => with_world(rt, &mut sim, |rt| {
+        Some(rt) if health_shown => with_world(rt, &mut sim, |rt| {
             let max = rt.game.max_health(FormId::PLAYER_REF);
             let now = fnv_game::functions::actor_health(&mut rt.game, FormId::PLAYER_REF).unwrap_or(max);
             let crippled = limbs.crippled_names();

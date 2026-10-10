@@ -39,14 +39,19 @@
 //! - `--new-game` ([`NewGame`]): the opening starts as the New Game menu starts it (VCG00
 //!   at stage 0, [`Runtime::start_opening`]); the player starts at
 //!   `VCG01PlayerStartMarkerREF` ([`new_game_start`]).
+//! - `DisablePlayerControls` / `EnablePlayerControls` hold the player: after each frame's
+//!   scripts the runtime's seven flags go to `control::ControlLocks` ([`sync_locks`]),
+//!   which the input, activation, the HUD and the inventory key obey
+//!   (docs/spec-notes/controls.md §5).
 //!
 //! Switches and test aids (environment):
 //! - `NVF_PLAY_SCRIPTS=0` turns scripts off (Layer 4 play as before).
 //! - `NVF_PLAY_SCRIPT_TRACE=<path>` writes the trace events as JSON lines (one
 //!   `fnv.script.trace/1` event per line, with `t` = seconds since scripts started and `gt`
-//!   = the runtime's game time, `Game::time`), the test aids (`aid`) and the player's
-//!   answers to menus (`menu_answer`), and a `final` line at exit (quests touched,
-//!   unhandled and stubbed calls, tick times).
+//!   = the runtime's game time, `Game::time`), the test aids (`aid`), the player's
+//!   answers to menus (`menu_answer`) and the control groups scripts have off whenever
+//!   they change (`controls`), and a `final` line at exit (quests touched, unhandled and
+//!   stubbed calls, tick times).
 //! - `NVF_PLAY_SCRIPT_FUNCTIONS=<functions.json>` overrides the function catalogue
 //!   (default: the repository's `schemas/script/functions.json`).
 //! - `NVF_PLAY_TEST_SCRIPT=<when>:<op>[,...]`: stand-ins for Layer 6 and the player
@@ -62,6 +67,7 @@
 //!   them [decision]; other runs to off.
 
 use crate::activate::outcome::{self, Destination, Effect};
+use crate::control::ControlLocks;
 use crate::menu::model::Mode;
 use crate::menu::ActiveMenu;
 use crate::phys::PhysState;
@@ -269,6 +275,27 @@ impl ScriptState {
             }
         }
         ok
+    }
+
+    /// A new game whose opening has not started yet (the scripts are loading, or wait for
+    /// the player to stand in the world).
+    fn before_opening(&self) -> bool {
+        match self.rt.as_ref() {
+            Some(rt) => rt.opening_pending,
+            None => self.new_game && self.loader.is_some(),
+        }
+    }
+
+    /// The control groups scripts have off now (`Game::player.controls_disabled`). A new
+    /// game holds every control until its opening has started: VCG00's first frame turns
+    /// the controls off, and the scripts take about a second to load [decision: the
+    /// player must not walk off meanwhile].
+    pub fn locks(&self) -> ControlLocks {
+        match self.rt.as_ref() {
+            _ if self.before_opening() => ControlLocks::ALL,
+            Some(rt) => ControlLocks::from_flags(rt.game.player.controls_disabled),
+            None => ControlLocks::default(),
+        }
     }
 
     /// A line of the engine's own in the trace log (a test aid's step, the player's
@@ -755,7 +782,7 @@ impl TraceLog {
         }
         let mut out = std::io::BufWriter::new(std::fs::File::create(path)?);
         let head = serde_json::json!({"format": "nvforever.play.script_log/1",
-            "events": "one fnv.script.trace/1 event per line (frame, kind, ...), with t = seconds since scripts started and gt = game time (Game::time); aid and menu_answer lines; a final line at exit"});
+            "events": "one fnv.script.trace/1 event per line (frame, kind, ...), with t = seconds since scripts started and gt = game time (Game::time); aid, menu_answer and controls lines; a final line at exit"});
         writeln!(out, "{head}")?;
         Ok(TraceLog { out, path: path.to_path_buf(), lines: 0 })
     }
@@ -779,7 +806,7 @@ impl Plugin for ScriptPlugin {
         let unattended = crate::test_aid::Unattended::from_env().0;
         app.insert_resource(ScriptState::new(d, refs, new_game, unattended))
             .add_plugins((crate::script_hud::ScriptHudPlugin, crate::script_draw::ScriptDrawPlugin, crate::dialogue::DialoguePlugin))
-            .add_systems(Update, (crate::script_hud::menu_keys, run_scripts, walk_player, hold_player).chain().in_set(PlaySet::Scripts))
+            .add_systems(Update, (crate::script_hud::menu_keys, run_scripts, sync_locks, walk_player, hold_player).chain().in_set(PlaySet::Scripts))
             .add_systems(Last, write_final);
     }
 }
@@ -1028,6 +1055,29 @@ pub(crate) fn run_scripts(
             ScriptEffect::MessageBox(b) => hud.message_box(b),
         }
     }
+}
+
+/// The control groups scripts turned off or on this frame reach the player's controls
+/// (`control::ControlLocks`; the next frame's input obeys them), the log and the trace
+/// (a `controls` line with the groups now disabled).
+fn sync_locks(mut script: ResMut<ScriptState>, mut locks: ResMut<ControlLocks>, mut stats: ResMut<crate::control::LockStats>) {
+    let now = script.locks();
+    if *locks == now {
+        return;
+    }
+    *locks = now;
+    let names = now.names();
+    if script.before_opening() {
+        info!("player controls: all held until the new game's opening starts");
+        return;
+    }
+    stats.changes += 1;
+    if names.is_empty() {
+        info!("player controls: all enabled");
+    } else {
+        info!("player controls: {} disabled by scripts", names.join(", "));
+    }
+    script.trace_note(serde_json::json!({"kind": "controls", "disabled": names}));
 }
 
 /// `walk:` test aids: the player's feet on the floor under the point (a stand-in for
