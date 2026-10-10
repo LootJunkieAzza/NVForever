@@ -64,6 +64,12 @@ pub struct ActorWorld {
     /// FaceGen on/off (`--no-facegen`), and its file cache.
     pub facegen_enabled: bool,
     pub facegen: Mutex<FaceGenCache>,
+    /// Skin tints add the race's FaceGen texture values to the actor's own
+    /// (`--no-race-facegen` turns it off; actors.md §4.2).
+    pub race_facegen: bool,
+    /// Test aid (`--show-disabled-actors`): draw actors that are not enabled at the start
+    /// instead of spawning them hidden.
+    pub show_disabled: bool,
     pub pose: ActorPose,
     /// With [`ActorPose::Idle`]: hold every actor at this time instead of playing
     /// (screenshots): the idle's clip time, or with the walk test the script time.
@@ -89,6 +95,8 @@ impl ActorWorld {
             forms: FormStore::build(lo, schema),
             facegen_enabled: true,
             facegen: Mutex::new(FaceGenCache::default()),
+            race_facegen: true,
+            show_disabled: false,
             pose: ActorPose::Bind,
             pose_time: None,
             walk_test: None,
@@ -197,8 +205,10 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
     let mut uses = Vec::with_capacity(a.parts.len());
     // The skin textures, each tinted once per actor: the race's upper body texture with
     // the body `.egt`, its hand texture with the hand `.egt` (the left one for both
-    // hands) [hypothesis, actors.md §4.1].
-    let fgts = a.facegen.as_ref().filter(|_| world.facegen_enabled);
+    // hands) [hypothesis, actors.md §4.1]. Face, body and hands take the actor's texture
+    // coefficients plus its race's [hypothesis, actors.md §4.2].
+    let fgts = a.skin_fgts(world.race_facegen).filter(|_| world.facegen_enabled);
+    let fgts = fgts.as_deref();
     let mut skins: Vec<SkinTint> = Vec::new();
     if let Some(body_egt) = a.body_egt.as_deref().filter(|_| fgts.is_some()) {
         let hand_egt = fnv_actor::resolve::hand_egt(body_egt, true);
@@ -229,7 +239,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
             meshes = cache.morph(ctx, &part, &p.model, fg);
             if p.role == "head:head" {
                 let base = p.texture.clone().or_else(|| part.shapes.first().and_then(|s| s.base_texture()).map(str::to_string));
-                if let Some(img) = base.and_then(|t| cache.face_texture(ctx, &p.model, &t, fg)) {
+                if let Some(img) = base.zip(fgts).and_then(|(t, fgts)| cache.face_texture(ctx, &p.model, &t, fgts)) {
                     for (i, _) in takes_texture.iter().enumerate().filter(|(_, &takes)| takes) {
                         if let Some(mut m) = ctx.models.materials.get(&materials[i]).cloned() {
                             m.base.base_color_texture = Some(img.clone());
@@ -337,7 +347,7 @@ pub fn spawn(
     for e in &spawned.drawn {
         commands.entity(*e).insert(RefVisual(reference));
     }
-    if hidden {
+    if hidden && !world.show_disabled {
         spawn_hidden(commands, spawned.root, reference);
         stats.spawned_hidden += 1;
     }
@@ -433,7 +443,7 @@ pub fn spawn_creature(
     for e in &spawned.drawn {
         commands.entity(*e).insert(RefVisual(reference));
     }
-    if hidden {
+    if hidden && !world.show_disabled {
         spawn_hidden(commands, spawned.root, reference);
         stats.spawned_hidden += 1;
     }
