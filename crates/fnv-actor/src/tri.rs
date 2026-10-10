@@ -114,7 +114,7 @@ impl<'a> Reader<'a> {
         let n = self.count(at)?;
         let raw = self.take(n * if wide { 2 } else { 1 }, at)?;
         let text: String = if wide {
-            raw.chunks_exact(2).map(|c| char::from_u32(u32::from(u16::from_le_bytes([c[0], c[1]]))).unwrap_or('?')).collect()
+            raw.as_chunks::<2>().0.iter().map(|c| char::from_u32(u32::from(u16::from_le_bytes([c[0], c[1]]))).unwrap_or('?')).collect()
         } else {
             raw.iter().map(|&c| c as char).collect()
         };
@@ -141,11 +141,13 @@ impl Tri {
         r.skip(16, 1, "reserved bytes")?;
         let positions: Vec<[f32; 3]> = r
             .take((v + k) * 12, "vertices")?
-            .chunks_exact(12)
+            .as_chunks::<12>()
+            .0
+            .iter()
             .map(|c| [0, 4, 8].map(|i| f32::from_le_bytes([c[i], c[i + 1], c[i + 2], c[i + 3]])))
             .collect();
         let triangles: Vec<[u32; 3]> =
-            r.take(t * 12, "triangles")?.chunks_exact(12).map(|c| [0, 4, 8].map(|i| u32::from_le_bytes([c[i], c[i + 1], c[i + 2], c[i + 3]]))).collect();
+            r.take(t * 12, "triangles")?.as_chunks::<12>().0.iter().map(|c| [0, 4, 8].map(|i| u32::from_le_bytes([c[i], c[i + 1], c[i + 2], c[i + 3]]))).collect();
         r.skip(q, 16, "quads")?;
         for _ in 0..lv {
             r.skip(1, 4, "vertex labels")?;
@@ -168,7 +170,7 @@ impl Tri {
         for _ in 0..md {
             let label = r.string(false, "difference morphs")?;
             let scale = f32::from_le_bytes(r.take(4, "difference morphs")?.try_into().expect("4 bytes"));
-            let deltas = r.take(v * 6, "difference morphs")?.chunks_exact(6).map(|c| [0, 2, 4].map(|i| i16::from_le_bytes([c[i], c[i + 1]]))).collect();
+            let deltas = r.take(v * 6, "difference morphs")?.as_chunks::<6>().0.iter().map(|c| [0, 2, 4].map(|i| i16::from_le_bytes([c[i], c[i + 1]]))).collect();
             morphs.push(TriMorph { label, scale, deltas });
         }
         let mut modifiers = Vec::with_capacity(ms);
@@ -176,7 +178,7 @@ impl Tri {
         for _ in 0..ms {
             let label = r.string(false, "statistical morphs")?;
             let l = r.count("statistical morph vertex")?;
-            let indices: Vec<u32> = r.take(l * 4, "statistical morphs")?.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+            let indices: Vec<u32> = r.take(l * 4, "statistical morphs")?.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect();
             if let Some(&bad) = indices.iter().find(|&&i| i as usize >= v) {
                 return Err(TriError::Modifier(format!("{label} names vertex {bad} of {v}")));
             }

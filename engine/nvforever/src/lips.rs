@@ -67,6 +67,9 @@ pub fn driven(c: usize) -> bool {
 /// Seconds over which a face returns to rest when its line ends or is cut.
 pub const EASE_SECONDS: f64 = 0.15;
 
+/// A response let go this long before its sound's end counts as cut (for the log).
+pub const CUT_SECONDS: f64 = 0.25;
+
 /// A weight below this moves nothing worth a mesh update.
 const SMALL: f32 = 1e-4;
 
@@ -178,6 +181,8 @@ struct Moving {
 struct Speaking {
     path: String,
     started_at: f64,
+    /// Real time at which the sound is over.
+    ends_at: f64,
     lip: Arc<Lip>,
     shapes: Vec<Moving>,
     /// Real time at which the voice stopped saying the response (its end, or a cut).
@@ -193,9 +198,11 @@ pub struct LipState {
     /// (speaker, path, start) of the response last looked at per speaker, animated or
     /// skipped, so that each is handled and logged once.
     seen: HashMap<FormId, (String, f64)>,
-    /// Responses animated, and skipped (no `.lip`, no face to move).
+    /// Responses animated, skipped (no `.lip`, no face to move), and animated ones that
+    /// were cut short.
     pub animated: u64,
     pub skipped: u64,
+    pub cut: u64,
 }
 
 impl LipState {
@@ -287,10 +294,10 @@ fn drive(
         return;
     }
     let now = time.elapsed_secs_f64();
-    let spoken: Vec<(FormId, String, f64)> = voice.spoken().filter_map(|s| Some((s.speaker, s.path?.to_string(), s.started_at))).collect();
+    let spoken: Vec<(FormId, String, f64, f64)> = voice.spoken().filter_map(|s| Some((s.speaker, s.path?.to_string(), s.started_at, s.ends_at))).collect();
 
     // Responses that started: animate them, or say why not.
-    for (speaker, path, started_at) in &spoken {
+    for (speaker, path, started_at, ends_at) in &spoken {
         if st.seen.get(speaker).is_some_and(|(p, t)| p == path && t == started_at) {
             continue;
         }
@@ -341,15 +348,22 @@ fn drive(
             lip.start_seconds(),
             shapes.len(),
         );
-        st.speaking.insert(*speaker, Speaking { path: path.clone(), started_at: *started_at, lip, shapes, released_at: None, last: [0.0; CHANNELS] });
+        st.speaking.insert(
+            *speaker,
+            Speaking { path: path.clone(), started_at: *started_at, ends_at: *ends_at, lip, shapes, released_at: None, last: [0.0; CHANNELS] },
+        );
     }
 
     // Move the faces; ease out and let go of those whose response is over.
     let mut done = Vec::new();
     for (speaker, sp) in st.speaking.iter_mut() {
-        let said = spoken.iter().any(|(s, p, t)| s == speaker && *p == sp.path && *t == sp.started_at);
+        let said = spoken.iter().any(|(s, p, t, _)| s == speaker && *p == sp.path && *t == sp.started_at);
         if !said && sp.released_at.is_none() {
             sp.released_at = Some(now);
+            if now < sp.ends_at - CUT_SECONDS {
+                st.cut += 1;
+                info!("lip: cut {} {:.2} s into its {:.2} s (the response was skipped or its speaker interrupted)", sp.path, now - sp.started_at, sp.ends_at - sp.started_at);
+            }
         }
         let ease = match sp.released_at {
             Some(r) => (1.0 - (now - r) / EASE_SECONDS).clamp(0.0, 1.0) as f32,
@@ -443,6 +457,7 @@ impl Plugin for LipsPlugin {
             seen: HashMap::new(),
             animated: 0,
             skipped: 0,
+            cut: 0,
         })
         .insert_resource(Hold { weights, held: HashMap::new() })
         .add_systems(Update, (drive.after(nvf_play::PlaySet::Ui), hold.run_if(move || holding)));
