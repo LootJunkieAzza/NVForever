@@ -203,6 +203,21 @@ impl Appearance {
             None => own.clone(),
         })
     }
+
+    /// The FaceGen coefficients that shape the actor's face and the parts fitted to it
+    /// (FGGS and FGGA; FGTS left empty, see [`Appearance::skin_fgts`]): its own, plus its
+    /// race's for its sex value by value when `with_race` [hypothesis, checked against
+    /// the owner's in-game picture of Sunny Smiles, docs/spec-notes/actors.md §4.3].
+    /// `None` for an actor without FaceGen data.
+    pub fn shape_facegen(&self, with_race: bool) -> Option<FaceGen> {
+        let own = self.facegen.as_ref()?;
+        let add = crate::facegen::add_coefficients;
+        let (fggs, fgga) = match self.race_facegen.as_ref().filter(|_| with_race) {
+            Some(race) => (add(&own.fggs, &race.fggs), add(&own.fgga, &race.fgga)),
+            None => (own.fggs.clone(), own.fgga.clone()),
+        };
+        Some(FaceGen { fggs, fgga, fgts: Vec::new() })
+    }
 }
 
 /// The `.egt` of a race hand, from the race's body `.egt` (an archive path): beside it,
