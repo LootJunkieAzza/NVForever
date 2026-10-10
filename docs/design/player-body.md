@@ -112,7 +112,7 @@ exist. The draw/holster timing follows the clips of the rig in view.
 | Movement keys, mouse look | `engine/nvf-play/src/player.rs` | movement through the bindings; mouse look turns the orbit while Toggle POV is held; `Player::body_eye`, `BodySet` |
 | Body | `engine/nvforever/src/player_body.rs` (`PlayerBodyPlugin`, with `--play` and actors on) | both rigs, weapon models, clip caches, per-frame clip choice, eye and pivot, which rig is shown |
 | Shared part building | `engine/nvforever/src/actors.rs` (`part_uses`) | NPCs and the player build parts the same way |
-| Test aids | `engine/nvf-play/src/test_aid.rs` | `NVF_PLAY_TEST_EQUIP`, `NVF_PLAY_TEST_MOVE`, `NVF_PLAY_TEST_CONTROL` (`sneak`, `weapon`, `aim`, `view`, `jump`, `zoom=`, `orbit=<yaw>:<pitch>`, `release`) |
+| Test aids | `engine/nvf-play/src/test_aid.rs` | `NVF_PLAY_TEST_EQUIP`, `NVF_PLAY_TEST_MOVE`, `NVF_PLAY_TEST_CONTROL` (`sneak`, `weapon`, `aim`, `view`, `jump`, `zoom=`, `orbit=<yaw>:<pitch>`, `release`); for a session played by hand, the debug switches `NVF_PLAY_DEBUG_GIVE` and `NVF_PLAY_DEBUG_EQUIP` (same values as the `TEST` ones, the run stays attended) |
 
 Interface changes in `nvf-play` (coordinator, 2026-10-09): `Player::body_eye`
 (`eye()` returns it when set); `place_camera` in `control.rs`; resources `Bindings`,

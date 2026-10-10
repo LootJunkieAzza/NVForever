@@ -45,6 +45,13 @@
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
 //! view (as with `--auto-walk`).
+//!
+//! Debug switches for a session played by hand (off unless set; development tools, not
+//! part of a release; the run stays attended):
+//!
+//! - `NVF_PLAY_DEBUG_GIVE` and `NVF_PLAY_DEBUG_EQUIP`: as `NVF_PLAY_TEST_GIVE` and
+//!   `NVF_PLAY_TEST_EQUIP`, e.g. a weapon of every animation type and its ammunition to
+//!   look at the player body's clips with.
 
 use crate::control::{Pov, PlayerControl};
 use crate::phys::PhysState;
@@ -231,22 +238,26 @@ struct Aids {
 
 pub(crate) fn setup(app: &mut App) {
     app.insert_resource(Unattended::from_env());
-    if let Ok(v) = std::env::var("NVF_PLAY_TEST_GIVE") {
+    // The test aid and the debug switch of the same name do the same; only the test aid
+    // makes the run unattended.
+    for (name, what) in [("NVF_PLAY_TEST_GIVE", "test aid"), ("NVF_PLAY_DEBUG_GIVE", "debug switch")] {
+        let Ok(v) = std::env::var(name) else { continue };
         match gifts(&v) {
             Ok(g) => {
                 app.add_systems(Startup, move |mut sim: ResMut<SimState>| {
                     for &(item, n) in &g {
                         match sim.world.add_item(FormId::PLAYER_REF, item, n) {
-                            Ok(_) => info!("test aid: gave the player {n} x {item}"),
-                            Err(e) => warn!("NVF_PLAY_TEST_GIVE {item}: {e}"),
+                            Ok(_) => info!("{what}: gave the player {n} x {item}"),
+                            Err(e) => warn!("{name} {item}: {e}"),
                         }
                     }
                 });
             }
-            Err(e) => warn!("NVF_PLAY_TEST_GIVE: {e}"),
+            Err(e) => warn!("{name}: {e}"),
         }
     }
-    if let Ok(v) = std::env::var("NVF_PLAY_TEST_EQUIP") {
+    for (name, what) in [("NVF_PLAY_TEST_EQUIP", "test aid"), ("NVF_PLAY_DEBUG_EQUIP", "debug switch")] {
+        let Ok(v) = std::env::var(name) else { continue };
         match gifts(&v) {
             Ok(g) => {
                 app.add_systems(Startup, move |mut sim: ResMut<SimState>| {
@@ -255,13 +266,13 @@ pub(crate) fn setup(app: &mut App) {
                         let carried = w.item_count(FormId::PLAYER_REF, item).unwrap_or(0) > 0;
                         let r = if carried { Ok(Vec::new()) } else { w.add_item(FormId::PLAYER_REF, item, 1) };
                         match r.and_then(|_| w.equip(FormId::PLAYER_REF, item)) {
-                            Ok(e) => info!("test aid: the player equips {item} (unequipped {:?})", e.unequipped),
-                            Err(e) => warn!("NVF_PLAY_TEST_EQUIP {item}: {e}"),
+                            Ok(e) => info!("{what}: the player equips {item} (unequipped {:?})", e.unequipped),
+                            Err(e) => warn!("{name} {item}: {e}"),
                         }
                     }
                 });
             }
-            Err(e) => warn!("NVF_PLAY_TEST_EQUIP: {e}"),
+            Err(e) => warn!("{name}: {e}"),
         }
     }
     let var = |name: &str| std::env::var(name).ok();
