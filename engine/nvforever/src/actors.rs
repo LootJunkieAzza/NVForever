@@ -64,8 +64,8 @@ pub struct ActorWorld {
     /// FaceGen on/off (`--no-facegen`), and its file cache.
     pub facegen_enabled: bool,
     pub facegen: Mutex<FaceGenCache>,
-    /// Skin tints add the race's FaceGen texture values to the actor's own
-    /// (`--no-race-facegen` turns it off; actors.md §4.2).
+    /// Skin tints and face shapes add the race's FaceGen values to the actor's own
+    /// (`--no-race-facegen` turns it off; actors.md §4.2, §4.3).
     pub race_facegen: bool,
     /// Test aid (`--show-disabled-actors`): draw actors that are not enabled at the start
     /// instead of spawning them hidden.
@@ -209,6 +209,9 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
     // coefficients plus its race's [hypothesis, actors.md §4.2].
     let fgts = a.skin_fgts(world.race_facegen).filter(|_| world.facegen_enabled);
     let fgts = fgts.as_deref();
+    // The shape of the face and of what is fitted to it (hair, brows, eyes, hats): the
+    // actor's geometry coefficients plus its race's [hypothesis, actors.md §4.3].
+    let shape = a.shape_facegen(world.race_facegen).filter(|_| world.facegen_enabled);
     let mut skins: Vec<SkinTint> = Vec::new();
     if let Some(body_egt) = a.body_egt.as_deref().filter(|_| fgts.is_some()) {
         let hand_egt = fnv_actor::resolve::hand_egt(body_egt, true);
@@ -234,9 +237,9 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
             }
         }
         let mut meshes = vec![None; part.shapes.len()];
-        if let Some(fg) = a.facegen.as_ref().filter(|_| world.facegen_enabled) {
+        if let Some(shape) = &shape {
             let mut cache = world.facegen.lock().expect("facegen cache");
-            meshes = cache.morph(ctx, &part, &p.model, fg);
+            meshes = cache.morph(ctx, &part, &p.model, shape);
             if p.role == "head:head" {
                 let base = p.texture.clone().or_else(|| part.shapes.first().and_then(|s| s.base_texture()).map(str::to_string));
                 if let Some(img) = base.zip(fgts).and_then(|(t, fgts)| cache.face_texture(ctx, &p.model, &t, fgts)) {
@@ -336,7 +339,7 @@ pub fn spawn(
     let rt = rt * Affine3A::from_scale(Vec3::splat(a.race_height as f32));
     let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
     // The shapes a `.tri` can move when the actor speaks (lips.rs).
-    if let Some(rig) = crate::lips::rig(&a, &part_index, &uses, &spawned, &ctx.models.data, world.facegen_enabled) {
+    if let Some(rig) = crate::lips::rig(&a, &part_index, &uses, &spawned, &ctx.models.data, a.shape_facegen(world.race_facegen).filter(|_| world.facegen_enabled)) {
         commands.entity(spawned.root).insert(rig);
     }
     commands.entity(spawned.root).insert((

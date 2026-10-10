@@ -216,8 +216,8 @@ struct Args {
     /// Draw NPCs with the race's base face (no FaceGen morphs or face textures).
     #[arg(long)]
     no_facegen: bool,
-    /// Tint NPCs' skin from their own FaceGen texture values alone, without adding their
-    /// race's, for comparisons (docs/spec-notes/actors.md §4.2).
+    /// Tint NPCs' skin and shape their faces from their own FaceGen values alone, without
+    /// adding their race's, for comparisons (docs/spec-notes/actors.md §4.2, §4.3).
     #[arg(long)]
     no_race_facegen: bool,
     /// Test aid: draw the actors that are not enabled at the start of a game (they are
