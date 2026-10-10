@@ -282,8 +282,8 @@ furniture.
 Limits that remain:
 - Without `--play` there is no collision world: actors keep to the navmesh surface, and
   the package choice runs in a game state of its own (no quests).
-- Characters of actors do not push each other or the player's hit volumes aside; two
-  actors meeting in a doorway rely on the stuck rule.
+- Two actors that both walk do not push each other; meeting in a doorway they rely on
+  the stuck rule. An actor that stands still is pushed aside (§5.7).
 - The chase camera can end up behind furniture indoors.
 
 ### 5.5 Sandboxing (2026-10-10, owner request)
@@ -462,6 +462,29 @@ conversation (…), line …` instead, and both end with `… has talked (…)`.
   beside her. With `--npc-packages all` the same (34 residents); with the player moved
   across the room while she came (`NVF_PLAY_TEST_GOTO`), she turned after them and
   greeted from 253 units.
+
+### 5.7 Pushed aside (2026-10-10, owner request)
+
+A standing actor gives way to one that walks into it (the rule, who pushes and how far:
+docs/spec-notes/physics.md §6.8; the figures are placeholders until the capture
+`pc_actor_push`). What the package layer adds:
+
+- **Who stands** (`Ai::stands`): in the world, alive, not `Travelling`, with no
+  furniture in use or waiting for it, not waiting at a door, not speaking in a
+  conversation it started. The residents add: drawn, not getting off furniture, and
+  not out of room a moment ago.
+- **The push** (`Ai::push`): the walker's place moves over the navmesh (physics.md
+  §6.8, "Room") and the game's reference with it (`Game::set_actor_place`), so scripts
+  and the package choice see the actor where it now stands.
+- **Afterwards** [hypothesis: not captured]: once nothing has pushed the actor for 2 s
+  (`PUSHED_BACK_SECONDS`), an actor that is `There` under a package with a place
+  (near a reference or a point, or inside a cell) and now outside it (the location's
+  radius, at least 32 units) walks back (`AiEvent::PushedBack`, then a trip like any
+  other; on arrival the package settles again). A sandboxing actor goes on from where
+  it stands, a patrol from its next point, and a new package forgets the push.
+- **Checked**: `fnv-ai` test `a_standing_actor_is_pushed_over_the_navmesh_and_goes_back`
+  (not while on its way; all of a small push; to the navmesh's edge and along it, no
+  further; back into its package's radius after the wait; a seated actor not at all).
 
 ## 6. Decisions for the owner
 

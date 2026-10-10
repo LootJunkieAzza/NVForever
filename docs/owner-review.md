@@ -1715,3 +1715,95 @@ Your request: an option to toggle the body rendering in first person. Branch
 5. **Not done:** your shadow. With the switch on it is a body without a head (and
    without its own arms while the weapon is out). Fixing that means letting hidden
    parts still cast shadows; it is a separate piece of work.
+
+## Actors can be pushed (2026-10-10, session "actor push")
+
+Your request: the player or an NPC that is moving should be able to push another actor
+that is standing still, with a capture from the game to say how far. Branch
+`claude/actor-push`. Facts: `docs/spec-notes/physics.md` §6.8,
+`docs/design/actor-behaviour.md` §5.7.
+
+1. **I need the capture, and it is ready to run.** About 4 minutes, nobody at the
+   controls, save `nvfdoc`, stays inside Doc Mitchell's house (no door, so no autosave):
+   ```
+   python tools/capture/capture_run.py --game "<FNV folder>" --save nvfdoc --kill-on-timeout -o C:/fnv-private/capture/run_pc_actor_push.json tools/capture/jobs/pc_actor_push.steps.json
+   ```
+   I did not start the game myself: you asked to be told, and other sessions were
+   building on the machine at the time, which would have slowed the game.
+2. **What the capture does.** The player runs and walks into Doc Mitchell and into a
+   settler the job creates:
+   - straight on, and from a little to the side;
+   - with the key held for several seconds, up to the wall;
+   - with the NPC told not to move (restrained);
+   - placed on the very spot the NPC stands on;
+   - standing in the way of the NPC while it walks.
+3. **What works in ours now**, with my own numbers until the capture gives the game's:
+   - You walk into a standing NPC: it moves ahead of you at half your speed. Aim off
+     its middle and it goes aside while you pass. Checked in a run: a Goodsprings
+     settler pushed 117 units in under a second of running at him.
+   - A walking NPC meets you while you stand still: it pushes you, the same way.
+     Checked in a run: Easy Pete on his noon walk pushed you ahead of him for three
+     seconds, then went on into the saloon.
+   - A walking NPC meets a standing NPC: the same rule. It did not happen in any of my
+     runs, so I have not seen it in the game.
+   - A pushed NPC stops at walls and furniture. It never leaves the floor NPCs can
+     walk on.
+   - Two seconds after you leave it alone, an NPC pushed out of its place walks back.
+   - NPCs that sit, sleep or are on their way somewhere are not pushed. They block as
+     before.
+4. **The guesses the capture replaces:** the half speed, the two seconds, and whether
+   the game's NPC walks back at all.
+5. **Not done:**
+   - A pushed NPC slides; it plays no stepping animation.
+   - Two actors that are both walking still do not push each other.
+   - NPCs far from you (moved without collision) neither push nor are stopped.
+   - Size and weight make no difference: a deathclaw is pushed like a settler.
+6. **Two faults found on the way and fixed:**
+   - An NPC walking close past you carried you along with it at its own speed, like a
+     moving platform. Easy Pete took you 163 units to the saloon door this way. This
+     was in our engine before my change.
+   - After being left untouched for a few seconds and then moved by a door or a
+     teleport, a character's solid body could stay behind where it arrived while the
+     character walked on. Hard to meet in play, but it was there.
+
+## Shots leave the barrel (2026-10-10, session "muzzle")
+
+Your report: a shot looks as if it comes from the camera, not from the gun's barrel,
+and you thought something in the weapon model controls it. Both were right. Branch
+`claude/muzzle-origin` (on top of `claude/weapon-moving-parts`). Facts:
+`docs/spec-notes/animation.md` §9.9; design: `docs/design/combat.md` §5.1. Pictures:
+`C:\fnv-private\references\muzzle\`.
+
+1. **Cause:** ours started every shot, tracer and all, at the eye. That was chosen on
+   purpose for aiming (the shot goes where the crosshair is), and the plan said the
+   barrel would be used for what you see. That second half was never built.
+2. **What the model has:** guns carry an empty marker called `ProjectileNode` at the
+   end of the barrel: 198 of the 362 weapon models in the base game, none of the melee
+   weapons, grenades or mines. A silencer moves it out by the silencer's length. That
+   it marks where the shot starts is my reading of its name and place; I did not
+   check it against the game.
+3. **Fix:** the tracer and the flash now start at that marker on the gun you see, in
+   first and third person, and run to the point the crosshair is on. What gets hit is
+   decided exactly as before.
+4. **Checked in ours:** 10mm pistol in first and third person and the minigun in third
+   person. Seen from the side, the minigun's tracers fan out from the end of the
+   barrel. The log gives the barrel's position for every shot.
+5. **Added, third person only:** if something stands right in front of the barrel
+   (within about 2 metres) between it and the point you aim at (you look over a low
+   wall, the gun is behind it), the shot now hits that thing instead of passing
+   through it. This was in the plan. It is covered by a test; I did not try it at a
+   wall in a run.
+6. **For you to decide, the hit rule:** the original fires along the gun's barrel, so
+   the shot can land off the crosshair. Ours keeps the crosshair true (your earlier
+   choice for combat). If you meant the shot itself should follow the barrel, say so.
+7. **For you to decide, third person:** the view ray starts at the character's head,
+   but the camera sits over the right shoulder, so shots should land about 40 units
+   (roughly 60 cm) to the left of the crosshair dot at every distance. That figure is
+   the camera's offset in the code; I did not measure it in a run. It was like this
+   before. The fix
+   would be to aim from the camera's own line in third person; that changes where
+   shots land, so I left it.
+8. **Not done:** the game's real muzzle flash effect and light (ours draws a small
+   marker), shell casings (the models have a marker for those too), models for missiles
+   and grenades in flight, and NPCs' shots (they do not shoot yet). Weapons without the
+   marker still draw from the eye.

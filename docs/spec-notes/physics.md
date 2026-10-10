@@ -558,6 +558,11 @@ are fixed, but how many run per frame depends on frame times).
   moves, since `move_character` updates queries first) never moved [observed: test
   `bodies_added_then_queried_still_simulate`, rapier 0.36.0]. `update_queries` flags such
   bodies changed again so the next step registers them. Re-check when upgrading rapier.
+  The same query loses the wake-up of a sleeping kinematic body that is teleported
+  (`place_character` on a character that was not moved for a few seconds): the body
+  stayed where it was put while the character walked on, so rays and other characters
+  met it there [observed: test `a_placed_character_takes_its_body_along`]. Placed
+  bodies are woken again after the query, like struck ones (`PhysWorld::body_placed`).
   The same pipeline loses the wake-up of a sleeping body that was struck
   (`push_ref`, `push_dynamic`) since the last step: the body counts as awake, keeps its
   new velocity and never moves [observed: test
@@ -1791,12 +1796,104 @@ on it]. What the engine does is [design]:
   then moves the player as before, so walls still hold.
 - Blocks are not colliders: rays, shots, dynamic clutter and the walking actors'
   characters do not meet them, and they cannot wedge the character. The dead have none
-  (their ragdoll's bodies are in the world). An actor the character controller walks
-  (`PhysState::npcs`) has none either: its character already blocks the player.
+  (their ragdoll's bodies are in the world).
+- **Characters are blocks too** (2026-10-10). An actor the character controller walks
+  (`PhysState::npcs`) has its block where its character is, and so has the player for
+  those actors; these blocks are made anew every fixed step (`nvf_play::player`), and
+  the characters pass through each other's bodies (`Character::passes_characters`), so
+  this rule alone keeps characters apart. Before, the controllers met each other's
+  kinematic bodies, and rapier's controller carries a character along with a kinematic
+  body within its contact distance, as on a moving platform: Easy Pete on his noon
+  walk took the standing player with him at his own speed, from 3.5 units away, all
+  the way to the saloon door [observed: `--play --npc-packages EasyPeteRef --hour 12`
+  with the player put on his way, 163 units, rapier 0.36.0].
 
-Not done: actors do not block each other, the player does not block an actor that walks
-on the navmesh surface, and a wide, low creature (a radscorpion) is narrower than it
-looks.
+**Pushing** (2026-10-10, owner request: "the player or npc moving needs to be able to
+push another actor if they are stood still"). What the game does when one character
+walks into another is not captured yet; the job is ready (below). Until its numbers are
+in, the engine does this [design]:
+
+- **Who gives way.** An actor that stands still: looked after by its packages
+  (`nvforever`'s residents), in the world, alive, drawn, not on its way anywhere, not on
+  furniture (or about to use some, or getting off it), not waiting at a door and not in
+  a conversation it started (`fnv_ai::Ai::stands`). The residents list these actors and
+  where each stands every frame (`ActorBlocks::standing`); their blocks are *pushable*,
+  and stand where the residents have them (the drawn pose follows a frame or two
+  later). The player gives way when it stands still on the ground (no movement key, not
+  swimming, not in the air).
+- **Who pushes.** Whoever walks under the character controller: the player, and the
+  actors it walks near the player (`PhysState::npcs`). These actors now meet the blocks
+  of the others (they walked through them before), each other's and the player's.
+- **How far.** Of the speed at which the walker comes at the standing actor (the part
+  of its velocity towards it, beyond what takes it up to touching), the two keep
+  `PUSH_SHARE` = **0.5** and move on together; the part along the actor's edge is kept
+  whole, so a walker that is not aimed at its middle pushes it aside and passes
+  [design: a placeholder; the capture gives the game's figure].
+- **Room.** A pushed actor moves over the navmesh only (`fnv_ai::Ai::push`): to the
+  navmesh under the place the push asks for, else to the nearest point of its edge
+  within the push's length (so it slides along walls and furniture, which the navmesh
+  keeps clear of), never onto navmesh more than 32 units higher or lower, and not at
+  all where it stands on no navmesh. One that got less than a quarter of a push is
+  left standing for 1.5 s (it blocks like a seated actor). The pushed player moves
+  through its character controller, so walls hold it; when it gets less than half of a
+  push, the actors treat it as solid for 30 steps (they slide round).
+- **Afterwards.** An actor pushed out of the place its package has it at walks back
+  once nothing has pushed it for 2 s (`PUSHED_BACK_SECONDS`, actor-behaviour.md §5.7)
+  [hypothesis: not captured]. The pushed actor slides: no step animation is played.
+
+**Checked in the engine** [observed 2026-10-10, owner's install, `--play`, Goodsprings;
+the exit report's "actors in the player's way" and "actors pushed aside" lines and the
+residents' "was pushed aside" line]:
+
+- The player runs at a standing settler (`NVF_PLAY_TEST_FACE=46:00104F0A
+  NVF_PLAY_TEST_MOVE=46.3:1:0,49:0:0`, `--hour 12`; he sandboxes, so he has to be
+  standing at that moment): pushed 117 units in 47 steps, from (−71274, 3610) to
+  (−71268, 3723), then the player slid past him. He stayed there (a sandboxing actor
+  does not go back).
+- Easy Pete walks into the standing player (the smoke test in CLAUDE.md): the player
+  is pushed for 206 steps, from (−67790, 3450) to (−67709, 3564), and Easy Pete goes on
+  through the saloon door.
+- The player runs at a settler seated on a saloon stool: stopped 0.6 units from
+  touching him; he is not pushed.
+- 100 s of Goodsprings with every resident (`--hour 11.9`): 25 residents, 14 packages
+  chosen, 2 trips, 2 arrivals, 0 unreachable, as before. A block changed a walking
+  actor's step in 40 of about 6,000 steps; no walking actor met a standing one. The
+  character controller gave up on an actor twice (once in each 50-second run); whether
+  it did before this change was not measured.
+- Not seen in a game run: a walking actor pushing a standing one, and the walk back
+  (both covered by the `nvf-play` and `fnv-ai` tests).
+
+**Capture `pc_actor_push`** (`tools/capture/jobs/make_actor_push_jobs.py`, save `nvfdoc`,
+unattended, about 4 minutes, god mode, AI detection left on; the lane of `pc_push` in
+Doc Mitchell's house). Run into: Doc Mitchell as the save has him, and a settler made
+with `PlaceAtMe`. The player, the actor (position, heading, IsMoving, AI procedure,
+GetSitting) and the clock are sampled every loop while the player runs at the actor,
+every second or third loop in the longer trials. Trials per actor:
+
+| Trial | What | What it settles |
+|---|---|---|
+| alone | the run and the walk with nobody in the lane | the speeds to compare with |
+| A | run and walk straight at the standing actor, twice each; 10 s of samples after the second | is the actor moved at all, the two speeds while pushing (`PUSH_SHARE`), the distance between the two when they touch (the actor's radius, given the player's 22), does the actor go back |
+| B | the same from 14 units to the side | does the player slide round, is the actor pushed sideways |
+| C | forward held 4 s running, 6 s walking, the wall 280 units behind the actor | does a push go on, what happens at the wall |
+| D | A with the actor restrained (`SetRestrained 1`) | does an actor that may not move give way: a push by physics, or by its AI stepping aside |
+| E | the player put on the actor's very spot (`SetPos`), nothing held | how two overlapping characters are taken apart and which of them moves (`PUSH_OUT`) |
+| F | the actor left to walk off by itself, then again with the player standing on the way it took | does a walking actor push the standing player, wait, or go round |
+
+Predictions of the engine as it is [design]: A and C, the actor moves ahead of the
+player at half the player's speed (172 running, 43 walking) for as long as the key is
+held and stops at the wall, where the player stops too; B, the actor goes ahead and to
+the far side while the player passes; D, the same as A (the engine knows no restraint);
+E, the player is moved out at 80 units a second and the actor stays; F, the player is
+pushed ahead of the actor at half its walking speed. Every one of these is a guess to
+be replaced.
+
+Not done: an actor that walks on the navmesh surface (no character: the last 64 units
+of a walk, an actor the character controller gave up on, everyone without `--play`) is
+stopped by nobody and pushes nobody; two walkers do not push each other (each stops at
+the other and slides round it; head on, the actors rely on the stuck rule); actors that are not residents
+(`--no-npc-packages`, the test aids) are never pushed; size and weight play no part;
+and a wide, low creature (a radscorpion) is narrower than it looks.
 
 ## 7. CLI contract
 

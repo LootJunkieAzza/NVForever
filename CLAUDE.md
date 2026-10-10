@@ -83,6 +83,11 @@ held-player smoke test, with `NVF_PLAY_TEST_SCRIPT_MENUS=1`, `NVF_PLAY_TEST_MOVE
 (expect exit 0, "look heading 90.0 pitch 0.0 ignored", "activate: ignored" and "controls summary:
 scripts changed the player's controls 2 times; disabled at exit: movement, Pip-Boy, fighting, POV,
 sneaking; held back: movement <frames>, fighting 1, POV 1, looking 1, sneaking 1").
+After actor collision or pushing changes (`nvf-play` `blocking`, docs/spec-notes/physics.md §6.8),
+run the push smoke test (the player stands on Easy Pete's noon walk):
+`NVF_PLAY_TEST_SCRIPT_MENUS=1 NVF_PLAY_TEST_GOTO=1:-67790:3450:8425 engine/target/release/nvforever --data <Data> --cell Goodsprings --play --npc-packages EasyPeteRef --hour 12 --run-seconds 30`
+(expect exit 0, Easy Pete's "used door 0x0010636F", and in the "actors pushed aside:" line
+"one the player in" about 200 steps: he pushes the player ahead of him and goes on).
 
 ## Commits
 
