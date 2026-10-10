@@ -593,6 +593,48 @@ sessions. You already had it from an earlier playthrough.
       vertex-identical to its `.tri` (same order, up to 0.53 units apart). Nothing
       changes on screen.
 
+38. **Conversation partners look at each other (your request, 2026-10-10): built, PR #133
+    (`claude/dialogue-facing`), waiting for the coordinator's check and merge.** In a
+    back-and-forth conversation (the dialogue screen is open) the NPC turns its head to
+    you, a standing NPC also turns its body on the spot, and your view eases onto the
+    NPC's face. Lines an NPC just says out loud turn nobody: in the unattended intro Doc
+    Mitchell's 23 spoken lines turned no one and his two conversations did. Details and
+    what the screenshots show: `docs/design/dialogue-play.md` §8. Try it:
+    `nvforever --data <Data> --play --cell Goodsprings`, walk up to Easy Pete from the
+    side or from behind and press E.
+    - **Free look against facing: decided 2026-10-10** ("never come back i just want
+      the initial look at npc to happen then allow the player to free look the rest of
+      the time they are in dialogue with them"). Your view turns to the NPC when the
+      conversation starts (0.4 s) and is yours after that; it no longer comes back when
+      the choices appear. The mouse always wins: moving it during the opening turn stops
+      the turn. `--dialogue-recentre` brings the old coming-back behaviour back. Still
+      as you chose earlier: while the choices are shown the cursor is released for
+      clicking, so the view holds until you pick; say if you want free look there too
+      (choosing would then be keys only).
+    - **How far and how fast are our own choices, not the original's.** The head turns
+      at most 60° to a side (that number is the game's own: "Tracking Max Angle" of the
+      head in `DefaultBodyPartData`) and 30° up or down; it takes 0.45 s to turn and
+      0.6 s to ease back. A body more than 30° off turns at about 150° a second and
+      **keeps facing you after the conversation**. Say if any of it looks wrong (too
+      fast, too stiff, should turn back afterwards).
+    - **Sitting NPCs.** A sitting or lying NPC is meant to turn its head only. Nothing
+      in the engine seats anyone yet (every NPC is drawn standing, Doc Mitchell during
+      the psych test included, so he turned on the spot standing by his bed), so today
+      only the hook exists (`BodyHeld`); the furniture work has to set it.
+    - **Seen and left as it is:** NPCs are still drawn where the plugins place them, so
+      a conversation a script starts from afar turns your view to where the NPC stands,
+      even through a wall (Doc Mitchell's farewell, which in the original he walks over
+      for). This goes away when AI packages move NPCs.
+    - **Not included:** the eyes do not move in the head (at 60° the face is turned to
+      you but the eyes look straight out of it); no zoom or dialogue camera (the wiki
+      export does not describe the original's; tell us what it does, or we capture it);
+      creatures, robots and talking activators do not turn; the turn animation is asked
+      for but its pace is not matched to the turn and it was not checked in a picture.
+    - `--no-dialogue-look` turns the whole thing off. With `--menu-pause original` the
+      two are facing each other at once in the frozen picture.
+    - **Please play it by hand**: the turns were checked in screenshots a few frames
+      apart, not in motion, and the mouse during a turn only through a test aid.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
