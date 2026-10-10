@@ -157,6 +157,7 @@ fn quadrant_mesh(land: &Land, q: u8, alpha: Option<&[f32]>, cell_origin: Vec2, t
     Some(mesh)
 }
 
+/// Spawn a cell's terrain; returns the landscape it was built from (for the grass).
 pub fn spawn_terrain(
     commands: &mut Commands,
     cell: Entity,
@@ -164,11 +165,9 @@ pub fn spawn_terrain(
     land_id: u32,
     grid: (i32, i32),
     tm: &mut TerrainCtx,
-) {
-    let Some(land) = load_land(world.lo, world.schema, land_id, LandParts::ALL) else { return };
-    if land.heights.is_none() {
-        return;
-    }
+) -> Option<Land> {
+    let land = load_land(world.lo, world.schema, land_id, LandParts::ALL)?;
+    land.heights.as_ref()?;
     let origin = Vec2::new(grid.0 as f32 * fnv_world::CELL_SIZE, grid.1 as f32 * fnv_world::CELL_SIZE);
     let tile = tm.tm.settings.tile;
     for q in 0..4u8 {
@@ -200,4 +199,5 @@ pub fn spawn_terrain(
             }
         }
     }
+    Some(land)
 }

@@ -5,6 +5,7 @@
 //! - [`index`]: which cells belong to which worldspace and which references to which cell
 //! - [`placed`]: a placed reference (REFR/ACHR/ACRE/...) and the base object it places
 //! - [`land`]: landscape heights, normals, vertex colours and texture layers
+//! - [`grass`]: grass types and the plants generated on a landscape's textures
 //! - [`lighting`]: interior cell lighting and light sources
 //! - [`loadscreen`]: loading screens and the places they belong to
 //! - [`sky`]: climate, weather and water records; time-of-day colours, sun and fog
@@ -13,6 +14,7 @@
 //! Format facts and confidence tags: `docs/spec-notes/world.md`.
 
 pub mod fields;
+pub mod grass;
 pub mod imagespace;
 pub mod index;
 pub mod land;

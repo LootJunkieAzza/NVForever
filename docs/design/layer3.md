@@ -152,7 +152,8 @@ What it does now:
   (no cell cache; cells unload one ring outside the loaded square), uGridDistantCount and
   uGridDistantTreeRange (older distant-land settings [hypothesis]), fLODFadeOutMultObjects,
   fLODMultObjects, fLODFadeOutPercent and fLODMultTrees (objects in loaded cells are not
-  faded by distance; level-design.md C5), fGrassStartFadeDistance (no grass yet). Terrain
+  faded by distance; level-design.md C5). fGrassStartFadeDistance is `--grass-distance`
+  (grass, work item 11). Terrain
   LOD gets a negative depth bias; where a chunk overlaps the loaded cells, triangles
   entirely inside are dropped and the vertices inside are sunk 2,000 units so the
   border triangles slope under the loaded terrain. LOD is cut out only for cells that
@@ -287,6 +288,12 @@ game units unchanged.
    Originally planned: an image comparator in the lab (perceptual metric with region masks,
    standard library only), a capture procedure for the original game, and fixed-camera
    scenarios.
+11. **Grass** (done: generation from the landscape textures, soft strand edges, wind,
+   distance fade; the placement rule is a hypothesis and the light weights are fitted,
+   both checked against the owner's screenshots at the Goodsprings sign): LTEX `GNAM` →
+   GRAS, `fnv_world::grass`, `engine/nvforever/src/grass.rs`, `--no-grass`,
+   `--grass-distance`, `--grass-density`, `--grass-min-size`, `--grass-light`; facts and
+   open questions in docs/spec-notes/grass.md.
 
 ## 3. Code, schema and tests
 
@@ -331,6 +338,8 @@ owner once the first comparisons exist; they are then frozen like any other tole
 `docs/spec-notes/world.md` (new): world structure, persistent cells, cell size, water
 height sentinels, references and their flags, LAND layout with evidence, the rotation
 convention with evidence, open questions.
+`docs/spec-notes/grass.md` (new): grass types, the textures that grow them, the INI
+settings, NVForever's generation rule and how grass is drawn.
 `docs/spec-notes/level-design.md`: Bethesda's GECK tutorials on rooms, portals,
 occlusion planes, object fade, static collections and lights, with what the renderer does
 differently (its §11.2 rows C1-C5, L1-L4).

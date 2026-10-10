@@ -21,6 +21,7 @@
 //! Terrain fades with its cell but the LOD terrain under it stays solid until the cell is
 //! fully drawn (it is pushed behind the loaded terrain), so the ground never shows holes.
 
+use crate::grass::GrassMaterial;
 use crate::tree::{BarkMaterial, LeafMaterial};
 use crate::world::Streamer;
 use bevy::camera::visibility::VisibilityRange;
@@ -73,9 +74,14 @@ pub fn complement(k: u8) -> VisibilityRange {
     VisibilityRange { start_margin: z..z, end_margin: z..z + W, use_aabb: false }
 }
 
-/// Meshes whose materials dither (nif_material.wgsl, Bevy's PBR fragment for trees);
-/// water keeps its own shader and does not fade.
-type Fading = Or<(With<MeshMaterial3d<NifMaterial>>, With<MeshMaterial3d<LeafMaterial>>, With<MeshMaterial3d<BarkMaterial>>)>;
+/// Meshes whose materials dither (nif_material.wgsl, Bevy's PBR fragment for trees and
+/// grass); water keeps its own shader and does not fade.
+type Fading = Or<(
+    With<MeshMaterial3d<NifMaterial>>,
+    With<MeshMaterial3d<LeafMaterial>>,
+    With<MeshMaterial3d<BarkMaterial>>,
+    With<MeshMaterial3d<GrassMaterial>>,
+)>;
 
 /// Give the meshes of every fading cell its current step (runs after `world::stream`,
 /// so a cell loaded this frame has its range before it is first drawn; cells loaded

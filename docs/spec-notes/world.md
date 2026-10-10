@@ -105,6 +105,8 @@ apart and the last row/column coincides with the neighbour's first.
   44,753 edges inside cells and 35,100 of 43,039 across cells in WastelandNV. The best
   of the other seven orientations of the square agrees for 21,946 and 20,033.
   Reproduce with `crates/fnv-world/examples/land_layers.rs`.
+- **Grass**: landscape textures name the grass types that grow on them (LTEX `GNAM`);
+  see grass.md.
 - **Default texture** [documented: the game's `Fallout_default.ini`,
   `SDefaultLandDiffuseTexture=DirtWasteland01.dds`]: 51,000 of 65,552 WastelandNV
   quadrants have no BTXT (most of them outside the map; cell (−14, −6) south of
