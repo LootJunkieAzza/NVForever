@@ -4,7 +4,8 @@
 //! - `PlaySet::Activation` (while playing): find the target under the crosshair
 //!   ([`pick`]: the collision ray, else references' render bounds), then E activates it
 //!   through `fnv_sim::World::activate` and its outcome becomes messages
-//!   ([`outcome`]): `RefChanged`, `Travel`, `OpenContainer` or an on-screen line.
+//!   ([`outcome`]): `RefChanged`, `TravelRequest` (travel behind a loading screen,
+//!   `crate::loading`), `OpenContainer` or an on-screen line.
 //! - `PlaySet::Ui`: the crosshair, the prompt and the message line (hidden in menus).
 //! - `PlaySet::Sync`: `RefVisual` entities are hidden while the simulation says their
 //!   reference is not in the world, on `RefChanged` and when cells stream in.
@@ -24,6 +25,7 @@ mod tests;
 use crate::phys::PhysState;
 use crate::player::Player;
 use crate::sim::SimState;
+use crate::loading::TravelRequest;
 use crate::{space, OpenContainer, PlaySet, PlayState, PlayWorld, RefChanged, RefVisual, Travel};
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
@@ -249,7 +251,7 @@ fn activate(
     mut sim: ResMut<SimState>,
     play: Res<PlayWorld>,
     mut hud: ResMut<HudMessage>,
-    mut travel: MessageWriter<Travel>,
+    mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut changed: MessageWriter<RefChanged>,
     script: Option<ResMut<crate::script::ScriptState>>,
@@ -302,7 +304,7 @@ fn activate(
                     (None, None) => "the worldspace".to_string(),
                 };
                 info!("travel to {to} at {feet:?} heading {heading_deg:.1}");
-                travel.write(Travel { world, interior, feet, heading_deg });
+                travel.write(TravelRequest(Travel { world, interior, feet, heading_deg }));
             }
             Effect::OpenContainer(container) => {
                 open.write(OpenContainer { container });
