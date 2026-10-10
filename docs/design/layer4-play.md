@@ -55,14 +55,15 @@ cell entity), and `RefChanged` is sent by the inventory menu for each dropped re
 | `PlayData`, `PlayWorld` | plugin input / resource: `'static` load order, schema, `WorldIndex`, the worldspace the game starts in, start pose, test aids | nvforever | all |
 | `Location` | resource: the worldspace and the interior (if any) the player is in now; from `PlayData` at the start, changed when physics applies a `Travel` | P | U (F10 aid), any part that needs the current worldspace |
 | `SimState` | resource: `fnv_sim::world::World<'static>` + forms + refs; clock advanced in real time | sim.rs | A, U |
-| `PlayState` | Bevy state `Playing` / `Menu` | U (enter/leave menus) | P (no movement/look in menus), A |
+| `PlayState` | Bevy state `Playing` / `Menu` / `Loading` (behind a loading screen) | U (enter/leave menus) | P (no movement/look in menus), A |
 | `PlaySet` | system sets, chained in `Update`: `Input` → `Physics` → `Activation` → `Ui` → `Sync` | lib.rs | all |
 | `PhysState` | resource: `PhysWorld`, `Stepper`, the player's `Character` | P | A (ray queries; remove taken refs) |
 | `PlayerCamera` | component on the `Camera3d` | nvforever | P, A |
 | `Player` | resource: look angles, eye height, feet (game space) | P | A |
 | `RefVisual(u32)` | component on every render entity spawned for a reference: placed ones (nvforever), created ones (dropped items, `dropped.rs`) | nvforever, `dropped.rs` | A (visual sync, render-bounds targeting) |
 | `RenderCell` | component on each render cell entity nvforever streams in (`Exterior { world, x, y }` / `Interior(id)`); its transform is the cell origin | nvforever | `dropped.rs` (spawns created references as the cell's children, so they go with it) |
-| `Travel { world, interior, feet, heading_deg }` | message: into an interior (`interior: Some`, `world: None`) or out into worldspace `world` (the current one or another); `Travel::destination(from)` gives the new `Location` | A | nvforever (render, worldspace switch), P |
+| `Travel { world, interior, feet, heading_deg }` | message: into an interior (`interior: Some`, `world: None`) or out into worldspace `world` (the current one or another); `Travel::destination(from)` gives the new `Location` | `loading.rs` (from a `TravelRequest`); nvforever's `--follow-npc` camera without `--play` | nvforever (render, worldspace switch), P |
+| `TravelRequest(Travel)` | message (since 2026-10-10, docs/design/loading-screen.md): travel behind a loading screen. `loading.rs` brings the screen up (`PlayState::Loading`, virtual clock paused), sends the `Travel` two frames later and takes the screen down when physics and the renderer have loaded the destination | A, scripts | `loading.rs` |
 | `OpenContainer { container }` | message | A | U |
 | `RefChanged { form_id }` | message: the sim changed a reference's presence (taken, dropped, enabled, disabled), placed or created | A, U (one per dropped reference) | A (visual sync), P (collision; created references load with their physics cell) |
 

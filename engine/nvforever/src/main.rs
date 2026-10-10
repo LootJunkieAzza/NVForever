@@ -536,8 +536,11 @@ fn main() -> AppExit {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
         // Streaming follows the camera, which the player systems move: stream after them.
+        // The loading screen sends the travel in the Input set and reads in `Last` whether
+        // the renderer is done: both this frame.
         app.add_plugins(nvf_play::PlayPlugin(data))
-            .add_systems(Update, (worldspace::switch, world::travel).chain().before(world::stream))
+            .add_systems(Update, (worldspace::switch, world::travel).chain().after(nvf_play::PlaySet::Input).before(world::stream))
+            .add_systems(Update, world::loading_gate.after(world::stream))
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
     }
     if let Some(a) = actor_world {
