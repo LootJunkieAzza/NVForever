@@ -1,0 +1,54 @@
+[size=5][b]nvf_capture — scripted captures from the running game[/b][/size]
+
+An xNVSE plugin that runs [b]jobs[/b] inside the game: lists of script snippets, console lines, waits and screenshots, written as JSON. Whatever the game answers is written to a text file, one JSON object per line. A job can run with nobody at the keyboard: the plugin can load a save from the main menu, run every pending job and quit the game.
+
+[b]This is a tool for modders and researchers, not a gameplay mod.[/b] With no job files present it does nothing.
+
+It was written for [url=https://github.com/LootJunkieAzza/NVForever]NVForever[/url], an open-source reimplementation of the game's engine, to record how the original game behaves. Nothing in it is specific to that project.
+
+[size=4][b]What you can do with it[/b][/size]
+[list]
+[*]Ask the game anything a script can read (item counts, actor values, quest variables, positions, globals, the load order) and get the answers as JSON.
+[*]Do things first (add items, activate a door, set a quest stage, run console lines), then record what changed.
+[*]Wait for a condition, or a number of frames, between steps.
+[*]Take screenshots of the game window at scripted places and times.
+[*]Sample a set of values again and again, for example every actor near the player twice a second for a whole game day.
+[*]Run all of it unattended: load a save, run the jobs, quit. Useful for regression checks of a mod.
+[/list]
+
+[size=4][b]How it works[/b][/size]
+[list]
+[*]It uses only xNVSE's public plugin interface and the game's own script language. It reads no game memory, uses no game addresses and patches nothing.
+[*]It writes only into its capture directory (default [font=Courier New]C:\fnv-private\capture[/font], changeable in [font=Courier New]nvf_capture.ini[/font]), never into the game folder or your saves.
+[/list]
+
+[size=4][b]Requirements[/b][/size]
+[list]
+[*]Fallout: New Vegas, game version 1.4.0.525
+[*][url=https://github.com/xNVSE/NVSE]xNVSE[/url] 6.4.9 or later
+[/list]
+The plugin declines to load on anything else and says so in its log. It has been used on one setup only: the Steam edition on Windows 10 with xNVSE 6.4.9, windowed. Other editions, mod managers and Proton are untested; reports are welcome.
+
+[size=4][b]Install[/b][/size]
+Install with a mod manager, or copy [font=Courier New]NVSE\Plugins\nvf_capture.dll[/font] into [font=Courier New]Data\NVSE\Plugins\[/font]. Start the game through xNVSE.
+
+[size=4][b]Quick start[/b][/size]
+[list=1]
+[*]Copy [font=Courier New]Docs\nvf_capture\examples\example_read_only.steps.json[/font] into [font=Courier New]C:\fnv-private\capture\jobs\[/font] (the folder is created the first time the game starts with the plugin).
+[*]Start the game and load any save.
+[*]Press [b]End[/b] when the plugin announces the job (top left). Home skips it.
+[*]Open the newest file in [font=Courier New]C:\fnv-private\capture\out\[/font].
+[/list]
+The job format, every kind of step, what the in-game script compiler accepts, unattended runs and screenshots are described in [font=Courier New]Docs\nvf_capture\README.md[/font].
+
+[size=4][b]Before you run jobs[/b][/size]
+[list]
+[*][b]Use a test save and back up your saves.[/b] A job does whatever its scripts say. The plugin never saves the game, but a quest script can trigger an autosave.
+[*]Screenshots need a windowed or borderless game with its window in front.
+[*]Do not lower TimeScale in a job that also moves the clock: the game crashed every time.
+[/list]
+
+[size=4][b]Source and licence[/b][/size]
+Free software under the GNU General Public License, version 3 or later. Written in Rust. Source: [url=https://github.com/LootJunkieAzza/NVForever/tree/main/tools/capture/nvf_capture]github.com/LootJunkieAzza/NVForever[/url] (tools/capture/nvf_capture); the exact commit of each release is in [font=Courier New]BUILD-INFO.txt[/font], and a source archive is among the files here.
+
+Not affiliated with or endorsed by Bethesda Softworks, ZeniMax Media, Obsidian Entertainment or the xNVSE team.

@@ -1,0 +1,58 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "example_read_only",
+ "title": "Example: read a few values (changes nothing)",
+ "start": "Any save.",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "load_order",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetNumLoadedMods\nSetFunctionValue fV\nEnd\n",
+   "label": "load_order",
+   "field": "loaded_mods"
+  },
+  {
+   "query": "ref rC\nBegin Function { }\nlet rC := player.GetParentCell\nSetFunctionValue (GetFormIDString rC)\nEnd\n",
+   "label": "player",
+   "field": "cell"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos X\nSetFunctionValue fV\nEnd\n",
+   "label": "player",
+   "field": "pos.x"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Y\nSetFunctionValue fV\nEnd\n",
+   "label": "player",
+   "field": "pos.y"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPos Z\nSetFunctionValue fV\nEnd\n",
+   "label": "player",
+   "field": "pos.z"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAngle Z\nSetFunctionValue fV\nEnd\n",
+   "label": "player",
+   "field": "heading"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetAV Strength\nSetFunctionValue fV\nEnd\n",
+   "label": "player",
+   "field": "strength"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameHour\nSetFunctionValue fV\nEnd\n",
+   "label": "clock",
+   "field": "game_hour"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GameDaysPassed\nSetFunctionValue fV\nEnd\n",
+   "label": "clock",
+   "field": "days_passed"
+  }
+ ]
+}

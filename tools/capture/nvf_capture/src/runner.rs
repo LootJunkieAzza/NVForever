@@ -903,6 +903,16 @@ mod tests {
     }
 
     #[test]
+    fn parses_the_examples_shipped_with_a_release() {
+        // package/examples (tools/capture/package_plugin.py puts them into the archive).
+        let j = Job::parse(include_str!("../package/examples/example_read_only.steps.json")).unwrap();
+        assert!(j.steps.iter().all(|s| matches!(s, Step::Query(_))), "read-only: queries only");
+        let j = Job::parse(include_str!("../package/examples/example_wait_and_screenshot.steps.json")).unwrap();
+        assert!(matches!(j.steps[0], Step::Remember(_)) && matches!(j.steps[1], Step::Until(_)));
+        assert!(j.steps.iter().any(|s| matches!(s, Step::Screenshot(_))));
+    }
+
+    #[test]
     fn expand_replaces_names() {
         let vars = HashMap::from([("a".to_string(), 1.25), ("b".to_string(), 100000.0)]);
         assert_eq!(expand("x %{a} y %{b}", &vars).unwrap(), "x 1.25 y 100000");

@@ -134,6 +134,9 @@ mod tests {
         assert!(Auto::parse(&FILE.replace("auto/1", "auto/9"), 0).is_err());
         assert!(Auto::parse(&FILE.replace("\"expires\"", "\"extra\": 1, \"expires\""), 0).is_err());
         assert!(Auto::parse("{", 0).is_err());
+        // The example shipped with a release (package/examples).
+        let a = Auto::parse(include_str!("../package/examples/auto.example.json"), 0).unwrap().unwrap();
+        assert_eq!((a.menu_console.len(), a.quit_console.len(), a.menu_frames), (1, 1, 300));
     }
 
     #[test]
