@@ -41,9 +41,23 @@
 //! the hand. On furniture the seated body is drawn without its head, the view turns no
 //! further from the way the body faces than a neck does ([`seated_heading`]) and the eyes
 //! go round the neck with it.
+//!
+//! **The shadow** [engineering choice; the original casts no sun shadows from the world]:
+//! the third-person body casts the player's shadow in every view, head, arms and weapon
+//! included, and the arms rig and its weapon cast none on the world. What of the body the
+//! camera is not to see is drawn on [`SHADOW_LAYER`], which the sun casts from and no
+//! camera sees, instead of being hidden (a hidden entity casts no shadow). The arms rig
+//! is on [`ARMS_LAYER`], which the sun does not cast from. The unseen body stands where
+//! the arms rig is and would shade it, so the arms rig takes its sun shadows from a light
+//! of its own ([`ArmsShade`], `NifSurface::shade_light`) that casts from the world's
+//! layer and the arms': buildings, what is seen of the body and the arms themselves shade
+//! the arms, as before the unseen body cast anything.
 
 use crate::actors::{part_uses, ActorWorld};
+use crate::sky::{Sun, ARMS_LAYER, SHADOW_LAYER};
 use crate::world::WorldRoot;
+use bevy::camera::visibility::RenderLayers;
+use bevy::light::CascadeShadowConfig;
 use bevy::math::Affine3A;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
@@ -59,6 +73,7 @@ use nvf_assets::actor::{rigid_local, spawn_actor, ActorCtx, ActorParts, PartUse,
 use nvf_assets::anim_blend::{Animator, ExtraNode, Mode, DEFAULT_FADE};
 use nvf_assets::anim_play::Clip;
 use nvf_assets::model::ModelCtx;
+use nvf_assets::nif_material::NifMaterial;
 use nvf_play::combat::WeaponAnim;
 use nvf_play::control::{BodyView, PlayerControl};
 use nvf_play::phys::PhysState;
@@ -116,6 +131,63 @@ const NECK_RETURN_RATE: f32 = 4.0;
 /// And how far down it tilts, radians [engineering choice: 75 degrees, head and eyes;
 /// steeper, the view is down the body's own collar].
 const NECK_DOWN: f32 = 75.0 * std::f32::consts::PI / 180.0;
+
+/// The share of the sun's light the arms rig's shade light carries. The materials need
+/// some to work the sun's part of the light out (`nif_material.wgsl`), and the world gets
+/// that much more sun with it [engineering choice: a thousandth, a quarter of one step of
+/// an 8-bit picture at full brightness].
+const ARMS_SHADE_SHARE: f32 = 1.0 / 1024.0;
+
+/// The light the arms rig's sun shadows are read from (module docs, "The shadow"): a
+/// child of the sun, so it points the same way, with the sun's colour and
+/// [`ARMS_SHADE_SHARE`] of its strength. It casts from the world's layer and the arms',
+/// and not from the sun's shadow-only layer. Its one shadow cascade is the sun's first
+/// (the arms are well inside it), so the arms' shadows are drawn as finely as the sun's
+/// own would be.
+#[derive(Component)]
+struct ArmsShade;
+
+/// A copy of material `m` whose sun shadows are the [`ArmsShade`] light's (`m` itself is
+/// shared with other actors and weapons).
+fn arms_material(materials: &mut Assets<NifMaterial>, m: &Handle<NifMaterial>) -> Handle<NifMaterial> {
+    let Some(mut copy) = materials.get(m).cloned() else { return m.clone() };
+    copy.extension.shade_light = true;
+    materials.add(copy)
+}
+
+/// Keep the [`ArmsShade`] light: there while the arms rig is drawn and the sun casts
+/// shadows, so that nothing pays for it otherwise.
+#[allow(clippy::type_complexity)]
+fn shade_light(
+    mut commands: Commands,
+    state: Res<PlayerBody>,
+    sun: Query<(Entity, &DirectionalLight, &CascadeShadowConfig), (With<Sun>, Without<ArmsShade>)>,
+    mut shade: Query<(&mut DirectionalLight, &mut Visibility), With<ArmsShade>>,
+) {
+    // A sun that has cast no shadows yet has no cascades, and no shade light either.
+    let Ok((sun, sun_light, sun_cascades)) = sun.single() else { return };
+    let arms_drawn = state.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true));
+    let on = arms_drawn && sun_light.shadow_maps_enabled;
+    let illuminance = sun_light.illuminance * ARMS_SHADE_SHARE;
+    if let Ok((mut light, mut v)) = shade.single_mut() {
+        v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
+        if on && (light.color != sun_light.color || light.illuminance != illuminance) {
+            light.color = sun_light.color;
+            light.illuminance = illuminance;
+        }
+    } else if on {
+        let cascades = CascadeShadowConfig { bounds: sun_cascades.bounds.iter().take(1).copied().collect(), ..sun_cascades.clone() };
+        commands.spawn((
+            Name::new("Arms shade light"),
+            ArmsShade,
+            DirectionalLight { color: sun_light.color, illuminance, shadow_maps_enabled: true, ..default() },
+            cascades,
+            RenderLayers::from_layers(&[0, ARMS_LAYER]),
+            Transform::IDENTITY,
+            ChildOf(sun),
+        ));
+    }
+}
 
 /// A clip choice, for the clip caches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -231,23 +303,29 @@ struct Rig {
     weapon_model: Option<Entity>,
     /// The weapon model's shapes.
     weapon_parts: Vec<WeaponPart>,
-    /// Third person: drawn entities to hide when it stands in for the first-person rig.
-    head_entities: Vec<Entity>,
-    /// Third person: the drawn entities the first-person rig has its own of (arms, hands,
-    /// gloves, the Pip-Boy), to hide while that rig's arms are up in front of the body.
-    arm_entities: Vec<Entity>,
-    /// Whether the rig is shown, and whether its head, its arms and its weapon are (last
-    /// applied).
+    /// Third person: the entities drawn for the body's parts.
+    drawn: Vec<Drawn>,
+    /// First person: whether the rig is shown (last applied).
     shown: Option<bool>,
-    head_shown: Option<bool>,
-    arms_shown: Option<bool>,
-    weapon_shown: Option<bool>,
+    /// Third person: what of the rig the camera sees (last applied).
+    seen: Option<Seen>,
     /// The furniture clip it plays (`BodyClip::serial`), while it plays one.
     furniture: Option<u32>,
     /// Seconds since the last attack started, and the repeated part of its clip, if it
     /// has one: from and to, seconds into the clip.
     since_attack: f32,
     attack_loop: Option<(f32, f32)>,
+}
+
+/// An entity drawn for a part of the third-person body.
+struct Drawn {
+    entity: Entity,
+    /// Of the head (head, hair, headgear): not seen when the body stands in for the
+    /// first-person rig.
+    head: bool,
+    /// One the first-person rig has its own of (arms, hands, gloves, the Pip-Boy): not
+    /// seen while that rig's arms are up in front of the body.
+    arm: bool,
 }
 
 /// Where a layer's time is after going round the repeated part of its clip, `start` to
@@ -398,7 +476,7 @@ impl Plugin for PlayerBodyPlugin {
         app.insert_resource(PlayerBody { first_person_body: self.first_person_body, ..default() })
             .init_resource::<crate::furniture::BodyOverride>()
             .init_resource::<crate::furniture::PlayerUse>()
-            .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body).chain().in_set(nvf_play::player::BodySet));
+            .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body, shade_light).chain().in_set(nvf_play::player::BodySet));
     }
 }
 
@@ -544,7 +622,16 @@ fn ensure_body(
                         Some(b) => (rig.animator.nodes[b], local(&s.transform)),
                         None => (s.node.map_or(holder, |n| part_nodes[n]), local(&s.own)),
                     };
-                    let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), place, visibility)).id();
+                    // The shadow on the world is the third-person body's, weapon
+                    // included: the arms rig's weapon casts none there, and takes none
+                    // from that body.
+                    let e = match rig.view {
+                        View::Third => commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), place, visibility)).id(),
+                        View::First => {
+                            let material = arms_material(&mut models.materials, &s.material);
+                            commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), place, visibility, RenderLayers::layer(ARMS_LAYER))).id()
+                        }
+                    };
                     commands.entity(parent).add_child(e);
                     if let (None, Some(name)) = (bone, &s.name) {
                         extra.push(ExtraNode { name: name.clone(), entity: e, bind: place });
@@ -552,7 +639,7 @@ fn ensure_body(
                     rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), shown: Some(shown) });
                 }
                 rig.weapon_model = Some(holder);
-                rig.weapon_shown = None;
+                rig.seen = None;
                 info!("player weapon model ({:?} person): {path}, {} nodes, {} named parts for the clips", rig.view, pm.nodes.len(), extra.len());
                 rig.animator.set_extra(extra);
             }
@@ -615,14 +702,25 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     let hide: Vec<bool> = uses.iter().map(|(i, _)| head_part(*i)).collect();
     // Third person: per part, how the first-person rig shows it.
     let arms: Vec<Option<Show>> = uses.iter().map(|(i, _)| (view == View::Third).then(|| first_person::show(&world.actors, &a.parts[*i])).flatten()).collect();
-    let uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
+    let mut uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
+    if view == View::First {
+        // The arms take no shadow from the unseen body they are in the middle of.
+        for u in &mut uses {
+            u.materials = (u.part.shapes.iter().enumerate()).map(|(i, s)| arms_material(&mut ctx.models.materials, u.materials.get(i).unwrap_or(&s.material))).collect();
+        }
+    }
     let spawned = spawn_actor(commands, parent, Transform::from_scale(Vec3::splat(a.race_height as f32)), &skel, &uses);
     commands.entity(spawned.root).insert(Name::new(format!("Player body ({view:?} person)")));
-    let head_entities = spawned.drawn.iter().zip(&spawned.part_of).filter(|(_, &p)| hide[p]).map(|(e, _)| *e).collect();
-    let arm_entities = (spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of))
-        .filter(|((_, &p), &s)| shape_shows(arms[p], uses[p].part.shapes[s].name.as_deref()))
-        .map(|((e, _), _)| *e)
+    let drawn = (spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of))
+        .map(|((&entity, &p), &s)| Drawn { entity, head: hide[p], arm: shape_shows(arms[p], uses[p].part.shapes[s].name.as_deref()) })
         .collect();
+    if view == View::First {
+        // The arms rig casts no shadow on the world: the third-person body casts the
+        // player's.
+        for e in &spawned.drawn {
+            commands.entity(*e).insert(RenderLayers::layer(ARMS_LAYER));
+        }
+    }
     let folder = a.skeleton.rfind('\\').map_or(String::new(), |i| a.skeleton[..=i].to_string());
     let node = |n: &str| skel.by_name.get(n).copied();
     let weapon_node = node("Weapon");
@@ -651,12 +749,9 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         attached: weapon_parent,
         weapon_model: None,
         weapon_parts: Vec::new(),
-        head_entities,
-        arm_entities,
+        drawn,
         shown: None,
-        head_shown: None,
-        arms_shown: None,
-        weapon_shown: None,
+        seen: None,
         furniture: None,
         since_attack: f32::INFINITY,
         attack_loop: None,
@@ -935,37 +1030,52 @@ fn bone_heading(rig: &Rig, b: usize, heading: f32) -> f32 {
     heading + forward.x.atan2(forward.y)
 }
 
-/// What of the body is drawn.
-#[derive(Clone, Copy)]
-struct Shown {
-    third: bool,
-    first: bool,
-    /// Of the third-person rig: its head, its arms and hands, the weapon on its `Weapon`
-    /// node.
+/// What of the third-person rig the camera sees. All of it casts the shadow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Seen {
+    /// Any of it.
+    body: bool,
+    /// Its head, its arms and hands, the weapon on its `Weapon` node.
     head: bool,
     arms: bool,
     weapon: bool,
 }
 
-/// Show or hide the rigs and the third-person rig's head, arms and weapon.
-fn show_rigs(body: &mut Body, visibility: &mut Query<&mut Visibility>, s: Shown) {
-    let mut show = |entities: &[Entity], shown: &mut Option<bool>, on: bool| {
-        if *shown != Some(on) {
-            for e in entities {
-                if let Ok(mut v) = visibility.get_mut(*e) {
-                    *v = if on { Visibility::Inherited } else { Visibility::Hidden };
-                }
-            }
-            *shown = Some(on);
-        }
-    };
+impl Seen {
+    /// The render layer of a drawn entity: the world's when the camera sees it, else the
+    /// one only the shadows are cast from.
+    fn layer(on: bool) -> RenderLayers {
+        RenderLayers::layer(if on { 0 } else { SHADOW_LAYER })
+    }
+
+    fn part(self, d: &Drawn) -> bool {
+        self.body && (self.head || !d.head) && (self.arms || !d.arm)
+    }
+
+    /// A shape of the weapon model: the ones on a bone of their own (the minigun's
+    /// backpack) are seen with the body.
+    fn weapon_part(self, p: &WeaponPart) -> bool {
+        self.body && (self.weapon || p.on_bone)
+    }
+}
+
+/// Show the camera `seen` of the third-person rig, and the first-person rig or not.
+fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&mut Visibility>, seen: Seen, first: bool) {
     let third = &mut body.third;
-    show(&[third.root], &mut third.shown, s.third);
-    show(&third.head_entities, &mut third.head_shown, s.head);
-    show(&third.arm_entities, &mut third.arms_shown, s.arms);
-    show(third.weapon_model.as_slice(), &mut third.weapon_shown, s.weapon);
-    if let Some(f) = body.first.as_mut() {
-        show(&[f.root], &mut f.shown, s.first);
+    if third.seen != Some(seen) {
+        for d in &third.drawn {
+            commands.entity(d.entity).insert(Seen::layer(seen.part(d)));
+        }
+        for p in &third.weapon_parts {
+            commands.entity(p.entity).insert(Seen::layer(seen.weapon_part(p)));
+        }
+        third.seen = Some(seen);
+    }
+    if let Some(f) = body.first.as_mut().filter(|f| f.shown != Some(first)) {
+        if let Ok(mut v) = visibility.get_mut(f.root) {
+            *v = if first { Visibility::Inherited } else { Visibility::Hidden };
+        }
+        f.shown = Some(first);
     }
 }
 
@@ -1065,7 +1175,7 @@ fn drive_body(
         player.body_eye = eye.map(|e| e.to_array());
         view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0]);
         anim.ready = false;
-        show_rigs(body, &mut visibility, Shown { third: third_view || own_body, first: false, head: third_view, arms: true, weapon: true });
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: third_view || own_body, head: third_view, arms: true, weapon: true }, false);
         return;
     }
     if body.third.furniture.take().is_some() {
@@ -1186,12 +1296,12 @@ fn drive_body(
     // in for the body's own while they are up (weapon out, drawing or putting away).
     let has_first = body.first.is_some();
     let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
-    let shown = if frame.upright {
-        Shown { third: true, first: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }
+    let seen = if frame.upright {
+        Seen { body: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }
     } else {
-        Shown { third: third_view || !has_first, first: !third_view, head: third_view || has_first, arms: true, weapon: true }
+        Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: true }
     };
-    show_rigs(body, &mut visibility, shown);
+    show_rigs(body, &mut commands, &mut visibility, seen, !third_view);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {

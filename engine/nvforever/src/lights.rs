@@ -96,6 +96,8 @@ pub fn spawn_light(
     let driven = placed.emittance.and_then(|x| emittance.light(world, x, linear));
     let intensity = lumens(l.fade.max(0.0) * scale, crate::sky::light_unit());
     let t = Transform::from_translation(at);
+    // Neither kind casts shadows. If one ever does, give it the sun's render layers
+    // (`sky::SHADOW_LAYER`), or the player's body casts none from it in first person.
     if l.flags & light_flags::SPOT != 0 {
         let a = (l.fov.clamp(1.0, 179.0) / 2.0).to_radians();
         // Spot lights point down their reference's -z [hypothesis].

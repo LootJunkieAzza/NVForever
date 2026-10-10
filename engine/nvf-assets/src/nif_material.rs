@@ -35,6 +35,17 @@
 //! Blend and test together: a blended shape can carry the threshold of its alpha test as
 //! a cut ([`NifSurface::alpha_cut`]): fragments below it are dropped, the rest blend
 //! (docs/spec-notes/nif.md §6 "Alpha", "Vertex alpha and the test").
+//!
+//! Shade light: a shape can take the sun's shadows from another light's shadow map
+//! instead of the sun's own ([`NifSurface::shade_light`]). That light is a second
+//! directional light with shadows, pointing as the sun does, so its shadow map holds the
+//! sun's shadows of the things on its own render layers. It carries a small share of the
+//! sun's light (any share; the shader reads it from the two lights' colours), which is
+//! what lets the shader tell the sun's part of a fragment's light from the rest using
+//! Bevy's lighting alone (`with_shade_light` in the shader). For the player's
+//! first-person arms, which the unseen body that casts the player's shadow stands in the
+//! middle of [engineering choice, nvforever `player_body.rs`]. Every other shape is lit
+//! by Bevy's lighting alone.
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -131,11 +142,14 @@ pub struct NifSurface {
     pub decal: bool,
     /// An alpha-tested shape whose edges stay hard ([`soft_edges`] is not applied).
     pub hard_edges: bool,
+    /// The shape's sun shadows are those of the shade light (module docs, "Shade light"),
+    /// where the view has one.
+    pub shade_light: bool,
 }
 
 impl Default for NifSurface {
     fn default() -> Self {
-        NifSurface { falloff: Falloff::NONE.params, alpha_cut: 0.0, decal: false, hard_edges: false }
+        NifSurface { falloff: Falloff::NONE.params, alpha_cut: 0.0, decal: false, hard_edges: false, shade_light: false }
     }
 }
 
@@ -144,11 +158,12 @@ impl Default for NifSurface {
 pub struct NifSurfaceKey {
     pub decal: bool,
     pub hard_edges: bool,
+    pub shade_light: bool,
 }
 
 impl From<&NifSurface> for NifSurfaceKey {
     fn from(surface: &NifSurface) -> Self {
-        NifSurfaceKey { decal: surface.decal, hard_edges: surface.hard_edges }
+        NifSurfaceKey { decal: surface.decal, hard_edges: surface.hard_edges, shade_light: surface.shade_light }
     }
 }
 
@@ -170,6 +185,11 @@ impl MaterialExtension for NifSurface {
         nif_prepass(descriptor, key.mesh_key);
         if !key.bind_group_data.hard_edges {
             soft_edges(descriptor, key.mesh_key);
+        }
+        if key.bind_group_data.shade_light && !descriptor.vertex.shader_defs.contains(&ShaderDefVal::from("PREPASS_PIPELINE")) {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                fragment.shader_defs.push("SHADE_LIGHT".into());
+            }
         }
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
         if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
@@ -369,15 +389,17 @@ mod tests {
         // Only the decal and hard-edge switches select the pipeline; the falloff and the
         // alpha cut are uniforms.
         let mut surface = NifSurface::default();
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, hard_edges: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false, hard_edges: false, shade_light: false });
         assert_eq!(surface.alpha_cut, 0.0);
         surface.falloff = Vec4::new(0.9, 0.2, 1.0, 0.0);
         surface.alpha_cut = 0.5;
         assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
         surface.decal = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: false });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: false, shade_light: false });
         surface.hard_edges = true;
-        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: true });
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: true, shade_light: false });
+        surface.shade_light = true;
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true, hard_edges: true, shade_light: true });
     }
 
     /// CPU mirror of the shaders' edge formula (nif_material.wgsl, tree.wgsl).

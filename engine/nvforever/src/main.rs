@@ -912,8 +912,9 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         sky::initial_fog(),
         // Water reads the depth of what lies behind it (water.rs).
         bevy::core_pipeline::prepass::DepthPrepass,
-        // The world and the water (which the reflection camera leaves out).
-        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER]),
+        // The world, the water (which the reflection camera leaves out) and the
+        // player's first-person arms.
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER]),
     )).id();
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);
