@@ -1,0 +1,10 @@
+{
+ "format": "fnv.capture.auto/1",
+ "expires": 4102444800,
+ "menu_console": [
+  "load mysave"
+ ],
+ "quit_console": [
+  "qqq"
+ ]
+}

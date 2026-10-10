@@ -134,7 +134,12 @@ inventory items; third argument: include taken references), `GetBaseObject`,
   hidden by the job (console `tm` a few loops before, `tm` again after); whether `tm`
   works from `RunScriptLine` is checked by the first trial. Older plugins skip jobs with
   this step. `capture_frames.py` writes reference-frame jobs with it (README section 7).
-- Every job starts with one query per master, label `__modindex__`, field = plugin
+- **Short scripts** (plugin version 8): a script text without `Begin Function`, a job's
+  `forms`, scripts as lists of lines, and optional `label` / `field`, for jobs written by
+  hand; see §8. An older plugin skips a job that has `forms`, a list of lines or a query
+  without `label` / `field`; a job whose only new thing is a short text it runs as it is,
+  and those steps fail to compile.
+- Every job the tools generate starts with one query per master, label `__modindex__`, field = plugin
   name, value = `GetModIndex` (255 = not loaded), so load-order FormIDs in the output can
   be mapped back to plugin + local FormID (`capture_steps.py`).
 
@@ -282,3 +287,45 @@ boundaries or on cell load, both of which `hour` passes through, so this agreeme
 expected [hypothesis]. Travel with the console's `coc` (`--go-to-cell`, also used to leave
 and re-enter a cell in `bl_container_respawn`) arrived on the first check every time; it
 is a teleport, not a walk through a door.
+
+## 8. Short scripts (plugin version 8; this project's design)
+
+Goal: a job a person can write by hand. The plugin is being published for others
+(2026-10-10), and a hand-written query in the form the tools generate is mostly
+boilerplate. The short forms are a rewriting done by the plugin when it reads a job
+(`src/short.rs`); the game is given the same kind of function script as before, so nothing
+here is a new claim about the game.
+
+- A script text that does not contain `Begin Function` (any case) is a short form; one
+  that does is used unchanged. Scripts in `query`, `script`, `until` and `remember` may
+  also be given as a list of lines (joined with line feeds, one added at the end).
+- What is written around a short form, by where it stands:
+  - a number (`query`, `remember`; in `observe`: `header`, `count`, `probe`, `drive`):
+    `float fV` / `Begin Function { }` / `let fV := <text>` / `SetFunctionValue fV` / `End`;
+  - a string (`query` with `"text": true`): `Begin Function { }` /
+    `SetFunctionValue (<text>)` / `End`;
+  - a condition (`until`; in `observe`: `until`, a hook's `when`): `float fV` /
+    `Begin Function { }` / `if <text>` / `let fV := 1` / `endif` / `SetFunctionValue fV` /
+    `End`;
+  - statements (`script`; in `observe`: `drive_end`, a hook's `then`): `Begin Function { }`
+    / `<text>` / `SetFunctionValue 1` / `End`.
+- A job's `forms` maps names (`[A-Za-z0-9_]`) to `"<plugin file>:<FormID in hex>"`; only
+  the low three bytes of the FormID are used. In a short form `@name` becomes a ref
+  variable: the n-th form used in that script is `rF<n>`, declared before
+  `Begin Function` together with `float fM<n>`, and set first with
+  `let fM<n> := GetModIndex "<plugin>"` and `let rF<n> := BuildRef fM<n> <decimal>`. An
+  `@name` that is not in `forms` is an error, and the job is skipped as a whole (logged
+  with the step's number).
+- A short `query` without `field` gets its own text as the field; `label` defaults to "".
+- Five of these texts are, character for character, scripts that already ran in the game
+  [observed]: the number form in `aa_crash_test` (`player.GetAV Strength`), the string
+  form in `aa_diag3` (`GetNthModName 0`), the condition form in `aa_time_substitutes`,
+  the statement form with one form in `bl_encumbrance` (`player.RemoveItem rF1 2`) and the
+  number form with one form in `ld_lock_levels` (`rF1.GetLocked`); the plugin's tests
+  compare its output with those texts. Other combinations (a string or a condition with
+  forms, two or more forms: `fM2`, `rF2`, ...) are built from the same parts
+  [hypothesis that each compiles; a failure is recorded per step, as for any script].
+- The version 8 plugin has not run in the game yet: the rewriting is tested outside the
+  game only (`cargo test`). Its first trial is the owner's, because the DLL has to be
+  copied by hand; all committed jobs are full scripts (50,289 script texts checked) and
+  reach the game unchanged.
