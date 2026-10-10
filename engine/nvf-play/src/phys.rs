@@ -986,6 +986,7 @@ fn travel(
     let hit = phys.arrive_player(t.feet).support;
     let feet = phys.player.as_ref().map_or(t.feet, |c| c.feet);
     player.feet = feet;
+    player.placed = Some(feet);
     player.heading = t.heading_deg.to_radians();
     info!(
         "travel to {}: feet ({:.0}, {:.0}, {:.2}), floor {}, terrain {}",

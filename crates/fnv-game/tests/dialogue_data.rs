@@ -141,4 +141,22 @@ fn the_intro_walk_through_talks_its_way_to_the_end(l: &Loaded) {
         .map(|e| (e["reason"].as_str().unwrap(), e["lines"].as_u64().unwrap()))
         .collect();
     assert_eq!(ended, vec![("goodbye", 15), ("goodbye", 5)]);
+    // The idles asked of Doc Mitchell at the bedside (docs/spec-notes/idles.md §2): the
+    // gestures named on his lines (VCG01DocWhoaThere, SitChairTalkPlayerD and A), the
+    // script's `PlayIdle VCG01DocGiveMirror` at stage 30, and the same idle on the next
+    // line. (The player's package idles need packages run, which the walk-through's
+    // runner does not do.)
+    let asked: Vec<(&str, &str, &str)> = t["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "idle_asked")
+        .map(|e| (e["actor"].as_str().unwrap(), e["idle"].as_str().unwrap(), e["source"].as_str().unwrap()))
+        .collect();
+    assert!(asked.iter().all(|(actor, ..)| *actor == "0x00104C0F"), "{asked:?}");
+    let bedside: Vec<(&str, &str)> = asked.iter().take(5).map(|(_, idle, source)| (*idle, *source)).collect();
+    assert_eq!(
+        bedside,
+        vec![("0x0012280E", "speaker"), ("0x00024F9B", "speaker"), ("0x00024F98", "speaker"), ("0x0010658C", "script"), ("0x0010658C", "speaker")]
+    );
 }

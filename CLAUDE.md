@@ -88,6 +88,13 @@ run the push smoke test (the player stands on Easy Pete's noon walk):
 `NVF_PLAY_TEST_SCRIPT_MENUS=1 NVF_PLAY_TEST_GOTO=1:-67790:3450:8425 engine/target/release/nvforever --data <Data> --cell Goodsprings --play --npc-packages EasyPeteRef --hour 12 --run-seconds 30`
 (expect exit 0, Easy Pete's "used door 0x0010636F", and in the "actors pushed aside:" line
 "one the player in" about 200 steps: he pushes the player ahead of him and goes on).
+After idle animation changes (docs/spec-notes/idles.md §7: `fnv-game` `idles`, `fnv-actor`
+`idle_play`, the engine's `idles.rs`, the player body's idles or view), run the opening:
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.05 engine/target/release/nvforever --data <Data> --play --new-game --no-voice --run-seconds 90`
+(expect exit 0, "run finished", "VCG01 stage 55 set", "idle summary: 10 idles asked for (1 by scripts,
+4 by packages' begin, end and change, 1 from collections, 4 by dialogue lines); 5 started on actors,
+5 on the player; 0 for actors not drawn, 0 without a usable clip", and Doc Mitchell getting off his
+chair "by clip SpecialIdle_DocSitLeftExit" in the "furniture:" lines).
 
 ## Commits
 

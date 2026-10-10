@@ -1807,3 +1807,59 @@ and you thought something in the weapon model controls it. Both were right. Bran
    marker), shell casings (the models have a marker for those too), models for missiles
    and grenades in flight, and NPCs' shots (they do not shoot yet). Weapons without the
    marker still draw from the eye.
+## Idle animations: scripts, packages, dialogue, and the wake-up at Doc Mitchell's (2026-10-10, session "idles")
+
+Your request: idles from scripts (PlayIdle), from the package tabs (Idles, and
+Begin/End/Change), and on dialogue responses, with the opening at Doc Mitchell's as the
+test. Branch `claude/idles`. Facts and sources: `docs/spec-notes/idles.md`.
+
+1. **What works now.** In a new game you wake up looking at the ceiling fan, sit up, sit
+   on the edge of the bed, and later stand up, all from the game's own package data.
+   Doc Mitchell plays the gestures named on his lines, the scripted "give mirror"
+   animation, and his own way of getting up from the chair. NPCs elsewhere play the idles
+   of their packages and of idle markers.
+2. **Your three reports, and what they were:**
+   - *Doc should help the player up.* The game has a special "Doc gets up from his
+     chair" animation that is picked only while the opening quest is between stages 10
+     and 50. Ours could not read that kind of rule, so he got up the plain way. Fixed.
+     (A second record, `LooseNVDocHelpPlayerUp`, names an animation file that is not in
+     the game's archives, and nothing uses it.)
+   - *The seated view was off to the right.* A bug of mine turned the view 11° when the
+     sit-up handed over to the sitting loop. Fixed.
+   - *Collision moves the player before the scene.* Yes: the start marker is inside the
+     bed, and the player was pushed about 10 units off it. The scene now plays at the
+     marker and the player is held there until it is over. With both fixes the seated
+     view lines up with your capture (Doc and the Vigor Tester within a few pixels at
+     1280 × 720).
+3. **Also fixed on the way:** Doc Mitchell was smoking. His packages list the smoking
+   idle, but that idle has conditions he does not meet. Idles from a package's list are
+   now played only when their own conditions pass. And a second `AddScriptPackage` now
+   replaces the first, as the wiki says; before, removing the stand-up package brought
+   the sit-up back.
+4. **Guesses I made (please say if you know better):**
+   - ~~Loop count 255 means "loop until something else replaces it"~~ **answered by
+     you (2026-10-10):** the editor's Loop Forever box sets minimum and maximum both to
+     255; with the box clear any numbers can be entered. Ours now loops for ever only
+     when both are 255. Still a guess: 0 / 0 means once.
+   - A looping idle repeats between its `StartLoop` and `EndLoop` markers.
+   - `PlayIdle`, package begin/end/change idles and dialogue idles ignore the idle's
+     conditions; idles from a package's or marker's list respect them.
+   - A package's list plays whenever the actor stands with nothing else to do. The wiki
+     gives a rule per package type; I used one rule for all.
+   - While an idle moves the first-person view you can still look round (the opening
+     leaves looking enabled); the body does not turn with the view.
+5. **Needs your eyes in the game:** when does Doc get up from his chair? In ours he
+   starts about 3 seconds before you start to stand, because his packages are checked
+   again shortly after stage 40. The script itself only tells him to re-check at the end
+   of the line he says while you stand. If in the game he stays seated until then, tell
+   me and I will hold an actor's package while it is speaking.
+6. **Not done:** the sounds stored in the idle animations (bed creak, eyes opening);
+   the blur and fade effects of the opening (another branch); idles the game picks by
+   itself with nobody asking (fidgets, talking gestures); Doc does not look at you
+   during his scripted lines (head tracking does not cover those lines yet); in third
+   person the wake-up moves only the first-person body.
+7. **A slip to report (lab rule):** early on I ran `fnvtool actor anims` on the whole
+   Data folder, which also opens the add-on archives, one of which is a lab holdout. My
+   next step failed before reading the output; I deleted the file unread and used
+   base-game archives by name from then on.
+

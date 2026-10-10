@@ -123,6 +123,9 @@ pub fn is_script_menu(code: u16) -> bool {
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
 pub const UNATTENDED_MENU_SECONDS: f32 = 0.25;
 
+/// The game's periodic package choice, seconds [documented: GECK wiki; packages.md §3].
+pub const PACKAGE_INTERVAL: f64 = 10.0;
+
 /// `nvforever --play --new-game`: the game starts as a new game does (inserted before
 /// the play plugin).
 #[derive(Resource, Clone, Copy, Debug, Default)]
@@ -365,10 +368,12 @@ pub fn with_world<R>(rt: &mut Runtime, sim: &mut SimState, f: impl FnOnce(&mut R
 }
 
 impl Runtime {
-    fn new(data: &'static GameData, sim: &mut SimState, new_game: bool) -> Runtime {
+    fn new(data: &'static GameData, sim: &mut SimState, new_game: bool, packages: bool) -> Runtime {
         // Message boxes are menus until the player closes them (the default,
-        // `GameConfig::modal_message_boxes`).
-        let cfg = GameConfig { frame_seconds: 1.0 / 60.0, ..GameConfig::default() };
+        // `GameConfig::modal_message_boxes`). With actors living by their packages, the
+        // packages' scripts and idles run from the first frame (the residents ask for the
+        // same interval when they start).
+        let cfg = GameConfig { frame_seconds: 1.0 / 60.0, package_interval: packages.then_some(PACKAGE_INTERVAL), ..GameConfig::default() };
         let game = Game::new(data, World::new(sim.forms, sim.refs, sim.world.config()), cfg);
         let mut children: HashMap<FormId, Vec<FormId>> = HashMap::new();
         for (id, p) in &sim.refs.refs {
@@ -876,7 +881,7 @@ pub(crate) fn run_scripts(
             }
             Some(Ok((data, secs))) => {
                 st.loader = None;
-                let rt = Runtime::new(data, &mut sim, st.new_game);
+                let rt = Runtime::new(data, &mut sim, st.new_game, play.0.packages);
                 let running = rt.game.quests.values().filter(|q| q.running).count();
                 info!(
                     "scripts ready in {secs:.2} s: {} units, {} scripts, {} quests ({running} start-game-enabled quests running)",

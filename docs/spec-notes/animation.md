@@ -190,6 +190,12 @@ of 18,881; creatures: 94,471 of 97,292.
 
 ## 5. Open questions for the owner
 
+Idles played on request (scripts, packages, dialogue) and what they showed about loop
+counts, loop keys and first-person clips: docs/spec-notes/idles.md. Its §9 (the GECK
+wiki's Idle Animations Window page) answers question 2 (the walk is as in §2.2, from the
+top item of the actor's skeleton) and says what "Must return a file" in question 1 does;
+it also documents Loop Forever, without saying how it is stored.
+
 1. **Bits 0x40 / 0x80 of the IDLE group byte**: xEdit calls 0x40 "Loose Idle" and links
    0x80 to "must return a file". 441 records set 0x40 (414 Special Idles); 93 set 0x80.
    Do you know (GECK UI, wiki) what they do?
