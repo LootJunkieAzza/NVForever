@@ -470,6 +470,59 @@ sessions. You already had it from an earlier playthrough.
     Real-data tests of the dialogue code need `FNVLAB_DATA_DIR=<Data>`; without it they
     are skipped.
 
+    Two small things your answers leave open (#120): when a Random pool's last line
+    carries "Random End" but the actor cannot say that line, does the pool still end
+    there (assumed yes); and do a quest's own conditions run on the speaking actor, like
+    a line's conditions (assumed yes).
+33. **Dialogue voice (#119, 2026-10-10).** Lines last as long as their voice files and
+    are heard in `--play`; 97.3 % of the masters' 37,403 responses have a sound
+    (`docs/spec-notes/voice.md`). Nobody has listened to it yet: playback is confirmed
+    from the log only. Decisions for you:
+    - (a) **A missing 0.3 to 0.4 s per line.** With real sound lengths every captured
+      span of Doc Mitchell's lines comes out short by that much per line (one line
+      2.60 s against 2.9 s; three lines 14.5 s against 15.4 s; the psych intro 11.7 s
+      against about 13 s, where the old estimate gave 18.1 s). Nothing was tuned. Either
+      add a fixed pause per line (a fitted number again) or capture single lines first;
+      the captures so far cannot tell a per-line gap from a per-response one.
+    - (b) Voice lengths are on by default in `fnvtool script run` and `dialogue talk`
+      (the four `L5.intro.*` scenarios pass either way); `--no-voice-lengths` restores
+      the estimate.
+    - (c) Unattended `--play` runs now play voice through the speakers; `--no-voice`
+      keeps them silent. Agents were told to run silent while you are at the desk.
+    - (d) Open hypotheses (voice.md §11): which of `.ogg` and `.wav` the game plays for
+      the 40 lines that have both; what a response's sound form does (228 responses;
+      reported, not played); the voice of actors templated on a levelled list; whether
+      a line with no file shows its subtitle for some fixed time.
+    - (e) Voices play flat (no 3D placement).
+34. **Pausing in conversations: "living pause" now, a live world later (your request,
+    2026-10-10).** You said the original pauses during a conversation but that you would
+    prefer no pause if scripts and outside NPCs can be kept from causing trouble.
+    - **Built now (dialogue screen, `claude/dialogue-screen`):** only what scripts can
+      see is frozen (script time, quest timers, the game clock, NPC decisions, damage,
+      needs). What you see and hear keeps running (idle animation, wind, water, weather,
+      sky, the speaker's voice), with free look. `--dialogue-pause living|original`,
+      default `living`. Quest behaviour is the original's.
+    - **Proposed for when AI packages exist:** NPCs on ordinary schedules keep moving;
+      events that happen meanwhile (a trigger entered, a package finished) are queued
+      and delivered to scripts when the conversation ends; the speaker's schedule is
+      held and hostiles cannot start a fight with the pair; NPCs under script control
+      hold their place.
+    - **Not proposed as default:** scripts running live during dialogue (as in Skyrim).
+      The base game's scripts react to a line's result on the next frame (moving the
+      speaker, opening a box, starting another conversation), which would land in the
+      middle of the line. Could be an experimental option after listing the scripts at
+      risk from the decoded scripts.
+    - **Your call:** (1) should walking away end a conversation where the line would let
+      you leave; (2) should the game clock keep moving while you talk (frozen for now);
+      (3) should being attacked break the conversation, or is the pair untouchable
+      (proposed: untouchable, because a broken line could skip a quest result).
+35. **Lip sync started at your request (2026-10-10, `claude/dialogue-lip`).** Goal: the
+    `.lip` file of a spoken line moves the speaker's mouth and face in `--play`. The
+    format has no official documentation, so the work uses public documentation and
+    observation of the files only; if that is not enough to animate honestly, it stops
+    at the notes and the reader. It touches the NPC side's files
+    (`engine/nvforever/src/actors.rs`, `facegen.rs`) as little as the feature needs.
+
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
 A second coordinating session ("NPC implementation coordination", Claude Desktop on the
