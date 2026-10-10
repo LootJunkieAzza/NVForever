@@ -79,17 +79,59 @@ actor meshes`]:
   `Prn` whose string names the parent bone (`Bip01 Head` for hair, beards and eyes); 19
   headgear models (cowboy hats, fiend helmets, NCR trooper helmets, berets) and the
   child-female mouth parts have none.
-- A rigid part's vertices end up in the **skeleton's axes** with the origin at the
-  parent bone: hair spans z −0.7…15.3 and a cowboy hat z 3.8…17.5 above `Bip01 Head`
-  (bind position (0, 0.4, 112.8) in `skeleton.nif`), while the head bone's own x axis
-  points up. Node rotations of the 206 rigid shapes placed NPCs use: all identity 112
-  (hats, helmets, beards); root and shape rotations that cancel 66 (most hair, e.g.
-  `hairbun.nif`); a root equal to the inverse of `Bip01 Head`'s bind rotation with
-  identity below 16 (eyes and the other race head parts); identity root with real
-  offsets below 12 (Pip-Boy arm parts). Rule [observed, all four kinds render in place]:
-  a part whose root stores the bone's inverse bind rotation is an ordinary child of the
-  bone; any other part gets that inverse rotation from the attachment; node transforms
-  are kept in both cases.
+- A rigid part on the head has its vertices in the **skeleton's axes** with the origin
+  at the parent bone: hair spans z −0.7…15.3 and a cowboy hat z 3.8…17.5 above
+  `Bip01 Head` (bind position (0, 0.4, 112.8) in `skeleton.nif`), while the head bone's
+  own x axis points up. Node rotations of the 206 rigid shapes placed NPCs use: all
+  identity 112 (hats, helmets, beards); root and shape rotations that cancel 66 (most
+  hair, e.g. `hairbun.nif`); a root equal to the inverse of `Bip01 Head`'s bind rotation
+  with identity below 16 (eyes and the other race head parts); identity root with real
+  offsets below 12 (Pip-Boy arm parts). Rule for head parts [observed, those three kinds
+  render in place]: a part whose root stores the bone's inverse bind rotation is an
+  ordinary child of the bone; any other part gets that inverse rotation from the
+  attachment; node transforms are kept in both cases.
+- A rigid part on **another bone is in that bone's own axes**: an ordinary child, node
+  transforms kept, no rotation added. Over the worn models of every ARMO in the ten
+  masters (498 models, placed or not; `fnvtool actor meshes`, `armor_rigid_bones`), 61
+  have unskinned shapes: 35 name `Bip01 Head`, 20 have no `Prn`, and 6 name
+  `Bip01 L ForeTwist`, all of them Pip-Boys (`pipboy3000\pipboyarm.nif`,
+  `pipboyarmfemale.nif`, `pipboyarmnpc.nif`, `pipboyarmfemalenpc.nif`,
+  `pimpboy3billion\pimpboyarm.nif`, `pimpboynpc.nif`) [observed]. `pipboyarm.nif`: the
+  root is the identity; the casing shape sits 8.09 along x, turned 11° about x, and its
+  vertices then reach x 4.4…17.1. `Bip01 L ForeTwist` starts at the elbow with its x
+  axis down the forearm, and `Bip01 L Hand` is 18.13 along it. As a plain child the
+  casing is a cuff round the forearm from 4.4 to 17.1 units below the elbow, 1.8…6.1
+  from the bone's line; with the head rule's rotation it lands 1.9…15.8 units *above*
+  the elbow, 0.2…11.4 from the line, which is what `--play` drew until 2026-10-10 (the
+  Pip-Boy on the back of the upper arm, askew) [observed: computed from the two files,
+  and in screenshots before and after]. Why the head differs is open [hypothesis: the
+  game builds the head, with hair and headgear, in the skeleton's axes as one unit, as
+  the skinned head model is].
+- The player's Pip-Boy models (`pipboyarm.nif`, `pipboyarmfemale.nif`, `pimpboyarm.nif`:
+  19 shapes; the NPC ones have 6) hold a shape `PipboyLightEffect:0`: an unlit sheet
+  textured `effects\fxwhite.dds`, 11.5 × 9.8 units over the 5.9 × 4.5 screen, emissive
+  white, alpha-blended, with vertex colours (0.10, 1.0, 0.35) whose alpha runs 0…0.125
+  [observed]. It is the glow of the Pip-Boy light and shows only while that light is on
+  [owner statement 2026-10-10]. NVForever has no Pip-Boy light yet, so the shape is not
+  drawn (`fnv_actor::mesh::is_light_effect_shape`); drawn, it was a flat bright green
+  square over the screen. The three orange button lights (`StatsGlow`, `ItemsGlow`,
+  `DataGlow`) are always lit [owner statement 2026-10-10] and are drawn. Drawn as they
+  are, and open: the `glare` sheet, and `ScreenLit` beside `pipboyscreen` [hypothesis:
+  one of the two screens is for the light or the menu].
+- Outfits hold two left sleeves: 170 of the 498 worn models have shapes named
+  `PipBoyOff…`, 159 of them also `PipBoyOn…` (`PipBoyOn`, `PipBoyOn:0`, `PipBoyOn1:0`,
+  `PipBoy0n:0`, `PipBoyOnLegate:0`, …) [observed: `armor_pipboy_sleeves`]. In
+  `vaultsuitarmor\m\outfitm.nif` `PipBoyOff` (175 vertices) covers the left forearm from
+  3 to 18 units below the elbow and the hand's cuff; `PipBoyOn` (111 vertices) leaves
+  out 3 to 15, where the Pip-Boy sits [observed]. Rule: an actor wearing an item in the
+  PipBoy biped slot (bit 6) draws the `PipBoyOn…` shapes [owner statement 2026-10-10:
+  "we see a sleeve on the arm with a pipboy, it is rendered over the outfit using the
+  pipboy on node"; two in-game first-person screenshots: a jumpsuit's blue sleeve from
+  the elbow to the Pip-Boy, and another outfit's brown cuff between the Pip-Boy and the
+  glove], any other actor the `PipBoyOff…` shapes [hypothesis, from the names]
+  (`fnv_actor::mesh::pipboy_sleeve`). The same holds in first person, where the sleeve
+  is drawn beside the `Arms…` shapes (`fnv_actor::first_person::is_first_person_shape`).
+  Before 2026-10-10 both sleeves were drawn on everyone, and none in first person.
 - Hair-shader shapes (BSShaderFlags bit 18) carry a mask in their vertex colours, not a
   colour: red 0.04–0.39 with green and blue at 1 in `hairbase.nif` and
   `beardmustachecurly.nif` [observed]; multiplied in, hair turns cyan. They are not
@@ -199,7 +241,9 @@ similar helmets) 132, Hair alone (a wig) 2 [observed].
 One entity per actor: the skeleton's node hierarchy is spawned once; skinned part shapes
 bind their skins to the skeleton's bones by name (the part's own bone copies are not
 spawned); rigid parts are parented to their attachment bone by the rule of §1.2 (`Prn`,
-else `Bip01 Head`). Hair shows `NoHat` or `Hat` (§2.4); dismemberment caps — shapes none
+else `Bip01 Head`; the head rule's rotation on `Bip01 Head` only). Hair shows `NoHat` or
+`Hat` (§2.4); outfits show the left sleeve that matches whether a Pip-Boy is worn, and
+the Pip-Boy light's glow is not drawn (§1.2); dismemberment caps — shapes none
 of whose partitions sets part flag bit 0 ("editor visible", nif.xml BSPartFlag) — are
 hidden [hypothesis: an intact actor shows none]. Pose: the skeleton's bind pose, frozen
 (default), or the idle clip on the skeleton's bones (§7).
@@ -386,7 +430,12 @@ with an in-game picture].
 - `fnvtool actor meshes <Data> <plugins…> --schema <dir> [--nif-schema <dir>]` →
   `fnv.actor.meshes/1`: `pairs`, `part_kinds` (role × skinned/rigid/+Prn), `hair_variants`,
   `textures`, `missing_textures`, `problems` [{`skeleton`, `model`, `role`, `actors`,
-  `problems`}].
+  `problems`}]. Over the worn models (MODL, MOD3) of every ARMO, placed or not:
+  `armor_models` (how many), `armor_rigid_bones` (models with unskinned shapes by the
+  `Prn` they name, or `(no Prn)`), `armor_rigid_off_head` [{`model`, `prn`,
+  `skinned_shapes`, `rigid_shapes`}] (those naming another bone than `Bip01 Head`),
+  `armor_pipboy_sleeves` (models with `PipBoyOn…` and `PipBoyOff…` shapes: `on and off`,
+  `on only`, `off only`), `armor_light_effect` (models with the Pip-Boy light's glow).
 
 ## 6. Captures wanted
 
