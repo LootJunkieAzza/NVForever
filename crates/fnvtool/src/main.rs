@@ -342,6 +342,21 @@ pub enum CollideCmd {
         #[arg(long)]
         filter: Option<String>,
     },
+    /// The jointed bodies (ragdolls) of every mesh that has constraints: bodies, joints
+    /// and how the bind pose sits in the joints' limits (fnv.collide.ragdoll/1).
+    Ragdoll {
+        /// BSA archives, loose .nif files or directories.
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Only files whose path contains this text (case-insensitive).
+        #[arg(long)]
+        filter: Option<String>,
+        /// Leave out the per-file rows (statistics only).
+        #[arg(long)]
+        summary: bool,
+    },
 }
 
 #[derive(Args)]
