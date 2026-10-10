@@ -302,8 +302,13 @@ pub(crate) fn fix_vertex_colors(mesh: &mut Mesh, vertex_alpha: bool) {
 /// docs/spec-notes/nif.md §6 "Specular") scales it. Bevy maps mask alpha a to
 /// reflectance × a × 0.5, so 2.0 lets the mask span the full [0, 1] range: a mask of
 /// 0.5 gives the usual dielectric F0 of 0.04 [hypothesis]. Shaders without the specular
-/// flag get none; shapes without a normal map keep the earlier constant.
+/// flag get none; shapes without a normal map keep the earlier constant. Hair-shader
+/// shapes (hair, brows, beards) get none either [hypothesis, nif.md §6 "Hair": read as a
+/// plain mask their normal-map alpha gave glinting white strands the game does not show].
 pub(crate) fn specular(props: &Props, has_normal_map: bool) -> (f32, bool) {
+    if props.hair {
+        return (0.0, false);
+    }
     match (has_normal_map, props.specular) {
         (true, true) => (2.0, true),
         (true, false) => (0.0, false),
@@ -743,6 +748,8 @@ mod tests {
         assert_eq!(specular(&flagged, true), (2.0, true));
         assert_eq!(specular(&Props::default(), true), (0.0, false));
         assert_eq!(specular(&flagged, false), (0.3, false));
+        let hair = Props { specular: true, hair: true, ..Default::default() };
+        assert_eq!((specular(&hair, true), specular(&hair, false)), ((0.0, false), (0.0, false)));
         // Phong exponent → roughness: 0 is fully rough, higher is smoother.
         assert!((gloss_roughness(0.0) - 1.0).abs() < 1e-6);
         assert!((gloss_roughness(67.0) - 0.41).abs() < 0.01);

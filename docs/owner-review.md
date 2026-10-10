@@ -1090,6 +1090,36 @@ docs/spec-notes/actors.md §10.2 and §10.5.
    brain under it cannot be seen (a material problem, not a placement one; notes in
    §10.5). Fixed since: see "Rex's glass skull cap" below.
 
+## Sunny Smiles' face shape and shiny hair (2026-10-10, session "face shape")
+
+Your report: next to the game, our Sunny Smiles has a strange, almost masculine face,
+and her hair shines in light. Branch `claude/facegen-race` (#142); it builds on "Skin tone by
+race" (#141) above and answers its item 3. Facts:
+`docs/spec-notes/actors.md` §4.3 and `docs/spec-notes/nif.md` §6 "Hair". Pictures:
+`C:\fnv-private\references\face_shape\` (`sunny_compare.png`: the game, ours before,
+ours after; `saloon_before_after.png`: Sunny, Trudy, Joe Cobb, a settler;
+`hair_shine_before_after.png`).
+
+1. **Fixed, face shape:** every race carries its own face-shape values, and an NPC's
+   values are meant to sit on top of them. We used the NPC's alone. For women the
+   race's values are large, so their faces came out long with a heavy jaw. With both
+   added, Sunny has the game's shorter face, tapered jaw and larger eyes. Every NPC's
+   face changes somewhat; women's the most.
+2. **Fixed, hair fit:** most hair models keep their face-fitting data under a file
+   name we did not look for (67 of them), so hair never followed the head's shape. It
+   does now.
+3. **Changed, hair shine:** hair, brows and beards are now matte. The data that made
+   them glint is real, but the game clearly does not use it as an ordinary shine, and
+   I do not know what it does with it. If the game shows a soft highlight on hair in
+   strong light that you miss, a side-on picture of it would let me rebuild it.
+4. **Still different on Sunny, for you to judge:** in your picture her eyes are more
+   open and her lips fuller. She is in her idle pose there, looking up at you; ours is
+   a still pose. I cannot tell yet whether that is the whole difference.
+5. **Not compared with the game:** Trudy, Joe Cobb and the others — only Sunny had a
+   picture. `--no-race-facegen` shows the old faces for comparison.
+6. Your other request, the dogs' eyes, was done separately: the "Dog eyes" section
+   above (#145).
+
 ## Rex's glass skull cap (2026-10-10, session "skull cap")
 
 Facts and the survey: docs/spec-notes/nif.md §6 "Multiply blend", actors.md §10.5.
