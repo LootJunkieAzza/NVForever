@@ -22,8 +22,9 @@
 //!   with a fan of rays from the eye out to the reach (`damage::melee_reach`); holding Use
 //!   after a normal swing swings again. With no weapon equipped the player fights with the
 //!   Fists (WEAP `Fists`) [hypothesis: the game's unarmed weapon form]. Knockback force
-//!   is computed (documented formula) and logged; actors are not pushed until they move
-//!   physically.
+//!   is computed (documented formula) and logged; living actors are not pushed until they
+//!   move physically. Every shot and blow that lands on an actor also sends an
+//!   [`ActorPush`], which shoves a dead actor's ragdoll [design].
 //! - **Hits** (step C5): the damage of `fnv_combat::damage` against the target's worn
 //!   armour (`CombatForms::worn_armor` over its inventory) goes to the script runtime's
 //!   `Game::hit` (Health's damage part, OnHit/OnHitWith, death and OnDeath, kill XP), so
@@ -107,6 +108,22 @@ pub struct ActorHit {
     /// The hit crippled a limb.
     pub crippled: bool,
 }
+
+/// A hit shoves an actor's body at a point (game space): the ragdoll of a dead actor is
+/// pushed by it (nvforever `ragdoll.rs`). `dv` is the change of velocity of the body
+/// part struck, game units per second [design].
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ActorPush {
+    pub form_id: u32,
+    pub point: [f32; 3],
+    pub dv: [f32; 3],
+}
+
+/// How fast a shot and a melee blow shove the body part they strike, game units per
+/// second, and the share of a melee shove that goes upwards [design].
+pub const SHOT_PUSH: f32 = 140.0;
+pub const MELEE_PUSH: f32 = 220.0;
+pub const POWER_PUSH: f32 = 1.6;
 
 /// The player's limb conditions (codes 25–31, 100 healthy, 0 or less crippled), read
 /// from the script runtime each frame (step C8).
@@ -246,6 +263,8 @@ struct Pending {
     /// The placed reference hit, for destructible objects.
     object: Option<u64>,
     point: V3,
+    /// The way the projectile was flying.
+    dir: V3,
     projectiles: u32,
 }
 
@@ -302,6 +321,7 @@ impl Plugin for CombatPlugin {
             .init_resource::<HitFeedback>()
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
+            .add_message::<ActorPush>()
             .add_systems(Startup, (init_combat, spawn_hud, spawn_hit_hud))
             .add_systems(
                 Update,
@@ -659,6 +679,7 @@ fn melee(
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
     mut messages: MessageWriter<ActorHit>,
+    mut pushes: MessageWriter<ActorPush>,
     parts: Res<ActorParts>,
     limbs: Res<PlayerLimbs>,
 ) {
@@ -741,6 +762,7 @@ fn melee(
             let location = bp.as_ref().map_or(0, BodyPart::location);
             let limb = limb_hit(bp.as_ref(), d.dealt, &w);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
+            pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power { POWER_PUSH } else { 1.0 }) });
             match apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
                 Some(r) => info!(
                     "combat: {}{} hits {target} on {} for {:.1} (DT {:.0}{}), health {:.0}/{:.0}, knockback {push:.0}",
@@ -834,6 +856,7 @@ fn fly(
     mut feedback: ResMut<HitFeedback>,
     mut hud: Option<ResMut<HudMessage>>,
     mut messages: MessageWriter<ActorHit>,
+    mut pushes: MessageWriter<ActorPush>,
     parts: Res<ActorParts>,
 ) {
     let dt = time.delta_secs();
@@ -868,9 +891,11 @@ fn fly(
             for e in f.p.step(&world, dt) {
                 match e {
                     ProjEvent::Hit { actor, part, object, point, delay, .. } => {
-                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, projectiles: f.projectiles_per_shot });
+                        let from = if f.p.hitscan { f.origin } else { before };
+                        let d = vec::sub(point, from);
+                        let dir = if vec::len(d) > 1e-3 { vec::scale(d, 1.0 / vec::len(d)) } else { [0.0; 3] };
+                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, projectiles: f.projectiles_per_shot });
                         if f.tracer {
-                            let from = if f.p.hitscan { f.origin } else { before };
                             c.marks.push(Mark { from, to: point, age: 0.0, life: 0.08, impact: false });
                         }
                     }
@@ -984,6 +1009,7 @@ fn fly(
         let location = bp.as_ref().map_or(0, BodyPart::location);
         let limb = limb_hit(bp.as_ref(), d.dealt, &w);
         let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
+        pushes.write(ActorPush { form_id: target.0, point: p.point, dv: vec::scale(p.dir, SHOT_PUSH) });
         match apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
             Some(r) => info!(
                 "combat: hit {target} on {} for {:.1} (DT {:.0}{}), health {:.0}/{:.0}{}",
