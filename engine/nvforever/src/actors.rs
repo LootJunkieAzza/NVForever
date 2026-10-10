@@ -298,10 +298,14 @@ pub fn spawn(
         stats.unresolved += 1;
         return false;
     };
-    let uses: Vec<PartUse> = part_uses(&a, world, ctx, stats).into_iter().map(|(_, u)| u).collect();
+    let (part_index, uses): (Vec<usize>, Vec<PartUse>) = part_uses(&a, world, ctx, stats).into_iter().unzip();
     // The race's height scales the actor [hypothesis, actors.md §3].
     let rt = rt * Affine3A::from_scale(Vec3::splat(a.race_height as f32));
     let spawned = spawn_actor(commands, parent, Transform::from_matrix(Mat4::from(rt)), &skel, &uses);
+    // The shapes a `.tri` can move when the actor speaks (lips.rs).
+    if let Some(rig) = crate::lips::rig(&a, &part_index, &uses, &spawned, &ctx.models.data, world.facegen_enabled) {
+        commands.entity(spawned.root).insert(rig);
+    }
     commands.entity(spawned.root).insert((
         Name::new(format!("Actor {reference:08X} {}", a.edid.as_deref().unwrap_or(""))),
         RefVisual(reference),
