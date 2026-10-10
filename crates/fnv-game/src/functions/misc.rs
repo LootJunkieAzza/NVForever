@@ -139,8 +139,17 @@ pub fn zero(_g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 }
 
 /// 1 while a menu is open, or that menu with a menu code [documented: catalogue summary].
+/// `MenuMode 1009` (the dialogue menu) is 1 during a conversation with the player
+/// [documented: GECK wiki GetMenuTargetRef, owner export, for the code; hypothesis that
+/// it holds from the greeting to the end]. A conversation does not count for a bare
+/// `MenuMode`: game time and GameMode go on during it (`Game::start_dialogue`)
+/// [hypothesis].
 pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    Ok(Value::bool(match (g.menu, a.num(0).ok().filter(|c| *c != 0.0)) {
+    let code = a.num(0).ok().filter(|c| *c != 0.0);
+    if code == Some(menus::DIALOGUE as f64) && g.dialogue.is_some() {
+        return Ok(Value::bool(true));
+    }
+    Ok(Value::bool(match (g.menu, code) {
         (None, _) => false,
         (Some(_), None) => true,
         (Some(m), Some(c)) => m as f64 == c,
@@ -164,7 +173,49 @@ pub fn say(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     none()
 }
 
-/// 1 while the actor is saying a line (SayTo, Say).
+/// `speaker.StartConversation target [topic] [speakerLocation] [targetLocation]
+/// [headTrack] [allowMovement]`: with the player as the target, the speaker starts a
+/// conversation with the named topic, GREETING without one [documented: GECK wiki
+/// StartConversation, owner export: a "force greet"; nothing happens when either actor
+/// is disabled]. In the game the speaker first walks up to the target; that needs AI
+/// packages, so here the conversation starts at once [stand-in]. A call while a
+/// conversation is running, or when the speaker has no line to say, does nothing
+/// [hypothesis]. A conversation between two NPCs (the Conversation tab's topics) is not
+/// modelled: the call is recorded and has no effect.
+pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let speaker = ctx.subject()?;
+    let target = a.form(0)?;
+    if target != fnv_sim::FormId::PLAYER_REF {
+        g.stub_note(ctx, a.0);
+        return none();
+    }
+    // A disabled player (the speaker's side is checked by `Game::start_dialogue`).
+    if g.world.is_enabled(target).is_ok_and(|on| !on) {
+        return none();
+    }
+    // Refusals (a conversation is running, the speaker is gone or has no line) are not
+    // errors of the script.
+    let _ = g.start_dialogue(speaker, a.opt_form(1));
+    none()
+}
+
+/// 1 once the actor has been in a conversation with the player [documented: GECK wiki
+/// GetTalkedToPC, owner export: whether the NPC has ever spoken to the player;
+/// hypothesis: SayTo lines do not count].
+pub fn get_talked_to_pc(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let who = ctx.subject()?;
+    Ok(Value::bool(g.extra.get(&who).is_some_and(|e| e.talked_to_pc)))
+}
+
+/// The emotion type code (0 Neutral … 7 Pained) of the response the actor is saying
+/// (`Game::dialogue_emotion`) [documented: GECK wiki GetDialogueEmotion, owner export].
+pub fn get_dialogue_emotion(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let who = ctx.subject()?;
+    Ok(Value::Num(g.dialogue_emotion(who) as f64))
+}
+
+/// 1 while the actor is saying a line (SayTo, Say, or a line of a conversation with the
+/// player; 0 while the player chooses) (`Game::is_talking`).
 pub fn is_talking(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let who = ctx.subject()?;
     Ok(Value::bool(g.is_talking(who)))

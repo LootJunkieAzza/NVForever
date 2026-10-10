@@ -259,10 +259,16 @@ pub fn set_pc_can_use_power_armor(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<
     none()
 }
 
-/// The topic becomes available to the player's dialogue (Layer 6 reads the set)
-/// [documented: catalogue summary of AddTopic].
+/// The topic joins the topics the player knows: from then on every actor that has a
+/// line of it to say offers it in its topic list (`Game::build_choices`)
+/// [documented: catalogue summary of AddTopic; hypothesis on "every actor": the GECK
+/// wiki's AddTopic page speaks of the Add Topic list of a topic, docs/spec-notes/
+/// dialogue.md §5].
 pub fn add_topic(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    g.player.topics.insert(a.form(0)?);
+    let topic = a.form(0)?;
+    if g.player.topics.insert(topic) {
+        g.emit(crate::trace::EventKind::TopicAdded { topic, by: None });
+    }
     none()
 }
 

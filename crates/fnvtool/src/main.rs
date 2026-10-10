@@ -11,6 +11,7 @@ mod collide_cmd;
 mod combat_cmd;
 mod combat_sim;
 mod dds_cmd;
+mod dialogue_cmd;
 mod spt_cmd;
 mod esm_cmd;
 mod install_cmd;
@@ -81,6 +82,9 @@ enum Cmd {
     /// Layer 5 compiled scripts: units, bytecode IR, canonical text, opcode coverage.
     #[command(subcommand)]
     Script(script_cmd::ScriptCmd),
+    /// Layer 6 dialogue: topics, lines and headless conversations.
+    #[command(subcommand)]
+    Dialogue(dialogue_cmd::DialogueCmd),
     /// Actor appearance: the parts that make up placed NPCs (workstream 5).
     #[command(subcommand)]
     Actor(ActorCmd),
@@ -694,6 +698,7 @@ fn main() -> ExitCode {
         Cmd::Collide(c) => collide_cmd::run(c),
         Cmd::Sim(c) => sim_cmd::run(c),
         Cmd::Script(c) => script_cmd::run(c),
+        Cmd::Dialogue(c) => dialogue_cmd::run(c),
         Cmd::Actor(c) => actor_cmd::run(c),
         Cmd::Combat(c) => combat_cmd::run(c),
         Cmd::Nav(c) => nav_cmd::run(c),
