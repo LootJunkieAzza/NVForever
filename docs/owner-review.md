@@ -893,3 +893,34 @@ design and what was checked: `docs/spec-notes/ragdoll.md`.
    them at 10:57; my last four runs (10:46–10:57) overlapped it. Any windowed check or
    capture of that session in that window may need re-running. The two runs
    after that (11:05 and 11:07, on the tree merged with main) took both locks.
+
+## Furniture: sitting (2026-10-10, session "furniture")
+
+Owner request: furniture usable by the player and by NPCs, animated: sit down, stay,
+stand up on moving. Facts, model and what was checked: `docs/spec-notes/furniture.md`.
+Branch `claude/furniture` (worktree `NVForever-furniture`).
+
+1. **Done:** chairs, benches, booths and stools work for NPCs and the player, with the
+   game's own clips (which clip is read from the game's idle records per furniture
+   marker, so left, right and front entries, stools and women's variants come out of the
+   data). You sit by activating the furniture and get up with a movement key or by
+   activating it again. NPCs can also use beds. `GetSitting` and the four related script
+   functions now answer for whoever is seated. New: `--npc-sit ACTOR=FURNITURE[:SECONDS]`
+   and `fnvtool actor furniture`.
+2. **Decisions taken, each reversible (furniture.md §5, §7):**
+   - you are put at the furniture's entry point when you activate it (no walking up);
+   - getting up: any movement key, or Activate on the same furniture;
+   - in first person you see through the seated body's eyes and the body is not drawn;
+   - sitting puts your weapon away;
+   - an actor takes the nearest enabled, free entry point; a chair holds one user, a
+     bench or a table of stools one per seat;
+   - the prompt still says "Activate" (I believe the game says "Sit" but have no source).
+3. **Not built:** you cannot use beds (that needs the sleep menu); NPCs do not pick
+   furniture by themselves yet (that needs AI packages, in progress on
+   `claude/ai-packages`; its session can give an actor a `SitOn` to seat it); work spots
+   such as the bar and workbenches; eating, talking and fidgeting while seated; the fast
+   stand-up when attacked.
+4. **A capture would settle** which side an NPC enters a chair from and when
+   `GetSitting` is 1 (furniture.md §5); not needed for what is built.
+5. Game runs took both locks. The repository move orphaned this session's first
+   worktree mid-way; its two unpushed commits were rebuilt from the files on disk.
