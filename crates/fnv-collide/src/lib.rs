@@ -7,6 +7,7 @@
 
 pub mod anim;
 pub mod nif;
+pub mod ragdoll;
 pub mod shape;
 
 pub use shape::{CollisionObject, Iso, Motion, Shape};

@@ -1,0 +1,227 @@
+# Spec notes: ragdolls
+
+Clean-room description in plain language. Tags: **[documented]** cites a public source,
+**[observed]** was measured on the owner's install (FNV 1.4.0.525) with
+`fnvtool collide ragdoll` over the eleven archives that hold meshes (collision.md lists
+them), **[hypothesis]** needs verification, **[design]** is our own choice (ragdoll
+behaviour is presentation of a death, like the rest of combat: docs/design/combat.md §1).
+
+Block layouts are in `schemas/nif/havok.json` (re-expressed from niftools nif.xml, read as
+documentation). Reader: `fnv_collide::ragdoll`. Physics: `fnv_phys::ragdoll`. In the game:
+`engine/nvforever/src/ragdoll.rs`, `deaths.rs`.
+
+## 1. Where a ragdoll lives
+
+- A skeleton (`skeleton.nif`) carries a Havok **body** on some of its bones: the bone's
+  node names a `bhkBlendCollisionObject` whose `body` is a `bhkRigidBody` with a shape
+  (collision.md §1) [observed]. `characters\_male\skeleton.nif` has 18, all capsules, on
+  the layer BIPED (8), stored with the motion system KEYFRAMED (6): `Bip01 NonAccum`
+  (the pelvis), `Spine`, `Spine1`, `Spine2`, `Neck1`, `Head`, and per side `Thigh`,
+  `Calf`, `Foot`, `UpperArm`, `Forearm`, `Hand`. Their masses add up to 81 [observed].
+- A body lists **constraints** (`constraints`, block references) [documented: nif.xml
+  bhkRigidBody]. A constraint names two bodies, `entity_a` and `entity_b`
+  [documented: nif.xml bhkConstraintCInfo]. The constraint is listed by its `entity_a`,
+  the body being attached; `entity_b` is the body it is attached to (towards the
+  pelvis) [observed in the human skeleton; documented for the order: the GECK wiki page
+  BhkRagdollConstraint, "the first is the rigid body you wish to attach and the second
+  is the rigid body you wish to attach to"]. The human skeleton's 17 constraints make a
+  tree rooted at the pelvis.
+- 224 meshes have constraints: 1,823 bodies and 1,456 constraints. 73 are skeletons
+  (51 named `skeleton.nif`, 957 bodies). The rest are ground models of armour, traps,
+  hanging lights, gore, clutter skeletons [observed].
+- Constraint blocks met: ragdoll 771 (63 wrapped in a malleable constraint), limited
+  hinge 677 (80 wrapped), hinge 4, prismatic 3, stiff spring 1 [observed]. A
+  `bhkMalleableConstraint` holds one constraint of another type and a `strength`
+  (0.9 wherever skeletons have one) [documented: nif.xml; observed]. Two turret skeletons
+  list a `bhkOrientHingedBodyAction` among their constraints; it is not a constraint and
+  is left out [observed].
+- Not read: Ragdoll Template files (`.rdt`), which override bodies and constraints per
+  armour piece [documented: GECK wiki "Ragdoll Template"], and the RGDL record a body
+  part data's `RAGA` names (combat-data.md).
+
+## 2. Frames and units
+
+- A body's frame is its **bone's frame** (for a bhkRigidBodyT, composed with the body
+  transform, as for shapes, collision.md §4). Constraint pivots are points in the two
+  bodies' frames in Havok units (× 7 × the node's scale for game units, collision.md §2).
+  Placed by the bind pose, the two pivots of a constraint meet: the distance between
+  them has a median of 0.004 game units over all 1,456 constraints, 0.010 over the 239
+  on bodies with a body transform, and is under 2.6 units for 95 % [observed]. The larger
+  gaps are bones whose bind pose differs from the pose the constraints were made in
+  (the human arms: 1.1 to 2.2 units).
+- The body's stored translation and rotation are its pose in the mesh root's frame when
+  the file was made: in the human skeleton, translation × 7 is the bone's bind position
+  to 0.01 units [observed]. They are not used to place anything.
+- Constraint axes are unit vectors in the body's frame.
+
+## 3. Constraint limits
+
+### Ragdoll constraint (bhkRagdollConstraint)
+
+Fields [documented: nif.xml bhkRagdollConstraintCInfo]: per body a `twist`, a `plane`
+and a `motor` axis and a `pivot`; `cone_max_angle`, `plane_min_angle`, `plane_max_angle`,
+`twist_min_angle`, `twist_max_angle` (radians), `max_friction`.
+
+- In the bind pose body a's twist axis lies along body b's, and the plane axes likewise
+  (dot products 0.94 to 1.00 in the human skeleton) [observed]. `motor` is
+  twist × plane in both bodies [observed].
+- The twist axis runs along the bone (the thigh's points down the leg) [observed].
+- Reading of the limits [documented in outline: GECK wiki BhkRagdollConstraint: a twist
+  range about the twist axis, "a cone of allowed movement, and a second set of cones
+  (referred to as planes) to inhibit said movement"]:
+  - **cone**: the angle between a's twist axis and b's is at most `cone_max_angle`.
+  - **plane**: the angle by which a's twist axis leaves the plane square to b's plane
+    axis, positive towards that axis, stays in [`plane_min_angle`, `plane_max_angle`]
+    [hypothesis for the sign and for which body's axes]. Under this reading the human
+    upper arms (b's plane axis points backwards; limits −1.31 to 0.09) swing 75° forward
+    and 5° back, and the left thigh (plane axis to the right; −0.88 to 0.52) 50° outwards
+    and 30° inwards; the opposite sign would give arms that swing backwards [observed
+    values; the anatomy is the argument]. The bind poses do not settle it: 603 of 771
+    are inside their limits with this sign, 601 with the other [observed].
+  - **twist**: the turn of a against b about the twist axis stays in
+    [`twist_min_angle`, `twist_max_angle`] [hypothesis for the sign].
+- The right thigh's plane limits are symmetric (−0.52 to 0.52) where the left's are not
+  [observed; an authoring slip by the look of it, used as stored].
+
+### Limited hinge (bhkLimitedHingeConstraint), hinge
+
+Fields [documented: nif.xml]: per body an `axis`, `perp_axis_in_*1`, `perp_axis_in_*2`
+and a `pivot`; `min_angle`, `max_angle`, `max_friction`. `perp2` is axis × `perp1` in a
+[observed].
+
+- The hinge angle is the angle of a's `perp1` from b's `perp1`, positive about b's axis
+  (towards b's `perp2`) [documented in outline: GECK wiki BhkLimitedHingeConstraint,
+  perp 1 "defines the zero angle", perp 2 "the positive direction of rotation";
+  observed: with this sign 635 of the 677 limited hinges have their bind pose inside
+  their limits (2 % slack), with the opposite sign 579; all eight of the human
+  skeleton's (knees 1.22 in −0.87..1.52, elbows −0.07 in −2.27..0) only with this one].
+- A plain hinge has no limits.
+
+### Others
+
+- Ball and socket: two pivots. Stiff spring: two pivots and a length. Prismatic: read,
+  not converted (held as a ball joint); none is on a body an actor's ragdoll uses except
+  the Protectron's two [observed].
+- `max_friction` on skeleton constraints is 100 (590), 20 (164), 40, 2, 5, … [observed].
+  Its unit is not known; it is not used (§4 damping stands in).
+- Bodies: `linear_damping` 0.1 (most) and `angular_damping` 0.05; friction 0.3 (847 of
+  957), up to 10 on a few (the human pelvis); restitution 0.8 [observed]. The GECK wiki
+  says of restitution "near nonfunctional in New Vegas" [documented: Ragdoll Template].
+
+## 4. What NVForever does [design unless tagged]
+
+**When.** An actor that dies becomes a ragdoll at once when its skeleton has at least
+two bodies and a joint and the physics cell under it is loaded: its animation stops and
+the bodies start at the bones' current poses. A dead actor whose ground is not loaded, or
+that is already dead when it is drawn, shows the death pose as before (combat-rules.md)
+until the ground is there, then its ragdoll starts from that pose. Skeletons without a
+ragdoll keep the earlier presentation. [hypothesis: the original also drops placed
+corpses when their cell loads.]
+
+**Bodies** (`PhysWorld::add_ragdoll`). One dynamic body per ragdoll body with the stored
+shape (scaled by the actor's scale), mass and damping; friction capped at 1; no bounce;
+continuous collision detection. Colliders carry `Owner::Actor` on DEAD_BIP with the body
+part (BPTD index) of their bone, so shots, the crosshair and **Search** find the corpse
+on its ragdoll; the actor's kinematic hit volume is removed while the ragdoll is in the
+world.
+
+**Joints.** Body 1 is the constraint's b, body 2 its a; the joint frames are
+(twist, plane, twist × plane) or (axis, perp1, axis × perp1) at the pivots.
+
+- Ragdoll → a ball joint limited about x to the twist range, about z to the plane range
+  cut to ± the cone, about y to ± the cone. rapier limits the components of the relative
+  rotation's quaternion: equal to §3's angles for a turn about one axis, an
+  approximation of the cones otherwise.
+- Limited hinge → a revolute joint with the angle range; hinge → without.
+- A range of zero width locks the axis (the human neck's twist). Limits are kept within
+  ±3 radians.
+- Every free angular axis is damped (`JOINT_DAMPING`, 6 per second) so limbs do not
+  swing like chains; it stands in for `max_friction`. `strength` is not used.
+- Tests (`crates/fnv-phys/tests/ragdoll.rs`) hold an arm on a hinge and on a ragdoll
+  joint under gravity and check it stops at the stored limit on the side §3 says.
+
+**Contacts.** With terrain, references and other ragdolls. Not with characters: the
+player walks through corpses as through hit volumes. Two bodies of one ragdoll collide
+only when no constraint joins them and their shapes are more than 1 unit apart in the
+bind pose (an arm lies on the chest, not in it; neighbours that overlap by construction
+do not fight their joints). Explosions push ragdoll bodies like other loose bodies.
+
+**Hits.** A shot or melee blow on an actor sends a shove (`nvf_play::combat::ActorPush`):
+the ragdoll body nearest the hit point gets an impulse there along the shot (140 units
+per second for a shot, 220 for a blow, × 1.6 for a power attack). The killing hit's shove
+is the ragdoll's first.
+
+**Bones.** After each physics step the bodies' poses are written to their bones. Bones
+without a body (fingers, clavicles, twist bones, the weapon node) keep the pose they
+died in under their parent. The actor's own transform stays where it died.
+
+**Rest.** A ragdoll is at rest when the physics engine puts its bodies to sleep, or when
+they all stay under 12 units per second and 0.6 radians per second for 1.5 seconds
+(joints resting on their limits can keep a corpse creeping below what the eye sees). At
+rest it is **held** (`PhysWorld::set_ragdoll_at_rest`): its bodies become fixed, so it
+lies still, costs nothing, and still stops rays and loose objects. A hit's shove or a
+blast within reach makes it a ragdoll again. Walking into it or rolling a barrel onto it
+does not.
+
+**Memory.** The bone poses of a ragdoll at rest are remembered by reference. A ragdoll
+whose ground unloads, or whose actor is no longer drawn, leaves the world and is
+remembered the same way; put back later it is held in that pose. The memory lasts for the
+run (saves are not built yet). A corpse whose reference a script disables or deletes
+(ravens do) leaves the world and is forgotten.
+
+**Guard.** A corpse more than 150 units under the terrain is put back 20 above it, at
+most three times.
+
+**Checked** [observed 2026-10-10, `nvforever --cell Goodsprings --play` driven by the
+test aids (`NVF_PLAY_TEST_FACE`, `aimnpc`, `fire`, `aimcorpse`), exit 0, "run finished";
+screenshots kept privately]:
+
+- The Goodsprings Settler (18 bodies, 17 joints), killed by the eighth 9mm hit at 110
+  units: its knees buckle, it is on its back within a second and at rest a few seconds
+  later, limbs inside their joints' ranges, the rifle still on its back. The crosshair
+  offers **Search** on the body.
+- Walking 13,500 units away (its physics cell unloads) and back: the body is put back at
+  rest in the same pose.
+- Three shots into the resting body: each shoves it a little; it comes to rest again.
+- A Raven (3 bodies, 2 joints) shot on its perch drops to the ground and lies there;
+  its script deletes it some seconds later and the ragdoll leaves the world.
+- Exit report of the longest run: "ragdolls: 1 started, 1 put back at rest, 3 came to
+  rest, 4 shoved by hits, 0 lifted back above the terrain; 1 in the world at exit (1 at
+  rest)".
+- Found on the way: changing a body's type in place (dynamic to fixed and back) loses
+  the change when a scene query runs before the next step (rapier's collision-only
+  update takes the change flags; the same trap as physics.md describes for new bodies),
+  and a shot's impulse off the centre of a small body spun it through the terrain. Hence
+  held bodies are built anew, and a shove sets velocities with a bounded spin
+  (`MAX_PUSH_SPIN`).
+
+Not built: Ragdoll Templates, joint motors and `strength`, weapons dropping from dead
+hands, knockdown of living actors (`PushActorAway`, explosions' Knock Down flags),
+dismembered limbs, pushing corpses by walking into them, dragging them (grab).
+
+## 5. `fnvtool collide ragdoll <sources>... --schema <schemas/nif> [--filter text] [--summary]` → `fnv.collide.ragdoll/1`
+
+Observational (not a lab scenario), like `collide survey`.
+
+- `summary`: `meshes_with_joints`, `bodies`, `joints` (count by kind, " (malleable)"
+  when wrapped), `bind_within_limits` and `bind_within_limits_opposite_sign` (by kind:
+  joints whose bind pose is inside the limits, 0.02 radians slack, as read in §3 and
+  with plane and twist negated), `joints_on_transformed_bodies`, `pivot_gap` and
+  `pivot_gap_on_transformed_bodies` (quantiles of the distance between a joint's two
+  pivots in the bind pose, game units), `stored_translation_to_bind` (quantiles of the
+  distance from a body's stored translation × 7 to its node's bind position),
+  `problems`.
+- `files` (left out with `--summary`): per mesh with at least one joint, its `bodies`
+  (node, layer, mass, friction, restitution, dampings) and `joints` (constraint block,
+  the nodes of a and b, the limits as read, `max_friction`, `strength`, `pivot_gap`,
+  the bind pose's `cone`/`plane`/`twist` and whether it is inside the limits).
+
+## 6. Open questions
+
+1. The sign of the plane and twist limits (§3) rests on anatomy. A capture could settle
+   it: kill an NPC on flat ground and read limb bone angles (`GetNifBlockRotation`-style
+   xNVSE functions on the ragdolled skeleton), or simply compare how corpses lie.
+2. `max_friction`'s unit and whether `strength` softens the limits.
+3. Whether the original starts a ragdoll with the body's velocity at death, and how
+   hard hits push (`fPushForce`-like settings were not looked for).
+4. Which layers DEAD_BIP collides with in the original.

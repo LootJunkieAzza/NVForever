@@ -14,6 +14,7 @@
 //! - [`primitive`]: collision primitives placed on references (CollisionMarker boxes)
 //! - [`placed`]: the collision objects of a placed reference (shared by the tools and the
 //!   game)
+//! - [`ragdoll`]: ragdolls, the jointed bodies of dead actors
 //! - [`water`]: water areas (cell water surfaces) the character swims in
 //! - [`swim`]: swimming speeds (the stroke cycle)
 //!
@@ -30,6 +31,7 @@ pub mod convert;
 pub mod layers;
 pub mod placed;
 pub mod primitive;
+pub mod ragdoll;
 pub mod swim;
 pub mod terrain;
 pub mod water;
@@ -40,6 +42,7 @@ pub use arrival::Arrival;
 pub use character::{Character, CharacterInput, CharacterParams, CharacterStep};
 pub use convert::ConvertError;
 pub use layers::LayerSet;
+pub use ragdoll::{RagdollReport, RagdollStart};
 pub use placed::{ref_collision, ref_collision_with, ModelCollision, RefCollision, RefCollisionOptions};
 pub use swim::Stroke;
 pub use water::{PlacedWater, WaterArea};

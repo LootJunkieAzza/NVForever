@@ -43,6 +43,22 @@ impl Iso {
         }
         Iso { translation: self.apply(other.translation), rotation: r }
     }
+
+    /// The placement that undoes this one (the rotation is orthonormal, so its inverse is
+    /// its transpose).
+    pub fn inverse(&self) -> Iso {
+        let r = &self.rotation;
+        let rt = [r[0], r[3], r[6], r[1], r[4], r[7], r[2], r[5], r[8]];
+        let t = self.translation;
+        let inv = Iso { translation: [0.0; 3], rotation: rt };
+        Iso { translation: inv.apply([-t[0], -t[1], -t[2]]), rotation: rt }
+    }
+
+    /// The rotation alone applied to a direction.
+    pub fn rotate(&self, v: [f32; 3]) -> [f32; 3] {
+        let r = &self.rotation;
+        [r[0] * v[0] + r[1] * v[1] + r[2] * v[2], r[3] * v[0] + r[4] * v[1] + r[5] * v[2], r[6] * v[0] + r[7] * v[1] + r[8] * v[2]]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
