@@ -64,7 +64,8 @@ use crate::player::Player;
 use crate::script_events::{self, Capsule, EffectCtx, InvView, ScriptAid, ScriptEffect, TimedAid};
 use crate::script_hud::ScriptHud;
 use crate::sim::SimState;
-use crate::{ItemUsed, Location, OpenContainer, PlayData, PlaySet, PlayState, PlayWorld, RefChanged, Travel};
+use crate::loading::TravelRequest;
+use crate::{ItemUsed, Location, OpenContainer, PlayData, PlaySet, PlayState, PlayWorld, RefChanged};
 use bevy::prelude::*;
 use fnv_game::game::{event, menus, ActMode};
 use fnv_game::trace::{Event, EventKind};
@@ -735,10 +736,11 @@ fn run_scripts(
     mut script: ResMut<ScriptState>,
     mut hud: ResMut<ScriptHud>,
     mut changed: MessageWriter<RefChanged>,
-    mut travel: MessageWriter<Travel>,
+    mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
     paused: Res<crate::pause::Paused>,
+    loading: Res<crate::loading::Loading>,
 ) {
     // Items the player used up in the inventory menu (the menu already removed them).
     let used: Vec<FormId> = used.read().map(|u| FormId(u.item)).collect();
@@ -770,8 +772,10 @@ fn run_scripts(
     }
     // Scripts wait until the player stands in the world (its cell is known), and do not
     // run under the pause menu (`crate::pause`): no MenuMode code of the original's pause
-    // menu is known, so script time simply stops there [decision].
-    if paused.0 {
+    // menu is known, so script time simply stops there [decision]. Nor do they run under
+    // a loading screen (`crate::loading`) [observed: loading-screen time does not count,
+    // layer5-captures.md §8.3 e].
+    if paused.0 || loading.active() {
         return;
     }
     let Some(character) = phys.player.as_ref() else { return };
@@ -913,7 +917,7 @@ fn run_scripts(
                     info!("script: the player is moved to where they stand ({:?}); no travel", t.feet);
                 } else {
                     info!("script: travel to {:?} / {:?} at {:?}", t.interior, t.world, t.feet);
-                    travel.write(t);
+                    travel.write(TravelRequest(t));
                 }
             }
             ScriptEffect::OpenContainer(c) => {

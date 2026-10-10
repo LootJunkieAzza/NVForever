@@ -198,8 +198,11 @@ pub fn stream(
     time: Res<Time>,
     actor_world: Option<Res<crate::actors::ActorWorld>>,
     mut actor_parts: ResMut<ActorParts>,
+    loading: Option<Res<nvf_play::loading::Loading>>,
 ) {
     let (Ok(root), Ok(cam)) = (root.single(), camera.single()) else { return };
+    let frame_start = std::time::Instant::now();
+    let behind_screen = loading.is_some_and(|l| l.active());
     let mut actors = actor_world.as_deref().map(|w| (w, &mut *actor_parts));
     if let Some(id) = streamer.interior {
         if streamer.loaded.is_empty() {
@@ -260,7 +263,11 @@ pub fn stream(
 
     let mut missing: Vec<(i32, i32)> = want.iter().filter(|c| !streamer.loaded.contains_key(c)).copied().collect();
     missing.sort_by_key(|c| (c.0 - centre.0).abs().max((c.1 - centre.1).abs()) * 1000 + (c.0 - centre.0).abs() + (c.1 - centre.1).abs());
-    for c in missing.into_iter().take(streamer.per_frame) {
+    for (n, c) in missing.into_iter().enumerate() {
+        // Behind a loading screen: as many cells as fit in the frame's loading time.
+        if n >= streamer.per_frame && !(behind_screen && frame_start.elapsed() < LOADING_SCREEN_FRAME) {
+            break;
+        }
         let t0 = std::time::Instant::now();
         let s = &mut *streamer;
         let e = load_cell(&mut commands, &world, CellKey::Exterior(c), &mut models, &mut terrain, &mut water, &mut trees, &mut emittance, &mut actors, s);
@@ -277,6 +284,20 @@ pub fn stream(
     }
     if !streamer.settled && want.iter().all(|c| streamer.loaded.contains_key(c)) {
         streamer.settled = true;
+    }
+}
+
+/// Behind a loading screen (`nvf_play::loading`) cells are loaded one after another for
+/// this long each frame instead of `Streamer::per_frame` at a time [engineering choice:
+/// the window still answers, and fewer frames are drawn while the screen is up].
+const LOADING_SCREEN_FRAME: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Tell the loading screen whether cells around the camera are still to be drawn (runs
+/// after [`stream`]; `travel` has run before it, so a travel sent this frame counts).
+pub fn loading_gate(streamer: Res<Streamer>, mut loading: ResMut<nvf_play::loading::Loading>) {
+    let busy = !streamer.settled;
+    if loading.render_busy != busy {
+        loading.render_busy = busy;
     }
 }
 
@@ -300,7 +321,8 @@ pub fn face_billboards(
 
 /// `nvf_play::Travel` (door teleports): drop the loaded cells, switch between the
 /// worldspace and an interior; streaming reloads around the camera, which the player
-/// systems have moved to the destination.
+/// systems have moved to the destination. With `--play` this happens behind a loading
+/// screen, which stays until `Streamer::settled` ([`loading_gate`]).
 pub fn travel(
     mut commands: Commands,
     mut msgs: MessageReader<nvf_play::Travel>,
