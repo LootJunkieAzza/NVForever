@@ -171,6 +171,7 @@ engine does:
 | `line_started` | the line's response texts (INFO `NAM1`) are read for the subtitles |
 | `objective_displayed` / `_completed` (on), `quest_completed` / `_failed` | a line ("Objective: …", "Completed: …") |
 | `item_added` / `item_removed` for the player | a line; four or more items at once collapse into one |
+| `image_modifier_applied` / `_removed` | none through the events: nvforever's grade pass reads `Game::image_modifiers` every frame and draws them (fade colour, blur, double vision, radial blur, grade changes; docs/spec-notes/image-modifiers.md §5–6) |
 
 **Subtitles** (round 2): each line being said (`Game::speech`) shows as "Speaker: text"
 at the bottom of the view, one response of the INFO at a time, each for as long as it
@@ -179,8 +180,8 @@ scripts.md §7.7), and goes when the runtime ends or cuts the line. The voice fi
 played (`voice.rs`, docs/spec-notes/voice.md §9; `--no-voice`, `--voice-volume`).
 
 Not applied (open, §7): `moved` of other references, `SetPos` / `SetAngle`, `SetOpenState`
-on a drawn door, a script's `DisablePlayerControls`, image-space, sound and the other
-Layer 6 stubs.
+on a drawn door, a script's `DisablePlayerControls`, sound and the other Layer 6 stubs
+(of the image-space functions, the screen splatter and `SetCellImageSpace`).
 
 **References enabled at run time** that render streaming skipped (it draws only what is
 enabled at the start of a game) are drawn by `script_draw.rs` while scripts run: the base

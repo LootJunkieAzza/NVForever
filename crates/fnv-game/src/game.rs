@@ -341,6 +341,15 @@ pub struct ActiveEffect {
     pub script: Option<FormId>,
 }
 
+/// An image space modifier playing on the screen (docs/spec-notes/image-modifiers.md §3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActiveImageModifier {
+    /// The IMAD record.
+    pub modifier: FormId,
+    /// Seconds since it was applied ([`Game::image_modifiers`] says which seconds count).
+    pub elapsed: f64,
+}
+
 /// The player's state outside the world's reference table.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayerState {
@@ -540,6 +549,12 @@ pub struct Game<'a> {
     /// Magic effects active on actors, in the order they started.
     pub effects: Vec<ActiveEffect>,
     pub next_effect: u32,
+    /// Image space modifiers on the screen, in the order they were applied
+    /// (ApplyImageSpaceModifier). An animatable one ends by itself when its duration has
+    /// passed; the others stay until removed. Their time passes with the frames outside
+    /// menus and loading screens, conversations included [hypothesis: as the lines of a
+    /// conversation do; image-modifiers.md §3].
+    pub image_modifiers: Vec<ActiveImageModifier>,
     /// ScriptEffectElapsedSeconds inside a ScriptEffectUpdate block (0 elsewhere).
     pub effect_elapsed: f64,
     depth: u32,
@@ -586,6 +601,8 @@ pub struct GameSnapshot {
     pub effects: Vec<ActiveEffect>,
     #[serde(default)]
     pub next_effect: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub image_modifiers: Vec<ActiveImageModifier>,
 }
 
 pub const SNAPSHOT_FORMAT: &str = "fnv.game.state/1";
@@ -659,6 +676,7 @@ impl<'a> Game<'a> {
             forms: FormChanges::default(),
             effects: Vec::new(),
             next_effect: 1,
+            image_modifiers: Vec::new(),
             effect_elapsed: 0.0,
             depth: 0,
             stop_run: false,
@@ -1090,6 +1108,7 @@ impl<'a> Game<'a> {
         if self.menu.is_none() {
             self.update_dialogue(dt);
             self.tick_packages();
+            self.update_image_modifiers(dt);
         }
     }
 
@@ -1678,6 +1697,52 @@ impl<'a> Game<'a> {
         ids.len()
     }
 
+    // ---- image space modifiers ---------------------------------------------------
+
+    /// ApplyImageSpaceModifier: the modifier starts playing. One that is already on the
+    /// screen starts again from its beginning [hypothesis: one instance per modifier;
+    /// image-modifiers.md §3].
+    pub fn apply_image_modifier(&mut self, modifier: FormId) {
+        self.image_modifiers.retain(|m| m.modifier != modifier);
+        self.image_modifiers.push(ActiveImageModifier { modifier, elapsed: 0.0 });
+        self.emit(EventKind::ImageModifierApplied { modifier });
+    }
+
+    /// RemoveImageSpaceModifier: whether the modifier was on the screen.
+    pub fn remove_image_modifier(&mut self, modifier: FormId) -> bool {
+        let before = self.image_modifiers.len();
+        self.image_modifiers.retain(|m| m.modifier != modifier);
+        let was = self.image_modifiers.len() != before;
+        if was {
+            self.emit(EventKind::ImageModifierRemoved { modifier, ended: false });
+        }
+        was
+    }
+
+    /// IsImageSpaceActive.
+    pub fn image_modifier_active(&self, modifier: FormId) -> bool {
+        self.image_modifiers.iter().any(|m| m.modifier == modifier)
+    }
+
+    /// Age the modifiers; an animatable one whose duration has passed ends [hypothesis
+    /// from the shipped scripts: 29 lines wait for IsImageSpaceActive to read 0 on
+    /// FadeToBlackISFX (4 s), which no script removes; image-modifiers.md §3].
+    fn update_image_modifiers(&mut self, dt: f64) {
+        let data = self.data;
+        let mut ended = Vec::new();
+        self.image_modifiers.retain_mut(|m| {
+            m.elapsed += dt;
+            let over = data.image_modifiers.get(&m.modifier).is_some_and(|d| d.animatable && m.elapsed + 1e-9 >= d.duration as f64);
+            if over {
+                ended.push(m.modifier);
+            }
+            !over
+        });
+        for modifier in ended {
+            self.emit(EventKind::ImageModifierRemoved { modifier, ended: true });
+        }
+    }
+
     // ---- conditions --------------------------------------------------------------
 
     /// Evaluate a condition list (`subject` and `target` for the run-on choices).
@@ -1816,6 +1881,7 @@ impl<'a> Game<'a> {
             forms: self.forms.clone(),
             effects: self.effects.clone(),
             next_effect: self.next_effect,
+            image_modifiers: self.image_modifiers.clone(),
         }
     }
 
@@ -1845,6 +1911,7 @@ impl<'a> Game<'a> {
         g.forms = s.forms.clone();
         g.effects = s.effects.clone();
         g.next_effect = s.next_effect.max(1);
+        g.image_modifiers = s.image_modifiers.clone();
         let pos: u128 = s.rng_word_pos.parse().map_err(|_| format!("bad rng_word_pos {:?}", s.rng_word_pos))?;
         g.rng.set_word_pos(pos);
         Ok(g)

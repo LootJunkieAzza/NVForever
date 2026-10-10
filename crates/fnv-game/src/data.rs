@@ -458,8 +458,21 @@ pub struct GameData {
     pub furniture: HashMap<FormId, u32>,
     /// IDLM: the idle collection of each idle marker base.
     pub idle_markers: HashMap<FormId, crate::package::IdleCollection>,
+    /// IMAD: how long each image space modifier plays.
+    pub image_modifiers: HashMap<FormId, ImageModifierDef>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
+}
+
+/// The timing of an image space modifier (IMAD DNAM) [documented: xEdit
+/// wbDefinitionsFNV.pas IMAD DNAM "Animatable" u32, "Duration" f32;
+/// docs/spec-notes/image-modifiers.md §1].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ImageModifierDef {
+    /// The modifier plays over `duration` seconds and then ends; without the flag it
+    /// stays until it is removed.
+    pub animatable: bool,
+    pub duration: f32,
 }
 
 fn hexid(v: &Json) -> Option<u32> {
@@ -502,6 +515,7 @@ struct Read {
     weapon_anim_type: Option<i64>,
     furniture: Option<u32>,
     idle_marker: Option<crate::package::IdleCollection>,
+    image_modifier: Option<ImageModifierDef>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -561,6 +575,7 @@ impl GameData {
             weapon_anim_types: HashMap::new(),
             furniture: HashMap::new(),
             idle_markers: HashMap::new(),
+            image_modifiers: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };
@@ -689,6 +704,9 @@ impl GameData {
             }
             if let Some(v) = r.idle_marker {
                 d.idle_markers.insert(id, v);
+            }
+            if let Some(v) = r.image_modifier {
+                d.image_modifiers.insert(id, v);
             }
         }
         let (lines, order) = topic_lines(lo);
@@ -869,6 +887,12 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
     if &sig == b"FURN" {
         let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
         out.furniture = Some(flags.unwrap_or(0));
+    }
+    if &sig == b"IMAD" {
+        let word = |o: usize| subs.iter().find(|s| &s.sig == b"DNAM").and_then(|s| <[u8; 4]>::try_from(s.data.get(o..o + 4)?).ok());
+        if let (Some(a), Some(d)) = (word(0), word(4)) {
+            out.image_modifier = Some(ImageModifierDef { animatable: u32::from_le_bytes(a) != 0, duration: f32::from_le_bytes(d) });
+        }
     }
     for s in &subs {
         match &s.sig {
