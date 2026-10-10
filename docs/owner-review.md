@@ -762,8 +762,9 @@ checked and merged by this coordinator (owner approved merging when green): #91,
      glove are worn from the start.
    - **Still open:** crouched and eye height; player disarming of mines; Chet's restock
      rule (Ringo's days are not global, but the simulation still applies them to every
-     merchant); armour on the ground should be drawn with MOD2 (male), which the engine
-     does not do yet; Layer 5's `coc_destination` should follow the marker rule.
+     merchant); ~~armour on the ground should be drawn with MOD2 (male), which the engine
+     does not do yet~~ (done 2026-10-10, "Dropped items use their world model" below);
+     Layer 5's `coc_destination` should follow the marker rule.
 7. **Housekeeping.**
    - The README now describes the project as it is (status table, `--play`, the comparison
      tools, every crate).
@@ -1369,3 +1370,25 @@ sign, before on top; `msaa_1_4_8.png`: the same yucca with 1, 4 and 8 samples).
 5. **Seen on the way:** grass shows a faint dotted pattern where it overlaps something
    dark, visible when a frame is enlarged. It comes from having only four samples;
    `--msaa 8` reduces it.
+
+## Dropped items use their world model (2026-10-10, session "world model")
+
+Your request: a dropped item should use the world model its record names, normally a
+`_GO.nif`. Branch `claude/dropped-world-model`. Facts: `docs/spec-notes/simulation.md` §3
+"Item models". Pictures: `C:\fnv-private\references\world_models\`.
+
+1. **What the records say** (`FalloutNV.esm`): only armour and weapons name a separate
+   world model. Armour: `MOD2` (345 of 389, nearly all `GO.NIF`). Weapons: `MOD4` (57 of
+   261); a weapon's `MOD2` is its shell casing and `MOD3` its scope overlay, so those are
+   not used. Every other item type has one model.
+2. **Done:** armour and weapons dropped, and those placed in the world by the game's
+   level design, are drawn with that model and collide by it. Leather Armor now lies as
+   the folded bundle instead of a body-shaped suit. Brass knuckles and the other fist
+   weapons that have a world model and no other (8 records) were invisible when dropped
+   and are drawn now.
+3. **Not captured in the game:** that weapons on the ground show `MOD4` rests on the
+   field's name in xEdit ("World Model") and on the file names, not on a picture from
+   your game. Armour was captured on 2026-10-09.
+4. **Still open:** a female player may see the female world model (`MOD4` of armour,
+   28 hats and outfits differ); a dropped weapon with mods attached may show a different
+   model. Both draw the plain world model for now.
