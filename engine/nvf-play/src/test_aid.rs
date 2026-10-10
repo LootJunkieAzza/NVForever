@@ -299,7 +299,7 @@ pub(crate) fn setup(app: &mut App) {
 /// `NVF_PLAY_TEST_MOVE` and `NVF_PLAY_TEST_CONTROL`, after the real keys were read.
 #[allow(clippy::too_many_arguments)]
 fn keys_and_controls(
-    time: Res<Time>,
+    time: crate::pause::AidTime,
     mut aids: ResMut<Aids>,
     mut intent: ResMut<MoveIntent>,
     mut control: ResMut<PlayerControl>,
@@ -391,7 +391,7 @@ fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, keep: impl Fn(u32
     info!("test aid: aiming at actor {id:08X} ({:.0} units away)", d2(c).sqrt());
 }
 
-fn take_shots(time: Res<Time>, mut aids: ResMut<Aids>, mut commands: Commands) {
+fn take_shots(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut commands: Commands) {
     for path in take_due(&mut aids.shots, time.elapsed_secs()) {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
             let _ = std::fs::create_dir_all(dir);
@@ -401,7 +401,7 @@ fn take_shots(time: Res<Time>, mut aids: ResMut<Aids>, mut commands: Commands) {
     }
 }
 
-fn face_reference(time: Res<Time>, mut aids: ResMut<Aids>, sim: Res<SimState>, mut phys: ResMut<PhysState>, mut player: ResMut<Player>) {
+fn face_reference(time: crate::pause::AidTime, mut aids: ResMut<Aids>, sim: Res<SimState>, mut phys: ResMut<PhysState>, mut player: ResMut<Player>) {
     for id in take_due(&mut aids.face, time.elapsed_secs()) {
         let Some(at) = sim.world.peek(id).map(|s| s.pos).or_else(|| sim.refs.get(id).map(|p| p.pos)) else {
             warn!("test aid: face {id}: unknown reference");
@@ -430,7 +430,7 @@ fn face_reference(time: Res<Time>, mut aids: ResMut<Aids>, sim: Res<SimState>, m
     }
 }
 
-fn goto_and_look(time: Res<Time>, mut aids: ResMut<Aids>, mut phys: ResMut<PhysState>, mut player: ResMut<Player>) {
+fn goto_and_look(time: crate::pause::AidTime, mut aids: ResMut<Aids>, mut phys: ResMut<PhysState>, mut player: ResMut<Player>) {
     let now = time.elapsed_secs();
     if phys.player.is_some() {
         for at in take_due(&mut aids.gotos, now) {
