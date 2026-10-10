@@ -92,6 +92,10 @@ pub enum EventKind {
     TopicAdded { topic: FormId, #[serde(skip_serializing_if = "Option::is_none")] by: Option<FormId> },
     /// The conversation ended: `goodbye`, `no_choices`, `left` or `actor_gone`.
     DialogueEnded { actor: FormId, reason: &'static str, lines: u32 },
+    /// An actor is to play an idle animation, and what asked for it (`crate::idles`).
+    IdleAsked { actor: FormId, idle: FormId, source: crate::idles::IdleSource },
+    /// An idle was asked for and cannot be played, and why.
+    IdleNotPlayed { actor: FormId, idle: FormId, source: crate::idles::IdleSource, reason: &'static str },
     /// An image space modifier started playing on the screen (ApplyImageSpaceModifier).
     ImageModifierApplied { modifier: FormId },
     /// An image space modifier left the screen: removed by a script, or (`ended`) an

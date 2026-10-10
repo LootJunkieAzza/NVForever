@@ -15,7 +15,9 @@
 //! - The player uses furniture by activating it (`nvf_play::furniture`) and gets up by
 //!   pressing a movement control or activating it again. Its third-person body plays the
 //!   clips ([`BodyOverride`], read by `player_body.rs`); in first person the view is that
-//!   body's eye and the body is not drawn [design]. Beds are left to a sleep menu.
+//!   body's eye and the body is not drawn [design]. Beds are used the same way: the
+//!   player lies down as a sleeping actor does [owner request 2026-10-10]. No game time
+//!   passes and there is no sleep menu (not built).
 //!
 //! While a clip plays, `GetSitting` / `GetSleeping` and the other furniture functions of
 //! the script runtime answer for the user (`nvf_play::furniture::set_use`).
@@ -195,8 +197,9 @@ impl Furnishings {
         }
     }
 
-    /// Decide how `who`, standing at `from` (game space), uses `furniture`.
-    fn plan(&mut self, world: &WorldData, ctx: &mut ActorCtx, furniture: u32, from: [f32; 3], who: Who) -> Result<Plan, String> {
+    /// Decide how `who`, standing at `from` (game space), uses `furniture`. `game`
+    /// answers the idle conditions that are about the game's state ([`game_value`]).
+    fn plan(&mut self, world: &WorldData, ctx: &mut ActorCtx, furniture: u32, from: [f32; 3], who: Who, game: furn::World) -> Result<Plan, String> {
         let placed = fnv_world::placed::placement(world.lo, world.schema, furniture).ok_or("no such reference")?;
         let base = placed.base.ok_or("no base")?;
         let record = self.bases.get(&base).ok_or("not furniture")?.clone();
@@ -215,7 +218,7 @@ impl Furnishings {
         }
         let entry = furn::nearest_entry(&points, from, |p| record.marker_enabled(p.index) && !taken.iter().any(|(i, _)| *i == p.index))
             .ok_or("no free entry point")?;
-        let pick = |tree: &UseIdles, s: u8| tree.pick(&Self::user(&entry, furniture, base, who, s));
+        let pick = |tree: &UseIdles, s: u8| tree.pick_in(&Self::user(&entry, furniture, base, who, s), game);
         let on = pick(&self.tree, state::GETTING_ON).ok_or_else(|| format!("no clip for getting onto marker {}", entry.marker_id))?;
         let get_on = ctx.clip(&on.clip).ok_or_else(|| format!("{} does not load", on.clip))?;
         let stay = pick(&self.tree, state::LOOP).and_then(|p| ctx.clip(&p.clip));
@@ -228,8 +231,8 @@ impl Furnishings {
     }
 
     /// The clip that gets `who` off again.
-    fn get_off(&self, ctx: &mut ActorCtx, plan: &Plan, who: Who) -> Option<Arc<Clip>> {
-        let pick = self.tree.pick(&Self::user(&plan.entry, plan.furniture, plan.base, who, state::GETTING_OFF))?;
+    fn get_off(&self, ctx: &mut ActorCtx, plan: &Plan, who: Who, game: furn::World) -> Option<Arc<Clip>> {
+        let pick = self.tree.pick_in(&Self::user(&plan.entry, plan.furniture, plan.base, who, state::GETTING_OFF), game)?;
         ctx.clip(&pick.clip)
     }
 
@@ -272,6 +275,17 @@ fn heading_of(t: &Transform) -> f32 {
 fn lerp_heading(a: f32, b: f32, k: f32) -> f32 {
     let d = (b - a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
     a + d * k
+}
+
+/// What the game being played answers for an idle condition that is not about the
+/// furniture's user: a quest's stage (`GetStage`). `None` without a game, or for any
+/// other function: the idle is then not chosen.
+fn game_value(script: &Option<ResMut<ScriptState>>, function: u16, param: Option<FormId>) -> Option<f32> {
+    let game = &script.as_deref()?.rt.as_ref()?.game;
+    match function {
+        furn::func::GET_STAGE => Some(game.quests.get(&param?).map_or(0, |q| q.stage()) as f32),
+        _ => None,
+    }
 }
 
 fn tell_scripts(script: &mut Option<ResMut<ScriptState>>, user: u32, using: Option<(&Plan, u8)>) {
@@ -352,7 +366,7 @@ pub fn drive_actors(
         let at = to_game(global.translation());
         let female = actor_world.as_deref().and_then(|w| w.actors.npcs.get(&FormId(rig.base))).is_some_and(|n| n.female);
         let who = Who { reference: rig.reference, base: rig.base, female };
-        let plan = f.plan(&world, &mut ctx, sit.furniture, at.to_array(), who).and_then(|p| {
+        let plan = f.plan(&world, &mut ctx, sit.furniture, at.to_array(), who, &|func, p| game_value(&script, func, p)).and_then(|p| {
             let d = Vec3::from_array(p.entry.pos).distance(at);
             if d > APPROACH_MAX { Err(format!("{d:.0} units from its entry point")) } else { Ok((p, d)) }
         });
@@ -440,7 +454,8 @@ pub fn drive_actors(
                         }
                     }
                     if usage.leave_wanted && usage.leave() {
-                        let clip = f.get_off(&mut ctx, &on.plan, on.who);
+                        let clip = f.get_off(&mut ctx, &on.plan, on.who, &|func, p| game_value(&script, func, p));
+                        info!("furniture: {:08X} gets off {:08X} by clip {}", on.who.reference, on.plan.furniture, clip.as_ref().map_or("none", |c| c.name.as_str()));
                         let bound = clip.map(|c| (clip_ends(&c), Arc::new(bind_clip(&rig.skel, c))));
                         usage.begin_leaving(bound.as_ref().map_or(0.0, |(_, b)| b.clip.length()));
                         on.get_off = bound.map(|(ends, b)| (b, ends));
@@ -511,6 +526,9 @@ pub struct BodyClip {
     pub serial: u32,
     pub pos: [f32; 3],
     pub heading: f32,
+    /// The furniture is a bed: the body lies down, and the first-person view lies down
+    /// with it (`player_body.rs`).
+    pub lying: bool,
 }
 
 #[derive(Resource, Default)]
@@ -566,16 +584,13 @@ pub fn drive_player(
             // Activating the furniture one is on: get up.
             Some(u) if u.plan.furniture == reference => seat.leave = true,
             Some(_) => {}
-            None => match f.plan(&world, &mut ctx, reference, player.feet, who) {
-                // Beds: the player sleeps through a menu, not by lying down [hypothesis
-                // from how the game is played; the sleep menu is not built].
-                Ok(plan) if furn::is_bed(plan.entry.marker_id) => {
-                    info!("furniture: the player cannot sleep on {reference:08X} yet");
-                    hud.show("Sleeping is not available yet.".to_string());
-                }
+            None => match f.plan(&world, &mut ctx, reference, player.feet, who, &|func, p| game_value(&script, func, p)) {
+                // Beds as seats: the player lies down as a sleeping actor does [owner
+                // request 2026-10-10; the original's sleep menu is not built].
                 Ok(plan) => {
                     info!(
-                        "furniture: the player uses {reference:08X} by marker {} (ID {}); clips {} / {}",
+                        "furniture: the player {} {reference:08X} by marker {} (ID {}); clips {} / {}",
+                        if furn::is_bed(plan.entry.marker_id) { "lies down on" } else { "uses" },
                         plan.entry.index,
                         plan.entry.marker_id,
                         plan.get_on.name,
@@ -612,30 +627,42 @@ pub fn drive_player(
         tell_scripts(&mut script, who.reference, Some((&u.plan, state::ON)));
     }
     if u.usage.phase == Phase::On && u.usage.leave_wanted && u.usage.leave() {
-        let clip = f.get_off(&mut ctx, &u.plan, who);
+        let clip = f.get_off(&mut ctx, &u.plan, who, &|func, p| game_value(&script, func, p));
         u.usage.begin_leaving(clip.as_ref().map_or(0.0, |c| c.length()));
         u.get_off = clip.map(|c| (c.clone(), clip_ends(&c)));
         st.serial += 1;
         tell_scripts(&mut script, who.reference, Some((&u.plan, state::GETTING_OFF)));
     }
     let frames = u.plan.frames;
+    let lying = u.usage.is_bed();
     let shown = match u.usage.phase {
-        Phase::GettingOn => {
-            Some(BodyClip { clip: u.plan.get_on.clone(), looped: false, serial: st.serial, pos: root_at(&frames.clip, &u.plan.get_on, u.usage.t), heading: frames.clip.heading })
-        }
+        Phase::GettingOn => Some(BodyClip {
+            clip: u.plan.get_on.clone(),
+            looped: false,
+            serial: st.serial,
+            pos: root_at(&frames.clip, &u.plan.get_on, u.usage.t),
+            heading: frames.clip.heading,
+            lying,
+        }),
         Phase::On => Some(match &u.plan.stay {
-            Some(stay) => BodyClip { clip: stay.clone(), looped: true, serial: st.serial, pos: frames.on.pos, heading: frames.on.heading },
+            Some(stay) => BodyClip { clip: stay.clone(), looped: true, serial: st.serial, pos: frames.on.pos, heading: frames.on.heading, lying },
             None => BodyClip {
                 clip: u.plan.get_on.clone(),
                 looped: false,
                 serial: st.serial,
                 pos: root_at(&frames.clip, &u.plan.get_on, f32::MAX),
                 heading: frames.clip.heading,
+                lying,
             },
         }),
-        Phase::GettingOff if ev != Some(UseEvent::GotOff) => {
-            u.get_off.as_ref().map(|(c, _)| BodyClip { clip: c.clone(), looped: false, serial: st.serial, pos: root_at(&frames.clip, c, u.usage.t), heading: frames.clip.heading })
-        }
+        Phase::GettingOff if ev != Some(UseEvent::GotOff) => u.get_off.as_ref().map(|(c, _)| BodyClip {
+            clip: c.clone(),
+            looped: false,
+            serial: st.serial,
+            pos: root_at(&frames.clip, c, u.usage.t),
+            heading: frames.clip.heading,
+            lying,
+        }),
         Phase::GettingOff => None,
     };
     match shown {

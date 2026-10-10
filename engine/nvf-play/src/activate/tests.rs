@@ -103,7 +103,7 @@ fn index() -> &'static WorldIndex {
 fn play_data(index: &'static WorldIndex) -> PlayData {
     let lo: &'static fnv_esm::LoadOrder<'static> = Box::leak(Box::new(fnv_esm::LoadOrder::new(&[]).expect("empty load order")));
     let schema: &'static fnv_esm::Schema = Box::leak(Box::default());
-    PlayData { lo, schema, index, world: WORLD, interior: None, eye: [0.0; 3], heading_deg: 0.0, pitch_deg: 0.0, auto_walk: 0.0, start_at_cell_spot: false }
+    PlayData { lo, schema, index, world: WORLD, interior: None, eye: [0.0; 3], heading_deg: 0.0, pitch_deg: 0.0, auto_walk: 0.0, start_at_cell_spot: false, packages: false }
 }
 
 fn boxed(half: f32) -> CollisionObject {
@@ -136,12 +136,13 @@ fn scene(colliding: &[(u32, f32)]) -> App {
     app.insert_resource(sim())
         .insert_resource(PlayWorld(play_data(index())))
         .insert_resource(phys)
-        .insert_resource(Player { heading: std::f32::consts::FRAC_PI_2, pitch: 0.0, eye_height: 100.0, feet: [0.0; 3], body_eye: None })
+        .insert_resource(Player { heading: std::f32::consts::FRAC_PI_2, pitch: 0.0, eye_height: 100.0, feet: [0.0; 3], body_eye: None, body_view: None, placed: None })
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<crate::bindings::Bindings>()
         .init_resource::<Target>()
         .init_resource::<HudMessage>()
+        .init_resource::<crate::furniture::PlayerSeat>()
         .add_message::<TravelRequest>()
         .add_message::<OpenContainer>()
         .add_message::<RefChanged>()

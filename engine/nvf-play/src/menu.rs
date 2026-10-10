@@ -130,7 +130,10 @@ fn f9_opens_nearest_container(
     }
 }
 
-/// Open a menu on request while playing.
+/// Open a menu on request while playing. The inventory stays shut while a script has
+/// turned the Pip-Boy off [documented: GECK wiki DisablePlayerControls, PipboyFlag]; a
+/// container still opens (a script's own `Activate` asks for it).
+#[allow(clippy::too_many_arguments)]
 fn open_menus(
     mut containers: MessageReader<OpenContainer>,
     mut inventory: MessageReader<OpenInventory>,
@@ -139,9 +142,18 @@ fn open_menus(
     mut active: ResMut<ActiveMenu>,
     mut sim: ResMut<SimState>,
     script: Option<ResMut<crate::script::ScriptState>>,
+    locks: Option<Res<crate::control::ControlLocks>>,
+    stats: Option<ResMut<crate::control::LockStats>>,
 ) {
     let container = containers.read().last().copied();
-    let inv = inventory.read().count() > 0;
+    let mut inv = inventory.read().count() > 0;
+    if inv && locks.is_some_and(|l| l.pipboy) {
+        info!("menu: the inventory stays shut, a script has disabled the player's controls (Pip-Boy)");
+        if let Some(mut s) = stats {
+            s.held[crate::control::group::PIPBOY] += 1;
+        }
+        inv = false;
+    }
     if container.is_none() && !inv {
         return;
     }

@@ -260,6 +260,17 @@ struct Resident {
     seat: Seat,
     /// The furniture `fnv_ai` has the actor use now.
     wants: Option<u32>,
+    /// Standing where its package has it, with nothing else to do: its package's idles
+    /// may play (`idles.rs`). Inside: the base of the idle marker it stands at.
+    stand: Option<Option<FormId>>,
+}
+
+/// A resident standing with nothing else to do ([`Residents::standing`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Standing {
+    pub actor: u32,
+    /// The base (IDLM) of the idle marker it stands at.
+    pub marker: Option<FormId>,
 }
 
 /// Everything but the game state the choice runs in.
@@ -407,6 +418,17 @@ impl Residents {
 
     /// The named references the cell streamer must leave to this module (with `all` it
     /// leaves every actor, `Streamer::manage_actors`).
+    /// The residents standing where their packages have them, with nothing else to do
+    /// (not walking, not on furniture, not talking).
+    pub fn standing(&self) -> impl Iterator<Item = Standing> + '_ {
+        self.core.list.iter().filter(|r| r.present && r.seat == Seat::None).filter_map(|r| Some(Standing { actor: r.actor.0, marker: r.stand? }))
+    }
+
+    /// This module's own game state (without `--play`).
+    pub fn own_game(&mut self) -> Option<&mut Game<'static>> {
+        self.own.as_deref_mut()
+    }
+
     pub fn references(&self) -> impl Iterator<Item = u32> + '_ {
         self.core.list.iter().map(|r| r.actor.0)
     }
@@ -435,6 +457,7 @@ impl Core {
             doors_opened: 0,
             last_feet: placed.pos,
             seat: Seat::None,
+            stand: None,
             wants: None,
         });
     }
@@ -610,6 +633,11 @@ impl Core {
             }
             // The furniture it is to use, once it stands there.
             r.wants = agent.using.filter(|_| agent.activity == Activity::There).map(|f| f.0);
+            let still = agent.activity != Activity::Travelling && agent.walker.follower.is_none() && agent.using.is_none() && agent.talk.is_none();
+            r.stand = still.then(|| match agent.sandbox.as_ref().map(|s| s.doing) {
+                Some(Doing::AtIdleMarker(m)) => game.world.placed.get(m).map(|p| p.base),
+                _ => None,
+            });
             // Doors that open in place: when it starts waiting and when it walks on.
             match (agent.waiting_at, r.waiting) {
                 (Some(d), w) if w.is_none_or(|w| w.0 != d) => {

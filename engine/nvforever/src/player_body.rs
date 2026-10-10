@@ -41,9 +41,30 @@
 //! the hand. On furniture the seated body is drawn without its head, the view turns no
 //! further from the way the body faces than a neck does ([`seated_heading`]) and the eyes
 //! go round the neck with it.
+//!
+//! **The shadow** [engineering choice; the original casts no sun shadows from the world]:
+//! the third-person body casts the player's shadow in every view, head, arms and weapon
+//! included, and the arms rig and its weapon cast none on the world. What of the body the
+//! camera is not to see is drawn on [`SHADOW_LAYER`], which the sun casts from and no
+//! camera sees, instead of being hidden (a hidden entity casts no shadow). The arms rig
+//! is on [`ARMS_LAYER`], which the sun does not cast from. The unseen body stands where
+//! the arms rig is and would shade it, so the arms rig takes its sun shadows from a light
+//! of its own ([`ArmsShade`], `NifSurface::shade_light`) that casts from the world's
+//! layer and the arms': buildings, what is seen of the body and the arms themselves shade
+//! the arms, as before the unseen body cast anything.
+//!
+//! **Lying on a bed** ([`lying_view`]; owner requests 2026-10-10): in first person the
+//! view is the lying body's, whether or not the body is drawn. It keeps its place in the
+//! body's own frame while the body lies down and gets up, so the picture leans with the
+//! head and ends on its side; the mouse turns the head in that frame, as far as a neck
+//! does. In third person the camera's pivot is lifted clear of the bed.
 
 use crate::actors::{part_uses, ActorWorld};
+use crate::idles::{IdleSlot, PlayerIdles};
+use crate::sky::{Sun, ARMS_LAYER, SHADOW_LAYER};
 use crate::world::WorldRoot;
+use bevy::camera::visibility::RenderLayers;
+use bevy::light::CascadeShadowConfig;
 use bevy::math::Affine3A;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
@@ -59,10 +80,11 @@ use nvf_assets::actor::{rigid_local, spawn_actor, ActorCtx, ActorParts, PartUse,
 use nvf_assets::anim_blend::{Animator, ExtraNode, Mode, DEFAULT_FADE};
 use nvf_assets::anim_play::Clip;
 use nvf_assets::model::ModelCtx;
+use nvf_assets::nif_material::NifMaterial;
 use nvf_play::combat::WeaponAnim;
 use nvf_play::control::{BodyView, PlayerControl};
 use nvf_play::phys::PhysState;
-use nvf_play::player::{MoveIntent, Player};
+use nvf_play::player::{MoveIntent, Player, MAX_PITCH};
 use nvf_play::sim::SimState;
 use nvf_play::PlayWorld;
 use std::collections::HashMap;
@@ -80,6 +102,9 @@ const TAG_EQUIP: u32 = 60;
 const TAG_ATTACK: u32 = 70; // + 0 level, + 1 up, + 2 down
 const TAG_RELOAD: u32 = 75;
 const TAG_FURNITURE: u32 = 80;
+/// Idles (`idles.rs`): one role per idle started, so an idle keeps its layer while the
+/// next one fades in over it.
+const TAG_SPECIAL: u32 = 1000;
 
 /// Biped slots of headgear hidden in first person when the third-person body has to stand
 /// in for the first-person rig: Head, Hair, Headband, Hat, Eye Glasses, Nose Ring,
@@ -112,10 +137,75 @@ const NECK_RETURN_RATE: f32 = 4.0;
 /// And how far down it tilts, radians [engineering choice: 75 degrees, head and eyes;
 /// steeper, the view is down the body's own collar].
 const NECK_DOWN: f32 = 75.0 * std::f32::consts::PI / 180.0;
+/// Lying on a bed: how far the third-person camera's pivot is lifted above the head, in
+/// game units, so the camera's way round the body is clear of the mattress and the bed's
+/// frame [engineering choice].
+const LYING_PIVOT_UP: f32 = 40.0;
+/// Lying on a bed: how far below level the first-person view looks at most, radians
+/// [engineering choice: 10 degrees; the head is on the pillow, and lower is the inside of
+/// the mattress].
+const LYING_DOWN: f32 = 10.0 * std::f32::consts::PI / 180.0;
 /// An attack clip with a `Loop` key goes round its repeated part while the shots come no
 /// further apart than this, seconds [engineering choice: the clips that have the key are
 /// the `attackspin` ones, of weapons that fire many times a second; animation.md §9.8].
 const LOOP_HOLD: f32 = 0.25;
+
+/// The share of the sun's light the arms rig's shade light carries. The materials need
+/// some to work the sun's part of the light out (`nif_material.wgsl`), and the world gets
+/// that much more sun with it [engineering choice: a thousandth, a quarter of one step of
+/// an 8-bit picture at full brightness].
+const ARMS_SHADE_SHARE: f32 = 1.0 / 1024.0;
+
+/// The light the arms rig's sun shadows are read from (module docs, "The shadow"): a
+/// child of the sun, so it points the same way, with the sun's colour and
+/// [`ARMS_SHADE_SHARE`] of its strength. It casts from the world's layer and the arms',
+/// and not from the sun's shadow-only layer. Its one shadow cascade is the sun's first
+/// (the arms are well inside it), so the arms' shadows are drawn as finely as the sun's
+/// own would be.
+#[derive(Component)]
+struct ArmsShade;
+
+/// A copy of material `m` whose sun shadows are the [`ArmsShade`] light's (`m` itself is
+/// shared with other actors and weapons).
+fn arms_material(materials: &mut Assets<NifMaterial>, m: &Handle<NifMaterial>) -> Handle<NifMaterial> {
+    let Some(mut copy) = materials.get(m).cloned() else { return m.clone() };
+    copy.extension.shade_light = true;
+    materials.add(copy)
+}
+
+/// Keep the [`ArmsShade`] light: there while the arms rig is drawn and the sun casts
+/// shadows, so that nothing pays for it otherwise.
+#[allow(clippy::type_complexity)]
+fn shade_light(
+    mut commands: Commands,
+    state: Res<PlayerBody>,
+    sun: Query<(Entity, &DirectionalLight, &CascadeShadowConfig), (With<Sun>, Without<ArmsShade>)>,
+    mut shade: Query<(&mut DirectionalLight, &mut Visibility), With<ArmsShade>>,
+) {
+    // A sun that has cast no shadows yet has no cascades, and no shade light either.
+    let Ok((sun, sun_light, sun_cascades)) = sun.single() else { return };
+    let arms_drawn = state.body.as_ref().and_then(|b| b.first.as_ref()).is_some_and(|f| f.shown == Some(true));
+    let on = arms_drawn && sun_light.shadow_maps_enabled;
+    let illuminance = sun_light.illuminance * ARMS_SHADE_SHARE;
+    if let Ok((mut light, mut v)) = shade.single_mut() {
+        v.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
+        if on && (light.color != sun_light.color || light.illuminance != illuminance) {
+            light.color = sun_light.color;
+            light.illuminance = illuminance;
+        }
+    } else if on {
+        let cascades = CascadeShadowConfig { bounds: sun_cascades.bounds.iter().take(1).copied().collect(), ..sun_cascades.clone() };
+        commands.spawn((
+            Name::new("Arms shade light"),
+            ArmsShade,
+            DirectionalLight { color: sun_light.color, illuminance, shadow_maps_enabled: true, ..default() },
+            cascades,
+            RenderLayers::from_layers(&[0, ARMS_LAYER]),
+            Transform::IDENTITY,
+            ChildOf(sun),
+        ));
+    }
+}
 
 /// A clip choice, for the clip caches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -240,17 +330,12 @@ struct Rig {
     muzzle_entity: Option<Entity>,
     /// The way down to the weapon model's `ShellCasingNode`, as `muzzle`.
     casing: Option<Vec<(Option<usize>, Transform)>>,
-    /// Third person: drawn entities to hide when it stands in for the first-person rig.
-    head_entities: Vec<Entity>,
-    /// Third person: the drawn entities the first-person rig has its own of (arms, hands,
-    /// gloves, the Pip-Boy), to hide while that rig's arms are up in front of the body.
-    arm_entities: Vec<Entity>,
-    /// Whether the rig is shown, and whether its head, its arms and its weapon are (last
-    /// applied).
+    /// Third person: the entities drawn for the body's parts.
+    drawn: Vec<Drawn>,
+    /// First person: whether the rig is shown (last applied).
     shown: Option<bool>,
-    head_shown: Option<bool>,
-    arms_shown: Option<bool>,
-    weapon_shown: Option<bool>,
+    /// Third person: what of the rig the camera sees (last applied).
+    seen: Option<Seen>,
     /// The furniture clip it plays (`BodyClip::serial`), while it plays one.
     furniture: Option<u32>,
     /// Seconds since the last attack started, and the repeated part of its clip, if it
@@ -265,6 +350,17 @@ const MUZZLE_NODES: [&str; 2] = ["ProjectileNode", "##ProjectileNode"];
 
 fn affine(t: Transform) -> Affine3A {
     Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.translation)
+}
+
+/// An entity drawn for a part of the third-person body.
+struct Drawn {
+    entity: Entity,
+    /// Of the head (head, hair, headgear): not seen when the body stands in for the
+    /// first-person rig.
+    head: bool,
+    /// One the first-person rig has its own of (arms, hands, gloves, the Pip-Boy): not
+    /// seen while that rig's arms are up in front of the body.
+    arm: bool,
 }
 
 /// Where a layer's time is after going round the repeated part of its clip, `start` to
@@ -363,6 +459,8 @@ struct Motion {
     airborne: f32,
     last_heading: Option<f32>,
     turn_rate: f32,
+    /// The view an idle gave the first-person camera last frame (`Player::body_view`).
+    idle_view: Option<Quat>,
     /// Once-a-second status (debug log).
     log_elapsed: f32,
     /// On furniture with the body in first person: the view has come within the neck's
@@ -370,6 +468,8 @@ struct Motion {
     seat_settled: bool,
     /// The same: the way the body faced last frame, to turn the view with it.
     seat_facing: Option<f32>,
+    /// Lying on a bed in first person: where the view looks in the body's own frame.
+    lying: Option<LyingView>,
     /// The attack, reload and spin-up counts last acted on (`WeaponAnim`).
     attacks_seen: u32,
     reloads_seen: u32,
@@ -401,9 +501,11 @@ impl Default for Motion {
             airborne: 0.0,
             last_heading: None,
             turn_rate: 0.0,
+            idle_view: None,
             log_elapsed: 0.0,
             seat_settled: false,
             seat_facing: None,
+            lying: None,
             attacks_seen: 0,
             reloads_seen: 0,
             spin_ups_seen: 0,
@@ -448,7 +550,7 @@ impl Plugin for PlayerBodyPlugin {
         app.insert_resource(PlayerBody { first_person_body: self.first_person_body, ..default() })
             .init_resource::<crate::furniture::BodyOverride>()
             .init_resource::<crate::furniture::PlayerUse>()
-            .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body).chain().in_set(nvf_play::player::BodySet));
+            .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body, shade_light).chain().in_set(nvf_play::player::BodySet));
     }
 }
 
@@ -611,7 +713,16 @@ fn ensure_body(
                         Some(b) => (rig.animator.nodes[b], local(&s.transform)),
                         None => (s.node.map_or(holder, |n| part_nodes[n]), local(&s.own)),
                     };
-                    let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), place, visibility)).id();
+                    // The shadow on the world is the third-person body's, weapon
+                    // included: the arms rig's weapon casts none there, and takes none
+                    // from that body.
+                    let e = match rig.view {
+                        View::Third => commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), place, visibility)).id(),
+                        View::First => {
+                            let material = arms_material(&mut models.materials, &s.material);
+                            commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(material), place, visibility, RenderLayers::layer(ARMS_LAYER))).id()
+                        }
+                    };
                     commands.entity(parent).add_child(e);
                     if let (None, Some(name)) = (bone, &s.name) {
                         extra.push(ExtraNode { name: name.clone(), entity: e, bind: place });
@@ -619,7 +730,7 @@ fn ensure_body(
                     rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), shown: Some(shown) });
                 }
                 rig.weapon_model = Some(holder);
-                rig.weapon_shown = None;
+                rig.seen = None;
                 info!(
                     "player weapon model ({:?} person): {path}, {} nodes, {} named parts for the clips, {}",
                     rig.view,
@@ -691,14 +802,25 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
     let hide: Vec<bool> = uses.iter().map(|(i, _)| head_part(*i)).collect();
     // Third person: per part, how the first-person rig shows it.
     let arms: Vec<Option<Show>> = uses.iter().map(|(i, _)| (view == View::Third).then(|| first_person::show(&world.actors, &a.parts[*i])).flatten()).collect();
-    let uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
+    let mut uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
+    if view == View::First {
+        // The arms take no shadow from the unseen body they are in the middle of.
+        for u in &mut uses {
+            u.materials = (u.part.shapes.iter().enumerate()).map(|(i, s)| arms_material(&mut ctx.models.materials, u.materials.get(i).unwrap_or(&s.material))).collect();
+        }
+    }
     let spawned = spawn_actor(commands, parent, Transform::from_scale(Vec3::splat(a.race_height as f32)), &skel, &uses);
     commands.entity(spawned.root).insert(Name::new(format!("Player body ({view:?} person)")));
-    let head_entities = spawned.drawn.iter().zip(&spawned.part_of).filter(|(_, &p)| hide[p]).map(|(e, _)| *e).collect();
-    let arm_entities = (spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of))
-        .filter(|((_, &p), &s)| shape_shows(arms[p], uses[p].part.shapes[s].name.as_deref()))
-        .map(|((e, _), _)| *e)
+    let drawn = (spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of))
+        .map(|((&entity, &p), &s)| Drawn { entity, head: hide[p], arm: shape_shows(arms[p], uses[p].part.shapes[s].name.as_deref()) })
         .collect();
+    if view == View::First {
+        // The arms rig casts no shadow on the world: the third-person body casts the
+        // player's.
+        for e in &spawned.drawn {
+            commands.entity(*e).insert(RenderLayers::layer(ARMS_LAYER));
+        }
+    }
     let folder = a.skeleton.rfind('\\').map_or(String::new(), |i| a.skeleton[..=i].to_string());
     let node = |n: &str| skel.by_name.get(n).copied();
     let weapon_node = node("Weapon");
@@ -730,12 +852,9 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         muzzle: None,
         muzzle_entity: None,
         casing: None,
-        head_entities,
-        arm_entities,
+        drawn,
         shown: None,
-        head_shown: None,
-        arms_shown: None,
-        weapon_shown: None,
+        seen: None,
         furniture: None,
         since_attack: f32::INFINITY,
         attack_loop: None,
@@ -772,9 +891,26 @@ struct Frame {
     spin_now: bool,
 }
 
-/// Pose `rig` for the frame, apply the weapon events, place it at `root`; returns the
-/// eye (game space): the camera node in first person, between the eyes in third.
-fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<Vec3> {
+/// Where a rig stands in the frame and what it plays beside its own clips.
+struct Posed<'a> {
+    root: Transform,
+    /// The pitch the first-person rig turns by.
+    look_pitch: f32,
+    /// The idles the rig plays (`idles.rs`).
+    special: &'a IdleSlot<Arc<Clip>>,
+}
+
+/// Pose `rig` for the frame, apply the weapon events, place it at its root; returns the
+/// eye (game space): the camera node in first person, between the eyes in third. With
+/// it, in first person while an idle drives the camera node, the node's rotation (game
+/// space): the view the animation gives.
+///
+/// Once an idle covers the rig (it has faded in, or fades in over the idle before it)
+/// the rig's other clips are not played: a special idle takes the place of what the body
+/// would do by itself [hypothesis: the clips of the opening share track priorities with
+/// the standing idle, so both cannot play; idles.md §4].
+fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], posed: Posed, ctx: &mut ActorCtx, transforms: &mut Query<&mut Transform>) -> Option<(Vec3, Option<Quat>)> {
+    let Posed { root, look_pitch, special } = posed;
     let draw = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, true));
     let put_away = rig.clip(ctx, ClipKey::Equip(f.stance, f.prefix, false));
     let holster = rig.clip(ctx, ClipKey::Holster(f.stance, f.prefix));
@@ -922,15 +1058,32 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
     }
     let a = &mut rig.animator;
     a.begin();
-    for (c, tag, w, mode) in &want {
+    let covered = special.covers();
+    for (c, tag, w, mode) in want.iter().filter(|_| !covered) {
         let fade = if *tag == TAG_HOLSTER { 0.0 } else { c.fade() };
         a.want(&c.clip, *tag, *w, *mode, fade);
     }
     // Clips that play once to their end once started: landing, attack, reload.
     for (tag, w) in [(TAG_LAND, 1.0), (TAG_ATTACK, aim_w[0].1), (TAG_ATTACK + 1, aim_w[1].1), (TAG_ATTACK + 2, aim_w[2].1), (TAG_RELOAD, 1.0)] {
-        if let Some(c) = a.layers.iter().find(|l| l.tag == tag && !l.finished()).map(|l| l.clip.clone()) {
+        if let Some(c) = a.layers.iter().find(|l| l.tag == tag && !l.finished()).map(|l| l.clip.clone()).filter(|_| !covered) {
             a.want(&c, tag, w, Mode::Once, 0.0);
         }
+    }
+    // The idles: each at the time its playback is at. One that has ended holds its last
+    // pose until it is gone or the next idle takes over from it (a collection's next
+    // idle starts a frame later), so the view it gives does not jump in between; the
+    // rig's other clips are back under it meanwhile.
+    let mut view_driven = false;
+    for (p, w) in special.shown() {
+        let newest = special.cur.as_ref().is_some_and(|c| c.serial == p.serial);
+        let i = a.want(&p.clip, TAG_SPECIAL + p.serial % 1000, if newest { 1.0 } else { w }, Mode::Once, p.play.keys.blend_in);
+        let l = &mut a.layers[i];
+        (l.rate, l.time) = (0.0, p.play.time());
+        if !newest {
+            // The one before: its share shrinks as the new one fades in.
+            l.weight = w;
+        }
+        view_driven |= rig.camera.is_some() && p.clip.tracks.iter().any(|(n, _)| n == crate::idles::CAMERA_NODE);
     }
     a.end();
     // Movement clips play at the speed the character actually moves [hypothesis: the
@@ -950,7 +1103,7 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
         // The arms rig turns about `Bip01 Looking` with the view's pitch (about the
         // actor's right axis, x) [hypothesis: the node's role, from its name and place].
         let bind = a.skel.locals[l];
-        a.locals[l].rotation = Quat::from_rotation_x(f.pitch) * bind.rotation;
+        a.locals[l].rotation = Quat::from_rotation_x(look_pitch) * bind.rotation;
     }
     a.apply(transforms);
     if let Ok(mut t) = transforms.get_mut(rig.root) {
@@ -958,8 +1111,11 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
     }
     let root_m = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation);
     match rig.view {
-        View::First => rig.camera.map(|c| (root_m * a.model_space(c)).translation.into()),
-        View::Third => rig.head.map(|h| (root_m * a.model_space(h)).transform_point3(rig.eye_local)),
+        View::First => rig.camera.map(|c| {
+            let m = root_m * a.model_space(c);
+            (m.translation.into(), view_driven.then(|| m.to_scale_rotation_translation().1))
+        }),
+        View::Third => rig.head.map(|h| ((root_m * a.model_space(h)).transform_point3(rig.eye_local), None)),
     }
 }
 
@@ -1014,37 +1170,138 @@ fn bone_heading(rig: &Rig, b: usize, heading: f32) -> f32 {
     heading + forward.x.atan2(forward.y)
 }
 
-/// What of the body is drawn.
-#[derive(Clone, Copy)]
-struct Shown {
-    third: bool,
-    first: bool,
-    /// Of the third-person rig: its head, its arms and hands, the weapon on its `Weapon`
-    /// node.
+/// How bone `b` of the posed rig is turned in game space since the bind pose, the rig's
+/// root facing `heading`: it takes +X to the bone's right, +Y to the way it faces and +Z
+/// to its up (the bind pose stands upright facing the rig's +Y).
+fn bone_turn(rig: &Rig, b: usize, heading: f32) -> Quat {
+    let a = &rig.animator;
+    let turned = Mat3::from(a.model_space(b).matrix3 * a.skel.bind_world[b].matrix3.inverse());
+    (Quat::from_rotation_z(-heading) * Quat::from_mat3(&turned)).normalize()
+}
+
+/// The way a view looks and the top of its picture, for a turn clockwise from +Y towards
+/// +X and a tilt up from the XY plane: in game space for a compass heading and a pitch,
+/// in a body's own frame ([`bone_turn`]) for its head's turn and tilt.
+fn view_axes(turn: f32, tilt: f32) -> (Vec3, Vec3) {
+    let (st, ct) = turn.sin_cos();
+    let (sp, cp) = tilt.sin_cos();
+    (Vec3::new(st * cp, ct * cp, sp), Vec3::new(-st * sp, -ct * sp, cp))
+}
+
+/// The compass heading and pitch of the level view nearest a view that looks along
+/// `forward` with `up` the top of its picture (game space). Looking straight up or down
+/// the top of the picture says which way the view is turned; `heading` is kept when
+/// neither does.
+fn view_angles(forward: Vec3, up: Vec3, heading: f32) -> (f32, f32) {
+    let pitch = forward.z.clamp(-1.0, 1.0).asin().clamp(-MAX_PITCH, MAX_PITCH);
+    let (sp, cp) = pitch.sin_cos();
+    let flat = forward.truncate() * cp - up.truncate() * sp;
+    let heading = if flat.length_squared() > 1e-6 { flat.x.atan2(flat.y).rem_euclid(std::f32::consts::TAU) } else { heading };
+    (heading, pitch)
+}
+
+/// The first-person view of a body lying on a bed, in the body's own frame: the head's
+/// turn to the body's right and its tilt towards the top of the body's head, radians.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LyingView {
+    turn: f32,
+    tilt: f32,
+    /// The heading and pitch given to the player for it.
+    wrote: (f32, f32),
+}
+
+/// One frame of the view of a body lying on a bed (or lying down on it, or getting up)
+/// [engineering choice throughout; the original's player never lies down]:
+///
+/// - The view keeps its place in the body's frame (`frame`, [`bone_turn`] of the pelvis)
+///   from frame to frame, so it lies back with the body and the picture leans with it:
+///   on its back the body looks at the ceiling, the top of the picture towards the top
+///   of its head; with the head turned on the pillow the room is on its side [owner
+///   request 2026-10-10: the camera sideways when lying].
+/// - The mouse (`look`: the heading and pitch asked for since the last frame) turns and
+///   tilts the head in that frame. A heading and pitch set by anything else (the first
+///   frame, a test aid) are taken as they are, in game space.
+/// - The head turns as far as a seated one ([`NECK_TURN`], [`NECK_DOWN`];
+///   [`seated_heading`] for a view that starts further round): beyond that the view is
+///   in the body.
+/// - The further the body has lain back, the less the view looks below level, down to
+///   [`LYING_DOWN`]: the head is on the pillow and below it is the mattress. A body on
+///   its side turns its head up to the ceiling but not down into the pillow.
+///
+/// Returns the view, the way it looks and the top of its picture (game space), and
+/// whether it is within the neck's reach.
+fn lying_view(last: Option<LyingView>, frame: Quat, heading: f32, pitch: f32, look: [f32; 2], settled: &mut bool, dt: f32) -> (LyingView, [Vec3; 2], bool) {
+    use std::f32::consts::{PI, TAU};
+    let near = |a: f32, b: f32| ((a - b + PI).rem_euclid(TAU) - PI).abs() < 1e-3;
+    let (turn, tilt) = match last {
+        Some(v) if near(heading, v.wrote.0 + look[0]) && near(pitch, (v.wrote.1 + look[1]).clamp(-MAX_PITCH, MAX_PITCH)) => (v.turn + look[0], v.tilt + look[1]),
+        _ => {
+            let d = frame.inverse() * view_axes(heading, pitch).0;
+            (d.x.atan2(d.y), d.z.clamp(-1.0, 1.0).asin())
+        }
+    };
+    let (turn, within) = seated_heading(turn, 0.0, settled, dt);
+    let mut turn = (turn + PI).rem_euclid(TAU) - PI;
+    let mut tilt = tilt.clamp(-NECK_DOWN, MAX_PITCH);
+    let lain = (1.0 - (frame * Vec3::Z).z).clamp(0.0, 1.0);
+    let lowest = -MAX_PITCH + (MAX_PITCH - LYING_DOWN) * lain;
+    let ahead = frame * view_axes(turn, tilt).0;
+    if ahead.z < lowest.sin() {
+        // Up to the lowest it may look, the same way round.
+        let d = frame.inverse() * (ahead.truncate().try_normalize().unwrap_or(Vec2::Y) * lowest.cos()).extend(lowest.sin());
+        (turn, tilt) = (d.x.atan2(d.y), d.z.clamp(-1.0, 1.0).asin());
+    }
+    let (forward, up) = view_axes(turn, tilt);
+    let (forward, up) = (frame * forward, frame * up);
+    (LyingView { turn, tilt, wrote: view_angles(forward, up, heading) }, [forward, up], within)
+}
+
+/// What of the third-person rig the camera sees. All of it casts the shadow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Seen {
+    /// Any of it.
+    body: bool,
+    /// Its head, its arms and hands, the weapon on its `Weapon` node.
     head: bool,
     arms: bool,
     weapon: bool,
 }
 
-/// Show or hide the rigs and the third-person rig's head, arms and weapon.
-fn show_rigs(body: &mut Body, visibility: &mut Query<&mut Visibility>, s: Shown) {
-    let mut show = |entities: &[Entity], shown: &mut Option<bool>, on: bool| {
-        if *shown != Some(on) {
-            for e in entities {
-                if let Ok(mut v) = visibility.get_mut(*e) {
-                    *v = if on { Visibility::Inherited } else { Visibility::Hidden };
-                }
-            }
-            *shown = Some(on);
-        }
-    };
+impl Seen {
+    /// The render layer of a drawn entity: the world's when the camera sees it, else the
+    /// one only the shadows are cast from.
+    fn layer(on: bool) -> RenderLayers {
+        RenderLayers::layer(if on { 0 } else { SHADOW_LAYER })
+    }
+
+    fn part(self, d: &Drawn) -> bool {
+        self.body && (self.head || !d.head) && (self.arms || !d.arm)
+    }
+
+    /// A shape of the weapon model: the ones on a bone of their own (the minigun's
+    /// backpack) are seen with the body.
+    fn weapon_part(self, p: &WeaponPart) -> bool {
+        self.body && (self.weapon || p.on_bone)
+    }
+}
+
+/// Show the camera `seen` of the third-person rig, and the first-person rig or not.
+fn show_rigs(body: &mut Body, commands: &mut Commands, visibility: &mut Query<&mut Visibility>, seen: Seen, first: bool) {
     let third = &mut body.third;
-    show(&[third.root], &mut third.shown, s.third);
-    show(&third.head_entities, &mut third.head_shown, s.head);
-    show(&third.arm_entities, &mut third.arms_shown, s.arms);
-    show(third.weapon_model.as_slice(), &mut third.weapon_shown, s.weapon);
-    if let Some(f) = body.first.as_mut() {
-        show(&[f.root], &mut f.shown, s.first);
+    if third.seen != Some(seen) {
+        for d in &third.drawn {
+            commands.entity(d.entity).insert(Seen::layer(seen.part(d)));
+        }
+        for p in &third.weapon_parts {
+            commands.entity(p.entity).insert(Seen::layer(seen.weapon_part(p)));
+        }
+        third.seen = Some(seen);
+    }
+    if let Some(f) = body.first.as_mut().filter(|f| f.shown != Some(first)) {
+        if let Ok(mut v) = visibility.get_mut(f.root) {
+            *v = if first { Visibility::Inherited } else { Visibility::Hidden };
+        }
+        f.shown = Some(first);
     }
 }
 
@@ -1064,10 +1321,12 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
-    furniture: Res<crate::furniture::BodyOverride>,
+    (furniture, mut idles, mut seat): (Res<crate::furniture::BodyOverride>, ResMut<PlayerIdles>, ResMut<nvf_play::furniture::PlayerSeat>),
 ) {
     let state = &mut *state;
+    player.body_view = None;
     let own_body = state.first_person_body;
+    let seat_look = std::mem::take(&mut seat.look);
     let Some(body) = state.body.as_mut() else {
         player.body_eye = None;
         view.pivot = None;
@@ -1116,14 +1375,36 @@ fn drive_body(
         // view turns only as far as a neck does, so it never looks into the body.
         let root = Transform { translation: Vec3::from_array(o.pos), rotation: Quat::from_rotation_z(-o.heading), scale: Vec3::splat(body.scale) };
         let mut eye = pose_furniture(&mut body.third, o, dt, root, &mut transforms);
-        let own_body = if own_body && !third_view {
+        let pelvis = body.third.animator.skel.by_name.get("Bip01 Pelvis").copied();
+        // A body on a bed: the frame it lies in is its pelvis's.
+        let lying = o.lying.then(|| pelvis.map_or(root.rotation, |b| bone_turn(&body.third, b, o.heading)));
+        let own_body = if let (Some(frame), false) = (lying, third_view) {
+            // Lying down: the view is the lying body's, drawn or not ([`lying_view`]).
+            let third = &body.third;
+            let (v, [forward, up], within) = lying_view(m.lying, frame, player.heading, player.pitch, seat_look, &mut m.seat_settled, dt);
+            (player.heading, player.pitch) = v.wrote;
+            m.lying = Some(v);
+            m.seat_facing = None;
+            // The camera leans with the head: its right, the way it looks and its top.
+            player.body_view = Some(Quat::from_mat3(&Mat3::from_cols(forward.cross(up), forward, up)));
+            // With the body drawn the eyes go round the neck with the view, about the
+            // body's own length, as a head turned on a pillow: the open neck stays
+            // behind the view.
+            if let (true, Some(e), Some(h)) = (own_body, eye.as_mut(), third.head) {
+                let root_m = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation);
+                let neck = Vec3::from((root_m * third.animator.model_space(h)).translation);
+                let faces = frame.inverse() * (bone_turn(third, h, o.heading) * Vec3::Y);
+                *e = neck + Quat::from_axis_angle(frame * Vec3::Z, faces.x.atan2(faces.y) - v.turn) * (*e - neck);
+            }
+            own_body && within
+        } else if own_body && !third_view {
             use std::f32::consts::{PI, TAU};
             let third = &body.third;
+            m.lying = None;
             // The way the body faces is its pelvis's: the clips of getting on and off
             // turn it inside the rig. The view turns with it (owner report 2026-10-10:
             // sitting down, the camera "didn't move in line with the rest of the body"),
             // and within a neck's reach of it is the player's.
-            let pelvis = third.animator.skel.by_name.get("Bip01 Pelvis").copied();
             let facing = pelvis.map_or(o.heading, |b| bone_heading(third, b, o.heading)).rem_euclid(TAU);
             if let Some(last) = m.seat_facing.replace(facing) {
                 player.heading = (player.heading + (facing - last + PI).rem_euclid(TAU) - PI).rem_euclid(TAU);
@@ -1142,15 +1423,19 @@ fn drive_body(
         } else {
             m.seat_settled = false;
             m.seat_facing = None;
+            m.lying = None;
             false
         };
         player.body_eye = eye.map(|e| e.to_array());
-        view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0]);
+        // Third person: the pivot is above the body; the further the body has lain
+        // back, the higher, clear of the bed.
+        let lift = lying.map_or(0.0, |frame| LYING_PIVOT_UP * (1.0 - (frame * Vec3::Z).z).clamp(0.0, 1.0));
+        view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0 + lift]);
         anim.ready = false;
         anim.muzzle = None;
         anim.casing = None;
         state.muzzle_entity = None;
-        show_rigs(body, &mut visibility, Shown { third: third_view || own_body, first: false, head: third_view, arms: true, weapon: true });
+        show_rigs(body, &mut commands, &mut visibility, Seen { body: third_view || own_body, head: third_view, arms: true, weapon: true }, false);
         return;
     }
     if body.third.furniture.take().is_some() {
@@ -1158,6 +1443,7 @@ fn drive_body(
     }
     m.seat_settled = false;
     m.seat_facing = None;
+    m.lying = None;
     // The weapon: draw and holster, timed by the clips of the rig in view.
     let prefix = m.prefix;
     let timing_rig = match body.first.as_mut() {
@@ -1210,11 +1496,38 @@ fn drive_body(
         spin_now,
     };
     let root = Transform { translation: Vec3::from_array(feet), rotation: Quat::from_rotation_z(-player.heading), scale: Vec3::splat(body.scale) };
-    let third_eye = pose_rig(&mut body.third, &frame, &events, root, &mut ctx, &mut transforms);
-    let first_eye = match body.first.as_mut() {
-        Some(f) => pose_rig(f, &frame, &events, root, &mut ctx, &mut transforms),
-        None => None,
-    };
+    let third = Posed { root, look_pitch: player.pitch, special: &idles.third };
+    let third_eye = pose_rig(&mut body.third, &frame, &events, third, &mut ctx, &mut transforms).map(|(e, _)| e);
+    // While an idle turns the first-person view, its rig keeps the heading the idle
+    // started at, and the view's own turning since then (to the side, and up or down)
+    // is added to what the camera node gives [design: the opening leaves looking round
+    // to the player; hypothesis that the body does not swing round with the view].
+    if idles.first.is_empty() && idles.held.take().is_some() {
+        seat.hold = None;
+    }
+    let (held, pitch, at) = idles.held.map_or((player.heading, player.pitch, feet), |h| (h.heading, player.pitch - h.pitch, h.feet));
+    if let Some(h) = idles.held {
+        // The character stays where the scene plays (and collides with nothing there).
+        seat.hold = Some(h.feet);
+    }
+    let first = Posed { root: Transform { translation: Vec3::from_array(at), rotation: Quat::from_rotation_z(-held), ..root }, look_pitch: pitch, special: &idles.first };
+    let first = body.first.as_mut().and_then(|f| pose_rig(f, &frame, &events, first, &mut ctx, &mut transforms));
+    let first_eye = first.map(|(e, _)| e);
+    match first.and_then(|(_, v)| v) {
+        Some(v) => {
+            let v = Quat::from_rotation_z(held - player.heading) * v;
+            player.body_view = Some(v);
+            m.idle_view = Some(v);
+        }
+        // The idle is over: the view goes on from where it left it.
+        None => {
+            if let Some(v) = m.idle_view.take() {
+                let fwd = v * Vec3::Y;
+                player.heading = fwd.x.atan2(fwd.y);
+                player.pitch = fwd.z.clamp(-1.0, 1.0).asin();
+            }
+        }
+    }
     m.events = events;
 
     // The eye: the first-person camera node; without that rig, the head's eye, swung
@@ -1281,12 +1594,12 @@ fn drive_body(
     state.muzzle_entity = seen.muzzle_entity.filter(|_| m.hands.in_hand);
     anim.casing = if m.hands.in_hand { seen.casing_at(root).map(|(p, d)| (p.to_array(), d.to_array())) } else { None };
     let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
-    let shown = if frame.upright {
-        Shown { third: true, first: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }
+    let seen = if frame.upright {
+        Seen { body: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }
     } else {
-        Shown { third: third_view || !has_first, first: !third_view, head: third_view || has_first, arms: true, weapon: true }
+        Seen { body: third_view || !has_first, head: third_view || has_first, arms: true, weapon: true }
     };
-    show_rigs(body, &mut visibility, shown);
+    show_rigs(body, &mut commands, &mut visibility, seen, !third_view);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {
@@ -1361,6 +1674,80 @@ mod tests {
             assert!(frames < 100);
         }
         assert!(settled && frames > 10);
+    }
+
+    #[test]
+    fn a_view_lies_down_with_its_body() {
+        use std::f32::consts::{FRAC_PI_2, PI, TAU};
+        let close = |a: Vec3, b: Vec3| (a - b).length() < 1e-3;
+        // Standing, facing east: the view is the player's, level.
+        let standing = Quat::from_rotation_z(-FRAC_PI_2);
+        let mut settled = false;
+        let (v, [forward, up], within) = lying_view(None, standing, FRAC_PI_2 + 0.3, -0.2, [0.0; 2], &mut settled, 0.016);
+        assert!((v.turn - 0.3).abs() < 1e-4 && (v.tilt + 0.2).abs() < 1e-4 && within, "{v:?}");
+        assert!(close(forward, view_axes(FRAC_PI_2 + 0.3, -0.2).0) && close(up, view_axes(FRAC_PI_2 + 0.3, -0.2).1));
+        assert!((v.wrote.0 - (FRAC_PI_2 + 0.3)).abs() < 1e-4 && (v.wrote.1 + 0.2).abs() < 1e-4, "{v:?}");
+
+        // The body lies back, its head to the west: a view straight ahead looks at the
+        // ceiling, the top of the picture towards the top of the head. The level view
+        // nearest to it looks east, the way the feet point, as far up as a view goes.
+        let on_back = standing * Quat::from_rotation_x(FRAC_PI_2);
+        assert!(close(on_back * Vec3::Y, Vec3::Z) && close(on_back * Vec3::Z, -Vec3::X));
+        let ahead = LyingView { turn: 0.0, tilt: 0.0, wrote: (FRAC_PI_2, 0.0) };
+        let (v, [forward, up], _) = lying_view(Some(ahead), on_back, FRAC_PI_2, 0.0, [0.0; 2], &mut settled, 0.016);
+        assert!(close(forward, Vec3::Z) && close(up, -Vec3::X), "{forward} {up}");
+        assert!((v.wrote.0 - FRAC_PI_2).abs() < 1e-3 && v.wrote.1 == MAX_PITCH, "{v:?}");
+        // The mouse turns the head in the body's frame, also where a level view is
+        // already as far up as it goes: to the body's right is south here.
+        let (heading, pitch) = look_after(v, [0.5, 0.25]);
+        let (v, [forward, _], _) = lying_view(Some(v), on_back, heading, pitch, [0.5, 0.25], &mut settled, 0.016);
+        assert!((v.turn - 0.5).abs() < 1e-4 && (v.tilt - 0.25).abs() < 1e-4, "{v:?}");
+        assert!(forward.y < -0.3 && forward.z > 0.5 && forward.x < -0.1, "{forward}");
+        // No further than a neck turns, and not down into the body.
+        let (heading, pitch) = look_after(v, [2.0, -3.0]);
+        let (v, _, within) = lying_view(Some(v), on_back, heading, pitch, [2.0, -3.0], &mut settled, 0.016);
+        assert!((v.turn - NECK_TURN).abs() < 1e-4 && v.tilt >= -NECK_DOWN - 1e-4 && within, "{v:?}");
+        // A heading and pitch set from outside are taken in game space: north and a
+        // little up is to the body's left.
+        let (v, [forward, _], _) = lying_view(Some(v), on_back, 0.0, 0.3, [0.0; 2], &mut settled, 0.016);
+        assert!(close(forward, view_axes(0.0, 0.3).0) && v.turn < -1.0, "{v:?} {forward}");
+
+        // On its right side (its right is down): the head turns up to the ceiling but
+        // not into the pillow.
+        let on_side = on_back * Quat::from_rotation_z(-FRAC_PI_2);
+        assert!(close(on_side * Vec3::X, -Vec3::Z), "{}", on_side * Vec3::X);
+        let mut settled = true;
+        for (turn, tilt) in [(1.2, 0.0), (0.8, -0.9), (0.6, 0.7), (-1.3, 0.2), (0.0, 0.0)] {
+            let last = LyingView { turn: 0.0, tilt: 0.0, wrote: (0.0, 0.0) };
+            let (v, [forward, up], _) = lying_view(Some(last), on_side, turn, tilt, [turn, tilt], &mut settled, 0.016);
+            assert!(forward.z >= -LYING_DOWN.sin() - 1e-3, "{turn} {tilt}: {forward}");
+            assert!((forward.length() - 1.0).abs() < 1e-3 && forward.dot(up).abs() < 1e-3);
+            // Looking up is left alone.
+            assert!(turn > 0.0 || ((v.turn - turn).abs() < 1e-4 && (v.tilt - tilt).abs() < 1e-4), "{turn} {tilt}: {v:?}");
+            assert!((0.0..TAU).contains(&v.wrote.0) && v.wrote.1.abs() <= MAX_PITCH && v.turn.abs() <= PI);
+        }
+    }
+
+    /// The heading and pitch the mouse leaves the player with after `look`.
+    fn look_after(v: LyingView, look: [f32; 2]) -> (f32, f32) {
+        ((v.wrote.0 + look[0]).rem_euclid(std::f32::consts::TAU), (v.wrote.1 + look[1]).clamp(-MAX_PITCH, MAX_PITCH))
+    }
+
+    #[test]
+    fn a_level_view_is_found_for_a_leaning_one() {
+        use std::f32::consts::FRAC_PI_2;
+        // A level view is its own.
+        for (h, p) in [(0.3, 0.2), (4.0, -1.0), (2.0, 1.3)] {
+            let (forward, up) = view_axes(h, p);
+            let (heading, pitch) = view_angles(forward, up, 0.0);
+            assert!((heading - h).abs() < 1e-4 && (pitch - p).abs() < 1e-4, "{h} {p}");
+        }
+        // Straight up, the top of the picture to the west: the view is turned east.
+        let (heading, pitch) = view_angles(Vec3::Z, -Vec3::X, 0.0);
+        assert!((heading - FRAC_PI_2).abs() < 1e-3 && pitch == MAX_PITCH);
+        // Level, the picture on its side: the heading is the view's own.
+        let (heading, pitch) = view_angles(Vec3::X, Vec3::Y, 0.0);
+        assert!((heading - FRAC_PI_2).abs() < 1e-4 && pitch.abs() < 1e-4);
     }
 
     #[test]

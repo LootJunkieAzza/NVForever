@@ -49,7 +49,10 @@ fn main() {
         let mut tracks = 0;
         for i in 0..frames {
             let phase = i as f32 / frames as f32;
-            player.layers = layers.map(|l| l.map(|(k, weight)| Layer { clip: bound[k].clone(), phase, weight }));
+            player.layers = Default::default();
+            for (slot, l) in player.layers.iter_mut().zip(layers) {
+                *slot = l.map(|(k, weight)| Layer { clip: bound[k].clone(), phase, weight });
+            }
             tracks += player.sample(&mut out);
         }
         let per = t0.elapsed().as_secs_f64() / f64::from(frames);

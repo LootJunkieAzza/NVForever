@@ -61,6 +61,9 @@ controls.md (bindings).
 | Ammo Swap | 2 | the next carried ammo type down the weapon's list, then a reload (combat C4) |
 | Rest, Vats, Hotkeys 1 and 3–8, QuickSave F5, QuickLoad F9, Grab Z | | bound; pressing one shows "… : not available yet" |
 
+Scripts can turn groups of these controls off and on (`DisablePlayerControls`,
+`EnablePlayerControls`): `control::ControlLocks`, docs/spec-notes/controls.md §5.
+
 Mouse look uses the game's `fMouseSensitivity` (0.002 radians per count) and
 `bInvertYValues` (off). The F9 test aid that opened the nearest container moved to F10
 (F9 is Quick Load).
@@ -121,9 +124,20 @@ and "Body in first person" on the settings page (key `first-person-body`).
   of the body"). The eyes go round the neck (`Bip01 Head`) with the view, as a turned
   head's do. With the switch off the seated view is as it was: free, not turned by the
   body, and no body.
-- Not built: the shadow. The body's shadow in first person has no head, and while the
-  weapon is out no arms of its own (the arms rig's shadow floats in front, as it does
-  with the switch off).
+- On a bed (owner requests 2026-10-10: lie down as a sleeping NPC does, "sideways the
+  camera when laying") the view is the lying body's, with the switch on or off
+  (`lying_view`). That code does not assume an upright body: the frame is the pelvis's
+  whole turn since the bind pose (`bone_turn`), not only its turn about the vertical.
+  The view keeps its turn and tilt in that frame while the body lies down and gets up,
+  so the picture leans with the body (`Player::body_view`: the camera takes a whole
+  rotation, not a heading and pitch, as it does for an idle that turns the view) and the mouse moves the
+  head in the frame (`PlayerSeat::look`). Limits: the seated 80° and 75° about the
+  body's own axes, and no more than 10° below level once lying (`LYING_DOWN`), as lower
+  is the pillow. With the switch on the eyes go round the neck about the body's length.
+  The player's heading and pitch are set to the level view nearest the leaning one.
+  In third person the pivot is lifted up to 40 units (`LYING_PIVOT_UP`) so the camera
+  clears the bed. Facts and what was seen: docs/spec-notes/furniture.md §7.
+- The shadow is the whole body's, head and arms included: §1.6.
 
 Checked 2026-10-10 on the owner's install [observed in NVForever: screenshots kept
 privately], Goodsprings, Vault 21 jumpsuit `00104184` and varmint rifle `0007EA24`:
@@ -133,6 +147,83 @@ forward; seated on the saloon porch chair `00106349`, the lap and forearms ahead
 shoulder and arm at either limit, a view that starts behind comes round, and through
 the sitting-down clip the view turns with the body from facing the chair to facing away
 from it.
+
+### 1.6 The player's sun shadow (owner request 2026-10-10; not the original's)
+
+[engineering choices throughout; the original casts no sun shadows from the world]
+
+Before: in first person the arms rig and its weapon cast a shadow of floating arms and
+there was no body shadow; with the body in first person (§1.5) the shadow had no head,
+and no arms of its own while the weapon was out.
+
+Now, in every view, the third-person body casts the player's shadow whole (head, arms
+and hands, weapon), and the arms rig and its weapon cast none on the world. What the
+camera sees is as it was.
+
+- **Unseen but casting.** A hidden entity casts no shadow [documented: bevy_light 0.19.1
+  `check_dir_light_mesh_visibility` skips entities whose `InheritedVisibility` is false,
+  and takes those whose `RenderLayers` meet the light's]. So the parts of the
+  third-person body the camera is not to see are no longer hidden: they are drawn on
+  render layer 2 (`sky::SHADOW_LAYER`), which the sun casts from (the sun has layers 0
+  and 2) and no camera has. The body's root is never hidden. `player_body.rs` `Seen`
+  says what the camera sees of the body (all of it in third person; none in first
+  person; with §1.5 all but the head, and but the arms and the weapon in the hand while
+  the arms rig's are up; seated, as §1.5), and `show_rigs` puts each drawn entity on
+  layer 0 or 2 when that changes.
+- **The arms rig casts nothing on the world.** Its meshes and its weapon's are on render
+  layer 3 (`sky::ARMS_LAYER`), which the main and the reflection camera have and the sun
+  does not.
+- **The arms rig is not shaded by the unseen body.** That body stands in the middle of
+  the arms rig, with its own arms and weapon about where the arms rig's are, and in the
+  sun's shadow map it shades them [observed in NVForever, first attempt: the Pip-Boy,
+  the left hand and the rifle's stock came out darker at every heading tried]. So the
+  arms rig takes its sun shadows from a second light, `ArmsShade`: a child of the sun
+  (same direction), with the sun's colour at 1/1024 of its strength
+  (`ARMS_SHADE_SHARE`), casting from layers 0 and 3 with one cascade, the sun's first.
+  Its shadow map therefore holds exactly what shaded the arms before this change: the
+  world, the seen parts of the body, and the arms themselves. The arms rig's materials
+  are copies with `NifSurface::shade_light` set; their fragment shader
+  (`nif_material.wgsl` `with_shade_light`) reads both shadow maps and works the lit
+  colour out from two results of Bevy's lighting, with and without shadows (Bevy's
+  lighting has no opening for another shadow value; the small share of light is what
+  makes the sun's part of the light measurable that way). The light is there only while
+  the arms rig is drawn and the sun casts shadows.
+- **Cost.** While the arms rig is drawn: one more shadow cascade to render, one more
+  directional light in every fragment's lighting, and a thousandth more sunlight on the
+  world. Frame rates of 18 s runs before and after overlap (before 44.5 and 26.2 per
+  second, after 38.9 and 38.6, on a machine busy with other work), so the cost was not
+  measured.
+- Point and spot lights cast no shadows (`lights.rs`). If one ever does it needs the
+  sun's layers, or the player casts no shadow from it in first person.
+
+Tried and dropped: (1) leaving the arms rig on the sun's map (the result above); (2) a
+material that skips casters within 90 units of the eye: standing in tight shade (inside
+the truck cab by the Goodsprings road) the arms stayed sunlit; (3) a shade light without
+light of its own and an arms rig that casts no shadow at all: the arms lose the shadows
+they cast on themselves.
+
+Not built: in the water's reflection the first-person view still shows the arms rig
+rather than the body, as before. With §1.5 on and the weapon out, the shadow's arms are
+the body's own (upright, aiming level), not the arms rig's (which follow the pitch).
+
+Checked 2026-10-10/11 on the owner's install [observed in NVForever: screenshots kept
+privately, `C:\fnv-private\references\player_shadow\`], Goodsprings at 17:00 facing
+east, jumpsuit `00104184` and varmint rifle `0007EA24`, before and after:
+
+| View | Before | After |
+|---|---|---|
+| First person, weapon away | two arm shadows, no body | a whole body with its head |
+| First person, weapon out | arms and rifle floating, no body | a whole body holding the rifle |
+| Body in first person, weapon away | a body without a head | a whole body |
+| Body in first person, weapon out | headless, armless body and floating arms | a whole body holding the rifle |
+| Third person | whole body | the same (under 220 of 1,024,000 pixels differ) |
+
+The arms and weapon themselves, in the part of the picture the shadow does not reach:
+4, 49 and 152 pixels differ by more than 24 of 255 facing east, north and west, of
+230,400. Standing in the truck's shade the arms are shaded as before. Seated on the
+porch chair `00106349`, with and without §1.5, the picture is as before. On the Lake
+Mead pier (cell 13,9) the water and its reflections differ only by the ripples.
+Switching to third person and back keeps the right parts seen.
 
 ## 2. Code
 
@@ -147,7 +238,8 @@ from it.
 | Bindings | `engine/nvf-play/src/bindings.rs` | every `[Controls]` control with the game's default key and mouse button; `ControlInput` |
 | Controls and camera | `engine/nvf-play/src/control.rs` | `PlayerControl` (sneak, weapon, Block, Always Run, Auto Move, view, distance, `Orbit`), `ControlSettings` (GMSTs), `BodyView`, `place_camera` |
 | Movement keys, mouse look | `engine/nvf-play/src/player.rs` | movement through the bindings; mouse look turns the orbit while Toggle POV is held; `Player::body_eye`, `BodySet` |
-| Body | `engine/nvforever/src/player_body.rs` (`PlayerBodyPlugin`, with `--play` and actors on) | both rigs, weapon models, clip caches, per-frame clip choice, eye and pivot, which rig is shown; the body in first person (§1.5: `PlayerBody::first_person_body`, `Shown`, `seated_heading`) |
+| Body | `engine/nvforever/src/player_body.rs` (`PlayerBodyPlugin`, with `--play` and actors on) | both rigs, weapon models, clip caches, per-frame clip choice, eye and pivot, which rig is shown; the body in first person (§1.5: `PlayerBody::first_person_body`, `Seen`, `seated_heading`, `lying_view`); the shadow (§1.6: `Seen`, `show_rigs`, `ArmsShade`) |
+| Shade light for the arms | `engine/nvf-assets/src/nif_material.rs` (`NifSurface::shade_light`), `nif_material.wgsl` (`with_shade_light`); layers in `engine/nvforever/src/sky.rs` (`SHADOW_LAYER`, `ARMS_LAYER`) | §1.6 |
 | Shared part building | `engine/nvforever/src/actors.rs` (`part_uses`) | NPCs and the player build parts the same way |
 | Test aids | `engine/nvf-play/src/test_aid.rs` | `NVF_PLAY_TEST_EQUIP`, `NVF_PLAY_TEST_MOVE`, `NVF_PLAY_TEST_CONTROL` (`sneak`, `weapon`, `aim`, `view`, `jump`, `zoom=`, `orbit=<yaw>:<pitch>`, `release`); for a session played by hand, the debug switches `NVF_PLAY_DEBUG_GIVE` and `NVF_PLAY_DEBUG_EQUIP` (same values as the `TEST` ones, the run stays attended) |
 

@@ -61,6 +61,16 @@ pub struct Player {
     /// (nvforever's player body writes it in [`BodySet`]): its head, crouching and
     /// swaying with the animation.
     pub body_eye: Option<[f32; 3]>,
+    /// The rotation of the first-person view this frame (game space, of a node looking
+    /// along its +Y with +Z up), when the body's animation turns the view (an idle that
+    /// drives the camera node, a body lying on a bed); the heading and pitch give it
+    /// otherwise.
+    pub body_view: Option<Quat>,
+    /// Where the game last put the player (the start of a game, a door, a script's
+    /// move), until the player moves by themselves. The collision may have pushed the
+    /// character away from it since (a start marker in a bed): a scripted scene plays
+    /// where the game put the player, not where the collision left them.
+    pub placed: Option<[f32; 3]>,
 }
 
 impl Player {
@@ -312,11 +322,15 @@ impl Plugin for PlayerPlugin {
             .init_resource::<Status>()
             .init_resource::<Net>()
             .init_resource::<PlayerControl>()
+            .init_resource::<crate::control::ControlLocks>()
+            .init_resource::<crate::control::LockStats>()
             .init_resource::<Bindings>()
             .init_resource::<crate::control::BodyView>()
             .insert_resource(NearAid::from_env())
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
+            .add_systems(Update, crate::control::enforce_locks.after(PlaySet::Input).before(PlaySet::Physics))
+            .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
                 Update,
@@ -356,7 +370,7 @@ fn init_player(mut commands: Commands, d: Res<PlayWorld>, sim: Res<SimState>, mu
         info!("interior start at the cell's own spot ({:?}): ({:.1}, {:.1}, {:.1}), heading {:.0}°", spot.source, spot.feet[0], spot.feet[1], spot.feet[2], spot.heading.to_degrees());
         (feet, heading) = (spot.feet, spot.heading);
     }
-    commands.insert_resource(Player { heading, pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet, body_eye: None });
+    commands.insert_resource(Player { heading, pitch: d.pitch_deg.to_radians(), eye_height: EYE_HEIGHT, feet, body_eye: None, body_view: None, placed: None });
     let settings = MoveSpeeds::from_settings(sim.forms.setting_f32("fMoveBaseSpeed"), sim.forms.setting_f32("fMoveRunMult"));
     let speeds = MoveSpeeds::OBSERVED;
     info!(
@@ -434,20 +448,24 @@ fn read_input(
 }
 
 /// Mouse look while the cursor is grabbed; while Toggle POV is held it circles the camera
-/// instead (control.rs).
+/// instead (control.rs). Not while a script has locked looking: the view stays where it
+/// is [documented: GECK wiki DisablePlayerControls, LookingFlag].
+#[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
     look: Option<Res<crate::dialogue::FreeLook>>,
+    locks: Res<crate::control::ControlLocks>,
     mut control: ResMut<PlayerControl>,
     mut player: ResMut<Player>,
+    mut seat: ResMut<crate::furniture::PlayerSeat>,
 ) {
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
     // The player looks around freely while an actor speaks in a conversation.
     let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
-    if !grabbed || !playing || motion.delta == Vec2::ZERO {
+    if !grabbed || !playing || locks.looking || motion.delta == Vec2::ZERO {
         return;
     }
     let (s, inv) = (bindings.mouse_sensitivity, bindings.invert_y);
@@ -461,6 +479,12 @@ fn mouse_look(
         return;
     }
     (player.heading, player.pitch) = look_with(player.heading, player.pitch, motion.delta, s, inv);
+    if seat.hold.is_some() {
+        // Held by furniture: what was asked for, for a holder with a frame of its own.
+        let dy = if inv { -motion.delta.y } else { motion.delta.y };
+        seat.look[0] += motion.delta.x * s;
+        seat.look[1] -= dy * s;
+    }
 }
 
 /// Put the character on the ground under the start position once its cell is loaded: a
@@ -527,6 +551,7 @@ fn place_initial(mut phys: ResMut<PhysState>, mut player: ResMut<Player>, mut ne
     }
     let feet = phys.player.as_ref().expect("placed").feet;
     player.feet = feet;
+    player.placed = Some(feet);
     info!(
         "player placed: feet ({:.0}, {:.0}, {:.1}), ground {}, terrain z {}",
         feet[0],
@@ -724,6 +749,7 @@ fn step(
         }
         if let Some(c) = p.player.as_mut() {
             p.world.place_character(c, at);
+            p.prev_feet = at;
         }
         p.prev_feet = at;
         player.feet = at;
@@ -739,6 +765,10 @@ fn step(
     if let Some(t) = phys.terrain_z(feet[0], feet[1]).filter(|t| feet[2] < t - FELL_THROUGH) {
         warn!("player fell through at ({:.0}, {:.0}, {:.0}), terrain z {t:.0}: back on the ground", feet[0], feet[1], feet[2]);
         phys.place_player([feet[0], feet[1], t], 100_000.0, 100_000.0);
+    }
+    if intent.forward != 0.0 || intent.right != 0.0 || intent.jump {
+        // Moving by themselves: the player is no longer where the game put them.
+        player.placed = None;
     }
     let p = &mut *phys;
     let dt = p.world.params.dt;

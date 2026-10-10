@@ -7,6 +7,9 @@
 //!   ([`outcome`]): `RefChanged`, `TravelRequest` (travel behind a loading screen,
 //!   `crate::loading`), `OpenContainer` or an on-screen line.
 //! - `PlaySet::Ui`: the crosshair, the prompt and the message line (hidden in menus).
+//! - While a script has the player's controls off (`control::ControlLocks`,
+//!   docs/spec-notes/controls.md §5): with movement off E does nothing and the
+//!   crosshair is hidden; with rollover text off the prompt is hidden.
 //! - `PlaySet::Sync`: `RefVisual` entities are hidden while the simulation says their
 //!   reference is not in the world, on `RefChanged` and when cells stream in.
 //!
@@ -85,6 +88,9 @@ impl HudMessage {
 
 #[derive(Component)]
 struct Hud;
+
+#[derive(Component)]
+struct Crosshair;
 
 #[derive(Component)]
 struct PromptText;
@@ -256,7 +262,10 @@ fn activate(
     mut open: MessageWriter<OpenContainer>,
     mut changed: MessageWriter<RefChanged>,
     mut sit: MessageWriter<crate::furniture::UseFurniture>,
+    mut seat: ResMut<crate::furniture::PlayerSeat>,
     script: Option<ResMut<crate::script::ScriptState>>,
+    locks: Option<Res<crate::control::ControlLocks>>,
+    stats: Option<ResMut<crate::control::LockStats>>,
 ) {
     let fired = match (auto, time) {
         // The aids' clock goes on while a menu holds the picture (`crate::pause`).
@@ -266,7 +275,21 @@ fn activate(
     if !input.just_pressed(crate::bindings::Control::Activate) && !fired {
         return;
     }
-    let Some(t) = target.0.as_ref() else { return };
+    // Scripts turned the player's movement off: world objects cannot be activated
+    // [documented: GECK wiki DisablePlayerControls, MovementFlag].
+    if locks.is_some_and(|l| l.movement) {
+        info!("activate: ignored, a script has disabled the player's controls (movement)");
+        if let Some(mut s) = stats {
+            s.held[crate::control::group::MOVEMENT] += 1;
+        }
+        return;
+    }
+    let Some(t) = target.0.as_ref() else {
+        // On furniture with nothing under the crosshair (lying on a bed, the bed is out
+        // of view): Activate gets up [design].
+        seat.leave |= seat.hold.is_some();
+        return;
+    };
     // The actor's place before, to put back if a teleport cannot be followed.
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));
     let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
@@ -352,6 +375,7 @@ fn spawn_hud(mut commands: Commands) {
         .with_children(|hud| {
             // The crosshair: a small square at the centre of the view.
             hud.spawn((
+                Crosshair,
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Percent(50.0),
@@ -362,18 +386,22 @@ fn spawn_hud(mut commands: Commands) {
                     ..default()
                 },
                 BackgroundColor(Color::srgba(1.0, 0.85, 0.4, 0.9)),
+                Visibility::Inherited,
             ));
             hud.spawn(line(18.0)).with_child((Text::new(""), font(16.0), TextColor(Color::srgb(1.0, 0.85, 0.4)), PromptText));
             hud.spawn(line(72.0)).with_child((Text::new(""), font(15.0), TextColor(Color::NONE), MessageText));
         });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_hud(
     state: Res<State<PlayState>>,
     target: Res<Target>,
     time: Res<Time>,
+    locks: Option<Res<crate::control::ControlLocks>>,
     mut msg: ResMut<HudMessage>,
-    mut hud: Query<&mut Visibility, With<Hud>>,
+    mut hud: Query<&mut Visibility, (With<Hud>, Without<Crosshair>)>,
+    mut crosshair: Query<&mut Visibility, With<Crosshair>>,
     mut prompt: Query<&mut Text, (With<PromptText>, Without<MessageText>)>,
     mut message: Query<(&mut Text, &mut TextColor), With<MessageText>>,
 ) {
@@ -381,7 +409,14 @@ fn update_hud(
     for mut v in &mut hud {
         v.set_if_neq(if playing { Visibility::Inherited } else { Visibility::Hidden });
     }
-    let want = target.0.as_ref().map_or_else(String::new, |t| outcome::prompt(&t.name, &t.action));
+    // A script's DisablePlayerControls: movement off hides the crosshair, rollover text
+    // off the prompt [documented: GECK wiki DisablePlayerControls, MovementFlag and
+    // RolloverTextFlag].
+    let locks = locks.as_deref().copied().unwrap_or_default();
+    for mut v in &mut crosshair {
+        v.set_if_neq(if locks.movement { Visibility::Hidden } else { Visibility::Inherited });
+    }
+    let want = target.0.as_ref().filter(|_| !locks.rollover).map_or_else(String::new, |t| outcome::prompt(&t.name, &t.action));
     for mut t in &mut prompt {
         if t.0 != want {
             t.0.clone_from(&want);

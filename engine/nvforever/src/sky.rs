@@ -41,6 +41,7 @@
 use crate::fly::FlyCam;
 use crate::world::{game_to_bevy, WorldData};
 use bevy::asset::RenderAssetUsages;
+use bevy::camera::visibility::RenderLayers;
 use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
 use bevy::math::Affine2;
 use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
@@ -587,6 +588,15 @@ pub struct CloudLayer {
 #[derive(Component)]
 pub struct Sun;
 
+/// Render layer of what casts a sun shadow without being seen: the sun casts from it and
+/// from the world's layer 0, and no camera draws it (the player's body in first person,
+/// `player_body.rs`). Layer 1 is the water's (`reflection::WATER_LAYER`).
+pub const SHADOW_LAYER: usize = 2;
+
+/// Render layer of the player's first-person arms and their weapon: seen by the cameras,
+/// and the sun does not cast from it (`player_body.rs`).
+pub const ARMS_LAYER: usize = 3;
+
 /// The climate's star model.
 #[derive(Component)]
 pub struct Stars;
@@ -804,6 +814,9 @@ pub fn setup_sky(
         Sun,
         DirectionalLight { illuminance: PI * light_unit(), shadow_maps_enabled: sky.shadows, ..default() },
         Transform::IDENTITY,
+        // A light's shadow casters are the entities on its layers; it lights the views
+        // whose layers meet its own, so the main and the reflection camera as before.
+        RenderLayers::from_layers(&[0, SHADOW_LAYER]),
     ));
     if sky.shadows {
         sun.insert(shadow_cascades(sky.shadow_distance));

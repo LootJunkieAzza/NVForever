@@ -300,14 +300,14 @@ Wander packages in the masters):
 | Eating | type-specific bit 0 "No Eating" | 465 of 791 | meals at the rolled times, on a seat if one is free; no food is picked up or eaten |
 | Sleeping | bit 1 "No Sleeping" | 305 | to a bed of the area for the rolled night; no bed, no sleep [hypothesis] |
 | Conversation | bit 2 "No Conversation" | 654 | read, **not carried out** (no actor-to-actor conversations yet) |
-| Idle markers | bit 3 "No Idle Markers" | 706 | goes to a marker and faces its way; the marker's idles are not played |
+| Idle markers | bit 3 "No Idle Markers" | 706 | goes to a marker and faces its way, and plays the marker's idles there (docs/spec-notes/idles.md §5) |
 | Furniture (other than beds) | bit 4 "No Furniture" | 668 | sits on a seat of the area |
 | Wandering | bit 5 "No Wandering" | 489 | walks to a spot of the navmesh in the area |
 | (all six off) | | 15 | stands |
 | Fallout behaviour: Random Conversations | behaviour bit 1 | 34 | not carried out (with conversations) |
 | Fallout behaviour: Allow Idle Chatter | behaviour bit 7 | 118 | not carried out |
-| No Idle Anims | general bit 24 | 7 | nothing to switch off yet (no idles played) |
-| Package idles | IDLA on the package | 8 | not played ("when not moving or using anything" [documented]) |
+| No Idle Anims | general bit 24 | 7 | the package's idle collection is not played |
+| Package idles | IDLA on the package | 8 | played while the actor stands with nothing else to do, each idle only if its own conditions pass (idles.md §5) |
 | Must Complete | general bit 2 | 0 | "invalid" for a sandbox [documented]; none has it |
 | Always Run / Always Sneak / Weapon Drawn | general bits | 31 / 6 / 36 | sandbox walks are walked; the three are not acted on |
 | Location radius | PLDT | median 512, 71 "in cell" | objects and wander spots come from within it; the whole cell for "in cell"; 512 when it is 0 |
@@ -358,7 +358,8 @@ in his store. In `nvforever`: Chet walks about his store and sits down (screensh
 flying over the map with `all`, 161 wanders, 37 meals, 6 idle markers at 26 frames a
 second as before.
 
-**Not done**: conversations; food; idles (marker, package, sandbox); sandboxing "at each
+**Not done**: conversations; food; the idle manager's idles (package and marker idles
+are played, docs/spec-notes/idles.md); sandboxing "at each
 point of a linked patrol route" [documented]; energy changing over the day; the game's
 real scores and durations (to be captured: an observer run in a loaded sandbox area
 recording GetSitting, GetCurrentAIProcedure and positions).
@@ -574,7 +575,8 @@ Not done yet:
     units and whenever physics gets stuck (§5.4).
 19. Package flags not acted on: the door flags (lock or unlock the cell's doors),
     Always Sneak, Allow Swimming, Allow Falls, Weapon Drawn, the Fallout behaviour
-    switches; package idles and begin / end / change idles and topics.
+    switches; begin / end / change topics (package idles and begin / end / change idles
+    are played, docs/spec-notes/idles.md).
 20. The game's own run-time packages (combat, dialogue, getting up from furniture;
     forms 0xFF…) have no counterpart.
 

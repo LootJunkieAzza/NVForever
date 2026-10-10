@@ -20,6 +20,7 @@ mod fly;
 mod furniture;
 mod grass;
 mod head_look;
+mod idles;
 mod lights;
 mod limbs;
 mod lips;
@@ -568,7 +569,7 @@ fn main() -> AppExit {
             return fail(format!("{}: {e}", dir.display()));
         }
     }
-    let play = args.play.then_some(nvf_play::PlayData {
+    let mut play = args.play.then_some(nvf_play::PlayData {
         lo: world.lo,
         schema: world.schema,
         index: world.index,
@@ -579,6 +580,7 @@ fn main() -> AppExit {
         pitch_deg: args.pitch,
         auto_walk: args.auto_walk,
         start_at_cell_spot: args.pos.is_none(),
+        packages: false,
     });
     // Also for an interior start: LOD stays off inside and is switched on at the door out
     // (world::travel), with generated terrain for the start worldspace. Also with
@@ -631,6 +633,9 @@ fn main() -> AppExit {
         && args.npc_sit.is_empty()
     {
         npc_packages.push("all".to_string());
+    }
+    if let Some(p) = play.as_mut() {
+        p.packages = !npc_packages.is_empty();
     }
     let residents = if npc_packages.is_empty() {
         None
@@ -783,6 +788,15 @@ fn main() -> AppExit {
     if play.is_some() {
         app.add_systems(Update, sky_follows_game.before(sky::update_sky));
     }
+    if play.is_some() || residents.is_some() {
+        // Idle animations (idles.rs): after the game asked for them (scripts, packages,
+        // dialogue lines), before the actors are posed. The player's body, posed earlier
+        // in the frame, takes them up in the next one.
+        app.init_resource::<idles::Idles>()
+            .add_systems(Update, idles::drive.after(nvf_play::PlaySet::Scripts).after(residents::drive).before(locomotion::walk_test))
+            .add_systems(Last, idles::report);
+    }
+    app.init_resource::<idles::PlayerIdles>();
     if let Some(f) = furnishings {
         // After the travellers moved, before the actors are posed.
         app.insert_resource(f)
@@ -918,8 +932,9 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
         sky::initial_fog(),
         // Water reads the depth of what lies behind it (water.rs).
         bevy::core_pipeline::prepass::DepthPrepass,
-        // The world and the water (which the reflection camera leaves out).
-        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER]),
+        // The world, the water (which the reflection camera leaves out) and the
+        // player's first-person arms.
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, reflection::WATER_LAYER, sky::ARMS_LAYER]),
     )).id();
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);
