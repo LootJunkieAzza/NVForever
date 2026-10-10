@@ -1,7 +1,8 @@
 # The dialogue screen in `nvforever --play` (step D4)
 
 Status 2026-10-10: built on `claude/dialogue-screen` (#122); the owner's decisions on it
-(one pause switch for all menus, the debug switch) on `claude/menu-pause`, §6.1. The plan is docs/design/dialogue.md
+(one pause switch for all menus, the debug switch) on `claude/menu-pause`, §6.1; the two
+turning to each other in a conversation (step D7) on `claude/dialogue-facing`, §8. The plan is docs/design/dialogue.md
 (step D4, and its Pausing section); the rules a conversation follows are the runtime's
 (`crates/fnv-game/src/dialogue.rs`, docs/spec-notes/dialogue.md §4–§6). This note is the
 engine side: `engine/nvf-play/src/dialogue.rs`.
@@ -39,7 +40,7 @@ about the original unless it carries a tag.
 | When | Input | Does |
 |---|---|---|
 | The actor speaks | Space, Enter, Activate (E), left click | skips to the next response (`Game::skip_response`); after the last one the line ends as if it had been said |
-| The actor speaks (`living`) | mouse | looks around |
+| The actor speaks (`living`) | mouse | looks around (the view turned to the actor when the conversation started and comes back onto them when the choices appear, §8.2) |
 | The player chooses | 1–9 (also the number pad) | picks that choice |
 | | Up / Down, W / S, mouse wheel | move the selection |
 | | Enter, Space, Activate (E) | pick the selected choice |
@@ -79,7 +80,7 @@ a third state beside `Playing` and `Menu`.
   blocks run with code 1009) [owner ruling 2026-10-10: a conversation with the player
   pauses the game; lines said outside one do not].
 - **Running**: the conversation's own lines (`Game::tick` advances them in real time),
-  subtitles and voice.
+  subtitles and voice; and the two turning to each other (§8), which is presentation.
 - **The picture** is one switch for every menu, `--menu-pause living|original`
   (`pause::MenuPause`; `--dialogue-pause` is its old name and still works;
   docs/design/dialogue.md §8):
@@ -305,9 +306,10 @@ shown one after the other, so the picture moves by that much between them (§7).
 - **Played by hand: not done by this session** (the unattended runs cannot hold the
   cursor, so free look and mouse clicks on choices were not exercised; keys and clicks
   go through the same code path as the aid from `Act` on). Owner item.
-- No dialogue camera: the view stays where it was, the actor does not turn to the
-  player (dialogue.md §7). The mouth moves since step D6 (docs/spec-notes/lipsync.md);
-  head turns and eye movement while talking do not.
+- The actor and the player's view turn to each other since step D7 (§8). No dialogue
+  camera (no zoom, no change of the field of view; §8.5), and the eyes do not move in
+  the head. The mouth moves since step D6 (docs/spec-notes/lipsync.md); the head turns
+  a `.lip` file asks for are still not applied (their unit is unknown, lipsync.md §3.3).
 - The panel does not show the player's own line being said, nor the actor's last line
   while choosing.
 - A choice's skill tag names the actor value by display name when the simulation knows
@@ -335,3 +337,305 @@ them):
   [hypothesis, §2]; every quest result in the runs came from lines said to the end.
 - After a held traveller walks on, its 5-second progress line is logged a few times in
   a row (it catches up with the time it stood); cosmetic.
+
+## 8. Facing each other (step D7, 2026-10-10)
+
+Owner request 2026-10-10: "i need the player and npc that are talking to each other to
+look at each other; this is for when they are in a back and forth dialogue; this doesnt
+apply to spoken conversation dialogue that an npc just says out loud without expecting a
+response".
+
+Built on `claude/dialogue-facing`: `engine/nvforever/src/dialogue_look.rs` (the actor) and
+`engine/nvf-play/src/dialogue_look.rs` (the player's view). Both act only while a
+conversation is open (`Game::dialogue` is set: E on an actor, a script's
+`StartConversation`; the dialogue screen is up). A line an actor just says (SayTo, Say)
+sets no conversation and turns nobody.
+
+**The angles and timings in §8.1–8.3 are NVForever's design choices**, not the
+original's values, unless a line carries another tag. What is known of the original is
+§8.5.
+
+### 8.1 The actor turns to the player
+
+- **Head.** The head bone is turned towards the player's eye on top of the frame's
+  animation (after `locomotion::drive` has posed the skeleton), so the idle goes on
+  underneath. It eases in over 0.45 s and, when the conversation ends, back to the
+  animation's own pose over 0.6 s (a smoothstep, no snap).
+  - Which bone and how far come from the game's data: the body part with the
+    "IK Data - Headtracking" flag in the actor's body part data names the bone (its IK
+    start node) and the largest angle (its Tracking Max Angle) [documented: GECK wiki
+    "Body Part", owner export]. For NPCs that is `Bip01 Head` and 60
+    [observed: `DefaultBodyPartData`, docs/spec-notes/actors.md §7.6]. The angle is used
+    as the largest turn to either side [hypothesis: degrees, and that it bounds the turn
+    to a side]; a value above 80° would be cut to 80° [design]. Up and down the head
+    goes at most 30° [design].
+  - The turn is spread over the neck: `Bip01 Neck` is turned by 20 % of it, `Bip01
+    Neck1` by 40 % and the head by all of it, so the neck does not twist at one joint
+    [design; whether the original turns anything but the IK start node is not known].
+  - The turn has no roll: it is a turn to the side and a tilt up or down in the actor's
+    own space.
+  - A player behind the actor (more than 135° from its front) keeps the side the head
+    first turned to, so the head does not flip from one shoulder to the other [design].
+  - What hangs from the head bone or is skinned to it follows: the face and its lip
+    sync (`lips.rs` moves vertices, not bones, so the two do not meet), hair, eyes,
+    beards, hats.
+- **Body.** An actor standing in its idle whose body faces more than 30° away from the
+  player turns on the spot to face them: eased, at about 150° a second (0.5 s at the
+  least, 1.4 s at the most), the head leading. While it turns, `Locomotion::turn` is
+  set, which asks the locomotion blend for the skeleton's turn clips (`mtturnleft`,
+  `mtturnright`, as for the walk test and travellers, actors.md §8.3) so that the feet
+  step [the feet were not in a screenshot: not checked]. The body keeps its new heading when
+  the conversation ends [design: AI packages will take over later]. Only the drawn
+  actor turns: the simulation's reference keeps its angle (what `GetAngle` reads), as
+  actors' drawn poses are the engine's own until AI exists (`moved.rs`).
+- **Head only**, the body left alone, for an actor whose body something else places:
+  - a `--npc-travel` traveller (its heading is its walker's; it stands while the
+    conversation holds the world, turns its head, and walks on afterwards);
+  - an actor under the walk test (`--actor-walk-test`);
+  - an actor that is not standing in its idle;
+  - an actor marked `dialogue_look::BodyHeld`: in furniture or lying down.
+    **Nothing marks actors so yet: the engine seats nobody** (furniture use is AI,
+    Layer 6; `GetSitting` is a stub). What the engine can tell today is whether an actor
+    is dead or a ragdoll, whether the navmesh walker or the walk test moves it, and
+    whether it plays its standing idle. Every living actor is drawn standing, also
+    where the original would have it on a chair (Doc Mitchell during the psych test),
+    so a body that turns is a standing body. Whoever seats actors later has to insert
+    `BodyHeld`.
+- **Nobody turns** (the view still turns to the actor, §8.2) when the actor
+  - is dead or a ragdoll: never touched, and dropped at once if it dies while facing;
+  - is not a human-style NPC: a creature, a robot, a talking activator [design: their
+    skeletons and limits are not looked at yet];
+  - has no such bone, or its body part data has no part that allows head tracking;
+  - is not drawn.
+
+### 8.2 The player's view turns to the actor
+
+- **Opening.** When the conversation starts the view eases onto the actor's face over
+  0.4 s (smoothstep). The face is a point 5 units in front of and 6 above the drawn
+  head bone [design; the eyes are about 9 and 7, `player_body.rs`]; for an actor
+  without a drawn head, a point at 90 % of its hit volume's height, else 112 units
+  above its reference.
+- **Free look stays** [owner decision 2026-10-10, §3]: while the actor speaks the mouse
+  looks around as before. An ease never fights the mouse: if anything else moved the
+  view since the ease last wrote it (the mouse, a test aid), the ease is dropped and
+  the view is left where it was put.
+- **Choices.** When the choices appear (the cursor is released, the view holds) the
+  view eases back onto the actor's face over 0.35 s, if it is more than 0.5° off.
+  **This is the coordinator's reading of the owner's two requests together (free look
+  while the actor speaks; the two look at each other), 2026-10-10, to be confirmed by
+  the owner.** `--no-dialogue-recentre` switches it off (the opening turn stays).
+- **Only the view's heading and pitch change**: no roll, no zoom, no change of the field
+  of view, and the camera stays where the player's eye is. In third person the camera
+  stays behind the shoulder and turns with the view.
+- **The player's body** (third person, the first-person arms) follows the view's
+  heading as it always does; the player's own head is not turned separately.
+
+### 8.3 Pausing
+
+- `living` (default): the turns are presentation and run while game logic is held.
+- `--menu-pause original`: the picture stands still for the whole conversation, so the
+  turns are completed at once when it starts: the frozen picture shows the two facing
+  each other. (The speaker's mouth still moves with the voice: lip sync follows the
+  sound, which plays in real time in every mode; seen now that the view is on the
+  speaker.) When the conversation ends and the clock runs again, the head eases back.
+- The Esc pause menu holds the turns like everything else (they run on the virtual
+  clock): two screenshots 1.2 s apart under it, opened in the middle of a body turn,
+  are identical; the turn goes on when the menu is closed.
+
+### 8.4 Switches, test aid, log
+
+- `nvforever --no-dialogue-look`: nobody turns (actor and view).
+- `nvforever --no-dialogue-recentre`: the view does not come back onto the actor when
+  the choices appear.
+- Test aid `NVF_PLAY_TEST_TALK_HEAD_ONLY=1`: no actor turns its body (as if all were
+  `BodyHeld`), to see the head at its limit. Not a game behaviour.
+- Log, each line starting `dialogue look:`:
+
+```
+dialogue look: <actor> faces the player with head and body (standing in its idle): the player is <a>° off its front, the body turns <a>° in <s> s from heading <h>°; the head turns up to <l>° to a side (<where the limit is from>) and 30° up or down, on <bones>
+dialogue look: <actor> faces the player with its head (standing in its idle; the body stays: the player is <a>° off its front, within 30°); …
+dialogue look: <actor> faces the player with its head only (<why>): the player is <a>° off its front; …
+dialogue look: <actor> does not turn to the player: <why>
+dialogue look: <actor> is not drawn as an actor: nobody turns to the player
+dialogue look: <actor> stops facing the player: the head (yaw <y>°, pitch <p>°) eases back over 0.60 s, the body keeps its heading <h>°
+dialogue look: the view turns to <actor> (<what the face point is>): heading <h0>° to <h1>°, pitch <p0>° to <p1>°, over 0.40 s
+dialogue look: choices: the view comes back onto <actor>: heading … over 0.35 s
+dialogue look: the view was moved (the mouse, or a test aid): it is left where the player put it
+dialogue look: the conversation with <actor> is over: the view is the player's own again
+```
+
+### 8.5 What the original does
+
+From the owner's GECK wiki export unless tagged otherwise; nothing here was captured.
+
+- Actors turn their heads to targets as a standing behaviour ("head tracking"). A body
+  part of an actor's body part data can carry IK data: "Is Head", "Headtracking" (the
+  head will turn towards its target), a "Tracking Max Angle" (the largest angle the
+  actor will turn its head to look at something) and a start node [documented: "Body
+  Part"]. The values for NPCs are in actors.md §7.6 [observed].
+- A package can switch it off: with "HeadTracking Off" the actor's head is locked
+  looking straight ahead while the package runs [documented: "Category:Packages"]. An
+  actor base can carry "No Rotating to Head-track": it will not rotate its head to look
+  at the player or other NPCs [documented: "Animation Tab"]. Neither is read yet
+  (packages are Layer 6; §8.7).
+- A script can force it: `Look <target>` makes the actor head-track the target until
+  `StopLook`, overriding normal head tracking; with its optional second parameter the
+  actor rotates its whole body to the target [documented: "Look", "StopLook"]. So the
+  original has both a head turn and a body turn towards a target. **That an actor turns
+  its body to the player in a conversation, and how fast, is not in the export**
+  [hypothesis].
+- `StartConversation` takes, after the topic and two location references, a head-track
+  parameter (1 enables head tracking during the conversation, 0 disables it) and an
+  allow-movement parameter [documented: "StartConversation"]. The runtime reads neither
+  (`fnv_game::functions::misc::start_conversation`); what the original does when they
+  are left out is not in the export [hypothesis: head tracking is on].
+- A game setting `fAIMaxHeadTrackDistance` exists [documented: listed on "Settings",
+  no description]; the console's `ToggleLookIK` switches actors moving their heads to
+  face other actors [documented: "ToggleLookIK"].
+- Skeletons carry a float named `HeadTrack` that a clip can animate
+  [documented: "NIF Block Types", "NIF Animation Controllers"]; the human idle has such
+  a track on `Bip01 Head` [observed: actors.md §7.1 and §7.6]. Not read.
+- An actor's sitting state is told apart by `GetSitting`: not sitting, loading the
+  sitting idle, getting ready to sit, sitting, getting ready to stand up [documented:
+  "GetSitting"]. Whether a sitting actor turns only its head in the original is not in
+  the export [hypothesis: it does not swivel in its chair; the owner's brief].
+- **The dialogue camera.** The export does not describe what the original's camera does
+  in a conversation. Its only trace is a third-party plugin's page (itr-nvse,
+  "SetDialogueCameraEnabled") that says the plugin replaces "the vanilla
+  over-the-shoulder dialogue view". [hypothesis: in first person the original narrows
+  the field of view onto the speaker; to be captured or told by the owner.] Nothing of
+  the kind is built: no zoom, no change of the field of view, no cinematic camera.
+  Follow-up, once it is described: a field-of-view ease onto the speaker in first
+  person, and what the third-person camera does.
+
+### 8.6 Checks (2026-10-10)
+
+Windowed runs, unattended (`--no-voice`), each exit 0 with "run finished" and no WARN
+or ERROR line; screenshots and logs kept outside the repository. The conversations are
+started by `NVF_PLAY_TEST_TALK` with the player put somewhere by `NVF_PLAY_TEST_GOTO`
+and turned away by `NVF_PLAY_TEST_LOOK`.
+
+- **Already facing** (Easy Pete on the saloon's porch, the player 70 units in front of
+  him looking 83° away): he "faces the player with its head (… the body stays: the
+  player is -0° off its front, within 30°)"; the view went from heading 180.0° to
+  262.6° and pitch -5.0° to 5.5° in 0.4 s. Screenshots: 0.2 s before the conversation
+  the view is on the road; 0.4 s into it his face is in the middle of the picture; at
+  the choices the view came back by 0.6° (the head sways with the idle).
+- **From the side** (the player on the porch 47° off his front, looking away): "head
+  and body (standing in its idle) … the body turns +47° in 0.50 s from heading 86°";
+  the view went the short way round, 150.0° to 316.9°. Screenshots 0.2 s before (the
+  town), 0.2 s in (the view sweeping past the windmill), 1.5 s in (his face to the
+  camera and in the middle, the mouth open on the line, hat, hair and beard in place,
+  the collar closed around the neck) and 5 s after the end (his body still turned to
+  the player, heading 132°, the head back in its animation pose). From below the porch
+  at 97° and 104°: the body turned in 0.65 and 0.69 s, the head tilted down to the
+  player (pitch -12°).
+- **From straight behind** (Sunny Smiles in the Prospector Saloon, the player 80 units
+  behind her looking the other way): "the player is +175° off its front, the body turns
+  +175° in 1.17 s from heading 90°"; the view 270.0° to 85.5°. Screenshots: 0.4 s in she
+  is seen from the side, the head ahead of the body; 0.7 s in three quarters round; 2 s
+  in she faces the camera, level, in the middle, hair and eyes in place, speaking.
+- **The head at its limit** (test aid `NVF_PLAY_TEST_TALK_HEAD_ONLY=1`, the player 109°
+  off Easy Pete's front, `--fov 28` for a close view): "with its head only", and at the
+  end "the head (yaw +60°, pitch -13°)", "the body keeps its heading 86°". Screenshots:
+  a three-quarter profile turned to the camera over the shoulder, no kink or gap at
+  the neck, the mouth closed in one shot and open in another; 3 s after the end the
+  back of his head (the head is back to the front).
+- **From outside**: third person (`NVF_PLAY_TEST_CONTROL=8:view`), and the camera
+  circled round the pair for the one frame of a screenshot (`13:orbit=150:10`,
+  `20:orbit=-120:15`; the `orbit` press holds for the frame it is made in). Before: the
+  two side by side, both facing east. During: Easy Pete turned to the player (heading
+  86° to 190°) and looking down at them (the player stands on the ground below the
+  porch), the player's body turned to him. After: both still facing each other.
+- **`--menu-pause original`**: the turns are complete on the conversation's first
+  frames; no coming back was needed at the choices. Three screenshots 0.3, 1 and 2 s
+  into the conversation differ only in a box of 108 × 153 pixels in the middle of the
+  picture, his face (the lip sync, which follows the sound). Found on the way: the eye stands in front
+  of the player's feet and moves as the body turns with the view, so a view put on the
+  face in one frame ended 3° beside it; the view is now put on it for three frames.
+- **The Esc pause menu** (`NVF_PLAY_TEST_PAUSE=12.25:14.25`, opened a quarter of a
+  second into a body turn of 0.69 s): two screenshots under it, 1.2 s apart, are
+  identical in all 1,024,000 pixels; after resuming the turn finished.
+- **The view moved while it turns, and free look** (the test aid's look standing in for
+  the mouse: `NVF_PLAY_TEST_LOOK` 0.2 s into the opening ease, and again 1.5 s in while
+  he speaks): "the view was moved (the mouse, or a test aid): it is left where the
+  player put it"; then at the choices "the view comes back onto EasyPeteRef: heading
+  200.0° to 310.7°, pitch -10.0° to 12.3°, over 0.35 s", and the screenshot with the
+  choices has him in the middle. With `--no-dialogue-recentre` the same run logs no
+  coming back, and the choices are shown over the landscape the view was left on.
+- **`--no-dialogue-look`**: the only `dialogue look` line is "dialogue look is off"; the
+  conversation ran as before.
+- **A traveller** (`--npc-travel EasyPeteRef=GSChetRef`, talked to on his way at 14 s):
+  "faces the player with its head only (its heading is its route's (--npc-travel))"; he
+  stood at 1,041 to 1,044 units walked while the conversation ran, walked on, went
+  through the store's door and arrived ("nav summary: 1 of 1 travellers arrived").
+- **The intro** (§5, 360 s): **VCG01 completed at stage 200**; the trace as in §6 (2
+  `dialogue_started`, 29 `response_said`, 15 `choices_offered`, 15 `choice_made`, 2
+  `dialogue_ended`, 16 `talk_input`). 52 lines were said; the 23 that are SayTo lines
+  logged no facing, and the screenshot during "What do you say you take a seat on my
+  couch…" shows the view where the player left it (on the Vigor Tester). The two
+  conversations logged facing:
+  - Psych test: "DocMitchellREF faces the player with head and body (standing in its
+    idle): the player is -159° off its front, the body turns -159° in 1.06 s from
+    heading 23°"; the view 180.0° to 44.2°. **Doc Mitchell is not sitting**: the engine
+    draws him standing at his placement across the room, by the bed (a chair stands
+    beside him); so no body turned in a chair, and a standing body turned on the
+    spot. At the end "the body keeps its heading 224°".
+  - Farewell: "the body turns -46° in 0.50 s from heading 224°"; the view 44.4° to
+    358.4°. He is still drawn in the other room (his dialogue package would walk him to
+    the player), so from the house's door the view turned to him through a wall (§8.7).
+- **Goodsprings `--play`, 40 s, no aid**: exit 0. **Moving camera** (`--auto-fly 4000
+  --run-seconds 40`): exit 0, "run finished", 212 cells loaded.
+- Not run: the travel smoke test of CLAUDE.md (`nav.rs` is untouched and no traveller's
+  heading is written; the traveller run above covers a conversation with one) and the
+  time-lapse (no sky or lighting change).
+- Unit tests: the view's ease (the short way round, no snap, dropped when the view was
+  moved, a frozen picture, the pause menu), the face point, the head's limits and side,
+  the shares of the neck, bones written down a chain, a bone nothing posed again, the
+  body's turn.
+- Frame rates of these runs ranged from 11 to 54 per second with other sessions
+  building alongside; the 40 s runs gave 41.8 (`--play`) and 52.1 (`--auto-fly`).
+- The runs above predate the merge of main's LEGAL.md and owner-review note (no code)
+  and the move to `claude/dialogue-facing`. After it, on the rebuilt binary: the check
+  list of CLAUDE.md again (all clean), and the conversation from the side once more
+  (the same log lines: the body +47° in 0.50 s, the view 150.0° to 316.8°; exit 0).
+
+### 8.7 Open
+
+- **Played by hand: not done by this session.** The eases were seen in screenshots a
+  few frames apart, not in motion; the mouse dropping an ease is covered by a unit test
+  and by the test aid's look, not by a hand. Owner item.
+- The eyes do not move in the head: at the head's limit (a player far to the side of
+  an actor that keeps its body) the face is turned towards the player but the eyes look
+  straight out of it.
+- No dialogue camera (§8.5).
+- The turn clips are asked for while a body turns, but not checked in a picture, and
+  their length is not matched to the turn: a turn takes 0.5 to 1.4 s whatever the
+  clip's own pace is.
+- Only the drawn actor turns; the simulation's reference keeps its angle. When AI
+  packages place actors, the heading has to become the simulation's.
+- An actor is turned to where the player is, and the view to where the actor is
+  *drawn*. Actors are drawn at their placement until AI moves them, so a conversation a
+  script starts from afar (Doc Mitchell's farewell, which his dialogue package would
+  walk him over for) turns the view to him through a wall.
+- Not read: the package flag "HeadTracking Off", the actor flag "No Rotating to
+  Head-track", `StartConversation`'s head-track parameter, `Look` and `StopLook`
+  (stubs), `fAIMaxHeadTrackDistance`, the `HeadTrack` track of clips.
+- Creatures, robots and talking activators do not turn (the view turns to them).
+- **Hand-over to general turning and head tracking** (other work in progress, not
+  merged and not used here: a component that turns a standing actor on the spot with
+  its turn clip, general head tracking, AI packages). The facing code is laid out for
+  it: one place decides and one applies, for each of the two.
+  - Body: `BodyTurn::plan` decides whether and how far the body turns (from where the
+    player is in the actor's own space); the "body" block of `turn_speaker` applies it
+    (the root's rotation and `Locomotion::turn`). When a shared turn-on-the-spot exists,
+    that block hands the target heading to it instead of stepping the turn itself, and
+    the head-only cases (`BodyHeld`, travellers) stay decided in the same `match`.
+  - Head: `sided` and `limited` decide the head's target; `chain_turns` and
+    `local_turn` apply it to the bones. When actors track heads all the time, the
+    conversation becomes one more source of a target (the player's eye, with priority
+    while the screen is open) for that system, and this file's part shrinks to naming
+    the target; the bone chain and the limits from the body part data move with it.
+- Head tracking outside conversations (actors looking at the player or each other as
+  they pass) is not built: it is AI.
+- The `.lip` files' own head and look channels are still not applied (lipsync.md §3.3).
