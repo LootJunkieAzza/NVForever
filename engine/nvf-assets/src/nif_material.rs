@@ -11,8 +11,11 @@
 //!   and held to 0..1, without fog or tonemapping ([`multiply_factor`],
 //!   docs/spec-notes/nif.md §6, "Multiply blend").
 //!
-//! Opaque, alpha-tested and alpha-blended shapes with a black emissive colour and no
-//! falloff render exactly as with StandardMaterial.
+//! And one change in the pipeline: shapes with a decal shader flag are drawn with a depth
+//! offset towards the camera ([`decal_bias`], docs/spec-notes/nif.md §6, "Decal flags").
+//!
+//! Opaque, alpha-tested and alpha-blended shapes with a black emissive colour, no falloff
+//! and no decal flag render exactly as with StandardMaterial.
 //!
 //! Crossfades: meshes with a crossfading `VisibilityRange` (the streamed cells' fade in
 //! and out, nvforever `fade.rs`) are dithered in every pass. Bevy's depth-only prepass
@@ -23,7 +26,7 @@ use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin, MeshPipelineKey};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, FragmentState, RenderPipelineDescriptor, SpecializedMeshPipelineError};
+use bevy::render::render_resource::{AsBindGroup, DepthBiasState, FragmentState,RenderPipelineDescriptor, SpecializedMeshPipelineError};
 use bevy::shader::{ShaderDefVal, ShaderRef};
 
 /// fade_prepass.wgsl.
@@ -50,18 +53,34 @@ pub fn fade_prepass(descriptor: &mut RenderPipelineDescriptor, mesh_key: MeshPip
     descriptor.fragment = Some(FragmentState { shader: FADE_PREPASS_SHADER, shader_defs, targets, ..default() });
 }
 
-/// The extension part: the falloff parameters and the fragment shader.
+/// The extension part: the falloff parameters, the decal switch and the fragment shader.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+#[bind_group_data(NifSurfaceKey)]
 pub struct NifSurface {
     /// Start angle, stop angle (cosines), start opacity, stop opacity; constant opacity 1
     /// when the shape has no falloff ([`Falloff::NONE`]).
     #[uniform(100)]
     pub falloff: Vec4,
+    /// The shape lies on another surface (a decal shader flag is set): drawn with
+    /// [`decal_bias`].
+    pub decal: bool,
 }
 
 impl Default for NifSurface {
     fn default() -> Self {
-        NifSurface { falloff: Falloff::NONE.params }
+        NifSurface { falloff: Falloff::NONE.params, decal: false }
+    }
+}
+
+/// The part of [`NifSurface`] that selects the pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NifSurfaceKey {
+    pub decal: bool,
+}
+
+impl From<&NifSurface> for NifSurfaceKey {
+    fn from(surface: &NifSurface) -> Self {
+        NifSurfaceKey { decal: surface.decal }
     }
 }
 
@@ -84,6 +103,9 @@ impl MaterialExtension for NifSurface {
         // StandardMaterial has set the rasteriser's bias from the material's depth bias.
         if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
             depth_stencil.bias.constant = raster_bias(depth_stencil.bias.constant);
+            if key.bind_group_data.decal {
+                depth_stencil.bias = decal_bias(depth_stencil.bias);
+            }
         }
         Ok(())
     }
@@ -113,6 +135,25 @@ pub fn raster_bias(constant: i32) -> i32 {
     } else {
         constant
     }
+}
+
+/// Constant part of [`decal_bias`], in steps of the depth buffer at the shape's depth
+/// (2⁻²³ of the depth value for the 32-bit float buffer). With depth = near / distance
+/// that is at most 64 · 2⁻²³ ≈ 7.6e-6 of the distance to the camera: 0.008 units at
+/// 1,000 units, far less than the 0.05 to 1 unit the decals are lifted off their surface.
+pub const DECAL_BIAS: i32 = 64;
+
+/// Slope part of [`decal_bias`]: one pixel's change of depth across the triangle, which
+/// covers the difference between a decal and a surface triangulated differently.
+pub const DECAL_SLOPE_BIAS: f32 = 1.0;
+
+/// The rasteriser's depth bias for a shape with a decal shader flag, added to `bias`: a
+/// small offset towards the camera (depth is reversed, so a positive bias is nearer), so
+/// that the decal wins the depth test against the surface it lies on whichever is drawn
+/// first [hypothesis, docs/spec-notes/nif.md §6 "Decal flags"]. Only the depth buffer is
+/// concerned: the draw order of blended decals stays with their distance.
+pub fn decal_bias(bias: DepthBiasState) -> DepthBiasState {
+    DepthBiasState { constant: bias.constant + DECAL_BIAS, slope_scale: bias.slope_scale + DECAL_SLOPE_BIAS, clamp: bias.clamp }
 }
 
 pub type NifMaterial = ExtendedMaterial<StandardMaterial, NifSurface>;
@@ -235,6 +276,31 @@ mod tests {
         for b in [0, 2, 16, -50, -1000] {
             assert_eq!(raster_bias(b), b);
         }
+    }
+
+    #[test]
+    fn decal_depth_bias() {
+        // A decal is nearer in the depth buffer than a plain shape (reversed depth:
+        // positive is nearer), by a constant and by the slope of its triangle.
+        let plain = DepthBiasState::default();
+        let decal = decal_bias(plain);
+        assert!(decal.constant > plain.constant && decal.slope_scale > plain.slope_scale);
+        assert_eq!(decal.clamp, plain.clamp);
+        // The constant part stays far below the 0.05 units the nearest decals are lifted
+        // off their surface: its share of the distance to the camera, at 5,000 units.
+        let share = DECAL_BIAS as f32 / (1u32 << 23) as f32;
+        assert!(share * 5000.0 < 0.05);
+        // It adds to a bias the material already has, and is not a sort-first bias.
+        let lod = decal_bias(DepthBiasState { constant: -50, ..default() });
+        assert_eq!(lod.constant, DECAL_BIAS - 50);
+        assert_eq!(raster_bias(decal.constant), decal.constant);
+        // Only the decal switch selects the pipeline; the falloff is a uniform.
+        let mut surface = NifSurface::default();
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: false });
+        surface.falloff = Vec4::new(0.9, 0.2, 1.0, 0.0);
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey::from(&NifSurface::default()));
+        surface.decal = true;
+        assert_eq!(NifSurfaceKey::from(&surface), NifSurfaceKey { decal: true });
     }
 
     #[test]
