@@ -1,0 +1,328 @@
+# Spec note: dialogue voice files
+
+Clean-room description in plain language (docs/design/dialogue.md step D3). The reader is
+`crates/fnv-voice`, playback is `engine/nvf-play/src/voice.rs`. Confidence tags:
+**[documented]** cites a public source, **[observed]** was checked on the owner's install
+(FNV 1.4.0.525, Steam, English, the ten masters and their archives), **[hypothesis]**
+needs verification.
+
+How the observations were made (2026-10-10): the file listings of all archives
+(`fnvtool bsa list`) were matched against the DIAL, INFO, QUST, VTYP, NPC_, CREA and TACT
+records of the ten masters, first with throw-away scripts and then by
+`fnvtool voice coverage` (`fnv.voice.coverage/1`), which reproduces every count below
+and is repeated as a test (`crates/fnv-voice/tests/real_data.rs`, run when
+`NVFOREVER_DATA` is set). No listing, sound or text is kept in the repository.
+
+Sources: xEdit record definitions as recorded in `schemas/fnv/gameplay.json` and
+`placed.json` (field names and offsets); RFC 3533 (the Ogg container); the Vorbis I
+specification (xiph.org); Microsoft's "Multimedia Programming Interface and Data
+Specifications 1.0" (RIFF WAVE); GECK wiki Category:Dialogue as quoted in
+quests-dialogue.md §4.
+
+## 1. Where the files are
+
+- Every voice file is in an archive, under `sound\voice\`. No loose voice file exists in
+  the owner's `Data` folder [observed].
+- 122,032 voice files in five archives [observed]:
+
+  | Archive | Plugin folder | `.ogg` | `.lip` | `.wav` |
+  |---|---|---|---|---|
+  | `Fallout - Voices1.bsa` | `falloutnv.esm` | 52,896 | 52,581 | 40 |
+  | `DeadMoney - Main.bsa` | `deadmoney.esm` | 2,795 | 2,558 | – |
+  | `HonestHearts - Main.bsa` | `honesthearts.esm` | 2,277 | 2,263 | – |
+  | `OldWorldBlues - Main.bsa` | `oldworldblues.esm` | 2,199 | 2,177 | – |
+  | `LonesomeRoad - Main.bsa` | `lonesomeroad.esm` | 1,123 | 1,123 | – |
+  | total | | 61,290 | 60,702 | 40 |
+
+  `Fallout - Voices1.bsa` holds nothing else. The add-ons keep their voices in
+  `<plugin> - Main.bsa`, next to meshes and textures; their `<plugin> - Sounds.bsa` hold
+  `sound\fx` and `sound\songs` only [observed]. Gun Runners' Arsenal and the four pack
+  plugins have no voice files; they add no dialogue line of their own (Gun Runners'
+  Arsenal overrides ten base-game lines, §3.4) [observed].
+- One more file sits under `sound\voice`: `sound\voice\empty.txt` in four of the add-on
+  `Main` archives (a placeholder; not a voice file) [observed].
+- The archives are found by the usual precedence (bsa.md, "Precedence"); no voice path
+  is in more than one archive [observed].
+
+## 2. The path
+
+`sound\voice\<plugin>\<voice type>\<quest>_<topic>_<form id>_<response>.<ext>`, all in
+lower case in the archives [observed].
+
+Of the 61,290 sounds, 61,109 are named exactly this way by a response of a line of the
+ten masters; the other 181 are leftovers (§3.3). The parts:
+
+### 2.1 Folders
+
+- `<plugin>`: the file name of the plugin that owns the line's FormID, with its
+  extension (`falloutnv.esm`) [observed: all five folders; every sound of an add-on line
+  is in the add-on's folder, also when the line sits in a base-game topic such as
+  GREETING].
+- `<voice type>`: the Editor ID of a voice type record (VTYP). All 130 voice folders
+  (81 base game, 6, 14, 24 and 5 in the add-ons; 129 different names) are Editor IDs of
+  VTYP records; 24 of the 153 voice types have no folder [observed].
+
+### 2.2 Quest and topic
+
+`<quest>` is the Editor ID of the line's quest (INFO `QSTI`), `<topic>` the Editor ID of
+the topic (DIAL) whose "topic children" group holds the line [observed]:
+
+- When `<quest>_<topic>` is at most 26 characters long, both are kept whole
+  [observed: 15,142 sounds, among them 12,020 whose quest ID is longer than 10
+  characters; 5,700 of those are exactly 26 long].
+- Otherwise the quest ID is cut to its first 10 characters and the topic ID to what is
+  left of the 26 (15 characters after a 10-character quest, more after a shorter one)
+  [observed: 45,990 sounds; with a quest ID longer than 10, totals of 27 characters
+  (1,221 sounds) are already cut; a quest ID of 5 characters leaves the topic 20].
+- Nothing else occurs: of the 61,142 sounds whose FormID is a line of their plugin and
+  whose name has the pattern's shape, 61,132 follow these two rules and ten carry a stale
+  name (§3.3) [observed]. Why 26 and 10 is not known [hypothesis: a fixed-size name
+  buffer in the original tools].
+
+Different topics of one quest can share the cut text; the FormID keeps the names apart.
+
+### 2.3 FormID and response number
+
+- `<form id>`: the line's FormID as eight lower-case hex digits **with the load-order
+  byte zeroed**: add-on lines (FormIDs 01…–04… in the default load order) are stored as
+  `00……` [observed: all 5,647 different FormIDs in add-on file names start with `00`]. So a file
+  name does not depend on where its plugin loads.
+- `<response>`: the response number of the INFO's `TRDT` (byte 12; xEdit "Response
+  number") in decimal, without padding [documented: the field; observed: as the last part
+  of the name]. Numbers run from 1 to 31; 120 sounds have a two-digit number [observed].
+  The number is not the position in the record: 874 of 28,887 lines with responses store
+  them in another order than 1…n, or skip numbers (for example 2, 1) [observed].
+
+### 2.4 Extension
+
+`.ogg` for the sound, `.lip` for its lip-sync data (same name), and for 40 base-game
+sounds a `.wav` copy next to the `.ogg` (§4).
+
+## 3. Lines against files
+
+28,896 lines (INFO, winning definitions) with 37,403 responses; 9 lines have no response
+[observed].
+
+### 3.1 How many resolve
+
+A response "has a sound" when at least one voice folder of its plugin holds its `.ogg`
+[observed]:
+
+| Plugin | Lines | Responses | With a sound | Share |
+|---|---|---|---|---|
+| FalloutNV.esm | 23,247 | 29,674 | 28,767 | 96.9 % |
+| DeadMoney.esm | 2,126 | 2,765 | 2,729 | 98.7 % |
+| HonestHearts.esm | 1,236 | 1,664 | 1,653 | 99.3 % |
+| OldWorldBlues.esm | 1,620 | 2,165 | 2,134 | 98.6 % |
+| LonesomeRoad.esm | 667 | 1,135 | 1,120 | 98.7 % |
+| all ten masters | 28,896 | 37,403 | 36,403 | **97.3 %** |
+
+For the 22,589 responses of lines with a fixed speaker (INFO `ANAM`), the file can be
+checked in that speaker's own voice folder (§7): 22,252 have it there, 317 have no file
+in any voice, 15 have a file only in another voice's folder, and 5 belong to speakers
+(creatures) without a voice type [observed].
+
+### 3.2 Several voices, or none
+
+- A response has one file per voice type that can say it, each in that voice type's
+  folder. No file is shared between voice types: there is no common folder and no
+  redirection [observed]. 31,861 responses have a sound in one voice folder, 4,542 in two
+  or more (lines many actors share; up to 32 voices) [observed].
+- 1,000 responses have no sound in any voice. They are spread over 108 quests, most in
+  test and debug quests (`vDialogueTestaclesDebug` 289, `VDialogueTEST` 64), robots and
+  radios (`HD00RobotsDialog` 50, `RadioBlackMountain` 38) [observed]. 165 of them name a
+  sound form instead (§6). What the game does for a line without a file (how long it
+  shows the subtitle) is [hypothesis: not captured]; the runtime keeps its fitted length
+  (§8).
+
+### 3.3 Sounds no line names
+
+181 of the 61,290 sounds [observed]:
+
+- 138 carry a FormID that is no line of their plugin (lines deleted after recording);
+- 33 carry the FormID of a line but another name: 10 with the quest and topic the line
+  had before it was moved (for example a Freeside line recorded under its old quest), and
+  23 with a response number the line no longer has;
+- 10 have names outside the pattern (suffixes such as `_alt`, `_og`, `old`, a trailing
+  space, a missing response number).
+
+The reader never finds these, as the game presumably does not [hypothesis].
+
+### 3.4 Lines a later plugin overrides
+
+37 base-game lines are redefined by a later master (Dead Money 25, Gun Runners' Arsenal
+10, Honest Hearts 2). All 37 have their sounds in the base game's folder; the overriding
+plugins' folders hold none for them [observed]. The
+reader looks in the folder of the plugin that owns the FormID only
+[hypothesis: whether the game would prefer a file in the overriding plugin's folder is
+untested, since none exists].
+
+## 4. File types
+
+- **`.ogg`**: Ogg Vorbis. All 61,109 sounds that lines name were read: 51,927 at 24,000
+  Hz, 7,842 at 22,050 Hz, 1,162 at 48,000 Hz and 178 at 44,100 Hz; 59,674 mono and 1,435
+  stereo; together 253,944 s (70.5 hours); the longest 40.85 s, the shortest 0 samples
+  [observed].
+- **`.wav`**: 40 files, all in `maleuniquepresident` (the `VHDKimballSpeech` quest), each
+  next to an `.ogg` of the same name, with the same sample rate, channel count and
+  length as its `.ogg` (within 1 ms) [observed]. The one looked at closely is 16-bit PCM
+  with a `bext` chunk before `fmt ` [observed]. Which of the two the game plays is [hypothesis: unknown]; the reader takes
+  the `.ogg` [decision: same length, and the engine's audio decodes Ogg Vorbis].
+- **`.lip`**: lip-sync data, one per sound for 60,702 of the 61,290 sounds; none without
+  its sound [observed]. Not decoded (out of scope, docs/design/dialogue.md §7).
+
+## 5. Length from the headers
+
+Nothing is decoded to measure a file (`fnv_voice::length`):
+
+- **Ogg Vorbis.** An Ogg file is a chain of pages: the capture pattern `OggS`, a version
+  byte, a header-type byte, a 64-bit granule position, the stream serial number, a page
+  sequence number, a checksum, a segment count and table, then the segments
+  [documented: RFC 3533 §6]. The first packet is the Vorbis identification header: packet
+  type 1, the letters `vorbis`, a 32-bit version (0), the channel count (1 byte) and the
+  sample rate (32 bits) [documented: Vorbis I specification §4.2.2]. A page's granule
+  position is the count of samples decoded when the last packet ending on that page is
+  done; −1 means no packet ends on the page [documented: Vorbis I §A.2, RFC 3533 §6].
+  **Length = granule position of the last page that has one ÷ sample rate.** Checksums
+  are not verified; a file cut short keeps the last whole page's count.
+- **WAV.** RIFF chunks; `fmt ` gives format, channels, sample rate, bytes per second and
+  block align, `data` the samples [documented: RIFF WAVE]. PCM: `data` size ÷ block align
+  ÷ sample rate. Other formats: the `fact` chunk's sample count when present, else `data`
+  size ÷ bytes per second. Chunks before `data` (such as `bext`) are skipped.
+
+Check [observed]: both readers give 125,359 samples (5.223 s) for the first Kimball line's
+`.wav` and `.ogg`; the 40 pairs agree.
+
+## 6. The sound field of a response
+
+- `TRDT` bytes 16–19 name a sound form (xEdit "Sound", SOUN) [documented: xEdit,
+  `gameplay.json`]. 228 responses of the masters set it, pointing at 97 SOUN records,
+  whose file name is a folder for 108 of the responses, an `.mp3` for 111 and a `.wav`
+  for 9 (among them creature and robot noises) [observed]. 63 of the 228 also have
+  a voice file [observed].
+- The editor describes it as an optional sound played instead of the voice
+  [documented: GECK wiki Category:Dialogue, quests-dialogue.md §4]. Whether it replaces
+  the voice file when both exist, and how long such a line lasts, is [hypothesis: not
+  captured]. The reader reports the form (`sound_form` in `fnv.voice.line/1`) and does
+  not play or measure it.
+- `SNDD` ("Unused" in xEdit) occurs in no INFO of the masters [observed].
+
+## 7. Who speaks with which voice
+
+- An NPC's or creature's voice type is its `VTCK`; a talking activator's (TACT) is its
+  `VNAM` [documented: xEdit "Voice" / "Voice Type"]. All 4,220 NPC_ records, 1,542 of
+  2,235 creatures and 101 of 132 talking activators have one [observed].
+- An actor whose template supplies its Traits (`ACBS` template flags bit 0, with a
+  `TPLT`) takes the template's voice type, as it takes race and sex
+  [documented: xEdit hides these fields under the flag, actors.md §1]. When the template
+  is a levelled list the actual actor is chosen at run time; the reader then uses the
+  record's own voice type [hypothesis].
+- The game chooses the folder from the speaker's voice type at run time. The reader does
+  the same and does not fall back to another voice's file (§3.1's 15 responses then have
+  no sound) [hypothesis].
+
+## 8. Line length in the runtime
+
+`fnv-game` has a hook (`fnv_game::voice::VoiceLengths`, `Game::voice`): when set, a
+response lasts as long as its voice file for the speaker's voice type; a response
+without a file, and every response when the hook is not set, keeps the fitted length
+(1.1 s + 1/16 s per character, scripts.md §7.7). Every response is timed in one place
+(`Game::response_seconds`), so SayTo and Say lines (which last the sum of their
+responses) and the lines of a conversation (docs/spec-notes/dialogue.md §5) follow alike.
+`fnv_voice::VoiceBank` implements the hook; `fnvtool script run` and `fnvtool dialogue
+talk` set it by default (`--no-voice-lengths` or `FNVTOOL_VOICE_LENGTHS=0` keep the
+fitted length) and `nvforever --play` sets it once the index is built
+(`NVF_PLAY_VOICE_LENGTHS=0` keeps the fitted length).
+
+**Doc Mitchell's intro lines** (the 23 he says by SayTo in the headless walk-through,
+`crates/fnv-game/walkthrough/intro.actions.json`; all are single responses in
+`maleuniquedocmitchell`) [observed: file headers]:
+
+| Line (INFO) | Characters | Fitted s | Sound s | | Line (INFO) | Characters | Fitted s | Sound s |
+|---|---|---|---|---|---|---|---|---|
+| 0x00104BEE | 29 | 2.91 | 2.61 | | 0x00104BFC | 34 | 3.23 | 2.78 |
+| 0x00104BEF | 63 | 5.04 | 5.59 | | 0x001074A2 | 122 | 8.72 | 9.55 |
+| 0x00104BF0 | 53 | 4.41 | 3.04 | | 0x00104BED | 102 | 7.47 | 5.79 |
+| 0x00104BF1 | 77 | 5.91 | 5.87 | | 0x0010749C | 35 | 3.29 | 1.95 |
+| 0x00104BF2 | 92 | 6.85 | 5.70 | | 0x001055AD | 84 | 6.35 | 3.50 |
+| 0x00104BF3 | 41 | 3.66 | 3.14 | | 0x001055AE | 117 | 8.41 | 6.25 |
+| 0x00104BF6 | 113 | 8.16 | 6.97 | | 0x0010586A | 56 | 4.60 | 3.07 |
+| 0x00104BF7 | 88 | 6.60 | 5.77 | | 0x0010586B | 79 | 6.04 | 3.98 |
+| 0x00104BF8 | 11 | 1.79 | 0.88 | | 0x0010586C | 99 | 7.29 | 6.09 |
+| 0x00104BF9 | 58 | 4.72 | 3.61 | | 0x001057EE | 38 | 3.48 | 2.35 |
+| 0x00104BFA | 84 | 6.35 | 7.03 | | 0x001057EF | 31 | 3.04 | 1.48 |
+| 0x00104BFB | 94 | 6.97 | 6.44 | | all 23 | | 125.29 | 103.45 |
+
+**Stage timings** (seconds from the stage before, headless walk-through; capture:
+scripts.md §9, layer5-captures.md §10.2–10.3). `nvforever --play --new-game` gives the
+same steps within 0.05 s for both lengths (docs/design/layer5-play.md §6.2, §6.4),
+except 60 → 65, which its test aid times:
+
+| Span (lines) | Capture | Fitted | Sound | Sound − capture |
+|---|---|---|---|---|
+| VCG01 3 → 5 (1 line) | 2.9 | 2.90 | 2.60 | −0.3 |
+| 8 → 10 (3 lines) | 15.4 | 15.37 | 14.52 | −0.9 |
+| 15 → 25 (2 lines) | not timed | 10.50 | 8.85 | |
+| 25 → 30 (2 lines) | not timed | 14.77 | 12.77 | |
+| 35 → 36 (1 line) | a line | 1.78 | 0.87 | |
+| 40 → 45 (2 lines) | not timed | 11.13 | 10.70 | |
+| 50 → 55 (2 lines) | about 10 | 10.20 | 9.22 | about −0.8 |
+| 60 → 65 (1 line; trigger by input) | about 10 | 8.75 | 9.57 | about −0.4 |
+| 70 → 75 (1 line) | not timed | 7.47 | 5.78 | |
+| 79 → 80 (3 lines) | about 13 | 18.07 | 11.73 | about −1.3 |
+| 95 → 98 (3 lines) | not timed | 17.93 | 13.15 | |
+| 105 → 110 (1 line) | not timed | 3.47 | 2.35 | |
+
+What this shows [observed]: the sound lengths remove the fit's large errors (the psych
+intro, 18.1 s against about 13 s), and every timed span now comes out **short by about
+0.3 to 0.4 s per line** (−0.3 for one line, −0.9 for three, about −0.8 for two, about
+−0.4 for one, about −1.3 for three). The fit had absorbed that. The cause is [hypothesis]: a pause the game leaves
+after a sound before the end result script runs, or the time it takes to start one.
+Nothing was tuned to close it: it needs a capture that times single lines (owner review;
+docs/design/dialogue.md §6 question 4). Which stage follows which, and by what, is unchanged. The
+walk-through's conversations with Doc Mitchell (the psych test and the farewell, 20
+more lines) run on the sound lengths as well: all 44 lines of the run take 219.1 s
+instead of 271.7 s.
+
+**Lab.** The four `L5.intro.*` scenarios pass with both lengths, with identical
+observations: their timed steps are timers, not spans of lines [observed].
+
+## 9. Playback (`nvforever --play`)
+
+`engine/nvf-play/src/voice.rs`: each response of a line being said (`Game::speech`:
+SayTo and Say; and the line of a conversation, `Game::dialogue`, once the dialogue
+screen starts conversations in the game) has its file read from the archive and played
+through Bevy's audio when it starts, the responses in response-number order; subtitles
+switch with the responses; a line that is cut (another line by
+the same speaker, the speaker disabled, deleted or dead) has its sound stopped. One log
+line per sound: `voice: playing <path> (<seconds> s) <speaker> line <INFO> response <n>`;
+a response without a file logs `voice: no file ...`. `--no-voice` plays nothing (lengths
+and log stay), `--voice-volume <x>` scales the volume.
+
+Not done [decision]: 3D placement and distance (voices play flat), pausing the sound
+with the pause menu or a script's menu (script time stops there, the sound plays on),
+the response's sound form (§6), lip sync and emotions.
+
+## 10. Tools
+
+- `fnvtool voice line <data> <plugins…> --info <FormID> [--speaker <Editor ID|FormID>]`
+  (`fnv.voice.line/1`): quest, topic, the file name of each response, every voice type
+  that has it (path, archive, sample rate, length, lip file) and the file the speaker
+  says it with (default: the line's fixed speaker); the line's length when every response
+  has a file.
+- `fnvtool voice coverage <data> <plugins…> [--lengths]` (`fnv.voice.coverage/1`): the
+  counts of this note; `--lengths` reads every sound's headers (about 10 s).
+- `fnvtool voice length <file…>` (`fnv.voice.length/1`): the headers of loose `.ogg` or
+  `.wav` files.
+
+## 11. Open
+
+- The 0.3 to 0.4 s per line between a sound's length and the captured spans (§8).
+- `.ogg` or `.wav` first when both exist (§4); the sound form of a response (§6); a line
+  without any file (§3.2).
+- Voice type of actors templated on a levelled list (§7); whether another voice type's
+  file is ever used (§3.1).
+- Whether the game looks in an overriding plugin's folder (§3.4), and whether loose
+  files replace archive files for voices (bsa.md, "Precedence").
+- Say's `is2D` and `isVoice` parameters (script-functions-catalogue.md) and distance
+  attenuation: not read.
