@@ -255,6 +255,7 @@ fn activate(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut changed: MessageWriter<RefChanged>,
+    mut sit: MessageWriter<crate::furniture::UseFurniture>,
     script: Option<ResMut<crate::script::ScriptState>>,
 ) {
     let fired = match (auto, time) {
@@ -286,6 +287,12 @@ fn activate(
         }
     };
     info!("activate 0x{:08X} {} ({}): {:?}", t.form_id, t.name, t.action.label(), a);
+    // Furniture's default activation: the player uses it (`crate::furniture`).
+    let furniture = sim.base_of(t.form_id).and_then(|b| sim.forms.get(b)).is_some_and(|b| matches!(b.data, BaseData::Furniture));
+    if furniture && matches!(a.outcome, Outcome::Activated) {
+        sit.write(crate::furniture::UseFurniture { reference: t.form_id });
+        return;
+    }
     let name_of = |id: FormId| sim.name(id).map_or_else(|| id.to_string(), str::to_string);
     let effects = outcome::effects(&a, t.form_id, &t.name, play.index, name_of);
     let travels = effects.iter().any(|e| matches!(e, Effect::Travel { .. }));
