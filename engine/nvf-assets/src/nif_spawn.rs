@@ -103,6 +103,8 @@ pub(crate) struct Props {
     falloff: Option<Falloff>,
     /// BSShaderFlags bit 29 "External_Emittance" [documented: nif.xml].
     external_emittance: bool,
+    /// A decal shader flag is set ([`is_decal`]).
+    decal: bool,
     /// Some property is attached (to the shape or an ancestor).
     has_properties: bool,
     /// One of them derives from BSShaderProperty.
@@ -154,6 +156,17 @@ fn glow_map(shader_flags: i64, textures: &[String]) -> Option<String> {
     textures.get(2).filter(|t| !t.is_empty()).cloned()
 }
 
+/// The shape is a decal: BSShaderFlags bit 26 "Decal_Single_Pass" or bit 27
+/// "Dynamic_Decal_Single_Pass" [documented: nif.xml BSShaderFlags]. 2,130 visible shapes
+/// in `Fallout - Meshes.bsa` set one (41 only bit 26, none only bit 27): dirt, stains,
+/// cracks, markings and insignia laid 0.05 to 1 unit in front of another shape of their
+/// file, a few exactly in its plane [observed: `crates/fnv-nif/examples/decal_survey.rs`,
+/// docs/spec-notes/nif.md §6 "Decal flags"]. They are drawn with a depth offset towards
+/// the camera (`nif_material::decal_bias`) [hypothesis].
+pub(crate) fn is_decal(shader_flags: i64) -> bool {
+    shader_flags & (1 << 26 | 1 << 27) != 0
+}
+
 fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     let Some(s) = dec.get(r) else { return };
     let ty = file.blocks[r as usize].type_name.as_str();
@@ -173,6 +186,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.hair = flags & (1 << 18) != 0;
         p.skin = s.int("shader_type") == Some(SHADER_SKIN);
         p.external_emittance = flags & (1 << 29) != 0;
+        p.decal = is_decal(flags);
         p.falloff = None;
     }
     match ty {
@@ -382,6 +396,7 @@ pub(crate) fn shape_material(
     if let Some(f) = shape_falloff(props, alpha_mode) {
         material.extension.falloff = f.params;
     }
+    material.extension.decal = props.decal;
     (material, missing)
 }
 
@@ -714,6 +729,22 @@ mod tests {
         // A shader property, or a texture from NiTexturingProperty: drawn.
         assert!(!Props { shader: true, ..material_only.clone() }.is_helper());
         assert!(!Props { textures: vec!["textures\\a.dds".into()], ..material_only }.is_helper());
+    }
+
+    #[test]
+    fn decal_flags() {
+        // utlhallsm1waypipe01.nif: the rust stain `:8` (bits 26, 27 and 31) and the
+        // alpha-tested decal `:24` are decals, the wall `:0` and the pipe cards `:1` not.
+        assert!(is_decal(0x8c00_0000));
+        assert!(is_decal(0x8e00_0101));
+        assert!(!is_decal(0x8200_0001));
+        assert!(!is_decal(0x8200_0101));
+        // Either bit alone (creatures\protectron\decalflame.nif sets only bit 26).
+        assert!(is_decal(1 << 26));
+        assert!(is_decal(1 << 27));
+        assert!(!is_decal(0xffff_ffff & !(1 << 26 | 1 << 27)));
+        // The flags reach the material's properties from the shader property.
+        assert!(!Props::default().decal);
     }
 
     #[test]
