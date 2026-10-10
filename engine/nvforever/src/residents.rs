@@ -601,9 +601,10 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             away.map(|a| format!("{a:.0} units away, ")).unwrap_or_default(),
             doors.len()
         ),
-        AiEvent::Talk { package, target, line, away, say_to: false } => format!("starts a conversation with {} from {away:.0} units ({}), line {line}", n(target), n(package)),
-        AiEvent::Talk { package, target, line, away, say_to: true } => format!("says line {line} to {} from {away:.0} units ({})", n(target), n(package)),
-        AiEvent::TalkOver { package } => format!("the conversation of {} is over", n(package)),
+        AiEvent::Talk { package, target, line, away, say_to: false, greeting: false } => format!("starts a conversation with {} from {away:.0} units ({}), line {line}", n(target), n(package)),
+        AiEvent::Talk { package, target, line, away, say_to: false, greeting: true } => format!("greets {} from {away:.0} units without a conversation ({}), line {line}", n(target), n(package)),
+        AiEvent::Talk { package, target, line, away, say_to: true, .. } => format!("says line {line} to {} from {away:.0} units ({})", n(target), n(package)),
+        AiEvent::TalkOver { package } => format!("has talked ({})", n(package)),
         AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
     }
 }
