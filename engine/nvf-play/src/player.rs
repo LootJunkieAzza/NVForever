@@ -773,6 +773,10 @@ fn step(
         p.prev_feet = c.feet;
         let view = Some([player.heading.sin(), player.heading.cos()]);
         let s = p.world.move_character(c, CharacterInput { velocity: [vx, vy], jump: intent.jump && i == 0, vertical: vz, view });
+        // The actors another system walks, by the velocity it gave each.
+        for b in p.npcs.values_mut() {
+            p.world.move_character(&mut b.ch, CharacterInput { velocity: b.velocity, ..Default::default() });
+        }
         p.world.step();
         status.record(&s, p.prev_feet, [vx, vy], dt);
     }

@@ -289,6 +289,10 @@ pub struct ActorDef {
     /// CREA DATA creature type code (0 Animal … 7 Giant) [documented: xEdit
     /// wbCreatureTypeEnum; schema `gameplay.json`].
     pub creature_type: Option<i64>,
+    /// AIDT energy level (0–100): low-energy actors spend more of a sandbox sitting and
+    /// eating, high-energy ones wandering and idling [documented: GECK wiki, Sandbox
+    /// Package].
+    pub energy: Option<u8>,
     /// Combat (step C5) [documented: xEdit field names; GECK wiki Stats Tab pages]:
     /// NPC_ DATA Base Health (added to the health derived from Endurance and level) or
     /// CREA DATA Health (the creature's health).
@@ -389,12 +393,7 @@ impl DestructionStage {
     pub const DESTROY: u8 = 4;
 }
 
-/// An AI package's conditions (`PACK` CTDA before the begin/end/change sections)
-/// [documented: xEdit PACK layout].
-#[derive(Debug, Clone, Default)]
-pub struct PackageDef {
-    pub conditions: Vec<Condition>,
-}
+pub use crate::package::PackageDef;
 
 pub struct GameData {
     pub table: FunctionTable,
@@ -421,7 +420,7 @@ pub struct GameData {
     pub goodbye: Option<FormId>,
     /// PACK begin / end / change result scripts.
     pub packages: HashMap<FormId, [Option<UnitId>; 3]>,
-    /// Every PACK with its conditions.
+    /// Every PACK as typed data ([`crate::package`]).
     pub package_defs: HashMap<FormId, PackageDef>,
     pub messages: HashMap<FormId, MessageDef>,
     pub form_lists: HashMap<FormId, Vec<FormId>>,
@@ -450,6 +449,12 @@ pub struct GameData {
     pub destructibles: HashMap<FormId, DestructionDef>,
     /// WEAP DNAM skill (actor value code).
     pub weapon_skills: HashMap<FormId, i64>,
+    /// FURN marker flags (MNAM as a little-endian number; 0 when absent): bit 30
+    /// furniture to sit on, bit 31 to sleep on [observed: docs/spec-notes/furniture.md
+    /// §1].
+    pub furniture: HashMap<FormId, u32>,
+    /// IDLM: the idle collection of each idle marker base.
+    pub idle_markers: HashMap<FormId, crate::package::IdleCollection>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
 }
@@ -491,6 +496,8 @@ struct Read {
     faction: Option<Vec<(FormId, i64)>>,
     destruction: Option<DestructionDef>,
     weapon_skill: Option<i64>,
+    furniture: Option<u32>,
+    idle_marker: Option<crate::package::IdleCollection>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -547,6 +554,8 @@ impl GameData {
             faction_reactions: HashMap::new(),
             destructibles: HashMap::new(),
             weapon_skills: HashMap::new(),
+            furniture: HashMap::new(),
+            idle_markers: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };
@@ -667,6 +676,12 @@ impl GameData {
             if let Some(v) = r.weapon_skill {
                 d.weapon_skills.insert(id, v);
             }
+            if let Some(v) = r.furniture {
+                d.furniture.insert(id, v);
+            }
+            if let Some(v) = r.idle_marker {
+                d.idle_markers.insert(id, v);
+            }
         }
         let (lines, order) = topic_lines(lo);
         d.topics = lines;
@@ -724,6 +739,20 @@ impl GameData {
 
     pub fn is_quest(&self, id: FormId) -> bool {
         self.quests.contains_key(&id)
+    }
+
+    /// The AI package list of an actor base (NPC_, CREA): its own `PKID` list, or its
+    /// template's when the template supplies the AI packages
+    /// ([`crate::game::Game::package_list`]).
+    pub fn base_package_list(&self, mut base: FormId) -> Vec<FormId> {
+        for _ in 0..8 {
+            let Some(a) = self.actors.get(&base) else { break };
+            match a.template.filter(|t| a.template_packages && self.actors.contains_key(t)) {
+                Some(t) => base = t,
+                None => return a.packages.clone(),
+            }
+        }
+        self.actors.get(&base).map(|a| a.packages.clone()).unwrap_or_default()
     }
 
     /// The priority of the quest a line belongs to (0 without a quest).
@@ -827,7 +856,12 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"RACE"
             | b"FACT"
             | b"WEAP"
+            | b"IDLM"
     ) || subs.iter().any(|s| &s.sig == b"DEST");
+    if &sig == b"FURN" {
+        let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
+        out.furniture = Some(flags.unwrap_or(0));
+    }
     for s in &subs {
         match &s.sig {
             b"EDID" if out.edid.is_none() => out.edid = val(s).and_then(|v| v.as_str().map(str::to_string)),
@@ -1146,6 +1180,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.base_health = v.as_ref().and_then(|v| v.get("base_health")).and_then(Json::as_i64).unwrap_or(0);
                         a.endurance = v.as_ref().and_then(|v| v.get("attributes")).and_then(|x| x.get("endurance")).and_then(Json::as_i64).unwrap_or(0);
                     }
+                    b"AIDT" => a.energy = v.as_ref().and_then(|v| v.get("energy_level")).and_then(Json::as_u64).map(|e| e.min(255) as u8),
                     b"ACBS" => {
                         let f = v.as_ref().and_then(|v| v.get("flags"));
                         a.female = has_flag(f, "Female");
@@ -1164,17 +1199,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             out.actor = Some(a);
         }
         b"PACK" => {
-            let mut p = PackageDef::default();
-            for (s, v) in &decoded {
-                match *s {
-                    // The begin / end / change sections hold result scripts, not
-                    // package conditions.
-                    b"POBA" | b"POEA" | b"POCA" => break,
-                    b"CTDA" => p.conditions.extend(cond(v, &mut out.issues)),
-                    _ => {}
-                }
-            }
-            out.package = Some(p);
+            let code = |sub: &[u8; 4], field: &str, v: &Json| field_code(schema, &sig, sub, Some(field), v);
+            let ctx = crate::package::ReadCtx { code: &code, map: &map };
+            let mut issues = Issues::default();
+            out.package = Some(crate::package::read(&decoded, &ctx, &mut |v| cond(v, &mut issues)));
+            out.issues.merge(issues);
         }
         b"REPU" => {
             out.reputation = decoded.iter().find(|(s, _)| *s == b"DATA").and_then(|(_, v)| v.as_ref()?.as_f64()).map(|x| x as f32);
@@ -1262,6 +1291,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     })
                     .collect(),
             );
+        }
+        b"IDLM" => {
+            let code = |sub: &[u8; 4], field: &str, v: &Json| field_code(schema, &sig, sub, Some(field), v);
+            let ctx = crate::package::ReadCtx { code: &code, map: &map };
+            out.idle_marker = Some(crate::package::read(&decoded, &ctx, &mut |_| None).idles.unwrap_or_default());
         }
         b"WEAP" => {
             out.weapon_skill = decoded
