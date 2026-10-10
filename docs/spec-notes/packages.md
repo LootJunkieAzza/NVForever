@@ -389,8 +389,14 @@ state are ignored.
 In the engine: `nvforever --npc-packages ACTOR[,ACTOR…] [--npc-timescale T]
 [--follow-npc]` (docs/design/actor-behaviour.md §5.4).
 
+Sandboxing: `fnv_ai::sandbox` (`Allowed`, `Doing`, `Sandbox`), rules and flags in
+docs/design/actor-behaviour.md §5.5; `fnvtool ai packages` reports `sandbox` (per
+Sandbox / Wander package: behaviours allowed and the other flags that bear on them)
+and `sandbox_radius`; `fnvtool ai run` shows each actor's `using` (furniture) and
+`sandbox` (what it is doing) and the events `sandbox`, `furniture`, `patrol_wait`.
+
 Carrying out: `fnv_ai::goal::resolve` (a package's goal) and `fnv_ai::Ai` (`add`,
-`update`, `update_with`, `events`), `crates/fnv-ai`; `Game::block_package`, `Game::set_actor_place` and
+`update`, `update_with`, `update_moved`, `events`), `crates/fnv-ai`; `Game::block_package`, `Game::set_actor_place` and
 `PackageCheck::Unreachable` in `fnv-game`. Tests: `crates/fnv-ai/tests/carry.rs`.
 
 The choice in the game data: `Game::check_package`, `select_package`,

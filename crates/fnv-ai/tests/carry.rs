@@ -2,11 +2,11 @@
 //! data): two interior cells joined by a door, markers, and actors with one package
 //! each. The rules and their sources: docs/design/actor-behaviour.md §5.
 
-use fnv_ai::{Activity, Ai, AiConfig, AiEvent};
+use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Doing};
 use fnv_esm::raw::{write_subrecords, Subrecord};
 use fnv_esm::{LoadOrder, Plugin, Schema};
 use fnv_game::game::{Game, GameConfig};
-use fnv_game::package::{flags, PackageCheck};
+use fnv_game::package::{flags, type_flags, PackageCheck};
 use fnv_game::GameData;
 use fnv_nav::graph::DoorLock;
 use fnv_nav::record::{tri_flags, DoorLink, NavMeshRecord, Triangle};
@@ -47,9 +47,14 @@ fn glob(fid: u32, edid: &str, v: f32) -> Vec<u8> {
 /// A package without schedule or conditions: flags, type, location (type, value,
 /// radius) and, for a patrol, whether it repeats.
 fn pack(id: u32, edid: &str, general: u32, ty: u8, location: (i32, u32, i32), repeatable: Option<bool>) -> Vec<u8> {
+    pack_with(id, edid, general, ty, 0, location, repeatable)
+}
+
+/// [`pack`] with the type-specific flags (a sandbox's "No ..." switches).
+fn pack_with(id: u32, edid: &str, general: u32, ty: u8, specific: u16, location: (i32, u32, i32), repeatable: Option<bool>) -> Vec<u8> {
     let mut subs = vec![
         sub(b"EDID", z(edid)),
-        sub(b"PKDT", [&general.to_le_bytes()[..], &[ty, 0], &[0; 6]].concat()),
+        sub(b"PKDT", [&general.to_le_bytes()[..], &[ty, 0, 0, 0], &specific.to_le_bytes(), &[0, 0]].concat()),
         sub(b"PLDT", [location.0.to_le_bytes(), location.1.to_le_bytes(), location.2.to_le_bytes()].concat()),
         sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()),
     ];
@@ -64,14 +69,25 @@ fn npc(fid: u32, edid: &str, packages: &[u32]) -> Vec<u8> {
 }
 
 fn placed(sig: &[u8; 4], fid: u32, edid: &str, base: u32, pos: [f32; 3], linked: Option<u32>) -> Vec<u8> {
+    placed_with(sig, fid, edid, base, pos, 0.0, linked, None)
+}
+
+/// [`placed`] with a heading (z rotation, radians) and a patrol idle time (XPRD).
+#[allow(clippy::too_many_arguments)]
+fn placed_with(sig: &[u8; 4], fid: u32, edid: &str, base: u32, pos: [f32; 3], heading: f32, linked: Option<u32>, idle: Option<f32>) -> Vec<u8> {
     let mut subs = vec![sub(b"EDID", z(edid)), sub(b"NAME", base.to_le_bytes().to_vec())];
+    subs.extend(idle.map(|s| sub(b"XPRD", s.to_le_bytes().to_vec())));
     subs.extend(linked.map(|l| sub(b"XLKR", l.to_le_bytes().to_vec())));
-    subs.push(sub(b"DATA", [pos[0].to_le_bytes(), pos[1].to_le_bytes(), pos[2].to_le_bytes(), [0; 4], [0; 4], [0; 4]].concat()));
+    subs.push(sub(b"DATA", [pos[0].to_le_bytes(), pos[1].to_le_bytes(), pos[2].to_le_bytes(), [0; 4], [0; 4], heading.to_le_bytes()].concat()));
     record(sig, fid, &subs)
 }
 
+const G_HOUR: u32 = 0x804;
 const G_DAYS: u32 = 0x805;
 const STAT: u32 = 0x810;
+const CHAIR: u32 = 0x811;
+const BED: u32 = 0x812;
+const IDLE_MARKER: u32 = 0x813;
 // Packages.
 const P_TRAVEL_B: u32 = 0x820;
 const P_DEFAULT: u32 = 0x821;
@@ -82,6 +98,12 @@ const P_LOOP: u32 = 0x825;
 const P_FOLLOW: u32 = 0x826;
 const P_HERE: u32 = 0x827;
 const P_RUN: u32 = 0x828;
+const P_SB_ALL: u32 = 0x829;
+const P_SB_WANDER: u32 = 0x82A;
+const P_SB_OBJECTS: u32 = 0x82B;
+const P_SB_NOTHING: u32 = 0x82C;
+const P_TO_CHAIR: u32 = 0x82D;
+const P_SLEEP_C: u32 = 0x82E;
 // Bases.
 const N_TRAVEL: u32 = 0x840;
 const N_IN: u32 = 0x841;
@@ -91,9 +113,27 @@ const N_LOOP: u32 = 0x844;
 const N_FOLLOW: u32 = 0x845;
 const N_HERE: u32 = 0x846;
 const N_RUN: u32 = 0x847;
+const N_SB_ALL: u32 = 0x848;
+const N_SB_WANDER: u32 = 0x849;
+const N_SB_OBJECTS: u32 = 0x84A;
+const N_SB_NOTHING: u32 = 0x84B;
+const N_TO_CHAIR: u32 = 0x84C;
+const N_SLEEP_C: u32 = 0x84D;
 // Cells and references.
 const CELL_A: u32 = 0x860;
 const CELL_B: u32 = 0x861;
+const CELL_C: u32 = 0x862;
+const MARK_C: u32 = 0x890;
+const CHAIR_C: u32 = 0x891;
+const BED_C: u32 = 0x892;
+const IDLE_C: u32 = 0x893;
+const R_SB_ALL: u32 = 0x894;
+const R_SB_WANDER: u32 = 0x895;
+const R_SB_OBJECTS: u32 = 0x896;
+const R_SB_OBJECTS_2: u32 = 0x897;
+const R_SB_NOTHING: u32 = 0x898;
+const R_TO_CHAIR: u32 = 0x899;
+const R_SLEEP_C: u32 = 0x89A;
 const MARK_B: u32 = 0x870;
 const MARK_A: u32 = 0x871;
 const M1: u32 = 0x872;
@@ -114,10 +154,15 @@ const DOOR_A: u32 = 0x8D1;
 const DOOR_B: u32 = 0x8D2;
 
 const TRAVEL: u8 = 6;
+const SLEEP: u8 = 4;
 const SANDBOX: u8 = 12;
 const PATROL: u8 = 13;
 const FOLLOW: u8 = 1;
 const START: [f32; 3] = [50.0, 50.0, 0.0];
+/// A sandbox's switches for everything it does with objects and for talking.
+const NO_OBJECTS: u16 = type_flags::NO_EATING | type_flags::NO_SLEEPING | type_flags::NO_CONVERSATION | type_flags::NO_IDLE_MARKERS | type_flags::NO_FURNITURE;
+const C: Space = Space::Interior(CELL_C);
+const MIDDLE_C: [f32; 3] = [10500.0, 10500.0, 0.0];
 
 fn plugin_bytes() -> Vec<u8> {
     let globs = [
@@ -131,14 +176,22 @@ fn plugin_bytes() -> Vec<u8> {
     .concat();
     let packs = [
         pack(P_TRAVEL_B, "TravelToB", flags::MUST_REACH_LOCATION, TRAVEL, (0, MARK_B, 0), None),
-        pack(P_DEFAULT, "StayHome", 0, SANDBOX, (3, 0, 64), None),
-        pack(P_IN_B, "SandboxInB", 0, SANDBOX, (1, CELL_B, 0), None),
+        pack(P_DEFAULT, "StayHome", 0, TRAVEL, (3, 0, 64), None),
+        pack(P_IN_B, "TravelIntoB", 0, TRAVEL, (1, CELL_B, 0), None),
         pack(P_RADIUS, "TravelNearA", 0, TRAVEL, (0, MARK_A, 150), None),
         pack(P_PATROL, "PatrolOnce", 0, PATROL, (0, M1, 0), Some(false)),
         pack(P_LOOP, "PatrolRound", 0, PATROL, (6, 0, 0), Some(true)),
         pack(P_FOLLOW, "FollowSomeone", 0, FOLLOW, (3, 0, 0), None),
         pack(P_HERE, "TravelHere", flags::MUST_COMPLETE, TRAVEL, (2, 0, 0), None),
         pack(P_RUN, "RunToA", flags::ALWAYS_RUN, TRAVEL, (0, MARK_A, 0), None),
+        // Sandboxes around the middle of cell C, 450 units: everything allowed; only
+        // wandering; only furniture and idle markers; nothing.
+        pack(P_SB_ALL, "SandboxAll", 0, SANDBOX, (0, MARK_C, 450), None),
+        pack_with(P_SB_WANDER, "SandboxWander", 0, SANDBOX, NO_OBJECTS, (0, MARK_C, 450), None),
+        pack_with(P_SB_OBJECTS, "SandboxObjects", 0, SANDBOX, type_flags::NO_WANDERING | type_flags::NO_EATING | type_flags::NO_SLEEPING, (0, MARK_C, 450), None),
+        pack_with(P_SB_NOTHING, "SandboxNothing", 0, SANDBOX, NO_OBJECTS | type_flags::NO_WANDERING, (0, MARK_C, 450), None),
+        pack(P_TO_CHAIR, "TravelToChair", 0, TRAVEL, (0, CHAIR_C, 0), None),
+        pack(P_SLEEP_C, "SleepInC", 0, SLEEP, (1, CELL_C, 0), None),
     ]
     .concat();
     let npcs = [
@@ -151,13 +204,31 @@ fn plugin_bytes() -> Vec<u8> {
         npc(N_FOLLOW, "Follower", &[P_FOLLOW]),
         npc(N_HERE, "Stander", &[P_HERE]),
         npc(N_RUN, "Runner", &[P_RUN]),
+        npc(N_SB_ALL, "Idler", &[P_SB_ALL]),
+        npc(N_SB_WANDER, "Wanderer", &[P_SB_WANDER]),
+        npc(N_SB_OBJECTS, "Sitter", &[P_SB_OBJECTS]),
+        npc(N_SB_NOTHING, "Statue", &[P_SB_NOTHING]),
+        npc(N_TO_CHAIR, "ChairUser", &[P_TO_CHAIR]),
+        npc(N_SLEEP_C, "Sleeper", &[P_SLEEP_C]),
     ]
     .concat();
+    // Furniture: a chair (marker flags bit 30) and a bed (bit 31); an idle marker with
+    // two idles, ten seconds apart.
+    let furn = [
+        record(b"FURN", CHAIR, &[sub(b"EDID", z("Chair")), sub(b"MNAM", 0x4000_0001u32.to_le_bytes().to_vec())]),
+        record(b"FURN", BED, &[sub(b"EDID", z("Bed")), sub(b"MNAM", 0x8000_0001u32.to_le_bytes().to_vec())]),
+    ]
+    .concat();
+    let idlm = record(
+        b"IDLM",
+        IDLE_MARKER,
+        &[sub(b"EDID", z("LeanMarker")), sub(b"IDLF", vec![0]), sub(b"IDLC", vec![2]), sub(b"IDLT", 10f32.to_le_bytes().to_vec()), sub(b"IDLA", [0x8F0u32.to_le_bytes(), 0x8F1u32.to_le_bytes()].concat())],
+    );
     let stat = record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))]);
     let a_refs = [
         placed(b"REFR", MARK_A, "MarkA", STAT, [350.0, 350.0, 0.0], None),
         placed(b"REFR", M1, "M1", STAT, [350.0, 50.0, 0.0], Some(M2)),
-        placed(b"REFR", M2, "M2", STAT, [350.0, 350.0, 0.0], Some(M3)),
+        placed_with(b"REFR", M2, "M2", STAT, [350.0, 350.0, 0.0], 0.0, Some(M3), Some(6.0)),
         placed(b"REFR", M3, "M3", STAT, [50.0, 350.0, 0.0], None),
         placed(b"REFR", L1, "L1", STAT, [250.0, 50.0, 0.0], Some(L2)),
         placed(b"REFR", L2, "L2", STAT, [250.0, 250.0, 0.0], Some(L3)),
@@ -177,12 +248,29 @@ fn plugin_bytes() -> Vec<u8> {
         let rec = record(b"CELL", id, &[sub(b"EDID", z(edid))]);
         [rec, group(id.to_le_bytes(), 6, &group(id.to_le_bytes(), 9, refs))].concat()
     };
-    let cells = [cell(CELL_A, "CellA", &a_refs), cell(CELL_B, "CellB", &b_refs)].concat();
+    // Cell C: 10 x 10 squares from (10000, 10000); the sandboxers stand near its middle.
+    let c_refs = [
+        placed(b"REFR", MARK_C, "MarkC", STAT, [10500.0, 10500.0, 0.0], None),
+        placed(b"REFR", CHAIR_C, "ChairC", CHAIR, [10700.0, 10500.0, 0.0], None),
+        placed(b"REFR", BED_C, "BedC", BED, [10300.0, 10700.0, 0.0], None),
+        placed_with(b"REFR", IDLE_C, "IdleC", IDLE_MARKER, [10500.0, 10250.0, 0.0], 1.25, None, None),
+        placed(b"ACHR", R_SB_ALL, "IdlerRef", N_SB_ALL, [10480.0, 10480.0, 0.0], None),
+        placed(b"ACHR", R_SB_WANDER, "WandererRef", N_SB_WANDER, [10480.0, 10520.0, 0.0], None),
+        placed(b"ACHR", R_SB_OBJECTS, "SitterRef", N_SB_OBJECTS, [10520.0, 10480.0, 0.0], None),
+        placed(b"ACHR", R_SB_OBJECTS_2, "Sitter2Ref", N_SB_OBJECTS, [10520.0, 10520.0, 0.0], None),
+        placed(b"ACHR", R_SB_NOTHING, "StatueRef", N_SB_NOTHING, [10450.0, 10450.0, 0.0], None),
+        placed(b"ACHR", R_TO_CHAIR, "ChairUserRef", N_TO_CHAIR, [10050.0, 10050.0, 0.0], None),
+        placed(b"ACHR", R_SLEEP_C, "SleeperRef", N_SLEEP_C, [10050.0, 10950.0, 0.0], None),
+    ]
+    .concat();
+    let cells = [cell(CELL_A, "CellA", &a_refs), cell(CELL_B, "CellB", &b_refs), cell(CELL_C, "CellC", &c_refs)].concat();
     let top = |sig: &[u8; 4], body: &[u8]| group(*sig, 0, body);
     [
         tes4(),
         top(b"GLOB", &globs),
         top(b"STAT", &stat),
+        top(b"FURN", &furn),
+        top(b"IDLM", &idlm),
         top(b"NPC_", &npcs),
         top(b"PACK", &packs),
         top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cells))),
@@ -195,11 +283,15 @@ fn plugin_bytes() -> Vec<u8> {
 /// A flat navmesh over `n` × `n` squares of side 100 from `origin`, two triangles a
 /// square, at height `z`.
 fn grid(form_id: u32, origin: [f32; 2], n: usize, z: f32) -> NavMeshRecord {
+    grid_of(form_id, origin, n, 100.0, z)
+}
+
+fn grid_of(form_id: u32, origin: [f32; 2], n: usize, size: f32, z: f32) -> NavMeshRecord {
     let vid = |i: usize, j: usize| (j * (n + 1) + i) as u16;
     let mut vertices = Vec::new();
     for j in 0..=n {
         for i in 0..=n {
-            vertices.push([origin[0] + i as f32 * 100.0, origin[1] + j as f32 * 100.0, z]);
+            vertices.push([origin[0] + i as f32 * size, origin[1] + j as f32 * size, z]);
         }
     }
     let tri = |i: isize, j: isize, h: usize| -> i16 {
@@ -233,7 +325,8 @@ fn nav() -> NavGraph {
     a.door_links.push(DoorLink { door: DOOR_A, triangle: corner as u16 });
     a.triangles[corner].flags |= tri_flags::DOOR;
     b.door_links.push(DoorLink { door: DOOR_B, triangle: 0 });
-    let input = [(&a, Some(CELL_A), Some(A)), (&b, Some(CELL_B), Some(B))];
+    let c = grid_of(3, [10000.0, 10000.0], 10, 100.0, 0.0);
+    let input = [(&a, Some(CELL_A), Some(A)), (&b, Some(CELL_B), Some(B)), (&c, Some(CELL_C), Some(C))];
     let mut g = NavGraph::assemble(&input);
     g.join_doors(&input, |door| match door {
         DOOR_A => Some((DOOR_B, [5050.0, 5030.0, 50.0], 0.5, B)),
@@ -438,4 +531,180 @@ fn packages_that_are_not_carried_out_leave_the_actor_where_it_is() {
     assert_eq!(s.ai.agents[&FormId(R_HERE)].activity, Activity::There);
     assert!(matches!(s.events(R_HERE)[1], AiEvent::AlreadyThere { .. }));
     assert!(s.game.extra[&FormId(R_HERE)].package_goal_met);
+}
+
+// ---- patrol waits, package furniture, sandboxes -------------------------------------------
+
+#[test]
+fn a_patrol_waits_out_a_points_idle_time() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_PATROL]);
+    s.run(60.0);
+    let log: Vec<(f64, &AiEvent)> = s.ai.events.iter().filter(|e| e.actor == FormId(R_PATROL)).map(|e| (e.time, &e.event)).collect();
+    let wait = log.iter().position(|(_, e)| matches!(e, AiEvent::PatrolWait { patrol_point, seconds } if patrol_point.0 == M2 && *seconds == 6.0)).expect("waits at M2");
+    // The walk to M3 is planned six seconds after the wait began.
+    let (t0, _) = log[wait];
+    let (t1, next) = log[wait + 1];
+    assert!(matches!(next, AiEvent::Trip { patrol_point: Some(p), .. } if p.0 == M3), "{next:?}");
+    assert!((6.0..7.0).contains(&(t1 - t0)), "waited {}", t1 - t0);
+    // M1 and M3 have no idle time: no wait there.
+    assert_eq!(log.iter().filter(|(_, e)| matches!(e, AiEvent::PatrolWait { .. })).count(), 1);
+}
+
+#[test]
+fn a_package_whose_place_is_furniture_gives_it_to_the_actor() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_TO_CHAIR, R_SLEEP_C]);
+    s.run(30.0);
+    // Travel to a chair: the actor uses it once there.
+    let sitter = &s.ai.agents[&FormId(R_TO_CHAIR)];
+    assert_eq!(sitter.activity, Activity::There);
+    assert_eq!(sitter.using, Some(FormId(CHAIR_C)));
+    assert!(matches!(s.events(R_TO_CHAIR).last().unwrap(), AiEvent::Furniture { furniture: Some(c) } if c.0 == CHAIR_C));
+    // A Sleep package "in cell": the cell's bed, however far.
+    assert_eq!(s.ai.agents[&FormId(R_SLEEP_C)].using, Some(FormId(BED_C)));
+    // Nobody sandboxes under these packages.
+    assert!(sitter.sandbox.is_none());
+}
+
+/// What a sandboxing actor did, in order.
+fn doings(s: &Sim, actor: u32) -> Vec<Doing> {
+    s.events(actor).iter().filter_map(|e| match e {
+        AiEvent::Sandbox { doing, .. } => Some(*doing),
+        _ => None,
+    }).collect()
+}
+
+#[test]
+fn a_sandbox_that_only_wanders_walks_about_inside_its_radius() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_WANDER]);
+    let mut farthest = 0.0f32;
+    for _ in 0..240 {
+        s.run(1.0);
+        farthest = farthest.max(dist(s.feet(R_SB_WANDER), MIDDLE_C));
+    }
+    let did = doings(&s, R_SB_WANDER);
+    assert!(did.len() >= 6, "{did:?}");
+    assert!(did.iter().all(|d| *d == Doing::Wandering), "{did:?}");
+    let agent = &s.ai.agents[&FormId(R_SB_WANDER)];
+    assert!(agent.walker.travelled > 500.0, "walked {}", agent.walker.travelled);
+    assert!(farthest <= 450.0 + 1.0, "went {farthest} from the middle");
+    assert_eq!(agent.using, None);
+    let allowed = agent.sandbox.as_ref().unwrap().allowed;
+    assert!(allowed.wandering && !allowed.furniture && !allowed.idle_markers && !allowed.eating && !allowed.sleeping && !allowed.conversation);
+}
+
+#[test]
+fn a_sandbox_without_wandering_takes_turns_at_the_chair_and_the_idle_marker() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    s.run(600.0);
+    let did = doings(&s, R_SB_OBJECTS);
+    assert!(did.len() >= 4, "{did:?}");
+    // Only the two kinds the package leaves on, never the same kind twice running.
+    assert!(did.iter().all(|d| matches!(d, Doing::Sitting(c) if c.0 == CHAIR_C) || matches!(d, Doing::AtIdleMarker(m) if m.0 == IDLE_C)), "{did:?}");
+    assert!(did.windows(2).all(|w| std::mem::discriminant(&w[0]) != std::mem::discriminant(&w[1])), "{did:?}");
+    // The chair is taken while sat on and given back afterwards.
+    let furniture: Vec<Option<u32>> = s.events(R_SB_OBJECTS).iter().filter_map(|e| match e {
+        AiEvent::Furniture { furniture } => Some(furniture.map(|f| f.0)),
+        _ => None,
+    }).collect();
+    assert!(furniture.len() >= 2 && furniture[0] == Some(CHAIR_C) && furniture[1].is_none(), "{furniture:?}");
+    assert!(s.ai.agents[&FormId(R_SB_OBJECTS)].walker.travelled > 100.0);
+}
+
+#[test]
+fn an_idle_marker_turns_the_actor_its_way() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_OBJECTS]);
+    // Run until it stands at the marker.
+    let mut at_marker = false;
+    for _ in 0..600 {
+        s.run(1.0);
+        let a = &s.ai.agents[&FormId(R_SB_OBJECTS)];
+        if a.activity == Activity::There && matches!(a.sandbox.as_ref().map(|x| x.doing), Some(Doing::AtIdleMarker(_))) {
+            assert!(dist(a.walker.feet, [10500.0, 10250.0, 0.0]) < 40.0, "{:?}", a.walker.feet);
+            assert!((a.walker.heading - 1.25).abs() < 1e-4, "heading {}", a.walker.heading);
+            assert_eq!(a.using, None);
+            at_marker = true;
+            break;
+        }
+    }
+    assert!(at_marker);
+}
+
+#[test]
+fn two_sandboxers_do_not_share_a_chair() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_OBJECTS, R_SB_OBJECTS_2]);
+    let mut both_busy = 0;
+    for _ in 0..600 {
+        s.run(1.0);
+        let (a, b) = (&s.ai.agents[&FormId(R_SB_OBJECTS)], &s.ai.agents[&FormId(R_SB_OBJECTS_2)]);
+        assert!(!(a.using.is_some() && a.using == b.using), "both on {:?}", a.using);
+        both_busy += (a.using.is_some() || b.using.is_some()) as u32;
+    }
+    assert!(both_busy > 60, "the chair was used for {both_busy} s");
+    assert!(!doings(&s, R_SB_OBJECTS).is_empty() && !doings(&s, R_SB_OBJECTS_2).is_empty());
+}
+
+#[test]
+fn a_sandbox_with_everything_off_stands_still() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_NOTHING]);
+    s.run(120.0);
+    let did = doings(&s, R_SB_NOTHING);
+    assert!(!did.is_empty() && did.iter().all(|d| *d == Doing::Standing), "{did:?}");
+    assert_eq!(s.ai.agents[&FormId(R_SB_NOTHING)].walker.travelled, 0.0);
+}
+
+#[test]
+fn a_sandboxer_sleeps_at_night_and_eats_at_mealtimes() {
+    let f = fixture();
+    let mut s = sim(&f, &[R_SB_ALL]);
+    // Two in the morning is inside every sleep window (start 19:00 to 01:00, six hours
+    // or more): to the bed.
+    s.game.world.set_global(FormId(G_HOUR), 2.0).unwrap();
+    s.run(30.0);
+    let actor = FormId(R_SB_ALL);
+    let a = &s.ai.agents[&actor];
+    assert_eq!(a.sandbox.as_ref().unwrap().doing, Doing::Sleeping(FormId(BED_C)));
+    assert_eq!(a.using, Some(FormId(BED_C)));
+    let ((sleep_start, sleep_hours), meals) = a.sandbox.as_ref().unwrap().times();
+    assert!((19.0..24.0).contains(&sleep_start) || (0.0..1.0).contains(&sleep_start), "sleep starts {sleep_start}");
+    assert!((6.0..=10.0).contains(&sleep_hours));
+    assert!((6.0..=9.0).contains(&meals[0].0) && (11.0..=14.0).contains(&meals[1].0) && (17.0..=20.0).contains(&meals[2].0), "{meals:?}");
+    assert!(meals.iter().all(|m| (0.5..=2.0).contains(&m.1)));
+    // It stays in bed while the night lasts, whatever time passes on the wall.
+    s.run(300.0);
+    assert_eq!(s.ai.agents[&actor].using, Some(FormId(BED_C)));
+    // The middle of the afternoon, between lunch and dinner (15:30 to 16:59 is in
+    // neither window): up, and doing the things of the day.
+    s.game.world.set_global(FormId(G_HOUR), 16.5).unwrap();
+    s.game.world.set_global(FormId(G_DAYS), 5.7).unwrap();
+    s.run(20.0);
+    let a = &s.ai.agents[&actor];
+    assert_ne!(a.using, Some(FormId(BED_C)));
+    assert!(!matches!(a.sandbox.as_ref().unwrap().doing, Doing::Sleeping(_) | Doing::Eating(_)), "{:?}", a.sandbox.as_ref().unwrap().doing);
+    // Lunch, at the hour rolled for it: a meal on the chair.
+    let lunch = meals[1].0 + 0.1;
+    s.game.world.set_global(FormId(G_HOUR), lunch).unwrap();
+    // Whatever it is doing ends within three minutes.
+    s.run(240.0);
+    assert_eq!(s.ai.agents[&actor].sandbox.as_ref().unwrap().doing, Doing::Eating(Some(FormId(CHAIR_C))));
+    assert_eq!(s.ai.agents[&actor].using, Some(FormId(CHAIR_C)));
+}
+
+#[test]
+fn a_sandbox_is_the_same_every_time() {
+    let f = fixture();
+    let run = || {
+        let mut s = sim(&f, &[R_SB_ALL]);
+        s.run(300.0);
+        (doings(&s, R_SB_ALL), s.feet(R_SB_ALL))
+    };
+    let (a, b) = (run(), run());
+    assert!(a.0.len() >= 3, "{:?}", a.0);
+    assert_eq!(a, b);
 }

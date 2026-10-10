@@ -929,6 +929,15 @@ Facts and figures: `docs/spec-notes/packages.md`; design and the decisions taken
     reported him sitting under those packages); beds for Sleep packages and seats for
     Eat packages follow the documentation. Not done: sandboxing actors picking
     furniture on their own, and actors that arrive unseen are seated only once drawn.
+18. **Sandboxing (your request, 2026-10-10):** actors under Sandbox and Wander packages
+    now do things in their area: walk about, sit on seats, stand at idle markers, go to
+    bed at night and take meals, as the package's flags allow. The six behaviour flags
+    are read and five are acted on. **Conversation is read but not carried out** (no
+    NPC-to-NPC talk yet), and so are Random Conversations, Idle Chatter, No Idle Anims
+    and the package's own idles: nothing plays idle animations yet. The sleep and meal
+    hours are the documented ones; how long an actor sits or stands, and how it scores
+    what is around it, are my numbers until a capture shows the game's (design §5.5).
+    Patrols now wait at their points for the point's idle time.
 
 ## Loading screens (2026-10-10, session "loading screen")
 

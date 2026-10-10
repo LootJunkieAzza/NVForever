@@ -246,6 +246,9 @@ pub fn packages(data: &GameData, refs: &RefTable, survey: &Value) -> Value {
     let mut extras: BTreeMap<String, u64> = BTreeMap::new();
     let mut conditions = 0u64;
     let mut shapes: BTreeMap<String, u64> = BTreeMap::new();
+    // Everything on a Sandbox or Wander package that bears on what its actor does there.
+    let mut sandbox: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+    let mut sandbox_radii: Vec<i64> = Vec::new();
     let mut patrol_routes: BTreeMap<String, u64> = BTreeMap::new();
     let mut route_points: Vec<i64> = Vec::new();
     let mut ids: Vec<&FormId> = data.package_defs.keys().collect();
@@ -297,6 +300,37 @@ pub fn packages(data: &GameData, refs: &RefTable, survey: &Value) -> Value {
         }
         if p.uses_linked_ref() {
             bump(&mut linked, t.clone());
+        }
+        if matches!(p.ty, PackageType::Sandbox | PackageType::Wander) {
+            use fnv_game::package::{fallout, flags as general};
+            let allowed = fnv_ai::Allowed::of(p);
+            bump2(&mut sandbox, t.clone(), "(packages)");
+            for (on, name) in [
+                (allowed.eating, "eating allowed"),
+                (allowed.sleeping, "sleeping allowed"),
+                (allowed.conversation, "conversation allowed"),
+                (allowed.idle_markers, "idle markers allowed"),
+                (allowed.furniture, "furniture allowed"),
+                (allowed.wandering, "wandering allowed"),
+                (!(allowed.eating || allowed.sleeping || allowed.conversation || allowed.idle_markers || allowed.furniture || allowed.wandering), "nothing allowed"),
+                (p.fallout_flags & fallout::RANDOM_CONVERSATIONS != 0, "Fallout behaviour: Random Conversations"),
+                (p.fallout_flags & fallout::ALLOW_IDLE_CHATTER != 0, "Fallout behaviour: Allow Idle Chatter"),
+                (p.has(general::NO_IDLE_ANIMS), "No Idle Anims"),
+                (p.has(general::MUST_COMPLETE), "Must Complete (invalid for a sandbox)"),
+                (p.has(general::ALWAYS_RUN), "Always Run"),
+                (p.has(general::ALWAYS_SNEAK), "Always Sneak"),
+                (p.has(general::WEAPON_DRAWN), "Weapon Drawn"),
+                (p.has(general::CONTINUE_IF_PC_NEAR), "Continue If PC Near"),
+                (p.idles.as_ref().is_some_and(|c| !c.idles.is_empty()), "has package idles"),
+                (matches!(p.location.map(|l| l.kind), Some(LocationKind::InCell(_))), "location: the whole cell"),
+            ] {
+                if on {
+                    bump2(&mut sandbox, t.clone(), name);
+                }
+            }
+            if let Some(l) = p.location.filter(|l| !matches!(l.kind, LocationKind::InCell(_))) {
+                sandbox_radii.push(l.radius as i64);
+            }
         }
         // Where a patrol's route comes from: the chain of linked references that
         // starts at its location reference.
@@ -368,6 +402,8 @@ pub fn packages(data: &GameData, refs: &RefTable, survey: &Value) -> Value {
         "type_flags_by_type": type_flags,
         "object_types": object_types,
         "uses_linked_ref_by_type": linked,
+        "sandbox": sandbox,
+        "sandbox_radius": spread(&mut sandbox_radii),
         "patrol_routes": patrol_routes,
         "patrol_route_points": spread(&mut route_points),
         "forms_not_in_load_order": unmapped,
