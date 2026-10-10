@@ -548,8 +548,9 @@ engine:
 - Tracers at the PROJ's tracer chance and a small flash marker for each shot, both at
   the muzzle (§5.1), as line markers until the PROJ's muzzle flash model, light and
   projectile models are drawn.
-- Hit reactions: a flinch clip layered over the current animation and an impulse to
-  the hit body part once ragdolls exist.
+- Hit reactions: a flinch clip layered over the current animation, when a hit cripples
+  a body part and, after a cooldown, on later hits to a crippled part (owner's rule,
+  combat-rules.md §12), and an impulse to the hit body part once ragdolls exist.
 
 ### 5.7 Death
 
