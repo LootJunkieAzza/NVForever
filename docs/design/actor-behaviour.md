@@ -380,9 +380,9 @@ wait location, the trigger location, the topic, Say To or conversation) and
 | `ToWait` | walks to location 1, if the package has one and the actor is not there | [documented] |
 | `Waiting` | stands. Without a trigger location it sets off at once (case 3). With one, it sets off when the target is in it (case 1). With one and a wait radius of 0 it talks as soon as the target is within the activate distance (case 2), and also sets off when the target is in the trigger location | [documented: cases 1 to 3; **hypothesis**: setting off in case 2] |
 | `Approaching` | walks (runs with Always Run) to where the target is, through doors if need be; the way is planned again when the target has moved 64 units, at most twice a second | [documented: "begin moving towards the target"; the numbers are ours] |
-| (start) | within the activate distance it stops: a conversation with the player starts (`Game::start_dialogue`, the package's topic or GREETING), or the Say To line is said (`Game::say`) | [documented] |
-| `Speaking` | turns to the target at the standing turn rate (120° a second), unless "No Headtracking" | [documented: they are "forced to look at each other"; observed: Sunny turned from 90° to 178° towards the player; the rate is ours] |
-| `Done` | the conversation is over: the package's goal is met (`package_goal_met`), so a Must Complete package can be replaced and the end script runs. The actor does not start over while it keeps the package | [documented: Must Complete; ours: no starting over] |
+| (start) | within the activate distance it stops: a conversation with the player starts (`Game::start_dialogue`, the package's topic or GREETING), or the Say To line is said (`Game::say`). A GREETING line with the Goodbye flag is said at the player and opens no conversation | [documented]; the Goodbye greeting: [owner statement 2026-10-10, docs/spec-notes/dialogue.md §5] |
+| `Speaking` | for as long as the conversation lasts, or the greeting said without one: turns to the target at the standing turn rate (120° a second), unless "No Headtracking" | [documented: they are "forced to look at each other"; observed: Sunny turned from 90° to 178° towards the player; the rate is ours; **hypothesis**: a greeting said without a conversation holds the package for the length of the line] |
+| `Done` | the conversation is over, or the greeting is said: the package's goal is met (`package_goal_met`), so a Must Complete package can be replaced and the end script runs. The actor does not start over while it keeps the package | [documented: Must Complete; ours: no starting over] |
 
 - **The trigger location** (`goal::Trigger::holds`): within the radius of the
   reference, the editor location or the actor; in the cell; and **inside the
@@ -404,6 +404,15 @@ wait location, the trigger location, the topic, Say To or conversation) and
 - **Nothing to say** (no line of the topic passes its conditions): the package is done
   [our choice; otherwise the actor would try every frame].
 - **A held game** (a menu, another conversation): the start waits; nobody walks.
+- **A greeting with the Goodbye flag** (3,023 of GREETING's 5,579 lines,
+  docs/spec-notes/dialogue.md §5): `Game::start_dialogue` says it at the player as a
+  `Speech` and leaves `Game::dialogue` empty, so the game is not held and `Ai::update`
+  goes on. The actor is `Speaking` while `Game::speech` holds its greeting and `Done`
+  when the line is over; `AiEvent::Talk` carries `greeting: true`. Until 2026-10-10
+  (evening) `talk_step` took the empty `Game::dialogue` for a conversation that was
+  over: the package was done on the next update, with the line still being said, and
+  the actor did not turn to the player. What the game does with the package while such
+  a line is said is not captured [hypothesis, above].
 
 Not done:
 - A **conversation between two actors** (39 of FalloutNV.esm's 332 Dialogue packages
@@ -423,17 +432,20 @@ in the game's own state with `--play`, so the dialogue screen opens as for
 speaker turning while the conversation holds the game. Log: `ai [12:01] SunnyRef: walks
 up to 0x00000014 to talk (SunnyMeetPlayerDialoguePackage): 343 units away, 343 units to
 go, 0 doors`, `… starts a conversation with 0x00000014 from 255 units (…), line
-0x00104E7E`, and the summary's `1 talks started by dialogue packages`. **Without
+0x00104E7E`, and the summary's `1 talks started by dialogue packages`. A greeting
+said without a conversation logs `… greets 0x00000014 from 212 units without a
+conversation (…), line …` instead, and both end with `… has talked (…)`. **Without
 `--npc-packages` no actor runs packages, so nobody greets.**
 
 **Checks** (2026-10-10):
-- 9 tests in `crates/fnv-ai/tests/talk.rs` on a plugin built in memory: the box read
+- 10 tests in `crates/fnv-ai/tests/talk.rs` on a plugin built in memory: the box read
   from the record; an actor walking up to a player who steps into its box and greeting
   at the activate distance, once; the greeting on the spot within the distance (and
-  the turn towards the player); coming at once without a trigger location and
-  following a player who moves; staying at a wait location with a radius until the
-  trigger location is entered; a Say To line; two actors; nothing to say; a player who
-  is nowhere.
+  the turn towards the player); a greeting with the Goodbye flag said without a
+  conversation, the package lasting as long as the line; coming at once without a
+  trigger location and following a player who moves; staying at a wait location with a
+  radius until the trigger location is entered; a Say To line; two actors; nothing to
+  say; a player who is nowhere.
 - Headless against the captures (`fnvtool ai run --samples`): SunnyRef ran the same
   package as the game in all 2,904 samples of `town_day` and stood 0.0 units from where
   the game had her. The other actors' figures are those of §5.3; `fnvtool ai observed`

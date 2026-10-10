@@ -127,11 +127,31 @@ struct ClipInfo {
     keys: ClipKeys,
     /// Ground speed of its accumulation root (movement clips).
     speed: Option<f32>,
+    /// Its track on the `Weapon` node.
+    weapon_track: Option<usize>,
 }
 
 impl ClipInfo {
+    fn new(path: String, clip: Arc<Clip>, speed: Option<f32>) -> ClipInfo {
+        let keys = ClipKeys::parse(&clip.text_keys);
+        let weapon_track = clip.tracks.iter().position(|(n, _)| n.eq_ignore_ascii_case("Weapon"));
+        ClipInfo { path, clip, keys, speed, weapon_track }
+    }
+
     fn fade(&self) -> f32 {
         self.keys.blend_seconds(DEFAULT_FADE)
+    }
+
+    /// Where the clip leaves the `Weapon` node at its end (`bind`: the node's bind pose,
+    /// for the parts the track does not key).
+    fn weapon_end(&self, bind: Transform) -> Option<Transform> {
+        let (_, t) = &self.clip.tracks[self.weapon_track?];
+        let time = self.clip.stop;
+        Some(Transform {
+            translation: t.translation.sample(time).map_or(bind.translation, Vec3::from_array),
+            rotation: t.rotation_at(time).map_or(bind.rotation, |[w, x, y, z]| Quat::from_xyzw(x, y, z, w)),
+            scale: Vec3::splat(t.scale.sample(time).map_or(bind.scale.x, |[s]| s)),
+        })
     }
 }
 
@@ -140,6 +160,20 @@ impl ClipInfo {
 enum View {
     Third,
     First,
+}
+
+/// One shape of the weapon model.
+struct WeaponPart {
+    entity: Entity,
+    /// The model nodes above it whose names begin `##`, each with whether the clips
+    /// last showed it: clips show and hide such nodes (the minigun's gun while it is
+    /// holstered) [observed: animation.md §9.7].
+    tags: Vec<(String, bool)>,
+    /// Whether it hangs from a bone of its own (the minigun's backpack) rather than
+    /// from the `Weapon` node.
+    on_bone: bool,
+    /// The visibility last written to the entity.
+    shown: Option<bool>,
 }
 
 /// One skeleton with its parts, clips and weapon.
@@ -164,6 +198,8 @@ struct Rig {
     weapon_parent: Option<usize>,
     attached: Option<usize>,
     weapon_model: Option<Entity>,
+    /// The weapon model's shapes.
+    weapon_parts: Vec<WeaponPart>,
     /// Third person: drawn entities to hide when it stands in for the first-person rig.
     head_entities: Vec<Entity>,
     /// Whether the rig is shown, and whether its head is (last applied).
@@ -182,8 +218,7 @@ impl Rig {
         }
         let found = key.candidates().into_iter().map(|c| format!("{}{c}", self.folder)).find(|p| ctx.models.data.vfs.exists(p)).and_then(|path| {
             let clip = ctx.clip(&path)?;
-            let keys = ClipKeys::parse(&clip.text_keys);
-            Some(Arc::new(ClipInfo { speed: clip.root_speed(), path, clip, keys }))
+            Some(Arc::new(ClipInfo::new(path, clip.clone(), clip.root_speed())))
         });
         match &found {
             Some(c) => debug!("player {:?} rig: {key:?} plays {}", self.view, c.path),
@@ -200,10 +235,7 @@ impl Rig {
         if let Some(v) = self.variants.get(&path) {
             return v.clone();
         }
-        let found = if ctx.models.data.vfs.exists(&path) { ctx.clip(&path) } else { None }.map(|clip| {
-            let keys = ClipKeys::parse(&clip.text_keys);
-            Arc::new(ClipInfo { speed: None, path: path.clone(), clip, keys })
-        });
+        let found = if ctx.models.data.vfs.exists(&path) { ctx.clip(&path) } else { None }.map(|clip| Arc::new(ClipInfo::new(path.clone(), clip, None)));
         debug!("player {:?} rig: {aim:?} form of {}: {}", self.view, c.path, if found.is_some() { &path } else { "none" });
         self.variants.insert(path, found.clone());
         found
@@ -403,6 +435,9 @@ fn ensure_body(
         if let Some(e) = rig.weapon_model.take() {
             commands.entity(e).despawn();
         }
+        for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
+            commands.entity(p.entity).despawn();
+        }
         let model = match rig.view {
             View::Third => w.and_then(|w| w.model.as_deref()),
             View::First => w.and_then(|w| w.first_person_model.as_deref().or(w.model.as_deref())),
@@ -412,9 +447,25 @@ fn ensure_body(
             Some(pm) => {
                 let holder = commands.spawn((Name::new(format!("Player weapon {path}")), Transform::IDENTITY, Visibility::Inherited)).id();
                 commands.entity(rig.animator.nodes[node]).add_child(holder);
+                // A node of the model whose `UPB` string names a bone hangs its shapes
+                // from that bone instead [observed: the minigun's `Backpack` node says
+                // `Bip01 Spine2`; hypothesis: that is its meaning; animation.md §9.7].
+                let bones = models.node_strings(&path, "UPB");
+                let skel = rig.animator.skel.clone();
+                let in_hand = m.hands.in_hand;
                 for s in &pm.shapes {
-                    let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)))).id();
-                    commands.entity(holder).add_child(e);
+                    let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
+                    if bone.is_some() && rig.view == View::First {
+                        // On the body, behind the first-person view.
+                        continue;
+                    }
+                    let tags: Vec<(String, bool)> =
+                        s.ancestors.iter().chain(s.name.as_ref()).filter(|n| n.starts_with("##")).map(|n| (n.clone(), true)).collect();
+                    let shown = tags.is_empty() || in_hand;
+                    let visibility = if shown { Visibility::Inherited } else { Visibility::Hidden };
+                    let e = commands.spawn((Mesh3d(s.mesh.clone()), MeshMaterial3d(s.material.clone()), Transform::from_matrix(Mat4::from(s.transform)), visibility)).id();
+                    commands.entity(bone.map_or(holder, |b| rig.animator.nodes[b])).add_child(e);
+                    rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), shown: Some(shown) });
                 }
                 rig.weapon_model = Some(holder);
                 info!("player weapon model ({:?} person): {path}", rig.view);
@@ -507,6 +558,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         weapon_parent,
         attached: weapon_parent,
         weapon_model: None,
+        weapon_parts: Vec::new(),
         head_entities,
         shown: None,
         head_shown: None,
@@ -565,6 +617,14 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
             }
             HandEvent::ToHolster | HandEvent::Drawn | HandEvent::Holstered => {}
         }
+    }
+    // In the hand, the `Weapon` node rests where the draw clip leaves it: the aim and
+    // movement clips of some types (`2hh`, `1hp`) do not drive it, and the draw, attack
+    // and reload clips that do agree on the place [observed: animation.md §9.7;
+    // hypothesis: the game leaves the node where the last clip put it].
+    if let Some(n) = rig.weapon_node {
+        let rest = draw.as_ref().filter(|_| f.hands.in_hand).and_then(|c| c.weapon_end(skel.locals[n]));
+        rig.animator.set_rest(n, rest);
     }
     if !f.hands.in_hand {
         // The holster clip's `prn:` names the holster bone [observed: `Bip01 Pelvis` for
@@ -887,8 +947,23 @@ fn drive_body(
     player.body_eye = eye.map(|e| e.to_array());
     view.pivot = third_eye.or(eye).map(|e| [feet[0], feet[1], e.z + 5.0]);
 
-    // The weapon nodes' parents.
+    // The weapon nodes' parents, and the weapon parts the clips show or hide (a part
+    // no playing clip speaks for stays as it was).
     for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
+        for p in &mut rig.weapon_parts {
+            for (tag, on) in &mut p.tags {
+                if let Some(v) = rig.animator.visible(tag) {
+                    *on = v;
+                }
+            }
+            let shown = p.tags.iter().all(|(_, on)| *on);
+            if p.shown != Some(shown) {
+                if let Ok(mut v) = visibility.get_mut(p.entity) {
+                    *v = if shown { Visibility::Inherited } else { Visibility::Hidden };
+                    p.shown = Some(shown);
+                }
+            }
+        }
         if rig.attached != rig.weapon_parent {
             if let (Some(w), Some(p)) = (rig.weapon_node, rig.weapon_parent) {
                 commands.entity(rig.animator.nodes[w]).insert(ChildOf(rig.animator.nodes[p]));

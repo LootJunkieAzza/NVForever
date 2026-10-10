@@ -357,6 +357,54 @@ pub struct Track {
     pub controller_type: Option<String>,
     pub priority: Option<i64>,
     pub data: TrackData,
+    /// The on/off values of a `NiBoolInterpolator` track (`data` is then `Other`): under
+    /// a `NiVisController`, whether the node is shown.
+    pub bools: Option<BoolTrack>,
+}
+
+/// A `NiBoolInterpolator` evaluated: its own value, or the step keys of its `NiBoolData`
+/// [observed: `2hhholster.kf` hides weapon parts with a keyless value, `2hhequip.kf`
+/// with one key per frame; docs/spec-notes/animation.md §9.7].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BoolTrack {
+    /// The interpolator's own value (the schema's `value` field; 2 there stands for none).
+    pub value: Option<bool>,
+    /// (time, value) keys, in time order.
+    pub keys: Vec<(f32, bool)>,
+}
+
+impl BoolTrack {
+    /// The value at time `t`: that of the last key at or before `t` (of the first key
+    /// before them all) [hypothesis: keys step, they do not blend]; without keys, the
+    /// interpolator's own value.
+    pub fn at(&self, t: f32) -> Option<bool> {
+        match self.keys.iter().rev().find(|(time, _)| *time <= t + 1e-4).or(self.keys.first()) {
+            Some((_, v)) => Some(*v),
+            None => self.value,
+        }
+    }
+}
+
+/// The `NiBoolInterpolator` at block `idx`.
+pub fn bool_track(dec: &Decoded, idx: i32) -> Option<BoolTrack> {
+    let s = dec.get(idx)?;
+    let as_bool = |v: &Value| match v {
+        Value::Bool(b) => Some(*b),
+        Value::Int(0) => Some(false),
+        Value::Int(1) => Some(true),
+        _ => None,
+    };
+    let value = s.get("value").and_then(as_bool);
+    let mut keys = Vec::new();
+    if let Some(group) = s.block_ref("data").and_then(|r| dec.get(r)).and_then(|d| d.strukt("data")) {
+        for k in group.list("keys").unwrap_or_default() {
+            let Value::Struct(k) = k else { continue };
+            if let (Some(t), Some(v)) = (k.float("time"), k.get("value").and_then(as_bool)) {
+                keys.push((t, v));
+            }
+        }
+    }
+    Some(BoolTrack { value, keys })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -533,11 +581,16 @@ pub fn sequences(file: &crate::NifFile, dec: &Decoded) -> Vec<Sequence> {
                     None => TrackData::Other(ib.type_name.clone()),
                 },
             };
+            let bools = match &data {
+                TrackData::Other(kind) if kind == "NiBoolInterpolator" => bool_track(dec, interp),
+                _ => None,
+            };
             tracks.push(Track {
                 node_name: cb_string(dec, cb, "node_name"),
                 controller_type: cb_string(dec, cb, "controller_type"),
                 priority: cb.int("priority"),
                 data,
+                bools,
             });
         }
         out.push(Sequence {
@@ -561,6 +614,19 @@ mod tests {
 
     fn key<const N: usize>(time: f32, value: [f32; N]) -> Key<N> {
         Key { time, value, forward: [0.0; N], backward: [0.0; N], tbc: [0.0; 3] }
+    }
+
+    #[test]
+    fn bool_tracks_step() {
+        let keyless = BoolTrack { value: Some(false), keys: Vec::new() };
+        assert_eq!(keyless.at(0.5), Some(false));
+        assert_eq!(BoolTrack::default().at(0.0), None);
+        // 2hhequip.kf: hidden until the weapon is in the hand.
+        let equip = BoolTrack { value: None, keys: vec![(0.0, false), (0.5, false), (0.533, true), (1.0, true)] };
+        assert_eq!(equip.at(-1.0), Some(false));
+        assert_eq!(equip.at(0.52), Some(false));
+        assert_eq!(equip.at(0.533), Some(true));
+        assert_eq!(equip.at(9.0), Some(true));
     }
 
     #[test]

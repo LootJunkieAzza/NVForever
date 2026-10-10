@@ -8,6 +8,7 @@
 pub mod auto;
 pub mod ffi;
 pub mod runner;
+pub mod short;
 pub mod shot;
 
 use std::collections::HashMap;
@@ -24,7 +25,7 @@ use auto::{Auto, AutoAction, AutoState, AUTO_FILE, AUTO_USED_FILE};
 use ffi::*;
 use runner::{Event, Host, Job, Runner, Shot, Value};
 
-pub const PLUGIN_VERSION: u32 = 7;
+pub const PLUGIN_VERSION: u32 = 8;
 const PLUGIN_NAME: &CStr = c"NVForeverCapture";
 pub const DEFAULT_DIR: &str = r"C:\fnv-private\capture";
 

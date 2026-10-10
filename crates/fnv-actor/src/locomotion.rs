@@ -468,6 +468,7 @@ mod tests {
             node_name: Some(name.into()),
             controller_type: None,
             priority: None,
+            bools: None,
             data: TrackData::Transform(TransformTrack { translation, rotation, euler: None, scale: Channel::Static(Some([1.0])) }),
         }
     }

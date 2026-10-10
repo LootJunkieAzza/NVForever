@@ -2,11 +2,13 @@
 //!
 //! Protocol and file formats: docs/spec-notes/xnvse-capture.md §4.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{json, Value as Json};
+
+use crate::short::{self, Kind};
 
 pub const JOB_FORMAT: &str = "fnv.capture.steps/1";
 /// DirectX scan codes. [documented: GECK wiki `IsKeyPressed`, DirectX scan code table]
@@ -22,7 +24,25 @@ pub struct Job {
     pub title: String,
     #[serde(default)]
     pub start: String,
+    /// Forms the job's short scripts use as `@name`: `"<plugin file>:<FormID in hex>"`
+    /// (plugin version 8; `short.rs`).
+    #[serde(default)]
+    pub forms: BTreeMap<String, String>,
     pub steps: Vec<Step>,
+}
+
+/// A script given as one string or as a list of lines (plugin version 8).
+fn text_or_lines<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Text {
+        One(String),
+        Lines(Vec<String>),
+    }
+    Ok(match Text::deserialize(d)? {
+        Text::One(s) => s,
+        Text::Lines(l) => l.join("\n") + "\n",
+    })
 }
 
 /// One step; the variant is chosen by its key (`query`, `script`, `console`, `manual`,
@@ -44,14 +64,22 @@ pub enum Step {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Query {
+    #[serde(deserialize_with = "text_or_lines")]
     pub query: String,
+    #[serde(default)]
     pub label: String,
+    /// Left out with a short query: the query's own text.
+    #[serde(default)]
     pub field: String,
+    /// A short query whose value is a string, not a number.
+    #[serde(default)]
+    pub text: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScriptStep {
+    #[serde(deserialize_with = "text_or_lines")]
     pub script: String,
 }
 
@@ -78,6 +106,7 @@ pub struct FramesStep {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UntilStep {
+    #[serde(deserialize_with = "text_or_lines")]
     pub until: String,
     pub max_frames: u32,
 }
@@ -87,6 +116,7 @@ pub struct UntilStep {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RememberStep {
+    #[serde(deserialize_with = "text_or_lines")]
     pub remember: String,
     #[serde(rename = "as")]
     pub name: String,
@@ -203,6 +233,13 @@ pub fn expand(text: &str, vars: &HashMap<String, f64>) -> Result<String, String>
 
 impl Job {
     pub fn parse(text: &str) -> Result<Job, String> {
+        let mut job = Job::read(text)?;
+        job.write_out_short_scripts()?;
+        Ok(job)
+    }
+
+    /// The job as it is written in the file, short scripts not yet written out.
+    fn read(text: &str) -> Result<Job, String> {
         let job: Job = serde_json::from_str(text).map_err(|e| e.to_string())?;
         if job.format != JOB_FORMAT {
             return Err(format!("unsupported job format {:?} (expected {JOB_FORMAT})", job.format));
@@ -211,6 +248,58 @@ impl Job {
             return Err(format!("job name {:?} must be non-empty [A-Za-z0-9_.-]", job.name));
         }
         Ok(job)
+    }
+
+    /// Replaces every short script by its full function script (`short.rs`), so that the
+    /// runner only ever sees full scripts.
+    fn write_out_short_scripts(&mut self) -> Result<(), String> {
+        let mut forms = BTreeMap::new();
+        for (name, spec) in &self.forms {
+            if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return Err(format!("form name {name:?} must be non-empty [A-Za-z0-9_]"));
+            }
+            forms.insert(name.clone(), short::parse_form(spec)?);
+        }
+        for (i, step) in self.steps.iter_mut().enumerate() {
+            let full = |text: &mut String, kind: Kind| -> Result<(), String> {
+                *text = short::wrap(text, kind, &forms).map_err(|e| format!("step {i}: {e}"))?;
+                Ok(())
+            };
+            match step {
+                Step::Query(q) => {
+                    if q.field.is_empty() && !short::is_full_script(&q.query) {
+                        q.field = q.query.trim().to_string();
+                    }
+                    full(&mut q.query, if q.text { Kind::Text } else { Kind::Number })?;
+                }
+                Step::Script(s) => full(&mut s.script, Kind::Action)?,
+                Step::Until(u) => full(&mut u.until, Kind::Condition)?,
+                Step::Remember(r) => full(&mut r.remember, Kind::Number)?,
+                Step::Observe(o) => {
+                    let o = &mut o.observe;
+                    for h in &mut o.header {
+                        full(h, Kind::Number)?;
+                    }
+                    for g in &mut o.groups {
+                        full(&mut g.count, Kind::Number)?;
+                        for p in &mut g.probe {
+                            full(p, Kind::Number)?;
+                        }
+                    }
+                    for (text, kind) in [(&mut o.until, Kind::Condition), (&mut o.drive, Kind::Number), (&mut o.drive_end, Kind::Action)] {
+                        if let Some(t) = text {
+                            full(t, kind)?;
+                        }
+                    }
+                    for h in &mut o.hooks {
+                        full(&mut h.when, Kind::Condition)?;
+                        full(&mut h.then, Kind::Action)?;
+                    }
+                }
+                Step::Console(_) | Step::Manual(_) | Step::Frames(_) | Step::Screenshot(_) => {}
+            }
+        }
+        Ok(())
     }
 }
 
@@ -676,6 +765,9 @@ mod tests {
         }
     }
 
+    // The mock host answers stand-in texts ("count", "ready 3"), not scripts, so the
+    // runner's tests take jobs as written (`Job::read`); short scripts have their own
+    // tests below and in short.rs.
     const JOB: &str = r#"{"format": "fnv.capture.steps/1", "name": "t1", "title": "Test", "start": "Load a save.",
       "steps": [{"query": "count", "label": "caps", "field": "count"},
                 {"script": "bad"},
@@ -691,16 +783,16 @@ mod tests {
 
     #[test]
     fn parses_every_step_kind_and_rejects_bad_jobs() {
-        let j = Job::parse(JOB).unwrap();
+        let j = Job::read(JOB).unwrap();
         assert_eq!(j.steps.len(), 7);
         assert!(matches!(j.steps[0], Step::Query(_)));
         assert!(matches!(j.steps[1], Step::Script(_)));
         assert!(matches!(j.steps[2], Step::Console(_)));
         assert!(matches!(j.steps[3], Step::Manual(_)));
         assert_eq!(j.steps[4], Step::Frames(FramesStep { frames: 2 }));
-        assert!(Job::parse(&JOB.replace("fnv.capture.steps/1", "x")).is_err());
-        assert!(Job::parse(&JOB.replace("\"t1\"", "\"../evil\"")).is_err());
-        assert!(Job::parse(&JOB.replace("\"frames\": 2", "\"frames\": 2, \"extra\": 1")).is_err());
+        assert!(Job::read(&JOB.replace("fnv.capture.steps/1", "x")).is_err());
+        assert!(Job::read(&JOB.replace("\"t1\"", "\"../evil\"")).is_err());
+        assert!(Job::read(&JOB.replace("\"frames\": 2", "\"frames\": 2, \"extra\": 1")).is_err());
     }
 
     #[test]
@@ -708,7 +800,7 @@ mod tests {
         let mut m = Mock::default();
         let mut r = Runner::new(1, 0x0604_0090, 0x0400_20D0);
         assert!(r.tick(&mut m).is_empty(), "idle before a load");
-        r.game_loaded(vec![Job::parse(JOB).unwrap()], &mut m);
+        r.game_loaded(vec![Job::read(JOB).unwrap()], &mut m);
         assert!(m.shown[0].contains("Press End to start"));
         let mut all = Vec::new();
         // tick 1: nothing pressed; tick 2: End pressed -> start.
@@ -753,7 +845,7 @@ mod tests {
     fn home_skips_and_a_load_aborts() {
         let mut m = Mock::default();
         let mut r = Runner::new(1, 0, 0);
-        let a = Job::parse(JOB).unwrap();
+        let a = Job::read(JOB).unwrap();
         let mut b = a.clone();
         b.name = "t2".into();
         r.game_loaded(vec![a.clone(), b.clone()], &mut m);
@@ -774,7 +866,7 @@ mod tests {
         let mut m = Mock::default();
         let mut r = Runner::new(1, 0, 0);
         r.set_auto_start(Some(0));
-        let job = Job::parse(r#"{"format": "fnv.capture.steps/1", "name": "u1", "steps": [
+        let job = Job::read(r#"{"format": "fnv.capture.steps/1", "name": "u1", "steps": [
             {"until": "ready 3", "max_frames": 10},
             {"until": "ready 99", "max_frames": 2},
             {"remember": "clock", "as": "t0"},
@@ -808,7 +900,7 @@ mod tests {
         // Subjects: index 0 is kept (two parts), index 1 is left out (first part 0),
         // index 2's second part fails. `until` is met at its 3rd check; the drive at its
         // 2nd call. Samples every 2 game loops.
-        let job = Job::parse(r#"{"format": "fnv.capture.steps/1", "name": "o1", "steps": [
+        let job = Job::read(r#"{"format": "fnv.capture.steps/1", "name": "o1", "steps": [
             {"observe": {"label": "near", "fields": {"header": ["h"]}, "header": ["clock", "bad"],
                          "groups": [{"name": "actors", "count": "count", "max": 3,
                                      "probe": ["subj %{i}", "part %{i}"]}],
@@ -847,7 +939,7 @@ mod tests {
         let mut m = Mock::default();
         let mut r = Runner::new(4, 0, 0);
         r.set_auto_start(Some(0));
-        r.game_loaded(vec![Job::parse(job).unwrap()], &mut m);
+        r.game_loaded(vec![Job::read(job).unwrap()], &mut m);
         let mut all = Vec::new();
         for _ in 0..8 {
             all.extend(r.tick(&mut m));
@@ -861,7 +953,7 @@ mod tests {
         let mut m = Mock::default();
         let mut r = Runner::new(4, 0, 0);
         r.set_auto_start(Some(0));
-        r.game_loaded(vec![Job::parse(&job.replace("\"max_samples\": 2", "\"max_samples\": 1000")).unwrap()], &mut m);
+        r.game_loaded(vec![Job::read(&job.replace("\"max_samples\": 2", "\"max_samples\": 1000")).unwrap()], &mut m);
         let mut all = Vec::new();
         for _ in 0..4 {
             all.extend(r.tick(&mut m));
@@ -878,7 +970,7 @@ mod tests {
         r.set_auto_start(Some(0));
         // "ready 3" is non-zero from its 3rd call on: true at samples 2, 3, 4, ...; with
         // after 2 the hook fires at sample 3 and, counting again, at sample 5.
-        let job = Job::parse(r#"{"format": "fnv.capture.steps/1", "name": "h1", "steps": [
+        let job = Job::read(r#"{"format": "fnv.capture.steps/1", "name": "h1", "steps": [
             {"observe": {"label": "x", "every": 1, "max_samples": 6,
                          "hooks": [{"name": "menu", "when": "ready 3", "after": 2, "then": "count"},
                                    {"name": "bad", "when": "nope", "after": 1, "then": "count"}]}}]}"#).unwrap();
@@ -903,6 +995,57 @@ mod tests {
     }
 
     #[test]
+    fn parses_the_examples_shipped_with_a_release() {
+        // package/examples (tools/capture/package_plugin.py puts them into the archive).
+        let j = Job::parse(include_str!("../package/examples/example_read_only.steps.json")).unwrap();
+        assert!(j.steps.iter().all(|s| matches!(s, Step::Query(_))), "read-only: queries only");
+        let j = Job::parse(include_str!("../package/examples/example_wait_and_screenshot.steps.json")).unwrap();
+        assert!(matches!(j.steps[0], Step::Remember(_)) && matches!(j.steps[1], Step::Until(_)));
+        assert!(j.steps.iter().any(|s| matches!(s, Step::Screenshot(_))));
+        let j = Job::parse(include_str!("../package/examples/example_items.steps.json")).unwrap();
+        assert!(matches!(&j.steps[1], Step::Script(s) if s.script.contains("let rF1 := BuildRef fM1 15\nplayer.AddItem rF1 3 1\n")));
+        let j = Job::parse(include_str!("../package/examples/example_manual_step.steps.json")).unwrap();
+        assert!(matches!(j.steps[2], Step::Manual(_)));
+        let j = Job::parse(include_str!("../package/examples/example_observe.steps.json")).unwrap();
+        assert!(matches!(&j.steps[0], Step::Observe(o) if o.observe.header.len() == 5 && o.observe.header.iter().all(|h| short::is_full_script(h))));
+    }
+
+    #[test]
+    fn short_scripts_are_written_out_when_a_job_is_parsed() {
+        let j = Job::parse(r#"{"format": "fnv.capture.steps/1", "name": "s1",
+            "forms": {"caps": "FalloutNV.esm:0000000F"},
+            "steps": [{"query": "player.GetItemCount @caps"},
+                      {"query": "GetNthModName 0", "text": true, "label": "mods", "field": "first"},
+                      {"script": ["player.AddItem @caps 3 1", "player.RemoveItem @caps 1"]},
+                      {"until": "GameHour >= 12", "max_frames": 10},
+                      {"remember": "GameDaysPassed", "as": "day0"},
+                      {"query": ["float fV", "Begin Function { }", "let fV := 2", "SetFunctionValue fV", "End"], "label": "l", "field": "f"},
+                      {"observe": {"label": "o", "every": 1, "max_samples": 1, "header": ["GameHour"], "until": "GameHour >= 13",
+                                   "hooks": [{"name": "h", "when": "MenuMode 1009", "after": 2, "then": "CloseAllMenus"}]}}]}"#).unwrap();
+        let Step::Query(q) = &j.steps[0] else { panic!() };
+        assert_eq!(q.field, "player.GetItemCount @caps", "the field defaults to the query as written");
+        assert_eq!(q.query, "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 15\nlet fV := player.GetItemCount rF1\nSetFunctionValue fV\nEnd\n");
+        let Step::Query(q) = &j.steps[1] else { panic!() };
+        assert_eq!((q.query.as_str(), q.field.as_str()), ("Begin Function { }\nSetFunctionValue (GetNthModName 0)\nEnd\n", "first"));
+        let Step::Script(s) = &j.steps[2] else { panic!() };
+        assert!(s.script.ends_with("player.AddItem rF1 3 1\nplayer.RemoveItem rF1 1\nSetFunctionValue 1\nEnd\n"), "{}", s.script);
+        let Step::Until(u) = &j.steps[3] else { panic!() };
+        assert!(u.until.contains("if GameHour >= 12\n  let fV := 1\nendif"));
+        let Step::Remember(r) = &j.steps[4] else { panic!() };
+        assert!(r.remember.contains("let fV := GameDaysPassed\n"));
+        let Step::Query(q) = &j.steps[5] else { panic!() };
+        assert_eq!(q.query, "float fV\nBegin Function { }\nlet fV := 2\nSetFunctionValue fV\nEnd\n", "a full script as lines is only joined");
+        let Step::Observe(o) = &j.steps[6] else { panic!() };
+        assert!(o.observe.header[0].contains("let fV := GameHour\n") && o.observe.until.as_ref().unwrap().contains("if GameHour >= 13\n"));
+        assert!(o.observe.hooks[0].when.contains("if MenuMode 1009\n") && o.observe.hooks[0].then.contains("CloseAllMenus\nSetFunctionValue 1\n"));
+        // Mistakes name the step; a job with one is skipped as a whole.
+        let bad = |steps: &str, forms: &str| Job::parse(&format!(r#"{{"format": "fnv.capture.steps/1", "name": "b", "forms": {forms}, "steps": [{{"frames": 1}}, {steps}]}}"#)).unwrap_err();
+        assert!(bad(r#"{"query": "player.GetItemCount @caps"}"#, "{}").starts_with("step 1: @caps"));
+        assert!(bad(r#"{"frames": 1}"#, r#"{"caps": "Caps001"}"#).contains("FormID in hex"));
+        assert!(bad(r#"{"frames": 1}"#, r#"{"my caps": "A.esm:F"}"#).contains("form name"));
+    }
+
+    #[test]
     fn expand_replaces_names() {
         let vars = HashMap::from([("a".to_string(), 1.25), ("b".to_string(), 100000.0)]);
         assert_eq!(expand("x %{a} y %{b}", &vars).unwrap(), "x 1.25 y 100000");
@@ -915,7 +1058,7 @@ mod tests {
         let mut m = Mock::default();
         let mut r = Runner::new(1, 0, 0);
         r.set_auto_start(Some(2));
-        let job = Job::parse(r#"{"format": "fnv.capture.steps/1", "name": "a1",
+        let job = Job::read(r#"{"format": "fnv.capture.steps/1", "name": "a1",
             "steps": [{"query": "count", "label": "caps", "field": "count"}, {"manual": "Do it."}]}"#).unwrap();
         r.game_loaded(vec![job], &mut m);
         assert!(m.shown[0].contains("Starting automatically"));
@@ -950,7 +1093,7 @@ mod tests {
         let mut m = Mock::default();
         let mut r = Runner::new(7, 0, 0);
         r.set_auto_start(Some(0));
-        r.game_loaded(vec![Job::parse(job).unwrap()], &mut m);
+        r.game_loaded(vec![Job::read(job).unwrap()], &mut m);
         let mut all = Vec::new();
         for _ in 0..5 {
             all.extend(r.tick(&mut m));
