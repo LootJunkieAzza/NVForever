@@ -195,9 +195,9 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         };
         let mut materials: Vec<_> = part.shapes.iter().map(|s| s.material.clone()).collect();
         if let Some(t) = &p.texture {
-            for (i, s) in part.shapes.iter().enumerate() {
-                if !s.cap {
-                    materials[i] = ctx.material_with_texture(&p.model, &part, i, t);
+            for (i, material) in materials.iter_mut().enumerate() {
+                if part.takes_texture(i) {
+                    *material = ctx.material_with_texture(&p.model, &part, i, t);
                 }
             }
         }
@@ -224,7 +224,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
         // body, and skin inside outfits) gets the tinted copy [hypothesis, actors.md §4.1].
         if let (Some(egt), Some(fg), Some(want)) = (a.body_egt.as_deref(), a.facegen.as_ref().filter(|_| world.facegen_enabled), skin_texture.as_deref()) {
             for (i, s) in part.shapes.iter().enumerate() {
-                let tex = if s.cap { None } else { p.texture.as_deref().or_else(|| s.base_texture()) };
+                let tex = if s.cap { None } else { p.texture.as_deref().filter(|_| part.takes_texture(i)).or_else(|| s.base_texture()) };
                 if !tex.is_some_and(|t| fnv_vfs::texture_path(t) == want) {
                     continue;
                 }

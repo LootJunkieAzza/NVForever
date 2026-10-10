@@ -97,6 +97,8 @@ pub(crate) struct Props {
     unlit: bool,
     /// BSShaderFlags bit 18 "Hair" [documented: nif.xml].
     pub(crate) hair: bool,
+    /// The shader property's type is 14, "SHADER_SKIN" [documented: nif.xml BSShaderType].
+    pub(crate) skin: bool,
     /// The view-angle falloff of a BSShaderNoLightingProperty.
     falloff: Option<Falloff>,
     /// BSShaderFlags bit 29 "External_Emittance" [documented: nif.xml].
@@ -145,6 +147,9 @@ fn glow_map(shader_flags: i64, textures: &[String]) -> Option<String> {
     textures.get(2).filter(|t| !t.is_empty()).cloned()
 }
 
+/// BSShaderType "SHADER_SKIN" [documented: nif.xml].
+const SHADER_SKIN: i64 = 14;
+
 fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     let Some(s) = dec.get(r) else { return };
     let ty = file.blocks[r as usize].type_name.as_str();
@@ -162,6 +167,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.specular = flags & 1 != 0;
         p.vertex_alpha = flags & (1 << 3) != 0;
         p.hair = flags & (1 << 18) != 0;
+        p.skin = s.int("shader_type") == Some(SHADER_SKIN);
         p.external_emittance = flags & (1 << 29) != 0;
         p.falloff = None;
     }

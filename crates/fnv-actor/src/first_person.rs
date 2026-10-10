@@ -10,8 +10,8 @@
 //! - Upper body: only shapes whose name begins with `Arms` are drawn [owner statement
 //!   2026-10-09: "if the nif is not called arms it's not rendered"; observed: outfits name
 //!   their sleeves `Arms`, `Arms02`, `Arms2`, `Arms01:0`, `Arms\t` beside `UpperBody`,
-//!   caps and `PipBoyOn`/`PipBoyOff`; the race's `upperbody.nif` names its skin `Arms:0`
-//!   and `Arms:1`]. Hand parts are drawn whole.
+//!   caps and `PipBoyOn`/`PipBoyOff`; the race's `upperbody.nif` names its undershirt and
+//!   shorts `Arms:0` and its skin `Arms:1` (actors.md §3.1)]. Hand parts are drawn whole.
 
 use crate::resolve::{slot, Appearance, Part};
 use crate::ActorForms;

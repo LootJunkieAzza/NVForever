@@ -204,9 +204,73 @@ of whose partitions sets part flag bit 0 ("editor visible", nif.xml BSPartFlag) 
 hidden [hypothesis: an intact actor shows none]. Pose: the skeleton's bind pose, frozen
 (default), or the idle clip on the skeleton's bones (§7).
 The race's height scales the actor [hypothesis]. Texture overrides: the race part ICONs,
-the EYES texture and the HAIR texture replace the model's diffuse. Hair colour: texture ×
+the EYES texture and the HAIR texture replace the model's diffuse, on the shapes §3.1
+names. Hair colour: texture ×
 2 × HCLR in gamma space [hypothesis: a plain multiply leaves Sunny Smiles' hair dark
 brown where the owner's screenshot shows auburn; doubled, it matches by eye].
+
+### 3.1 Which shapes a replacement texture goes to (the race bodies' underwear)
+
+The adult race bodies are not one skin [observed, 2026-10-10: `fnvtool nif decode` of the
+models in `Fallout - Meshes.bsa`, shapes measured from their vertices and skin
+partitions]:
+
+- `characters\_male\upperbody.nif` draws two shapes (the other four are caps, §3):
+  - `Arms:1`: `BSShaderPPLightingProperty` with shader type 14 and shader flag bit 10 set
+    [documented: nif.xml BSShaderType "SHADER_SKIN", BSShaderFlags "FaceGen"], diffuse
+    `textures\characters\male\UpperBodyMale.dds`. 650 vertices: the arms (|x| from 18 to
+    45, z 84–102) and the legs (z 1–60). None of its vertices lies in the trunk: between
+    z 60 and 80 it has no vertex at all, and above z 80 none within 6 units of the
+    middle. Its partitions are body parts 3, 5, 7, 10 and the torso sections 3000, 5000,
+    7000, 10000; none is body part 0 (the torso).
+  - `Arms:0`: shader type 1 (default), flag bit 10 clear, diffuse
+    `textures\armor\underwear\UnderwearM.dds`. 602 vertices: the whole trunk from the
+    crotch to the neck (z 58–111, |x| up to 22). Partitions: body part 0 (454 vertices),
+    torso sections 3000 and 5000 (62 vertices each: sleeves over the shoulders, their
+    texture coordinates in the top strip of the texture) and 7000 and 10000 (24 each:
+    the leg hems).
+  - `UnderwearM.dds` (512 × 512) pictures a grey short-sleeved undershirt, front and
+    back, with dark shorts under it and the two sleeves in a strip along the top; the
+    rest is black. `UpperBodyMale.dds` (1024 × 1024) is the skin in another layout: a
+    bare chest and back in the middle column with near-black briefs painted at its lower
+    and upper ends, arms across the middle, legs at the sides.
+  - So the male body without an outfit is skin arms and legs around an undershirt and
+    shorts; the model holds no bare trunk. Outfits that show the chest bring their own
+    skin shapes.
+- `characters\_male\femaleupperbody.nif` is built the same way: `UpperBody` (shader type
+  1, `textures\armor\underwear\UnderwearF.dds`) beside `Arms01` (shader type 14,
+  `UpperBodyFemale.dds`), and four caps.
+- The child bodies (`childupperbody.nif`, `childfemaleupperbody.nif`) and all four hand
+  models hold one shape, shader type 14.
+- Every head part model that placed NPCs use holds one drawn shape: the heads shader
+  type 14, the mouths, teeth, tongues and eyes shader type 1 [observed: the 94
+  (role, model, texture) combinations of `fnvtool actor appearance --all`, FalloutNV.esm].
+
+Rule [hypothesis; the game's own rule is not known]: a replacement texture (a race part's
+ICON, the EYES or the HAIR texture) goes to the model's skin-shader shapes (shader type
+14) when it has any, else to every shape; never to a cap
+(`PreparedPart::takes_texture`). In the data above this only changes the two adult
+bodies: their underwear shape keeps its own texture. The body skin tint (§4.1) follows:
+it goes to shapes whose diffuse, after this rule, is the race's upper body texture.
+Shader flag bit 10 would select the same shapes in every model surveyed; the type was
+chosen because its documented name says skin.
+
+What it replaced [observed, 2026-10-10, `--play` third person at Goodsprings with no
+outfit]: until then the ICON went to every shape, so `Arms:0` was drawn with
+`UpperBodyMale.dds` through texture coordinates laid out for `UnderwearM.dds`. The trunk
+showed smeared skin, and black patches where those coordinates land on the painted
+briefs: at both armpits (the sleeves' strip, v 0.04–0.19, crosses the upper briefs,
+which fill about u 0.35–0.65, v 0.02–0.18 of the skin texture) and at the hips (the
+shorts, about v 0.72–0.95, cross the lower briefs at about v 0.76–0.92). A Vault
+jumpsuit hid it because the race's upper body is not drawn under an outfit (§2.4). The
+geometry was not at fault: both shapes have unit normals, no degenerate triangle, and
+every triangle winds with its vertex normals. Placed NPCs took the same path
+(`part_uses`): 29 placed NPCs of FalloutNV.esm draw a race upper body (13 on
+`upperbody.nif`, 14 on `femaleupperbody.nif`, 2 children), e.g. `PrimmDeadSheriff` and
+`PrimmDeadSheriffWife` in `PrimmSheriffStation`. With the rule above the player and those
+two show the undershirt (the woman a top with a bare midriff) and shorts, with no black
+patch [observed]. Not checked against the game: a screenshot of an actor without an
+outfit is wanted (§6).
 
 ## 4. FaceGen (part C)
 
@@ -320,6 +384,9 @@ unused until an in-game comparison of several NPCs of one race settles it.
   confirm it is drawn with the human skeleton (§2.2).
 - The idle in game for comparison with §7: a screenshot of Doc Mitchell standing in his
   house, and whether actors placed side by side breathe in step (§7.3 spreads them).
+- A man and a woman without an outfit in third person (the player with everything but
+  the Pip-Boy taken off, front and side), to check §3.1: the undershirt and shorts, and
+  whether the skin tint reaches them.
 
 ## 7. Animation playback (part E)
 
