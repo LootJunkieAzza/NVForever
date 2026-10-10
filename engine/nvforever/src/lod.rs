@@ -39,6 +39,9 @@
 //! the edge of the loaded area until they arrived. In a square with loaded cells the
 //! object block is split by cell (each triangle goes to the cell holding its centre), and
 //! each cell's part crossfades with the cell; elsewhere the block is drawn whole.
+//! Blocks are alpha-tested: their atlas cuts trees, pylons and lattices out in its alpha
+//! channel, though the meshes have no NiAlphaProperty (world.md §7 "Objects"; the model
+//! loader does it for the "LOD_Building" shader flag, `nif_spawn::shape_alpha_mode`).
 //!
 //! Terrain chunk shading [observed, world.md §7]: the chunk meshes carry no vertex
 //! normals and their normal maps are in model space (red = east, green = north, blue =
