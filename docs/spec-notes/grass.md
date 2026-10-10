@@ -153,7 +153,11 @@ region of the 1280 × 720 frames): its brightest tenth, which is grass in the li
   plants looked half as large as the game's, because the thin strands' alpha falls below
   the threshold in the smaller mip levels [observed]. That the share is alpha / threshold
   is [chosen]: it is 1 wherever the depth prepass (which tests at the threshold) has
-  written depth, so nothing behind a plant is wrongly hidden.
+  written depth, so nothing behind a plant is wrongly hidden. Other alpha-tested shapes
+  get a narrower soft edge, one pixel wide (nif.md §6 "Alpha", soft edges); grass keeps
+  this wider one because it is what keeps its thin strands visible at a distance. With
+  four samples the shares show as a faint stipple where grass overlaps something dark,
+  seen when a frame is enlarged; `--msaa 8` halves the steps.
 - **Light.** Every vertex of a plant carries the landscape's normal under the plant, so
   the sun lights a plant like the ground it stands on, both faces alike. It is what the
   record's "vertex lighting" flag is documented to do; no type sets that flag, and what

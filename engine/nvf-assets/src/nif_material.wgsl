@@ -12,6 +12,10 @@
 
 // Meshes in a crossfade (VisibilityRange; streamed cells fading in and out) are dithered
 // first, as Bevy's own PBR fragment does.
+//
+// SOFT_EDGES (alpha-tested shapes in the main pass of a multisampled view): instead of
+// the alpha test, the fragment's alpha is the share of the pixel's samples it covers
+// (nif_material.rs `soft_edges`).
 
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
@@ -76,7 +80,19 @@ fn fragment(
     // shapes; abs() also covers single-sided ones seen edge-on.
     let cos_angle = abs(dot(normalize(pbr_input.world_normal), pbr_input.V));
     pbr_input.material.base_color.a *= falloff_opacity(cos_angle, surface.falloff);
+#ifdef SOFT_EDGES
+    // Alpha-tested shape in a multisampled view (nif_material.rs `soft_edges`): the share
+    // of the pixel's samples the shape covers, 1 at the cutoff and above, falling to 0
+    // within a pixel outside it.
+    let edge_alpha = pbr_input.material.base_color.a;
+    let edge = saturate((edge_alpha - pbr_input.material.alpha_cutoff) / max(fwidth(edge_alpha), 0.0001) + 1.0);
+    if edge <= 0.0 {
+        discard;
+    }
+    pbr_input.material.base_color.a = 1.0;
+#else
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
+#endif
     // base_color already holds texture × vertex colour × material colour.
     let e = pbr_input.material.emissive;
     pbr_input.material.emissive = vec4(e.rgb * pbr_input.material.base_color.rgb, e.a);
@@ -112,6 +128,9 @@ fn fragment(
     out.color = vec4(factor * out.color.a, out.color.a);
 #else
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+#ifdef SOFT_EDGES
+    out.color.a = edge;
+#endif
 #endif
 #endif
     return out;

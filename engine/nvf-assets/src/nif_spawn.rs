@@ -423,6 +423,9 @@ pub(crate) fn shape_material(
         material.extension.falloff = f.params;
     }
     material.extension.decal = props.decal;
+    // Object LOD atlases hold near-black colour where their alpha is 0 (see
+    // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.
+    material.extension.hard_edges = props.lod_building;
     (material, missing)
 }
 

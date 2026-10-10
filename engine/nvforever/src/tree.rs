@@ -70,6 +70,9 @@ impl MaterialExtension for TreeBillboards {
     fn prepass_vertex_shader() -> ShaderRef {
         SHADER.into()
     }
+    fn fragment_shader() -> ShaderRef {
+        SHADER.into()
+    }
     fn specialize(
         _: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
@@ -79,6 +82,7 @@ impl MaterialExtension for TreeBillboards {
         descriptor.vertex.shader_defs.push("TREE_BILLBOARD".into());
         // Billboards crossfade with the cells whose trees they stand in for (treelod.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        nvf_assets::soft_edges(descriptor, key.mesh_key);
         Ok(())
     }
 }
@@ -90,6 +94,9 @@ impl MaterialExtension for LeafCards {
     fn prepass_vertex_shader() -> ShaderRef {
         SHADER.into()
     }
+    fn fragment_shader() -> ShaderRef {
+        SHADER.into()
+    }
     fn specialize(
         _: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
@@ -99,6 +106,7 @@ impl MaterialExtension for LeafCards {
         descriptor.vertex.shader_defs.push("TREE_LEAVES".into());
         // Trees fade in and out with their cells (fade.rs).
         nvf_assets::fade_prepass(descriptor, key.mesh_key);
+        nvf_assets::soft_edges(descriptor, key.mesh_key);
         Ok(())
     }
 }
