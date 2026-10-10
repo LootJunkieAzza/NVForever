@@ -8,7 +8,7 @@
 //! by −90° about X.
 
 use crate::data::GameData;
-use crate::nif_material::{nif_material, Falloff, NifMaterial};
+use crate::nif_material::{multiply_emissive, nif_material, Falloff, NifMaterial};
 use crate::texture::TextureCache;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -350,6 +350,18 @@ pub(crate) fn shape_falloff(props: &Props, alpha_mode: AlphaMode) -> Option<Fall
     props.falloff.filter(|_| matches!(alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied))
 }
 
+/// Emitted light of a shape: emissive colour × emissive multiplier (× the glow map and the
+/// surface colour in the shader) [hypothesis, docs/spec-notes/nif.md §6 "Emissive light"],
+/// `None` when the colour is black. A multiply-blended shape's light is part of the factor
+/// it puts on what lies behind it, which is formed in display values, so its value is
+/// raised to the display gamma ([`multiply_emissive`], nif.md §6 "Multiply blend").
+pub(crate) fn shape_emissive(props: &Props, alpha_mode: AlphaMode) -> Option<LinearRgba> {
+    let e = props.emissive.filter(|e| e.iter().any(|&c| c > 0.0))?;
+    let m = props.emissive_mult.unwrap_or(1.0).max(0.0);
+    let value = |c: f32| if matches!(alpha_mode, AlphaMode::Multiply) { multiply_emissive(c * m) } else { c * m };
+    Some(LinearRgba::rgb(value(e[0]), value(e[1]), value(e[2])))
+}
+
 /// The material for a shape's properties; also returns the base texture path when it
 /// could not be loaded. Adds tangents to `mesh` when a normal map is used.
 pub(crate) fn shape_material(
@@ -368,13 +380,9 @@ pub(crate) fn shape_material(
     let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
     let alpha_mode = shape_alpha_mode(props);
     let gloss = props.glossiness.unwrap_or(10.0);
-    // Emitted light = emissive colour × emissive multiplier × glow map, or uniform without
-    // a glow map [hypothesis, docs/spec-notes/nif.md §6 "Emissive light"]. Not scaled by
-    // the camera exposure (Bevy's default emissive_exposure_weight 0).
-    let emissive = props.emissive.filter(|e| e.iter().any(|&c| c > 0.0)).map(|e| {
-        let m = props.emissive_mult.unwrap_or(1.0).max(0.0);
-        LinearRgba::rgb(e[0] * m, e[1] * m, e[2] * m)
-    });
+    // Emitted light × glow map, or uniform without a glow map. Not scaled by the camera
+    // exposure (Bevy's default emissive_exposure_weight 0).
+    let emissive = shape_emissive(props, alpha_mode);
     let glow = emissive.and(props.glow.as_deref()).and_then(|t| textures.get(t, true, data, images, formats));
     let (reflectance, masked) = specular(props, normal.is_some());
     let material = StandardMaterial {
@@ -712,6 +720,25 @@ mod tests {
         assert!(shape_falloff(&props, AlphaMode::Opaque).is_none());
         assert!(shape_falloff(&props, AlphaMode::Mask(0.5)).is_none());
         assert!(shape_falloff(&Props::default(), AlphaMode::Add).is_none());
+    }
+
+    #[test]
+    fn multiply_blended_emissive() {
+        // Rex's skull cap (rex_skullcap.nif `##SkullCap:0`): NiAlphaProperty flags 4163
+        // (blend, source ZERO, destination SRC_COLOR), emissive 0.19 × 12.
+        let cap = Props { alpha: Some((4163, 0)), emissive: Some([0.190_283_18; 3]), emissive_mult: Some(12.0), ..Default::default() };
+        let mode = alpha_mode(4163, 0);
+        assert!(matches!(mode, AlphaMode::Multiply));
+        // Its light is a display-value factor of 2.28 on the texture, 2.28^2.2 in linear.
+        let e = shape_emissive(&cap, mode).unwrap();
+        assert!((e.red - 2.283_398_f32.powf(2.2)).abs() < 1e-3 && e.red == e.green && e.green == e.blue);
+        // The same material on a shape that is not multiply-blended keeps the plain product.
+        assert!((shape_emissive(&cap, AlphaMode::Blend).unwrap().red - 2.283_398).abs() < 1e-5);
+        assert!((shape_emissive(&cap, AlphaMode::Opaque).unwrap().red - 2.283_398).abs() < 1e-5);
+        // A black emissive colour emits nothing, whatever the multiplier.
+        let dark = Props { emissive: Some([0.0; 3]), emissive_mult: Some(10.0), ..Default::default() };
+        assert!(shape_emissive(&dark, mode).is_none());
+        assert!(shape_emissive(&Props::default(), mode).is_none());
     }
 
     #[test]

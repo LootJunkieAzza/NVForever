@@ -19,6 +19,7 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use fnv_world::land::{land_texture, load_land, Land, LandParts, DEFAULT_DIFFUSE, QUAD_SIDE, SIDE, SPACING};
 use nvf_assets::model::ModelCtx;
+use nvf_assets::nif_material::sort_first;
 use nvf_assets::{nif_material, NifMaterial};
 use std::collections::HashMap;
 
@@ -95,8 +96,11 @@ impl TerrainCtx<'_, '_, '_> {
             perceptual_roughness: 0.95,
             reflectance: 0.2,
             alpha_mode: AlphaMode::Blend,
-            // Draw over the base and earlier layers (also orders the blending).
-            depth_bias: 2.0 * (rank as f32 + 1.0),
+            // Draw over the base and earlier layers (also orders the blending), and before
+            // every other blended mesh: one without depth (the corn rows of
+            // `scol\scolmaizerow*.nif`) was painted over by the layers of the ground
+            // behind it and looked see-through [observed].
+            depth_bias: sort_first(2.0 * (rank as f32 + 1.0)),
             ..default()
         };
         let h = self.assets.materials.add(nif_material(m));
