@@ -4,7 +4,9 @@
 //! property is a BSShaderNoLightingProperty, counts:
 //! - the falloff fields (start angle, stop angle, start opacity, stop opacity);
 //! - the same split by the "Vertex_Alpha" shader flag (bit 3) and by the NiAlphaProperty
-//!   blend factors, to see whether falloff goes with blended geometry.
+//!   blend factors, to see whether falloff goes with blended geometry;
+//! - per bit of the shader flags, how many shapes of each falloff kind set it, to see
+//!   whether a flag goes with the shapes whose falloff was authored.
 //!
 //! cargo run --release -p fnv-nif --example falloff_survey -- <schema dir> <archive.bsa>...
 
@@ -27,6 +29,7 @@ fn main() {
     let (mut files, mut shapes) = (0usize, 0usize);
     let mut params: BTreeMap<String, usize> = BTreeMap::new();
     let mut by_alpha: BTreeMap<String, usize> = BTreeMap::new();
+    let mut by_bit: BTreeMap<&str, [usize; 33]> = BTreeMap::new();
     let mut examples: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for arc in &a[2..] {
         let mut bsa = fnv_bsa::Archive::open(arc).unwrap();
@@ -103,12 +106,25 @@ fn main() {
                     _ => "custom",
                 };
                 *by_alpha.entry(format!("{falloff:7} vertex_alpha {} {blend}", flags & 8 != 0)).or_default() += 1;
+                let row = by_bit.entry(falloff).or_insert([0usize; 33]);
+                row[32] += 1;
+                for (bit, count) in row.iter_mut().take(32).enumerate() {
+                    *count += (flags >> bit & 1) as usize;
+                }
             }
         }
     }
     println!("files {files}, visible shapes drawn by BSShaderNoLightingProperty {shapes}");
     top("falloff parameters", &params, 30);
     top("falloff (default = nif.xml defaults, empty = start equals stop) x vertex-alpha flag x NiAlphaProperty", &by_alpha, 100);
+    println!("\nshapes that set each shader flag bit, by falloff kind (bits no shape sets are left out):");
+    for bit in 0..32 {
+        if by_bit.values().all(|r| r[bit] == 0) {
+            continue;
+        }
+        let cells: Vec<String> = by_bit.iter().map(|(k, r)| format!("{k} {} of {}", r[bit], r[32])).collect();
+        println!("  bit {bit:2}: {}", cells.join(", "));
+    }
     let mut v: Vec<_> = params.iter().collect();
     v.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
     println!("\nexamples:");

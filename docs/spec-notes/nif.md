@@ -309,6 +309,64 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   soften. Grass uses a wider rule of its own (grass.md §5). Without multisampling
   (`--msaa 1`, and in the water's reflection) the alpha is tested per pixel as before.
 
+  Vertex alpha and the test. Survey of the visible shapes in `Fallout - Meshes.bsa` that
+  set the test bit, set the shader's vertex-alpha flag (see "Vertex colours") and have
+  some vertex alpha below 1 [observed,
+  `crates/fnv-nif/examples/vertex_alpha_test_survey.rs`]: 202 shapes, every one drawn by
+  a BSShaderNoLightingProperty. 163 are additive (SRC_ALPHA / ONE; 154 with a threshold
+  of 0-63, 9 with 64 or more), 38 SRC_ALPHA / INV_SRC_ALPHA (30 with 0-63, 8 with 64 or
+  more) and 1 is only tested (`nvgiantrat.nif`, `NV_GiantRat:3`, threshold 70, vertex
+  alpha up to 0.60). 12 shapes (all additive, threshold 0-63) have every vertex above
+  their threshold, 188 some and 2 none: the test, if it compares the vertex alpha, cuts
+  into 190 of them.
+  - Seven of the eight SRC_ALPHA / INV_SRC_ALPHA shapes with a threshold of 64 or more
+    name no texture and are black on every vertex: shadow strips laid along the inner
+    edges of the destroyed Old Town buildings (`architecture\urban\oldtown\`), flags
+    0x12ED, threshold 128, both decal bits set. `otbldgdestroy01nv.nif`, shape
+    `OTBldgDestroy01NV:5` (the house at the NCR camp in Primm, cell −16,−14): 561
+    vertices, alpha 0.55 on 211, 0 on 169, 0.3 on 100, 0.35 on 56, 0.75 on 12, 0.25 to
+    0.27 on 13; all UVs are (0, 1). 223 vertices are above 128/255. The others:
+    `otbldgdestroy02nv.nif` (223 of 561 above), `otbldgdestroy01top01nv.nif` (136 of
+    769), `otbldgdestroy01top02nv.nif` and `otbldgdestroy02top02nv.nif` (18 of 195
+    each), and `otbldgdescorner01.nif` and `otbldgdescorner03.nif`, whose highest vertex
+    alpha is 0.45: none of their 24 and 14 vertices is above. The eighth is textured:
+    `terminals\nv_reflectron_ui.nif`, `NV_Reflectron:2`, threshold 64, alpha up to 0.65.
+  - What the game draws there is not known: no game frame of these buildings was
+    compared. Read literally, blend and test both apply to a fragment's alpha
+    [documented: nif.xml AlphaFlags], and the alpha the blend uses includes the vertex
+    alpha, so the strips would darken the wall by 50 to 75% where their alpha is above
+    128/255, end there with a hard edge, and the two corner pieces' strips would not
+    show at all [hypothesis]. The other reading, that the gradients show in full as
+    soft shadows down to alpha 0, needs the test not to see the vertex alpha.
+
+  The renderers follow the literal reading for shapes that set blend and test with a
+  threshold of 64 or more, use vertex alpha and have some vertex alpha below 1: they
+  are drawn blended, and fragments whose alpha (material × texture × vertex alpha ×
+  view-angle falloff) is below the cutoff are dropped (`nif_spawn::blend_cut`,
+  `NifSurface::alpha_cut`). By the threshold rule above they were alpha-tested, which
+  draws the part above the cutoff opaque: a shadow strip of 55% became solid black.
+  Additive shapes keep ignoring their test. Most of each strip falls from 0.55 to 0 or
+  0.3 across its width, so what is above the cutoff is a line a pixel or two wide in
+  the corners of the rooms [observed, `nvforever`, with the strips drawn alpha-tested].
+  The strips also keep the default view-angle falloff, which the renderers apply to
+  every blended shape of this property (see "View-angle falloff": alpha × cosine), and
+  0.55 × cosine is above the cutoff only within 24° of facing the strip: from the
+  owner's viewpoint in that house no strip is drawn at all [observed]. The strips do
+  not set the shader flag that goes with authored falloff there (bit 6), so this part
+  stands or falls with that open question.
+
+  The depth prepass has to test the same alpha as the main pass. Bevy's tests material
+  alpha × texture alpha without the vertex alpha, so an alpha-tested shape with vertex
+  alpha below its cutoff wrote depth over its whole area, the main pass then dropped its
+  fragments, and what lay behind failed the depth test: the clear colour showed. The
+  shadow strips above appeared as flat pale blue frames round the ceilings, door and
+  window openings and skirting of the house in Primm [observed: owner's screenshot,
+  2026-10-10, and `nvforever --cell=-16,-14 --pos=-62714,-54035,5919 --heading 150
+  --pitch -5`]. NIF shapes now use a prepass fragment that includes the vertex alpha
+  (`nif_prepass.wgsl`); the giant rat's shape is the other one in the archive it
+  changes. The same symptom, from vertex alphas that are not numbers, is in "Vertex
+  colours" below.
+
   Static collections can lose the threshold [observed, `fnvtool nif decode`]: the single
   maize plants (`landscape\plants\maize_healthyp.nif`, `maize_withered.nif` and their
   `_group1` models) have flags 4845 (blend, test GREATER) with threshold 124, while the
@@ -546,6 +604,16 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
 
   Without falloff, the Saloon lamp beam drew as a solid grey cone with hard edges. In
   game it is a faint haze [observed, owner's screenshots].
+
+  A shader flag goes with authored falloff [observed, the same survey over `Fallout -
+  Meshes.bsa` alone: 5,861 shapes]: BSShaderFlags bit 6, which nif.xml names "Empty" for
+  this game, is set on 1,013 of the 1,200 shapes with values of their own, on 95 of the
+  4,495 with the defaults and on 3 of the 166 with an empty range. Both shapes of the
+  Saloon lamp beam set it, one of them with the default values. No shape with a decal
+  bit has values of its own. [hypothesis, not applied: the game uses the falloff only
+  with bit 6, and the defaults without it are fields nobody filled in. The renderers
+  still apply the falloff to every blended shape of this property, which fades 4,400
+  shapes without the bit by the cosine of the view angle; no game frame was compared.]
 - **Vertex colours** [observed, `crates/fnv-nif/examples/vertex_alpha_survey.rs` over
   `Fallout - Meshes.bsa`, visible shapes with vertex colours and a shader property]:
   with BSShaderFlags bit 3 "Vertex_Alpha" [documented: nif.xml] set, 2,445 shapes have

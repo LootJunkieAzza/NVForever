@@ -293,6 +293,26 @@ pub(crate) fn shape_alpha_mode(props: &Props) -> AlphaMode {
     }
 }
 
+/// The cut of a shape that is drawn blended although its alpha test would make it an
+/// alpha-tested one ([`alpha_mode`]: blend and test both set, threshold of
+/// [`BLEND_TEST_CUT`] or more), or `None` for every other shape: its cutoff, when its
+/// shader uses vertex alpha and some vertex's alpha is below 1. Such a shape's alpha is a
+/// gradient across its triangles, not the outline of a texture: drawn alpha-tested, the
+/// part above the cutoff would be opaque where the shape asks for a part of its colour.
+/// So it blends, and the fragments below the cutoff are dropped, which is the reading of
+/// "blend and test" itself [documented: nif.xml AlphaFlags; hypothesis that the game
+/// tests the vertex alpha: docs/spec-notes/nif.md §6 "Alpha", "Vertex alpha and the
+/// test"]. `mesh` must have been through [`fix_vertex_colors`].
+pub(crate) fn blend_cut(props: &Props, mesh: &Mesh) -> Option<f32> {
+    let (flags, threshold) = props.alpha?;
+    if flags & 1 == 0 || !props.vertex_alpha {
+        return None;
+    }
+    let AlphaMode::Mask(cutoff) = alpha_mode(flags, threshold) else { return None };
+    let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR) else { return None };
+    colors.iter().any(|c| c[3] < 1.0).then_some(cutoff)
+}
+
 /// Properties of a shape: its ancestors' first, then its own.
 pub(crate) fn shape_props(file: &NifFile, dec: &Decoded, o: &SceneObject, by_block: &HashMap<usize, &SceneObject>) -> Props {
     let mut chain = vec![o.block];
@@ -392,7 +412,8 @@ pub(crate) fn shape_material(
     let missing = if base.is_none() { props.textures.first().filter(|t| !t.is_empty()).cloned() } else { None };
     let has_uv = mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_some();
     let normal = normal.filter(|_| has_uv && mesh.generate_tangents().is_ok());
-    let alpha_mode = shape_alpha_mode(props);
+    let cut = blend_cut(props, mesh);
+    let alpha_mode = if cut.is_some() { AlphaMode::Blend } else { shape_alpha_mode(props) };
     let gloss = props.glossiness.unwrap_or(10.0);
     // Emitted light × glow map, or uniform without a glow map. Not scaled by the camera
     // exposure (Bevy's default emissive_exposure_weight 0).
@@ -422,6 +443,7 @@ pub(crate) fn shape_material(
     if let Some(f) = shape_falloff(props, alpha_mode) {
         material.extension.falloff = f.params;
     }
+    material.extension.alpha_cut = cut.unwrap_or(0.0);
     material.extension.decal = props.decal;
     // Object LOD atlases hold near-black colour where their alpha is 0 (see
     // `shape_alpha_mode`); a soft edge would draw a little of it around every cut-out.
@@ -811,6 +833,34 @@ mod tests {
         };
         assert_eq!(get(&mesh), vec![[0.5, 1.0, 1.0, 1.0], [0.2, 0.3, 0.4, 1.0]]);
         assert_eq!(get(&flagged), vec![[0.5, 1.0, 1.0, 0.0], [0.2, 0.3, 0.4, 0.25]]);
+    }
+
+    #[test]
+    fn vertex_alpha_gradient_blends_with_a_cut() {
+        let mesh = |alphas: &[f32]| {
+            let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+            m.insert_attribute(Mesh::ATTRIBUTE_COLOR, alphas.iter().map(|&a| [0.0, 0.0, 0.0, a]).collect::<Vec<_>>());
+            m
+        };
+        // otbldgdestroy01nv.nif `OTBldgDestroy01NV:5`: untextured black strips along the
+        // wall edges, flags 0x12ED (blend, test, GREATER), threshold 128, vertex alpha
+        // 0 to 0.75 with the vertex-alpha flag.
+        let strip = Props { alpha: Some((0x12ED, 128)), vertex_alpha: true, unlit: true, ..Default::default() };
+        let gradient = mesh(&[0.55, 0.0, 0.3, 0.75]);
+        assert!(matches!(shape_alpha_mode(&strip), AlphaMode::Mask(_)));
+        assert!(matches!(blend_cut(&strip, &gradient), Some(c) if (c - 128.5 / 255.0).abs() < 1e-6));
+        // Not without the flag (the alpha is forced to 1 then), with vertex alpha 1
+        // throughout, or without vertex colours: those stay alpha-tested.
+        let mut unflagged = gradient.clone();
+        fix_vertex_colors(&mut unflagged, false);
+        assert_eq!(blend_cut(&Props { vertex_alpha: false, ..strip.clone() }, &unflagged), None);
+        assert_eq!(blend_cut(&strip, &mesh(&[1.0, 1.0, 1.0])), None);
+        assert_eq!(blend_cut(&strip, &Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)), None);
+        // Nor shapes that are only tested, blend below the threshold rule already, or add.
+        assert_eq!(blend_cut(&Props { alpha: Some((0x12EC, 128)), ..strip.clone() }, &gradient), None);
+        assert_eq!(blend_cut(&Props { alpha: Some((0x12ED, 0)), ..strip.clone() }, &gradient), None);
+        assert_eq!(blend_cut(&Props { alpha: Some((0x120D, 128)), ..strip.clone() }, &gradient), None);
+        assert_eq!(blend_cut(&Props { alpha: None, ..strip }, &gradient), None);
     }
 
     #[test]
