@@ -1173,9 +1173,60 @@ skull caps), 8 have no shapes (`nvvoid.nif` and similar placeholders), 3 files a
 missing (`ghoul\mmm_ghoulvariant_v1.nif` for 26 creatures,
 `nvpenthouemaincomputer\nvpenthousemaincomputer_housescreen.nif` for 2 and
 `radscorpion\nvdlc03superlaserstingenergize.nif` for 51). Every skin bone of every
-skinned model is a node of its skeleton. Every unskinned shape has an ancestor node in
-its own file whose name is a skeleton node (e.g. the Securitron's `Screen01` under the
-file's copy of a skeleton bone), so none needs the `Prn` or root fallback.
+skinned model is a node of its skeleton.
+
+Where the unskinned shapes hang [observed 2026-10-10, FalloutNV.esm, the four add-on
+masters and GunRunnersArsenal.esm: 266 unskinned shapes in the 81 rigid pairs;
+this replaces an earlier statement here that every such shape has an ancestor named
+like a skeleton node, which counted the part's root]:
+- All 266 are in a part whose root names a `Prn` bone that the skeleton has. None has
+  a node between the root and the shape that is named like a skeleton node, so the
+  nearest-ancestor rule below is used by none of them, and none falls to the root.
+- The part's root is the identity for all but the parts below. 57 shapes have a root
+  that is itself named like a skeleton node (the Securitron's `Screen01Root`, the
+  Protectron's `DomeRoot`, the dog's `EyesBlue` and `EyesOneBlue`); 209 do not (the
+  dog's `EyesVicious` and `EyesSetYellow` among them), so the name is not what
+  attaches a part.
+- Parts on `Bip01 Head` whose root is not the identity: the four dog eye models
+  (`eyessetblue.nif`, `eyessetoneblue.nif`, `eyessetvicious.nif` and
+  `eyessetyellow.nif` in `creatures\dog`; root a half turn, rows (0.40, 0.92, 0),
+  (0.92, −0.40, 0), (0, 0, −1), no translation) and the Protectron's
+  `blowawaydome.nif`, `blowawaydomebos.nif` and `cowboyhat.nif`. Parts on `Bip01 Head`
+  with an identity root: the cyberdog skull caps (`cmskullcap.nif`, `cpskullcap.nif`
+  and `rex_skullcap.nif` in `creatures\dog`). Off the head, only
+  `nvdlc01_ghostbreathe.nif` (`Bip01 Neck1`), `fxmrhandyjetaddon.nif` (`Bip01 Pelvis`)
+  and `nvdlc03needlesaddon.nif` (`Bip01`) have a root that is not the identity.
+- **These head parts are ordinary children of the bone: bone ∘ root ∘ shape** (not in
+  the skeleton's axes as NPC head parts are, §1.2) [observed, bind pose, positions in
+  the skeleton's space, where the dog faces +y and x = 0 is its plane of symmetry]:
+  - Dog eyes: as a child, the two eyes are centred at (±3.46, 52.96, 59.53); the skin's
+    vertices weighted to `Bip01 Head2 Eyeleds` (the eyelids) are centred at
+    (±3.75, 54.00, 59.95), 1.2 units in front of them. In the skeleton's axes at the
+    bone (the NPC rule) both eyes are at x = 6.94, one at z = 53.2 and one at z = 60.1:
+    on one side of the head, one above the other. With the root dropped they are 7.4
+    units from the eyelids.
+  - Skull caps (identity root): as a child the cap spans x −7.0 to 7.0 on top of the
+    skull (z 63 to 72); in the skeleton's axes it is centred at x = 13, beside the head.
+  - Protectron: the skeleton has a node `DomeRoot` under `Bip01 Head` with the same
+    local rotation as the root of `blowawaydome.nif` and no translation, so the part's
+    root is that node's transform relative to the bone. As a child the dome spans
+    x −6.4 to 6.4 and the hat is centred on the head bone's x; in the skeleton's axes
+    they are centred 6 and 10 units to one side.
+  - The dog skeleton's `EyesBlue`, `Eyes` and `EyesOneBlue` nodes (children of
+    `Bip01 Head`) store the inverse of the head's bind rotation instead, which is not
+    the eye models' root rotation; hanging the eyes from them gives the one-sided
+    placement too. The eye models' root rotation is the local rotation of the
+    skeleton's `Bip01 Head2 Eyeleds` [hypothesis: the eyes were modelled in the eyelid
+    bone's axes; those three nodes are leftovers of the export].
+- Dogs without an eye model: coyotes (`coyote.nif`, 75 placed) and Legion mongrels
+  (`nv_mongrel.nif`, 57) are one skinned model each, eyes included. Placed creatures
+  with one of the head parts above: 135 (75 with dog eyes, 28 with a skull cap, 60 with
+  a Protectron dome, 1 with the hat).
+- The dog eye shapes use the body's texture (`textures\creatures\dog\dog.dds`, a patch
+  at u 0.45–0.54, v 0.92–1.0), no alpha property, and BSShaderFlags 0x82000181
+  (Specular, Environment Mapping, Alpha Texture, Remappable Textures, ZBuffer Test
+  [documented: nif.xml BSShaderFlags]) with an empty environment slot in the texture
+  set; they are drawn as plain textured shapes.
 
 Rules (engine, `nvf_assets::actor`, `PartUse::by_ancestor`):
 - Skinned shapes bind to the skeleton's bones by name, as NPC parts (§3).
@@ -1183,8 +1234,10 @@ Rules (engine, `nvf_assets::actor`, `PartUse::by_ancestor`):
   in the part file that the skeleton has, keeping the transforms of the nodes between
   (its own included) [hypothesis: the part file's copy of the bone has the skeleton's
   bind transform, so the shape lands where the file puts it]; else from the part's `Prn`
-  bone (NPC rule, §1.2); else from the skeleton's root with the whole transform below the
-  part's root.
+  bone as an ordinary child, bone ∘ root ∘ shape, on every bone including `Bip01 Head`
+  [observed above; until 2026-10-10 the NPC head rule of §1.2 was applied here, which
+  put dog eyes, skull caps and the Protectron's dome and hat beside the head]; else from
+  the skeleton's root with the whole transform below the part's root.
 - Hidden nodes, editor markers and dismemberment caps are left out as for NPCs.
 - Textures are the models' own (NIFT texture hashes are not read).
 
@@ -1241,6 +1294,19 @@ widened), `parts` [{`role`, `form`, `model`}], `anims` [name], `random`}; or
   `nvsecuritron`, `blowfly`, `nvvoid`, `nvcazadores`, `nvmantis`, each with its idle
   (1.7–16.7 s) and every idle track bound except two Securitron prop nodes
   (`Screen01`, `##VoiceBox_talk`).
+- **Head parts** (2026-10-10, `nvforever` screenshots before and after the `Prn` rule
+  of §10.2 changed; no game screenshot was compared) [observed]: Cheyenne (Prospector
+  Saloon, `--cell 0x00106185 --pos 156,-590,3520 --heading 0 --pitch -4 --fov 30`) had
+  two eyeballs on one side of her head and empty sockets, and now has a pale blue eye
+  in each socket; Rex (`--cell 0x0010E03B --pos 290,-1790,545 --heading 221 --pitch -17
+  --fov 30`) had his eyes beside his head and his skull cap beside his neck, and now
+  has both in place; Primm Slim (`--cell 0x000D7845 --pos 2052,3300,7360 --heading 201
+  --pitch -3 --fov 35`) had his hat on edge beside his head and now wears it. Still
+  wrong: Rex's skull cap is drawn black. Its `##SkullCap:0` shape has NiAlphaProperty
+  flags 4163 (blend, source factor 1, destination factor 2 [documented: nif.xml
+  AlphaFlags; zero and source colour, a multiply]) and NiMaterialProperty emissive
+  0.19 × 12; the engine multiplies by the lit colour, which is near black indoors
+  [hypothesis: the game's result is a tinted glass over the brain].
 
 ## 11. Actors not enabled at the start
 
