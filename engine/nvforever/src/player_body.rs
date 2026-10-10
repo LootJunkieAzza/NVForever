@@ -238,6 +238,8 @@ struct Rig {
     muzzle: Option<Vec<(Option<usize>, Transform)>>,
     /// That node's entity (muzzle flashes are spawned under it; `shot_fx.rs`).
     muzzle_entity: Option<Entity>,
+    /// The way down to the weapon model's `ShellCasingNode`, as `muzzle`.
+    casing: Option<Vec<(Option<usize>, Transform)>>,
     /// Third person: drawn entities to hide when it stands in for the first-person rig.
     head_entities: Vec<Entity>,
     /// Third person: the drawn entities the first-person rig has its own of (arms, hands,
@@ -279,13 +281,25 @@ impl Rig {
     /// space): under the node the `Weapon` node hangs from, down the weapon model to its
     /// `ProjectileNode`, each node where the clips have it.
     fn muzzle_at(&self, root: Transform) -> Option<Vec3> {
-        let path = self.muzzle.as_ref()?;
+        Some(self.weapon_node_at(root, self.muzzle.as_ref()?)?.translation.into())
+    }
+
+    /// Where a node of the weapon model is in the last pose with the rig at `root`
+    /// (game space), given the way down to it from the `Weapon` node.
+    fn weapon_node_at(&self, root: Transform, path: &[(Option<usize>, Transform)]) -> Option<Affine3A> {
         let a = &self.animator;
         let mut m = affine(root) * a.model_space(self.weapon_parent?) * affine(a.locals[self.weapon_node?]);
         for (extra, bind) in path {
             m *= affine(extra.and_then(|k| a.extra_local(k)).unwrap_or(*bind));
         }
-        Some(m.translation.into())
+        Some(m)
+    }
+
+    /// Where the weapon's `ShellCasingNode` is and the way a casing leaves it: the
+    /// node's own +z [hypothesis: animation.md §9.9].
+    fn casing_at(&self, root: Transform) -> Option<(Vec3, Vec3)> {
+        let m = self.weapon_node_at(root, self.casing.as_ref()?)?;
+        Some((m.translation.into(), m.transform_vector3(Vec3::Z).normalize_or_zero()))
     }
 
     /// The first existing file of a clip choice in this rig's folder (cached, failures
@@ -538,6 +552,7 @@ fn ensure_body(
         rig.animator.set_extra(Vec::new());
         rig.muzzle = None;
         rig.muzzle_entity = None;
+        rig.casing = None;
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
         }
@@ -579,6 +594,7 @@ fn ensure_body(
                 let muzzle = nvf_assets::model::node_path(&pm.nodes, &MUZZLE_NODES);
                 rig.muzzle_entity = muzzle.as_ref().and_then(|path| path.last()).map(|&i| part_nodes[i]);
                 rig.muzzle = muzzle.map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
+                rig.casing = nvf_assets::model::node_path(&pm.nodes, &["ShellCasingNode", "##ShellCasingNode"]).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 for s in &pm.shapes {
                     let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
                     if bone.is_some() && rig.view == View::First {
@@ -713,6 +729,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         weapon_parts: Vec::new(),
         muzzle: None,
         muzzle_entity: None,
+        casing: None,
         head_entities,
         arm_entities,
         shown: None,
@@ -1057,6 +1074,7 @@ fn drive_body(
         // No body to time the weapon: it is ready as soon as it is wanted out.
         anim.ready = control.weapon_out;
         anim.muzzle = None;
+        anim.casing = None;
         state.muzzle_entity = None;
         return;
     };
@@ -1130,6 +1148,7 @@ fn drive_body(
         view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0]);
         anim.ready = false;
         anim.muzzle = None;
+        anim.casing = None;
         state.muzzle_entity = None;
         show_rigs(body, &mut visibility, Shown { third: third_view || own_body, first: false, head: third_view, arms: true, weapon: true });
         return;
@@ -1260,6 +1279,7 @@ fn drive_body(
     };
     anim.muzzle = if m.hands.in_hand { seen.muzzle_at(root).map(|p| p.to_array()) } else { None };
     state.muzzle_entity = seen.muzzle_entity.filter(|_| m.hands.in_hand);
+    anim.casing = if m.hands.in_hand { seen.casing_at(root).map(|(p, d)| (p.to_array(), d.to_array())) } else { None };
     let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
     let shown = if frame.upright {
         Shown { third: true, first: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }

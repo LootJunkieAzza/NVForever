@@ -128,6 +128,9 @@ pub struct WeaponAnim {
     /// place at the end of the barrel; docs/spec-notes/animation.md §9.9]. `None`
     /// without a body, a weapon in hand or such a node: shots are drawn from the eye.
     pub muzzle: Option<[f32; 3]>,
+    /// Set by the body each frame: where the weapon's `ShellCasingNode` is in the rig
+    /// in view and the way a casing leaves it (unit), game space.
+    pub casing: Option<([f32; 3], [f32; 3])>,
 }
 
 /// The player fired a shot this frame: the PROJ it fires. The renderer shows the
@@ -155,6 +158,17 @@ pub struct ShotVisual {
 #[derive(Resource, Default)]
 pub struct ShotVisuals {
     pub flying: Vec<ShotVisual>,
+}
+
+/// A shot threw out a shell casing: the weapon, where the casing starts and its
+/// velocity (game space, units per second). The renderer draws the WEAP's casing model.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct CasingFx {
+    pub weapon: FormId,
+    pub point: V3,
+    pub velocity: V3,
+    /// Seconds the casing stays (`fGunShellLifetime`).
+    pub life: f32,
 }
 
 /// A shot landed: the IPCT of the weapon's impact data set for what it hit, where, the
@@ -505,6 +519,7 @@ impl Plugin for CombatPlugin {
             .init_resource::<ShotVisuals>()
             .add_message::<ShotFired>()
             .add_message::<ImpactFx>()
+            .add_message::<CasingFx>()
             .add_message::<ExplosionFx>()
             .init_resource::<HitFeedback>()
             .init_resource::<PlayerLimbs>()
@@ -723,6 +738,7 @@ fn fire(
     mut fired: MessageWriter<ShotFired>,
     sfx: Option<Res<Sfx>>,
     mut sounds: MessageWriter<PlaySound>,
+    mut casings: MessageWriter<CasingFx>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -787,6 +803,12 @@ fn fire(
                     continue;
                 };
                 fired.write(ShotFired { projectile: proj });
+                // A casing for each shot of a weapon with a casing model, from its
+                // `ShellCasingNode` at the game's eject speed (`fGunShellEjectSpeed`)
+                // [hypothesis: one a shot, at the shot; the game's timing is not known].
+                if let (Some((point, dir)), true) = (anim.casing, weapon_fx.is_some_and(|f| f.shell_casing_model.is_some())) {
+                    casings.write(CasingFx { weapon: id, point, velocity: vec::scale(dir, c.rules.shell_eject_speed), life: c.rules.shell_lifetime });
+                }
                 // The player's own shot: the 2D sound where the weapon has one.
                 if let Some(sound) = weapon_fx.and_then(|f| f.shoot_2d.or(f.shoot_3d)) {
                     sounds.write(PlaySound { sound, at: None });

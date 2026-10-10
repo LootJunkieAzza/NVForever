@@ -28,7 +28,9 @@ use bevy::light::NotShadowCaster;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 use nvf_assets::model::{ModelCtx, PreparedModel};
-use nvf_play::combat::{Combat, ShotFired, ShotVisuals};
+use nvf_play::combat::{CasingFx, Combat, ShotFired, ShotVisuals};
+use nvf_play::phys::PhysState;
+use nvf_play::sfx::Sfx;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -41,6 +43,21 @@ struct Billboard {
     mode: u16,
     bind: Quat,
 }
+
+/// A shell casing in the air or on the ground: its velocity and spin (game space) and
+/// how long it has left.
+#[derive(Component)]
+struct Casing {
+    velocity: Vec3,
+    spin: Vec3,
+    left: f32,
+    resting: bool,
+}
+
+/// The share of its speed a casing keeps when it bounces, and the speed below which it
+/// stays down, units per second [design].
+const CASING_BOUNCE: f32 = 0.35;
+const CASING_REST: f32 = 25.0;
 
 /// A muzzle flash and how long it has left.
 #[derive(Component)]
@@ -59,6 +76,7 @@ struct ShotFx {
     lights: u32,
     projectiles: u32,
     no_model: u32,
+    casings: u32,
 }
 
 pub struct ShotFxPlugin;
@@ -66,7 +84,7 @@ pub struct ShotFxPlugin;
 impl Plugin for ShotFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShotFx>()
-            .add_systems(Update, (preload, flash, draw_flying, face_camera).chain().after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
+            .add_systems(Update, (preload, flash, draw_flying, casings, face_camera).chain().after(nvf_play::PlaySet::Activation).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
     }
 }
@@ -242,6 +260,65 @@ fn draw_flying(
     });
 }
 
+/// Shell casings: the WEAP's casing model thrown from the `ShellCasingNode`, falling
+/// under the world's gravity, bouncing off what it meets and gone after its time.
+#[allow(clippy::too_many_arguments)]
+fn casings(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut thrown: MessageReader<CasingFx>,
+    sfx: Option<Res<Sfx>>,
+    mut phys: ResMut<PhysState>,
+    mut models: ModelCtx,
+    mut fx: ResMut<ShotFx>,
+    root: Query<Entity, With<WorldRoot>>,
+    mut live: Query<(Entity, &mut Casing, &mut Transform)>,
+) {
+    let dt = time.delta_secs();
+    let gravity = phys.world.params.gravity;
+    for (e, mut c, mut t) in &mut live {
+        c.left -= dt;
+        if c.left <= 0.0 {
+            commands.entity(e).try_despawn();
+            continue;
+        }
+        if c.resting {
+            continue;
+        }
+        c.velocity.z -= gravity * dt;
+        let step = c.velocity * dt;
+        let len = step.length();
+        let hit = (len > 1e-4).then(|| phys.ray(t.translation.to_array(), step.to_array(), len, Default::default())).flatten();
+        match hit {
+            Some(h) => {
+                let n = Vec3::from_array(h.normal);
+                t.translation = Vec3::from_array(h.point) + n * 0.5;
+                c.velocity = (c.velocity - 2.0 * c.velocity.dot(n) * n) * CASING_BOUNCE;
+                c.spin *= CASING_BOUNCE;
+                c.resting = c.velocity.length() < CASING_REST;
+            }
+            None => t.translation += step,
+        }
+        if !c.resting {
+            t.rotation = Quat::from_scaled_axis(c.spin * dt) * t.rotation;
+        }
+    }
+    let (Some(sfx), Ok(world_root)) = (sfx, root.single()) else {
+        thrown.clear();
+        return;
+    };
+    for c in thrown.read() {
+        let Some(model) = sfx.forms.weapons.get(&c.weapon).and_then(|w| w.shell_casing_model.as_deref()) else { continue };
+        let Some(pm) = load(&mut models, &mut fx, "shell casing", model) else { continue };
+        let velocity = Vec3::from_array(c.velocity);
+        // It tumbles about an axis across its flight [design].
+        let spin = velocity.cross(Vec3::Z).normalize_or(Vec3::X) * 12.0;
+        let holder = spawn_model(&mut commands, world_root, &pm, Transform::from_translation(Vec3::from_array(c.point)));
+        commands.entity(holder).insert(Casing { velocity, spin, left: c.life.max(0.5), resting: false });
+        fx.casings += 1;
+    }
+}
+
 /// Turn the billboards of the effect models to the camera (see the module notes).
 fn face_camera(
     camera: Query<Entity, (With<Camera3d>, Without<crate::reflection::ReflectionCamera>)>,
@@ -284,8 +361,8 @@ fn face_camera(
 fn report(mut exit: MessageReader<AppExit>, fx: Res<ShotFx>) {
     if exit.read().last().is_some() && fx.flashes + fx.projectiles + fx.no_model > 0 {
         info!(
-            "shot fx: {} muzzle flashes ({} with a light), {} projectile models drawn, {} projectiles without a model",
-            fx.flashes, fx.lights, fx.projectiles, fx.no_model
+            "shot fx: {} muzzle flashes ({} with a light), {} projectile models drawn, {} projectiles without a model, {} shell casings",
+            fx.flashes, fx.lights, fx.projectiles, fx.no_model, fx.casings
         );
     }
 }
