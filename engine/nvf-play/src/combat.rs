@@ -99,6 +99,9 @@ pub struct WeaponAnim {
     /// clip when it sees a new count.
     pub attacks: u32,
     pub reloads: u32,
+    /// Counted up by combat when a weapon starts to spin up: the body plays the attack
+    /// clip from its start, and the first shot follows at the clip's `Fire` key.
+    pub spin_ups: u32,
     /// The last attack is a power attack (melee), for the body's clip choice.
     pub power: bool,
 }
@@ -574,6 +577,10 @@ fn fire(
     let Some(chain) = c.forms.chain(id, c.ammo) else { return };
     for e in events {
         match e {
+            Event::SpinUp => {
+                anim.spin_ups += 1;
+                debug!("combat: {} spins up, first shot in {:.2} s", w.edid.as_deref().unwrap_or("?"), cycle.timing.spin_up);
+            }
             Event::Fired { rounds } => {
                 anim.attacks += 1;
                 stats.shots += 1;
@@ -1246,8 +1253,14 @@ fn update_hit_hud(
     }
 }
 
-/// The cycle's clip timing from the attack clip (length, `Hit` key) and the reload
-/// clip's length, as the player body reads them.
-pub fn clip_timing(attack: Option<(f32, Option<f32>)>, reload: Option<f32>) -> ClipTiming {
-    ClipTiming { attack_len: attack.map(|a| a.0).filter(|l| *l > 0.0), hit_time: attack.and_then(|a| a.1), reload_len: reload.filter(|l| *l > 0.0) }
+/// The cycle's clip timing from the attack clip (length, `Hit` or `Fire` key, and
+/// whether a `Loop` key follows that key) and the reload clip's length, as the player
+/// body reads them.
+pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<f32>) -> ClipTiming {
+    ClipTiming {
+        attack_len: attack.map(|a| a.0).filter(|l| *l > 0.0),
+        hit_time: attack.and_then(|a| a.1),
+        reload_len: reload.filter(|l| *l > 0.0),
+        spin_up: attack.filter(|a| a.2).and_then(|a| a.1),
+    }
 }

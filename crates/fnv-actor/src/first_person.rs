@@ -71,6 +71,17 @@ pub fn show(actors: &ActorForms, p: &Part) -> Option<Show> {
     }
 }
 
+/// Whether the first-person rig draws the shape named `name` of a part that shows as
+/// `show` (`None`: the part is not in first person at all). The third-person body hides
+/// the same shapes while the arms rig is up in front of it (player-body.md §1.5).
+pub fn shape_shows(show: Option<Show>, name: Option<&str>) -> bool {
+    match show {
+        Some(Show::Whole) => true,
+        Some(Show::Arms) => name.is_some_and(is_first_person_shape),
+        None => false,
+    }
+}
+
 /// The appearance the first-person rig draws: the parts that show, hands swapped for
 /// their `1st` variants where `exists` says the file is there, of FaceGen only the
 /// texture coefficients (the skin tint of arms and hands, as in third person), the
@@ -121,6 +132,17 @@ mod tests {
         for n in ["UpperBody", "PipBoyOff", "PipBoyOff:0", "MeatCapLimbs"] {
             assert!(!is_first_person_shape(n), "{n:?}");
         }
+    }
+
+    #[test]
+    fn shapes_of_a_part() {
+        assert!(shape_shows(Some(Show::Whole), None));
+        assert!(shape_shows(Some(Show::Whole), Some("RightGlove:0")));
+        assert!(shape_shows(Some(Show::Arms), Some("Arms:0")));
+        assert!(shape_shows(Some(Show::Arms), Some("PipBoyOn")));
+        assert!(!shape_shows(Some(Show::Arms), Some("UpperBody")));
+        assert!(!shape_shows(Some(Show::Arms), None));
+        assert!(!shape_shows(None, Some("Arms:0")));
     }
 
     #[test]
