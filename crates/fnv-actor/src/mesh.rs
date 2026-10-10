@@ -7,9 +7,12 @@
 //!   without `Prn` attach to `Bip01 Head` [hypothesis: every such part used by a placed
 //!   NPC is headgear or a mouth part, with vertices around the head bone].
 //!
-//! A rigid part's vertices are in the skeleton's axes with the origin at the bone
-//! [observed: hair spans z −0.7…15.3 above `Bip01 Head`, whose own x axis points up];
-//! attached to the bone it therefore needs the inverse of the bone's bind rotation.
+//! A rigid part on `Bip01 Head` has its vertices in the skeleton's axes with the origin
+//! at the bone [observed: hair spans z −0.7…15.3 above `Bip01 Head`, whose own x axis
+//! points up]; attached to the bone it therefore needs the inverse of the bone's bind
+//! rotation. A rigid part on another bone is in that bone's own axes [observed: the
+//! Pip-Boy models name `Bip01 L ForeTwist` and reach 4.4…17.1 units along its x axis,
+//! down the 18.1-unit forearm]; it is an ordinary child of the bone.
 
 use std::collections::BTreeSet;
 
@@ -115,6 +118,37 @@ pub fn creature_rigid_at_root(part: &PartMesh, skeleton: &PartMesh) -> usize {
         .count()
 }
 
+/// Whether a shape of a worn model is the Pip-Boy light's glow, drawn only while that
+/// light is on [owner statement 2026-10-10; observed: `PipboyLightEffect:0` in the
+/// player's three Pip-Boy models, an unlit white-textured sheet over the screen with
+/// green vertex colours whose alpha runs from 0 to 0.125; actors.md §1.2].
+pub fn is_light_effect_shape(name: &str) -> bool {
+    name.trim().to_ascii_lowercase().starts_with("pipboylighteffect")
+}
+
+/// Which case a left-sleeve shape of an outfit is for: `Some(true)` worn with a Pip-Boy
+/// (`PipBoyOn…`), `Some(false)` worn without (`PipBoyOff…`) [observed: the names, in 170
+/// worn models (159 hold both, 11 only the latter), `PipBoy0n` in places; in
+/// `vaultsuitarmor\m\outfitm.nif` `PipBoyOff` covers the forearm from 3 to 18 units
+/// below the elbow and `PipBoyOn` leaves out 3 to 15, where the Pip-Boy sits;
+/// hypothesis: the game draws the one that matches; actors.md §1.2].
+pub fn pipboy_sleeve(name: &str) -> Option<bool> {
+    let n = name.trim().to_ascii_lowercase();
+    if n.starts_with("pipboyoff") {
+        Some(false)
+    } else if n.starts_with("pipboyon") || n.starts_with("pipboy0n") {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+/// Whether a shape of a part is left out on an actor that wears a Pip-Boy or not: the
+/// light's glow always (the light is not built), and the sleeve of the other case.
+pub fn hidden_for_pipboy(name: &str, wears_pipboy: bool) -> bool {
+    is_light_effect_shape(name) || pipboy_sleeve(name).is_some_and(|on| on != wears_pipboy)
+}
+
 fn root_prn(dec: &Decoded) -> Option<String> {
     let root = dec.blocks.get(ROOT)?.as_ref().ok()?;
     for &e in root.refs("extra_data").unwrap_or_default() {
@@ -144,4 +178,34 @@ pub fn attach_problems(part: &PartMesh, skeleton: &PartMesh) -> Vec<String> {
         p.push(format!("attach bone not in skeleton: {}", part.attach_bone()));
     }
     p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn light_effect_shapes() {
+        assert!(is_light_effect_shape("PipboyLightEffect:0"));
+        for n in ["pipboyscreen:0", "ScreenLit:8", "glare:0", "PipBoyArm:0", "StatsGlow:0"] {
+            assert!(!is_light_effect_shape(n), "{n:?}");
+        }
+    }
+
+    #[test]
+    fn pipboy_sleeves() {
+        for n in ["PipBoyOn", "PipBoyOn:0", "PipBoyOn1:0", "PipBoy0n:0", "PipBoyOnLegate:0"] {
+            assert_eq!(pipboy_sleeve(n), Some(true), "{n:?}");
+            assert!(hidden_for_pipboy(n, false) && !hidden_for_pipboy(n, true), "{n:?}");
+        }
+        for n in ["PipBoyOff", "PipBoyOff01", "PipBoyOff:6", "pipboyoffmm_ncr:0"] {
+            assert_eq!(pipboy_sleeve(n), Some(false), "{n:?}");
+            assert!(hidden_for_pipboy(n, true) && !hidden_for_pipboy(n, false), "{n:?}");
+        }
+        for n in ["PipBoyArm:0", "PipBoyButton01:0", "pipboyscreen:0", "Arms", "UpperBody"] {
+            assert_eq!(pipboy_sleeve(n), None, "{n:?}");
+            assert!(!hidden_for_pipboy(n, true) && !hidden_for_pipboy(n, false), "{n:?}");
+        }
+        assert!(hidden_for_pipboy("PipboyLightEffect:0", true) && hidden_for_pipboy("PipboyLightEffect:0", false));
+    }
 }

@@ -891,3 +891,26 @@ design and what was checked: `docs/spec-notes/ragdoll.md`.
    them at 10:57; my last four runs (10:46–10:57) overlapped it. Any windowed check or
    capture of that session in that window may need re-running. The two runs
    after that (11:05 and 11:07, on the tree merged with main) took both locks.
+
+## Pip-Boy on the arm (2026-10-10, session "pip-boy")
+
+Your report: the Pip-Boy on the player's arm looks off, and its glow belongs to the
+Pip-Boy light. Facts: docs/spec-notes/actors.md §1.2; design: docs/design/player-body.md
+§4 and §5.
+
+1. **Fixed, position:** the Pip-Boy model hangs from the forearm bone and was being
+   turned the way hats and hair have to be turned on the head bone, which threw it onto
+   the back of the upper arm. It is now a cuff on the left forearm, down to the glove,
+   in third person, and it is drawn in first person too (it was missing there).
+2. **Fixed, glow:** the bright green square was the model's light-glow shape, always
+   drawn. It is hidden until a Pip-Boy light exists (not built; say if you want it).
+3. **Also changed, a guess from the shape names:** outfits carry two left sleeves,
+   `PipBoyOn` and `PipBoyOff`; both were drawn on everyone. Now an actor wearing a
+   Pip-Boy shows the first and everyone else the second (170 outfits).
+4. **Questions (player-body.md §5 item 3):** in first person in a jumpsuit, bare wrist
+   shows between glove and Pip-Boy, because of your rule that only shapes called `Arms`
+   are drawn there: is there sleeve in the game? With the light off, should the three
+   orange button lights and the screen be lit?
+5. **Seen on the way, not touched:** the bare player body has black patches at the
+   armpits and hip in third person, and the Vault 21 jumpsuit shows a "101" (armour
+   texture swaps are not read yet, actors.md §1.1).

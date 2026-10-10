@@ -13,7 +13,7 @@ use fnv_sim::{FormId, FormStore};
 use fnv_world::placed::placement;
 use fnv_world::WorldIndex;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub fn run(cmd: ActorCmd) -> anyhow::Result<Value> {
     match cmd {
@@ -343,11 +343,43 @@ fn meshes(
             problems.push(json!({"skeleton": skel, "model": model, "role": role, "actors": uses, "problems": p}));
         }
     }
+    // Every ARMO's worn models (placed or not): the bone their unskinned shapes name,
+    // the Pip-Boy sleeve shapes of outfits, and the Pip-Boy light's glow (actors.md §1.2).
+    let worn: BTreeSet<String> = actors.armors.values().flat_map(|a| a.worn.iter().flatten()).map(|m| fnv_actor::resolve::mesh_path(m)).collect();
+    let mut rigid_bones: BTreeMap<String, u64> = BTreeMap::new();
+    let mut off_head = Vec::new();
+    let mut sleeves: BTreeMap<String, u64> = BTreeMap::new();
+    let mut light_effect = Vec::new();
+    for model in &worn {
+        let Ok(part) = load(model) else { continue };
+        let sleeve = |on: bool| part.shape_names.iter().any(|n| mesh::pipboy_sleeve(n) == Some(on));
+        match (sleeve(true), sleeve(false)) {
+            (true, true) => bump(&mut sleeves, "on and off"),
+            (true, false) => bump(&mut sleeves, "on only"),
+            (false, true) => bump(&mut sleeves, "off only"),
+            (false, false) => {}
+        }
+        if part.shape_names.iter().any(|n| mesh::is_light_effect_shape(n)) {
+            light_effect.push(model);
+        }
+        if part.rigid_shapes == 0 {
+            continue;
+        }
+        bump(&mut rigid_bones, part.prn.clone().unwrap_or_else(|| "(no Prn)".to_string()));
+        if part.prn.as_deref().is_some_and(|p| p != mesh::DEFAULT_RIGID_BONE) {
+            off_head.push(json!({"model": model, "prn": part.prn, "skinned_shapes": part.skinned_shapes, "rigid_shapes": part.rigid_shapes}));
+        }
+    }
     let missing_textures: Vec<&String> = textures.keys().filter(|t| !vfs.exists(t)).collect();
     Ok(json!({
         "schema": "fnv.actor.meshes/1",
         "pairs": pairs.len(),
         "part_kinds": kinds,
+        "armor_models": worn.len(),
+        "armor_rigid_bones": rigid_bones,
+        "armor_rigid_off_head": off_head,
+        "armor_pipboy_sleeves": sleeves,
+        "armor_light_effect": light_effect,
         "hair_variants": variants,
         "textures": textures.len(),
         "missing_textures": missing_textures,
