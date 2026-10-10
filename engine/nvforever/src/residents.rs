@@ -270,6 +270,8 @@ struct Core {
     /// Sandbox behaviours begun, by kind (standing, wandering, sitting, idle marker,
     /// sleeping, eating).
     sandbox: [usize; 6],
+    /// Conversations and Say To lines started by Dialogue packages.
+    talks: usize,
 }
 
 #[derive(Resource)]
@@ -319,6 +321,7 @@ impl Residents {
             physics: [0; 3],
             seats: [0; 2],
             sandbox: [0; 6],
+            talks: 0,
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -450,6 +453,9 @@ impl Core {
             for b in phys.iter_mut().flat_map(|p| p.npcs.values_mut()) {
                 b.velocity = [0.0, 0.0];
             }
+            // Who started the conversation with its Dialogue package goes on turning
+            // to the player.
+            self.ai.update_held(game, dt);
             return;
         }
         for r in self.list.iter_mut().filter(|r| !r.joined) {
@@ -496,6 +502,7 @@ impl Core {
                 AiEvent::Arrived { .. } => self.counts[1] += 1,
                 AiEvent::Unreachable { .. } => self.counts[2] += 1,
                 AiEvent::Package { .. } => self.counts[3] += 1,
+                AiEvent::Talk { .. } => self.talks += 1,
                 AiEvent::Sandbox { doing, .. } => {
                     self.sandbox[match doing {
                         Doing::Standing => 0,
@@ -513,7 +520,7 @@ impl Core {
             let line = format!("ai [{hour}] {}: {}", r.label, describe(game.data, world, &e.event));
             match e.event {
                 _ if r.named => info!("{line}"),
-                AiEvent::Trip { .. } | AiEvent::Unreachable { .. } => info!("{line}"),
+                AiEvent::Trip { .. } | AiEvent::Unreachable { .. } | AiEvent::Approach { .. } | AiEvent::Talk { .. } | AiEvent::NoTalk { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
         }
@@ -586,6 +593,18 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             if *walk > 0.0 { format!("sandbox: {what}, {walk:.0} units away") } else { format!("sandbox: {what}") }
         }
         AiEvent::PatrolWait { patrol_point, seconds } => format!("waits {seconds:.0}s at patrol point {}", n(patrol_point)),
+        AiEvent::Approach { package, target, away, length, doors, running } => format!(
+            "{} up to {} to talk ({}): {}{length:.0} units to go, {} doors",
+            if *running { "runs" } else { "walks" },
+            n(target),
+            n(package),
+            away.map(|a| format!("{a:.0} units away, ")).unwrap_or_default(),
+            doors.len()
+        ),
+        AiEvent::Talk { package, target, line, away, say_to: false } => format!("starts a conversation with {} from {away:.0} units ({}), line {line}", n(target), n(package)),
+        AiEvent::Talk { package, target, line, away, say_to: true } => format!("says line {line} to {} from {away:.0} units ({})", n(target), n(package)),
+        AiEvent::TalkOver { package } => format!("the conversation of {} is over", n(package)),
+        AiEvent::NoTalk { package, why } => format!("does not talk ({}): {why}", n(package)),
     }
 }
 
@@ -759,7 +778,7 @@ pub fn report(
     each.extend(crowd.into_iter().take(6).filter_map(one));
     let by = |a: Activity| core.ai.agents.values().filter(|x| x.activity == a).count();
     info!(
-        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; physics moved actors in {} updates (at most {} at once), gave up {} times; {}",
+        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; {} talks started by dialogue packages; physics moved actors in {} updates (at most {} at once), gave up {} times; {}",
         core.clock_text,
         core.list.len(),
         core.counts[3],
@@ -779,6 +798,7 @@ pub fn report(
         core.sandbox[4],
         core.sandbox[5],
         core.sandbox[0],
+        core.talks,
         core.physics[0],
         core.physics[2],
         core.physics[1],

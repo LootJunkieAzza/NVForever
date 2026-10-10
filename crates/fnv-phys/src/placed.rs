@@ -46,9 +46,12 @@ pub struct RefCollision {
 /// it is a SpeedTree (`.spt` files hold no Havok blocks, physics.md §4). With no
 /// `models`, model collision is left out.
 ///
+/// A placed actor (base NPC_ or CREA) contributes nothing: its model is its skeleton,
+/// whose bodies are the actor's own and move with its bones (physics.md §4).
+///
 /// `tally` is called once for each outcome, with the names of the `refs.counts` of
 /// `fnv.phys.cell/1` (physics.md §7): `no_base`, `collision_primitive`, `bad_primitive`,
-/// `no_model`, `speedtree`, `awaiting_collision`, `model_without_collision`,
+/// `actor`, `no_model`, `speedtree`, `awaiting_collision`, `model_without_collision`,
 /// `model_unreadable`, `open_door_moving_parts` (an open-by-default door whose keyframed
 /// parts were left out), `water_volume` (a model with water volumes; then not also
 /// `model_without_collision`).
@@ -60,6 +63,11 @@ pub fn ref_collision(
     tally: &mut dyn FnMut(&'static str),
 ) -> RefCollision {
     ref_collision_with(lo, schema, pl, models, tally, RefCollisionOptions::default())
+}
+
+/// Whether a base object of this record type is an actor (an NPC or a creature).
+pub fn is_actor_base(sig: &[u8; 4]) -> bool {
+    matches!(sig, b"NPC_" | b"CREA")
 }
 
 /// Choices of [`ref_collision_with`] that differ from the shared rule.
@@ -97,6 +105,13 @@ pub fn ref_collision_with(
             }
             None => tally("bad_primitive"),
         }
+    }
+    if is_actor_base(&base.sig) {
+        // The skeleton's bodies are keyframed and on the Biped layer [observed:
+        // `fnvtool phys cell --list-refs`]: added at the placement, they stayed in the
+        // way where the actor was placed, wherever it had walked to since.
+        tally("actor");
+        return out;
     }
     match base.world_model_path() {
         None if out.objects.is_empty() => tally("no_model"),

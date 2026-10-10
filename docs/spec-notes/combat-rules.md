@@ -552,3 +552,100 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   gore. All are later steps (combat.md §8).
 - Limb radii, the crippled-leg speeds and the arm-condition share are [design] (§12).
   The owner tunes them in play.
+
+## 14. Shots on objects (bottles, clutter)
+
+What a shot does to a placed object that is not an actor. Found with the tutorial's
+bottles (quest `VCG02`, "Back in the Saddle"), which a shot neither counted nor moved.
+
+- **The bottles' script** [observed: `VCG02TargetSCRIPT` on MISC `VCG02Bottle`, seven
+  references on the fence behind the Prospector Saloon, enabled with
+  `VCG02BottleMarkerREF` by Sunny's line 0x0010A1E6]:
+  - `Begin OnHitWith` without a parameter counts the hit when all of these hold:
+    `VCG02` is running, this bottle was not counted before, `player.IsWeaponOut == 1`,
+    `player.GetWeaponAnimType` is above 3 and below 9, and the player does not have the
+    Codac R9000 camera equipped.
+  - A counted hit makes Sunny say `VCG02SunnyShotReaction`, adds 1 to
+    `VCG02.nTargetCount` and sets `CGTutorial` stage 62. The third completes objective
+    10 and re-evaluates Sunny's package.
+- **Hit blocks on objects.**
+  - The target of OnHit and OnHitWith is "any reference" [documented: GECK wiki Event
+    Handling, the owner's export], and they run before damage is dealt.
+  - `Game::hit_object` runs the reference's OnHit blocks with the attacker and its
+    OnHitWith blocks with the weapon; nothing else changes. The engine calls it for
+    every shot that lands on a placed object.
+  - [hypothesis] OnHit's subject is the attacking actor. That page gives a projectile
+    reference for a ranged hit on a non-actor; we have no projectile references.
+  - Melee blows only strike actors so far (§10), so they run no object's blocks.
+- **`IsWeaponOut`** [documented: catalogue]: 1 while the actor has a weapon out; the
+  value changes when the weapon is attached to the weapon node. The engine reports the
+  player's (`WeaponAnim::ready`: drawn and in hand). No one reports other actors yet:
+  they read 0.
+- **`GetWeaponAnimType`.**
+  - [documented: GECK wiki GetWeaponAnimType] it tells 11 animation types apart and has
+    one catch-all value; several of the record's 13 (Fallout 3) or 14 (New Vegas) types
+    share a value. The page's table is a template that is not in the owner's export,
+    and the site refuses automated readers.
+  - [hypothesis] the numbering in `functions::weapon_anim_code`:
+
+    | WEAP DNAM animation type | value |
+    |---|---|
+    | 0 Hand to Hand | 1 |
+    | 1 Melee (1 Hand) | 2 |
+    | 2 Melee (2 Hand) | 3 |
+    | 3 Pistol - Ballistic, 4 Pistol - Energy | 4 |
+    | 5 Rifle - Ballistic, 7 Rifle - Energy | 5 |
+    | 6 Rifle - Automatic | 6 |
+    | 8 Handle | 7 |
+    | 9 Launcher | 8 |
+    | 10 Grenade Throw | 9 |
+    | 11 Land Mine | 10 |
+    | 12 Mine Drop | 11 |
+    | 13 Thrown, anything else | 0 |
+
+    No weapon equipped reads 1 (the actor fights with its hands).
+  - What it rests on [observed: shipped scripts and records, `FalloutNV.esm`]:
+    - `GetWeaponAnimType == 4` is tested together with `GetEquipped NVWeapMS22Camera`
+      (SCPT 0x001136AE); that weapon's record type is 3. So the values are not the
+      record's.
+    - Four weapon-alarm scripts test `IsWeaponOut == 1 && GetWeaponAnimType != 1`:
+      raised fists are no alarm, so Hand to Hand is 1.
+    - Two scripts treat `>= 2` as armed and `<= 1` as unarmed.
+    - The bottles' `> 3 && < 9` is then every gun (4 to 8) and nothing else.
+    - 13 types in 11 values needs two pairs to share. The pistols are one (above). The
+      rifles as the other is a guess.
+  - The bottles count the Varmint Rifle (record type 5) and the 9 mm Pistol (3) whether
+    or not the rifle guess holds: both land in 4 to 8 either way.
+- **The push** [design]:
+  - A shot strikes the loose (dynamic) body it lands on at the point of impact, along
+    its flight: `PhysWorld::push_ref`.
+  - Impulse: the projectile's Impact Force (PROJ DATA) times `OBJECT_PUSH` (1), read
+    as mass × metres per second in the stored collision's units [hypothesis: the
+    field's unit is not documented]. The masters' bullets carry 3 to 6.
+  - The speed gained is the impulse over the body's mass, at most
+    `OBJECT_PUSH_MAX_SPEED` (700 units/s). The turn it gives is bounded as a ragdoll's.
+  - A bottle (mass 1) hit by the Varmint Rifle (Impact Force 3) leaves at 210 units/s.
+  - Fixed and animated collision is not pushed.
+- **Two faults found on the way.**
+  - A sleeping body that was struck and then queried before the next physics step never
+    moved (physics.md §5, rapier quirk). Explosions' pushes had the same fault.
+  - Objects a script enables during play (`script_draw.rs`) were not redrawn where
+    physics moved them; they are now (`script_draw::follow`).
+- **Test aids:** `NVF_PLAY_TEST_CONTROL` `aimref=<FormID>` aims at a placed object's
+  body; `NVF_PLAY_TEST_NO_SPREAD=1` makes shots leave exactly along the view.
+- **Checked** [observed 2026-10-10, `nvforever --play`, exit 0, "run finished"]: with
+  `VCG02` started and Sunny's line 0x0010A1E6 said, the player drew the Varmint Rifle
+  and shot bottles 0x0010A202, 0x0010A203 and 0x0010A204 from 260 units.
+  - Each shot ran the bottle's OnHitWith block and Sunny said a reaction line.
+  - The first set `CGTutorial` stage 62; the third completed `VCG02` objective 10.
+  - Each bottle left the fence at 210 units/s; one came to rest on the ground 94 units
+    from where it stood.
+
+  ```
+  NVF_PLAY_TEST_NO_SPREAD=1 NVF_PLAY_TEST_GOTO=1:-68375:4800:8600
+  NVF_PLAY_TEST_SCRIPT=3:start:VCG02,4:info:0x0010A1E6:SunnyRef
+  NVF_PLAY_TEST_CONTROL=7:weapon,10:aimref=0010A202,10.5:fire,10.7:fire,13:aimref=0010A203,13.5:fire,13.7:fire,16:aimref=0010A204,16.5:fire,16.7:fire
+  nvforever --data <Data> --cell Goodsprings --play --pos=-68375,4800,8700 --run-seconds 22
+  ```
+- **Open:** the `GetWeaponAnimType` table (owner-review.md); how hard the game's shots
+  push clutter (the planned projectile captures); impact effects and sounds.

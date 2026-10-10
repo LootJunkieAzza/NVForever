@@ -10,12 +10,17 @@
 //! as children of the cell's `RenderCell` entity, with `RefVisual` on each mesh entity
 //! (crosshair bounds and visual sync see them like any other). Collision follows from
 //! `RefChanged` (`phys.rs` restores a reference's collision when it becomes present).
+//! One that physics then moves (the tutorial's bottles, shot off their fence) is drawn
+//! where the simulation holds it ([`follow`]; `crate::moved` only moves render
+//! streaming's entities, the children of a cell).
 //!
 //! Not drawn here: actors (ACHR/ACRE; `actors.rs` builds them), SpeedTrees, markers, and
 //! lights' light sources (only a light's model). The enabled-at-start rule is a copy of
 //! world.rs's (`WorldData::enabled`) [coordination: one shared function would keep the
 //! two from drifting; docs/design/layer5-play.md].
 
+use crate::moved::ref_affine;
+use crate::phys::PhysState;
 use crate::script::ScriptState;
 use crate::sim::SimState;
 use crate::{PlaySet, PlayWorld, RefVisual, RenderCell};
@@ -55,7 +60,7 @@ pub struct ScriptDrawPlugin;
 
 impl Plugin for ScriptDrawPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ScriptDrawn>().add_systems(Update, sync.in_set(PlaySet::Sync));
+        app.init_resource::<ScriptDrawn>().add_systems(Update, (sync, follow).chain().in_set(PlaySet::Sync));
     }
 }
 
@@ -118,6 +123,17 @@ fn pose(sim: &SimState, p: &Placement) -> Affine3A {
 }
 
 type Cells<'w, 's> = Query<'w, 's, (Entity, &'static RenderCell, &'static Transform), Without<ScriptDrawnRoot>>;
+
+/// Move the roots of the references physics moved this frame
+/// (`PhysState::settle_placed`) to the simulation's pose.
+fn follow(sim: Res<SimState>, phys: Res<PhysState>, state: Res<ScriptDrawn>, cells: Cells, mut roots: Query<&mut Transform, With<ScriptDrawnRoot>>) {
+    for &id in &phys.moved_now {
+        let Some(&(root, cell_e)) = state.drawn.get(&id) else { continue };
+        let (Ok((_, _, cell)), Ok(mut t), Some(p)) = (cells.get(cell_e), roots.get_mut(root), sim.refs.get(FormId(id))) else { continue };
+        let (pos, rot) = sim.moved_pose(id).unwrap_or((p.pos, p.rot));
+        *t = Transform::from_matrix(Mat4::from(Affine3A::from_translation(-cell.translation) * ref_affine(pos, rot, p.scale.unwrap_or(1.0))));
+    }
+}
 
 
 #[allow(clippy::too_many_arguments)]

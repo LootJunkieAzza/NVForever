@@ -151,6 +151,36 @@ every PACK and IDLM subrecord of the six masters decodes with nothing left over
   No Sleeping 486, No Eating 326, No Wandering 302, No Conversation 137, No Furniture
   123, No Idle Markers 85; Eat Allow Buying 49; Ambush Hide While Ambushing 30; Find
   Allow Killing 21; Use Item At Sit Down 4; Guard Remain Near Reference 3.
+- **Dialogue packages** [observed: `fnvtool ai show` over the 332 of FalloutNV.esm,
+  2026-10-10]:
+  - **Whom**: every one targets a specific reference: the player in 293 (277
+    conversations, 16 Say To), another reference in 39 (35 conversations, 4 Say To).
+    Every Say To package names a topic. Of the 277 conversations with the player, 111
+    name GREETING and 67 no topic.
+  - **Count / distance** (the "Activate Distance", §3) of the 293: 0 in 54; else 64 to
+    5,000, most often 256 (39), 512 (30), 128 (16), 1,024 (16), 500 (15).
+  - **Locations** of the 293: neither in 156; location 1 only in 44; both in 93 (never
+    location 2 alone). With both, location 1 has radius 0 in 66 and a radius in 27.
+  - **What location 2 is** (the "Trigger Location"): near a reference in 61, near the
+    editor location in 18, near the current location in 9, in a cell in 4, near the
+    linked reference in 1. Of the references, **those with radius 0 are box primitives
+    in 32 of 33** (activators without a model or script, placed around the spot, such
+    as SunnySmilesTrigger, CaesarDialogueTrigger, GomorrahCasinoEnterTrigger; the 33rd
+    is a creature); of the 29 with a radius, 16 are markers, 5 box primitives, 3 the
+    player, 3 a creature, 1 furniture and 1 an idle marker.
+  - **Flags**: Must Complete 150 and Always Run 132 of the 293; PKDD "Don't Control
+    Target Movement" 26 and "No Headtracking" 1 of the 332.
+  - **Sunny Smiles** (the first package of GSSunnySmiles's list,
+    SunnyMeetPlayerDialoguePackage 0x00105CC7): a conversation with the player, topic
+    GREETING, distance 256; location 1 the editor location, radius 0; location 2 the
+    reference 0x0015D9BA, radius 0: a SunnySmilesTrigger box of half extents
+    243 × 269 × 111 centred 101 units from where she stands (230.9, −492.7, 3456) in
+    GSProspectorSaloonInterior; flag Skip Fallout Behavior; one condition,
+    VFreeformGoodsprings.bMetSunny (variable 48) == 0. The saloon's front door puts
+    the player at (133.0, −821.7, 3456): inside the box, 343 units from her. The line
+    she then says (INFO 0x00104E7E, "Cheyenne, stay…", Say Once) sets bMetSunny to 1
+    in its end script, so the package is no longer valid afterwards. No script and no
+    trigger block is involved: the box has no script.
 - **Other data**: 267 packages carry an idle collection (25 run in sequence, 22 do
   once); 412 dialogue data (336 name a topic, 35 are "Say To"); 175 use-weapon data;
   169 a follow trigger radius; 13 an escort distance; 16 a combat style.
@@ -230,10 +260,37 @@ location, in cell (radius ignored), near reference; the radius is editable.
 - **Follow / Accompany / Escort**: keep a distance to a target actor (follow walks
   behind it; accompany paths to its destination; escort leads it to a destination);
   follow can have start and end locations.
-- **Find / Use Item At / Use Weapon / Dialogue / Ambush / Flee Not Combat / Wander**:
+- **Find / Use Item At / Use Weapon / Ambush / Flee Not Combat / Wander**:
   search for and pick up / activate objects; go and use an item or furniture; shoot at
-  a target with the PKW3 fire pattern; talk to a target (or the player); wait at a
-  location until enemies enter another; flee to or from somewhere; wander.
+  a target with the PKW3 fire pattern; wait at a location until enemies enter another;
+  flee to or from somewhere; wander.
+- **Dialogue** [documented: GECK wiki, Dialogue Package]: gets an actor "to engage in
+  a specific conversation with the player or another NPC".
+  - The **target** is whom to talk to; its distance is the **Activate Distance**: "how
+    close to the target does the actor needs to be before initiating dialogue. The
+    standard distance is 150, as defined in the iActivatePickLength game setting".
+  - **Dialogue type**: Conversation ("if the target is the player, the NPC will
+    force-greet the player") or Say To (one line, no conversation and no dialogue menu).
+  - Location 1 is the **Start/Wait Location**: the actor moves there when the package
+    starts and "will wander within that radius while waiting". Location 2 is the
+    **Trigger Location**: "where the target must be to trigger the actor to begin
+    moving towards the target to initiate dialogue"; its radius: "when the target gets
+    this close to the trigger reference".
+  - **Behaviour**, once the actor is at the wait location: (1) a trigger location and a
+    wait location with a radius: the actor stays until the target enters the trigger
+    location, then moves towards the target and talks at the activate distance; (2) a
+    trigger location and a wait location of radius 0: the actor "will stay at the Wait
+    Location until the target reaches the Activate Distance" and talks; (3) no trigger
+    location: the actor "will immediately begin moving towards the target" and talks at
+    the activate distance.
+  - **Do Not Control Target Movement** off: with a trigger location the target "will
+    walk towards that location when the dialogue package starts", without one it "will
+    stand still and wait for the actor to reach the activation distance". **No
+    HeadTracking**: speaker and target "will not be forced to look at each other by the
+    package". FOV: the dialogue menu's zoom when the target is the player. Topic: the
+    first topic of a conversation between two NPCs, or the Say To line.
+  - Must Complete: the package "will not reevaluate until actor has engaged in
+    dialogue with the target".
 
 **Doors and packages**: the door flags lock or unlock all doors of the cell at the start,
 the end, or while at the location. Known New Vegas bugs listed on the wiki: door flags
@@ -278,6 +335,25 @@ at the destination; Fallout behaviour can start a procedure without changing the
     sleep, sandbox and patrol packages; the bed, the object in use, the patrol point
     [hypothesis for what each is]). An object-type target (EasyPeteEat12x2) reported
     none.
+
+- **A Dialogue package waiting and starting** [observed: the owner's captures with
+  SunnyRef and SunnyMeetPlayerDialoguePackage, §2; read again 2026-10-10]:
+  - **The player elsewhere** (`town_day`, 24 game hours, 2,904 samples): she ran the
+    package throughout, procedure 43 DIALOGUE_ACTIVATE, target the player, and stood
+    on her editor location (0.0 units from it in every sample).
+  - **The player in the same cell, outside the trigger box and far off**
+    (`saloon_evening`: the player at (−3.9, 243.6, 3460.6) in the saloon for six game
+    hours, 773 units from her and outside the box, which ends at y = −325): she did
+    not move (1,451 samples at her editor location, heading 90°), reporting the
+    run-time package 0xFF001309, type DIALOGUE, procedure DIALOGUE_ACTIVATE, target
+    the player. So being in the cell does not send her to the player.
+  - **The player next to her** (`meet_sunny`, `player.MoveTo SunnyRef`): the
+    conversation had started by the first sample; she stood 40 units from the player
+    and had turned from heading 90° to 178°, towards the player (who was south of
+    her). During it: procedure 17 DONE. After it, in the rerun: the list package with
+    procedure DONE (78 samples), then DefaultStayAtEditorLocation.
+  - **Not captured**: the player coming in by the door (inside the box, 343 units
+    away), which is the case the game is played in (§6).
 
 - **Schedules, list order and the choice** [observed: the same eleven runs; `fnvtool ai
   observed`, `schedules` and `choice_replay`]:
@@ -395,6 +471,13 @@ Sandbox / Wander package: behaviours allowed and the other flags that bear on th
 and `sandbox_radius`; `fnvtool ai run` shows each actor's `using` (furniture) and
 `sandbox` (what it is doing) and the events `sandbox`, `furniture`, `patrol_wait`.
 
+Dialogue packages: `fnv_ai::goal::Talk` and `Trigger`, `fnv_ai::Talking` (how far an
+actor is with it), the events `approach`, `talk`, `talk_over`, `no_talk`; a
+reference's box or sphere is `fnv_sim::refs::PlacedRef::primitive`. Rules:
+docs/design/actor-behaviour.md §5.6. Tests: `crates/fnv-ai/tests/talk.rs`. `fnvtool ai
+reach` judges the wait location and reports packages without one as "talks: goes up
+to its target from where it is".
+
 Carrying out: `fnv_ai::goal::resolve` (a package's goal) and `fnv_ai::Ai` (`add`,
 `update`, `update_with`, `update_moved`, `events`), `crates/fnv-ai`; `Game::block_package`, `Game::set_actor_place` and
 `PackageCheck::Unreachable` in `fnv-game`. Tests: `crates/fnv-ai/tests/carry.rs`.
@@ -444,6 +527,16 @@ packages, packages in no list, placed actors whose base lists packages).
   packages whose record names none (§4).
 - Which patrol point a patrol located near a reference with no linked reference (59
   packages) uses, and how a patrol located near the editor location (61) finds its route.
+- **Dialogue packages**: what the game does when the target is inside a trigger
+  location of radius 0 (a box) but further off than the activate distance: Sunny
+  Smiles as the player comes into the saloon. Capture: enter by the front door on a
+  save where she has not been met, touch nothing, and record her position, package and
+  procedure and when the dialogue menu opens. Does she walk up (what `fnv_ai` does),
+  or does the conversation open from 343 units? Is the player held meanwhile ("Do Not
+  Control Target Movement" off)? Also: what a stored distance of 0 means, how fast an
+  actor goes up to its target, whether a package whose conversation is over starts
+  again while it stays valid, and whether "radius 0" tests the reference's box (the
+  data says so, §2; the documentation does not).
 - The sandbox and ambush settings' values in the game (capture with `GetGameSetting`).
 - Low-level processing: whether and how unloaded actors advance their packages (the
   observer's tracked actors show where the game moves persistent NPCs while the player

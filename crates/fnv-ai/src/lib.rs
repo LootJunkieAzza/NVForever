@@ -11,6 +11,6 @@ pub mod carry;
 pub mod goal;
 pub mod sandbox;
 
-pub use carry::{Activity, Agent, Ai, AiConfig, AiEvent, Logged, Mover};
-pub use goal::{Goal, Route};
+pub use carry::{Activity, Agent, Ai, AiConfig, AiEvent, Logged, Mover, Talking};
+pub use goal::{Goal, Route, Talk, Trigger};
 pub use sandbox::{Allowed, Doing, Sandbox};

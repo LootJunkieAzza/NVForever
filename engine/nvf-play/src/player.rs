@@ -703,6 +703,7 @@ fn step(
     mut status: ResMut<Status>,
     limbs: Option<Res<crate::combat::PlayerLimbs>>,
     mut seat: ResMut<crate::furniture::PlayerSeat>,
+    mut blocks: Option<ResMut<crate::blocking::ActorBlocks>>,
 ) {
     if *state.get() != PlayState::Playing {
         phys.stepper = default();
@@ -772,7 +773,13 @@ fn step(
         };
         p.prev_feet = c.feet;
         let view = Some([player.heading.sin(), player.heading.cos()]);
-        let s = p.world.move_character(c, CharacterInput { velocity: [vx, vy], jump: intent.jump && i == 0, vertical: vz, view });
+        // Actors stand in the way where they are now (`crate::blocking`).
+        let mut go = [vx, vy];
+        if let Some(b) = blocks.as_deref_mut().filter(|b| !b.list.is_empty()) {
+            go = crate::blocking::clip(go, c.feet, c.params.radius, c.params.height, dt, &b.list);
+            b.steps_blocked += u64::from(go != [vx, vy]);
+        }
+        let s = p.world.move_character(c, CharacterInput { velocity: go, jump: intent.jump && i == 0, vertical: vz, view });
         // The actors another system walks, by the velocity it gave each.
         for b in p.npcs.values_mut() {
             p.world.move_character(&mut b.ch, CharacterInput { velocity: b.velocity, ..Default::default() });

@@ -414,7 +414,8 @@ role; their exact names come from C1.
 
 - First version (C3): one capsule per actor, sized from the actor's bounds, on the
   BIPED layer, kinematic, moved to the actor each frame. Dead actors move to DEAD_BIP.
-  Shots hit them, the character controller ignores them.
+  Shots hit them, the character controller ignores them. What keeps the player from
+  walking through a living actor is separate (physics.md §6.8).
 - Second version: one capsule per body part (head, torso, arms, legs, as BPTD names the
   parts and their bones), posed from the animated skeleton each frame. The hit part
   gives the damage multiplier (headshots) and the hit location (`GetHitLocation`).

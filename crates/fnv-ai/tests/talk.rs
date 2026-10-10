@@ -1,0 +1,508 @@
+//! Dialogue packages carried out (`fnv_ai`, docs/design/actor-behaviour.md §5.6) on a
+//! plugin and a navmesh built in memory (no game data): one room, a greeting, a trigger
+//! box, and actors with one Dialogue package each. The rules are the GECK wiki's
+//! (Dialogue Package, "Behavior").
+
+use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Talking};
+use fnv_esm::raw::{write_subrecords, Subrecord};
+use fnv_esm::{LoadOrder, Plugin, Schema};
+use fnv_game::game::{Game, GameConfig};
+use fnv_game::package::flags;
+use fnv_game::GameData;
+use fnv_nav::record::{NavMeshRecord, Triangle};
+use fnv_nav::{NavGraph, Space};
+use fnv_script::FunctionTable;
+use fnv_sim::{FormId, FormStore, RefTable, SimConfig, World};
+use serde_json::Value as Json;
+
+// ---- plugin builders ---------------------------------------------------------------
+
+fn sub(sig: &[u8; 4], data: Vec<u8>) -> Subrecord {
+    Subrecord { sig: *sig, data, extended: false }
+}
+
+fn z(s: &str) -> Vec<u8> {
+    [s.as_bytes(), &[0]].concat()
+}
+
+fn u32b(v: u32) -> Vec<u8> {
+    v.to_le_bytes().to_vec()
+}
+
+fn record(sig: &[u8; 4], fid: u32, subs: &[Subrecord]) -> Vec<u8> {
+    let payload = write_subrecords(subs);
+    [&sig[..], &(payload.len() as u32).to_le_bytes(), &0u32.to_le_bytes(), &fid.to_le_bytes(), &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+}
+
+fn group(label: [u8; 4], gtype: i32, body: &[u8]) -> Vec<u8> {
+    [&b"GRUP"[..], &((24 + body.len()) as u32).to_le_bytes(), &label, &gtype.to_le_bytes(), &[0; 8], body].concat()
+}
+
+fn tes4() -> Vec<u8> {
+    let hedr = [1.34f32.to_le_bytes(), 0i32.to_le_bytes(), 0xA00u32.to_le_bytes()].concat();
+    let payload = write_subrecords(&[sub(b"HEDR", hedr)]);
+    [&b"TES4"[..], &(payload.len() as u32).to_le_bytes(), &1u32.to_le_bytes(), &[0; 4], &[0; 4], &15u16.to_le_bytes(), &[0; 2], &payload].concat()
+}
+
+fn glob(fid: u32, edid: &str, v: f32) -> Vec<u8> {
+    record(b"GLOB", fid, &[sub(b"EDID", z(edid)), sub(b"FNAM", vec![b'f']), sub(b"FLTV", v.to_le_bytes().to_vec())])
+}
+
+/// A location or a target: (type, value, radius or distance).
+type Triple = (i32, u32, i32);
+
+fn triple(t: Triple) -> Vec<u8> {
+    [t.0.to_le_bytes(), t.1.to_le_bytes(), t.2.to_le_bytes()].concat()
+}
+
+/// A Dialogue package: general flags, the wait location, the trigger location, the
+/// target with the activate distance, the topic and whether it is a Say To.
+#[allow(clippy::too_many_arguments)]
+fn talk_pack(id: u32, edid: &str, general: u32, wait: Option<Triple>, trigger: Option<Triple>, target: Triple, topic: u32, say_to: bool) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid)), sub(b"PKDT", [&general.to_le_bytes()[..], &[15, 0, 0, 0], &[0; 4]].concat())];
+    subs.extend(wait.map(|l| sub(b"PLDT", triple(l))));
+    subs.extend(trigger.map(|l| sub(b"PLD2", triple(l))));
+    subs.push(sub(b"PSDT", [&[0xFF, 0xFF, 0, 0xFF][..], &0u32.to_le_bytes()].concat()));
+    subs.push(sub(b"PTDT", triple(target)));
+    // FOV, topic, flags, unused, dialogue type, unknown.
+    subs.push(sub(b"PKDD", [75f32.to_le_bytes(), topic.to_le_bytes(), [0; 4], [0; 4], (say_to as u32).to_le_bytes(), [0; 4]].concat()));
+    record(b"PACK", id, &subs)
+}
+
+fn npc(fid: u32, edid: &str, packages: &[u32]) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid))];
+    subs.extend(packages.iter().map(|p| sub(b"PKID", u32b(*p))));
+    record(b"NPC_", fid, &subs)
+}
+
+fn placed(sig: &[u8; 4], fid: u32, edid: &str, base: u32, pos: [f32; 3], extra: Option<Subrecord>) -> Vec<u8> {
+    let mut subs = vec![sub(b"EDID", z(edid)), sub(b"NAME", u32b(base))];
+    subs.extend(extra);
+    subs.push(sub(b"DATA", [pos[0].to_le_bytes(), pos[1].to_le_bytes(), pos[2].to_le_bytes(), [0; 4], [0; 4], [0; 4]].concat()));
+    record(sig, fid, &subs)
+}
+
+/// A box primitive on a reference (XPRM): half extents, a colour, the type.
+fn box_primitive(half: [f32; 3]) -> Subrecord {
+    let mut d: Vec<u8> = half.iter().flat_map(|v| v.to_le_bytes()).collect();
+    d.extend([0u8; 16]);
+    d.extend(1u32.to_le_bytes());
+    sub(b"XPRM", d)
+}
+
+/// An empty result script.
+fn no_script() -> Subrecord {
+    sub(b"SCHR", [&[0u8; 16][..], &0u16.to_le_bytes(), &1u16.to_le_bytes()].concat())
+}
+
+/// A topic with one line of one response (or none), said by anyone.
+fn topic(id: u32, edid: &str, line: Option<(u32, u16, &str)>) -> Vec<u8> {
+    let dial = record(b"DIAL", id, &[sub(b"EDID", z(edid)), sub(b"FULL", z(edid)), sub(b"PNAM", 50f32.to_le_bytes().to_vec()), sub(b"DATA", vec![0, 0])]);
+    let lines = line.map_or(Vec::new(), |(info, info_flags, text)| {
+        let trdt = [u32b(0), u32b(50), vec![0; 4], vec![1, 0, 0, 0], u32b(0), vec![0; 4]].concat();
+        record(
+            b"INFO",
+            info,
+            &[
+                sub(b"DATA", vec![0, 0, info_flags as u8, (info_flags >> 8) as u8]),
+                sub(b"QSTI", u32b(QUEST)),
+                sub(b"TRDT", trdt),
+                sub(b"NAM1", z(text)),
+                sub(b"NAM2", z("")),
+                sub(b"NAM3", z("")),
+                no_script(),
+                sub(b"NEXT", vec![]),
+                no_script(),
+            ],
+        )
+    });
+    [dial, group(id.to_le_bytes(), 7, &lines)].concat()
+}
+
+const G_DAYS: u32 = 0x805;
+const QUEST: u32 = 0x810;
+const GREETING: u32 = 0x811;
+const T_SAY: u32 = 0x812;
+const T_EMPTY: u32 = 0x813;
+const I_HELLO: u32 = 0x818;
+const I_SAY: u32 = 0x819;
+const STAT: u32 = 0x820;
+const ACTI: u32 = 0x821;
+// Packages.
+const P_GREET: u32 = 0x830;
+const P_COME: u32 = 0x831;
+const P_WAIT: u32 = 0x832;
+const P_SAY: u32 = 0x833;
+const P_TO_NPC: u32 = 0x834;
+const P_MUTE: u32 = 0x835;
+// Bases.
+const N_GREET: u32 = 0x840;
+const N_COME: u32 = 0x841;
+const N_WAIT: u32 = 0x842;
+const N_SAY: u32 = 0x843;
+const N_TO_NPC: u32 = 0x844;
+const N_MUTE: u32 = 0x845;
+// The cell and its references.
+const CELL: u32 = 0x860;
+const TRIGGER: u32 = 0x870;
+const MARK_WAIT: u32 = 0x871;
+const MARK_TRIGGER: u32 = 0x872;
+const R_GREET: u32 = 0x880;
+const R_COME: u32 = 0x881;
+const R_WAIT: u32 = 0x882;
+const R_SAY: u32 = 0x883;
+const R_TO_NPC: u32 = 0x884;
+const R_MUTE: u32 = 0x885;
+
+const PLAYER: u32 = 0x14;
+const GOODBYE: u16 = 0x0001;
+const ROOM: Space = Space::Interior(CELL);
+/// Where the greeter stands, and its trigger box: x 300 to 900, y 250 to 950.
+const GREETER: [f32; 3] = [600.0, 900.0, 0.0];
+const CORNER: [f32; 3] = [100.0, 100.0, 0.0];
+
+fn plugin_bytes() -> Vec<u8> {
+    let globs = [
+        glob(0x801, "GameYear", 2281.0),
+        glob(0x802, "GameMonth", 9.0),
+        glob(0x803, "GameDay", 19.0),
+        glob(0x804, "GameHour", 12.0),
+        glob(G_DAYS, "GameDaysPassed", 5.0),
+        glob(0x806, "TimeScale", 30.0),
+    ]
+    .concat();
+    let player = (0, PLAYER, 0);
+    let packs = [
+        // Sunny Smiles's shape: wait at the editor location (radius 0), a trigger box,
+        // the player within 256.
+        talk_pack(P_GREET, "GreetInBox", flags::MUST_COMPLETE, Some((3, 0, 0)), Some((0, TRIGGER, 0)), (0, PLAYER, 256), GREETING, false),
+        // No locations and no distance: go to the player at once, running.
+        talk_pack(P_COME, "ComeAndTalk", flags::ALWAYS_RUN, None, None, player, 0, false),
+        // A wait location with a radius and a trigger location with one.
+        talk_pack(P_WAIT, "WaitThenTalk", 0, Some((0, MARK_WAIT, 100)), Some((0, MARK_TRIGGER, 200)), (0, PLAYER, 200), 0, false),
+        talk_pack(P_SAY, "SayALine", 0, None, None, (0, PLAYER, 200), T_SAY, true),
+        talk_pack(P_TO_NPC, "TalkToAnActor", 0, None, None, (0, R_GREET, 200), 0, false),
+        talk_pack(P_MUTE, "NothingToSay", flags::MUST_COMPLETE, None, None, (0, PLAYER, 200), T_EMPTY, false),
+    ]
+    .concat();
+    let npcs = [
+        npc(0x7, "Player", &[]),
+        npc(N_GREET, "Greeter", &[P_GREET]),
+        npc(N_COME, "Comer", &[P_COME]),
+        npc(N_WAIT, "Waiter", &[P_WAIT]),
+        npc(N_SAY, "Sayer", &[P_SAY]),
+        npc(N_TO_NPC, "Chatter", &[P_TO_NPC]),
+        npc(N_MUTE, "Mute", &[P_MUTE]),
+    ]
+    .concat();
+    let quest = record(b"QUST", QUEST, &[sub(b"EDID", z("TalkQuest")), sub(b"DATA", [vec![1, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
+    let dial = [topic(GREETING, "GREETING", Some((I_HELLO, GOODBYE, "Hello there."))), topic(T_SAY, "SayTopic", Some((I_SAY, 0, "Mind the step."))), topic(T_EMPTY, "EmptyTopic", None)].concat();
+    let bases = [record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))]), record(b"ACTI", ACTI, &[sub(b"EDID", z("TalkTrigger"))])];
+    let refs = [
+        placed(b"REFR", TRIGGER, "TriggerBox", ACTI, [600.0, 600.0, 100.0], Some(box_primitive([300.0, 350.0, 110.0]))),
+        placed(b"REFR", MARK_WAIT, "WaitMarker", STAT, [200.0, 1000.0, 0.0], None),
+        placed(b"REFR", MARK_TRIGGER, "TriggerMarker", STAT, [1000.0, 200.0, 0.0], None),
+        placed(b"ACHR", R_GREET, "GreeterRef", N_GREET, GREETER, None),
+        placed(b"ACHR", R_COME, "ComerRef", N_COME, CORNER, None),
+        placed(b"ACHR", R_WAIT, "WaiterRef", N_WAIT, CORNER, None),
+        placed(b"ACHR", R_SAY, "SayerRef", N_SAY, CORNER, None),
+        placed(b"ACHR", R_TO_NPC, "ChatterRef", N_TO_NPC, CORNER, None),
+        placed(b"ACHR", R_MUTE, "MuteRef", N_MUTE, CORNER, None),
+    ]
+    .concat();
+    let cell = [record(b"CELL", CELL, &[sub(b"EDID", z("Room"))]), group(CELL.to_le_bytes(), 6, &group(CELL.to_le_bytes(), 9, &refs))].concat();
+    let top = |sig: &[u8; 4], body: &[u8]| group(*sig, 0, body);
+    [
+        tes4(),
+        top(b"GLOB", &globs),
+        top(b"STAT", &bases[0]),
+        top(b"ACTI", &bases[1]),
+        top(b"NPC_", &npcs),
+        top(b"PACK", &packs),
+        top(b"QUST", &quest),
+        top(b"DIAL", &dial),
+        top(b"CELL", &group(0i32.to_le_bytes(), 2, &group(0i32.to_le_bytes(), 3, &cell))),
+    ]
+    .concat()
+}
+
+/// The room: a flat navmesh of 12 × 12 squares of side 100 from the origin.
+fn nav() -> NavGraph {
+    let n = 12usize;
+    let vid = |i: usize, j: usize| (j * (n + 1) + i) as u16;
+    let mut vertices = Vec::new();
+    for j in 0..=n {
+        for i in 0..=n {
+            vertices.push([i as f32 * 100.0, j as f32 * 100.0, 0.0]);
+        }
+    }
+    let tri = |i: isize, j: isize, h: usize| -> i16 {
+        if i < 0 || j < 0 || i >= n as isize || j >= n as isize {
+            -1
+        } else {
+            ((j as usize * n + i as usize) * 2 + h) as i16
+        }
+    };
+    let mut triangles = Vec::new();
+    for j in 0..n {
+        for i in 0..n {
+            let (a, b, c, d) = (vid(i, j), vid(i + 1, j), vid(i + 1, j + 1), vid(i, j + 1));
+            let (ii, jj) = (i as isize, j as isize);
+            triangles.push(Triangle { v: [a, b, c], edges: [tri(ii, jj - 1, 1), tri(ii + 1, jj, 1), tri(ii, jj, 1)], flags: 0, cover: 0 });
+            triangles.push(Triangle { v: [a, c, d], edges: [tri(ii, jj, 0), tri(ii, jj + 1, 0), tri(ii - 1, jj, 0)], flags: 0, cover: 0 });
+        }
+    }
+    let room = NavMeshRecord { form_id: 1, vertices, triangles, ..Default::default() };
+    NavGraph::assemble(&[(&room, Some(CELL), Some(ROOM))])
+}
+
+// ---- fixture -----------------------------------------------------------------------
+
+struct Fixture {
+    data: GameData,
+    forms: FormStore,
+    refs: RefTable,
+}
+
+fn fixture() -> Fixture {
+    let plugins = vec![Plugin::parse(&plugin_bytes(), "Talk.esm".into()).unwrap()];
+    let lo = LoadOrder::new(&plugins).unwrap();
+    let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
+    let j: Json = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    let forms = FormStore::build(&lo, &schema);
+    let refs = RefTable::build(&lo, &schema);
+    let data = GameData::build(&lo, &schema, FunctionTable::load(&p).unwrap(), &j, &refs);
+    assert!(data.issues.is_empty(), "{:?}", data.issues.to_json());
+    Fixture { data, forms, refs }
+}
+
+struct Sim<'a> {
+    game: Game<'a>,
+    ai: Ai,
+    nav: NavGraph,
+}
+
+/// A game with one actor handed to the AI and the player standing at `player`.
+fn sim<'a>(f: &'a Fixture, actor: u32, player: [f32; 3]) -> Sim<'a> {
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut game = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: 0.25, package_interval: Some(10.0), ..GameConfig::default() });
+    game.new_game();
+    let mut ai = Ai::new(AiConfig { walk_speed: 100.0, run_speed: 400.0, ..AiConfig::default() });
+    ai.add(&game, FormId(actor)).unwrap();
+    let mut s = Sim { game, ai, nav: nav() };
+    s.player_to(player);
+    s
+}
+
+impl Sim<'_> {
+    fn player_to(&mut self, pos: [f32; 3]) {
+        self.game.set_actor_place(FormId(PLAYER), Some(FormId(CELL)), pos, 0.0).unwrap();
+    }
+
+    fn run(&mut self, seconds: f64) {
+        for _ in 0..(seconds * 4.0) as usize {
+            self.game.tick();
+            self.ai.update(&mut self.game, &self.nav, 0.25);
+        }
+    }
+
+    fn events(&self) -> Vec<&AiEvent> {
+        self.ai.events.iter().map(|e| &e.event).collect()
+    }
+
+    fn agent(&self, actor: u32) -> &fnv_ai::Agent {
+        &self.ai.agents[&FormId(actor)]
+    }
+
+    fn talks(&self) -> usize {
+        self.events().iter().filter(|e| matches!(e, AiEvent::Talk { .. })).count()
+    }
+}
+
+fn flat(a: [f32; 3], b: [f32; 3]) -> f32 {
+    (a[0] - b[0]).hypot(a[1] - b[1])
+}
+
+// ---- tests -------------------------------------------------------------------------
+
+#[test]
+fn the_reference_table_reads_the_trigger_box() {
+    let f = fixture();
+    let prim = f.refs.get(FormId(TRIGGER)).unwrap().primitive.unwrap();
+    assert!(!prim.sphere);
+    assert_eq!(prim.bounds, [300.0, 350.0, 110.0]);
+    assert!(f.refs.get(FormId(MARK_WAIT)).unwrap().primitive.is_none());
+    let d = &f.data.package_defs[&FormId(P_GREET)];
+    assert_eq!(d.target.unwrap().count_distance, 256);
+    assert_eq!(d.dialogue.unwrap().topic, Some(FormId(GREETING)));
+    assert!(f.data.package_defs[&FormId(P_SAY)].dialogue.unwrap().say_to);
+}
+
+/// Sunny Smiles's case: the player comes into the trigger box further away than the
+/// activate distance; the actor walks up and starts the conversation at that distance.
+#[test]
+fn an_actor_walks_up_to_a_player_who_enters_its_trigger_box_and_greets() {
+    let f = fixture();
+    // Outside the box (it ends at y 250) and 700 units away: nothing happens.
+    let mut s = sim(&f, R_GREET, [600.0, 200.0, 0.0]);
+    s.run(5.0);
+    assert_eq!(s.agent(R_GREET).talk, Some(Talking::Waiting));
+    assert_eq!(s.agent(R_GREET).activity, Activity::There);
+    assert_eq!(s.agent(R_GREET).walker.feet, GREETER);
+    assert_eq!(s.events().len(), 1, "{:?}", s.events());
+    assert_eq!(s.game.package_held(FormId(R_GREET)), Some("must complete"));
+    // Into the box, 600 units away: it sets off.
+    s.player_to([600.0, 300.0, 0.0]);
+    s.run(0.25);
+    assert!(matches!(s.events()[1], AiEvent::Approach { package, target, away: Some(a), running: false, .. } if package.0 == P_GREET && target.0 == PLAYER && (*a - 600.0).abs() < 1.0), "{:?}", s.events()[1]);
+    assert_eq!(s.agent(R_GREET).activity, Activity::Travelling);
+    assert!(s.game.dialogue.is_none());
+    // It stops at the activate distance and the conversation starts with the greeting.
+    s.run(5.0);
+    let ev = s.events();
+    assert!(matches!(ev[2], AiEvent::Talk { package, line, away, say_to: false, .. } if package.0 == P_GREET && line.0 == I_HELLO && *away <= 256.0 && *away > 220.0), "{:?}", ev[2]);
+    let feet = s.agent(R_GREET).walker.feet;
+    let walked = flat(feet, GREETER);
+    assert!(walked > 340.0 && walked < 380.0, "{walked}");
+    // The game knows where it stands.
+    assert!(flat(s.game.world.peek(FormId(R_GREET)).unwrap().pos, feet) < 1.0);
+    // The conversation ran its line (a Goodbye line) and is over: the package is done
+    // and does not start again.
+    s.run(20.0);
+    assert!(s.game.dialogue.is_none());
+    assert!(matches!(s.events()[3], AiEvent::TalkOver { package } if package.0 == P_GREET), "{:?}", s.events()[3]);
+    assert_eq!(s.agent(R_GREET).talk, Some(Talking::Done));
+    assert!(s.game.extra[&FormId(R_GREET)].package_goal_met);
+    assert_eq!(s.game.package_held(FormId(R_GREET)), None);
+    assert!(s.game.extra[&FormId(R_GREET)].talked_to_pc);
+    s.run(30.0);
+    assert_eq!(s.talks(), 1);
+    assert_eq!(s.events().len(), 4, "{:?}", s.events());
+}
+
+/// The documented case 2: with a wait location of radius 0 the actor stays until the
+/// target reaches the activate distance, wherever the trigger location is.
+#[test]
+fn a_player_within_the_activate_distance_is_greeted_on_the_spot() {
+    let f = fixture();
+    // Behind the actor and to its right, outside the box (it ends at y 950), 212 units
+    // away.
+    let mut s = sim(&f, R_GREET, [750.0, 1050.0, 0.0]);
+    s.run(1.0);
+    let ev = s.events();
+    assert!(matches!(ev[1], AiEvent::Talk { line, away, .. } if line.0 == I_HELLO && (*away - 212.1).abs() < 1.0), "{ev:?}");
+    assert_eq!(s.agent(R_GREET).walker.feet, GREETER);
+    assert_eq!(s.game.dialogue.as_ref().map(|c| c.actor), Some(FormId(R_GREET)));
+    assert_eq!(s.agent(R_GREET).talk, Some(Talking::Speaking));
+    // While it speaks it turns to the player (north-east of it: heading 45 degrees)
+    // and stands where it stood; the game has its heading.
+    s.run(2.0);
+    assert_eq!(s.agent(R_GREET).walker.feet, GREETER);
+    let heading = s.agent(R_GREET).walker.heading;
+    assert!((heading - std::f32::consts::FRAC_PI_4).abs() < 0.1, "{heading}");
+    assert!((s.game.world.peek(FormId(R_GREET)).unwrap().rot[2] - heading).abs() < 1e-4);
+}
+
+/// The documented case 3: no trigger location, so the actor goes to its target at once;
+/// a target that moves is followed.
+#[test]
+fn without_a_trigger_location_the_actor_comes_to_the_player_at_once() {
+    let f = fixture();
+    let mut s = sim(&f, R_COME, [1000.0, 1000.0, 0.0]);
+    s.run(0.25);
+    assert!(matches!(s.events()[1], AiEvent::Approach { running: true, doors, .. } if doors.is_empty()), "{:?}", s.events()[1]);
+    // The player walks off before the actor is there.
+    s.run(1.0);
+    assert!(s.game.dialogue.is_none());
+    s.player_to([1000.0, 200.0, 0.0]);
+    s.run(6.0);
+    let ev = s.events();
+    // The package gives no distance: the standard 150.
+    assert!(matches!(ev[2], AiEvent::Talk { away, .. } if *away <= 150.0), "{ev:?}");
+    assert!(flat(s.agent(R_COME).walker.feet, [1000.0, 200.0, 0.0]) <= 150.0);
+    assert_eq!(s.talks(), 1);
+}
+
+/// The documented case 1: the actor goes to its wait location and stays there until the
+/// target is in the trigger location, however near the target comes meanwhile.
+#[test]
+fn an_actor_waits_at_its_wait_location_until_the_trigger_location_is_entered() {
+    let f = fixture();
+    // The player stands by the wait marker, far from the trigger marker.
+    let mut s = sim(&f, R_WAIT, [200.0, 900.0, 0.0]);
+    s.run(0.25);
+    assert_eq!(s.agent(R_WAIT).talk, Some(Talking::ToWait));
+    assert!(matches!(s.events()[1], AiEvent::Trip { .. }), "{:?}", s.events()[1]);
+    s.run(15.0);
+    assert!(matches!(s.events()[2], AiEvent::Arrived { .. }), "{:?}", s.events()[2]);
+    assert_eq!(s.agent(R_WAIT).talk, Some(Talking::Waiting));
+    let waiting_at = s.agent(R_WAIT).walker.feet;
+    assert!(flat(waiting_at, [200.0, 1000.0, 0.0]) <= 100.0);
+    assert!(flat(waiting_at, [200.0, 900.0, 0.0]) < 200.0, "the player is within the activate distance");
+    assert_eq!(s.talks(), 0);
+    assert_eq!(s.events().len(), 3);
+    // The player goes to within 200 of the trigger marker: the actor comes and talks.
+    s.player_to([1000.0, 300.0, 0.0]);
+    s.run(15.0);
+    let ev = s.events();
+    assert!(matches!(ev[3], AiEvent::Approach { .. }), "{ev:?}");
+    assert!(matches!(ev[4], AiEvent::Talk { away, .. } if *away <= 200.0), "{ev:?}");
+}
+
+#[test]
+fn a_say_to_package_says_its_line_without_a_conversation() {
+    let f = fixture();
+    let mut s = sim(&f, R_SAY, [300.0, 100.0, 0.0]);
+    s.run(1.0);
+    let ev = s.events();
+    assert!(matches!(ev[1], AiEvent::Talk { line, say_to: true, .. } if line.0 == I_SAY), "{ev:?}");
+    assert!(s.game.dialogue.is_none());
+    assert!(s.game.is_talking(FormId(R_SAY)));
+    assert_eq!(s.agent(R_SAY).talk, Some(Talking::Done));
+    assert!(s.game.extra[&FormId(R_SAY)].package_goal_met);
+    s.run(20.0);
+    assert_eq!(s.talks(), 1);
+}
+
+#[test]
+fn a_conversation_between_two_actors_is_not_carried_out() {
+    let f = fixture();
+    let mut s = sim(&f, R_TO_NPC, [300.0, 100.0, 0.0]);
+    s.run(2.0);
+    assert!(matches!(s.events()[1], AiEvent::NotCarriedOut { .. }), "{:?}", s.events());
+    assert_eq!(s.agent(R_TO_NPC).activity, Activity::Staying);
+    assert_eq!(s.agent(R_TO_NPC).walker.feet, CORNER);
+}
+
+/// An actor with no line to say does not try for ever: its package is done.
+#[test]
+fn an_actor_with_nothing_to_say_is_done_with_its_package() {
+    let f = fixture();
+    let mut s = sim(&f, R_MUTE, [200.0, 100.0, 0.0]);
+    s.run(5.0);
+    let ev = s.events();
+    assert!(matches!(ev[1], AiEvent::NoTalk { package, .. } if package.0 == P_MUTE), "{ev:?}");
+    assert_eq!(ev.len(), 2);
+    assert!(s.game.dialogue.is_none());
+    assert_eq!(s.game.package_held(FormId(R_MUTE)), None);
+}
+
+/// A player who is nowhere (a headless run without one) is waited for.
+#[test]
+fn an_actor_waits_for_a_player_who_is_nowhere() {
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut game = Game::new(&f.data, world, GameConfig { strict: true, frame_seconds: 0.25, package_interval: Some(10.0), ..GameConfig::default() });
+    game.new_game();
+    let mut ai = Ai::new(AiConfig::default());
+    ai.add(&game, FormId(R_COME)).unwrap();
+    let nav = nav();
+    for _ in 0..40 {
+        game.tick();
+        ai.update(&mut game, &nav, 0.25);
+    }
+    assert_eq!(ai.agents[&FormId(R_COME)].talk, Some(Talking::Waiting));
+    assert_eq!(ai.agents[&FormId(R_COME)].walker.feet, CORNER);
+    assert_eq!(ai.events.len(), 1);
+}

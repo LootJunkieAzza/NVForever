@@ -219,6 +219,8 @@ pub struct PlacedDynamic {
     pub added: ([f32; 3], [f32; 9]),
     /// Physics has moved it since (beyond [`MOVED_DISTANCE`] / [`MOVED_ROTATION`]).
     pub moved: bool,
+    /// It has come to rest again since it moved (its body asleep), for the log.
+    pub rested: bool,
 }
 
 /// A placed dynamic reference counts as moved by physics once its pose is this far (game
@@ -549,7 +551,7 @@ impl PhysState {
         }
         if let (Some(local), 1) = (dynamic_local, rep.bodies) {
             let added = (pl.position, ref_rotation(pl.rotation));
-            self.placed_dynamic.insert(pl.form_id, PlacedDynamic { local, scale: pl.scale, added, moved: false });
+            self.placed_dynamic.insert(pl.form_id, PlacedDynamic { local, scale: pl.scale, added, moved: false, rested: false });
         }
         if let Some(bodies) = door.filter(|d| !d.objects.is_empty()) {
             *counts.entry("animated_doors").or_default() += 1;
@@ -778,6 +780,13 @@ impl PhysState {
                 }
                 p.moved = true;
                 debug!("placed {id:08X} moved by physics: at ({:.1}, {:.1}, {:.1}), {dist:.1} from where it was added", pos[0], pos[1], pos[2]);
+            }
+            if b.sleeping != p.rested {
+                p.rested = b.sleeping;
+                if b.sleeping {
+                    let from = (0..3).map(|i| (pos[i] - p.added.0[i]).powi(2)).sum::<f32>().sqrt();
+                    debug!("placed {id:08X} came to rest at ({:.1}, {:.1}, {:.1}), {from:.1} from where it was added", pos[0], pos[1], pos[2]);
+                }
             }
             let Ok(s) = sim.get(FormId(id)) else { continue };
             let dist = (0..3).map(|i| (pos[i] - s.pos[i]).powi(2)).sum::<f32>().sqrt();

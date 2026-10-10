@@ -94,6 +94,10 @@ pub struct NoHeadLook;
 /// The switches of head tracking.
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct HeadLookSettings {
+    /// Heads turn (`--no-head-tracking`; the settings page switches it while the game
+    /// runs). Off: no actor gets a [`HeadLook`], and the heads that have one ease back to
+    /// their animation and rest.
+    pub enabled: bool,
     /// The free camera stands in for the player (`--head-track-camera`, a test aid).
     pub camera_is_player: bool,
     /// Test aid (`--head-track-point`): every actor is told to look at this point (game
@@ -196,19 +200,24 @@ pub struct HeadLookStats {
 }
 
 pub struct HeadLookPlugin {
+    pub enabled: bool,
     pub camera_is_player: bool,
     pub force_point: Option<[f32; 3]>,
 }
 
 impl Plugin for HeadLookPlugin {
     fn build(&self, app: &mut App) {
-        info!(
-            "head tracking: on{} (switch off with --no-head-tracking)",
-            if self.camera_is_player { ", the camera stands in for the player (--head-track-camera)" } else { "" }
-        );
+        if self.enabled {
+            info!(
+                "head tracking: on{} (switch off with --no-head-tracking)",
+                if self.camera_is_player { ", the camera stands in for the player (--head-track-camera)" } else { "" }
+            );
+        } else {
+            info!("head tracking: off (--no-head-tracking)");
+        }
         // After the frame's animation has posed the skeletons (and, with --play, after the
         // player's body gave this frame's eye); transforms are propagated in PostUpdate.
-        app.insert_resource(HeadLookSettings { camera_is_player: self.camera_is_player, force_point: self.force_point })
+        app.insert_resource(HeadLookSettings { enabled: self.enabled, camera_is_player: self.camera_is_player, force_point: self.force_point })
             .init_resource::<HeadLookStats>()
             // After a conversation has turned its actor (dialogue_look.rs), whose head is
             // left to it.
@@ -231,7 +240,7 @@ fn force_point(
     camera: Query<&GlobalTransform, (With<Camera3d>, Without<ReflectionCamera>)>,
     free: Query<(Entity, &GlobalTransform), Free>,
 ) {
-    let (Some(p), Some(cam)) = (settings.force_point, camera.iter().next()) else { return };
+    let (Some(p), Some(cam)) = (settings.force_point.filter(|_| settings.enabled), camera.iter().next()) else { return };
     for (e, g) in &free {
         if g.translation().distance(cam.translation()) <= ACTIVE_RADIUS {
             commands.entity(e).insert(LookOverride(LookAt::Point(p)));
@@ -396,8 +405,12 @@ fn attach(
     world: Option<Res<ActorWorld>>,
     combat: Option<Res<Combat>>,
     mut stats: ResMut<HeadLookStats>,
+    settings: Res<HeadLookSettings>,
     new: Query<(Entity, &ActorRig), Without<HeadLook>>,
 ) {
+    if !settings.enabled {
+        return;
+    }
     for (e, rig) in &new {
         let made = head_rig(rig, combat.as_deref());
         let key = fnv_vfs::normalize(&rig.skeleton);
@@ -519,7 +532,7 @@ fn track(
             continue;
         }
         let Some(h) = &look.rig else { continue };
-        let active = !off && (forced.is_some() || near(g.translation(), ACTIVE_RADIUS));
+        let active = settings.enabled && !off && (forced.is_some() || near(g.translation(), ACTIVE_RADIUS));
         if !active && look.ease.at_rest() && !look.holds_bones() {
             (look.target, look.chosen, look.side) = (None, None, None);
             continue;
@@ -662,8 +675,9 @@ fn track(
 const REPORT_PAIRS: usize = 12;
 
 /// The run's head tracking when the app exits (smoke tests read it).
-fn report(mut exit: MessageReader<AppExit>, stats: Res<HeadLookStats>, actors: Query<(&ActorRig, &GlobalTransform, Option<&Name>, &HeadLook)>) {
-    if exit.read().next().is_none() {
+fn report(mut exit: MessageReader<AppExit>, stats: Res<HeadLookStats>, settings: Res<HeadLookSettings>, actors: Query<(&ActorRig, &GlobalTransform, Option<&Name>, &HeadLook)>) {
+    // Nothing to say of a run with head tracking off throughout.
+    if exit.read().next().is_none() || (!settings.enabled && stats.actors == 0) {
         return;
     }
     info!(

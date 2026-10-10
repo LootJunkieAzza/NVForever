@@ -449,6 +449,9 @@ pub struct GameData {
     pub destructibles: HashMap<FormId, DestructionDef>,
     /// WEAP DNAM skill (actor value code).
     pub weapon_skills: HashMap<FormId, i64>,
+    /// WEAP DNAM animation type (the record's own numbering, 0 Hand to Hand … 13
+    /// Thrown) [documented: xEdit wbWeaponAnimTypeEnum, schemas/fnv/objects.json].
+    pub weapon_anim_types: HashMap<FormId, i64>,
     /// FURN marker flags (MNAM as a little-endian number; 0 when absent): bit 30
     /// furniture to sit on, bit 31 to sleep on [observed: docs/spec-notes/furniture.md
     /// §1].
@@ -496,6 +499,7 @@ struct Read {
     faction: Option<Vec<(FormId, i64)>>,
     destruction: Option<DestructionDef>,
     weapon_skill: Option<i64>,
+    weapon_anim_type: Option<i64>,
     furniture: Option<u32>,
     idle_marker: Option<crate::package::IdleCollection>,
     units: Vec<ScriptUnit>,
@@ -554,6 +558,7 @@ impl GameData {
             faction_reactions: HashMap::new(),
             destructibles: HashMap::new(),
             weapon_skills: HashMap::new(),
+            weapon_anim_types: HashMap::new(),
             furniture: HashMap::new(),
             idle_markers: HashMap::new(),
             issues: Issues::default(),
@@ -675,6 +680,9 @@ impl GameData {
             }
             if let Some(v) = r.weapon_skill {
                 d.weapon_skills.insert(id, v);
+            }
+            if let Some(v) = r.weapon_anim_type {
+                d.weapon_anim_types.insert(id, v);
             }
             if let Some(v) = r.furniture {
                 d.furniture.insert(id, v);
@@ -1298,10 +1306,10 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             out.idle_marker = Some(crate::package::read(&decoded, &ctx, &mut |_| None).idles.unwrap_or_default());
         }
         b"WEAP" => {
-            out.weapon_skill = decoded
-                .iter()
-                .find(|(s, _)| *s == b"DNAM")
-                .and_then(|(_, v)| v.as_ref()?.get("skill").and_then(|t| field_code(schema, &sig, b"DNAM", Some("skill"), t)));
+            let dnam = decoded.iter().find(|(s, _)| *s == b"DNAM").and_then(|(_, v)| v.as_ref());
+            let code = |field: &str| dnam?.get(field).and_then(|t| field_code(schema, &sig, b"DNAM", Some(field), t));
+            out.weapon_skill = code("skill");
+            out.weapon_anim_type = code("animation_type");
         }
         _ => {}
     }
