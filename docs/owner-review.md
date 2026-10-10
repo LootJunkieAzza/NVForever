@@ -404,6 +404,23 @@ sessions. You already had it from an earlier playthrough.
     `tools/capture/locks.py`) that writes an owner file (session, PID, time) into each
     lock, treats a lock as stale when its PID is gone, and is used by every runner. Say
     if you want it built.
+31. **Dialogue started (2026-10-10), plan in `docs/design/dialogue.md`.** You asked
+    whether dialogue lines can be worked on now; they can, and no other session had
+    taken it. Decisions taken, each reversible:
+    - (a) dialogue is treated as a parity target (unlike combat), because lines and
+      their result scripts move the quests;
+    - (b) two workstreams run now: records plus headless conversations
+      (`claude/dialogue-core`), and voice files (`claude/dialogue-voice`); the dialogue
+      screen in `--play` follows;
+    - (c) the screen will be plain (a list of choices and subtitles); its look is
+      Layer 7;
+    - (d) lip sync, the dialogue camera, barter, companion wheels, radio and NPC-to-NPC
+      conversations are left out of this plan (§7).
+
+    **Needs you:** the capture questions in the plan's §6 need the original game running
+    on this desktop, which takes the screen and the keyboard. No capture run is started
+    until you say when you are away. Until then the rules marked [hypothesis] in the
+    plan's §3 stay hypotheses.
 
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
