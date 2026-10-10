@@ -40,6 +40,11 @@ pub struct PreparedShape {
     /// Names of the nodes above the shape, nearest first, the root excluded (parts of
     /// a weapon model are shown, hidden and attached by them: animation.md §9.7).
     pub ancestors: Vec<String>,
+    /// The node the shape is under ([`PreparedModel::nodes`]; `None`: the root) and its
+    /// own transform below that node. `transform` is the nodes' transforms from the root
+    /// down times this.
+    pub node: Option<usize>,
+    pub own: Affine3A,
     /// CPU copy of the mesh, kept only for models loaded with
     /// [`ModelCtx::model_with_cpu`]. GPU meshes are render-world only: once uploaded,
     /// their vertex data can no longer be read from the main world.
@@ -67,6 +72,44 @@ pub struct PreparedModel {
     /// Skinned shapes among `shapes` (drawn in their bind pose).
     pub skinned: usize,
     pub rig: Option<Rig>,
+    /// The nodes below the root, parents before children: for callers that pose the
+    /// model's nodes themselves (a weapon's moving parts, animation.md §9.8).
+    pub nodes: Vec<ModelNode>,
+}
+
+/// A node of a model below its root.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelNode {
+    pub name: Option<String>,
+    /// Index in [`PreparedModel::nodes`]; `None`: the root.
+    pub parent: Option<usize>,
+    /// Local transform in NIF (game) space.
+    pub local: Affine3A,
+}
+
+/// The nodes of a file below its roots, parents before children, and each one's index
+/// by block.
+pub fn model_nodes(objects: &[SceneObject]) -> (Vec<ModelNode>, HashMap<usize, usize>) {
+    let by_block: HashMap<usize, &SceneObject> = objects.iter().map(|o| (o.block, o)).collect();
+    let mut nodes = Vec::new();
+    let mut index: HashMap<usize, usize> = HashMap::new();
+    let mut queue: Vec<usize> = objects.iter().filter(|o| o.is_node && o.parent.is_none()).map(|o| o.block).collect();
+    let mut i = 0;
+    while i < queue.len() {
+        let b = queue[i];
+        i += 1;
+        for &c in &by_block[&b].children {
+            // An object listed by two nodes belongs to the first (`scene_objects`).
+            let Some(co) = by_block.get(&c).filter(|co| co.is_node && co.parent == Some(b)) else { continue };
+            if index.contains_key(&c) {
+                continue;
+            }
+            index.insert(c, nodes.len());
+            nodes.push(ModelNode { name: co.name.clone(), parent: index.get(&b).copied(), local: affine(&co.transform) });
+            queue.push(c);
+        }
+    }
+    (nodes, index)
 }
 
 /// A node of a [`Rig`]; node 0 is the model root, whose own transform a placed
@@ -276,6 +319,8 @@ impl ModelCtx<'_> {
         };
 
         let mut out = PreparedModel::default();
+        let (nodes, node_index) = model_nodes(&objects);
+        out.nodes = nodes;
         let root = objects.iter().find(|o| o.parent.is_none()).map(|r| r.block);
         if let Some(r) = root.and_then(|r| by_block.get(&r)) {
             out.root = affine(&r.transform);
@@ -416,11 +461,53 @@ impl ModelCtx<'_> {
                 transform: t,
                 name: o.name.clone(),
                 ancestors,
+                node: o.parent.and_then(|p| node_index.get(&p).copied()),
+                own: if o.parent.is_some() { affine(&o.transform) } else { Affine3A::IDENTITY },
                 external_emittance: props.external_emittance(),
             });
             out.triangles += tris;
         }
         out.rig = rig.map(|(r, _)| r);
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnv_nif::scene::Transform as NifTransform;
+
+    fn object(block: usize, name: &str, parent: Option<usize>, is_node: bool, children: &[usize], x: f32) -> SceneObject {
+        SceneObject {
+            block,
+            type_name: if is_node { "NiNode" } else { "NiTriStrips" }.to_string(),
+            name: Some(name.to_string()),
+            parent,
+            transform: NifTransform { translation: [x, 0.0, 0.0], ..NifTransform::IDENTITY },
+            is_node,
+            children: children.to_vec(),
+        }
+    }
+
+    /// A pistol shaped like `10mmpistol.nif`: parts as nodes under the root, each with
+    /// its shape, and a part under a part.
+    #[test]
+    fn nodes_below_the_root_parents_first() {
+        let objects = [
+            object(0, "Pistol", None, true, &[5, 1, 3], 9.0),
+            object(1, "##Slide", Some(0), true, &[2, 6], 5.0),
+            object(2, "##Slide:0", Some(1), false, &[], -5.0),
+            object(3, "Pistol:0", Some(0), false, &[], 0.0),
+            object(5, "##Clip", Some(0), true, &[], 1.0),
+            object(6, "##Catch", Some(1), true, &[], 2.0),
+        ];
+        let (nodes, index) = model_nodes(&objects);
+        let names: Vec<&str> = nodes.iter().map(|n| n.name.as_deref().unwrap()).collect();
+        // The root and the shapes are not nodes of the list; children in the root's order.
+        assert_eq!(names, ["##Clip", "##Slide", "##Catch"]);
+        assert_eq!(nodes.iter().map(|n| n.parent).collect::<Vec<_>>(), [None, None, Some(1)]);
+        assert_eq!((index[&5], index[&1], index[&6]), (0, 1, 2));
+        assert_eq!(nodes[1].local.translation.x, 5.0);
+        assert!(!index.contains_key(&0) && !index.contains_key(&2));
     }
 }

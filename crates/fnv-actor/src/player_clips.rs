@@ -322,6 +322,12 @@ pub struct ClipKeys {
     /// `Hit` (or `Fire`, the first of either): when a ranged weapon fires or a melee one
     /// strikes [documented: GECK wiki NiTextKeyExtraData, owner export 2026-10-09].
     pub hit: Option<f32>,
+    /// `Loop`: where the part of an attack clip that repeats while the trigger is held
+    /// ends; it starts at `Fire` and the rest of the clip is the way out [observed: in
+    /// `2hhattackspin.kf` the minigun's barrel speeds up until `Fire`, turns at one speed
+    /// from there to `Loop` and slows down after it; hypothesis: that the game repeats
+    /// that part; animation.md §9.8].
+    pub loop_end: Option<f32>,
 }
 
 impl ClipKeys {
@@ -344,6 +350,8 @@ impl ClipKeys {
                     out.detach.get_or_insert(*t);
                 } else if lower == "hit" || lower == "fire" {
                     out.hit.get_or_insert(*t);
+                } else if lower == "loop" {
+                    out.loop_end.get_or_insert(*t);
                 }
             }
         }
@@ -547,6 +555,10 @@ mod tests {
         assert!((k.blend_seconds(0.3) - 0.2).abs() < 1e-6);
         assert_eq!(ClipKeys::parse(&[(0.1, "Blend: 12".into()), (0.2, "Prn: Bip01 Spine2".into())]).blend_frames, Some(12.0));
         assert_eq!(ClipKeys::default().blend_seconds(0.25), 0.25);
+        // 2hhattackspin.kf: the shot, and where the repeated part ends.
+        let spin = [(0.033, "BlendIn:3".to_string()), (0.967, "Fire".to_string()), (1.633, "Loop".to_string()), (2.5, "end".to_string())];
+        let k = ClipKeys::parse(&spin);
+        assert_eq!((k.hit, k.loop_end), (Some(0.967), Some(1.633)));
     }
 
     #[test]

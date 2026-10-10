@@ -1602,3 +1602,37 @@ the left hand is too high. Branch `claude/weapon-rest-pose`. Facts:
    animations, so the gun part should behave the same; whether their models have a
    back part like the minigun's I did not check). NPCs carrying these weapons still
    draw them the old way. In first person the backpack is not drawn at all.
+
+## Weapons' moving parts: slides, magazines, the minigun's barrel (2026-10-10, session "weapon parts")
+
+Your report: no weapon's moving parts are animated (the 10mm's magazine on reload, its
+slide on firing, the minigun's barrel). Branch `claude/weapon-moving-parts`. Facts:
+`docs/spec-notes/animation.md` §9.8. Pictures: `C:\fnv-private\references\weapon_parts\`
+(`10mm-sheet.png`: holding, firing, two moments of the reload).
+
+1. **Cause:** nothing was missing from what we read out of the files. The body
+   animations (fire, reload, hold) also carry the movements of the weapon's parts, each
+   addressed by the part's name inside the weapon model (`##Slide`, `##Clip`,
+   `##MinigunBarrel`). We drew the weapon as loose pieces with those names thrown away,
+   so the movements had nothing to act on and were dropped.
+2. **Fix:** the weapon in your hands keeps its parts as named pieces, and the animations
+   move them the same way they move bones. First and third person.
+3. **Checked in ours:** 10mm pistol in first person: the slide snaps back at the shot;
+   on reload the magazine comes out in the left hand and goes back in. Minigun: the
+   barrel turns for as long as the trigger is held. The log also names moving parts for
+   the varmint rifle (bolt), 9mm pistol, cowboy repeater (lever), assault carbine
+   (charging handle, magazine) and laser rifle (cell on reload). I did not compare
+   any of it with the game frame by frame.
+4. **Decision taken, the minigun's firing animation:** measured from the file, the
+   barrel spins up for about a second, turns at full speed for two thirds of a second
+   between two markers (`Fire` and `Loop`), then spins down. Before, every shot
+   restarted the animation, so it never got going. Now it plays the spin-up once,
+   repeats the full-speed part while you hold the trigger, and spins down when you let
+   go. That the game repeats exactly that part is my reading of the markers, not
+   something I saw in the game; if it does it differently, say so.
+5. **For you to decide:** our minigun shoots the moment you press, while its animation
+   puts the first shot about a second in (after the spin-up). Combat is ours to design,
+   so I left the timing alone. Say if you want the spin-up delay.
+6. **Not done:** NPCs' weapons (they do not fire or reload with animations yet, so
+   there is nothing to move); shell casings and muzzle flashes; the glow on the gatling
+   laser and the screens on a few energy weapons, which are other kinds of animation.
