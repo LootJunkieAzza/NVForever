@@ -55,14 +55,13 @@ pub fn switch(
 
     match SkyState::new(&world, args.weather.as_deref(), sky.hour) {
         Ok(mut s) => {
+            s.shadows = sky.shadows;
             s.shadow_distance = sky.shadow_distance;
+            s.grade = sky.grade;
             s.time_scale = sky.time_scale;
             s.clock_running = sky.clock_running;
             s.days_passed = sky.days_passed;
             s.fog_override = sky.fog_override;
-            if args.no_grade {
-                s.image_space = None;
-            }
             info!("render: {name}: {}", s.describe());
             *sky = s;
             for e in &sky_entities {
@@ -74,7 +73,8 @@ pub fn switch(
     }
 
     lod.set_enabled(&mut commands, false);
-    let gen = if args.no_lod || args.no_lodgen {
+    // Also with --no-lod: the settings page can switch distant LOD on later.
+    let gen = if args.no_lodgen {
         None
     } else {
         match crate::lodgen_job(&args, &world, &game) {

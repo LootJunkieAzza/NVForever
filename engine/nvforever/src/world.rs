@@ -385,13 +385,13 @@ fn load_cell(
     });
     let mut refs: Vec<u32> = cell.map(|c| c.refs.clone()).unwrap_or_default();
     if let CellKey::Exterior(g) = key {
-        if let Some((c, land)) = cell.and_then(|c| Some((c, c.land?))) {
-            if let Some(land) = spawn_terrain(commands, cell_e, world, land, g, &mut TerrainCtx { tm: terrain, assets: models }) {
+        if let Some((c, land_id)) = cell.and_then(|c| Some((c, c.land?))) {
+            if let Some(land) = spawn_terrain(commands, cell_e, world, land_id, g, &mut TerrainCtx { tm: terrain, assets: models }) {
                 // Grass grows on the landscape's textures (grass.rs); the water surface
                 // is the one drawn below (`spawn_water`).
                 let ws = world.index.worldspaces.get(&world.world);
                 let water = c.has_water().then(|| c.water_surface(ws.and_then(|w| w.default_water_height))).flatten();
-                grass.spawn(commands, cell_e, world, &land, g, water, models);
+                grass.spawn(commands, cell_e, world, land_id, &land, g, water, models);
             }
         }
         if let Some(p) = world.persistent_by_grid.get(&g) {

@@ -280,6 +280,11 @@ fn activate(
             info!("activate 0x{:08X} {} ({}): a conversation started", t.form_id, t.name, t.action.label());
             return;
         }
+        Ok(crate::script::ByHand::Greeted) => {
+            // Heard and shown like a SayTo line; the player stays free.
+            info!("activate 0x{:08X} {} ({}): it said its greeting, no conversation", t.form_id, t.name, t.action.label());
+            return;
+        }
         Err(e) => {
             warn!("activate 0x{:08X} {}: {e}", t.form_id, t.name);
             hud.show(format!("{}: {e}", t.name));

@@ -229,6 +229,8 @@ everything a script can see.
     This is what the inventory, container and message boxes always did.
   - `original`: the picture stands still too while the menu is open (Bevy's virtual
     clock is paused; the cursor is free throughout), so the two can be compared.
+  - The switch can be flipped while the game runs, on the pause menu's settings page
+    ("Freeze the picture in dialogue and menus"; docs/design/layer4-play.md §6).
 - **The Esc pause menu is the exception: it always holds everything**, in both modes:
   the picture and animation (the virtual clock), scripts and conversations, and sound
   (the voice of a line being said is paused and resumed with the menu, not played on

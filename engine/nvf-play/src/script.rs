@@ -513,7 +513,7 @@ impl Runtime {
         // An actor whose default action ran (no OnActivate block, or its block called
         // `Activate`) is talked to, if it has a greeting.
         let r = match r {
-            Ok(_) if self.talk_after(from) => Ok(ByHand::Talk),
+            Ok(done) => Ok(self.talk_after(from).unwrap_or(done)),
             r => r,
         };
         self.snapshot_inventory();
@@ -524,8 +524,11 @@ impl Runtime {
     /// action is to talk (`Outcome::Talk`: a living actor): the conversation starts with
     /// the actor's greeting (`Game::start_dialogue`). An actor with nothing to say starts
     /// none, and the activation keeps the on-screen line it had ("… has nothing to say").
-    /// Returns whether a conversation started.
-    fn talk_after(&mut self, from: usize) -> bool {
+    /// An actor whose greeting has the Goodbye flag says it at the player and starts none
+    /// either (the runtime's rule, docs/spec-notes/dialogue.md §5): the line is heard and
+    /// shown like a SayTo line and the player stays free. Returns [`ByHand::Talk`] when a
+    /// conversation started, else [`ByHand::Greeted`] when a greeting was said.
+    fn talk_after(&mut self, from: usize) -> Option<ByHand> {
         let player = FormId::PLAYER_REF;
         let wanted: Vec<(usize, FormId)> = self
             .game
@@ -541,20 +544,25 @@ impl Runtime {
                 _ => None,
             })
             .collect();
-        let mut started = false;
+        let mut done = None;
         for (i, actor) in wanted {
             let g = &mut self.game;
             match g.start_dialogue(actor, None) {
                 Ok(info) => {
-                    info!("dialogue: the player talks to {}: its greeting is {}", g.data.name(actor), g.data.name(info));
                     // The activation's own effect (the "nothing to say" line) is void.
                     self.skip.insert(i);
-                    started = true;
+                    if g.dialogue.is_some() {
+                        info!("dialogue: the player talks to {}: its greeting is {}", g.data.name(actor), g.data.name(info));
+                        done = Some(ByHand::Talk);
+                    } else {
+                        info!("dialogue: {} says its greeting {} at the player (a Goodbye line: no conversation)", g.data.name(actor), g.data.name(info));
+                        done = done.or(Some(ByHand::Greeted));
+                    }
                 }
                 Err(e) => info!("dialogue: no conversation: {e}"),
             }
         }
-        started
+        done
     }
 
     /// Something the player does to the game between ticks (a choice on the dialogue
@@ -573,7 +581,7 @@ impl Runtime {
     pub(crate) fn activate_as_player(&mut self, r: FormId) -> Result<ByHand, String> {
         let from = self.game.events.len();
         let done = self.by_hand(r)?;
-        if !matches!(done, ByHand::Talk) {
+        if !matches!(done, ByHand::Talk | ByHand::Greeted) {
             self.skip.retain(|&i| i < from);
         }
         Ok(done)
@@ -650,6 +658,9 @@ pub enum ByHand {
     /// The target is an actor with a greeting: a conversation with it started
     /// (`crate::dialogue` shows it).
     Talk,
+    /// The target is an actor whose greeting has the Goodbye flag: it said the line at
+    /// the player and no conversation started (`Runtime::talk_after`).
+    Greeted,
 }
 
 /// The player activates `target` by hand (E): through the scripts when they run.
