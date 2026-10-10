@@ -330,6 +330,8 @@ struct Flying {
     shown: bool,
     /// The way it last flew.
     dir: V3,
+    /// It is drawn from the weapon's muzzle (not from the eye for want of one).
+    from_muzzle: bool,
     origin: V3,
     seen: Seen,
     tracer: bool,
@@ -367,6 +369,8 @@ struct Ghost {
     left: f32,
     /// Made this frame: drawn at its start before it moves.
     fresh: bool,
+    /// A beam from the muzzle: its start stays on the muzzle while it shows.
+    follow: bool,
 }
 
 /// What a [`Mark`] shows.
@@ -385,15 +389,17 @@ struct Mark {
     age: f32,
     life: f32,
     kind: MarkKind,
+    /// A line from the muzzle: its start stays on the muzzle while it shows.
+    follow: bool,
 }
 
 impl Mark {
     fn tracer(from: V3, to: V3, life: f32) -> Mark {
-        Mark { from, to, age: 0.0, life, kind: MarkKind::Tracer }
+        Mark { from, to, age: 0.0, life, kind: MarkKind::Tracer, follow: false }
     }
 
     fn at(point: V3, life: f32, kind: MarkKind) -> Mark {
-        Mark { from: point, to: point, age: 0.0, life, kind }
+        Mark { from: point, to: point, age: 0.0, life, kind, follow: false }
     }
 }
 
@@ -773,7 +779,8 @@ fn fire(
                     let tracer = rolled || (shown && instant(&p));
                     let dir = vec::normalize(p.vel);
                     c.next_visual += 1;
-                    c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force });
+                    let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
+                    c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
                 // The flash itself is the renderer's (`ShotFired`); the test aid marks
@@ -1063,6 +1070,7 @@ fn fly(
     mut pushes: MessageWriter<ActorPush>,
     parts: Res<ActorParts>,
     mut visuals: ResMut<ShotVisuals>,
+    anim: Res<WeaponAnim>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -1101,10 +1109,16 @@ fn fly(
             let seen_before = f.seen.at(before, f.p.travelled);
             // Found at once: what is drawn flies (or, a beam, stands) from there to
             // where it ended.
+            let at_once = instant(&f.p) && f.p.age == 0.0;
             let fade = c.forms.projectiles.get(&f.proj).map_or(0.0, |p| p.fade_duration);
             let (id, proj, speed, beam) = (f.id, f.proj, f.p.speed, f.p.motion == Motion::Beam);
-            let ghost = move |to: V3| Ghost { id, proj, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fresh: true };
-            let at_once = instant(&f.p) && f.p.age == 0.0;
+            // What stays on show after the shot (a beam, the line along the shot) keeps
+            // its start on the muzzle: the attack clip moves the gun in the frames after
+            // the shot [observed: the laser rifle's muzzle is 10 units higher one frame
+            // after it fires], and a beam left where the muzzle was hangs below the barrel.
+            let follow = at_once && f.from_muzzle;
+            let ghost = move |to: V3| Ghost { id, proj, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fresh: true, follow: follow && beam };
+            let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             for e in f.p.step(&world, dt) {
                 match e {
                     ProjEvent::Hit { actor, part, object, point, delay, .. } => {
@@ -1117,7 +1131,7 @@ fn fly(
                                 "combat: tracer from ({:.1}, {:.1}, {:.1}) to the hit at ({:.1}, {:.1}, {:.1})",
                                 seen_before[0], seen_before[1], seen_before[2], point[0], point[1], point[2]
                             );
-                            c.marks.push(Mark::tracer(seen_before, point, hold.unwrap_or(0.08)));
+                            c.marks.push(line(point, hold.unwrap_or(0.08)));
                         }
                         if at_once && f.shown {
                             c.ghosts.push(ghost(point));
@@ -1127,7 +1141,7 @@ fn fly(
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
                         if f.tracer {
-                            c.marks.push(Mark::tracer(seen_before, point, hold.unwrap_or(0.08)));
+                            c.marks.push(line(point, hold.unwrap_or(0.08)));
                         }
                         if at_once && f.shown {
                             c.ghosts.push(ghost(point));
@@ -1147,6 +1161,9 @@ fn fly(
     // What is drawn this frame: the projectiles in flight where they are seen, and
     // those found at once on their way.
     c.ghosts.retain_mut(|g| {
+        if let (true, Some(m)) = (g.follow, anim.muzzle) {
+            g.from = m;
+        }
         if std::mem::take(&mut g.fresh) {
             return true;
         }
@@ -1305,10 +1322,15 @@ fn fly(
     }
 }
 
-fn draw_marks(time: Res<Time>, mut c: ResMut<Combat>, mut gizmos: Gizmos) {
+fn draw_marks(time: Res<Time>, mut c: ResMut<Combat>, anim: Res<WeaponAnim>, mut gizmos: Gizmos) {
     let dt = time.delta_secs();
+    // The test aid keeps its lines where they were drawn, for the record of a check.
+    let follow = c.tracer_hold.is_none();
     for m in &mut c.marks {
         m.age += dt;
+        if let (true, true, Some(muzzle)) = (follow, m.follow, anim.muzzle) {
+            m.from = muzzle;
+        }
         let fade = (1.0 - m.age / m.life).clamp(0.0, 1.0);
         match m.kind {
             MarkKind::Tracer => {

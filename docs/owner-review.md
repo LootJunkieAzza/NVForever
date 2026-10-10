@@ -1835,10 +1835,14 @@ arent invisible along with the muzzle flash effects". Same branch. Facts:
    see it for a frame or two at most. To keep the shot visible I also draw a thin line
    along it for a moment. The minigun's rounds are slower and carry their own glowing
    streak, which shows well.
-6. **For you to decide:** if pistol and rifle bullets should be easier to see, the
+6. **Your note that the laser beam looked too low:** it was. The beam was drawn from
+   where the barrel was at the instant of the shot, and the firing animation lifts the
+   gun about 15 cm on the very next frame, so the beam hung under the barrel. A beam
+   now stays attached to the barrel for as long as it shows.
+7. **For you to decide:** if pistol and rifle bullets should be easier to see, the
    choices are to slow the drawn bullet down (it would arrive after the hit lands) or
    to give every bullet a streak like the minigun's. Both are our invention, so I
    left them.
-7. **Not done:** smoke, sparks and the missile's trail (a separate kind of effect in
+8. **Not done:** smoke, sparks and the missile's trail (a separate kind of effect in
    the files), impact effects, sounds. The flamer shows its flash but no flame, because
    its flame is made only of that kind of effect.

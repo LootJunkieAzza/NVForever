@@ -724,7 +724,12 @@ animation.md §9.9.
       (from the muzzle, closing on its path);
     - one whose hit is found at once (hitscan) [design]: a bullet flying from the
       muzzle to where it landed at the PROJ's speed, gone on arrival;
-    - a beam [design]: from the muzzle to its end, for the PROJ's fade duration;
+    - a beam [design]: from the muzzle to its end, for the PROJ's fade duration. Its
+      start stays on the muzzle while it shows, and so does the start of the line
+      along a hitscan shot: the attack clip moves the gun right after the shot
+      [observed: the laser rifle's `ProjectileNode` is 10.3 units higher and 4.4 to
+      the side one frame after it fires, and stays there], and a beam left where the
+      muzzle was hung below the barrel (the owner: "that laser beam looks too low");
     - every projectile is listed, not the tracer chance of them
       (`DRAW_EVERY_PROJECTILE`) [design: the owner's request];
   - `nvforever::shot_fx` draws them:
@@ -747,8 +752,11 @@ animation.md §9.9.
     of the barrel, pointing along it; 0.4 s after the trigger is let go there is none.
     A frame of another run shows a tracer streak in flight ahead of the barrel.
   - Laser rifle, one shot: "BeamLaserProjectile drawn at (−71672.1, 2091.8, 8437.5),
-    a beam 628 units long"; 0.02 s after the shot the red beam runs from the muzzle
-    along the shot.
+    a beam 628 units long"; the red beam runs along the shot from the muzzle, and
+    0.1 s after the shot still starts at the muzzle, which has risen since.
+  - The muzzle's place worked out from the pose (`Rig::muzzle_at`) and the drawn
+    node's place a frame later agree to 0.1 unit in every frame logged, standing and
+    through a shot.
   - Before the flash time was the record's alone it was held to at least 0.05 s, and
     the test aid held it for seconds: the owner saw the minigun's flash "sticking
     around way too long". Now 0.04 s is one frame at 25 frames a second.
