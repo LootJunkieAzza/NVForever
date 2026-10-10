@@ -60,6 +60,12 @@ impl VoiceBank {
     pub fn seconds(&self, path: &str) -> Option<f64> {
         self.info(path).map(|i| i.seconds)
     }
+
+    /// The face animation beside a sound (`<name>.lip`), decoded; `None` when there is
+    /// no such file or it does not decode (docs/spec-notes/lipsync.md).
+    pub fn lip(&self, sound_path: &str) -> Option<crate::lip::Lip> {
+        crate::lip::Lip::parse(&self.read(&crate::lip::lip_path(sound_path))?).ok()
+    }
 }
 
 /// The game's hook (`fnv_game::voice`): a response lasts as long as its sound.

@@ -42,7 +42,7 @@ pub fn sibling(model: &str, ext: &str) -> String {
 }
 
 impl FaceGenCache {
-    fn egm(&mut self, data: &GameData, path: &str) -> Option<Arc<Egm>> {
+    pub(crate) fn egm(&mut self, data: &GameData, path: &str) -> Option<Arc<Egm>> {
         self.egm
             .entry(path.to_string())
             .or_insert_with(|| data.vfs.exists(path).then(|| data.read(path)).flatten().and_then(|b| Egm::parse(&b).ok()).map(Arc::new))

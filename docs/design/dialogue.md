@@ -6,7 +6,10 @@ docs/spec-notes/dialogue.md) and **D3 done** (branch `claude/dialogue-voice`: vo
 paths, sound lengths, playback in `--play`; docs/spec-notes/voice.md) and **D4 done**
 (branch `claude/dialogue-screen`: the dialogue screen in `--play`, the test aid
 `NVF_PLAY_TEST_TALK`, the unattended intro with real conversations;
-docs/design/dialogue-play.md; playing it by hand is the owner's); D5 open. Owner request 2026-10-10: "now that quests have been done are we
+docs/design/dialogue-play.md; playing it by hand is the owner's) and **D6 done**
+(branch `claude/dialogue-lip`: lip sync — the `.lip` files decoded, the face morphs
+of the `.tri` files, a speaker's mouth, lids and brows moving with the voice in
+`--play`; docs/spec-notes/lipsync.md); D5 open. Owner request 2026-10-10: "now that quests have been done are we
 able to work on dialogue lines".
 
 Where it sits: dialogue is Layer 6 (README; layer5.md §1 lists it with AI packages and
@@ -143,6 +146,7 @@ lab can run it headless.
 | D3 | Voice: path pattern, sound length replaces the fitted length, lines are heard in `--play` | – | fraction of lines of the masters with a sound found; intro stage timings against the capture |
 | D4 | Dialogue screen in `--play` | D2 | unattended test-aid conversation with Doc Mitchell and Sunny Smiles; played by hand |
 | D5 | In-game captures for §6, then `L6.dialogue.*` scenarios with blind holdouts | capture time on the owner's desktop | lab |
+| D6 | Lip sync (owner request 2026-10-10: "apply the .LIP files to the spoken lines"): the `.lip` format from the files, a reader, the `.tri` face morphs, the speaker's face moving with the voice in `--play` | D3 | every `.lip` decodes without residue and packs back byte for byte; the consonant channels follow the letters of the text; screenshots of a speaker mid-line |
 
 D1+D2 are one workstream and D3 another; they run in parallel. D4 follows D2. D5 needs
 the original game running on the owner's desktop and waits for the owner to say when.
@@ -176,8 +180,10 @@ the dialogue menu are the fallback.
 
 ## 7. Not in this plan
 
-Lip sync and facial emotion (the `.lip` files and the emotion fields are read into the
-data but not used), the dialogue camera, barter and repair services, companion wheels,
+Facial emotion (the emotion fields are read into the data but not used; lip sync
+itself became step D6, docs/spec-notes/lipsync.md, whose §6 lists what it leaves out:
+head turns and eye movement while talking, expressions, blinking outside speech), the
+dialogue camera, barter and repair services, companion wheels,
 radio stations, random conversations between NPCs and combat barks. The last three need
 AI packages and detection.
 

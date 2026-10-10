@@ -261,7 +261,8 @@ mode in conversations #120), `RUST_LOG=info`, each exit 0 with "run finished".
   cursor, so free look and mouse clicks on choices were not exercised; keys and clicks
   go through the same code path as the aid from `Act` on). Owner item.
 - No dialogue camera: the view stays where it was, the actor does not turn to the
-  player (dialogue.md §7), and the mouth does not move (lip sync is its own workstream).
+  player (dialogue.md §7). The mouth moves since step D6 (docs/spec-notes/lipsync.md);
+  head turns and eye movement while talking do not.
 - The panel does not show the player's own line being said, nor the actor's last line
   while choosing.
 - A choice's skill tag names the actor value by display name when the simulation knows
