@@ -276,6 +276,10 @@ pub struct PhysWorld {
     refs: BTreeMap<u32, Vec<RigidBodyHandle>>,
     /// Actor hit volumes by reference FormID (`crate::actors`).
     pub(crate) actors: BTreeMap<u32, crate::actors::ActorBody>,
+    /// Ragdolls by actor reference FormID, and the ragdoll body each of their rigid
+    /// bodies is (`crate::ragdoll`).
+    pub(crate) ragdolls: BTreeMap<u32, crate::ragdoll::RagdollBodies>,
+    pub(crate) ragdoll_of: HashMap<RigidBodyHandle, (u32, u16)>,
     /// Per-triangle material codes of triangle-mesh colliders.
     materials: HashMap<ColliderHandle, Vec<u32>>,
     /// Contact shells (game units) of reference colliders that have one
@@ -303,6 +307,8 @@ impl PhysWorld {
             terrain: BTreeMap::new(),
             refs: BTreeMap::new(),
             actors: BTreeMap::new(),
+            ragdolls: BTreeMap::new(),
+            ragdoll_of: HashMap::new(),
             materials: HashMap::new(),
             shells: HashMap::new(),
             dirty: false,
@@ -400,7 +406,7 @@ impl PhysWorld {
 
     /// Scale the colliders' densities so the body's mass is `mass`; leaves the
     /// volume-derived mass when `mass` is not positive or the shapes have no volume.
-    fn set_mass(&mut self, body: RigidBodyHandle, mass: f32) {
+    pub(crate) fn set_mass(&mut self, body: RigidBodyHandle, mass: f32) {
         let b = &mut self.w.bodies[body];
         b.recompute_mass_properties_from_colliders(&self.w.colliders);
         let m0 = b.mass();
@@ -504,6 +510,10 @@ impl PhysWorld {
         let k = self.k;
         let c = vec3(center) * k;
         let r = (radius * k).max(1e-4);
+        // Corpses lying at rest in the blast are thrown too.
+        for id in self.ragdolls_at_rest_near(center, radius) {
+            self.rouse_ragdoll(id);
+        }
         let mut n = 0;
         for (_, b) in self.w.bodies.iter_mut() {
             if !b.is_dynamic() {
@@ -536,7 +546,7 @@ impl PhysWorld {
 
     /// Advance one fixed step.
     pub fn step(&mut self) {
-        self.w.step();
+        self.step_world();
         self.dirty = false;
         self.new_bodies.clear();
         self.steps += 1;
@@ -550,7 +560,7 @@ impl PhysWorld {
     /// see them, without advancing time.
     pub fn update_queries(&mut self) {
         if self.dirty {
-            self.w.detect_collisions(&(), &());
+            self.detect();
             // rapier 0.36's collision-only pipeline consumes the change flags of bodies
             // inserted since the last step without registering them with the island
             // manager, so they would never move [observed: a dynamic box added, queried
@@ -638,6 +648,8 @@ impl PhysWorld {
             terrain: self.terrain.clone(),
             refs: self.refs.clone(),
             actors: self.actors.clone(),
+            ragdolls: self.ragdolls.clone(),
+            ragdoll_of: self.ragdoll_of.clone(),
             materials: self.materials.clone(),
             shells: self.shells.clone(),
             dirty: self.dirty,

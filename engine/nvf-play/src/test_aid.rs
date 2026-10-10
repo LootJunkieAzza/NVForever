@@ -31,7 +31,8 @@
 //!   round the player) or `release` (Toggle POV let go); for combat (step C4): `fire`
 //!   (Use pressed, or let go if held), `reload` (a Ready Item tap with the weapon out),
 //!   `swap` (Ammo Swap), `aimactor` (turn the view to the nearest actor's aim point: its
-//!   torso, or the middle of its single capsule), `aimnpc` (the same, NPCs only),
+//!   torso, or the middle of its single capsule), `aimcorpse` (to the trunk of the
+//!   nearest ragdoll), `aimnpc` (the same, NPCs only),
 //!   `aimnpc=<share>` (at that share of the NPC's height, 0 feet to 1 top: the head or
 //!   legs for limb hits), `aimpart=<n>` (at the nearest NPC's body part `n`, its index in
 //!   the NPC's BPTD, step C8) and `equip=<FormID hex>` (give one unless carried and equip it,
@@ -121,6 +122,7 @@ enum Press {
     Reload,
     Swap,
     AimActor,
+    AimCorpse,
     AimNpc,
     AimNpcAt(f32),
     AimPart(u8),
@@ -139,6 +141,7 @@ fn press(rest: &str) -> Result<Press, String> {
         "reload" => Press::Reload,
         "swap" => Press::Swap,
         "aimactor" => Press::AimActor,
+        "aimcorpse" => Press::AimCorpse,
         "aimnpc" => Press::AimNpc,
         _ => {
             if let Some(Ok(id)) = rest.strip_prefix("equip=").map(|h| u32::from_str_radix(h.trim().trim_start_matches("0x"), 16)) {
@@ -333,6 +336,7 @@ fn keys_and_controls(
             Press::Reload => control.reload = true,
             Press::Swap => control.ammo_swap = true,
             Press::AimActor => aim_at_nearest_actor(&phys, &mut player, |_| true, None),
+            Press::AimCorpse => aim_at_nearest_corpse(&phys, &mut player),
             Press::AimNpc => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), None),
             Press::AimNpcAt(h) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Share(h))),
             Press::AimPart(n) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Part(n))),
@@ -389,6 +393,21 @@ fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, keep: impl Fn(u32
     player.heading = dx.atan2(dy);
     player.pitch = dz.atan2(dx.hypot(dy));
     info!("test aid: aiming at actor {id:08X} ({:.0} units away)", d2(c).sqrt());
+}
+
+/// Aim at the trunk of the nearest ragdoll (a dead actor's body in the physics world).
+fn aim_at_nearest_corpse(phys: &PhysState, player: &mut Player) {
+    let eye = player.eye();
+    let d2 = |c: [f32; 3]| (c[0] - eye[0]).powi(2) + (c[1] - eye[1]).powi(2) + (c[2] - eye[2]).powi(2);
+    let nearest = phys.world.ragdolls().filter_map(|id| phys.world.ragdoll_center(id).map(|p| (id, p))).min_by(|a, b| d2(a.1).total_cmp(&d2(b.1)));
+    let Some((id, c)) = nearest else {
+        warn!("test aid: aimcorpse: no ragdoll");
+        return;
+    };
+    let (dx, dy, dz) = (c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]);
+    player.heading = dx.atan2(dy);
+    player.pitch = dz.atan2(dx.hypot(dy));
+    info!("test aid: aiming at the corpse of {id:08X} ({:.0} units away, at ({:.0}, {:.0}, {:.0}))", d2(c).sqrt(), c[0], c[1], c[2]);
 }
 
 fn take_shots(time: Res<Time>, mut aids: ResMut<Aids>, mut commands: Commands) {

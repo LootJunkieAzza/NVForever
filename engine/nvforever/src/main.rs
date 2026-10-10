@@ -22,6 +22,7 @@ mod weapons;
 mod lodgen;
 mod nav;
 mod player_body;
+mod ragdoll;
 mod reflection;
 mod ripples;
 mod imagespace;
@@ -552,7 +553,7 @@ fn main() -> AppExit {
         app.insert_resource(a);
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
-            app.add_plugins((player_body::PlayerBodyPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin));
+            app.add_plugins((player_body::PlayerBodyPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin));
         }
     }
     if let Some(n) = nav_state {

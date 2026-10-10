@@ -515,8 +515,8 @@ engine:
   its skeleton folder has one; otherwise it is laid down (pose frozen, aligned to the
   ground). The body stays and can be activated like a container for its inventory (the
   activation part already opens containers).
-- Later: ragdolls built from the skeleton's collision data as rapier joints, with the
-  impulse from the killing hit.
+- Ragdolls (built 2026-10-10, docs/spec-notes/ragdoll.md): the skeleton's Havok bodies
+  and constraints as rapier bodies and joints, with the impulse from the killing hit.
 
 ### 5.8 Explosions
 

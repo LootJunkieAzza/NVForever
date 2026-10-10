@@ -745,3 +745,35 @@ an NPC waits until the open animation has finished. Design: `docs/design/navmesh
    `run.lock` had been held since 11:39 with no owner file and no FalloutNV or
    nvforever process running (stale-looking); removed at your request (15:45).
 
+## Ragdolls (2026-10-10, session "ragdoll")
+
+Owner request: dead NPCs and creatures drop to the floor with real physics. Facts,
+design and what was checked: `docs/spec-notes/ragdoll.md`.
+
+1. **Done:** an actor that dies becomes a ragdoll built from its skeleton's own Havok
+   bodies and constraints (73 skeletons have them: people 18 bodies, a deathclaw 32, a
+   raven 3), simulated in the physics world and driving the bones. The body lies where
+   it falls, can be searched, is shoved by further shots and thrown by explosions, and
+   is put back as it lay when you leave and return. New: `fnvtool collide ragdoll`
+   (survey of the joint data), test aid `aimcorpse`.
+2. **Decisions taken, each reversible (ragdoll.md §4):**
+   - the ragdoll starts at once on death (no death clip first); the death pose is only
+     shown for bodies whose ground is not loaded yet;
+   - the player walks through corpses (no pushing them with your feet yet);
+   - a body at rest is held still until it is shot or caught in a blast (a barrel
+     rolling onto it will not move it);
+   - shove speeds (140 units per second for a shot, 220 for a melee blow) and joint
+     damping are guesses to tune when you play; shots move a lying body only a little;
+   - corpse poses are remembered for the run only (there are no saves yet).
+3. **Open questions (ragdoll.md §6):** the sign of two joint limits rests on anatomy,
+   not on a capture; the unit of the constraints' friction value is unknown. A capture
+   of how corpses lie in the original would settle the first.
+4. **Not built:** armour ragdoll templates (`.rdt`), knockdown of living actors
+   (`PushActorAway`, explosion knockdown), weapons dropping from dead hands, severed
+   limbs, dragging bodies.
+5. **I ran `nvforever` without the smoke locks** nine times (10:37–10:57, 14–39 s each,
+   unattended test-aid runs with a window) before reading item 5 of the NPC
+   coordinator's section. Another session took both locks at 10:50:52 and still held
+   them at 10:57; my last four runs (10:46–10:57) overlapped it. Any windowed check or
+   capture of that session in that window may need re-running. No further game runs
+   were made from this session after that.
