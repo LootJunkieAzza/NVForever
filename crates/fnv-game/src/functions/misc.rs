@@ -139,20 +139,13 @@ pub fn zero(_g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<Value, String> {
 }
 
 /// 1 while a menu is open, or that menu with a menu code [documented: catalogue summary].
-/// `MenuMode 1009` (the dialogue menu) is 1 during a conversation with the player
-/// [documented: GECK wiki GetMenuTargetRef, owner export, for the code; hypothesis that
-/// it holds from the greeting to the end]. A conversation does not count for a bare
-/// `MenuMode`: game time and GameMode go on during it (`Game::start_dialogue`)
-/// [hypothesis].
+/// A conversation with the player is a menu: `MenuMode` and `MenuMode 1009` read 1 from
+/// its greeting to its end [owner statement 2026-10-10: such a dialogue pauses the game;
+/// documented: GECK wiki GetMenuTargetRef, owner export, for the code 1009].
 pub fn menu_mode(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
-    let code = a.num(0).ok().filter(|c| *c != 0.0);
-    if code == Some(menus::DIALOGUE as f64) && g.dialogue.is_some() {
-        return Ok(Value::bool(true));
-    }
-    Ok(Value::bool(match (g.menu, code) {
-        (None, _) => false,
-        (Some(_), None) => true,
-        (Some(m), Some(c)) => m as f64 == c,
+    Ok(Value::bool(match a.num(0).ok().filter(|c| *c != 0.0) {
+        None => g.in_menu(),
+        Some(c) => g.menu.is_some_and(|m| m as f64 == c) || (c == menus::DIALOGUE as f64 && g.dialogue.is_some()),
     }))
 }
 

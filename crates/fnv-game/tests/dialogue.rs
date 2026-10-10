@@ -19,6 +19,16 @@ use serde_json::{json, Value as Json};
 const G_OUT: u32 = 0x800;
 const G_GATE: u32 = 0x801;
 const G_DAYS: u32 = 0x803;
+const G_TICKS: u32 = 0x804;
+const G_MENU_TICKS: u32 = 0x805;
+const QTICK: u32 = 0x904;
+const QTICK_SCRIPT: u32 = 0x905;
+const T_POOL: u32 = 0x939;
+const P1: u32 = 0xF31;
+const P2: u32 = 0xF32;
+const P_PLAIN: u32 = 0xF33;
+const P3: u32 = 0xF34;
+const P4: u32 = 0xF35;
 const QA: u32 = 0x900;
 const QHI: u32 = 0x901;
 const QOFF: u32 = 0x902;
@@ -152,8 +162,32 @@ fn glob(id: u32, edid: &str, v: f32) -> Vec<u8> {
 }
 
 fn plugin_bytes() -> Vec<u8> {
-    let globs = [glob(G_OUT, "TestOut", 0.0), glob(G_GATE, "TestGate", 0.0), glob(0x802, "GameHour", 8.0), glob(G_DAYS, "GameDaysPassed", 0.0)].concat();
-    let quests = [quest(QA, "QA", true, 50), quest(QHI, "QHi", true, 80), quest(QOFF, "QOff", false, 90), quest(QEQ, "QEq", true, 50)].concat();
+    let globs = [
+        glob(G_OUT, "TestOut", 0.0),
+        glob(G_GATE, "TestGate", 0.0),
+        glob(0x802, "GameHour", 8.0),
+        glob(G_DAYS, "GameDaysPassed", 0.0),
+        glob(G_TICKS, "TestTicks", 0.0),
+        glob(G_MENU_TICKS, "TestMenuTicks", 0.0),
+    ]
+    .concat();
+    // A quest whose script counts its GameMode runs in TestTicks and its MenuMode runs in
+    // TestMenuTicks, every frame.
+    let count = |g: u16| set(var(b'G', g), ex(&[var(b'G', g), a("1"), a("+")]));
+    let tick_script = record(
+        b"SCPT",
+        0,
+        QTICK_SCRIPT,
+        &[vec![sub(b"EDID", z("TickScript"))], unit(1, &script(&[(0, None, count(1)), (1, None, count(2))]), &[], &[G_TICKS, G_MENU_TICKS])].concat(),
+    );
+    let tick_quest = record(
+        b"QUST",
+        0,
+        QTICK,
+        &[sub(b"EDID", z("QTick")), sub(b"SCRI", u32b(QTICK_SCRIPT)), sub(b"DATA", [vec![1u8, 0, 0, 0], f32b(0.01)].concat())],
+    );
+    let quests =
+        [quest(QA, "QA", true, 50), quest(QHI, "QHi", true, 80), quest(QOFF, "QOff", false, 90), quest(QEQ, "QEq", true, 50), tick_quest].concat();
     let npcs = [
         record(b"NPC_", 0, NPC1, &[sub(b"EDID", z("Talker"))]),
         record(b"NPC_", 0, NPC2, &[sub(b"EDID", z("Chatter"))]),
@@ -278,6 +312,23 @@ fn plugin_bytes() -> Vec<u8> {
                 },
             ],
         ),
+        // Two groups of Random lines with a plain line between them: two pools. The first
+        // group is said unless TestGate is 31; the plain line only when it is 77.
+        topic(
+            T_POOL,
+            "TopicPool",
+            "Pool",
+            topic_type::TOPIC,
+            0,
+            50.0,
+            vec![
+                L { id: P1, quest: QA, flags: info_flag::RANDOM, speaker: me, conds: vec![gate(NE, 31.0)], responses: one("P1"), ..L::default() },
+                L { id: P2, quest: QA, flags: info_flag::RANDOM, speaker: me, conds: vec![gate(NE, 31.0)], responses: one("P2"), ..L::default() },
+                L { id: P_PLAIN, quest: QA, speaker: me, conds: vec![gate(EQ, 77.0)], responses: one("Plain"), ..L::default() },
+                L { id: P3, quest: QA, flags: info_flag::RANDOM, speaker: me, responses: one("P3"), ..L::default() },
+                L { id: P4, quest: QA, flags: info_flag::RANDOM, speaker: me, responses: one("P4"), ..L::default() },
+            ],
+        ),
         topic(
             GOODBYE,
             "GOODBYE",
@@ -295,6 +346,7 @@ fn plugin_bytes() -> Vec<u8> {
     [
         tes4(),
         top(b"GLOB", &globs),
+        top(b"SCPT", &tick_script),
         top(b"AVIF", &avif),
         top(b"NPC_", &npcs),
         top(b"QUST", &quests),
@@ -447,13 +499,10 @@ fn a_line_runs_its_begin_script_says_its_responses_in_order_and_runs_its_end_scr
     let f = fixture();
     let mut g = game(&f);
     g.start_dialogue(actor(), None).unwrap();
-    // The begin result ran inside the start; the actor talks; the dialogue menu is up
-    // but the game is not paused.
+    // The begin result ran inside the start; the actor talks; the dialogue menu is up.
     assert_eq!(out(&g), 1.0);
     assert!(g.is_talking(actor()));
     assert_eq!(call(&mut g, 0x1024, NPC1_REF, &[ArgValue::Value(Value::Num(1009.0))]), 1.0);
-    assert_eq!(call(&mut g, 0x1024, NPC1_REF, &[]), 0.0);
-    assert_eq!(g.menu, None);
     // Response 1 ("First", emotion 3) before response 2 ("Second.", emotion 5).
     assert_eq!(g.dialogue_emotion(actor()), 3);
     let f0 = g.frame;
@@ -476,6 +525,81 @@ fn a_line_runs_its_begin_script_says_its_responses_in_order_and_runs_its_end_scr
     h.menu = Some(1001);
     h.frames(2000);
     assert!(h.is_talking(actor()));
+}
+
+#[test]
+fn a_conversation_pauses_the_game_behind_it() {
+    let f = fixture();
+    let mut g = game(&f);
+    let ticks = |g: &Game| (g.world.global(FormId(G_TICKS)).unwrap(), g.world.global(FormId(G_MENU_TICKS)).unwrap());
+    g.frames(10);
+    assert_eq!(ticks(&g), (10.0, 0.0));
+    // A line said outside a conversation pauses nothing.
+    g.say(actor(), None, FormId(T_BYE), false).unwrap();
+    g.frames(5);
+    assert_eq!(ticks(&g), (15.0, 0.0));
+    assert!(!g.paused() && !g.in_menu());
+    // In the conversation: menu mode. GameMode does not run, game time stands still,
+    // MenuMode blocks run, MenuMode reads 1 with and without the code. `Game::menu` is
+    // for the other menus.
+    let t0 = g.time;
+    g.start_dialogue(actor(), None).unwrap();
+    assert!(g.paused() && g.in_menu() && g.menu_open(1009) && !g.menu_open(1001));
+    assert_eq!((g.menu, g.open_menu_code()), (None, Some(1009)));
+    assert_eq!(call(&mut g, 0x1024, NPC1_REF, &[]), 1.0);
+    assert_eq!(call(&mut g, 0x1024, NPC1_REF, &[ArgValue::Value(Value::Num(1009.0))]), 1.0);
+    assert_eq!(call(&mut g, 0x1024, NPC1_REF, &[ArgValue::Value(Value::Num(1001.0))]), 0.0);
+    let f0 = g.frame;
+    listen(&mut g);
+    let spoken = (g.frame - f0) as f32;
+    assert!(spoken > 60.0);
+    assert_eq!(ticks(&g), (15.0, spoken));
+    assert_eq!(g.time, t0);
+    // Choosing does not unpause; the Goodbye line's end does.
+    pick(&mut g, T_BYE);
+    listen(&mut g);
+    assert!(g.dialogue.is_none() && !g.paused());
+    assert_eq!(g.time, t0);
+    let menu_ticks = ticks(&g).1;
+    g.frames(4);
+    assert_eq!(ticks(&g), (19.0, menu_ticks));
+    assert!((g.time - t0 - 4.0 / 60.0).abs() < 1e-9);
+    assert_eq!(call(&mut g, 0x1024, NPC1_REF, &[]), 0.0);
+    // A message box over the conversation holds it; both menus read as open.
+    let mut h = game(&f);
+    h.start_dialogue(actor(), None).unwrap();
+    h.menu = Some(1001);
+    assert!(h.menu_open(1001) && h.menu_open(1009));
+    assert_eq!(h.open_menu_code(), Some(1001));
+    h.frames(2000);
+    assert!(h.is_talking(actor()));
+    h.menu = None;
+    listen(&mut h);
+    assert!(!h.dialogue_choices().is_empty());
+}
+
+#[test]
+fn random_lines_that_sit_together_are_a_pool_and_a_plain_line_splits_pools() {
+    let f = fixture();
+    let listener = Some(FormId::PLAYER_REF);
+    let picks = |gate: f32| {
+        let mut seen = std::collections::BTreeSet::new();
+        for seed in 0..32 {
+            let mut g = game_seeded(&f, seed);
+            set_global(&mut g, G_GATE, gate);
+            seen.insert(g.select_line(actor(), listener, FormId(T_POOL)).unwrap().0);
+        }
+        seen.into_iter().collect::<Vec<u32>>()
+    };
+    // R R N R R with N not sayable: the first pair is one pool, never mixed with the
+    // second pair.
+    assert_eq!(picks(0.0), vec![P1, P2]);
+    // Nothing sayable in the first pool, the plain line not sayable either: the second
+    // pool.
+    assert_eq!(picks(31.0), vec![P3, P4]);
+    // The plain line sayable: the first pool still comes first.
+    assert_eq!(picks(77.0), vec![P1, P2]);
+    assert_eq!(f.data.lines_by_priority(FormId(T_POOL)).iter().map(|i| i.0).collect::<Vec<_>>(), vec![P1, P2, P_PLAIN, P3, P4]);
 }
 
 #[test]
@@ -566,6 +690,45 @@ fn leaving_cuts_the_line_without_its_end_script() {
     h.tick();
     assert!(h.dialogue.is_none());
     assert!(h.start_dialogue(actor(), None).is_err());
+}
+
+#[test]
+fn skipping_a_response_ends_it_early_and_the_line_still_runs_its_end_script() {
+    let f = fixture();
+    let mut g = game(&f);
+    // The first greeting has two responses ("First" then "Second.") and both scripts.
+    g.start_dialogue(actor(), None).unwrap();
+    g.frames(3);
+    assert_eq!((out(&g), g.dialogue_emotion(actor())), (1.0, 3));
+    // Skipping the first response starts the second with its full length.
+    assert!(g.skip_response());
+    let line = g.dialogue.as_ref().and_then(|c| c.line.clone()).unwrap();
+    assert_eq!((line.response, line.remaining), (1, fnv_game::game::fitted_seconds(7)));
+    assert_eq!((out(&g), g.dialogue_emotion(actor())), (1.0, 5));
+    // Skipping the last one ends the line as if it had been said: the end script ran,
+    // the line is not cut and its choices are offered, with no frame in between.
+    let frame = g.frame;
+    assert!(g.skip_response());
+    assert_eq!((g.frame, out(&g)), (frame, 2.0));
+    assert_eq!(offered(&g), vec![T_ASK, T_BYE]);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { cut: true, .. })));
+    let said: Vec<u8> = g.events.iter().filter_map(|e| if let EventKind::ResponseSaid { number, .. } = e.kind { Some(number) } else { None }).collect();
+    assert_eq!(said, vec![1, 2]);
+    // Nothing to skip while the player chooses.
+    assert!(!g.skip_response());
+    // A skipped Goodbye line ends the conversation, end script included.
+    pick(&mut g, T_BYE);
+    assert!(g.skip_response());
+    assert!(g.dialogue.is_none());
+    assert_eq!(out(&g), 9.0);
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", lines: 2, .. })));
+    assert!(!g.skip_response());
+    // A menu holds the conversation: nothing is skipped under it.
+    let mut h = game(&f);
+    h.start_dialogue(actor(), None).unwrap();
+    h.menu = Some(1001);
+    assert!(!h.skip_response());
+    assert_eq!(h.dialogue.as_ref().and_then(|c| c.line.as_ref()).map(|l| l.response), Some(0));
 }
 
 #[test]

@@ -3,7 +3,10 @@
 Status 2026-10-10: **D1 and D2 done** (branch `claude/dialogue-core`: records,
 `fnvtool dialogue`, headless conversations; facts and rules in
 docs/spec-notes/dialogue.md) and **D3 done** (branch `claude/dialogue-voice`: voice
-paths, sound lengths, playback in `--play`; docs/spec-notes/voice.md); D4 and D5 open. Owner request 2026-10-10: "now that quests have been done are we
+paths, sound lengths, playback in `--play`; docs/spec-notes/voice.md) and **D4 done**
+(branch `claude/dialogue-screen`: the dialogue screen in `--play`, the test aid
+`NVF_PLAY_TEST_TALK`, the unattended intro with real conversations;
+docs/design/dialogue-play.md; playing it by hand is the owner's); D5 open. Owner request 2026-10-10: "now that quests have been done are we
 able to work on dialogue lines".
 
 Where it sits: dialogue is Layer 6 (README; layer5.md §1 lists it with AI packages and
@@ -51,8 +54,16 @@ question and is listed in docs/owner-review.md until a capture settles it.
 
 - **Who can say a line.** A line's conditions run with the speaker as subject and the
   listener as target [documented: quests-dialogue.md §3, Run On]; a fixed speaker acts as
-  a GetIsID condition [documented: §4]; the line's quest must be running
-  [hypothesis: holds for the SayTo captures; not tested with a stopped quest].
+  a GetIsID condition [documented: §4]; the line's quest must be running and the
+  quest's own conditions must pass as well as the line's [owner statement 2026-10-10;
+  documented for the quest conditions: Quest Data Tab]. Topics the player knows are
+  global: every actor that can say a line of one offers it [owner statement
+  2026-10-10].
+- **A conversation pauses the game.** While the player is in a conversation the game
+  is in menu mode like the other menus: GameMode blocks and game time stop, `MenuMode`
+  and `MenuMode 1009` read 1, MenuMode blocks run; the conversation's own lines go on
+  in real time. Lines said outside a conversation (SayTo, Say) pause nothing
+  [owner statement 2026-10-10; details by the existing menu rules].
 - **Which line of a topic** (greetings, chosen topics, SayTo and Say alike;
   docs/spec-notes/dialogue.md §4):
   1. When lines of several quests are eligible, quest priority decides: the
@@ -61,9 +72,12 @@ question and is listed in docs/owner-review.md until a capture settles it.
   2. Between quests of the same priority, the first in stored order wins
      [owner statement 2026-10-10, from GECK use; not yet captured].
   3. Inside one quest the game takes the first eligible line from the top of the
-     editor's list, unless lines carry the Random flag; then qualifying Random lines form
-     a stack from which one is picked [owner statement 2026-10-10, from GECK use; not yet
-     captured; the Random stack is documented: §4; observed for SayTo: scripts.md §7.7].
+     editor's list, unless lines carry the Random flag [owner statement 2026-10-10, from
+     GECK use; not yet captured; observed for SayTo: scripts.md §7.7].
+  4. Random lines that sit together form a pool; a plain line between two groups splits
+     them into two pools whether or not it can be said; a pool is taken if any of its
+     lines can be said, and one of those is picked at random [owner statement
+     2026-10-10; the pick and Random End are documented: §4].
   The runtime does this with a stable sort of the topic's stored order by quest
   priority, highest first, and takes the first line the speaker can say. Stored order
   is file order, which agrees with the previous-info links in 5,677 of the 5,686 lines
@@ -83,6 +97,8 @@ question and is listed in docs/owner-review.md until a capture settles it.
   choices their order in the record [documented: Category:Dialogue, sorting order of
   links] and for the topic list [hypothesis] record order. The shown text is the line's
   prompt if it has one, else the topic's name [documented: §4].
+- **Follow-up lines.** A line's follow-up is said next with no choice by the player
+  [owner statement 2026-10-10].
 - **Saying a line.** Responses are said one after another in response-number order. The
   begin result runs when the line starts and the end result when it finishes
   [documented: §4; observed for SayTo]. Run Immediately moves the results to when the
@@ -113,7 +129,7 @@ question and is listed in docs/owner-review.md until a capture settles it.
 | Tool | `fnvtool dialogue topics|lines|talk` (list, inspect, run a scripted conversation headless) |
 | Trace | `fnv.dialogue.trace/1`: lines said, choices offered, results run, in order |
 | Voice | a small reader giving a line's sound path and its length, usable headless and by the engine; playback in `engine/nvf-play` |
-| Screen | `engine/nvf-play/src/dialogue.rs` (new): activation of an actor opens it; subtitles, the list of choices, keyboard and mouse; test aid `NVF_PLAY_TEST_TALK` |
+| Screen | `engine/nvf-play/src/dialogue.rs` (new): activation of an actor opens it; subtitles, the list of choices, keyboard and mouse; test aid `NVF_PLAY_TEST_TALK`; keys, states and checks in docs/design/dialogue-play.md |
 
 The conversation lives in `fnv-game` with no engine types, like quests and menus, so the
 lab can run it headless.
@@ -143,13 +159,15 @@ or `intro`; capture work never reads `crates/fnv-game/src/dialogue.rs`.
 3. Whether a topic with no line the actor can say is hidden.
 4. When the begin and end results run relative to the sound, and what happens to the end
    result when the player skips the line.
-5. Whether a line of a stopped quest can be said.
+5. To confirm [owner statement 2026-10-10]: a line of a stopped quest cannot be said;
+   a conversation pauses the game; follow-ups need no player choice; Random pools are
+   split by any plain line between them; known topics are offered by every actor.
 6. Say Once across two actors sharing a line; Say Once a Day.
 7. Speech challenge pass and fail routing, and the text shown.
 8. What `IsTalking`, `GetIsCurrentPackage` and `MenuMode 1009` read during a conversation
    [the menu code is a hypothesis].
 
-The full list of what D1 and D2 left as hypotheses (15 items, these among them) is
+The full list (six owner statements to confirm, and the open hypotheses) is
 docs/spec-notes/dialogue.md §7.
 
 How to observe 2 and 3 without reading the screen is open: the capture plugin can log
@@ -162,3 +180,35 @@ Lip sync and facial emotion (the `.lip` files and the emotion fields are read in
 data but not used), the dialogue camera, barter and repair services, companion wheels,
 radio stations, random conversations between NPCs and combat barks. The last three need
 AI packages and detection.
+
+## 8. Pausing ("living pause")
+
+[owner ruling 2026-10-10] A conversation with the player pauses the game, as in the
+original; lines said outside one (SayTo, Say) do not. [owner preference 2026-10-10] The
+world should not *look* paused: "ideally i dont want pausing because its archaic and non
+immersive; my issue is actions or npcs outside of the dialogue interaction and script
+interactions could cause issues if the game is not paused". So game logic and
+presentation are split. This deliberately departs from the original's look while keeping
+everything a script can see.
+
+- **Frozen while a conversation is open** (so every script sees what it would in the
+  original): script time (GameMode blocks, quest timers; the runtime's menu mode,
+  `Game::in_menu`), the game clock, trigger blocks, physics, combat, scripted movement
+  (`--npc-travel` travellers hold their place and blend to their idle), and the
+  player's own movement and actions. The player cannot walk away.
+- **Running**: the conversation's lines, subtitles and voice; and everything that is
+  only presentation: actors' idle animations, wind in the trees, water, the sky's
+  clouds, rendering effects. Nothing snaps to a frozen frame when the screen opens.
+- **Looking**: the player looks around freely with the mouse while the actor speaks;
+  while choices are offered the cursor is free for clicking and the view holds.
+- **The setting**: `nvforever --play --dialogue-pause living|original`, default
+  `living`. `original` stops the picture too (Bevy's virtual clock is paused for the
+  length of the conversation; the cursor is free throughout), so the two can be
+  compared. The existing menus (inventory, container, message boxes) hold game logic
+  but have never stopped the picture, so `original` is stricter than they are.
+- **Later**: a fully live world during conversations needs AI packages and guards
+  (NPCs on schedules keep moving, events are queued for scripts, the pair cannot be
+  attacked); it is written up separately (docs/owner-review.md item 34).
+
+Engine side: docs/design/dialogue-play.md §3 (`PlayState::Dialogue`, `WorldHeld`,
+`FreeLook`, `PauseMode`).
