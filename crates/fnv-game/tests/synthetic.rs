@@ -148,6 +148,7 @@ const ACTIVATOR: u32 = 0x903;
 const PACK_GATED: u32 = 0x910;
 const PACK_IDLE: u32 = 0x911;
 const PACK_SCRIPTED: u32 = 0x912;
+const PACK_EVENTS: u32 = 0x913;
 const NPC: u32 = 0x920;
 const NPC_SCRIPT: u32 = 0x921;
 const TOPIC: u32 = 0x930;
@@ -261,6 +262,15 @@ fn plugin_bytes() -> Vec<u8> {
         record(b"PACK", 0, PACK_GATED, &[sub(b"EDID", z("GatedPackage")), ctda(0, 1.0, GET_STAGE_DONE_INDEX, QUEST, 20)]),
         record(b"PACK", 0, PACK_IDLE, &[sub(b"EDID", z("IdlePackage"))]),
         record(b"PACK", 0, PACK_SCRIPTED, &[sub(b"EDID", z("ScriptedPackage"))]),
+        // Begin, end and change result scripts that set TestGlobal to 21, 22 and 23.
+        record(b"PACK", 0, PACK_EVENTS, &{
+            let mut subs = vec![sub(b"EDID", z("EventsPackage"))];
+            for (marker, value) in [(b"POBA", "21"), (b"POEA", "22"), (b"POCA", "23")] {
+                subs.push(sub(marker, vec![]));
+                subs.extend(unit(0, &set(var(b'G', 1), ex(&[a(value)])), &[], &[GLOBAL]));
+            }
+            subs
+        }),
     ]
     .concat();
     let npc = record(
@@ -566,6 +576,44 @@ fn actors_choose_the_first_package_whose_conditions_pass() {
     // A script package overrides the list.
     g.extra.entry(npc).or_default().packages.push(FormId(PACK_SCRIPTED));
     assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_SCRIPTED)));
+}
+
+#[test]
+fn an_ai_that_runs_packages_runs_their_begin_end_and_change_scripts() {
+    let f = fixture();
+    let world = World::new(&f.forms, &f.refs, SimConfig::default());
+    let mut g = Game::new(&f.data, world, GameConfig { strict: true, package_interval: Some(10.0), ..GameConfig::default() });
+    let npc = FormId(NPC_REF);
+    let global = |g: &Game| g.world.global(FormId(GLOBAL)).unwrap();
+    assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
+    assert_eq!(global(&g), 5.0);
+    // A script package starts: its begin script runs.
+    let add = |g: &mut Game| g.extra.entry(npc).or_default().packages.push(FormId(PACK_EVENTS));
+    let remove = |g: &mut Game| g.extra.entry(npc).or_default().packages.clear();
+    add(&mut g);
+    assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
+    assert_eq!(global(&g), 21.0);
+    // It reaches its goal: the end script; being replaced afterwards is not a change.
+    g.package_goal_met(npc);
+    assert_eq!(global(&g), 22.0);
+    g.package_goal_met(npc);
+    remove(&mut g);
+    g.world.set_global(FormId(GLOBAL), 0.0).unwrap();
+    assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
+    assert_eq!(global(&g), 0.0);
+    // Replaced before its goal: the change script.
+    add(&mut g);
+    g.evaluate_package(npc);
+    assert_eq!(global(&g), 21.0);
+    remove(&mut g);
+    assert_eq!(g.evaluate_package(npc), Some(FormId(PACK_IDLE)));
+    assert_eq!(global(&g), 23.0);
+    assert_eq!(g.current_package(npc), Some(FormId(PACK_IDLE)));
+    // Without the interval a choice runs no package script (Layer 5 behaviour).
+    let mut quiet = game(&f);
+    quiet.extra.entry(npc).or_default().packages.push(FormId(PACK_EVENTS));
+    assert_eq!(quiet.evaluate_package(npc), Some(FormId(PACK_EVENTS)));
+    assert_eq!(global(&quiet), 5.0);
 }
 
 #[test]

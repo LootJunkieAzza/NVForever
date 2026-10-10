@@ -789,6 +789,88 @@ an NPC waits until the open animation has finished. Design: `docs/design/navmesh
    `run.lock` had been held since 11:39 with no owner file and no FalloutNV or
    nvforever process running (stale-looking); removed at your request (15:45).
 
+## AI packages (2026-10-10, steps 1 to 4b of the plan)
+
+Facts and figures: `docs/spec-notes/packages.md`; design and the decisions taken:
+`docs/design/actor-behaviour.md` (§6). Branch `claude/ai-packages`.
+
+1. **Done:** every AI package record of the six masters decodes (step 1), and the game
+   data now holds each package as typed data: type, flags, where, what it targets, when,
+   its conditions and the per-type extras (step 2; `fnv_game::package`). Nothing uses
+   the new fields for choosing a package yet: that is step 3.
+2. **Checked against your observer captures** (eleven Goodsprings runs, 354,983 actor
+   samples; `fnvtool ai observed`): the game reported the expected package type for
+   every one of the 30 packages seen (10 of the 15 types), the record's target whenever
+   it named a reference, and 39 of 42 actor/package pairs came from the actor's list
+   (the other three are packages scripts add).
+3. **A documented rule the game narrows:** the wiki says a patrol is skipped when the
+   actor has no linked reference. Victor has none and patrols all day: his patrol names
+   a marker and follows the markers linked from it. Only patrols located "near linked
+   reference" (the default patrols) need the actor's own link.
+4. **Corrected from step 1:** "location 2" was counted twice (each record stores it in
+   two identical copies): 236 packages have one, not 472.
+5. **Would help if captured:** an actor running Find, Follow, Escort, Wander, Use Item
+   At or Use Weapon packages (their in-game type codes are paired by name only; set
+   aside at your request), and the sandbox settings (`GetGameSetting`), as noted for
+   step 1.
+6. **Step 3, done:** actors now choose their package as the game does: by the hour
+   (a package runs from its starting hour for its duration), top to bottom, skipping
+   packages that need a linked reference the actor lacks, with Once Per Day, Must
+   Complete and Continue If PC Near. `fnvtool ai day --actor EasyPeteRef` prints an
+   actor's day. Replayed over your captures, the choice matches wherever quest state
+   does not decide (186,563 samples the same; 51 differ, all in the seconds a switch
+   takes).
+7. **Taken from your captures, not from the documentation:** an actor with no valid
+   package keeps the one it has (a Goodsprings settler sandboxes all night because its
+   sleep package's conditions fail). And a rule the documentation states that the
+   captures contradict, left as it was: a script package without Must Complete is said
+   to end at the next evaluation, but Ringo's ran for 887 samples.
+8. **Captures that would settle open points:** the evaluation interval at a timescale
+   other than 30, and an actor under a Once Per Day or Must Complete package.
+9. **Step 4, done headless:** an actor now goes where its package sends it, over the
+   navmesh and through doors, and the game is told when it arrives (new crate `fnv-ai`).
+   `fnvtool ai run --actor EasyPeteRef --start-hour 6` shows his day: chair, bed, chair,
+   the saloon at noon, chair, bed, each walk with its doors and length. Started from
+   your captures, the simulated actors are in the same cell as in the game 91–100% of
+   the time (Chet, Ringo, two settlers, Easy Pete, Cheyenne).
+10. **Can every actor get where its packages send it?** `fnvtool ai reach` answers for
+    the whole game in 16 seconds: of the 9,938 destinations it can judge, 9,434 are
+    reachable (up to eight doors away) and 504 are not.
+11. **Notes to look into** (the full list of twenty: `docs/design/actor-behaviour.md`
+    §7). The ones that matter most:
+    - 200 destinations have no chain of doors (Primm deputies, Nellis tower guards, Yes
+      Man walking to his terminal): ladders, lifts, quest-enabled navmeshes or doors?
+    - 112 are behind doors a quest unlocks; game-side lock changes do not reach the nav
+      graph yet.
+    - 186 actors are placed with no navmesh within 512 units.
+    - Patrols do not wait at their points (Victor matches his capture only a third of
+      the time); sandboxing is "go there and stay" (no wandering, sitting, sleeping in
+      beds).
+    - What the game does when a package cannot be carried out is unknown; we set it
+      aside for an hour and take the next one.
+    - Not carried out yet: Follow, Accompany, Escort, Find, Use Item At, Use Weapon,
+      Dialogue, Ambush and Flee packages (1,107 actor/package pairs).
+12. **Step 4b, done: NPCs live by their packages in `nvforever`.** Try
+    `nvforever --data <Data> --cell Goodsprings --npc-packages EasyPeteRef --hour 11.8
+    --follow-npc`: at noon Easy Pete gets up from his chair and walks into the saloon to
+    eat; with `--hour 21.9` and `EasyPeteRef,GSChetRef,GoodspringsSettler04Ref` the town
+    goes to bed. Limits: only the actors you name; their package choice runs in a game
+    state of its own, so in `--play` quests do not affect it yet; they walk on the
+    navmesh without physics (design §5.4).
+13. **Your question about Doc Mitchell's route** (he leaves his room through the living
+    room instead of the doorway beside him): it is the game's navmesh, not the test or
+    our pathfinder. The house's navmesh has no triangles in that doorway (a gap of about
+    50 units, read straight from FalloutNV.esm), though the doorway is physically open.
+    I could not confirm what the original game's NPCs do there: the captures only have
+    Doc standing still. Watching an NPC walk through that house in the game, or the
+    cell's navmesh in the GECK, would settle it (design §7, note 21).
+
+14. **Step 4c, first part:** `--npc-packages all` hands every actor of the loaded cells
+    to the package layer, and with `--play` the choice now uses the game's own state
+    (quests, deaths, menus pausing it). Not done: physics for NPCs near the player. Not
+    rerun after the last change: the three-resident and `--npc-travel` smoke tests, and
+    the parity lab (no root crate changed in this part).
+
 ## Loading screens (2026-10-10, session "loading screen")
 
 Your request: pause and show a loading screen when changing cell, everything on hold

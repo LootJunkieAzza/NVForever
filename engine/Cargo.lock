@@ -2724,6 +2724,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-ai"
+version = "0.1.0"
+dependencies = [
+ "fnv-game",
+ "fnv-nav",
+ "fnv-sim",
+ "fnv-world",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fnv-bsa"
 version = "0.1.0"
 dependencies = [
@@ -4230,14 +4242,17 @@ dependencies = [
  "bevy",
  "clap",
  "fnv-actor",
+ "fnv-ai",
  "fnv-collide",
  "fnv-combat",
  "fnv-dds",
  "fnv-esm",
+ "fnv-game",
  "fnv-install",
  "fnv-nav",
  "fnv-nif",
  "fnv-phys",
+ "fnv-script",
  "fnv-sim",
  "fnv-spt",
  "fnv-vfs",

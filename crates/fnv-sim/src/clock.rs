@@ -34,7 +34,8 @@ pub struct Calendar {
     pub days_passed: f32,
 }
 
-fn days_in_month(year: i64, month0: i64) -> i64 {
+/// Days of a month (`month0`: 0 January … 11 December), Gregorian.
+pub fn days_in_month(year: i64, month0: i64) -> i64 {
     match month0 {
         1 => {
             if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {

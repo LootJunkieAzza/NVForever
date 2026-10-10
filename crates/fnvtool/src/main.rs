@@ -3,6 +3,10 @@
 //! Exit codes: 0 success, 1 the input could not be processed, 2 usage error.
 
 mod actor_anims;
+mod ai_choice;
+mod ai_cmd;
+mod ai_packages;
+mod ai_run;
 mod actor_locomotion;
 mod actor_tri;
 mod actor_weapons;
@@ -18,6 +22,7 @@ mod esm_cmd;
 mod install_cmd;
 mod nav_cmd;
 mod nav_path;
+mod observer;
 mod nif_cmd;
 mod phys_cmd;
 mod script_cmd;
@@ -96,6 +101,9 @@ enum Cmd {
     /// Navmeshes: records, the nav graph, paths and path-following walks.
     #[command(subcommand)]
     Nav(nav_cmd::NavCmd),
+    /// AI packages (Layer 6): records, package lists, choice.
+    #[command(subcommand)]
+    Ai(ai_cmd::AiCmd),
     /// Dialogue voice files: a line's sound path and length, coverage over a load order.
     #[command(subcommand)]
     Voice(voice_cmd::VoiceCmd),
@@ -734,6 +742,7 @@ fn main() -> ExitCode {
         Cmd::Actor(c) => actor_cmd::run(c),
         Cmd::Combat(c) => combat_cmd::run(c),
         Cmd::Nav(c) => nav_cmd::run(c),
+        Cmd::Ai(c) => ai_cmd::run(c),
         Cmd::Voice(c) => voice_cmd::run(c),
     };
     match res {

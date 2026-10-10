@@ -389,12 +389,7 @@ impl DestructionStage {
     pub const DESTROY: u8 = 4;
 }
 
-/// An AI package's conditions (`PACK` CTDA before the begin/end/change sections)
-/// [documented: xEdit PACK layout].
-#[derive(Debug, Clone, Default)]
-pub struct PackageDef {
-    pub conditions: Vec<Condition>,
-}
+pub use crate::package::PackageDef;
 
 pub struct GameData {
     pub table: FunctionTable,
@@ -421,7 +416,7 @@ pub struct GameData {
     pub goodbye: Option<FormId>,
     /// PACK begin / end / change result scripts.
     pub packages: HashMap<FormId, [Option<UnitId>; 3]>,
-    /// Every PACK with its conditions.
+    /// Every PACK as typed data ([`crate::package`]).
     pub package_defs: HashMap<FormId, PackageDef>,
     pub messages: HashMap<FormId, MessageDef>,
     pub form_lists: HashMap<FormId, Vec<FormId>>,
@@ -724,6 +719,20 @@ impl GameData {
 
     pub fn is_quest(&self, id: FormId) -> bool {
         self.quests.contains_key(&id)
+    }
+
+    /// The AI package list of an actor base (NPC_, CREA): its own `PKID` list, or its
+    /// template's when the template supplies the AI packages
+    /// ([`crate::game::Game::package_list`]).
+    pub fn base_package_list(&self, mut base: FormId) -> Vec<FormId> {
+        for _ in 0..8 {
+            let Some(a) = self.actors.get(&base) else { break };
+            match a.template.filter(|t| a.template_packages && self.actors.contains_key(t)) {
+                Some(t) => base = t,
+                None => return a.packages.clone(),
+            }
+        }
+        self.actors.get(&base).map(|a| a.packages.clone()).unwrap_or_default()
     }
 
     /// The priority of the quest a line belongs to (0 without a quest).
@@ -1164,17 +1173,11 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             out.actor = Some(a);
         }
         b"PACK" => {
-            let mut p = PackageDef::default();
-            for (s, v) in &decoded {
-                match *s {
-                    // The begin / end / change sections hold result scripts, not
-                    // package conditions.
-                    b"POBA" | b"POEA" | b"POCA" => break,
-                    b"CTDA" => p.conditions.extend(cond(v, &mut out.issues)),
-                    _ => {}
-                }
-            }
-            out.package = Some(p);
+            let code = |sub: &[u8; 4], field: &str, v: &Json| field_code(schema, &sig, sub, Some(field), v);
+            let ctx = crate::package::ReadCtx { code: &code, map: &map };
+            let mut issues = Issues::default();
+            out.package = Some(crate::package::read(&decoded, &ctx, &mut |v| cond(v, &mut issues)));
+            out.issues.merge(issues);
         }
         b"REPU" => {
             out.reputation = decoded.iter().find(|(s, _)| *s == b"DATA").and_then(|(_, v)| v.as_ref()?.as_f64()).map(|x| x as f32);
