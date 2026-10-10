@@ -29,6 +29,18 @@ pub enum CombatCmd {
         #[arg(long)]
         ammo: Option<String>,
     },
+    /// What a weapon's shots sound and look like: its sounds, shell casing, its
+    /// projectile's and explosion's sounds, and the impacts of its impact data set by
+    /// material; with the counts of the effect forms read (fnv.combat.fx/1).
+    Fx {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// Weapon Editor ID or global FormID (hex).
+        #[arg(long)]
+        form: String,
+    },
     /// Any combat form as read: WEAP, AMMO, AMEF, PROJ, EXPL, BPTD, ENCH, SPEL
     /// (fnv.combat.form/1).
     Form {
@@ -117,6 +129,41 @@ fn form_json(c: &CombatForms, id: FormId) -> Value {
 
 pub fn run(cmd: CombatCmd) -> Result<Value> {
     match cmd {
+        CombatCmd::Fx { lo, schema, form } => {
+            let schema_v = Schema::load_dir(&schema).with_context(|| schema.display().to_string())?;
+            let plugins = open_load_order(&lo)?;
+            let order = LoadOrder::new(&plugins)?;
+            let c = CombatForms::build(&order, &schema_v);
+            let fx = fnv_combat::fx::FxForms::build(&order, &schema_v);
+            let id = resolve(&c, &form)?;
+            let chain = c.chain(id, None);
+            let w = fx.weapons.get(&id);
+            let sound = |f: Option<fnv_sim::FormId>| f.map(|f| json!({"formid": f.to_string(), "sound": fx.sounds.get(&f)}));
+            let proj = chain.as_ref().and_then(|ch| ch.projectile);
+            let expl = chain.as_ref().and_then(|ch| ch.explosion);
+            let set = w.and_then(|w| w.impact_dataset);
+            let impacts: serde_json::Map<String, Value> = fnv_combat::fx::IMPACT_MATERIALS
+                .iter()
+                .filter_map(|m| {
+                    let i = fx.impact(set?, m)?;
+                    Some((m.to_string(), json!({"impact": i, "sound_1": sound(i.sound_1), "sound_2": sound(i.sound_2)})))
+                })
+                .collect();
+            Ok(json!({
+                "schema": "fnv.combat.fx/1",
+                "counts": {"sounds": fx.sounds.len(), "weapons": fx.weapons.len(), "projectiles": fx.projectiles.len(), "explosions": fx.explosions.len(), "addon_nodes": fx.addons.len(), "impacts": fx.impacts.len(), "impact_sets": fx.impact_sets.len()},
+                "weapon": w,
+                "shoot_3d": sound(w.and_then(|w| w.shoot_3d)),
+                "shoot_dist": sound(w.and_then(|w| w.shoot_dist)),
+                "shoot_2d": sound(w.and_then(|w| w.shoot_2d)),
+                "shoot_loop": sound(w.and_then(|w| w.shoot_loop)),
+                "no_ammo": sound(w.and_then(|w| w.no_ammo)),
+                "equip": sound(w.and_then(|w| w.equip)),
+                "projectile_sound": sound(proj.and_then(|p| fx.projectiles.get(&p)).and_then(|p| p.sound)),
+                "explosion": expl.and_then(|e| fx.explosions.get(&e)),
+                "impacts": impacts,
+            }))
+        }
         CombatCmd::Weapon { lo, schema, form, ammo } => {
             let c = load(&lo, &schema)?;
             let id = resolve(&c, &form)?;

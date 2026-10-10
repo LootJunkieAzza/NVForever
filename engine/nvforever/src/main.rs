@@ -348,6 +348,9 @@ struct Args {
     /// the log still names each file).
     #[arg(long)]
     no_voice: bool,
+    /// With --play: do not play sound effects (weapons, impacts, explosions).
+    #[arg(long)]
+    no_sound: bool,
     /// With --play: dialogue voice volume, 1 = as recorded.
     #[arg(long, default_value_t = 1.0)]
     voice_volume: f32,
@@ -745,6 +748,7 @@ fn main() -> AppExit {
         app.insert_resource(nvf_play::script::NewGame);
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
+    app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, ..Default::default() });
     app.insert_resource(if args.menu_pause == "original" { nvf_play::pause::MenuPause::Original } else { nvf_play::pause::MenuPause::Living });
     app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: args.dialogue_recentre && !args.no_dialogue_recentre });
     if let Some(data) = play {

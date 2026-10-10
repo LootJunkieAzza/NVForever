@@ -62,6 +62,12 @@
 //!   A hitscan bullet, whose hit is found at once, is drawn flying from the muzzle to
 //!   where it lands at the PROJ's speed; a beam is drawn from the muzzle to its end for
 //!   the PROJ's fade duration [design].
+//! - **Sounds and impacts** (docs/spec-notes/combat-rules.md §16): each shot plays the
+//!   weapon's Shoot 2D sound (else its Shoot 3D), an empty trigger its No Ammo sound, and
+//!   drawing and putting it away its Equip and Unequip sounds (`crate::sfx`). A shot
+//!   that lands sends an [`ImpactFx`] with the IPCT its weapon's impact data set names
+//!   for the surface's material, and plays that impact's sounds there; an explosion
+//!   sends an [`ExplosionFx`] and plays the EXPL's sounds.
 //! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
 //!   a line from the muzzle along each hitscan shot, an ammo counter, a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
@@ -81,6 +87,7 @@ use fnv_phys::{layers, Filter, Key, Owner, Queries};
 use fnv_sim::FormId;
 
 use crate::activate::HudMessage;
+use crate::sfx::{PlaySound, Sfx};
 use crate::hitvol::ActorParts;
 use fnv_combat::data::{BodyPart, WeaponStats};
 use fnv_game::combat::LimbHit;
@@ -148,6 +155,24 @@ pub struct ShotVisual {
 #[derive(Resource, Default)]
 pub struct ShotVisuals {
     pub flying: Vec<ShotVisual>,
+}
+
+/// A shot landed: the IPCT of the weapon's impact data set for what it hit, where, the
+/// surface's normal and the way the projectile was flying (game space). The renderer
+/// shows the impact's effect (nvforever `shot_fx`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ImpactFx {
+    pub impact: FormId,
+    pub point: V3,
+    pub normal: V3,
+    pub dir: V3,
+}
+
+/// An explosion went off: its EXPL and where.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ExplosionFx {
+    pub explosion: FormId,
+    pub point: V3,
 }
 
 /// Every projectile is drawn, not only the PROJ's tracer chance of them [design: the
@@ -351,6 +376,9 @@ struct Pending {
     point: V3,
     /// The way the projectile was flying.
     dir: V3,
+    /// The surface's normal and collision material, for the impact effect.
+    normal: V3,
+    material: Option<u32>,
     projectiles: u32,
     force: f32,
 }
@@ -476,6 +504,8 @@ impl Plugin for CombatPlugin {
             .init_resource::<CombatStats>()
             .init_resource::<ShotVisuals>()
             .add_message::<ShotFired>()
+            .add_message::<ImpactFx>()
+            .add_message::<ExplosionFx>()
             .init_resource::<HitFeedback>()
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
@@ -483,7 +513,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hud, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, weapon_state, equip_sync, fire, melee, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, weapon_state, equip_sync, weapon_sounds, fire, melee, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hud, update_hit_hud).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -664,6 +694,20 @@ fn attacker(sim: &mut SimState, skill: Option<&str>, aiming_vats: bool) -> Attac
     Attacker { skill: skill_v, strength, luck, unarmed_skill: damage::derived_skill(endurance, luck, false), in_vats: aiming_vats, ..Attacker::default() }
 }
 
+/// The weapon's Equip sound when the player starts to draw it and its Unequip sound
+/// when they start to put it away [hypothesis: when the game plays them].
+fn weapon_sounds(c: Res<Combat>, control: Res<PlayerControl>, sfx: Option<Res<Sfx>>, mut sounds: MessageWriter<PlaySound>, mut was_out: Local<bool>) {
+    let out = control.weapon_out;
+    if out == *was_out {
+        return;
+    }
+    *was_out = out;
+    let fx = c.weapon.zip(sfx.as_deref()).and_then(|(w, s)| s.forms.weapons.get(&w));
+    if let Some(sound) = fx.and_then(|f| if out { f.equip } else { f.unequip }) {
+        sounds.write(PlaySound { sound, at: None });
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fire(
     time: Res<Time>,
@@ -677,6 +721,8 @@ fn fire(
     mut script: Option<ResMut<ScriptState>>,
     limbs: Res<PlayerLimbs>,
     mut fired: MessageWriter<ShotFired>,
+    sfx: Option<Res<Sfx>>,
+    mut sounds: MessageWriter<PlaySound>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -712,6 +758,7 @@ fn fire(
     let carried = total.saturating_sub(cycle.magazine);
     let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload, dt, carried });
     let Some(chain) = c.forms.chain(id, c.ammo) else { return };
+    let weapon_fx = sfx.as_deref().and_then(|s| s.forms.weapons.get(&id));
     for e in events {
         match e {
             Event::SpinUp => {
@@ -740,6 +787,10 @@ fn fire(
                     continue;
                 };
                 fired.write(ShotFired { projectile: proj });
+                // The player's own shot: the 2D sound where the weapon has one.
+                if let Some(sound) = weapon_fx.and_then(|f| f.shoot_2d.or(f.shoot_3d)) {
+                    sounds.write(PlaySound { sound, at: None });
+                }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
                 let stance = Stance {
                     aiming: control.aiming,
@@ -813,6 +864,9 @@ fn fire(
                 info!("combat: reloaded {taken}, magazine {}", cycle.magazine);
             }
             Event::DryFire => {
+                if let Some(sound) = weapon_fx.and_then(|f| f.no_ammo) {
+                    sounds.write(PlaySound { sound, at: None });
+                }
                 stats.dry_fires += 1;
                 info!("combat: click (no ammo)");
             }
@@ -1071,6 +1125,8 @@ fn fly(
     parts: Res<ActorParts>,
     mut visuals: ResMut<ShotVisuals>,
     anim: Res<WeaponAnim>,
+    sfx: Option<Res<Sfx>>,
+    mut effects: (MessageWriter<PlaySound>, MessageWriter<ImpactFx>, MessageWriter<ExplosionFx>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -1121,11 +1177,11 @@ fn fly(
             let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             for e in f.p.step(&world, dt) {
                 match e {
-                    ProjEvent::Hit { actor, part, object, point, delay, .. } => {
+                    ProjEvent::Hit { actor, part, object, point, delay, normal, material } => {
                         let from = if f.p.hitscan { f.origin } else { before };
                         let d = vec::sub(point, from);
                         let dir = if vec::len(d) > 1e-3 { vec::scale(d, 1.0 / vec::len(d)) } else { [0.0; 3] };
-                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, projectiles: f.projectiles_per_shot, force: f.force });
+                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, normal, material, projectiles: f.projectiles_per_shot, force: f.force });
                         if f.tracer {
                             debug!(
                                 "combat: tracer from ({:.1}, {:.1}, {:.1}) to the hit at ({:.1}, {:.1}, {:.1})",
@@ -1195,6 +1251,12 @@ fn fly(
         }
         stats.explosions += 1;
         let Some(x) = c.forms.explosions.get(&id).cloned() else { continue };
+        effects.2.write(ExplosionFx { explosion: id, point: at });
+        if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
+            for sound in e.sound_1.into_iter().chain(e.sound_2) {
+                effects.0.write(PlaySound { sound, at: Some(at) });
+            }
+        }
         let hits = {
             let world = view(&mut phys);
             blast(&world, &c.tuning, &x, at)
@@ -1260,6 +1322,21 @@ fn fly(
     let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
     for p in due {
         c.marks.push(Mark::at(p.point, 0.3, MarkKind::Impact));
+        // The impact the weapon's data set names for what was hit: an actor is organic
+        // [design: its creature type's kinds, bug and glow, are not told apart yet].
+        if let Some(s) = sfx.as_deref() {
+            let material = if p.actor.is_some() { "organic" } else { fnv_combat::fx::impact_material(p.material) };
+            let set = s.forms.weapons.get(&id).and_then(|w| w.impact_dataset);
+            if let Some(impact) = set.and_then(|set| s.forms.impact_id(set, material)) {
+                effects.1.write(ImpactFx { impact, point: p.point, normal: p.normal, dir: p.dir });
+                if let Some(i) = s.forms.impacts.get(&impact) {
+                    for sound in i.sound_1.into_iter().chain(i.sound_2) {
+                        effects.0.write(PlaySound { sound, at: Some(p.point) });
+                    }
+                }
+                debug!("combat: impact {} on {material} (collision material {:?})", s.forms.impacts.get(&impact).and_then(|i| i.edid.as_deref()).unwrap_or("?"), p.material);
+            }
+        }
         let effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let a = attacker(&mut sim, w.skill.as_deref(), false);
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part));
