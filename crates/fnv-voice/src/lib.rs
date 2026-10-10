@@ -9,15 +9,20 @@
 //! - [`bank`]: the index over the archives, with lengths; `fnv_game`'s line-length hook
 //! - [`coverage`]: how many lines of a load order have a sound (`fnvtool voice coverage`)
 //!
-//! The `.lip` files next to the sounds (lip sync) are counted and otherwise left alone.
+//! - [`lip`]: the `.lip` file beside a sound, decoded: the face animation of the
+//!   response as weights per channel and frame (docs/spec-notes/lipsync.md)
+//! - [`lip_coverage`]: every `.lip` file decoded and counted (`fnvtool voice lip-coverage`)
 
 pub mod bank;
 pub mod coverage;
 pub mod index;
 pub mod length;
+pub mod lip;
+pub mod lip_coverage;
 pub mod path;
 
 pub use bank::VoiceBank;
 pub use index::{Line, Response, VoiceIndex};
 pub use length::{sound_info, SoundInfo};
+pub use lip::Lip;
 pub use path::{voice_path, voice_stem};
