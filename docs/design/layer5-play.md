@@ -169,10 +169,10 @@ engine does:
 | `item_added` / `item_removed` for the player | a line; four or more items at once collapse into one |
 
 **Subtitles** (round 2): each line being said (`Game::speech`) shows as "Speaker: text"
-at the bottom of the view, one response of the INFO at a time, each for its share of the
-line's length (`fnv_game::game::line_seconds` per response, the runtime's stand-in for
-the voice file, scripts.md §7.7), and goes when the runtime ends or cuts the line. No
-voice is played (Layer 6 sound).
+at the bottom of the view, one response of the INFO at a time, each for as long as it
+lasts (its voice file's length, or the length fitted to its text when it has none,
+scripts.md §7.7), and goes when the runtime ends or cuts the line. The voice file is
+played (`voice.rs`, docs/spec-notes/voice.md §9; `--no-voice`, `--voice-volume`).
 
 Not applied (open, §7): `moved` of other references, `SetPos` / `SetAngle`, `SetOpenState`
 on a drawn door, a script's `DisablePlayerControls`, image-space, sound and the other
@@ -380,6 +380,42 @@ second):
   error, the three new scenarios pass), L5 28/32, as on main (the four known fails); the headless walk-through gives the same observations and events with and
   without the SayToDone change (D1).
 
+### 6.4 Voice (2026-10-10, dialogue step D3)
+
+The §6.2 run again (same command and aids, 230 s) with dialogue voice
+(`engine/nvf-play/src/voice.rs`, docs/spec-notes/voice.md): exit 0, "run finished", 53.6
+frames per second, the same stages in the same order to **VCG01 200** (completed), and
+one `voice: playing <path> (<seconds> s)` log line for each of the 23 lines Doc Mitchell
+says by SayTo (23 `says` lines, 23 sounds, none missing, none stopped). The three lines
+the test aids stand in for (`info:` runs a line's result scripts, it does not say the
+line) have no sound.
+
+Steps that are made of Doc's lines, game seconds from the stage before (fitted: §6.2;
+capture: scripts.md §9):
+
+| Stage | Fitted length (§6.2) | Voice length | Capture |
+|---|---|---|---|
+| 5 (one line) | +2.91 | +2.61 | 2.9 |
+| 10 (three lines) | +15.36 | +14.50 | 15.4 |
+| 25, 30 | +10.52, +14.77 | +8.88, +12.76 | lines |
+| 36 | +1.78 | +0.86 | a line |
+| 45 | +11.08 | +10.68 | lines |
+| 55 (two lines) | +10.20 | +9.20 | about 10 |
+| 75 after 70 | +7.47 | +5.77 | not timed |
+| 80 (psych intro lines) | +18.06 | +11.73 | about 13 |
+| 98 | +17.95 | +13.15 | lines |
+| 110 | +3.47 | +2.35 | lines |
+
+All other steps (timers, menus, triggers) are as in §6.2 within 0.05 s. The 23 lines
+take 103.5 s instead of 125.3 s, so the run reaches VCG01 200 at 136.6 game seconds. The
+voice lengths end the fit's large error at 80 and leave every timed span 0.3 to 0.4 s per
+line shorter than the capture (voice.md §8); nothing was tuned.
+
+Goodsprings `--play` for 40 s: exit 0 (no line is said there in that time). Workspace
+and engine tests and clippy, both Python suites; parity lab 368/387 (the same 11 fail
+and 8 error as on main), L5 28/32 (the four known fails), the four `L5.intro.*` pass
+with identical observations with and without voice lengths.
+
 ## 7. Open
 
 - **Runtime follow-ups**: done in fnv-game rounds 3–4 (a scripted `Activate player`,
@@ -408,6 +444,9 @@ second):
     for scripts as for everything else.
 - Other references a script moves keep their drawn place and collision (visuals of
   placed references are nvforever's; only `script_draw.rs`'s own follow the simulation).
+- Voice (§6.4): sounds are not placed in space, do not pause with menus, and the
+  dialogue the test aids stand in for is not heard (it waits for the dialogue screen,
+  docs/design/dialogue.md D4).
 - Lights a script enables or disables (e.g. the Strip gate's lamp 0x0011A1F9 by the hour)
   keep their light source as streamed.
 - NPCs enabled at run time that render streaming skipped are not drawn (`actors.rs`
