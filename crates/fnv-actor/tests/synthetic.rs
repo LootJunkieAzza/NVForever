@@ -272,6 +272,10 @@ fn best_protection_is_worn_and_covers_race_parts() {
     assert_eq!(a.hair_color, Some([10, 20, 30]));
     assert_eq!(a.body_egt.as_deref(), Some("meshes\\characters\\_male\\upperbodyhumanmale.egt"));
     assert_eq!(a.facegen.as_ref().unwrap().fggs[0], 1.0);
+    // The face is shaped by the NPC's values plus the race's for its sex (male: 0.5).
+    let shape = a.shape_facegen(true).unwrap();
+    assert_eq!((shape.fggs[0], shape.fggs.len(), shape.fgga.len(), shape.fgts.len()), (1.5, 50, 30, 0));
+    assert_eq!(a.shape_facegen(false).unwrap().fggs[0], 1.0);
 }
 
 #[test]

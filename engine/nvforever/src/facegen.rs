@@ -1,8 +1,9 @@
 //! FaceGen in the game (workstream 5 part C, docs/spec-notes/actors.md §4): an NPC's
-//! FGGS/FGGA coefficients morph every part that has an `.egm` beside its model (head,
-//! eyes, mouth, beards, hats, …), and its FGTS coefficients plus its race's add the `.egt`
-//! colour offset to the face and skin textures. The combination rules are [hypothesis]
-//! (fnv_actor::facegen, docs/spec-notes/actors.md §4.2).
+//! FGGS/FGGA coefficients plus its race's morph every part that has an `.egm` (beside its
+//! model: head, eyes, mouth, beards, hats, …; or one per shape: the hair models), and its
+//! FGTS coefficients plus its race's add the `.egt` colour offset to the face and skin
+//! textures. The combination rules are [hypothesis] (fnv_actor::facegen,
+//! docs/spec-notes/actors.md §4.2, §4.3).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::VertexAttributeValues;
@@ -42,6 +43,13 @@ pub fn sibling(model: &str, ext: &str) -> String {
     }
 }
 
+/// The FaceGen file of one shape of a model: `meshes\a\hairbun.nif`, shape `NoHat` →
+/// `meshes\a\hairbunnohat.<ext>` [observed: the hair models, actors.md §4.3].
+pub fn shape_sibling(model: &str, shape: &str, ext: &str) -> String {
+    let stem = model.rsplit_once('.').map_or(model, |(stem, _)| stem);
+    format!("{stem}{}.{ext}", shape.to_ascii_lowercase())
+}
+
 impl FaceGenCache {
     pub(crate) fn egm(&mut self, data: &GameData, path: &str) -> Option<Arc<Egm>> {
         self.egm
@@ -61,15 +69,25 @@ impl FaceGenCache {
         self.base.entry(path.to_string()).or_insert_with(|| data.read(path).and_then(|b| decode_top(&b)).map(Arc::new)).clone()
     }
 
-    /// Per shape of `part` (model `model`), a FaceGen-morphed mesh where an `.egm` sits
-    /// beside the model and covers the shape's vertices: a one-shape part, or a shape
-    /// with exactly the EGM's vertex count.
+    /// Per shape of `part` (model `model`), a mesh morphed by `fg`'s FGGS and FGGA
+    /// (`Appearance::shape_facegen`) where an `.egm` covers the shape's vertices. With an
+    /// `.egm` beside the model: a one-shape part, or a shape with exactly the EGM's
+    /// vertex count. Without one: a shape with an `.egm` of its own ([`shape_sibling`])
+    /// of exactly its vertex count.
     pub fn morph(&mut self, ctx: &mut ActorCtx, part: &PreparedPart, model: &str, fg: &FaceGen) -> Vec<Option<Handle<Mesh>>> {
         let mut out = vec![None; part.shapes.len()];
-        let Some(egm) = self.egm(&ctx.models.data, &sibling(model, "egm")) else { return out };
+        let whole = self.egm(&ctx.models.data, &sibling(model, "egm"));
         for (i, s) in part.shapes.iter().enumerate() {
             let n = s.cpu.count_vertices();
-            if n > egm.vertices || (part.shapes.len() > 1 && n != egm.vertices) {
+            let (egm, fits) = match (&whole, s.name.as_deref()) {
+                (Some(egm), _) => (egm.clone(), n <= egm.vertices && (part.shapes.len() == 1 || n == egm.vertices)),
+                (None, Some(name)) => match self.egm(&ctx.models.data, &shape_sibling(model, name, "egm")) {
+                    Some(egm) => (egm.clone(), n == egm.vertices),
+                    None => continue,
+                },
+                (None, None) => continue,
+            };
+            if !fits {
                 self.mismatched += 1;
                 continue;
             }
@@ -198,6 +216,8 @@ mod tests {
     fn siblings() {
         assert_eq!(sibling(r"meshes\characters\head\headhuman.nif", "egm"), r"meshes\characters\head\headhuman.egm");
         assert_eq!(sibling("x", "egt"), "x.egt");
+        assert_eq!(shape_sibling(r"meshes\characters\hair\hairbun.nif", "NoHat", "egm"), r"meshes\characters\hair\hairbunnohat.egm");
+        assert_eq!(shape_sibling("x", "Hat", "egm"), "xhat.egm");
     }
 
     #[test]
