@@ -224,7 +224,11 @@ https://facegen.com/dl/sdk/doc/manual/fileformats.html; all values little-endian
 - **TRI**: magic `FRTRI003`, counts of vertices, triangles, quads, labelled vertices and
   surface points, texture coordinates, extension flags, difference and statistical morph
   counts; vertices, faces, labels, UVs, then morphs (label, scale, per-vertex signed
-  16-bit deltas).
+  16-bit deltas). Read by `fnv_actor::tri` since dialogue step D6: the morphs are what
+  lip sync moves (docs/spec-notes/lipsync.md §4, which also corrects the vertex claim
+  below: the model's vertices are the TRI's in the same order — every triangle joins
+  the same vertex numbers — but `headhuman.nif`'s positions differ from the TRI's by up
+  to 0.53 units, so "nearest vertex" does not hold for all of them).
 - A face coordinate is 50 symmetric shape, 30 asymmetric shape and 50 texture values in
   standard deviations, usually within ±5 [documented: FaceGen SDK manual, "Overview"].
   This matches NPC_ FGGS/FGGA/FGTS (4,218 of 4,220 NPC_ have 50/30/50 [observed]).

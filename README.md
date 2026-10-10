@@ -72,7 +72,9 @@ cargo run --release --bin nvforever -- --data $D --cell Goodsprings --play
 
 Keys in `--play`: W/A/S/D move, Shift walk, Caps Lock always run, Ctrl sneak, Q auto
 move, Space jump, mouse look, E use (doors, containers, items), Tab inventory, Esc pause
-menu, `[`/`]` hour, F12 screenshot.
+menu, `[`/`]` hour, F12 screenshot. Going through a door to another place shows one of
+the game's loading screens while the destination loads; the game holds still meanwhile
+([docs/design/loading-screen.md](docs/design/loading-screen.md)).
 
 Without `--play` the camera flies freely: W/A/S/D move, Q/E down/up, Shift faster, right
 mouse drag look, wheel speed, `[`/`]` hour, F12 screenshot, Esc quit.

@@ -15,3 +15,7 @@ serde_json.workspace = true
 rand_chacha = "0.9"
 rand_core = "0.9"
 rayon = "1"
+
+[dev-dependencies]
+# The archives, for the real-data test of the `.tri` reader (skipped without game data).
+fnv-vfs = { path = "../fnv-vfs" }

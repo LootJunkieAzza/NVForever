@@ -4,6 +4,7 @@
 
 mod actor_anims;
 mod actor_locomotion;
+mod actor_tri;
 mod actor_weapons;
 mod actor_cmd;
 mod bsa_cmd;
@@ -223,6 +224,18 @@ pub enum ActorCmd {
         /// clip.
         #[arg(long, default_value_t = 0)]
         samples: usize,
+    },
+    /// The FaceGen `.tri` files (morph targets of head parts): morph labels, and whether
+    /// each has the vertices of the model beside it (fnv.actor.tri/1).
+    Tri {
+        /// The game's Data folder (archives are read from it).
+        data_dir: PathBuf,
+        /// NIF schema directory.
+        #[arg(long)]
+        nif_schema: PathBuf,
+        /// One file (VFS path) in detail: each morph's scale and reach.
+        #[arg(long)]
+        path: Option<String>,
     },
 }
 
