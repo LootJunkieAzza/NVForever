@@ -254,6 +254,10 @@ struct Args {
     /// --npc-packages NPC (through doors too).
     #[arg(long, conflicts_with = "play")]
     follow_npc: bool,
+    /// With --play: the sky keeps the hour of --hour instead of following the game's
+    /// clock (GameHour, which runs at the TimeScale global, 30).
+    #[arg(long, requires = "play")]
+    still_sky: bool,
     /// NPCs that live by their AI packages: placed actors (Editor ID or FormID, comma
     /// separated or repeated), or `all` for every actor and creature of the cells
     /// loaded around the camera, choose their package by the hour and walk to where it
@@ -599,6 +603,9 @@ fn main() -> AppExit {
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
         }
     }
+    if play.is_some() && !args.still_sky {
+        app.add_systems(Update, sky_follows_game.before(sky::update_sky));
+    }
     if let Some(n) = nav_state {
         let follow = n.follow;
         app.insert_resource(n).add_systems(Startup, nav::log_startup).add_systems(
@@ -785,6 +792,27 @@ fn keys(
 }
 
 /// The lab's frame document: where the image is and how it was made.
+/// `--play`: one clock. The game's GameHour starts at the sky's hour (`--hour`); from
+/// then on the sky shows the game's time of day, which the simulation advances at the
+/// TimeScale global. An hour set by hand (the `[` and `]` keys) becomes the game's. The
+/// time-lapse test aid (`--time-scale`) keeps the sky's own clock.
+fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, mut shown: Local<Option<f32>>) {
+    if sky.time_scale > 0.0 {
+        return;
+    }
+    let set_by_hand = shown.is_none_or(|h| (h - sky.hour).abs() > 1e-4);
+    if set_by_hand {
+        if let Some((id, _)) = sim.world.forms.global_by_edid(fnv_sim::clock::GAME_HOUR) {
+            if let Err(e) = sim.world.set_global(id, sky.hour) {
+                warn!("game clock: {e}");
+            }
+        }
+    } else if let Ok(c) = sim.world.calendar() {
+        sky.follow_game_clock(c.hour, c.days_passed);
+    }
+    *shown = Some(sky.hour);
+}
+
 fn write_frame_json(out: &std::path::Path, image: &std::path::Path, args: &Args, sky: &sky::SkyState) -> std::io::Result<()> {
     let abs = std::path::absolute(image)?;
     let doc = serde_json::json!({

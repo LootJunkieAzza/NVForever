@@ -238,7 +238,7 @@ engine.
 
 ### 6.3 Travelling NPCs with physics in the game
 
-In `--play`, travellers near the player should move by the character controller
+(Done for residents, 2026-10-10: docs/design/actor-behaviour.md §5.4.) In `--play`, travellers near the player should move by the character controller
 (`Follower` + `Unstuck`, as in `fnvtool nav walk`) where the physics world is loaded, and
 by `Walker` elsewhere (the game's high and low processing levels are the model;
 [hypothesis] on how they divide).
