@@ -308,8 +308,9 @@ All of it is in `GameSnapshot`.
 - **A line.** The begin result script runs when the line starts, the end result script
   when its last response is over [documented: Category:Dialogue]. Responses follow each
   other in number order; each lasts `Game::response_seconds` (the one place a response
-  is timed: the fitted 1.1 s + 1/16 s per character until the voice workstream supplies
-  the sound's length). Result scripts run on the actor with the line's quest. With Run
+  is timed: the length of its voice file in the actor's voice, or the fitted 1.1 s +
+  1/16 s per character when it has none or the files are not given,
+  docs/spec-notes/voice.md §8). Result scripts run on the actor with the line's quest. With Run
   Immediately both scripts run when the line is picked [documented flag; hypothesis
   that for a line the player asked for "when the conversation is generated" is that
   moment; no Topic line of the masters has the flag].

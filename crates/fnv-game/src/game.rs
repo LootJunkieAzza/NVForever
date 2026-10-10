@@ -470,6 +470,9 @@ pub struct Game<'a> {
     /// The conversation between the player and an actor, if one is running
     /// (`crate::dialogue`).
     pub dialogue: Option<crate::dialogue::Conversation>,
+    /// The lengths of voice files, when the game was given them (`crate::voice`): a
+    /// response then lasts as long as its sound. Not part of the saved state.
+    pub voice: Option<std::sync::Arc<dyn crate::voice::VoiceLengths>>,
     pub frame: u64,
     /// Game time in seconds: the frame steps that were not in a menu or a loading
     /// screen. GetSecondsPassed reads it.
@@ -595,6 +598,7 @@ impl<'a> Game<'a> {
             said: BTreeSet::new(),
             said_day: BTreeMap::new(),
             dialogue: None,
+            voice: None,
             frame: 0,
             time: 0.0,
             pending_onload: Vec::new(),
