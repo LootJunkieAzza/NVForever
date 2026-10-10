@@ -8,11 +8,13 @@
 //!
 //! Layer 5 (workstream 5D, docs/design/layer5-play.md): [`script`] runs the `fnv-game`
 //! runtime (quest and object scripts, events, messages) next to the simulation.
+//! [`dialogue`] is the screen for its conversations (docs/design/dialogue-play.md).
 
 pub mod activate;
 pub mod bindings;
 pub mod combat;
 pub mod control;
+pub mod dialogue;
 pub mod doors;
 pub mod dropped;
 pub mod hitvol;
@@ -67,12 +69,17 @@ pub const HELP: &str =
 #[derive(Resource, Clone, Copy, Deref)]
 pub struct PlayWorld(pub PlayData);
 
-/// Whether the player is in the world or in a menu (no movement or looking in menus).
+/// Whether the player is in the world, in a menu (no movement or looking in menus) or in
+/// a conversation.
 #[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum PlayState {
     #[default]
     Playing,
     Menu,
+    /// Talking to an actor ([`dialogue`]): a pausing menu like `Menu` (the player, the
+    /// world and the game clock stand still, the cursor is free) with the dialogue
+    /// screen's own keys; the actor's lines go on in real time.
+    Dialogue,
 }
 
 /// Order of the play systems within `Update`.

@@ -28,7 +28,8 @@ impl Plugin for PausePlugin {
         app.init_resource::<Paused>()
             .add_systems(
                 Update,
-                (open.run_if(in_state(PlayState::Playing)), choose.run_if(in_state(PlayState::Menu))).in_set(PlaySet::Ui),
+                // Esc pauses a conversation too; resuming goes back to it (`crate::dialogue`).
+                (open.run_if(in_state(PlayState::Playing).or_else(in_state(PlayState::Dialogue))), choose.run_if(in_state(PlayState::Menu))).in_set(PlaySet::Ui),
             )
             .add_systems(OnExit(PlayState::Menu), close);
     }
