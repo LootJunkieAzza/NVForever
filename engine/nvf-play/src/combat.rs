@@ -33,7 +33,8 @@
 //!   armour (`CombatForms::worn_armor` over its inventory) goes to the script runtime's
 //!   `Game::hit` (Health's damage part, OnHit/OnHitWith, death and OnDeath, kill XP), so
 //!   scripts see what combat did. Explosions hit with location −1. Each hit sends an
-//!   [`ActorHit`] (nvforever plays a flinch or the death pose). Without the script runtime
+//!   [`ActorHit`] (nvforever plays a hit reaction, when the hit cripples a body part or
+//!   lands on a crippled one, or the death pose). Without the script runtime
 //!   (`NVF_PLAY_SCRIPTS=0`) hits are only logged.
 //! - **Limb hits** (step C8): an actor whose hit volume has body parts
 //!   (`crate::hitvol::ActorParts`) is hit on a part of its BPTD: the part's damage
@@ -56,9 +57,20 @@
 //!   strikes its loose body with the projectile's impact force ([`OBJECT_PUSH`]), so
 //!   bottles and cans are knocked away [design]. The scripts are told when the player's
 //!   weapon is out (`IsWeaponOut`): [`WeaponAnim::ready`].
+//! - **What is drawn of a shot** (docs/spec-notes/combat-rules.md §15): each shot sends
+//!   a [`ShotFired`] (the renderer shows the PROJ's muzzle flash) and every projectile
+//!   in flight is listed in [`ShotVisuals`] (the renderer draws the PROJ's model there).
+//!   A hitscan bullet, whose hit is found at once, is drawn flying from the muzzle to
+//!   where it lands at the PROJ's speed; a beam is drawn from the muzzle to its end for
+//!   the PROJ's fade duration [design].
+//! - **Sounds and impacts** (docs/spec-notes/combat-rules.md §16): each shot plays the
+//!   weapon's Shoot 2D sound (else its Shoot 3D), an empty trigger its No Ammo sound, and
+//!   drawing and putting it away its Equip and Unequip sounds (`crate::sfx`). A shot
+//!   that lands sends an [`ImpactFx`] with the IPCT its weapon's impact data set names
+//!   for the surface's material, and plays that impact's sounds there; an explosion
+//!   sends an [`ExplosionFx`] and plays the EXPL's sounds.
 //! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
-//!   a flash at the muzzle for each shot, tracers from the muzzle at the projectile's
-//!   tracer chance, an ammo counter, a hit marker at the
+//!   a line from the muzzle along each hitscan shot, an ammo counter, a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
 //!   health, and a line for kills with their XP.
 
@@ -66,7 +78,7 @@ use bevy::prelude::*;
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
 use fnv_combat::damage::{self, Attacker, AttackKind, HitInput, HitPart, NoPerks, Target};
 use fnv_combat::data::AmmoEffect;
-use fnv_combat::projectile::{blast, ActorId, CombatWorld, ProjEvent, Projectile, WorldHit};
+use fnv_combat::projectile::{blast, ActorId, CombatWorld, Motion, ProjEvent, Projectile, WorldHit};
 use fnv_combat::rng::SplitMix;
 use fnv_combat::shot::Seen;
 use fnv_combat::spread::{self, Kick, Stance};
@@ -76,6 +88,7 @@ use fnv_phys::{layers, Filter, Key, Owner, Queries};
 use fnv_sim::FormId;
 
 use crate::activate::HudMessage;
+use crate::sfx::{LoopSound, PlaySound, Sfx};
 use crate::hitvol::ActorParts;
 use fnv_combat::data::{BodyPart, WeaponStats};
 use fnv_game::combat::LimbHit;
@@ -116,7 +129,73 @@ pub struct WeaponAnim {
     /// place at the end of the barrel; docs/spec-notes/animation.md §9.9]. `None`
     /// without a body, a weapon in hand or such a node: shots are drawn from the eye.
     pub muzzle: Option<[f32; 3]>,
+    /// Set by the body each frame: where the weapon's `ShellCasingNode` is in the rig
+    /// in view and the way a casing leaves it (unit), game space.
+    pub casing: Option<([f32; 3], [f32; 3])>,
 }
+
+/// The player fired a shot this frame: the PROJ it fires. The renderer shows the
+/// PROJ's muzzle flash at the weapon's muzzle (nvforever `shot_fx`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ShotFired {
+    pub projectile: FormId,
+}
+
+/// One projectile to draw this frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShotVisual {
+    /// The same number for as long as the projectile is drawn.
+    pub id: u64,
+    /// Its PROJ.
+    pub projectile: FormId,
+    /// Where it is drawn (game space) and the way it points (unit).
+    pub pos: V3,
+    pub dir: V3,
+    /// A beam: its length from `pos` along `dir`.
+    pub beam: Option<f32>,
+    /// How far it has flown since it left.
+    pub travelled: f32,
+}
+
+/// The player's projectiles to draw this frame (nvforever `shot_fx` draws their models).
+#[derive(Resource, Default)]
+pub struct ShotVisuals {
+    pub flying: Vec<ShotVisual>,
+}
+
+/// A shot threw out a shell casing: the weapon, where the casing starts and its
+/// velocity (game space, units per second). The renderer draws the WEAP's casing model.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct CasingFx {
+    pub weapon: FormId,
+    pub point: V3,
+    pub velocity: V3,
+    /// Seconds the casing stays (`fGunShellLifetime`).
+    pub life: f32,
+}
+
+/// A shot landed: the IPCT of the weapon's impact data set for what it hit, where, the
+/// surface's normal and the way the projectile was flying (game space). The renderer
+/// shows the impact's effect (nvforever `shot_fx`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ImpactFx {
+    pub impact: FormId,
+    pub point: V3,
+    pub normal: V3,
+    pub dir: V3,
+}
+
+/// An explosion went off: its EXPL and where.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct ExplosionFx {
+    pub explosion: FormId,
+    pub point: V3,
+}
+
+/// Every projectile is drawn, not only the PROJ's tracer chance of them [design: the
+/// owner asked for bullets that are not invisible, 2026-10-10; the game draws a
+/// projectile at its tracer chance, documented: GECK wiki Projectile].
+pub const DRAW_EVERY_PROJECTILE: bool = true;
 
 /// An actor was hit (and maybe died) by combat.
 #[derive(Message, Clone, Copy, Debug)]
@@ -128,6 +207,8 @@ pub struct ActorHit {
     pub location: i32,
     /// The hit crippled a limb.
     pub crippled: bool,
+    /// The body part hit is crippled (by this hit or an earlier one).
+    pub part_crippled: bool,
 }
 
 /// A hit shoves an actor's body at a point (game space): the ragdoll of a dead actor is
@@ -286,6 +367,15 @@ struct Swing {
 /// draws a tracer.
 struct Flying {
     p: Projectile,
+    /// Its number among the drawn projectiles ([`ShotVisual::id`]) and its PROJ.
+    id: u64,
+    proj: FormId,
+    /// Its model is drawn.
+    shown: bool,
+    /// The way it last flew.
+    dir: V3,
+    /// It is drawn from the weapon's muzzle (not from the eye for want of one).
+    from_muzzle: bool,
     origin: V3,
     seen: Seen,
     tracer: bool,
@@ -305,8 +395,29 @@ struct Pending {
     point: V3,
     /// The way the projectile was flying.
     dir: V3,
+    /// The surface's normal and collision material, for the impact effect.
+    normal: V3,
+    material: Option<u32>,
     projectiles: u32,
     force: f32,
+}
+
+/// What is drawn of a projectile whose hit was found at once: a bullet flying from the
+/// muzzle to where it landed, or a beam between the two [design].
+struct Ghost {
+    id: u64,
+    proj: FormId,
+    from: V3,
+    to: V3,
+    /// Units per second (a bullet); a beam stays for `left` seconds instead.
+    speed: f32,
+    travelled: f32,
+    beam: bool,
+    left: f32,
+    /// Made this frame: drawn at its start before it moves.
+    fresh: bool,
+    /// A beam from the muzzle: its start stays on the muzzle while it shows.
+    follow: bool,
 }
 
 /// What a [`Mark`] shows.
@@ -325,22 +436,30 @@ struct Mark {
     age: f32,
     life: f32,
     kind: MarkKind,
+    /// A line from the muzzle: its start stays on the muzzle while it shows.
+    follow: bool,
 }
 
 impl Mark {
     fn tracer(from: V3, to: V3, life: f32) -> Mark {
-        Mark { from, to, age: 0.0, life, kind: MarkKind::Tracer }
+        Mark { from, to, age: 0.0, life, kind: MarkKind::Tracer, follow: false }
     }
 
     fn at(point: V3, life: f32, kind: MarkKind) -> Mark {
-        Mark { from: point, to: point, age: 0.0, life, kind }
+        Mark { from: point, to: point, age: 0.0, life, kind, follow: false }
     }
 }
 
-/// How long the flash at the muzzle shows, seconds, and its size, units [design, until
-/// the PROJ's muzzle flash model and light are drawn].
-const FLASH_LIFE: f32 = 0.06;
+/// How long a looping shoot sound goes on after the last shot, seconds [design].
+const LOOP_SOUND_HOLD: f32 = 0.25;
+/// The size of the test aid's marker at the muzzle, units.
 const FLASH_SIZE: f32 = 2.5;
+
+/// Whether a projectile's hit is found at once, on its first step (hitscan, beams), as
+/// `Projectile::step` decides it.
+fn instant(p: &Projectile) -> bool {
+    (p.hitscan || p.motion == Motion::Beam) && p.motion != Motion::Lobber
+}
 /// The reach of the view ray that finds the aim point when the projectile has no range
 /// of its own, units [design].
 const AIM_REACH: f32 = 100_000.0;
@@ -374,6 +493,12 @@ pub struct Combat {
     cycle: Option<Cycle>,
     kick: Kick,
     flying: Vec<Flying>,
+    ghosts: Vec<Ghost>,
+    /// The weapon's looping shoot sound while it plays, and the seconds it has left
+    /// unless another shot comes.
+    looping: Option<(FormId, f32)>,
+    /// The next [`ShotVisual::id`].
+    next_visual: u64,
     pending: Vec<Pending>,
     marks: Vec<Mark>,
     rng: SplitMix,
@@ -381,10 +506,18 @@ pub struct Combat {
     /// Test aid `NVF_PLAY_TEST_NO_SPREAD=1`: shots leave exactly along the view (no
     /// spread, no bloom), so an unattended check hits what it aims at.
     no_spread: bool,
-    /// Test aid `NVF_PLAY_TEST_TRACERS=<seconds>`: every projectile draws a tracer, and
-    /// tracers and muzzle flashes stay that long, so one screenshot of an unattended
-    /// check shows where the shots were drawn from.
+    /// Test aid `NVF_PLAY_TEST_TRACERS=<seconds>`: every projectile draws a line, and
+    /// the lines and a marker at the muzzle stay that long, so one screenshot of an
+    /// unattended check shows where the shots were drawn from. The muzzle flashes and
+    /// the projectile models are not held: they are drawn as in play.
     tracer_hold: Option<f32>,
+}
+
+impl Combat {
+    /// The PROJ the weapon in use fires with the ammunition loaded, if it fires one.
+    pub fn projectile(&self) -> Option<FormId> {
+        self.forms.chain(self.weapon?, self.ammo)?.projectile
+    }
 }
 
 pub struct CombatPlugin;
@@ -393,6 +526,11 @@ impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WeaponAnim>()
             .init_resource::<CombatStats>()
+            .init_resource::<ShotVisuals>()
+            .add_message::<ShotFired>()
+            .add_message::<ImpactFx>()
+            .add_message::<CasingFx>()
+            .add_message::<ExplosionFx>()
             .init_resource::<HitFeedback>()
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
@@ -400,7 +538,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hud, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, weapon_state, equip_sync, fire, melee, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, weapon_state, equip_sync, weapon_sounds, fire, melee, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hud, update_hit_hud).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -433,6 +571,7 @@ fn weapon_state(anim: Res<WeaponAnim>, mut script: Option<ResMut<ScriptState>>) 
 
 fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
     let t = std::time::Instant::now();
+    let tracer_hold = std::env::var("NVF_PLAY_TEST_TRACERS").ok().and_then(|v| v.trim().parse().ok()).filter(|s: &f32| *s > 0.0);
     let forms = CombatForms::build(d.lo, d.schema);
     let rules = Rules::from_forms(&forms);
     let fists = forms.by_edid("Fists");
@@ -455,12 +594,15 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         cycle: None,
         kick: Kick::default(),
         flying: Vec::new(),
+        ghosts: Vec::new(),
+        looping: None,
+        next_visual: 0,
         pending: Vec::new(),
         marks: Vec::new(),
         rng: SplitMix(1),
         time: 0.0,
         no_spread: std::env::var_os("NVF_PLAY_TEST_NO_SPREAD").is_some_and(|v| v != "0"),
-        tracer_hold: std::env::var("NVF_PLAY_TEST_TRACERS").ok().and_then(|v| v.trim().parse().ok()).filter(|s: &f32| *s > 0.0),
+        tracer_hold,
     });
 }
 
@@ -604,6 +746,20 @@ fn attacker(mut script: Option<&mut ScriptState>, sim: &mut SimState, rules: &Ru
     }
 }
 
+/// The weapon's Equip sound when the player starts to draw it and its Unequip sound
+/// when they start to put it away [hypothesis: when the game plays them].
+fn weapon_sounds(c: Res<Combat>, control: Res<PlayerControl>, sfx: Option<Res<Sfx>>, mut sounds: MessageWriter<PlaySound>, mut was_out: Local<bool>) {
+    let out = control.weapon_out;
+    if out == *was_out {
+        return;
+    }
+    *was_out = out;
+    let fx = c.weapon.zip(sfx.as_deref()).and_then(|(w, s)| s.forms.weapons.get(&w));
+    if let Some(sound) = fx.and_then(|f| if out { f.equip } else { f.unequip }) {
+        sounds.write(PlaySound { sound, at: None });
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fire(
     time: Res<Time>,
@@ -616,10 +772,23 @@ fn fire(
     mut stats: ResMut<CombatStats>,
     mut script: Option<ResMut<ScriptState>>,
     limbs: Res<PlayerLimbs>,
+    mut fired: MessageWriter<ShotFired>,
+    sfx: Option<Res<Sfx>>,
+    mut sounds: MessageWriter<PlaySound>,
+    mut casings: MessageWriter<CasingFx>,
+    mut loops: MessageWriter<LoopSound>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
     c.time += dt;
+    // The looping shoot sound stops a moment after the last shot.
+    if let Some((sound, left)) = c.looping.as_mut() {
+        *left -= dt;
+        if *left <= 0.0 {
+            loops.write(LoopSound { sound: *sound, on: false });
+            c.looping = None;
+        }
+    }
     // Recoil recovers whatever happens.
     let back = c.kick.recover(&c.tuning, dt);
     player.pitch = (player.pitch - back.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
@@ -651,6 +820,7 @@ fn fire(
     let carried = total.saturating_sub(cycle.magazine);
     let events = cycle.step(&c.tuning, Input { trigger: control.trigger, reload, dt, carried });
     let Some(chain) = c.forms.chain(id, c.ammo) else { return };
+    let weapon_fx = sfx.as_deref().and_then(|s| s.forms.weapons.get(&id));
     for e in events {
         match e {
             Event::SpinUp => {
@@ -674,9 +844,31 @@ fn fire(
                         info!("combat: OnFire of {} ran", w.edid.as_deref().unwrap_or("?"));
                     }
                 }
-                if chain.projectile.is_none() {
+                let Some(proj) = chain.projectile else {
                     debug!("combat: {} fires no projectile", w.edid.as_deref().unwrap_or("?"));
                     continue;
+                };
+                fired.write(ShotFired { projectile: proj });
+                // A casing for each shot of a weapon with a casing model, from its
+                // `ShellCasingNode` at the game's eject speed (`fGunShellEjectSpeed`)
+                // [hypothesis: one a shot, at the shot; the game's timing is not known].
+                if let (Some((point, dir)), true) = (anim.casing, weapon_fx.is_some_and(|f| f.shell_casing_model.is_some())) {
+                    casings.write(CasingFx { weapon: id, point, velocity: vec::scale(dir, c.rules.shell_eject_speed), life: c.rules.shell_lifetime });
+                }
+                // A weapon with a looping shoot sound (the minigun has no other) plays
+                // it for as long as shots keep coming [hypothesis: when the game does].
+                if let Some(sound) = weapon_fx.and_then(|f| f.shoot_loop) {
+                    if c.looping.is_none_or(|(s, _)| s != sound) {
+                        if let Some((old, _)) = c.looping {
+                            loops.write(LoopSound { sound: old, on: false });
+                        }
+                        loops.write(LoopSound { sound, on: true });
+                    }
+                    c.looping = Some((sound, LOOP_SOUND_HOLD));
+                }
+                // The player's own shot: the 2D sound where the weapon has one.
+                if let Some(sound) = weapon_fx.and_then(|f| f.shoot_2d.or(f.shoot_3d)) {
+                    sounds.write(PlaySound { sound, at: None });
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
                 let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, w.skill.as_deref(), false);
@@ -711,12 +903,21 @@ fn fire(
                 let shots = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, cone, Some(PLAYER), gravity, &c.tuning, &mut rand);
                 stats.projectiles += shots.len() as u32;
                 for p in shots {
-                    let tracer = c.rng.next_f32() < tracer_chance || c.tracer_hold.is_some();
-                    c.flying.push(Flying { p, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force });
+                    let rolled = c.rng.next_f32() < tracer_chance || c.tracer_hold.is_some();
+                    let shown = rolled || DRAW_EVERY_PROJECTILE;
+                    // A line along the shot: for what is too fast to follow (found at
+                    // once), and at the tracer chance for the rest [design].
+                    let tracer = rolled || (shown && instant(&p));
+                    let dir = vec::normalize(p.vel);
+                    c.next_visual += 1;
+                    let from_muzzle = anim.muzzle.is_some() && leaving.seen.at(leaving.origin, 0.0) != eye;
+                    c.flying.push(Flying { p, id: c.next_visual, proj, shown, dir, from_muzzle, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force });
                 }
                 let seen_from = leaving.seen.at(leaving.origin, 0.0);
-                if anim.muzzle.is_some() {
-                    c.marks.push(Mark::at(seen_from, c.tracer_hold.unwrap_or(FLASH_LIFE), MarkKind::Flash));
+                // The flash itself is the renderer's (`ShotFired`); the test aid marks
+                // the point shots are drawn from.
+                if let (Some(hold), true) = (c.tracer_hold, anim.muzzle.is_some()) {
+                    c.marks.push(Mark::at(seen_from, hold, MarkKind::Flash));
                 }
                 stats.muzzle_shots += (seen_from != eye) as u32;
                 stats.covered_shots += leaving.covered as u32;
@@ -743,6 +944,9 @@ fn fire(
                 info!("combat: reloaded {taken}, magazine {}", cycle.magazine);
             }
             Event::DryFire => {
+                if let Some(sound) = weapon_fx.and_then(|f| f.no_ammo) {
+                    sounds.write(PlaySound { sound, at: None });
+                }
                 stats.dry_fires += 1;
                 info!("combat: click (no ammo)");
             }
@@ -805,7 +1009,7 @@ fn apply_hit(
         feedback.marker_age = Some(0.0);
         feedback.kill = r.died;
         feedback.target = Some((name, r.health as f32, r.max_health as f32, 0.0));
-        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled });
+        messages.write(ActorHit { form_id: target.0, died: r.died, knocked_out: r.knocked_out, location: info.location, crippled: r.crippled, part_crippled: r.limb.is_some_and(|(_, c)| c <= 0.0) });
     }
     Some(r)
 }
@@ -1004,6 +1208,10 @@ fn fly(
     mut messages: MessageWriter<ActorHit>,
     mut pushes: MessageWriter<ActorPush>,
     parts: Res<ActorParts>,
+    mut visuals: ResMut<ShotVisuals>,
+    anim: Res<WeaponAnim>,
+    sfx: Option<Res<Sfx>>,
+    mut effects: (MessageWriter<PlaySound>, MessageWriter<ImpactFx>, MessageWriter<ExplosionFx>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -1027,7 +1235,10 @@ fn fly(
             queue_destruction(c, &sim, r, &ch);
         }
     }
-    if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() {
+    if c.flying.is_empty() && c.pending.is_empty() && c.boom.is_empty() && c.ghosts.is_empty() {
+        if !visuals.flying.is_empty() {
+            visuals.flying.clear();
+        }
         return;
     }
     {
@@ -1037,26 +1248,44 @@ fn fly(
             let before = f.p.pos;
             // Where it is drawn: from the muzzle, closing on its path (`Seen`).
             let seen_before = f.seen.at(before, f.p.travelled);
+            // Found at once: what is drawn flies (or, a beam, stands) from there to
+            // where it ended.
+            let at_once = instant(&f.p) && f.p.age == 0.0;
+            let fade = c.forms.projectiles.get(&f.proj).map_or(0.0, |p| p.fade_duration);
+            let (id, proj, speed, beam) = (f.id, f.proj, f.p.speed, f.p.motion == Motion::Beam);
+            // What stays on show after the shot (a beam, the line along the shot) keeps
+            // its start on the muzzle: the attack clip moves the gun in the frames after
+            // the shot [observed: the laser rifle's muzzle is 10 units higher one frame
+            // after it fires], and a beam left where the muzzle was hangs below the barrel.
+            let follow = at_once && f.from_muzzle;
+            let ghost = move |to: V3| Ghost { id, proj, from: seen_before, to, speed, travelled: 0.0, beam, left: fade, fresh: true, follow: follow && beam };
+            let line = move |to: V3, life: f32| Mark { follow, ..Mark::tracer(seen_before, to, life) };
             for e in f.p.step(&world, dt) {
                 match e {
-                    ProjEvent::Hit { actor, part, object, point, delay, .. } => {
+                    ProjEvent::Hit { actor, part, object, point, delay, normal, material } => {
                         let from = if f.p.hitscan { f.origin } else { before };
                         let d = vec::sub(point, from);
                         let dir = if vec::len(d) > 1e-3 { vec::scale(d, 1.0 / vec::len(d)) } else { [0.0; 3] };
-                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, projectiles: f.projectiles_per_shot, force: f.force });
+                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, normal, material, projectiles: f.projectiles_per_shot, force: f.force });
                         if f.tracer {
                             debug!(
                                 "combat: tracer from ({:.1}, {:.1}, {:.1}) to the hit at ({:.1}, {:.1}, {:.1})",
                                 seen_before[0], seen_before[1], seen_before[2], point[0], point[1], point[2]
                             );
-                            c.marks.push(Mark::tracer(seen_before, point, hold.unwrap_or(0.08)));
+                            c.marks.push(line(point, hold.unwrap_or(0.08)));
+                        }
+                        if at_once && f.shown {
+                            c.ghosts.push(ghost(point));
                         }
                     }
                     ProjEvent::Explode { explosion, point } => c.boom.push((explosion, point)),
                     // A tracer that meets nothing is drawn to where it ends.
                     ProjEvent::Expired { point } => {
                         if f.tracer {
-                            c.marks.push(Mark::tracer(seen_before, point, hold.unwrap_or(0.08)));
+                            c.marks.push(line(point, hold.unwrap_or(0.08)));
+                        }
+                        if at_once && f.shown {
+                            c.ghosts.push(ghost(point));
                         }
                     }
                 }
@@ -1064,9 +1293,37 @@ fn fly(
             if f.tracer && f.p.alive {
                 c.marks.push(Mark::tracer(seen_before, f.seen.at(f.p.pos, f.p.travelled), hold.unwrap_or(0.05)));
             }
+            if vec::len(f.p.vel) > 1.0 {
+                f.dir = vec::normalize(f.p.vel);
+            }
         }
         c.flying.retain(|f| f.p.alive);
     }
+    // What is drawn this frame: the projectiles in flight where they are seen, and
+    // those found at once on their way.
+    c.ghosts.retain_mut(|g| {
+        if let (true, Some(m)) = (g.follow, anim.muzzle) {
+            g.from = m;
+        }
+        if std::mem::take(&mut g.fresh) {
+            return true;
+        }
+        if g.beam {
+            g.left -= dt;
+            g.left > 0.0
+        } else {
+            g.travelled += g.speed.max(1.0) * dt;
+            g.travelled < vec::len(vec::sub(g.to, g.from))
+        }
+    });
+    visuals.flying.clear();
+    visuals.flying.extend(c.flying.iter().filter(|f| f.shown).map(|f| ShotVisual { id: f.id, projectile: f.proj, pos: f.seen.at(f.p.pos, f.p.travelled), dir: f.dir, beam: None, travelled: f.p.travelled }));
+    visuals.flying.extend(c.ghosts.iter().map(|g| {
+        let d = vec::sub(g.to, g.from);
+        let len = vec::len(d);
+        let dir = if len > 1e-3 { vec::scale(d, 1.0 / len) } else { [0.0, 1.0, 0.0] };
+        ShotVisual { id: g.id, projectile: g.proj, pos: vec::add(g.from, vec::scale(dir, g.travelled)), dir, beam: g.beam.then_some(len), travelled: g.travelled }
+    }));
     let weapon = c.weapon;
     // Explosions, with those they set off, a bounded number per frame.
     let mut n = 0;
@@ -1079,6 +1336,12 @@ fn fly(
         }
         stats.explosions += 1;
         let Some(x) = c.forms.explosions.get(&id).cloned() else { continue };
+        effects.2.write(ExplosionFx { explosion: id, point: at });
+        if let Some(e) = sfx.as_deref().and_then(|s| s.forms.explosions.get(&id)) {
+            for sound in e.sound_1.into_iter().chain(e.sound_2) {
+                effects.0.write(PlaySound { sound, at: Some(at) });
+            }
+        }
         let hits = {
             let world = view(&mut phys);
             blast(&world, &c.tuning, &x, at)
@@ -1144,6 +1407,21 @@ fn fly(
     let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
     for p in due {
         c.marks.push(Mark::at(p.point, 0.3, MarkKind::Impact));
+        // The impact the weapon's data set names for what was hit: an actor is organic
+        // [design: its creature type's kinds, bug and glow, are not told apart yet].
+        if let Some(s) = sfx.as_deref() {
+            let material = if p.actor.is_some() { "organic" } else { fnv_combat::fx::impact_material(p.material) };
+            let set = s.forms.weapons.get(&id).and_then(|w| w.impact_dataset);
+            if let Some(impact) = set.and_then(|set| s.forms.impact_id(set, material)) {
+                effects.1.write(ImpactFx { impact, point: p.point, normal: p.normal, dir: p.dir });
+                if let Some(i) = s.forms.impacts.get(&impact) {
+                    for sound in i.sound_1.into_iter().chain(i.sound_2) {
+                        effects.0.write(PlaySound { sound, at: Some(p.point) });
+                    }
+                }
+                debug!("combat: impact {} on {material} (collision material {:?})", s.forms.impacts.get(&impact).and_then(|i| i.edid.as_deref()).unwrap_or("?"), p.material);
+            }
+        }
         let effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, w.skill.as_deref(), false);
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part));
@@ -1206,10 +1484,15 @@ fn fly(
     }
 }
 
-fn draw_marks(time: Res<Time>, mut c: ResMut<Combat>, mut gizmos: Gizmos) {
+fn draw_marks(time: Res<Time>, mut c: ResMut<Combat>, anim: Res<WeaponAnim>, mut gizmos: Gizmos) {
     let dt = time.delta_secs();
+    // The test aid keeps its lines where they were drawn, for the record of a check.
+    let follow = c.tracer_hold.is_none();
     for m in &mut c.marks {
         m.age += dt;
+        if let (true, true, Some(muzzle)) = (follow, m.follow, anim.muzzle) {
+            m.from = muzzle;
+        }
         let fade = (1.0 - m.age / m.life).clamp(0.0, 1.0);
         match m.kind {
             MarkKind::Tracer => {

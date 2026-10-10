@@ -288,6 +288,15 @@ pub fn wear(t: &CombatTuning, w: &WeaponStats, ammo_effects: &[&AmmoEffect]) -> 
     apply_effects(t.wear_per_attack * mult, ammo_effects, "Weapon Condition Mod").max(0.0)
 }
 
+/// Whether a hit makes a living actor play its hit reaction [design: the owner's rule,
+/// 2026-10-11]. The hit that cripples a body part always does. A later hit on a part
+/// that is already crippled does when the actor's last reaction ended at least
+/// [`CombatTuning::stagger_cooldown`] seconds ago (`since_last`: negative while it
+/// plays; `None`: it has not reacted yet). Any other hit does not.
+pub fn staggers(t: &CombatTuning, crippled_now: bool, part_crippled: bool, since_last: Option<f32>) -> bool {
+    crippled_now || (part_crippled && since_last.is_none_or(|s| s >= t.stagger_cooldown))
+}
+
 /// Knockdown chance (0..=1) for explosion damage [documented: Explosion Knockdown
 /// Formula]: never below the current-health threshold, certain above the base-health
 /// threshold, otherwise the formula capped at `fKnockdownChance`.

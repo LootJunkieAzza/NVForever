@@ -545,11 +545,20 @@ engine:
   the player is hit, and the aimed target's name and health bar.
 - An ammo counter (magazine / carried) and the player's health, drawn as a small HUD
   like `script_hud.rs` until the game's HUD is built.
-- Tracers at the PROJ's tracer chance and a small flash marker for each shot, both at
-  the muzzle (§5.1), as line markers until the PROJ's muzzle flash model, light and
-  projectile models are drawn.
-- Hit reactions: a flinch clip layered over the current animation and an impulse to
-  the hit body part once ragdolls exist.
+- What a shot shows (built 2026-10-10 at the owner's request, "actual bullet
+  projectiles that aren't invisible along with the muzzle flash effects";
+  docs/spec-notes/combat-rules.md §15): the PROJ's muzzle flash model and light at the
+  muzzle for the PROJ's duration, and the PROJ's model on every projectile in flight.
+  Choices of ours [design], listed for the owner in docs/owner-review.md:
+  - every projectile is drawn, where the game draws its tracer chance of them
+    (`DRAW_EVERY_PROJECTILE`);
+  - a hitscan bullet, whose hit is found at once, is drawn flying from the muzzle to
+    where it lands at the PROJ's speed, and a line marker along the shot stays 0.08 s,
+    because at those speeds the bullet's model is on screen for a frame or two;
+  - a beam is drawn from the muzzle to its end for the PROJ's fade duration.
+- Hit reactions: a flinch clip layered over the current animation, when a hit cripples
+  a body part and, after a cooldown, on later hits to a crippled part (owner's rule,
+  combat-rules.md §12), and an impulse to the hit body part once ragdolls exist.
 
 ### 5.7 Death
 
