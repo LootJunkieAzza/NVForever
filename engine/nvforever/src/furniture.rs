@@ -370,7 +370,8 @@ pub fn drive_actors(
                 let get_on = Arc::new(bind_clip(&rig.skel, plan.get_on.clone()));
                 let stay = plan.stay.clone().map(|c| Arc::new(bind_clip(&rig.skel, c)));
                 let from = Frame { pos: at.to_array(), heading: heading_of(t) };
-                commands.entity(e).insert(OnFurniture {
+                // Its body is the furniture's now: a conversation turns only its head.
+                commands.entity(e).insert(crate::dialogue_look::BodyHeld).insert(OnFurniture {
                     plan,
                     who,
                     stage: Stage::Approach { from, t: 0.0, len: (d / APPROACH_SPEED).max(0.15) },
@@ -489,7 +490,7 @@ pub fn drive_actors(
                         f.release(on.plan.furniture, on.who.reference);
                         info!("furniture: {:08X} got off {:08X}", on.who.reference, on.plan.furniture);
                         tell_scripts(&mut script, on.who.reference, None);
-                        commands.entity(e).remove::<(OnFurniture, SitOn, GetUp)>();
+                        commands.entity(e).remove::<(OnFurniture, SitOn, GetUp, crate::dialogue_look::BodyHeld)>();
                     }
                 }
             }
