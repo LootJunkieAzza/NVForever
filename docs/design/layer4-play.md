@@ -237,6 +237,16 @@ mouse no longer turns the view in unattended runs):
   left) and settles 1.7 lower; the outside one is unloaded. Out again: the outside
   stimpak is drawn at its resting pose and does not move (screenshots before and after
   match).
+- Dropped items use their world model (2026-10-10, `--cell Goodsprings --play --hour 12`,
+  `NVF_PLAY_TEST_GIVE=00020423,0010EA7F,0008F215,00004324`, one drop every 4 s from 14 s
+  with `NVF_PLAY_TEST_LOOK` turning a quarter turn before each; the startup message
+  boxes swallow a drop before about 12 s): Leather Armor is drawn and collides as
+  `armor\leatherarmor\m\go.nif` (the folded ground object, 2 dynamic bodies; before, the
+  body-shaped `outfitm.nif`), the Dapper Gambler Hat as `gambler_fedora_01_go.nif`, the
+  .44 Magnum Revolver as `44magnumrevolvernoscopego.nif` and Brass Knuckles, which have
+  no MODL and were not drawn before, as `brassknucklesworldobject.nif`. Each falls to
+  the road and is offered as "E) Take" (screenshots checked: folded armour, revolver,
+  knuckles on the ground).
 - Non-playable items hidden (2026-10-08, after merging main): Doc Mitchell's and the
   gas station's inventories list no Pip-Boy rows; the drop/retake and door round-trip
   runs repeat with the same resting poses; the gas station menu script, finding nothing
@@ -389,10 +399,12 @@ Open:
 - ~~Starting the game in an interior leaves generated distant terrain off for the start
   worldspace after going out~~ Fixed (2026-10-09): main.rs builds the generated-terrain
   job for interior starts too; LOD stays off inside and starts with it at the door out.
-- Armour placed in the world or dropped is drawn with its base form's MODL; which of
-  ARMO's models (MODL, MOD2–MOD4) is the one lying on the ground is not in the spec notes.
-  (The first drop test dropped the Pip-Boy Glove, which the game never lets the player
-  drop: since 2026-10-08 the menus hide non-playable items, see Part U.)
+- ~~Armour placed in the world or dropped is drawn with its base form's MODL~~ Fixed
+  (2026-10-10): an item placed in the world or dropped is drawn with, and collides by,
+  its record's world model, ARMO MOD2 (the `GO.NIF` ground object) or WEAP MOD4, and by
+  MODL when the record names none (`BaseObject::world_model_path`; simulation.md §3
+  "Item models"). (The first drop test dropped the Pip-Boy Glove, which the game never
+  lets the player drop: since 2026-10-08 the menus hide non-playable items, see Part U.)
 - The player's non-playable items (Pip-Boy 3000, Pip-Boy Glove) start unequipped in the
   simulation; in game the glove is always equipped [observed by the owner].
 - ~~Whether dropped items fall in the game~~: they do [observed 2026-10-09, `pc_drop_fall`,

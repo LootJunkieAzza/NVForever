@@ -136,11 +136,12 @@ pub fn ref_pose_from_body(body: &BodyState, local: &Iso, scale: f32) -> ([f32; 3
     ([b[0] - rt[0], b[1] - rt[1], b[2] - rt[2]], r)
 }
 
-/// The model a created reference draws and collides with (its base form's MODL), except
-/// SpeedTree models, which items never use.
+/// The model a created reference draws and collides with: its base form's world model
+/// (armour's MOD2 ground object, a weapon's MOD4, else MODL:
+/// `BaseObject::world_model_path`), except SpeedTree models, which items never use.
 pub fn model_path(d: &crate::PlayData, base: FormId) -> Option<String> {
     let b = fnv_world::placed::base_object(d.lo, d.schema, base.0)?;
-    b.model_path().filter(|m| !m.ends_with(".spt"))
+    b.world_model_path().filter(|m| !m.ends_with(".spt"))
 }
 
 /// Marks the root entity of a drawn created reference (child of its cell's entity).

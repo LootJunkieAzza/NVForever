@@ -762,8 +762,9 @@ checked and merged by this coordinator (owner approved merging when green): #91,
      glove are worn from the start.
    - **Still open:** crouched and eye height; player disarming of mines; Chet's restock
      rule (Ringo's days are not global, but the simulation still applies them to every
-     merchant); armour on the ground should be drawn with MOD2 (male), which the engine
-     does not do yet; Layer 5's `coc_destination` should follow the marker rule.
+     merchant); ~~armour on the ground should be drawn with MOD2 (male), which the engine
+     does not do yet~~ (done 2026-10-10, "Dropped items use their world model" below);
+     Layer 5's `coc_destination` should follow the marker rule.
 7. **Housekeeping.**
    - The README now describes the project as it is (status table, `--play`, the comparison
      tools, every crate).
@@ -1405,9 +1406,32 @@ alpha and the test) and "View-angle falloff". Picture:
 5. **Not changed:** see-through glow shapes with the same "drop" setting (force fields,
    stasis pod fields) still ignore it, as before.
 
+## Dropped items use their world model (2026-10-10, session "world model")
+
+Your request: a dropped item should use the world model its record names, normally a
+`_GO.nif`. Branch `claude/dropped-world-model`. Facts: `docs/spec-notes/simulation.md` §3
+"Item models". Pictures: `C:\fnv-private\references\world_models\`.
+
+1. **What the records say** (`FalloutNV.esm`): only armour and weapons name a separate
+   world model. Armour: `MOD2` (345 of 389, nearly all `GO.NIF`). Weapons: `MOD4` (57 of
+   261); a weapon's `MOD2` is its shell casing and `MOD3` its scope overlay, so those are
+   not used. Every other item type has one model.
+2. **Done:** armour and weapons dropped, and those placed in the world by the game's
+   level design, are drawn with that model and collide by it. Leather Armor now lies as
+   the folded bundle instead of a body-shaped suit. Brass knuckles and the other fist
+   weapons that have a world model and no other (8 records) were invisible when dropped
+   and are drawn now.
+3. **Not captured in the game:** that weapons on the ground show `MOD4` rests on the
+   field's name in xEdit ("World Model") and on the file names, not on a picture from
+   your game. Armour was captured on 2026-10-09.
+4. **Still open:** a female player may see the female world model (`MOD4` of armour,
+   28 hats and outfits differ); a dropped weapon with mods attached may show a different
+   model. Both draw the plain world model for now.
+
 ## Sign lights, glows and shadow overlays no longer fade at an angle (2026-10-10, session "falloff flag")
 
-Follows item 4 of the entry above. Branch `claude/falloff-flag`. Facts and the survey:
+Follows item 4 of "Pale blue frames inside the ruined house in Primm" above. Branch
+`claude/falloff-flag`. Facts and the survey:
 `docs/spec-notes/nif.md` §6 "View-angle falloff". Pictures (before left, after right):
 `C:\fnv-private\references\falloff_flag\`.
 
@@ -1420,7 +1444,7 @@ Follows item 4 of the entry above. Branch `claude/falloff-flag`. Facts and the s
 2. **Why I think the mark is the switch (a guess, not checked in the game):**
    - 85% of the shapes with a hand-set fade carry it, 2% of the others.
    - The public format notes call this mark "empty" for New Vegas, but for Skyrim and
-     Fallout 4 they call the same mark "use falloff", and most other marks kept their
+     Fallout 4 they call the same mark "use falloff", and many other marks kept their
      meaning between the games.
    - Without it we were fading things nobody would fade: the shadows under the cards
      and coins on the Caravan table, neon tubes, lit sign letters.
@@ -1433,7 +1457,7 @@ Follows item 4 of the entry above. Branch `claude/falloff-flag`. Facts and the s
    - `bison_steve_sign.png`: the Bison Steve sign in Primm at night, seen nearly
      edge-on from below. Before its letters were dull; now they are lit red.
    - `shadow_strips.png`: the ruined house at the NCR camp in Primm, from where you
-     stood. The shadow strips of the entry above now show as thin dark lines along the
+     stood. The shadow strips of that entry now show as thin dark lines along the
      ceiling edges, down the room corners and along the skirting.
 4. **Please check in the game: one screenshot of any of these at an angle.** The
    easiest is the Bison Steve sign: at night (`set gamehour to 21`), stand a few
@@ -1442,7 +1466,7 @@ Follows item 4 of the entry above. Branch `claude/falloff-flag`. Facts and the s
    dull or gone, the game fades these shapes after all and I should put it back.
    Ours for comparison:
    `nvforever --cell=-13,-13 --pos=-52473,-53735,5990 --heading 12 --pitch 32 --hour 21`.
-   A screenshot from inside the ruined house (the one asked for in the entry above)
+   A screenshot from inside the ruined house (the one that entry asks for)
    would answer this as well: thin dark lines in the corners mean both guesses hold.
 5. **Not sure about:** 140 see-through shapes have a hand-set fade but not the mark:
    force field panels, the glowing tubes of stasis and brain pods, some weapon beams.
