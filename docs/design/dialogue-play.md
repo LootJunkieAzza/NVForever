@@ -2,7 +2,7 @@
 
 Status 2026-10-10: built on `claude/dialogue-screen` (#122); the owner's decisions on it
 (one pause switch for all menus, the debug switch) on `claude/menu-pause`, §6.1; the two
-turning to each other in a conversation (step D7) on `claude/dialogue-look`, §8. The plan is docs/design/dialogue.md
+turning to each other in a conversation (step D7) on `claude/dialogue-facing`, §8. The plan is docs/design/dialogue.md
 (step D4, and its Pausing section); the rules a conversation follows are the runtime's
 (`crates/fnv-game/src/dialogue.rs`, docs/spec-notes/dialogue.md §4–§6). This note is the
 engine side: `engine/nvf-play/src/dialogue.rs`.
@@ -345,7 +345,7 @@ look at each other; this is for when they are in a back and forth dialogue; this
 apply to spoken conversation dialogue that an npc just says out loud without expecting a
 response".
 
-Built on `claude/dialogue-look`: `engine/nvforever/src/dialogue_look.rs` (the actor) and
+Built on `claude/dialogue-facing`: `engine/nvforever/src/dialogue_look.rs` (the actor) and
 `engine/nvf-play/src/dialogue_look.rs` (the player's view). Both act only while a
 conversation is open (`Game::dialogue` is set: E on an actor, a script's
 `StartConversation`; the dialogue screen is up). A line an actor just says (SayTo, Say)
@@ -595,6 +595,10 @@ and turned away by `NVF_PLAY_TEST_LOOK`.
   body's turn.
 - Frame rates of these runs ranged from 11 to 54 per second with other sessions
   building alongside; the 40 s runs gave 41.8 (`--play`) and 52.1 (`--auto-fly`).
+- The runs above predate the merge of main's LEGAL.md and owner-review note (no code)
+  and the move to `claude/dialogue-facing`. After it, on the rebuilt binary: the check
+  list of CLAUDE.md again (all clean), and the conversation from the side once more
+  (the same log lines: the body +47° in 0.50 s, the view 150.0° to 316.8°; exit 0).
 
 ### 8.7 Open
 
@@ -618,6 +622,20 @@ and turned away by `NVF_PLAY_TEST_LOOK`.
   Head-track", `StartConversation`'s head-track parameter, `Look` and `StopLook`
   (stubs), `fAIMaxHeadTrackDistance`, the `HeadTrack` track of clips.
 - Creatures, robots and talking activators do not turn (the view turns to them).
+- **Hand-over to general turning and head tracking** (other work in progress, not
+  merged and not used here: a component that turns a standing actor on the spot with
+  its turn clip, general head tracking, AI packages). The facing code is laid out for
+  it: one place decides and one applies, for each of the two.
+  - Body: `BodyTurn::plan` decides whether and how far the body turns (from where the
+    player is in the actor's own space); the "body" block of `turn_speaker` applies it
+    (the root's rotation and `Locomotion::turn`). When a shared turn-on-the-spot exists,
+    that block hands the target heading to it instead of stepping the turn itself, and
+    the head-only cases (`BodyHeld`, travellers) stay decided in the same `match`.
+  - Head: `sided` and `limited` decide the head's target; `chain_turns` and
+    `local_turn` apply it to the bones. When actors track heads all the time, the
+    conversation becomes one more source of a target (the player's eye, with priority
+    while the screen is open) for that system, and this file's part shrinks to naming
+    the target; the bone chain and the limits from the body part data move with it.
 - Head tracking outside conversations (actors looking at the player or each other as
   they pass) is not built: it is AI.
 - The `.lip` files' own head and look channels are still not applied (lipsync.md §3.3).
