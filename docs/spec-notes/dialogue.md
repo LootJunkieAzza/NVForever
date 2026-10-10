@@ -400,7 +400,7 @@ All of it is in `GameSnapshot`.
 | `StartConversation player [topic]` | starts the conversation at once; ignored while one runs or when the actor has no line; the walk to the player needs AI packages | [documented: StartConversation; stand-in for the walk] |
 | `StartConversation <npc>` | recorded, no effect (NPC conversations) | – |
 | `AddTopic` | the topic joins the known topics (trace `topic_added`) | [documented: catalogue; hypothesis, §5] |
-| `GetIsCurrentPackage` | unchanged (no dialogue package is modelled) | – |
+| `GetIsCurrentPackage` | unchanged. Dialogue packages are carried out by `fnv_ai` for actors handed to it (docs/design/actor-behaviour.md §5.6): the actor goes up to the player and the conversation starts as with `StartConversation player` | [documented: GECK wiki, Dialogue Package] |
 
 `Game::menu` holds the other menus and stays empty for a conversation: the conversation
 itself is the menu (`Game::in_menu()`, `Game::open_menu_code()` 1009,
