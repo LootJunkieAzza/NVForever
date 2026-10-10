@@ -379,7 +379,8 @@ fn grab_cursor(
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
     let driven = d.auto_walk > 0.0 || unattended.is_some_and(|u| u.0);
     let boxed = hud.is_some_and(|h| h.front().is_some());
-    let grab = *state.get() == PlayState::Playing && !driven && !boxed && window.focused;
+    // Kept through a loading screen: the player is back in the world after it.
+    let grab = *state.get() != PlayState::Menu && !driven && !boxed && window.focused;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,

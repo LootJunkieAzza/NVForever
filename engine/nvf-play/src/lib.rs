@@ -16,6 +16,7 @@ pub mod control;
 pub mod doors;
 pub mod dropped;
 pub mod hitvol;
+pub mod loading;
 pub mod menu;
 pub mod moved;
 pub mod pause;
@@ -68,12 +69,14 @@ pub const HELP: &str =
 #[derive(Resource, Clone, Copy, Deref)]
 pub struct PlayWorld(pub PlayData);
 
-/// Whether the player is in the world or in a menu (no movement or looking in menus).
+/// Whether the player is in the world, in a menu (no movement or looking in menus) or
+/// behind a loading screen (nothing happens in the world; [`loading`]).
 #[derive(States, Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum PlayState {
     #[default]
     Playing,
     Menu,
+    Loading,
 }
 
 /// Order of the play systems within `Update`.
@@ -130,6 +133,8 @@ pub struct Location {
 /// Move the player to another place: through a door into an interior (`interior:
 /// Some(cell)`) or out into a worldspace (`interior: None`; `world` names it, and may
 /// differ from the one being played). Render streaming and physics both follow it.
+/// Activation and scripts ask for it with a [`loading::TravelRequest`]; it goes out once
+/// the loading screen is up.
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct Travel {
     /// The destination worldspace (FormID) for travel outdoors; `None` into an interior,
@@ -191,7 +196,7 @@ impl Plugin for PlayPlugin {
             .add_message::<ItemUsed>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin))
-            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, voice::VoicePlugin));
+            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, voice::VoicePlugin, loading::LoadingPlugin));
         test_aid::setup(app);
     }
 }
