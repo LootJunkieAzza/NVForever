@@ -1908,3 +1908,41 @@ as a sleeping NPC; and, while I was testing, "sideways the camera when laying". 
    "well rested". You only lie down. A bed someone else owns can be used freely, and a
    bed an NPC is already lying on says it is in use. Tell me if you want the sleep
    menu next.
+
+## Your shadow in first person (2026-10-11, session "player shadow")
+
+Your report: in first person your sun shadow was wrong. Arms only: a shadow of floating
+arms and no body. With "Body in first person": a body without a head, and without its
+own arms while the weapon is out. Branch `claude/player-shadow`. Design: `docs/design/player-body.md` §1.6. Pictures, before
+and after side by side: `C:\fnv-private\references\player_shadow\`. This replaces
+point 5 of "Body in first person: a switch" above.
+
+1. **Fixed:** in first person, with the switch on or off, your shadow is now your whole
+   body: head, arms, and the weapon in your hands or in its holster. The floating arms'
+   shadow is gone. Third person is unchanged.
+2. **What you see of yourself is unchanged.** No head or extra arms appear in the view.
+   I compared the arms and weapon before and after facing east, north and west at
+   17:00: they match to within a few dozen pixels.
+3. **One thing I had to solve that you did not ask about:** the body that casts the
+   shadow is invisible but stands exactly where your first-person arms are, so at first
+   it shaded them: the Pip-Boy, left hand and rifle went dark whichever way I faced. The
+   arms now ignore that invisible body's shadow and still take everyone else's: I stood
+   in the shade of the truck by the Goodsprings road and inside its cab, and the arms
+   went dark there as they did before. They also still shade themselves (the rifle on
+   the forearm) as before.
+4. **Cost, not measured properly:** this needs the sun's nearest shadows drawn a second
+   time while you are in first person. Two 18-second runs each way gave 44.5 and 26.2
+   frames per second before and 38.9 and 38.6 after; your machine was busy with other
+   sessions, so those numbers overlap and prove nothing. If first person feels slower
+   outdoors with shadows on, tell me.
+5. **Checked as well:** sitting on the saloon porch chair (both settings), switching to
+   third person and back, and the water and reflections at the Lake Mead pier: all as
+   before.
+6. **Not done, for you to decide:**
+   - With "Body in first person" on and the weapon out, the shadow's arms are the
+     body's own, which always aim level, while the arms you see follow where you look.
+     Looking steeply up or down, the shadow's rifle does not tilt with yours. With the
+     switch off the shadow's body bends with your view, as in third person.
+   - In water, your reflection in first person is still the floating arms, not your
+     body (it was like that before). The same method would fix it; say if you want it.
+   - Indoor lamps cast no shadows at all in ours, so you have no shadow from them.
