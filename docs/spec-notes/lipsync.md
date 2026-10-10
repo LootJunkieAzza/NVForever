@@ -315,6 +315,14 @@ vertex positions a frame.
 
 ## 6. Open
 
+**Owner's comparison, 2026-10-10.** The owner watched Doc Mitchell's lines in
+`nvforever --play --new-game` with sound and reported the lip sync "identical to the base
+games" [observed: owner, by eye and ear against the original game; Doc Mitchell's lines
+only]. For those lines this supports the 30 frames per second timing, the start-frame
+offset and the mouth shapes as applied. It is not a frame-by-frame measurement, and it
+says nothing about the items below that are not shown at all (head and eye movement,
+emotions) or about other heads (female, old, child, ghoul).
+
 - The header's first and third fields and the "+ 16" (§2.1).
 - Whether the game mixes frames, what it does with frames before the sound and with a
   `.lip` longer or shorter than its sound (§2.4); an in-game capture cannot read morph
