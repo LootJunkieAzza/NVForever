@@ -103,7 +103,7 @@ fn dormant_in(play: &PlayWorld, sim: &SimState, cell: RenderCell) -> Vec<Dormant
             if !DRAWN.contains(&&b.sig) || b.is_speedtree() {
                 return None;
             }
-            let path = b.model_path().filter(|m| !is_marker(m) && !m.ends_with(".spt"))?;
+            let path = b.world_model_path().filter(|m| !is_marker(m) && !m.ends_with(".spt"))?;
             Some(Dormant { placement: p, path })
         })
         .collect()

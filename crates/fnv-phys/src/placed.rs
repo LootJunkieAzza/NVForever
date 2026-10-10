@@ -15,7 +15,7 @@ use fnv_world::Placement;
 use std::sync::Arc;
 
 /// Reads the collision objects of a model (a path relative to the data folder, as
-/// `BaseObject::model_path` gives it), typically through `fnv_collide::nif`.
+/// `BaseObject::world_model_path` gives it), typically through `fnv_collide::nif`.
 pub trait ModelCollision {
     /// The model's solid collision objects (empty when it has none), or why it could not
     /// be read.
@@ -98,7 +98,7 @@ pub fn ref_collision_with(
             None => tally("bad_primitive"),
         }
     }
-    match base.model_path() {
+    match base.world_model_path() {
         None if out.objects.is_empty() => tally("no_model"),
         None => {}
         Some(m) if m.ends_with(".spt") => tally("speedtree"),
