@@ -992,7 +992,9 @@ the tester's OnActivate, inside `Activate`). What the player does in them (the n
 race, the picks) is outside the scripts; `Game::close_menu` closes the menu as the
 player's OK / Done or the console's CloseAllMenus would [observed: CloseAllMenus closed
 each of them, and the chain went on as after the player's OK, §10.1, §10.3]. While a menu
-is open, game time stops, GameMode does not run and MenuMode does [observed: the
+is open, game time stops, GameMode does not run and MenuMode does (a conversation with
+the player is such a menu too, code 1009, kept in `Game::dialogue` rather than
+`Game::menu`: `Game::in_menu`, docs/spec-notes/dialogue.md §6) [observed: the
 stopwatch read 0.0 s after 120 frames of the name menu; VCG01's 1 s timer of stage 10
 ended 0.95 s after the menu closed; §10.7]. A second menu replaces the first
 [hypothesis].
@@ -1218,8 +1220,9 @@ for AI: the OK / Done of the boxes and menus, walking into the two triggers (60,
 sitting on the couch (objective 40 and the trigger's `bRunTimer`), Doc's dialogue
 package for the farewell (`talk`) and the hardcore question (button 0). Run with
 `fnvtool script run <Data> <ten masters> --schema schemas/fnv --actions
-crates/fnv-game/walkthrough/intro.actions.json` (19,369 frames, about 3 s; the
-conversations' lines take their fitted lengths). The VCG02 / VCG03 part is the round 3 one (Sunny's lines, packages,
+crates/fnv-game/walkthrough/intro.actions.json` (16,357 frames with the voice files' lengths, 19,369 with
+`--no-voice-lengths`; about 3 s). The two conversations pause the game behind them
+(docs/spec-notes/dialogue.md §6, §9): their frames count, script time does not. The VCG02 / VCG03 part is the round 3 one (Sunny's lines, packages,
 deaths and crafting as inputs).
 
 Results: VCG00 stages done 0, 90, 95, 100; VCG01 all defined stages but 9, 17, 20, 37,

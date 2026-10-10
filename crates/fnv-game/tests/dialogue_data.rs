@@ -85,6 +85,10 @@ fn counts(d: &GameData) {
     assert_eq!(d.infos.values().filter(|i| !i.choices.is_empty()).count(), 8_114);
     assert_eq!(d.infos.values().filter(|i| !i.follow_ups.is_empty()).count(), 1_759);
     assert_eq!(d.infos.values().filter(|i| i.challenge_form.is_some()).count(), 1_499);
+    // Quests whose own conditions gate their lines (dialogue.md §4).
+    let gated: Vec<FormId> = d.quests.values().filter(|q| !q.conditions.is_empty()).map(|q| q.form).collect();
+    assert_eq!((d.quests.len(), gated.len()), (640, 113));
+    assert_eq!(d.infos.values().filter(|i| i.quest.is_some_and(|q| gated.contains(&q))).count(), 8_151);
     // Run Immediately is set on Radio and Conversation lines only.
     assert!(d.infos.values().filter(|i| i.has(info_flag::RUN_IMMEDIATELY)).all(|i| i.info_type == topic_type::RADIO || i.info_type == topic_type::CONVERSATION));
     // Links point at records of the documented kinds.

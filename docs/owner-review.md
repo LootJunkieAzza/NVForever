@@ -435,19 +435,20 @@ sessions. You already had it from an earlier playthrough.
     priorities, in 76 of quests with equal priority. GREETING has lines of 228 quests.
 
     **Questions for you** (your GECK experience may settle them without a capture):
-    - (a) **Does dialogue pause the game?** Assumed not: scripts and quest timers keep
-      running during a conversation. The only evidence is the Lucky 38 elevator
-      Securitron's script, which waits for the dialogue menu to close while the game
-      runs. If time or scripts stop in dialogue, quest timers during long conversations
-      change.
-    - (b) **AddTopic and a line's "Add Topics" list:** treated as one permanent set of
-      topics the player knows, offered by every actor who has a line for them. Is that
-      how it works, or is a topic added for one actor only?
-    - (c) **Follow-up lines** (the "Follow Up" list on a line): said straight after the
-      line with no player choice, the first eligible of the list. Doc Mitchell's
-      farewell works this way. Correct?
-    - (d) **Random lines:** the wiki contradicts itself on whether a normal line between
-      Random lines ends the pool or is skipped. The runtime ends the pool.
+    - (a) **Does dialogue pause the game?** **Answered 2026-10-10: yes.** A conversation
+      with the player now pauses the game behind it like the other menus (scripts'
+      GameMode and game time stop, MenuMode runs); lines spoken outside a conversation
+      (SayTo) pause nothing. The Securitron script fits this reading better than the
+      first one. The intro still ends at VCG01 200.
+    - (b) **AddTopic and a line's "Add Topics" list:** **Answered 2026-10-10:** every
+      actor offers a known topic if they can say a line of it. That is what the runtime
+      did; it is now recorded as your statement.
+    - (c) **Follow-up lines:** **Answered 2026-10-10: correct**, no player response.
+      Nothing to change; recorded as your statement.
+    - (d) **Random lines:** **Answered 2026-10-10:** Random lines that sit together are
+      a pool, and a normal line between two groups splits them into two pools. Fixed:
+      the runtime used to let a pool run on across a normal line the actor could not
+      say.
     - (e) **Shared lines** (the Info Connection list on 2,435 topics; e.g. GREETING
       lists four lines stored under `VMS07Greeting`): not used, because nothing we have
       says what the game does with them. If the GECK shows these as lines shared
@@ -456,8 +457,10 @@ sessions. You already had it from an earlier playthrough.
       conditions in pass/fail pairs (1,499 lines). The Fallout 3 percentage roll exists
       on 3 left-over lines only and is not modelled. The numbers shown ("Speech 35",
       "30/35") are taken from the line's own skill condition.
-    - (g) **An actor with no eligible greeting cannot be talked to; a line of a stopped
-      quest cannot be said.** Both assumed.
+    - (g) **A line of a stopped quest cannot be said:** **Answered 2026-10-10: right**,
+      and the quest's own conditions must pass as well as the line's (113 of 640 quests
+      have such conditions, covering 8,151 lines; the runtime already checked them).
+      Still assumed: an actor with no eligible greeting cannot be talked to.
 
     **Left as stand-ins in the intro:** sitting on the couch and Doc walking over (AI
     packages), the two walk-in triggers and the menus' OK (the player), and all of Sunny
