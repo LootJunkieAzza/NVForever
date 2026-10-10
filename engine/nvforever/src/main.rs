@@ -16,6 +16,7 @@ mod fade;
 mod facegen;
 mod fly;
 mod furniture;
+mod head_look;
 mod lights;
 mod limbs;
 mod lips;
@@ -292,6 +293,18 @@ struct Args {
     /// docs/design/dialogue.md, Pausing.
     #[arg(long, alias = "dialogue-pause", default_value = "living", value_parser = ["living", "original"], requires = "play")]
     menu_pause: String,
+    /// Do not turn actors' heads to the player and to NPCs near them (head_look.rs,
+    /// docs/spec-notes/actors.md §12).
+    #[arg(long)]
+    no_head_tracking: bool,
+    /// Test aid without --play: the free camera stands in for the player, so actors near
+    /// it look at it.
+    #[arg(long, conflicts_with_all = ["play", "no_head_tracking"])]
+    head_track_camera: bool,
+    /// Test aid: every actor near the camera is told to look at this game position
+    /// "x,y,z", the way a conversation or a script forces a head's target.
+    #[arg(long, allow_hyphen_values = true, conflicts_with = "no_head_tracking")]
+    head_track_point: Option<String>,
     /// With --play: in a conversation, do not turn the actor to the player nor the
     /// player's view to the actor (docs/design/dialogue-play.md §8).
     #[arg(long)]
@@ -604,6 +617,16 @@ fn main() -> AppExit {
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);
+        if args.no_head_tracking {
+            info!("head tracking: off (--no-head-tracking)");
+        } else {
+            let force_point = match args.head_track_point.as_deref().map(|p| parse_vec::<3>(p).ok_or(p)) {
+                Some(Err(p)) => return fail(format!("--head-track-point {p}: expected x,y,z")),
+                Some(Ok(p)) => Some(p),
+                None => None,
+            };
+            app.add_plugins(head_look::HeadLookPlugin { camera_is_player: args.head_track_camera, force_point });
+        }
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin));
