@@ -1432,12 +1432,24 @@ widened), `parts` [{`role`, `form`, `model`}], `anims` [name], `random`}; or
   in each socket; Rex (`--cell 0x0010E03B --pos 290,-1790,545 --heading 221 --pitch -17
   --fov 30`) had his eyes beside his head and his skull cap beside his neck, and now
   has both in place; Primm Slim (`--cell 0x000D7845 --pos 2052,3300,7360 --heading 201
-  --pitch -3 --fov 35`) had his hat on edge beside his head and now wears it. Still
-  wrong: Rex's skull cap is drawn black. Its `##SkullCap:0` shape has NiAlphaProperty
-  flags 4163 (blend, source factor 1, destination factor 2 [documented: nif.xml
-  AlphaFlags; zero and source colour, a multiply]) and NiMaterialProperty emissive
-  0.19 × 12; the engine multiplies by the lit colour, which is near black indoors
-  [hypothesis: the game's result is a tinted glass over the brain].
+  --pitch -3 --fov 35`) had his hat on edge beside his head and now wears it.
+- **Rex's skull cap** (2026-10-10, same Rex pose; `nvforever` screenshots before and
+  after, brightened five times to judge the dark room; no game screenshot was compared)
+  [observed]: the cap was drawn black, every pixel over it 0, and the brain could not be
+  seen. Its `##SkullCap:0` shape has NiAlphaProperty flags 4163 (blend, source factor
+  ZERO, destination factor SRC_COLOR [documented: nif.xml AlphaFlags]: the frame behind
+  it is multiplied by its colour), a flat blue texture and NiMaterialProperty emissive
+  0.19 × 12. The emissive light was added as light, on the linear texture, and the
+  result was fogged and tonemapped like a lit surface, which left a factor too dark for
+  the room. A multiply-blended shape's colour is now formed as a factor on display
+  values and limited to 0..1 (docs/spec-notes/nif.md §6, "Multiply blend"
+  [hypothesis]): Rex's cap leaves (0.44, 0.78, 1) of what lies behind it, more where
+  the cap is lit. After the change the brain shows through a blue tint (mean frame
+  value over the brain (4.1, 2.4, 1.4) of 255, from 0). The rule is not specific to Rex:
+  it is the only lit multiply shape of 584 in `Fallout - Meshes.bsa`; the police
+  cyberdog's cap comes out as red glass by the same rule and the military one, unlit,
+  as yellow glass (not looked at in the engine). The caps' emissive colours are keyed
+  (a 4 s pulse) and their environment map is not drawn: both are open.
 
 ## 11. Actors not enabled at the start
 
