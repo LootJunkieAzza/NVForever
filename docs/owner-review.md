@@ -421,6 +421,51 @@ sessions. You already had it from an earlier playthrough.
     on this desktop, which takes the screen and the keyboard. No capture run is started
     until you say when you are away. Until then the rules marked [hypothesis] in the
     plan's §3 stay hypotheses.
+32. **Dialogue records and headless conversations are on main (#117, 2026-10-10).**
+    Topics and lines are read in full (21,298 topics, 28,896 lines, 37,403 responses in
+    the ten masters) and a conversation runs without the game window
+    (`fnvtool dialogue topics|lines|talk`; facts and rules in
+    `docs/spec-notes/dialogue.md`). In the headless intro, the psych test and Doc
+    Mitchell's farewell are now real conversations; the chain still ends at VCG01 200.
+
+    **Your ruling on which line is picked is applied** (quest priority, then stored
+    order, first eligible from the top unless Random). It is recorded as your statement
+    and stays on the capture list as "to confirm". How much rides on it: 102 topics have
+    lines of several quests; in 99 an actor could say lines of quests with different
+    priorities, in 76 of quests with equal priority. GREETING has lines of 228 quests.
+
+    **Questions for you** (your GECK experience may settle them without a capture):
+    - (a) **Does dialogue pause the game?** Assumed not: scripts and quest timers keep
+      running during a conversation. The only evidence is the Lucky 38 elevator
+      Securitron's script, which waits for the dialogue menu to close while the game
+      runs. If time or scripts stop in dialogue, quest timers during long conversations
+      change.
+    - (b) **AddTopic and a line's "Add Topics" list:** treated as one permanent set of
+      topics the player knows, offered by every actor who has a line for them. Is that
+      how it works, or is a topic added for one actor only?
+    - (c) **Follow-up lines** (the "Follow Up" list on a line): said straight after the
+      line with no player choice, the first eligible of the list. Doc Mitchell's
+      farewell works this way. Correct?
+    - (d) **Random lines:** the wiki contradicts itself on whether a normal line between
+      Random lines ends the pool or is skipped. The runtime ends the pool.
+    - (e) **Shared lines** (the Info Connection list on 2,435 topics; e.g. GREETING
+      lists four lines stored under `VMS07Greeting`): not used, because nothing we have
+      says what the game does with them. If the GECK shows these as lines shared
+      between two topics, they should also count as greetings.
+    - (f) **Skill checks:** New Vegas marks a line with a skill or perk and uses ordinary
+      conditions in pass/fail pairs (1,499 lines). The Fallout 3 percentage roll exists
+      on 3 left-over lines only and is not modelled. The numbers shown ("Speech 35",
+      "30/35") are taken from the line's own skill condition.
+    - (g) **An actor with no eligible greeting cannot be talked to; a line of a stopped
+      quest cannot be said.** Both assumed.
+
+    **Left as stand-ins in the intro:** sitting on the couch and Doc walking over (AI
+    packages), the two walk-in triggers and the menus' OK (the player), and all of Sunny
+    Smiles's and Trudy's lines (between travel packages, combat and crafting).
+
+    **Captures when you are away:** the 15 items of `docs/spec-notes/dialogue.md` §7.
+    Real-data tests of the dialogue code need `FNVLAB_DATA_DIR=<Data>`; without it they
+    are skipped.
 
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
