@@ -29,6 +29,7 @@ pub mod slot {
     pub const UPPER_BODY: u32 = 1 << 2;
     pub const LEFT_HAND: u32 = 1 << 3;
     pub const RIGHT_HAND: u32 = 1 << 4;
+    pub const PIPBOY: u32 = 1 << 6;
     pub const HAT: u32 = 1 << 10;
 }
 
@@ -93,6 +94,11 @@ pub struct Appearance {
     /// the appearance document).
     #[serde(skip)]
     pub body_texture: Option<String>,
+    /// The race's hand skin texture (body index 1 ICON, else index 2; the two name one
+    /// file in every race of FalloutNV.esm [observed]), whether or not a hand is drawn
+    /// (engine use, as `body_texture`).
+    #[serde(skip)]
+    pub hand_texture: Option<String>,
     /// The weapon the actor draws (part H, §9). Not part of `fnv.actor.appearance/1`.
     #[serde(skip)]
     pub weapon: Option<FormId>,
@@ -100,6 +106,18 @@ pub struct Appearance {
     /// or its worn armour (§2.1): such actors depend on the random stream, the others are
     /// fully determined by the data.
     pub random: bool,
+}
+
+impl Appearance {
+    /// The race skin texture a skin shape of a worn model takes in place of the diffuse
+    /// texture it names, `shape_texture` ([`worn_skin`]); `None`: the shape keeps its own
+    /// (also when the race has no such texture).
+    pub fn worn_skin_texture(&self, shape_texture: Option<&str>) -> Option<&str> {
+        match worn_skin(shape_texture)? {
+            WornSkin::Body => self.body_texture.as_deref(),
+            WornSkin::Hand => self.hand_texture.as_deref(),
+        }
+    }
 }
 
 /// What a placed creature is drawn from (docs/spec-notes/actors.md §10).
@@ -173,6 +191,54 @@ pub fn texture_path(p: &str) -> String {
     archive_path("textures\\", p)
 }
 
+/// The `.egt` of a race hand, from the race's body `.egt` (an archive path): beside it,
+/// `lefthand<kind>.egt` or `righthand<kind>.egt`, `<kind>` being what follows
+/// `upperbody` and an optional `human` in the body file's name (`upperbodyhumanmale.egt`
+/// → `lefthandmale.egt`, `upperbodychildfemale.egt` → `righthandchildfemale.egt`)
+/// [hypothesis from the file names: no record names the hand files; every body `.egt`
+/// but `upperbodyhumanghoul.egt`, whose kind has hand files for both sexes, pairs with
+/// existing hand files this way, docs/spec-notes/actors.md §4.1].
+pub fn hand_egt(body_egt: &str, left: bool) -> Option<String> {
+    let (dir, file) = body_egt.rsplit_once('\\')?;
+    let kind = file.strip_suffix(".egt")?.strip_prefix("upperbody")?;
+    let kind = kind.strip_prefix("human").unwrap_or(kind);
+    Some(format!("{dir}\\{}hand{kind}.egt", if left { "left" } else { "right" }))
+}
+
+/// Which of the race's skin textures a skin shape of a worn model takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WornSkin {
+    /// The race's upper body texture (body index 0 ICON).
+    Body,
+    /// The race's hand texture (body index 1 or 2 ICON).
+    Hand,
+}
+
+/// The race skin texture that a skin shape (shader type 14) of a worn model takes in
+/// place of the diffuse texture it names, `texture`; `None`: it keeps its own
+/// [hypothesis, docs/spec-notes/actors.md §3.1]. Decided by the file name of the named
+/// texture when it lies in a `characters` folder: `hand…` is hand skin; `upperbody…` and
+/// `head…` are body skin, and so is a shape that names no texture. Every skin shape of
+/// the worn models in `Fallout - Meshes.bsa` falls under one of these [observed:
+/// `crates/fnv-nif/examples/skin_survey.rs`]; a skin shape naming any other texture
+/// keeps it.
+pub fn worn_skin(texture: Option<&str>) -> Option<WornSkin> {
+    let Some(texture) = texture.map(str::trim).filter(|t| !t.is_empty()) else { return Some(WornSkin::Body) };
+    let t = texture.replace('/', "\\").to_ascii_lowercase();
+    let mut folders: Vec<&str> = t.split('\\').collect();
+    let file = folders.pop()?;
+    if !folders.contains(&"characters") {
+        return None;
+    }
+    if file.starts_with("hand") {
+        Some(WornSkin::Hand)
+    } else if file.starts_with("upperbody") || file.starts_with("head") {
+        Some(WornSkin::Body)
+    } else {
+        None
+    }
+}
+
 fn archive_path(root: &str, p: &str) -> String {
     let p = p.trim().replace('/', "\\").to_ascii_lowercase();
     let p = p.trim_start_matches('\\');
@@ -238,9 +304,13 @@ impl<'a> Resolver<'a> {
         let mut parts = Vec::new();
         let mut body_egt = None;
         let mut body_texture = None;
+        let mut hand_texture = None;
         for p in &race.body[sex] {
             if p.index == 0 {
                 body_texture = p.icon.as_deref().map(texture_path);
+            }
+            if matches!(p.index, 1 | 2) && hand_texture.is_none() {
+                hand_texture = p.icon.as_deref().map(texture_path);
             }
             let (role, hidden_by) = match p.index {
                 0 => ("body:upper_body", slot::UPPER_BODY),
@@ -304,6 +374,7 @@ impl<'a> Resolver<'a> {
             race_facegen: race.facegen[sex].clone(),
             body_egt,
             body_texture,
+            hand_texture,
             weapon,
             random: ch.random,
         })
@@ -628,6 +699,38 @@ mod tests {
         let sk = mesh_path(r"creatures\NVBigHorner\skeleton.nif");
         assert_eq!(creature_part_path(&sk, "NVBigHorner.nif"), r"meshes\creatures\nvbighorner\nvbighorner.nif");
         assert_eq!(creature_part_path(&sk, " Sub/Part.NIF"), r"meshes\creatures\nvbighorner\sub\part.nif");
+    }
+
+    #[test]
+    fn hand_egts_sit_beside_the_body_egt() {
+        let body = |f: &str| mesh_path(&format!(r"Characters\_Male\{f}"));
+        assert_eq!(hand_egt(&body("UpperBodyHumanMale.egt"), true).as_deref(), Some(r"meshes\characters\_male\lefthandmale.egt"));
+        assert_eq!(hand_egt(&body("UpperBodyHumanOldFemale.egt"), false).as_deref(), Some(r"meshes\characters\_male\righthandoldfemale.egt"));
+        assert_eq!(hand_egt(&body("UpperBodyChild.egt"), false).as_deref(), Some(r"meshes\characters\_male\righthandchild.egt"));
+        assert_eq!(hand_egt(&body("Body.egt"), true), None);
+        assert_eq!(hand_egt("upperbodyhumanmale.egt", true), None);
+    }
+
+    #[test]
+    fn worn_skin_shapes_are_classed_by_the_file_name_of_their_texture() {
+        // The textures the worn models' skin shapes name, as written in the files.
+        assert_eq!(worn_skin(Some(r"textures\characters\male\UpperBodyMale.dds")), Some(WornSkin::Body));
+        assert_eq!(worn_skin(Some(r"textures\characters\childfemale\upperbodyfemale.dds")), Some(WornSkin::Body));
+        assert_eq!(worn_skin(Some(r"textures\characters\ghoul\UpperBodyMale.dds")), Some(WornSkin::Body));
+        assert_eq!(worn_skin(Some(r"textures\characters\female\HandFemale.dds")), Some(WornSkin::Hand));
+        assert_eq!(worn_skin(Some(r"textures\characters\female\handfemale_1st.dds")), Some(WornSkin::Hand));
+        // combatarmor\m\outfitm.nif `Upperbody` names the head texture; two shapes none.
+        assert_eq!(worn_skin(Some(r"textures\characters\male\HeadHuman.dds")), Some(WornSkin::Body));
+        assert_eq!(worn_skin(None), Some(WornSkin::Body));
+        assert_eq!(worn_skin(Some("")), Some(WornSkin::Body));
+        // Other spellings of the same paths.
+        assert_eq!(worn_skin(Some("Data/Textures/Characters/Male/HandMale.dds")), Some(WornSkin::Hand));
+        assert_eq!(worn_skin(Some(r"characters\raider\upperbodymale.dds")), Some(WornSkin::Body));
+        // Anything else keeps its own texture.
+        assert_eq!(worn_skin(Some(r"textures\armor\underwear\underwearm.dds")), None);
+        assert_eq!(worn_skin(Some(r"textures\armor\handwraps\handwraps.dds")), None);
+        assert_eq!(worn_skin(Some(r"textures\characters\hair\hairbase.dds")), None);
+        assert_eq!(worn_skin(Some("upperbodymale.dds")), None);
     }
 
     #[test]

@@ -993,6 +993,67 @@ design and what was checked: `docs/spec-notes/ragdoll.md`.
    capture of that session in that window may need re-running. The two runs
    after that (11:05 and 11:07, on the tree merged with main) took both locks.
 
+## The player's unclothed body (2026-10-10, session "naked body texture")
+
+Your report: the unclothed body was one orange-tan colour, the T-shirt visible only as
+shading. Facts and rules: `docs/spec-notes/actors.md` §3.1 and §4.1.
+
+1. **Fixed:** the body model holds two shapes, the skin and the underwear (its own
+   texture: grey T-shirt, dark shorts). The engine put the race's skin texture on both.
+   Now only the skin shape takes it, for the player and for NPCs, men and women.
+2. **Also changed, so the body is one colour:** hands are tinted like the body (they
+   were left the light colour of the texture beside darker arms), the skin showing in
+   gloves likewise (the Pip-Boy glove's fingers and wrist), and the first-person arms
+   and hands take the same tint as the third-person body (they had none).
+3. **For you to judge: the skin tone.** Your picture is described as showing light skin.
+   Ours is now a clear brown on arms, legs, hands and face alike. That comes from the
+   face values stored in the player's record, which shift the skin colour darker than
+   nine in ten Caucasian NPCs; the shirt and shorts are not affected. The rule that
+   applies the shift is a hypothesis (it fits the files well, see §4.1) and I could not
+   see your picture. If the skin is still too dark against the original, please put the
+   picture where sessions can read it; `--no-facegen` shows the body without the shift.
+4. **Found, not changed:** African American NPCs (about 280) are probably drawn too
+   light: their own face values barely darken the shared skin texture, while their
+   race's values would. The game most likely adds the two (actors.md §4.2). Joe Cobb in
+   Goodsprings is the nearest case to compare with the original.
+5. **Fixed in the next session ("worn skin", below):** ghoul and raider-race NPCs showed
+   human skin where an outfit leaves skin bare.
+
+## Skin inside outfits follows the wearer's race (2026-10-10, session "worn skin")
+
+Builds on the section above. Facts and the rule:
+`docs/spec-notes/actors.md` §3.1, "Worn models".
+
+1. **Fixed:** outfits and gloves hold their own pieces of bare skin (arms, chest, legs,
+   fingers), and each piece names a fixed texture, nearly always the adult human one.
+   The engine drew that texture, untinted unless it happened to be the wearer's own. So
+   ghouls had pale human arms under a ghoul head and hands, and the raider races
+   (Fiends and Great Khans among them; 350 placed NPCs in outfits with bare
+   skin) had light arms and legs under darker faces. Now that skin takes the wearer's
+   race texture (body or hand) and the same tint as the face. Children in outfits (30)
+   and 48 women whose outfit names the child's skin texture by mistake are put right by
+   the same rule, and so are 11 men in combat armour, one of whose skin pieces names the head
+   texture.
+2. **How it was checked:** before and after pictures of one ghoul (Gomorrah, in a vest
+   and shorts) and three Great Khans at Quarry Junction; in both the bare skin now
+   matches head and hands. The pictures are in `C:\fnv-private\frames\worn-skin\`. The
+   rule itself is a hypothesis: the game's files fit it, but I compared no picture from
+   the original. A ghoul with bare arms in the original (any ghoul in Gomorrah, or
+   Beatrix Russell) would confirm it.
+3. **For you to judge:** the Great Khan woman in the picture (Melissa) is now very dark
+   on arms and legs, because her face values are dark and the body follows the face
+   (item 3 above is the same question for the player).
+4. **Found, not changed:** the fine surface relief of the skin (the normal map) is
+   still the human one on ghouls, raiders and children, on the body itself as well as
+   inside outfits: each kind has its own relief file and the engine does not switch to
+   it. Ghoul skin shows it most: ghoul colours on a smooth human surface. Hands drawn
+   as part of a fist weapon (boxing tape, knuckles) keep human skin too.
+5. **To tell you:** I also ran the skin survey over the add-on archives, among them
+   `HonestHearts - Main.bsa`, before noticing that the lab treats that archive as a
+   holdout. It printed counts of skin shapes by texture name, nothing else. The rule was
+   settled on the base game's files, and nothing from the add-ons is in the notes or the
+   code.
+
 ## Furniture: sitting (2026-10-10, session "furniture")
 
 Owner request: furniture usable by the player and by NPCs, animated: sit down, stay,
@@ -1023,3 +1084,27 @@ Branch `claude/furniture` (worktree `NVForever-furniture`).
    `GetSitting` is 1 (furniture.md §5); not needed for what is built.
 5. Game runs took both locks. The repository move orphaned this session's first
    worktree mid-way; its two unpushed commits were rebuilt from the files on disk.
+
+## Pip-Boy on the arm (2026-10-10, session "pip-boy")
+
+Your report: the Pip-Boy on the player's arm looks off, and its glow belongs to the
+Pip-Boy light. Facts: docs/spec-notes/actors.md §1.2; design: docs/design/player-body.md
+§4 and §5.
+
+1. **Fixed, position:** the Pip-Boy model hangs from the forearm bone and was being
+   turned the way hats and hair have to be turned on the head bone, which threw it onto
+   the back of the upper arm. It is now a cuff on the left forearm, down to the glove,
+   in third person, and it is drawn in first person too (it was missing there).
+2. **Fixed, glow:** the bright green square was the model's light-glow shape, always
+   drawn. It is hidden until a Pip-Boy light exists (not built; say if you want it).
+3. **Also changed, a guess from the shape names:** outfits carry two left sleeves,
+   `PipBoyOn` and `PipBoyOff`; both were drawn on everyone. Now an actor wearing a
+   Pip-Boy shows the first and everyone else the second (170 outfits).
+4. **Your answers (2026-10-10), applied:** the three orange button lights are always
+   lit (they are drawn); with a Pip-Boy on, the outfit's `PipBoyOn` sleeve is drawn, in
+   first person too (it was missing there, leaving bare wrist in a jumpsuit). Item 3 is
+   therefore your rule for the Pip-Boy wearer; that everyone else shows `PipBoyOff` is
+   still my reading of the name. Still open: is the screen dark with the light off?
+5. **Seen on the way, not touched:** the Vault 21 jumpsuit shows a "101" (armour
+   texture swaps are not read yet, actors.md §1.1). The black patches I saw on the bare
+   body are the subject of the section "The player's unclothed body" above.
