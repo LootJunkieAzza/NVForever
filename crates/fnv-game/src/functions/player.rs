@@ -150,14 +150,15 @@ pub fn set_reputation(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, Strin
 /// settings when a plugin defines them [documented: GECK wiki RewardKarma].
 pub fn reward_karma(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let p = FormId::PLAYER_REF;
-    let mut v = super::actor::actor_value(g, p, 23)? + a.num(0)?;
+    let now = super::actor::actor_value(g, p, 23)?;
+    let mut v = now + a.num(0)?;
     if let Some(max) = g.world.forms.setting_f32("iKarmaMax") {
         v = v.min(max as f64);
     }
     if let Some(min) = g.world.forms.setting_f32("iKarmaMin") {
         v = v.max(min as f64);
     }
-    g.extra.entry(p).or_default().actor_values.insert(23, v);
+    super::actor::shift_base(g, p, 23, v - now)?;
     none()
 }
 

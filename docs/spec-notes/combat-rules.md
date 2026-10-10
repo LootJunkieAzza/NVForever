@@ -264,9 +264,9 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
     gives each shot's eye, aim point, muzzle and where it is drawn from, and each
     tracer's start; the summary at exit counts the shots drawn from the muzzle and
     those from behind cover.
-  - The skill is derived from its attribute and Luck (`damage::derived_skill`;
-    which attribute governs which skill is a hypothesis), since the simulation has no
-    skills yet.
+  - The skill, Strength and Luck are the player's actor values
+    (docs/spec-notes/actor-values.md): the skill from its attribute and Luck by the
+    documented formula, plus anything a script changed.
   - Recoil turns the view's pitch.
 - **The world.** Projectiles fly against the physics world (`PhysView`):
   - rays skip the player's capsule and the layers the character passes;
