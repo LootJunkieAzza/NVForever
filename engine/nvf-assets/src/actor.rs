@@ -6,11 +6,13 @@
 //!   (with joint attributes for skinned shapes), materials, inverse bind poses, the
 //!   attachment bone, and a CPU copy of each mesh (for per-actor variants such as
 //!   FaceGen morphs).
-//! - A rigid part's vertices end up in the skeleton's axes with the origin at its bone
-//!   [observed, actors.md §1.2]: a part whose root node stores the inverse of the bone's
-//!   bind rotation (eyes, mouth, teeth) is an ordinary child of the bone; any other part
-//!   (hair, beards, hats, whose node rotations are the identity or cancel) gets that
-//!   inverse rotation from the attachment. Node transforms are kept in both cases.
+//! - A rigid part on the head (`Bip01 Head`) has its vertices in the skeleton's axes with
+//!   the origin at the bone [observed, actors.md §1.2]: a part whose root node stores the
+//!   inverse of the bone's bind rotation (eyes, mouth, teeth) is an ordinary child of the
+//!   bone; any other head part (hair, beards, hats, whose node rotations are the identity
+//!   or cancel) gets that inverse rotation from the attachment. A rigid part on any other
+//!   bone (the Pip-Boy models on `Bip01 L ForeTwist`) is in the bone's own axes: an
+//!   ordinary child. Node transforms are kept in every case.
 //! - Dismemberment caps are hidden: shapes none of whose `BSDismemberSkinInstance`
 //!   partitions sets part flag bit 0 [documented: nif.xml BSPartFlag bit 0
 //!   "PF_EDITOR_VISIBLE"; observed: the cap shapes of `upperbody.nif` (`bodycaps`,
@@ -383,13 +385,15 @@ fn prepare_skeleton(data: &GameData, path: &str) -> Result<PreparedSkeleton, Str
 }
 
 /// The local transform of a rigid part's shape under bone `b`, given the part's root
-/// transform and the shape's transform below it: root ∘ shape, preceded by the inverse
-/// of the bone's bind rotation and scale unless the root already is that inverse
-/// (actors.md §1.2).
+/// transform and the shape's transform below it: root ∘ shape. On the head bone
+/// ([`DEFAULT_RIGID_BONE`]) that is preceded by the inverse of the bone's bind rotation
+/// and scale unless the root already is that inverse; on any other bone the part is an
+/// ordinary child (actors.md §1.2).
 pub fn rigid_local(skel: &PreparedSkeleton, b: usize, root: &Affine3A, shape: &Affine3A) -> Affine3A {
+    let head = skel.names.get(b).and_then(|n| n.as_deref()) == Some(DEFAULT_RIGID_BONE);
     let inv = Mat3::from(skel.bind_world[b].matrix3).inverse();
     let compensated = (Mat3::from(root.matrix3) - inv).to_cols_array().iter().all(|d| d.abs() < 0.02);
-    if compensated {
+    if !head || compensated {
         *root * *shape
     } else {
         Affine3A::from_mat3(inv) * *root * *shape
@@ -566,7 +570,11 @@ mod tests {
         // A bone whose x axis points up (as `Bip01 Head`), at height 112.8.
         let rot = Mat3::from_cols(Vec3::Z, Vec3::Y, -Vec3::X);
         let bone = Affine3A::from_mat3_translation(rot, Vec3::new(0.0, 0.4, 112.8));
-        let skel = PreparedSkeleton { bind_world: vec![Affine3A::IDENTITY, bone], ..Default::default() };
+        let skel = PreparedSkeleton {
+            bind_world: vec![Affine3A::IDENTITY, bone],
+            names: vec![None, Some(DEFAULT_RIGID_BONE.to_string())],
+            ..Default::default()
+        };
         let up = Vec3::new(0.0, 0.0, 15.0);
         let above = Vec3::new(0.0, 0.4, 127.8);
         // Identity nodes (hats, beards): the attachment compensates the bone's rotation.
@@ -580,5 +588,24 @@ mod tests {
         let inv = Affine3A::from_mat3(rot.inverse());
         let p = (bone * rigid_local(&skel, 1, &inv, &Affine3A::IDENTITY)).transform_point3(up);
         assert!((p - above).length() < 1e-4, "{p}");
+    }
+
+    #[test]
+    fn rigid_parts_off_the_head_are_plain_children() {
+        // A forearm bone whose x axis runs down the arm (as `Bip01 L ForeTwist`): a part
+        // modelled 10 units along x (the Pip-Boy) sits 10 units down the arm, whatever
+        // the part's node transforms are.
+        let rot = Mat3::from_cols(-Vec3::X, -Vec3::Y, Vec3::Z);
+        let bone = Affine3A::from_mat3_translation(rot, Vec3::new(-29.0, -3.7, 94.4));
+        let skel = PreparedSkeleton {
+            bind_world: vec![Affine3A::IDENTITY, bone],
+            names: vec![None, Some("Bip01 L ForeTwist".to_string())],
+            ..Default::default()
+        };
+        let shape = Affine3A::from_translation(Vec3::new(8.0, 0.0, 0.0));
+        let local = rigid_local(&skel, 1, &Affine3A::IDENTITY, &shape);
+        assert_eq!(local, shape);
+        let p = (bone * local).transform_point3(Vec3::new(2.0, 0.0, 0.0));
+        assert!((p - Vec3::new(-39.0, -3.7, 94.4)).length() < 1e-4, "{p}");
     }
 }

@@ -188,6 +188,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
     // The body skin, tinted once per actor with the race's body `.egt` (actors.md §4.1).
     let mut skin: Option<Option<Handle<Image>>> = None;
     let skin_texture = a.body_texture.as_deref().map(fnv_vfs::texture_path);
+    let pipboy = a.parts.iter().any(|p| world.actors.armors.get(&p.form).is_some_and(|ar| ar.slots & fnv_actor::resolve::slot::PIPBOY != 0));
     for (pi, p) in a.parts.iter().enumerate() {
         let Some(part) = ctx.part(&p.model) else {
             stats.parts_missing += 1;
@@ -264,7 +265,10 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
             }
         }
         // The hair model holds a `NoHat` and a `Hat` shape (actors.md §2.4).
-        let hidden_shapes = if p.role == "hair" { vec![if a.hat { "NoHat" } else { "Hat" }.to_string()] } else { Vec::new() };
+        let mut hidden_shapes = if p.role == "hair" { vec![if a.hat { "NoHat" } else { "Hat" }.to_string()] } else { Vec::new() };
+        // The Pip-Boy light's glow shows only with the light on, which is not built, and
+        // outfits hold a left sleeve for wearing a Pip-Boy and one for not (actors.md §1.2).
+        hidden_shapes.extend(part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| fnv_actor::mesh::hidden_for_pipboy(n, pipboy))));
         uses.push((pi, PartUse { meshes, part, materials, hidden_shapes, by_ancestor: false }));
     }
     uses
