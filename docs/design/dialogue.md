@@ -2,7 +2,8 @@
 
 Status 2026-10-10: **D1 and D2 done** (branch `claude/dialogue-core`: records,
 `fnvtool dialogue`, headless conversations; facts and rules in
-docs/spec-notes/dialogue.md); D3 in progress (`claude/dialogue-voice`); D4 and D5 open. Owner request 2026-10-10: "now that quests have been done are we
+docs/spec-notes/dialogue.md) and **D3 done** (branch `claude/dialogue-voice`: voice
+paths, sound lengths, playback in `--play`; docs/spec-notes/voice.md); D4 and D5 open. Owner request 2026-10-10: "now that quests have been done are we
 able to work on dialogue lines".
 
 Where it sits: dialogue is Layer 6 (README; layer5.md §1 lists it with AI packages and
@@ -94,11 +95,13 @@ question and is listed in docs/owner-review.md until a capture settles it.
 - **StartConversation and forced greetings.** An actor walks up and starts dialogue
   with a named topic [documented: function catalogue]. The walking part needs AI
   packages; until then the conversation starts at once [stand-in].
-- **Voice files.** A line's sound is looked up from the plugin, the speaker's voice
+- **Voice files.** A response's sound is looked up from the plugin, the speaker's voice
   type, the quest, the topic, the line's form ID and the response number
-  [hypothesis until the path pattern is read from the archive listing and written to the
-  spec note]. The line lasts as long as its sound; without a sound the fitted length
-  stays.
+  [observed: docs/spec-notes/voice.md §2; 97.3 % of the masters' responses have a sound].
+  A response lasts as long as its sound; without a sound the fitted length stays
+  (`fnv_game::voice`, voice.md §8). Done in step D3 (`crates/fnv-voice`, `fnvtool voice`,
+  playback in `engine/nvf-play/src/voice.rs`); the captured spans are 0.3 to 0.4 s per
+  line longer than the sounds, which is a capture question (§6, 4).
 
 ## 4. Where the code goes
 

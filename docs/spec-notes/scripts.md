@@ -1034,8 +1034,11 @@ at random, Say Once a Day), and a response is timed in one place
 - A line lasts 1.1 s plus 1/16 s per character of each response's text
   (`LINE_BASE_SECONDS`, `LINE_SECONDS_PER_CHAR`) [hypothesis: fitted to the observed
   spans of Doc Mitchell's lines (29 characters: 2.9 s; three lines of 193: 15.4 s; two of
-  129: 10 s), §10.2–10.3; the game uses the voice file's length, which the runner does
-  not read]. Only game time counts (menus stop a line) [hypothesis, consistent with Doc's
+  129: 10 s), §10.2–10.3]. Since step D3 a response lasts as long as its voice file
+  when the runtime is given the files (`Game::voice`; `fnvtool script run` and
+  `nvforever --play` do so), and keeps this fitted length otherwise or when it has no
+  file; the sounds leave the captured spans 0.3 to 0.4 s per line short
+  [observed: docs/spec-notes/voice.md §8]. Only game time counts (menus stop a line) [hypothesis, consistent with Doc's
   stage 60 line ending after the message boxes, §10.3].
 - A speaker saying a line that starts another (SayTo in a result script, or a new SayTo)
   stops the first without its end script [hypothesis]; a speaker that is disabled,
