@@ -15,6 +15,7 @@ mod emittance;
 mod fade;
 mod facegen;
 mod fly;
+mod furniture;
 mod head_look;
 mod lights;
 mod limbs;
@@ -256,8 +257,14 @@ struct Args {
     /// Walking speed of --npc-travel NPCs, game units per second.
     #[arg(long, default_value_t = nav::WALK_SPEED)]
     npc_speed: f32,
-    /// The free camera follows the first --npc-travel NPC (through doors too).
-    #[arg(long, requires = "npc_travel", conflicts_with = "play")]
+    /// An NPC walks to a piece of furniture and uses it: "ACTOR=FURNITURE[:SECONDS]",
+    /// the actor a placed reference (Editor ID or FormID), the furniture a reference
+    /// FormID; with SECONDS it gets up again after that long on it (repeatable;
+    /// docs/spec-notes/furniture.md).
+    #[arg(long)]
+    npc_sit: Vec<String>,
+    /// The free camera follows the first --npc-travel or --npc-sit NPC (through doors too).
+    #[arg(long, conflicts_with = "play")]
     follow_npc: bool,
     /// Draw the navmesh near the camera and the travellers' paths.
     #[arg(long)]
@@ -503,10 +510,23 @@ fn main() -> AppExit {
         a
     });
     let open_doors = args.open_doors;
-    let nav_state = if args.npc_travel.is_empty() && !args.show_navmesh {
+    // Furniture: used by the player in play mode and by --npc-sit travellers.
+    let mut trips = args.npc_travel.clone();
+    let furnishings = if args.play || !args.npc_sit.is_empty() {
+        match furniture::Furnishings::build(&world, &args.npc_sit, trips.len()) {
+            Ok((f, sit_trips)) => {
+                trips.extend(sit_trips);
+                Some(f)
+            }
+            Err(e) => return fail(e),
+        }
+    } else {
+        None
+    };
+    let nav_state = if trips.is_empty() && !args.show_navmesh {
         None
     } else {
-        match nav::NavState::build(&world, &args.npc_travel, args.npc_speed, args.show_navmesh, args.follow_npc) {
+        match nav::NavState::build(&world, &trips, args.npc_speed, args.show_navmesh, args.follow_npc && !trips.is_empty()) {
             Ok(n) => Some(n),
             Err(e) => return fail(e),
         }
@@ -614,6 +634,13 @@ fn main() -> AppExit {
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
         }
+    }
+    if let Some(f) = furnishings {
+        // After the travellers moved, before the actors are posed.
+        app.insert_resource(f)
+            .add_systems(Startup, furniture::log_startup)
+            .add_systems(Update, (furniture::seat_orders, furniture::drive_actors).chain().after(nav::drive).before(locomotion::walk_test))
+            .add_systems(Last, furniture::report);
     }
     if let Some(n) = nav_state {
         let follow = n.follow;

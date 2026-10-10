@@ -401,6 +401,13 @@ docs/spec-notes/actors.md §10.4 together with the creature notes.
 and unequip clips with their `prn:` keys and track priorities, and the weapon each placed
 NPC draws) is defined in docs/spec-notes/actors.md §9.5 together with the weapon notes.
 
+# Furniture
+
+`fnvtool actor furniture` (`fnv.actor.furniture/1`: every FURN with its model's entry
+markers, marker flags and placed count, and the clips the IDLE tree names for getting
+on, staying on and getting off per marker ID) is defined in
+docs/spec-notes/furniture.md §6.
+
 # Dialogue voice
 
 `fnvtool voice line` (`fnv.voice.line/1`: a line's sound files per voice type and their

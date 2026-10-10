@@ -84,10 +84,24 @@ impl PartShape {
         self.props.textures.first().map(String::as_str).filter(|t| !t.is_empty())
     }
 
-    /// Whether the shape is drawn with the skin shader (BSShaderType 14).
-    pub fn skin_shader(&self) -> bool {
+    /// The shape is skin: its shader property has the skin shader type
+    /// (`nif_spawn::SHADER_SKIN`).
+    pub fn is_skin(&self) -> bool {
         self.props.skin
     }
+}
+
+/// Per shape, given as (cap, skin), whether a texture given for the whole part (a race
+/// part's ICON, the EYES or HAIR texture) replaces its diffuse: the skin shapes when the
+/// part has any, else every shape; never a dismemberment cap. The race upper bodies hold
+/// the underwear as a second shape with its own texture (`upperbody.nif`: `Arms:0`,
+/// `armor\underwear\underwearm.dds`), which the skin texture must not cover; mouth,
+/// teeth, tongue and eye models have one shape, not of the skin type, and some name no
+/// texture of their own [observed: `crates/fnv-nif/examples/skin_survey.rs`; hypothesis
+/// for the rule, docs/spec-notes/actors.md §3.1].
+pub fn texture_targets(shapes: &[(bool, bool)]) -> Vec<bool> {
+    let any_skin = shapes.iter().any(|&(cap, skin)| !cap && skin);
+    shapes.iter().map(|&(cap, skin)| !cap && (skin || !any_skin)).collect()
 }
 
 #[derive(Debug, Clone, Default)]
@@ -100,19 +114,14 @@ pub struct PreparedPart {
 }
 
 impl PreparedPart {
-    pub fn attach_bone(&self) -> &str {
-        self.prn.as_deref().unwrap_or(DEFAULT_RIGID_BONE)
+    /// Per shape, whether a texture given for the whole part replaces its diffuse
+    /// ([`texture_targets`]).
+    pub fn texture_targets(&self) -> Vec<bool> {
+        texture_targets(&self.shapes.iter().map(|s| (s.cap, s.is_skin())).collect::<Vec<_>>())
     }
 
-    /// Whether shape `i` takes a texture that replaces the part's diffuse (a race part's
-    /// ICON, the EYES or HAIR texture): never a cap; in a model with skin-shader shapes
-    /// only those, else every shape. The race bodies hold a garment next to the skin
-    /// (`upperbody.nif`: `Arms:0`, an undershirt and shorts with their own texture, and
-    /// `Arms:1`, the arms and legs), and the garment keeps its texture [observed: the
-    /// models; hypothesis: the rule, actors.md §3.1].
-    pub fn takes_texture(&self, i: usize) -> bool {
-        let s = &self.shapes[i];
-        !s.cap && (s.skin_shader() || !self.shapes.iter().any(|o| !o.cap && o.skin_shader()))
+    pub fn attach_bone(&self) -> &str {
+        self.prn.as_deref().unwrap_or(DEFAULT_RIGID_BONE)
     }
 }
 
@@ -542,6 +551,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_part_texture_goes_on_the_skin_shapes_when_there_are_any() {
+        // upperbody.nif: underwear, skin, caps.
+        assert_eq!(texture_targets(&[(false, false), (false, true), (true, false)]), [false, true, false]);
+        // An eye or a hair model (NoHat, Hat): no skin shape, so every shape.
+        assert_eq!(texture_targets(&[(false, false), (false, false)]), [true, true]);
+        // A cap of the skin type does not make the part a skin part.
+        assert_eq!(texture_targets(&[(false, false), (true, true)]), [true, false]);
+        assert_eq!(texture_targets(&[]), Vec::<bool>::new());
+    }
+
+    #[test]
     fn creature_rigid_shapes_hang_from_their_nearest_skeleton_ancestor() {
         let skel = PreparedSkeleton {
             by_name: HashMap::from([("Bip01 Head".to_string(), 3)]),
@@ -575,36 +595,6 @@ mod tests {
         let (b, local) = creature_rigid_attach(&skel, &part, &shape);
         assert_eq!(b, 0);
         assert!((Vec3::from(local.translation) - Vec3::new(1.0, 5.0, 0.0)).length() < 1e-5);
-    }
-
-    #[test]
-    fn replacement_textures_go_to_skin_shapes_when_a_model_has_any() {
-        let shape = |skin: bool, cap: bool| PartShape {
-            name: None,
-            mesh: Handle::default(),
-            material: Handle::default(),
-            props: {
-                let mut props = Props::default();
-                props.skin = skin;
-                props
-            },
-            cpu: Arc::new(Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)),
-            skin: None,
-            transform: Affine3A::IDENTITY,
-            cap,
-            ancestors: Vec::new(),
-            own: Affine3A::IDENTITY,
-        };
-        let takes = |shapes: Vec<PartShape>| {
-            let part = PreparedPart { shapes, ..Default::default() };
-            (0..part.shapes.len()).map(|i| part.takes_texture(i)).collect::<Vec<_>>()
-        };
-        // `upperbody.nif`: the garment, the skin, a cap.
-        assert_eq!(takes(vec![shape(false, false), shape(true, false), shape(false, true)]), [false, true, false]);
-        // Eyes, mouth, teeth, hair: no skin shader, every shape but caps.
-        assert_eq!(takes(vec![shape(false, false), shape(false, false), shape(false, true)]), [true, true, false]);
-        // A skin-shader cap does not count as the model's skin.
-        assert_eq!(takes(vec![shape(false, false), shape(true, true)]), [true, false]);
     }
 
     #[test]

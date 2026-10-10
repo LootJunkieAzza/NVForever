@@ -60,12 +60,13 @@ pub fn show(actors: &ActorForms, p: &Part) -> Option<Show> {
 }
 
 /// The appearance the first-person rig draws: the parts that show, hands swapped for
-/// their `1st` variants where `exists` says the file is there, no FaceGen, the
+/// their `1st` variants where `exists` says the file is there, of FaceGen only the
+/// texture coefficients (the skin tint of arms and hands, as in third person), the
 /// first-person skeleton. Each kept part comes with how it shows.
 pub fn appearance(actors: &ActorForms, a: &Appearance, exists: impl Fn(&str) -> bool) -> (Appearance, Vec<Show>) {
     let mut out = a.clone();
     out.skeleton = SKELETON.to_string();
-    out.facegen = None;
+    out.facegen = a.facegen.as_ref().map(|f| crate::records::FaceGen { fgts: f.fgts.clone(), ..Default::default() });
     out.parts.clear();
     let mut shows = Vec::new();
     for p in &a.parts {

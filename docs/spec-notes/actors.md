@@ -204,73 +204,72 @@ of whose partitions sets part flag bit 0 ("editor visible", nif.xml BSPartFlag) 
 hidden [hypothesis: an intact actor shows none]. Pose: the skeleton's bind pose, frozen
 (default), or the idle clip on the skeleton's bones (§7).
 The race's height scales the actor [hypothesis]. Texture overrides: the race part ICONs,
-the EYES texture and the HAIR texture replace the model's diffuse, on the shapes §3.1
-names. Hair colour: texture ×
+the EYES texture and the HAIR texture replace the model's diffuse. Hair colour: texture ×
 2 × HCLR in gamma space [hypothesis: a plain multiply leaves Sunny Smiles' hair dark
 brown where the owner's screenshot shows auburn; doubled, it matches by eye].
 
-### 3.1 Which shapes a replacement texture goes to (the race bodies' underwear)
+### 3.1 Skin shapes, and which shapes a part's texture replaces
 
-The adult race bodies are not one skin [observed, 2026-10-10: `fnvtool nif decode` of the
-models in `Fallout - Meshes.bsa`, shapes measured from their vertices and skin
-partitions]:
+Survey of the visible shapes drawn by a BSShaderPPLightingProperty in
+`Fallout - Meshes.bsa` (`crates/fnv-nif/examples/skin_survey.rs`) [observed]:
 
-- `characters\_male\upperbody.nif` draws two shapes (the other four are caps, §3):
-  - `Arms:1`: `BSShaderPPLightingProperty` with shader type 14 and shader flag bit 10 set
-    [documented: nif.xml BSShaderType "SHADER_SKIN", BSShaderFlags "FaceGen"], diffuse
-    `textures\characters\male\UpperBodyMale.dds`. 650 vertices: the arms (|x| from 18 to
-    45, z 84–102) and the legs (z 1–60). None of its vertices lies in the trunk: between
-    z 60 and 80 it has no vertex at all, and above z 80 none within 6 units of the
-    middle. Its partitions are body parts 3, 5, 7, 10 and the torso sections 3000, 5000,
-    7000, 10000; none is body part 0 (the torso).
-  - `Arms:0`: shader type 1 (default), flag bit 10 clear, diffuse
-    `textures\armor\underwear\UnderwearM.dds`. 602 vertices: the whole trunk from the
-    crotch to the neck (z 58–111, |x| up to 22). Partitions: body part 0 (454 vertices),
-    torso sections 3000 and 5000 (62 vertices each: sleeves over the shoulders, their
-    texture coordinates in the top strip of the texture) and 7000 and 10000 (24 each:
-    the leg hems).
-  - `UnderwearM.dds` (512 × 512) pictures a grey short-sleeved undershirt, front and
-    back, with dark shorts under it and the two sleeves in a strip along the top; the
-    rest is black. `UpperBodyMale.dds` (1024 × 1024) is the skin in another layout: a
-    bare chest and back in the middle column with near-black briefs painted at its lower
-    and upper ends, arms across the middle, legs at the sides.
-  - So the male body without an outfit is skin arms and legs around an undershirt and
-    shorts; the model holds no bare trunk. Outfits that show the chest bring their own
-    skin shapes.
-- `characters\_male\femaleupperbody.nif` is built the same way: `UpperBody` (shader type
-  1, `textures\armor\underwear\UnderwearF.dds`) beside `Arms01` (shader type 14,
-  `UpperBodyFemale.dds`), and four caps.
-- The child bodies (`childupperbody.nif`, `childfemaleupperbody.nif`) and all four hand
-  models hold one shape, shader type 14.
-- Every head part model that placed NPCs use holds one drawn shape: the heads shader
-  type 14, the mouths, teeth, tongues and eyes shader type 1 [observed: the 94
-  (role, model, texture) combinations of `fnvtool actor appearance --all`, FalloutNV.esm].
+- 255 shapes have shader type 14 (`SHADER_SKIN` [documented: nif.xml BSShaderType]).
+  They are exactly the shapes with the "FaceGen" shader flag (bit 10 [documented:
+  nif.xml BSShaderFlags]): no shape has one without the other. Their diffuse textures:
+  172 an upper body texture (`textures\characters\<kind>\upperbody….dds`), 71 a hand
+  texture, 10 a head texture, 2 none. They sit in the race part models and in worn
+  models (skin showing inside outfits and gloves).
+- 28 shapes name such a skin texture without the skin type (shader type 1): corpses
+  and severed parts in clutter, the chargen models `m01….nif`, one outfit
+  (`armor\caesar\caesar_f.nif`).
+- The race upper bodies hold two drawn shapes: the skin (`upperbody.nif` `Arms:1`,
+  `femaleupperbody.nif` `Arms01`; type 14, the upper body texture) and the underwear
+  (`Arms:0`, `UpperBody`; type 1, `textures\armor\underwear\underwearm.dds` /
+  `underwearf.dds`: a grey T-shirt and dark shorts for men). The child bodies hold the
+  skin shape only. The Pip-Boy glove hands (`lefthandpipboyglove.nif`) hold a skin
+  shape (hand texture) and the glove (type 1, its own texture).
+- Head and hand race parts hold one skin shape. Mouth, teeth, tongue and eye models hold
+  one shape of type 1; the child mouth, teeth and tongue models name no texture of
+  their own, so they depend on the part's texture.
 
-Rule [hypothesis; the game's own rule is not known]: a replacement texture (a race part's
-ICON, the EYES or the HAIR texture) goes to the model's skin-shader shapes (shader type
-14) when it has any, else to every shape; never to a cap
-(`PreparedPart::takes_texture`). In the data above this only changes the two adult
-bodies: their underwear shape keeps its own texture. The body skin tint (§4.1) follows:
-it goes to shapes whose diffuse, after this rule, is the race's upper body texture.
-Shader flag bit 10 would select the same shapes in every model surveyed; the type was
-chosen because its documented name says skin.
+Rule used [hypothesis; the owner's in-game picture of the unclothed male body shows the
+grey T-shirt and dark shorts over light skin, 2026-10-10]: a texture given for a whole
+part (a race part's ICON, the EYES texture, the HAIR texture) replaces the diffuse of
+the part's skin shapes when it has any, else of every shape; never of a dismemberment
+cap (`nvf_assets::actor::texture_targets`). Before 2026-10-10 the engine put it on every
+shape, which painted the underwear with the skin texture (and the body tint of §4.1
+over that): the whole body was one skin colour.
 
-What it replaced [observed, 2026-10-10, `--play` third person at Goodsprings with no
-outfit]: until then the ICON went to every shape, so `Arms:0` was drawn with
-`UpperBodyMale.dds` through texture coordinates laid out for `UnderwearM.dds`. The trunk
-showed smeared skin, and black patches where those coordinates land on the painted
-briefs: at both armpits (the sleeves' strip, v 0.04–0.19, crosses the upper briefs,
-which fill about u 0.35–0.65, v 0.02–0.18 of the skin texture) and at the hips (the
-shorts, about v 0.72–0.95, cross the lower briefs at about v 0.76–0.92). A Vault
-jumpsuit hid it because the race's upper body is not drawn under an outfit (§2.4). The
-geometry was not at fault: both shapes have unit normals, no degenerate triangle, and
-every triangle winds with its vertex normals. Placed NPCs took the same path
-(`part_uses`): 29 placed NPCs of FalloutNV.esm draw a race upper body (13 on
-`upperbody.nif`, 14 on `femaleupperbody.nif`, 2 children), e.g. `PrimmDeadSheriff` and
-`PrimmDeadSheriffWife` in `PrimmSheriffStation`. With the rule above the player and those
-two show the undershirt (the woman a top with a bare midriff) and shorts, with no black
-patch [observed]. Not checked against the game: a screenshot of an actor without an
-outfit is wanted (§6).
+More on the male body and on what that fault looked like [observed, 2026-10-10:
+`fnvtool nif decode` of `upperbody.nif`, vertices and skin partitions; the two textures;
+`--play` third person at Goodsprings with no outfit]:
+
+- The skin shape `Arms:1` (650 vertices) is the arms and legs only: no vertex between
+  z 60 and 80, none within 6 units of the middle above z 80, and no partition of body
+  part 0 (the torso); its partitions are body parts 3, 5, 7, 10 and the torso sections
+  3000, 5000, 7000, 10000. The underwear shape `Arms:0` (602 vertices) is the whole
+  trunk from the crotch to the neck (z 58–111): body part 0 with 454 vertices, the
+  sleeves in torso sections 3000 and 5000 (62 each) and the leg hems in 7000 and 10000
+  (24 each). So the model holds no bare trunk: without the underwear shape there is a
+  hole.
+- `underwearm.dds` (512 × 512) lays out the T-shirt's front and back with the shorts
+  under them and the two sleeves in a strip along the top. `upperbodymale.dds`
+  (1024 × 1024) is laid out differently and has near-black briefs painted at the lower
+  and upper ends of its middle column.
+- With the skin texture on `Arms:0`, the trunk was smeared skin with solid black patches
+  at both armpits and on the hips: there the underwear's texture coordinates land on the
+  painted briefs (the sleeve strip, v 0.04–0.19, crosses the upper briefs at about
+  u 0.35–0.65, v 0.02–0.18; the shorts, about v 0.72–0.95, cross the lower ones at
+  about v 0.76–0.92). The geometry was not at fault: both shapes have unit normals, no
+  degenerate triangle, and every triangle winds with its vertex normals.
+- Placed NPCs took the same path: 29 placed NPCs of FalloutNV.esm draw a race upper
+  body (13 on `upperbody.nif`, 14 on `femaleupperbody.nif`, 2 children), e.g.
+  `PrimmDeadSheriff` and `PrimmDeadSheriffWife` in `PrimmSheriffStation`.
+
+Open: worn models' skin shapes keep the texture they name (the human one), so a ghoul
+or raider-race NPC (`characters\ghoul\…`, `characters\raider\…` body and hand textures,
+5 races) shows human skin inside an outfit and no tint (§4.1 matches by texture)
+[hypothesis: the game gives skin shapes the race's texture; not built].
 
 ## 4. FaceGen (part C)
 
@@ -328,11 +327,40 @@ and 34 faces textured, with no EGM mismatching its shape.
   modeᵢ, upsampled bilinearly and flipped vertically. The engine gives it to every shape
   whose diffuse is that texture — the race's upper body and skin shapes inside outfits
   that name it — and halves it to 512 × 512 to keep one copy per actor small
-  (`FaceGenCache::skin_texture`). `--no-facegen` turns it off.
-- Hands are not tinted: their `.egt` files (`lefthandmale.egt`, `righthandold.egt`, …,
-  also 32 × 32 × 50) sit in `characters\_male\`, but no record names them and the hand
-  meshes are `lefthand.nif` / `righthand.nif`, so which one a race uses is not known
-  [open].
+  (`FaceGenCache::skin_texture`). `--no-facegen` turns it off. Only the skin shape of
+  the race's upper body takes it; the underwear shape keeps its own texture (§3.1).
+- The body file holds one colour per mode [observed, 2026-10-10]: within a mode of
+  `upperbodyhumanmale.egt` all 1,024 texels are equal (spread below 0.001 colour units
+  per unit of coefficient), so the offset is one colour for the whole texture and
+  nothing in the file spares the painted briefs of the skin texture. Those colours are
+  the head file's at the neck: over all 50 modes and 3 channels the body's values differ
+  from `headhuman.egt`'s texels in the bottom rows of the head texture (rows 0–46 of
+  256 from the bottom, middle columns) by 0.02 units rms, against 1.6 for the median
+  texel. For the player's record the body offset and the head offset at the neck are
+  both (−56, −46, −48). This supports the rule above: body and neck get the same colour
+  shift [hypothesis for the game, as before].
+- Hands [hypothesis, built 2026-10-10]: the hand `.egt` files (`lefthandmale.egt`,
+  `righthandold.egt`, …, 16 files, also 32 × 32 × 50) sit in `characters\_male\`; no
+  record names them. Observed: they are four distinct files (left and right, each in a
+  male-kind and a female-kind version); each mode is nearly one colour (spread at most
+  0.47 units per unit of coefficient); the four differ from each other by at most 0.02
+  units in a mode's mean colour, and from the body file by at most 1.8. For the
+  player's record the hand offset is (−47, −38, −41). The engine takes the file named
+  like the race's body `.egt` (`upperbody[human]<kind>.egt` → `lefthand<kind>.egt`,
+  `fnv_actor::resolve::hand_egt`; the left file serves both hands, the right one
+  differing by 0.02 units) and adds its offset to the race's hand texture (body index 1
+  ICON), for every shape that names that texture: the race hands and skin inside gloves
+  (the Pip-Boy glove's fingers and wrist). Untinted, the hands stayed the light colour of
+  the texture beside arms darkened by the body offset.
+- The player's first-person arms and hands take the same tint (the first-person
+  appearance keeps FGTS; `fnv_actor::first_person`).
+- The player's record (NPC_ 7) has a dark offset: body (−56, −46, −48), where the median
+  male Caucasian NPC has (−25, −24, −28) and one in ten is beyond −45 in red [observed,
+  557 NPCs]. With the body texture's median colour (159, 125, 96) that gives a brown
+  skin, clearly darker than the untinted texture (`--no-facegen` shows the latter).
+  Whether the original draws its default courier that dark is not checked [open; an
+  in-game picture of the unclothed default character would settle it, and with it the
+  strength of the rule].
 
 ### 4.2 Race FaceGen data (not used)
 
@@ -345,6 +373,18 @@ Whether the game adds the race's coefficients to the NPC's, or uses them only in
 character generator, is open [hypothesis either way]; faces drawn from the NPC's values
 alone matched the owner's screenshot of Sunny Smiles by eye (§4), so the race data stays
 unused until an in-game comparison of several NPCs of one race settles it.
+
+The texture values point the other way [observed, 2026-10-10: the body `.egt` offset
+(§4.1) for the FGTS of 1,270 male NPCs with the adult male body file, and for their
+races' own FGTS]: the 228 AfricanAmerican NPCs have a median offset of (+8, −3, −11) from
+their own values — lighter than the 557 Caucasian NPCs' (−25, −24, −28), on the same body
+and head textures — while the AfricanAmerican race's own FGTS give (−91, −71, −49) and
+the Caucasian race's (+1, −1, −2). The same holds for AfricanAmericanOld (race −92, −72,
+−54) and AfricanAmericanRaider (−48, −35, −32). So from NPC values alone these NPCs are
+drawn lighter than Caucasian ones, which cannot be the game's look [hypothesis: the game
+adds the race's FGTS to the NPC's, and probably the geometry values likewise; not built
+— Joe Cobb in Goodsprings (offset +15, −2, −20 from his own values) is a case to compare
+with an in-game picture].
 
 ## 5. CLI contract
 
@@ -384,9 +424,6 @@ unused until an in-game comparison of several NPCs of one race settles it.
   confirm it is drawn with the human skeleton (§2.2).
 - The idle in game for comparison with §7: a screenshot of Doc Mitchell standing in his
   house, and whether actors placed side by side breathe in step (§7.3 spreads them).
-- A man and a woman without an outfit in third person (the player with everything but
-  the Pip-Boy taken off, front and side), to check §3.1: the undershirt and shorts, and
-  whether the skin tint reaches them.
 
 ## 7. Animation playback (part E)
 
