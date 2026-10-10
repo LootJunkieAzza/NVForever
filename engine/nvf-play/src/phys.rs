@@ -60,6 +60,9 @@ use std::time::Instant;
 /// and parsing models, happens on the loader thread (layer4-play.md §6).
 pub const CELLS_PER_FRAME: usize = 1;
 
+/// The same behind a loading screen (`crate::loading`), where frame time does not show.
+pub const CELLS_BEHIND_LOADING_SCREEN: usize = 8;
+
 /// The physics world. Ray queries for activation go through [`PhysState::ray`], which
 /// keeps the player's capsule out (or `world.queries()` after `world.update_queries()`).
 #[derive(Resource)]
@@ -358,6 +361,12 @@ impl PhysState {
     /// Whether the cell under `feet` is loaded (the player may move).
     pub fn ready_at(&self, feet: [f32; 3]) -> bool {
         self.cells.contains_key(&self.cell_at(feet))
+    }
+
+    /// Whether the player is placed and every cell asked for around them is in (the
+    /// loading screen waits for this, `crate::loading`).
+    pub fn loading_done(&self) -> bool {
+        self.player.as_ref().is_some_and(|c| self.ready_at(c.feet)) && self.loader.pending().next().is_none()
     }
 
     /// Terrain height under (x, y), when that square is loaded and has terrain.
@@ -970,12 +979,21 @@ pub(crate) fn settle_created(d: Res<PlayWorld>, mut sim: ResMut<SimState>, mut p
 
 /// Keep the cells around the player loaded (around the start position until the
 /// character is placed).
-fn stream(d: Res<PlayWorld>, sim: Res<SimState>, data: Option<Res<GameData>>, player: Res<Player>, mut phys: ResMut<PhysState>) {
+fn stream(
+    d: Res<PlayWorld>,
+    sim: Res<SimState>,
+    data: Option<Res<GameData>>,
+    player: Res<Player>,
+    loading: Option<Res<crate::loading::Loading>>,
+    mut phys: ResMut<PhysState>,
+) {
     let t0 = Instant::now();
     let playing = phys.player.is_some();
     let feet = phys.player.as_ref().map_or(player.feet, |c| c.feet);
     let ctx = LoadCtx { d: &d, sim: &sim, data: data.as_deref() };
-    phys.stream(&ctx, feet, CELLS_PER_FRAME);
+    // Behind a loading screen a long frame does not show: take more prepared cells.
+    let budget = if loading.is_some_and(|l| l.active()) { CELLS_BEHIND_LOADING_SCREEN } else { CELLS_PER_FRAME };
+    phys.stream(&ctx, feet, budget);
     // The broad phase takes in what was inserted now rather than in the player's first
     // step, so that the frame's streaming cost is measured in one place.
     let t = Instant::now();
