@@ -724,8 +724,9 @@ only in the walk test and on the player's body. All rules here are engine choice
   same: the system `turn_to` turns the root about z, sets `Locomotion::turn` so the turn
   clip plays, and removes the component when the actor faces the heading (a component
   taken away mid-turn stops the turn). Headings are compass headings in game space
-  (0 = +y north, π/2 = +x east), as `Walker::heading`. This is the hook for an actor
-  turning to whoever it talks to (docs/design/dialogue-play.md).
+  (0 = +y north, π/2 = +x east), as `Walker::heading`. The conversation partner's body
+  turn (`engine/nvforever/src/dialogue_look.rs`, `BodyTurn`) is separate: it eases its
+  own turn and sets `Locomotion::turn` itself; `TurnTo` is for turns at a steady speed.
 - **Clip choice** is §8.3's, unchanged: both movers give the actor zero velocity and a
   turn rate of ±120°/s, above the 15°/s threshold; the turn clip fades in over its
   `Blend: 3` (0.1 s) and the idle or walk that follows over its own blend time.
