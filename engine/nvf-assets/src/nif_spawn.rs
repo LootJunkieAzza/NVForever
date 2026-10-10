@@ -99,7 +99,8 @@ pub(crate) struct Props {
     pub(crate) hair: bool,
     /// The shader property's type is [`SHADER_SKIN`]: the shape is an actor's skin.
     pub(crate) skin: bool,
-    /// The view-angle falloff of a BSShaderNoLightingProperty.
+    /// The view-angle falloff of a BSShaderNoLightingProperty that switches it on
+    /// ([`property_falloff`]).
     falloff: Option<Falloff>,
     /// BSShaderFlags bit 29 "External_Emittance" [documented: nif.xml].
     external_emittance: bool,
@@ -170,6 +171,31 @@ pub(crate) fn is_decal(shader_flags: i64) -> bool {
     shader_flags & (1 << 26 | 1 << 27) != 0
 }
 
+/// BSShaderFlags bit 6 switches the view-angle falloff of a BSShaderNoLightingProperty on
+/// [hypothesis, docs/spec-notes/nif.md §6 "View-angle falloff". nif.xml names the bit
+/// "Empty" for this game and "Use_Falloff" ("Use Falloff value in EffectShaderProperty")
+/// in the Skyrim and Fallout 4 flag sets, which keep this game's names at bits 0, 1, 3, 7,
+/// 15 to 17, 29 and 31 [documented: nif.xml SkyrimShaderPropertyFlags1,
+/// Fallout4ShaderPropertyFlags1]. In `Fallout - Meshes.bsa` 1,013 of the 1,193 visible
+/// shapes with falloff values of their own set it and 95 of the 4,495 with the nif.xml
+/// defaults; the Prospector Saloon lamp beam sets it [observed:
+/// `crates/fnv-nif/examples/falloff_survey.rs`]. No game frame of a shape without the
+/// bit was compared].
+pub(crate) fn uses_falloff(shader_flags: i64) -> bool {
+    shader_flags & (1 << 6) != 0
+}
+
+/// The view-angle falloff of a BSShaderNoLightingProperty with these shader flags and
+/// falloff fields (start angle, stop angle, start opacity, stop opacity; absent in files
+/// of stream version 26 or lower): none without the flag ([`uses_falloff`]), whatever
+/// the fields hold. Without the flag the fields are mostly the defaults, opacity 1 → 0
+/// over cosine 1 → 0, which applied would fade every such shape by the cosine of the
+/// view angle: neon tubes, lit sign letters, the shadows under playing cards.
+pub(crate) fn property_falloff(shader_flags: i64, fields: [Option<f32>; 4]) -> Option<Falloff> {
+    let [Some(a), Some(b), Some(c), Some(d)] = fields else { return None };
+    uses_falloff(shader_flags).then(|| Falloff::from_fields(a, b, c, d)).flatten()
+}
+
 fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
     let Some(s) = dec.get(r) else { return };
     let ty = file.blocks[r as usize].type_name.as_str();
@@ -200,12 +226,8 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
             if let Some(f) = s.text("file_name") {
                 p.textures = vec![f.to_string()];
             }
-            let f = |n: &str| s.float(n);
-            if let (Some(a), Some(b), Some(c), Some(d)) =
-                (f("falloff_start_angle"), f("falloff_stop_angle"), f("falloff_start_opacity"), f("falloff_stop_opacity"))
-            {
-                p.falloff = Falloff::from_fields(a, b, c, d);
-            }
+            let fields = ["falloff_start_angle", "falloff_stop_angle", "falloff_start_opacity", "falloff_stop_opacity"];
+            p.falloff = property_falloff(s.int("shader_flags").unwrap_or(0), fields.map(|n| s.float(n)));
         }
         "NiTexturingProperty" => {
             let src = s.strukt("base_texture").and_then(|b| b.block_ref("source")).and_then(|r| dec.get(r));
@@ -378,7 +400,8 @@ pub(crate) fn specular(props: &Props, has_normal_map: bool) -> (f32, bool) {
 
 /// The falloff to draw a shape's material with. Falloff scales alpha, so only blended
 /// materials use it [hypothesis: on alpha-tested or opaque shapes it would only cut holes;
-/// 1,143 of the 7,373 visible BSShaderNoLightingProperty shapes are not blended; observed:
+/// 15 of the 1,108 visible shapes in `Fallout - Meshes.bsa` that switch the falloff on
+/// with a range to fade over are not blended; observed:
 /// `crates/fnv-nif/examples/falloff_survey.rs`, docs/spec-notes/nif.md §6].
 pub(crate) fn shape_falloff(props: &Props, alpha_mode: AlphaMode) -> Option<Falloff> {
     props.falloff.filter(|_| matches!(alpha_mode, AlphaMode::Blend | AlphaMode::Add | AlphaMode::Multiply | AlphaMode::Premultiplied))
@@ -760,6 +783,28 @@ mod tests {
         assert!(shape_falloff(&props, AlphaMode::Opaque).is_none());
         assert!(shape_falloff(&props, AlphaMode::Mask(0.5)).is_none());
         assert!(shape_falloff(&Props::default(), AlphaMode::Add).is_none());
+    }
+
+    #[test]
+    fn falloff_only_with_the_flag() {
+        // Shader flags as stored: the Saloon lamp beam (bit 6 set), the neon tubes of the
+        // Saloon's sign and the Old Town shadow strips (bit 6 clear).
+        let (beam, neon, strip) = (0xa200_0148, 0x8200_0100, 0x8e00_0008);
+        assert!(uses_falloff(beam) && !uses_falloff(neon) && !uses_falloff(strip));
+        let authored = [Some(0.985), Some(0.174), Some(1.0), Some(0.0)];
+        let defaults = [Some(1.0), Some(0.0), Some(1.0), Some(0.0)];
+        assert_eq!(property_falloff(beam, authored), Falloff::from_fields(0.985, 0.174, 1.0, 0.0));
+        // With the flag the default values are a falloff too: opacity is the cosine.
+        assert!((property_falloff(beam, defaults).unwrap().opacity(0.3) - 0.3).abs() < 1e-6);
+        // Without it nothing fades, whether the fields hold the defaults or other values.
+        assert_eq!(property_falloff(neon, defaults), None);
+        assert_eq!(property_falloff(strip, defaults), None);
+        assert_eq!(property_falloff(neon, authored), None);
+        // The flag does not rescue an empty range, constant full opacity or absent fields.
+        assert_eq!(property_falloff(beam, [Some(0.0); 4]), None);
+        assert_eq!(property_falloff(beam, [Some(1.0), Some(0.0), Some(1.0), Some(1.0)]), None);
+        assert_eq!(property_falloff(beam, [None; 4]), None);
+        assert_eq!(property_falloff(beam, [Some(1.0), None, Some(1.0), Some(0.0)]), None);
     }
 
     #[test]

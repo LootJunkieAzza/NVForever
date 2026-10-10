@@ -1427,3 +1427,49 @@ Your request: a dropped item should use the world model its record names, normal
 4. **Still open:** a female player may see the female world model (`MOD4` of armour,
    28 hats and outfits differ); a dropped weapon with mods attached may show a different
    model. Both draw the plain world model for now.
+
+## Sign lights, glows and shadow overlays no longer fade at an angle (2026-10-10, session "falloff flag")
+
+Follows item 4 of "Pale blue frames inside the ruined house in Primm" above. Branch
+`claude/falloff-flag`. Facts and the survey:
+`docs/spec-notes/nif.md` §6 "View-angle falloff". Pictures (before left, after right):
+`C:\fnv-private\references\falloff_flag\`.
+
+1. **What changed:** unlit see-through shapes (sign lights, glows, screens, painted-on
+   shadows) store a setting that fades them as they turn edge-on to the camera. It is
+   meant for light beams, smoke and dust. We applied it to every such shape; now only
+   to shapes that carry the mark that switches it on. About 3,470 shapes are drawn at
+   full strength from every angle now. (The earlier note said 4,400; 930 of those are
+   not see-through and were never faded.) The 1,100 shapes with the mark fade as before.
+2. **Why I think the mark is the switch (a guess, not checked in the game):**
+   - 85% of the shapes with a hand-set fade carry it, 2% of the others.
+   - The public format notes call this mark "empty" for New Vegas, but for Skyrim and
+     Fallout 4 they call the same mark "use falloff", and many other marks kept their
+     meaning between the games.
+   - Without it we were fading things nobody would fade: the shadows under the cards
+     and coins on the Caravan table, neon tubes, lit sign letters.
+3. **What it looks like in ours:**
+   - `lamp_beam_front.png`, `lamp_beam_side.png`: the lamp beam on the Prospector
+     Saloon porch is unchanged (it carries the mark): not one pixel of it differs.
+   - `saloon_neon_tubes.png`: the red neon tubes on the letters S-A-L of the Saloon's
+     sign, seen from the side along the wall at night. Before they were nearly out;
+     now they glow red.
+   - `bison_steve_sign.png`: the Bison Steve sign in Primm at night, seen nearly
+     edge-on from below. Before its letters were dull; now they are lit red.
+   - `shadow_strips.png`: the ruined house at the NCR camp in Primm, from where you
+     stood. The shadow strips of that entry now show as thin dark lines along the
+     ceiling edges, down the room corners and along the skirting.
+4. **Please check in the game: one screenshot of any of these at an angle.** The
+   easiest is the Bison Steve sign: at night (`set gamehour to 21`), stand a few
+   steps south of the foot of the sign's pole and look up at the sign so that you see
+   it nearly edge-on. If its red letters are lit, the change is right; if they are
+   dull or gone, the game fades these shapes after all and I should put it back.
+   Ours for comparison:
+   `nvforever --cell=-13,-13 --pos=-52473,-53735,5990 --heading 12 --pitch 32 --hour 21`.
+   A screenshot from inside the ruined house (the one that entry asks for)
+   would answer this as well: thin dark lines in the corners mean both guesses hold.
+5. **Not sure about:** 140 see-through shapes have a hand-set fade but not the mark:
+   force field panels, the glowing tubes of stasis and brain pods, some weapon beams.
+   Most are Fallout 3 leftovers in the archive. They are now drawn without the
+   fade. If the game fades them, the rule is "the mark, or hand-set values". I know of
+   no place in the base game to check one.
