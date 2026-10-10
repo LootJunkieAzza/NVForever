@@ -317,6 +317,8 @@ in docs/spec-notes/physics.md §7.
 
 # Layer 4 (collision geometry)
 
+`fnvtool collide ragdoll` (`fnv.collide.ragdoll/1`, observational: the jointed bodies of
+skeletons) is described in docs/spec-notes/ragdoll.md §5.
 `fnvtool collide objects` (`fnv.collide.objects/1`) and `fnvtool collide survey`
 (`fnv.collide.survey/1`) are defined in docs/spec-notes/collision.md §5 together with the
 collision notes.

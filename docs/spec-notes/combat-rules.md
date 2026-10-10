@@ -313,12 +313,15 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   - Without the script runtime, hits are only logged.
 - **On screen** (`engine/nvforever/src/deaths.rs`, `locomotion.rs`):
   - A living actor flinches with `idleanims\mt_hittorso.kf` over its other clips.
-  - A dead one plays `idleanims\deathpose1.kf` or `deathpose2.kf` (chosen by reference)
-    and holds its last frame.
-  - An actor already dead when drawn goes straight to that end pose.
-  - A skeleton without death poses (creatures) freezes and is laid on its back
-    [design, until ragdolls].
-  - Dead actors' hit volumes move to DEAD_BIP.
+  - A dead one whose skeleton has a ragdoll drops as one (ragdoll.md §4;
+    `ragdoll.rs`): the Havok bodies and constraints of its skeleton as jointed rigid
+    bodies, shoved by the hit that killed it and by later hits.
+  - Until its ragdoll is in the world (its ground is not loaded, or it was dead when
+    drawn), and for a skeleton without one: it plays `idleanims\deathpose1.kf` or
+    `deathpose2.kf` (chosen by reference) and holds its last frame, or goes straight to
+    that end pose when already dead when drawn; a skeleton without death poses freezes
+    and is laid on its back [design].
+  - Dead actors' hit volumes move to DEAD_BIP; a ragdoll's bodies take their place.
 - **Looting.** The crosshair offers **Search** on a dead actor, and activation by hand
   opens its inventory in the container menu (the dead-actor rule of
   `Game::default_activation`, now also on the by-hand path).
@@ -365,7 +368,8 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   [hypothesis: the game's unarmed weapon form]. The Fists do 0 base damage, so a punch is
   the UnarmedDamage actor value (0.5 + 0.05 × Unarmed) [documented].
 - **Knockback.** The force is computed with the documented Melee Knockback Formula and
-  logged. Actors are not pushed until they move physically (AI and ragdoll work).
+  logged. Living actors are not pushed until they move physically (AI work). A dead
+  actor's ragdoll is shoved by every shot and blow that lands on it (ragdoll.md §4).
 - **Blocking.** `damage::blocked` takes `block` (60 %) off a melee hit taken while
   blocking [design]. Nothing attacks the player yet; NPC melee (Layer 6 AI) will use it.
 - **The body.** A power attack plays `{prefix}attackpower.kf` (`1hmattackpower.kf`,

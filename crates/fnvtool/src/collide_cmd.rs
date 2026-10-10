@@ -15,6 +15,7 @@ pub fn run(cmd: CollideCmd) -> anyhow::Result<Value> {
     match cmd {
         CollideCmd::Survey { sources, schema, filter } => survey(&sources, &Schema::load_dir(&schema)?, filter.as_deref()),
         CollideCmd::Objects { archive, schema, filter } => objects(&archive, &Schema::load_dir(&schema)?, filter.as_deref()),
+        CollideCmd::Ragdoll { sources, schema, filter, summary } => ragdolls(&sources, &Schema::load_dir(&schema)?, filter.as_deref(), summary),
     }
 }
 
@@ -326,5 +327,116 @@ fn objects(archive: &std::path::Path, schema: &Schema, filter: Option<&str>) -> 
         "objects": rows,
         "phantoms": phantoms,
         "skipped": skipped,
+    }))
+}
+
+/// The jointed bodies of every mesh that has constraints (fnv.collide.ragdoll/1,
+/// docs/spec-notes/ragdoll.md §5): observational, not a lab scenario.
+fn ragdolls(sources: &[std::path::PathBuf], schema: &Schema, filter: Option<&str>, summary_only: bool) -> anyhow::Result<Value> {
+    use fnv_collide::ragdoll::{ragdoll, JointKind, Ragdoll};
+    let items = process(sources, &["nif"], filter, |_, data| -> Result<Ragdoll, String> {
+        let file = NifFile::parse(data, Some(schema)).map_err(|e| e.to_string())?;
+        if file.header.block_sizes.is_none() {
+            return Err(format!("no block-size table (version {})", version_string(file.header.version)));
+        }
+        let dec = Decoded::new(&file, data, schema);
+        Ok(ragdoll(&file, &dec))
+    })?;
+    let mut files = Vec::new();
+    let mut kinds: BTreeMap<String, u64> = BTreeMap::new();
+    let mut inside: BTreeMap<String, u64> = BTreeMap::new();
+    let mut flipped: BTreeMap<String, u64> = BTreeMap::new();
+    let mut gaps = Vec::new();
+    let mut stored_gaps = Vec::new();
+    let mut gaps_t = Vec::new();
+    let (mut meshes, mut bodies, mut jointed_t, mut problems) = (0u64, 0u64, 0u64, 0u64);
+    for it in &items {
+        let Ok(Ok(r)) = &it.result else { continue };
+        if r.joints.is_empty() {
+            continue;
+        }
+        meshes += 1;
+        bodies += r.bodies.len() as u64;
+        problems += r.problems.len() as u64;
+        let rest: Vec<Iso> = r.bodies.iter().map(|b| b.rest()).collect();
+        for b in &r.bodies {
+            let p = b.object.node_transform.translation;
+            stored_gaps.push((0..3).map(|i| f64::from(p[i] - b.stored.translation[i]).powi(2)).sum::<f64>().sqrt());
+        }
+        let mut rows = Vec::new();
+        for j in &r.joints {
+            let name = match j.kind {
+                JointKind::Ragdoll { .. } => "ragdoll",
+                JointKind::Hinge { limits: Some(_), .. } => "limited_hinge",
+                JointKind::Hinge { .. } => "hinge",
+                JointKind::Ball => "ball_and_socket",
+                JointKind::Spring { .. } => "stiff_spring",
+                JointKind::Other { .. } => "other",
+            };
+            let key = if j.strength.is_some() { format!("{name} (malleable)") } else { name.to_string() };
+            bump(&mut kinds, key);
+            let (a, b) = (&rest[j.a], &rest[j.b]);
+            let angles = j.angles(a, b);
+            let gap = j.pivot_gap(a, b);
+            gaps.push(f64::from(gap));
+            // The same joint read with the opposite sign of its angles: which reading
+            // puts more bind poses inside their limits says which one the data follows.
+            let mirrored = fnv_collide::ragdoll::JointAngles { cone: angles.cone, plane: -angles.plane, twist: -angles.twist };
+            if j.within(&angles, 0.02) {
+                bump(&mut inside, name);
+            }
+            if j.within(&mirrored, 0.02) {
+                bump(&mut flipped, name);
+            }
+            let transformed = r.bodies[j.a].object.body_transform != Iso::IDENTITY || r.bodies[j.b].object.body_transform != Iso::IDENTITY;
+            if transformed {
+                jointed_t += 1;
+                gaps_t.push(f64::from(gap));
+            }
+            rows.push(json!({
+                "block": j.block,
+                "a": r.bodies[j.a].object.node,
+                "b": r.bodies[j.b].object.node,
+                "joint": j.kind,
+                "max_friction": f(j.max_friction),
+                "strength": j.strength.map(f),
+                "pivot_gap": f(gap),
+                "transformed_body": transformed,
+                "bind": {"cone": f(angles.cone), "plane": f(angles.plane), "twist": f(angles.twist)},
+                "bind_within_limits": j.within(&angles, 0.02),
+            }));
+        }
+        if !summary_only {
+            files.push(json!({
+                "path": it.path,
+                "bodies": r.bodies.iter().map(|b| json!({
+                    "node": b.object.node,
+                    "layer": b.object.layer,
+                    "mass": f(b.object.mass),
+                    "friction": f(b.object.friction),
+                    "restitution": f(b.object.restitution),
+                    "linear_damping": f(b.linear_damping),
+                    "angular_damping": f(b.angular_damping),
+                })).collect::<Vec<_>>(),
+                "joints": rows,
+                "problems": r.problems,
+            }));
+        }
+    }
+    Ok(json!({
+        "format": "fnv.collide.ragdoll/1",
+        "summary": {
+            "meshes_with_joints": meshes,
+            "bodies": bodies,
+            "joints": kinds,
+            "bind_within_limits": inside,
+            "bind_within_limits_opposite_sign": flipped,
+            "joints_on_transformed_bodies": jointed_t,
+            "pivot_gap": quantiles(gaps),
+            "pivot_gap_on_transformed_bodies": quantiles(gaps_t),
+            "stored_translation_to_bind": quantiles(stored_gaps),
+            "problems": problems,
+        },
+        "files": files,
     }))
 }
