@@ -254,15 +254,13 @@ impl<'a> Game<'a> {
     // ---- how long a response lasts ---------------------------------------------------
 
     /// Seconds one response of a line lasts when `speaker` says it. **The one place a
-    /// response is timed**: SayTo, Say and conversations all come here. Without the
-    /// voice file it is the length fitted to the response text
-    /// ([`crate::game::fitted_seconds`], scripts.md §7.7); the voice workstream
-    /// (docs/design/dialogue.md step D3) replaces the body with the sound's length when
-    /// the file is found.
+    /// response is timed**: SayTo, Say and conversations all come here. It is the length
+    /// of the response's voice file in the speaker's voice when the game was given the
+    /// files ([`Game::voice`], `crate::voice`, docs/spec-notes/voice.md §8); without the
+    /// file it is the length fitted to the response text
+    /// ([`crate::game::fitted_seconds`], scripts.md §7.7).
     pub fn response_seconds(&self, speaker: FormId, info: FormId, response: usize) -> f64 {
-        let _ = speaker;
-        let chars = self.data.infos.get(&info).and_then(|d| d.response_chars.get(response)).copied().unwrap_or(0);
-        crate::game::fitted_seconds(chars)
+        self.response_seconds_as(crate::functions::base_of(self, speaker), info, response)
     }
 
     /// Seconds a whole line lasts: its responses one after another; a line without

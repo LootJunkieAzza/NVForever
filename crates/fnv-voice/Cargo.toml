@@ -1,0 +1,15 @@
+[package]
+name = "fnv-voice"
+description = "Dialogue voice files of Fallout: New Vegas: where a line's sound lives and how long it is"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fnv-esm = { path = "../fnv-esm" }
+fnv-vfs = { path = "../fnv-vfs" }
+fnv-game = { path = "../fnv-game" }
+fnv-sim = { path = "../fnv-sim" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
