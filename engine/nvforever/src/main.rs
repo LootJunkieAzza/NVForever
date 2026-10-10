@@ -314,9 +314,14 @@ struct Args {
     /// loaded around the camera, choose their package by the hour and walk to where it
     /// sends them (docs/design/actor-behaviour.md §5.4). Their clock starts at --hour
     /// and runs at --time-scale, or at --npc-timescale when the sky stands still. With
-    /// --play the choice uses the game's own state (quests, scripts).
+    /// --play the choice uses the game's own state (quests, scripts), and `all` is the
+    /// default (see --no-npc-packages).
     #[arg(long, value_delimiter = ',')]
     npc_packages: Vec<String>,
+    /// With --play: NPCs do not live by their AI packages; they stand where they are
+    /// placed, as without --play.
+    #[arg(long, requires = "play", conflicts_with = "npc_packages")]
+    no_npc_packages: bool,
     /// Game seconds per second for --npc-packages when --time-scale is 0 (the game's
     /// TimeScale is 30).
     #[arg(long, default_value_t = 30.0, requires = "npc_packages")]
@@ -580,13 +585,31 @@ fn main() -> AppExit {
     if args.follow_npc && args.npc_travel.is_empty() && args.npc_sit.is_empty() && args.npc_packages.is_empty() {
         return fail("--follow-npc needs --npc-travel, --npc-sit or --npc-packages".to_string());
     }
-    let residents = if args.npc_packages.is_empty() {
+    // In play mode every actor of the loaded cells lives by its packages unless told
+    // otherwise; the actor test aids pose the cell streamer's actors, so they keep them.
+    let mut npc_packages = args.npc_packages.clone();
+    let actor_test_aids = args.actor_pose != actors::ActorPose::Idle
+        || args.actor_pose_time.is_some()
+        || args.actor_walk_test.is_some()
+        || args.actor_turn_test.is_some()
+        || args.actor_weapon_test.is_some();
+    if args.play
+        && npc_packages.is_empty()
+        && !args.no_npc_packages
+        && !args.no_actors
+        && !actor_test_aids
+        && args.npc_travel.is_empty()
+        && args.npc_sit.is_empty()
+    {
+        npc_packages.push("all".to_string());
+    }
+    let residents = if npc_packages.is_empty() {
         None
     } else {
         // Game hours per second: the sky's rate when it runs, else the NPCs' own.
         let rate = if sky_state.time_scale > 0.0 { sky_state.time_scale as f64 } else { args.npc_timescale.max(0.0) as f64 / 3600.0 };
         let clock = residents::Clock { hour: sky_state.hour, days_passed: sky_state.days_passed, rate };
-        match residents::Residents::build(&world, &args.npc_packages, clock, args.npc_speed, args.play) {
+        match residents::Residents::build(&world, &npc_packages, clock, args.npc_speed, args.play) {
             Ok(r) => Some(r),
             Err(e) => return fail(e),
         }
