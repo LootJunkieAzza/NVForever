@@ -522,6 +522,32 @@ sessions. You already had it from an earlier playthrough.
     observation of the files only; if that is not enough to animate honestly, it stops
     at the notes and the reader. It touches the NPC side's files
     (`engine/nvforever/src/actors.rs`, `facegen.rs`) as little as the feature needs.
+36. **Dialogue screen in `--play` (#122, 2026-10-10): please play it by hand.**
+    `nvforever --data <Data> --play --cell Goodsprings`, then E on Easy Pete (or anyone
+    with a greeting); `--play --new-game` for Doc Mitchell's psych test. Keys and the
+    test aid are in `docs/design/dialogue-play.md`. Unattended runs passed (the intro
+    ends at VCG01 200 with both of Doc's conversations real; Easy Pete offers 4, 6, 5
+    choices and says goodbye), but free look while an NPC speaks and clicking choices
+    with the mouse could only be tried by hand. Decisions for you:
+    - (a) **Shift+Tab breaks a conversation off at any point** (the line is cut, no end
+      script). It is ours, a way out of a conversation the data gives no end to; it can
+      skip a quest result. Keep it, hide it behind a debug switch, or remove it?
+    - (b) **Tab says goodbye only where a Goodbye choice is offered** (so the psych
+      test cannot be left). How the original's Tab behaves is not captured.
+    - (c) **Skipping a line** (Space, Enter, E or a click) still runs its end script
+      [hypothesis].
+    - (d) **Cursor in `living` mode:** free look while the actor speaks, cursor released
+      while choosing (the view holds then). The alternative is keys-only choosing with
+      free look throughout.
+    - (e) **`--dialogue-pause original` is stricter than today's menus**, which never
+      stopped animations. Should the inventory, container and message boxes follow the
+      same switch, or stay as they are?
+    - (f) **A question asked once disappears from the list** when its line is Say Once
+      and has no choices (all of Easy Pete's did). Whether the original hides or dims
+      it needs a capture; nothing was ever shown dimmed in the runs.
+    - (g) Known rough edges: no dialogue camera and the actor does not turn to the
+      player; the panel shows neither the player's own line nor the actor's last line
+      while choosing; AI packages, when they exist, must honour the hold on travellers.
 
 ## NPC coordinator on the owner's desktop (2026-10-09)
 

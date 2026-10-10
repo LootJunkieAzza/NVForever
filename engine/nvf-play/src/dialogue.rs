@@ -1,0 +1,974 @@
+//! The dialogue screen (docs/design/dialogue.md step D4; keys, states, the test aid and
+//! the checks: docs/design/dialogue-play.md). The conversation itself is the runtime's
+//! (`fnv_game::dialogue`, docs/spec-notes/dialogue.md §4–§6): this file shows
+//! `Game::dialogue` and turns keys and clicks into `Game::choose`, `Game::skip_response`
+//! and `Game::end_dialogue`. Layout and wording are NVForever's own and plain (Layer 7
+//! builds the real interface); nothing here imitates the original's screen.
+//!
+//! - **Start.** E on an actor whose default action is to talk starts a conversation with
+//!   its greeting (`script::Runtime::talk_after`); so does a script's `Activate player`
+//!   on an actor, and scripts start conversations themselves with StartConversation. An
+//!   actor with nothing to say starts none (the line "… has nothing to say" and a log
+//!   line).
+//! - **State and pausing** (docs/design/dialogue.md, Pausing). While a conversation runs
+//!   the game is in [`PlayState::Dialogue`]. Game logic stands still as in the container
+//!   and inventory menus and under a script's message box: the player cannot move or
+//!   act, and the player's character, the physics world, the game clock, combat and
+//!   travelling NPCs ([`WorldHeld`]) hold; scripts are in menu mode by the runtime's own
+//!   rule (`Game::in_menu`: MenuMode blocks with code 1009, game time and quest delays
+//!   stand still) [owner ruling 2026-10-10: a conversation with the player pauses the
+//!   game; lines said outside one, SayTo and Say, do not]. The actor's lines go on in
+//!   real time (`Game::tick` advances them in menu mode too).
+//!   What the picture does is [`PauseMode`] (`--dialogue-pause`): `living` (the default)
+//!   keeps everything that is only presentation running (animations, wind, water, sky,
+//!   effects) and lets the player look around with the mouse while the actor speaks
+//!   ([`FreeLook`]; the cursor comes back when choices are offered); `original` stops
+//!   the virtual clock, so the picture stands still, with the cursor free throughout
+//!   [owner preference 2026-10-10 for `living`: a deliberate departure from the
+//!   original's look that keeps what scripts see]. A message box a result script shows
+//!   holds the conversation until it is answered (the runtime's rule); Esc opens the
+//!   pause menu.
+//! - **The actor speaks.** The response being said is a subtitle, "Speaker: text"
+//!   ([`subtitle`], drawn by `crate::script_hud` with the other subtitles). Space, Enter,
+//!   Activate (E) or a click skip to the next response (`Game::skip_response`).
+//! - **The player chooses.** The offered choices are listed and numbered: 1–9 pick one,
+//!   Up / Down (W / S, the mouse wheel) move the selection, Enter, Space or Activate pick
+//!   the selected one, a click picks the one under the cursor. A choice the actor has
+//!   answered before is dimmed (`Choice::darkened`); a skill or perk line carries its tag.
+//! - **Leaving.** Tab says goodbye: it picks the offered Goodbye choice, so the actor
+//!   says its goodbye line and the conversation ends as the data ends it. Without such a
+//!   choice Tab is refused (a forced conversation); Shift+Tab breaks the conversation off
+//!   at any point (`Game::end_dialogue`: the line being said is cut, no end script)
+//!   [ours: a way out of a conversation the data gives no end to; not a claim about the
+//!   original].
+//!
+//! Test aid `NVF_PLAY_TEST_TALK=<when>:<who>[=<step>|<step>…][;…]` ([`parse_talks`]):
+//! - `<when>`: seconds after the start, or `<seconds>@<quest>=<stage>` (after that stage
+//!   was first seen done), as in `NVF_PLAY_TEST_SCRIPT`;
+//! - `<who>`: a reference (Editor ID, hex FormID, `placed:<base>`) the player activates
+//!   then, wherever the crosshair is; or `*`: nothing is started, the steps answer the
+//!   next conversation that a script starts;
+//! - steps, each once the actor has finished speaking: `<n>` picks the n-th offered
+//!   choice (0-based, as `fnvtool dialogue talk`'s `index`), a topic's Editor ID or hex
+//!   FormID picks that topic, any other text picks the choice that reads so (ignoring
+//!   case; a part of it if only one choice contains it; quotes force text), `leave`
+//!   leaves as Tab does, and `skip` skips the response being said.
+//!
+//! `NVF_PLAY_TEST_TALK_DELAY=<seconds>` (default [`AID_CHOOSE_SECONDS`]) is how long the
+//! choices stay on screen before a step picks one (for screenshots).
+//!
+//! When the steps run out the aid leaves: by the Goodbye choice if one is offered, else
+//! by breaking off. **Unattended runs never wait for input**: a conversation no script
+//! answers is left the same way after [`UNATTENDED_CHOOSE_SECONDS`] of choosing, and
+//! any conversation after [`UNATTENDED_TALK_LIMIT`].
+//!
+//! Log, one line each (`dialogue: …`, [`log_event`]): a conversation started, every
+//! response said (speaker, topic, line, text), the choices offered, the choice made, a
+//! topic added, the conversation ended (reason, lines). The trace log
+//! (`NVF_PLAY_SCRIPT_TRACE`) has the same as trace events, and a `talk_input` line for
+//! each thing the player or the aid did.
+
+use crate::bindings::{Control, ControlInput};
+use crate::menu::ActiveMenu;
+use crate::pause::Paused;
+use crate::phys::PhysState;
+use crate::script::{is_script_menu, with_world, ByHand, ScriptState};
+use crate::sim::SimState;
+use crate::{PlaySet, PlayState, PlayWorld};
+use bevy::input::mouse::AccumulatedMouseScroll;
+use bevy::prelude::*;
+use fnv_game::dialogue::{Challenge, Choice};
+use fnv_game::trace::{Event, EventKind};
+use fnv_game::{Game, GameData};
+use fnv_sim::FormId;
+use std::collections::{HashMap, VecDeque};
+
+/// Choices shown at once; a longer list scrolls with the selection.
+pub const ROWS: usize = 10;
+/// Seconds the choices are on screen before the test aid picks one (so the list is
+/// drawn and logged first).
+pub const AID_CHOOSE_SECONDS: f32 = 0.25;
+/// Seconds a response is on screen before a `skip` step skips it.
+pub const AID_SKIP_SECONDS: f32 = 0.3;
+/// Unattended runs: seconds of choosing after which a conversation that no
+/// `NVF_PLAY_TEST_TALK` script answers is left.
+pub const UNATTENDED_CHOOSE_SECONDS: f32 = 1.0;
+/// Unattended runs: seconds after which any conversation is broken off (a chain of
+/// lines that never comes to a choice).
+pub const UNATTENDED_TALK_LIMIT: f32 = 600.0;
+/// Seconds a note ("cannot leave") stays on the panel.
+const NOTE_SECONDS: f32 = 3.0;
+
+// ---- the test aid's script (pure) -----------------------------------------------------
+
+/// One step of an `NVF_PLAY_TEST_TALK` script.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Step {
+    /// The n-th offered choice, 0-based.
+    Index(usize),
+    /// A topic (Editor ID or hex FormID), else the choice's text.
+    Named(String),
+    /// Skip the response being said.
+    Skip,
+    /// Leave as Tab does (the Goodbye choice), else break off.
+    Leave,
+}
+
+/// One conversation of `NVF_PLAY_TEST_TALK`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TalkScript {
+    /// Seconds after the start, or after `after`'s stage was first seen done.
+    pub at: f32,
+    pub after: Option<(String, i32)>,
+    /// The reference the player activates; `None` (`*`): the next conversation a script
+    /// starts.
+    pub who: Option<String>,
+    pub steps: Vec<Step>,
+}
+
+fn parse_step(s: &str) -> Step {
+    let quoted = s.len() >= 2 && ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')));
+    if quoted {
+        return Step::Named(s[1..s.len() - 1].to_string());
+    }
+    match s.to_ascii_lowercase().as_str() {
+        "leave" => Step::Leave,
+        "skip" => Step::Skip,
+        _ => match s.parse::<usize>() {
+            Ok(i) => Step::Index(i),
+            Err(_) => Step::Named(s.to_string()),
+        },
+    }
+}
+
+/// Parse `<when>:<who>[=<step>|<step>…]` items separated by `;` (the module notes).
+pub fn parse_talks(v: &str) -> Result<Vec<TalkScript>, String> {
+    v.split(';')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|item| {
+            let (when, rest) = item.split_once(':').ok_or_else(|| format!("{item:?}: expected <when>:<who>[=<steps>]"))?;
+            let (t, after) = match when.split_once('@') {
+                Some((t, gate)) => {
+                    let (q, s) = gate.split_once('=').ok_or_else(|| format!("{item:?}: expected <seconds>@<quest>=<stage>"))?;
+                    let s = s.trim().parse::<i32>().map_err(|_| format!("{item:?}: bad stage {s:?}"))?;
+                    (t, Some((q.trim().to_string(), s)))
+                }
+                None => (when, None),
+            };
+            let at: f32 = t.trim().parse().map_err(|_| format!("{item:?}: bad seconds {t:?}"))?;
+            let (who, steps) = rest.split_once('=').unwrap_or((rest, ""));
+            let who = who.trim();
+            if who.is_empty() {
+                return Err(format!("{item:?}: expected a reference or * before the steps"));
+            }
+            let steps = steps.split('|').map(str::trim).filter(|s| !s.is_empty()).map(parse_step).collect();
+            Ok(TalkScript { at, after, who: (who != "*").then(|| who.to_string()), steps })
+        })
+        .collect()
+}
+
+/// An offered choice as the picker and the log see it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Offer {
+    pub topic: FormId,
+    /// The topic's Editor ID.
+    pub edid: Option<String>,
+    pub text: String,
+    pub goodbye: bool,
+}
+
+fn listed(offers: &[Offer]) -> String {
+    offers.iter().enumerate().map(|(i, o)| format!("{i}) {:?} [{}]", o.text, o.edid.as_deref().unwrap_or("?"))).collect::<Vec<_>>().join("; ")
+}
+
+/// The offered choice a step names (not for `Skip` and `Leave`).
+pub fn pick(step: &Step, offers: &[Offer]) -> Result<usize, String> {
+    match step {
+        Step::Index(i) if *i < offers.len() => Ok(*i),
+        Step::Index(i) => Err(format!("no choice {i} ({} offered: {})", offers.len(), listed(offers))),
+        Step::Named(s) => {
+            if s.starts_with("0x") || s.starts_with("0X") {
+                let t: FormId = s.parse().map_err(|_| format!("bad FormID {s:?}"))?;
+                return offers.iter().position(|o| o.topic == t).ok_or_else(|| format!("topic {s} is not offered (offered: {})", listed(offers)));
+            }
+            if let Some(i) = offers.iter().position(|o| o.edid.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(s))) {
+                return Ok(i);
+            }
+            let want = s.trim().to_lowercase();
+            let text = |o: &Offer| o.text.trim().to_lowercase();
+            if let Some(i) = offers.iter().position(|o| text(o) == want) {
+                return Ok(i);
+            }
+            let part: Vec<usize> = (0..offers.len()).filter(|&i| text(&offers[i]).contains(&want)).collect();
+            match part.as_slice() {
+                [i] => Ok(*i),
+                [] => Err(format!("no offered topic or choice is {s:?} (offered: {})", listed(offers))),
+                _ => Err(format!("{s:?} is part of several choices (offered: {})", listed(offers))),
+            }
+        }
+        Step::Skip | Step::Leave => Err("not a choice".into()),
+    }
+}
+
+/// The first row shown so that `selected` is among the [`ROWS`] visible ones, moving the
+/// window (which starts at `first`) as little as possible.
+pub fn window_start(first: usize, selected: usize, len: usize) -> usize {
+    let first = first.min(len.saturating_sub(ROWS));
+    if selected < first {
+        selected
+    } else if selected >= first + ROWS {
+        selected + 1 - ROWS
+    } else {
+        first
+    }
+}
+
+/// The tag of a skill or perk line: "[Speech 40]", "[Speech 37/40]" when the player
+/// falls short, "[Speech]" when the line's conditions name no level
+/// [documented: GECK wiki Category:Dialogue "AV/Perk", as `fnv_game::dialogue::Challenge`
+/// reads it].
+pub fn challenge_tag(name: &str, needed: Option<f64>, have: Option<f64>) -> String {
+    let n = |x: f64| format!("{}", x.round() as i64);
+    match (needed, have) {
+        (Some(need), Some(have)) if have < need => format!("[{name} {}/{}]", n(have), n(need)),
+        (Some(need), _) => format!("[{name} {}]", n(need)),
+        (None, _) => format!("[{name}]"),
+    }
+}
+
+// ---- reading the conversation -----------------------------------------------------------
+
+/// The name an actor is shown by: the base form's display name, else its Editor ID.
+fn speaker_name(g: &Game, sim: &SimState, actor: FormId) -> String {
+    let base = sim.base_of(actor.0).unwrap_or(actor);
+    sim.name(base).map(str::to_string).unwrap_or_else(|| g.data.name(actor))
+}
+
+/// The subtitle of the response being said in the conversation: "Speaker: text".
+pub fn subtitle(g: &Game, sim: &SimState) -> Option<String> {
+    let c = g.dialogue.as_ref()?;
+    let l = c.line.as_ref()?;
+    let def = g.data.infos.get(&l.info)?;
+    let r = *def.response_order().get(l.response)?;
+    let text = def.responses[r].text.trim();
+    (!text.is_empty()).then(|| format!("{}: {text}", speaker_name(g, sim, c.actor)))
+}
+
+fn offers(g: &Game, choices: &[Choice]) -> Vec<Offer> {
+    choices
+        .iter()
+        .map(|c| Offer { topic: c.topic, edid: g.data.edid_of.get(&c.topic).cloned(), text: g.choice_text(c).to_string(), goodbye: c.goodbye })
+        .collect()
+}
+
+/// A row of the list: what it reads, and whether it is dimmed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Row {
+    pub index: usize,
+    pub label: String,
+    pub darkened: bool,
+}
+
+fn row_label(index: usize, text: &str, fallback: &str, tag: Option<String>) -> String {
+    let text = text.trim();
+    let text = if text.is_empty() { format!("({fallback})") } else { text.to_string() };
+    match tag {
+        Some(t) => format!("{}) {t} {text}", index + 1),
+        None => format!("{}) {text}", index + 1),
+    }
+}
+
+fn tag_of(g: &Game, sim: &SimState, c: &Challenge) -> String {
+    let name = sim.name(c.form).map(str::to_string).unwrap_or_else(|| g.data.name(c.form));
+    challenge_tag(&name, c.needed, c.have)
+}
+
+/// What the panel shows.
+#[derive(Debug, Clone, PartialEq)]
+struct View {
+    speaker: String,
+    /// The visible rows (none while the actor speaks).
+    rows: Vec<Row>,
+    above: usize,
+    below: usize,
+    hint: String,
+    note: Option<String>,
+}
+
+fn view(g: &Game, sim: &SimState, sc: &DialogueScreen) -> Option<View> {
+    let c = g.dialogue.as_ref()?;
+    // A message box or menu over the conversation takes the input: the panel goes.
+    if held(g) {
+        return None;
+    }
+    let speaker = speaker_name(g, sim, c.actor);
+    let note = sc.note.as_ref().map(|n| n.0.clone());
+    if c.line.is_some() || c.choices.is_empty() {
+        return Some(View { speaker, rows: Vec::new(), above: 0, below: 0, hint: "Space, Enter, E or click: skip    Shift+Tab: break off".into(), note });
+    }
+    let len = c.choices.len();
+    let first = window_start(sc.first, sc.selected.min(len - 1), len);
+    let end = (first + ROWS).min(len);
+    let rows = (first..end)
+        .map(|i| {
+            let ch = &c.choices[i];
+            let fallback = g.data.name(ch.topic);
+            Row { index: i, label: row_label(i, g.choice_text(ch), &fallback, ch.challenge.as_ref().map(|t| tag_of(g, sim, t))), darkened: ch.darkened }
+        })
+        .collect();
+    let leave = if c.choices.iter().any(|ch| ch.goodbye) { "Tab: goodbye" } else { "Shift+Tab: break off" };
+    Some(View { speaker, rows, above: first, below: len - end, hint: format!("1-9, Up/Down + Enter or E, click: choose    {leave}"), note })
+}
+
+// ---- the log ----------------------------------------------------------------------------
+
+/// The log lines of the conversation's trace events (called for every event
+/// `script::log_event` has no line of its own for).
+pub(crate) fn log_event(data: &GameData, e: &Event) {
+    let n = |f: FormId| data.name(f);
+    match &e.kind {
+        EventKind::DialogueStarted { actor, topic } => info!("dialogue: conversation with {} started (topic {})", n(*actor), n(*topic)),
+        EventKind::ResponseSaid { speaker, info, number, seconds, .. } => {
+            let def = data.infos.get(info);
+            let topic = def.and_then(|d| d.topic).map_or_else(|| "?".to_string(), n);
+            let (k, of) = def.map_or((0, 0), |d| (d.response_order().iter().position(|&r| d.responses[r].number == *number).map_or(0, |p| p + 1), d.responses.len()));
+            let text = def.and_then(|d| d.responses.iter().find(|r| r.number == *number)).map_or("", |r| r.text.trim());
+            info!("dialogue: {} says [{topic}] {} response {k}/{of} ({seconds:.2} s): {text:?}", n(*speaker), n(*info));
+        }
+        EventKind::ChoicesOffered { actor, choices } => {
+            let list: Vec<String> = choices
+                .iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    let marks = format!("{}{}", if c.goodbye { " (goodbye)" } else { "" }, if c.darkened { " (dimmed)" } else { "" });
+                    format!("{i}) {:?} [{}]{marks}", data.choice_text(c.topic, c.info), n(c.topic))
+                })
+                .collect();
+            info!("dialogue: {} offers {} choices: {}", n(*actor), choices.len(), list.join("; "));
+        }
+        EventKind::ChoiceMade { actor, index, topic, info } => {
+            info!("dialogue: choice {index} made: {:?} [{}], {} answers with {}", data.choice_text(*topic, *info), n(*topic), n(*actor), n(*info))
+        }
+        EventKind::TopicAdded { topic, by } => info!("dialogue: topic {} added{}", n(*topic), by.map_or_else(String::new, |b| format!(" by line {}", n(b)))),
+        EventKind::DialogueEnded { actor, reason, lines } => info!("dialogue: conversation with {} ended ({reason}, {lines} lines)", n(*actor)),
+        EventKind::NoLine { speaker, topic } => debug!("dialogue: {} has no line of {} to say", n(*speaker), n(*topic)),
+        _ => {}
+    }
+}
+
+// ---- the screen's state -----------------------------------------------------------------
+
+/// The script that answers the running conversation.
+struct Driver {
+    actor: FormId,
+    steps: VecDeque<Step>,
+}
+
+#[derive(Default)]
+struct TalkAid {
+    /// Scripts whose time has not come.
+    waiting: Vec<TalkScript>,
+    /// When each gate's stage was first seen done (seconds since the start).
+    gates: HashMap<(String, i32), f32>,
+    /// `*` scripts whose time has come, waiting for a conversation.
+    armed: VecDeque<TalkScript>,
+    driver: Option<Driver>,
+}
+
+impl TalkAid {
+    /// Move the scripts that are due out of `waiting`: `*` scripts are armed; the first
+    /// due script with a reference is returned when `start` allows one (no conversation
+    /// is running).
+    fn due(&mut self, g: &Game, now: f32, start: bool) -> Option<TalkScript> {
+        for s in &self.waiting {
+            if let Some(gate) = &s.after {
+                if !self.gates.contains_key(gate) {
+                    let done = fnv_game::runner::resolve(g, &gate.0).ok().is_some_and(|q| g.quests.get(&q).is_some_and(|s| s.stages_done.contains(&gate.1)));
+                    if done {
+                        self.gates.insert(gate.clone(), now);
+                    }
+                }
+            }
+        }
+        let gates = &self.gates;
+        let is_due = |s: &TalkScript| match &s.after {
+            None => now >= s.at,
+            Some(gate) => gates.get(gate).is_some_and(|&t| now >= t + s.at),
+        };
+        let mut named = None;
+        let mut i = 0;
+        while i < self.waiting.len() {
+            let s = &self.waiting[i];
+            if !is_due(s) || (s.who.is_some() && (!start || named.is_some())) {
+                i += 1;
+                continue;
+            }
+            let s = self.waiting.remove(i);
+            if s.who.is_some() {
+                named = Some(s);
+            } else {
+                info!("test aid NVF_PLAY_TEST_TALK: {} steps wait for the next conversation a script starts", s.steps.len());
+                self.armed.push_back(s);
+            }
+        }
+        named
+    }
+}
+
+/// The dialogue screen: the selection, the test aid and what is drawn.
+#[derive(Resource, Default)]
+pub struct DialogueScreen {
+    /// The selected choice and the first row shown.
+    selected: usize,
+    first: usize,
+    /// The offered list the selection belongs to: the actor and the lines said so far.
+    list: Option<(FormId, u32)>,
+    note: Option<(String, f32)>,
+    aid: TalkAid,
+    /// An unattended run: nobody is there to choose.
+    unattended: bool,
+    /// Seconds the choices are on screen before the aid picks (`NVF_PLAY_TEST_TALK_DELAY`).
+    aid_delay: f32,
+    /// Since when (seconds) the conversation runs, the choices are offered, and the
+    /// response (line, position) is being said.
+    talk_since: Option<f32>,
+    choosing_since: Option<f32>,
+    speaking: Option<((FormId, usize), f32)>,
+    drawn: Option<View>,
+}
+
+impl DialogueScreen {
+    fn new(talks: Vec<TalkScript>, unattended: bool) -> DialogueScreen {
+        let aid_delay = std::env::var("NVF_PLAY_TEST_TALK_DELAY").ok().and_then(|d| d.trim().parse().ok()).unwrap_or(AID_CHOOSE_SECONDS);
+        DialogueScreen { aid: TalkAid { waiting: talks, ..default() }, unattended, aid_delay, ..default() }
+    }
+
+    fn conversation_over(&mut self) {
+        if let Some(d) = self.aid.driver.take() {
+            if !d.steps.is_empty() {
+                warn!("test aid NVF_PLAY_TEST_TALK: the conversation ended with {} steps unused: {:?}", d.steps.len(), d.steps);
+            }
+        }
+        (self.selected, self.first, self.list) = (0, 0, None);
+        (self.talk_since, self.choosing_since, self.speaking, self.note) = (None, None, None, None);
+    }
+}
+
+/// What the player (or the aid) does this frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Act {
+    Choose(usize),
+    Skip,
+    /// Tab: the Goodbye choice; `force`: break off when none is offered.
+    Leave { force: bool },
+    BreakOff,
+}
+
+// ---- plugin and systems -----------------------------------------------------------------
+
+/// What a conversation with the player holds besides game logic (`nvforever
+/// --dialogue-pause`; docs/design/dialogue.md, Pausing).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PauseMode {
+    /// Only game logic stands still; the picture lives on and the player looks around
+    /// freely while the actor speaks.
+    #[default]
+    Living,
+    /// The virtual clock stops: animations, wind, water and sky stand still too.
+    Original,
+}
+
+/// A conversation with the player is open: game logic stands still. What runs only
+/// while `Playing` holds by itself; this is for what does not know the play state
+/// (nvforever's travelling NPCs).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WorldHeld(pub bool);
+
+/// The player may look around with the mouse although not `Playing`: while an actor
+/// speaks in a conversation, in [`PauseMode::Living`] (`player::mouse_look`,
+/// `player::grab_cursor`).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FreeLook(pub bool);
+
+pub struct DialoguePlugin;
+
+impl Plugin for DialoguePlugin {
+    fn build(&self, app: &mut App) {
+        let talks = match std::env::var("NVF_PLAY_TEST_TALK") {
+            Ok(v) => match parse_talks(&v) {
+                Ok(t) => {
+                    info!("test aid NVF_PLAY_TEST_TALK: {} conversation(s)", t.len());
+                    t
+                }
+                Err(e) => {
+                    warn!("NVF_PLAY_TEST_TALK: {e}");
+                    Vec::new()
+                }
+            },
+            Err(_) => Vec::new(),
+        };
+        let unattended = crate::test_aid::Unattended::from_env().0 || app.world().resource::<PlayWorld>().auto_walk > 0.0;
+        app.insert_resource(DialogueScreen::new(talks, unattended))
+            .init_resource::<PauseMode>()
+            .init_resource::<WorldHeld>()
+            .init_resource::<FreeLook>()
+            // After the keys of a script's menu (a key that answers a message box is not
+            // also a choice), before the frame's scripts (a choice's line starts in the
+            // frame it was made).
+            .add_systems(Update, input.in_set(PlaySet::Scripts).after(crate::script_hud::menu_keys).before(crate::script::run_scripts))
+            .add_systems(Update, (sync_state, draw).chain().in_set(PlaySet::Ui));
+    }
+}
+
+/// Whether a menu is open on top of the conversation (a message box a result script
+/// showed, a character-creation menu; `Game::menu`, which a conversation itself never
+/// sets): it holds the conversation's lines and takes the keys first.
+pub fn held(g: &Game) -> bool {
+    g.menu.is_some()
+}
+
+/// The test aid's due steps and the player's keys and clicks, as actions on the runtime.
+#[allow(clippy::too_many_arguments)]
+fn input(
+    keys: Res<ButtonInput<KeyCode>>,
+    controls: ControlInput,
+    scroll: Res<AccumulatedMouseScroll>,
+    time: (Res<Time>, Res<Time<Real>>),
+    state: Res<State<PlayState>>,
+    paused: Res<Paused>,
+    phys: Res<PhysState>,
+    clicks: Query<(&Interaction, &ChoiceButton), Changed<Interaction>>,
+    mut screen: ResMut<DialogueScreen>,
+    mut script: ResMut<ScriptState>,
+    mut sim: ResMut<SimState>,
+) {
+    use KeyCode::*;
+    // Like the scripts: not under the pause menu, not before the player stands in the
+    // world.
+    if paused.0 || phys.player.is_none() {
+        return;
+    }
+    let sc = &mut *screen;
+    let st = &mut *script;
+    // The scripts' clock: it goes on while `PauseMode::Original` stops the virtual one.
+    let now = time.0.elapsed_secs() + st.stopped_secs;
+    let dt = time.1.delta_secs();
+    let Some(rt) = st.rt.as_mut() else { return };
+    let mut notes: Vec<serde_json::Value> = Vec::new();
+    if let Some((_, left)) = sc.note.as_mut() {
+        *left -= dt;
+        if *left <= 0.0 {
+            sc.note = None;
+        }
+    }
+
+    // The aid's conversations whose time has come.
+    if let Some(s) = sc.aid.due(&rt.game, now, rt.game.dialogue.is_none()) {
+        let who = s.who.clone().unwrap_or_default();
+        let r = with_world(rt, &mut sim, |rt| {
+            let r = fnv_game::runner::resolve(&rt.game, &who)?;
+            rt.activate_as_player(r).map(|done| (r, done))
+        });
+        let error = match r {
+            Ok((r, ByHand::Talk)) => {
+                info!("test aid NVF_PLAY_TEST_TALK: the player activated {who} ({r}); {} steps answer the conversation", s.steps.len());
+                sc.aid.driver = rt.game.dialogue_actor().map(|actor| Driver { actor, steps: s.steps.into() });
+                None
+            }
+            Ok(_) => Some(format!("activating {who} started no conversation")),
+            Err(e) => Some(e),
+        };
+        if let Some(e) = &error {
+            warn!("test aid NVF_PLAY_TEST_TALK: {who}: {e}");
+        }
+        notes.push(serde_json::json!({"kind": "talk_input", "op": "activate", "who": who, "by": "test aid", "error": error}));
+    }
+
+    let Some(conv) = rt.game.dialogue.clone() else {
+        sc.conversation_over();
+        for n in notes {
+            st.trace_note(n);
+        }
+        return;
+    };
+    // A driver left over from another conversation is not this one's.
+    if sc.aid.driver.as_ref().is_some_and(|d| d.actor != conv.actor) {
+        sc.conversation_over();
+    }
+    if sc.aid.driver.is_none() {
+        if let Some(s) = sc.aid.armed.pop_front() {
+            info!("test aid NVF_PLAY_TEST_TALK: {} steps answer the conversation with {}", s.steps.len(), rt.game.data.name(conv.actor));
+            sc.aid.driver = Some(Driver { actor: conv.actor, steps: s.steps.into() });
+        }
+    }
+    let speaking = conv.line.as_ref().map(|l| (l.info, l.response));
+    let choosing = speaking.is_none() && !conv.choices.is_empty();
+    let key = (conv.actor, conv.lines);
+    if sc.list != Some(key) {
+        (sc.list, sc.selected, sc.first) = (Some(key), 0, 0);
+    }
+    sc.talk_since.get_or_insert(now);
+    match speaking {
+        Some(k) if sc.speaking.map(|s| s.0) != Some(k) => sc.speaking = Some((k, now)),
+        Some(_) => {}
+        None => sc.speaking = None,
+    }
+    if choosing {
+        sc.choosing_since.get_or_insert(now);
+    } else {
+        sc.choosing_since = None;
+    }
+    // A message box or menu holds the conversation and takes the keys.
+    if held(&rt.game) {
+        for n in notes {
+            st.trace_note(n);
+        }
+        return;
+    }
+    let offered = offers(&rt.game, &conv.choices);
+    let chosen_for = |since: Option<f32>, limit: f32| since.is_some_and(|t| now - t >= limit);
+
+    // The aid.
+    let mut act: Option<(Act, &'static str)> = None;
+    if let Some(d) = sc.aid.driver.as_mut() {
+        match d.steps.front().cloned() {
+            Some(Step::Skip) if speaking.is_some() => {
+                if sc.speaking.is_some_and(|(_, t)| now - t >= AID_SKIP_SECONDS) {
+                    d.steps.pop_front();
+                    act = Some((Act::Skip, "test aid"));
+                }
+            }
+            // Nothing is being said: the step is void.
+            Some(Step::Skip) => {
+                d.steps.pop_front();
+            }
+            step if choosing && chosen_for(sc.choosing_since, sc.aid_delay) => {
+                d.steps.pop_front();
+                act = Some(match step {
+                    None => {
+                        info!("test aid NVF_PLAY_TEST_TALK: no steps left: leaving the conversation");
+                        (Act::Leave { force: true }, "test aid")
+                    }
+                    Some(Step::Leave) => (Act::Leave { force: true }, "test aid"),
+                    Some(step) => match pick(&step, &offered) {
+                        Ok(i) => {
+                            info!("test aid NVF_PLAY_TEST_TALK: step {step:?} picks choice {i}");
+                            (Act::Choose(i), "test aid")
+                        }
+                        Err(e) => {
+                            warn!("test aid NVF_PLAY_TEST_TALK: step {step:?}: {e}; leaving the conversation");
+                            d.steps.clear();
+                            (Act::Leave { force: true }, "test aid")
+                        }
+                    },
+                });
+            }
+            _ => {}
+        }
+    } else if sc.unattended && choosing && chosen_for(sc.choosing_since, UNATTENDED_CHOOSE_SECONDS) {
+        info!("dialogue: unattended run and no NVF_PLAY_TEST_TALK script for this conversation: leaving it");
+        act = Some((Act::Leave { force: true }, "unattended run"));
+    }
+    if sc.unattended && chosen_for(sc.talk_since, UNATTENDED_TALK_LIMIT) {
+        warn!("dialogue: unattended run: the conversation has run for {UNATTENDED_TALK_LIMIT} s: breaking it off");
+        act = Some((Act::BreakOff, "unattended run"));
+    }
+
+    // The player.
+    if act.is_none() && *state.get() == PlayState::Dialogue {
+        let shift = keys.any_pressed([ShiftLeft, ShiftRight]);
+        let confirm = keys.any_just_pressed([Enter, NumpadEnter, Space]) || controls.just_pressed(Control::Activate);
+        if keys.just_pressed(Tab) && shift {
+            act = Some((Act::BreakOff, "Shift+Tab"));
+        } else if speaking.is_some() {
+            if confirm || controls.mouse.just_pressed(MouseButton::Left) {
+                act = Some((Act::Skip, "key or click"));
+            }
+        } else if choosing {
+            let len = conv.choices.len();
+            let digits = [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9];
+            let pads = [Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9];
+            let mut selected = sc.selected.min(len - 1);
+            let wheel = scroll.delta.y;
+            if keys.any_just_pressed([ArrowUp, KeyW]) || wheel > 0.0 {
+                selected = selected.saturating_sub(1);
+            }
+            if keys.any_just_pressed([ArrowDown, KeyS]) || wheel < 0.0 {
+                selected = (selected + 1).min(len - 1);
+            }
+            let mut clicked = None;
+            for (i, b) in &clicks {
+                match i {
+                    Interaction::Pressed => clicked = Some(b.0),
+                    Interaction::Hovered => selected = b.0.min(len - 1),
+                    Interaction::None => {}
+                }
+            }
+            sc.selected = selected;
+            sc.first = window_start(sc.first, selected, len);
+            if let Some(i) = (0..9).find(|&i| keys.just_pressed(digits[i]) || keys.just_pressed(pads[i])).filter(|&i| i < len) {
+                act = Some((Act::Choose(i), "number key"));
+            } else if let Some(i) = clicked.filter(|&i| i < len) {
+                act = Some((Act::Choose(i), "click"));
+            } else if confirm {
+                act = Some((Act::Choose(selected), "Enter"));
+            } else if keys.just_pressed(Tab) {
+                act = Some((Act::Leave { force: false }, "Tab"));
+            }
+        }
+    }
+
+    if let Some((act, by)) = act {
+        // Tab is the Goodbye choice when one is offered.
+        let goodbye = offered.iter().position(|o| o.goodbye);
+        let act = match (act, goodbye) {
+            (Act::Leave { .. }, Some(i)) => Act::Choose(i),
+            (Act::Leave { force: true }, None) => Act::BreakOff,
+            (a, _) => a,
+        };
+        let (op, index, error) = with_world(rt, &mut sim, |rt| {
+            rt.player_action(|g| match act {
+                Act::Choose(i) => ("choose", Some(i), g.choose(i).err()),
+                Act::Skip => ("skip", None, (!g.skip_response()).then(|| "nothing to skip".to_string())),
+                Act::BreakOff => ("break_off", None, (!g.end_dialogue()).then(|| "no conversation".to_string())),
+                Act::Leave { .. } => ("leave", None, Some("this conversation offers no goodbye".to_string())),
+            })
+        });
+        match (&error, act) {
+            (Some(e), Act::Leave { .. }) => {
+                info!("dialogue: Tab refused: {e}");
+                sc.note = Some(("You cannot leave this conversation yet (Shift+Tab breaks it off).".into(), NOTE_SECONDS));
+            }
+            (Some(e), _) => warn!("dialogue: {op} by {by}: {e}"),
+            (None, Act::BreakOff) => info!("dialogue: the conversation is broken off ({by})"),
+            (None, _) => debug!("dialogue: {op} {index:?} by {by}"),
+        }
+        notes.push(serde_json::json!({"kind": "talk_input", "op": op, "index": index, "by": by, "error": error}));
+    }
+    for n in notes {
+        st.trace_note(n);
+    }
+}
+
+/// `PlayState::Dialogue` exactly while a conversation runs, unless an engine menu
+/// (container, inventory) or the pause menu is open. Everything that stands still in
+/// `Menu` stands still here too (it runs only while `Playing`): the player, physics, the
+/// game clock, activation, combat. Runs after `script::hold_player`
+/// (which would put the player in `Menu` for a message box): in a conversation the box
+/// is answered from the `Dialogue` state, and when the conversation ends under an open
+/// box the player goes to `Menu`.
+#[allow(clippy::too_many_arguments)]
+fn sync_state(
+    script: Option<Res<ScriptState>>,
+    active: Res<ActiveMenu>,
+    paused: Res<Paused>,
+    mode: Res<PauseMode>,
+    state: Res<State<PlayState>>,
+    mut next: ResMut<NextState<PlayState>>,
+    mut world_held: ResMut<WorldHeld>,
+    mut look: ResMut<FreeLook>,
+    mut clock: ResMut<Time<Virtual>>,
+) {
+    let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
+    let talking = game.is_some_and(|g| g.dialogue.is_some());
+    let boxed = game.and_then(|g| g.menu).is_some_and(is_script_menu);
+    let own_menu = active.0.is_some() || paused.0;
+    match (*state.get(), talking) {
+        (PlayState::Playing, true) => next.set(PlayState::Dialogue),
+        (PlayState::Menu, true) if !own_menu => next.set(PlayState::Dialogue),
+        (PlayState::Dialogue, false) => next.set(if boxed { PlayState::Menu } else { PlayState::Playing }),
+        _ => {}
+    }
+    world_held.set_if_neq(WorldHeld(talking));
+    // Free look while the actor speaks; the cursor while the player chooses or answers a
+    // message box.
+    let speaking = game.is_some_and(|g| !held(g) && g.dialogue.as_ref().is_some_and(|c| c.line.is_some()));
+    look.set_if_neq(FreeLook(*mode == PauseMode::Living && speaking && *state.get() == PlayState::Dialogue));
+    // `original`: the picture stands still with the conversation (and under the pause
+    // menu opened from it). Nothing else pauses the virtual clock.
+    let stop = *mode == PauseMode::Original && talking;
+    if clock.is_paused() != stop {
+        info!("dialogue: --dialogue-pause original: the virtual clock {}", if stop { "stops" } else { "runs again" });
+        if stop {
+            clock.pause();
+        } else {
+            clock.unpause();
+        }
+    }
+}
+
+// ---- drawing ----------------------------------------------------------------------------
+
+const PANEL: Color = Color::srgba(0.05, 0.05, 0.03, 0.90);
+/// Behind the hint while the actor speaks.
+const HINT_PANEL: Color = Color::srgba(0.05, 0.05, 0.03, 0.45);
+const TEXT: Color = Color::srgb(0.95, 0.95, 0.9);
+const DIM: Color = Color::srgb(0.55, 0.55, 0.50);
+const HINT: Color = Color::srgb(0.75, 0.75, 0.68);
+const ACCENT: Color = Color::srgb(1.0, 0.85, 0.4);
+const WARN: Color = Color::srgb(1.0, 0.45, 0.35);
+const SELECTED: Color = Color::srgba(0.30, 0.27, 0.12, 0.95);
+
+#[derive(Component)]
+struct ScreenRoot;
+
+/// A clickable choice (its index in the offered list).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ChoiceButton(pub usize);
+
+fn text(s: impl Into<String>, size: f32, color: Color) -> impl Bundle {
+    (Text::new(s), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color))
+}
+
+/// Rebuild the panel when what it shows changed; the selection is a row's background.
+fn draw(
+    mut commands: Commands,
+    script: Option<Res<ScriptState>>,
+    sim: Res<SimState>,
+    mut screen: ResMut<DialogueScreen>,
+    roots: Query<Entity, With<ScreenRoot>>,
+    mut rows: Query<(&ChoiceButton, &mut BackgroundColor)>,
+) {
+    let v = script.as_ref().and_then(|s| s.rt.as_ref()).and_then(|rt| view(&rt.game, &sim, &screen));
+    let selected = screen.selected;
+    if v != screen.drawn {
+        for e in &roots {
+            commands.entity(e).despawn();
+        }
+        if let Some(v) = &v {
+            spawn_panel(&mut commands, v, selected);
+        }
+        screen.drawn = v;
+    }
+    for (b, mut bg) in &mut rows {
+        bg.set_if_neq(BackgroundColor(if b.0 == selected { SELECTED } else { Color::NONE }));
+    }
+}
+
+fn spawn_panel(commands: &mut Commands, v: &View, selected: usize) {
+    let root = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), bottom: Val::Px(64.0), justify_content: JustifyContent::Center, ..default() };
+    commands.spawn((ScreenRoot, root, GlobalZIndex(90))).with_children(|root| {
+        let panel = Node {
+            flex_direction: FlexDirection::Column,
+            max_width: Val::Px(860.0),
+            padding: UiRect::axes(Val::Px(14.0), Val::Px(8.0)),
+            row_gap: Val::Px(3.0),
+            border: UiRect::all(Val::Px(1.0)),
+            ..default()
+        };
+        // While the actor speaks only a slim hint shows, under the subtitle.
+        let speaking = v.rows.is_empty();
+        root.spawn((panel, BackgroundColor(if speaking { HINT_PANEL } else { PANEL }), BorderColor::all(if speaking { Color::NONE } else { DIM }))).with_children(|p| {
+            if !speaking {
+                p.spawn(text(v.speaker.clone(), 19.0, ACCENT));
+                if v.above > 0 {
+                    p.spawn(text(format!("  ^ {} more", v.above), 12.0, DIM));
+                }
+                for r in &v.rows {
+                    let node = Node { padding: UiRect::axes(Val::Px(8.0), Val::Px(3.0)), ..default() };
+                    let bg = BackgroundColor(if r.index == selected { SELECTED } else { Color::NONE });
+                    p.spawn((Button, ChoiceButton(r.index), node, bg)).with_child(text(r.label.clone(), 17.0, if r.darkened { DIM } else { TEXT }));
+                }
+                if v.below > 0 {
+                    p.spawn(text(format!("  v {} more", v.below), 12.0, DIM));
+                }
+            }
+            p.spawn(text(v.hint.clone(), 13.0, HINT));
+            if let Some(n) = &v.note {
+                p.spawn(text(n.clone(), 14.0, WARN));
+            }
+        });
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn talk_scripts_parse() {
+        let t = parse_talks("8:EasyPeteRef=0|GREETING| \"what do you do\" |skip|leave; 0@VCG01=80:*=VCG01DocMitchellTopic000|0x00104C5B ;2@VCG01=115:placed:GSTrudy;3:SunnyREF=").unwrap();
+        assert_eq!(
+            t,
+            vec![
+                TalkScript {
+                    at: 8.0,
+                    after: None,
+                    who: Some("EasyPeteRef".into()),
+                    steps: vec![Step::Index(0), Step::Named("GREETING".into()), Step::Named("what do you do".into()), Step::Skip, Step::Leave],
+                },
+                TalkScript {
+                    at: 0.0,
+                    after: Some(("VCG01".into(), 80)),
+                    who: None,
+                    steps: vec![Step::Named("VCG01DocMitchellTopic000".into()), Step::Named("0x00104C5B".into())],
+                },
+                TalkScript { at: 2.0, after: Some(("VCG01".into(), 115)), who: Some("placed:GSTrudy".into()), steps: vec![] },
+                TalkScript { at: 3.0, after: None, who: Some("SunnyREF".into()), steps: vec![] },
+            ]
+        );
+        // Quotes force text: a number, a keyword.
+        assert_eq!(parse_talks("1:*='3'|\"leave\"").unwrap()[0].steps, vec![Step::Named("3".into()), Step::Named("leave".into())]);
+        assert!(parse_talks("EasyPeteRef").is_err());
+        assert!(parse_talks("x:EasyPeteRef").is_err());
+        assert!(parse_talks("3:=0").is_err());
+        assert!(parse_talks("3@VCG01:EasyPeteRef").is_err());
+        assert!(parse_talks("").unwrap().is_empty());
+    }
+
+    fn offer(topic: u32, edid: &str, text: &str, goodbye: bool) -> Offer {
+        Offer { topic: FormId(topic), edid: Some(edid.into()), text: text.into(), goodbye }
+    }
+
+    #[test]
+    fn a_step_picks_by_index_topic_or_text() {
+        let o = [
+            offer(0x10, "TopicWork", "What do you do here?", false),
+            offer(0x11, "TopicTown", "Tell me about the town.", false),
+            offer(0x12, "TopicTownHistory", "Tell me about the town's past.", false),
+            offer(0x13, "GOODBYE", "Goodbye.", true),
+        ];
+        assert_eq!(pick(&Step::Index(2), &o), Ok(2));
+        assert!(pick(&Step::Index(4), &o).is_err());
+        // A topic by Editor ID (any case) or FormID.
+        assert_eq!(pick(&Step::Named("topictown".into()), &o), Ok(1));
+        assert_eq!(pick(&Step::Named("0x00000012".into()), &o), Ok(2));
+        assert!(pick(&Step::Named("0x00000099".into()), &o).is_err());
+        // Text: the whole of it, else a part only one choice has.
+        assert_eq!(pick(&Step::Named("goodbye.".into()), &o), Ok(3));
+        assert_eq!(pick(&Step::Named("what do you do".into()), &o), Ok(0));
+        assert_eq!(pick(&Step::Named("town's past".into()), &o), Ok(2));
+        let several = pick(&Step::Named("tell me about".into()), &o).unwrap_err();
+        assert!(several.contains("several") && several.contains("TopicTownHistory"), "{several}");
+        assert!(pick(&Step::Named("caps".into()), &o).unwrap_err().contains("offered"));
+        assert!(pick(&Step::Leave, &o).is_err());
+        assert!(pick(&Step::Index(0), &[]).is_err());
+    }
+
+    #[test]
+    fn the_list_scrolls_with_the_selection() {
+        // A short list never scrolls.
+        assert_eq!(window_start(0, 3, 5), 0);
+        assert_eq!(window_start(4, 3, 5), 0);
+        // Fourteen choices, ten rows: the window follows the selection down and up.
+        assert_eq!(window_start(0, 9, 14), 0);
+        assert_eq!(window_start(0, 10, 14), 1);
+        assert_eq!(window_start(1, 13, 14), 4);
+        assert_eq!(window_start(4, 6, 14), 4);
+        assert_eq!(window_start(4, 3, 14), 3);
+        assert_eq!(window_start(9, 13, 14), 4);
+    }
+
+    #[test]
+    fn rows_and_tags_read_as_documented() {
+        assert_eq!(challenge_tag("Speech", Some(40.0), Some(52.0)), "[Speech 40]");
+        assert_eq!(challenge_tag("Speech", Some(40.0), Some(37.0)), "[Speech 37/40]");
+        assert_eq!(challenge_tag("Speech", Some(40.0), None), "[Speech 40]");
+        assert_eq!(challenge_tag("Terrifying Presence", None, None), "[Terrifying Presence]");
+        assert_eq!(row_label(0, " Goodbye. ", "GOODBYE", None), "1) Goodbye.");
+        assert_eq!(row_label(2, "Trust me", "TopicSkill", Some("[Speech 40]".into())), "3) [Speech 40] Trust me");
+        // A topic without a name still shows something to pick.
+        assert_eq!(row_label(1, "", "TopicNameless", None), "2) (TopicNameless)");
+    }
+}

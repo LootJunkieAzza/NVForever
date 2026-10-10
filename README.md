@@ -9,8 +9,9 @@ the asset formats, the world renderer, the core simulation, physics and scriptin
 the whole game. `nvforever --play` lets you walk the Mojave with collision, open doors and
 containers, manage the inventory, and see quest and object scripts run. Every layer is
 checked by the parity lab against independent readers and against captures from the
-original game. Of Layers 6–7, the player's side of combat is built and dialogue is in
-progress; AI packages, the game's menus, audio and saves are not started.
+original game. Of Layers 6–7, the player's side of combat is built and you can talk to
+NPCs with their recorded voices; AI packages, the game's menus, the rest of the audio and
+saves are not started.
 
 | Layer | Scope | State |
 |---|---|---|
@@ -20,7 +21,7 @@ progress; AI packages, the game's menus, audio and saves are not started.
 | 3 | World and rendering | in progress: `nvforever` streams the world with terrain, objects, distant LOD (four levels) and distant tree billboards, SpeedTree trees, water, sky, weather and time of day, interiors with their own lighting, and NPCs and creatures with FaceGen and idle animation. Compared with the game's own screenshots: all 7 interior reference frames and 1 of 8 exterior ones meet the image threshold; exterior lighting (sunlight strength, shaded faces) and clouds are the known gaps ([docs/design/layer3.md](docs/design/layer3.md)) — 99/109 scenarios |
 | 4 | Core simulation, collision, physics, play | done apart from Layer 6 systems: headless `fnv-sim` (inventories, containers, leveled lists, locks, doors, clock, respawn, placed mines), Havok collision and a rapier3d character controller that walks, jumps, sneaks and swims like the game's captures, and `--play` (walking, doors including other worldspaces, containers, inventory, dropping, pushing clutter), played by hand with keyboard and mouse. 87/90 scenarios; the 3 misses are accepted physics residuals ([docs/design/layer4.md](docs/design/layer4.md)) |
 | 5 | Scripting | in progress: every compiled script decodes (`fnv-script`); interpreter, quests, conditions and events (`fnv-game`, 28/32 `L5` scenarios against in-game captures); scripts run in `nvforever --play`; the intro chain advances headless with stand-ins for Layer 6 ([docs/design/layer5.md](docs/design/layer5.md)) |
-| 6–7 | Gameplay (dialogue, AI, combat), UI/audio/saves | started: the player's side of combat ([docs/design/combat.md](docs/design/combat.md)); dialogue is planned and in progress ([docs/design/dialogue.md](docs/design/dialogue.md)); AI packages, the game's menus, audio and saves are not started |
+| 6–7 | Gameplay (dialogue, AI, combat), UI/audio/saves | started: the player's side of combat ([docs/design/combat.md](docs/design/combat.md)); dialogue: topics and lines read in full, conversations with the original's selection rules (headless and in `--play` with a plain dialogue screen), voice lines found for 97.3 % of responses and played; rules still to confirm against in-game captures ([docs/design/dialogue.md](docs/design/dialogue.md)); AI packages, the game's menus, the rest of the audio and saves are not started |
 
 Decisions taken by working sessions while the owner was away, and questions for the
 owner, are listed in [docs/owner-review.md](docs/owner-review.md).
