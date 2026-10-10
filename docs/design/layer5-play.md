@@ -162,7 +162,7 @@ engine does:
 | `ref_enabled` / `ref_disabled` | `RefChanged` for the reference and every reference whose enable-parent chain leads to it: visuals hide or show (`activate.rs` sync), collision goes or comes back (`phys.rs`) |
 | a reference newly marked for delete (`MarkForDelete`; no trace event, read from `Game::extra`) | the same `RefChanged` |
 | `moved` of the player (`MoveTo`) | `Travel` to the destination cell (interior or worldspace), feet at the marker, heading kept; none when the player already stands there (within 32 units, same cell) |
-| `activated` (a script's `Activate`) | the outcome read back from its JSON and turned into effects by `activate::outcome::effects`, as for E: `RefChanged`, `Travel` and `OpenContainer` when the actor is the player, the outcome's message |
+| `activated` (a script's `Activate`) | the outcome read back from its JSON and turned into effects by `activate::outcome::effects`, as for E: `RefChanged`, `Travel` and `OpenContainer` when the actor is the player, the outcome's message; an actor activated for the player is talked to instead (`Runtime::talk_after`, docs/design/dialogue-play.md) |
 | `message_shown` | a line for a message that is not a box; for a box (`MESG` "Message Box" flag or buttons) its text and buttons are kept for when the runtime's queue brings it to the front |
 | `line_started` | the line's response texts (INFO `NAM1`) are read for the subtitles |
 | `objective_displayed` / `_completed` (on), `quest_completed` / `_failed` | a line ("Objective: …", "Completed: …") |
@@ -218,6 +218,10 @@ actors yet).
   that do not answer them (the Freeside gate, Goodsprings with `--auto-walk`) are not
   held by the pack and add-on boxes [decision; owner review]; attended runs default to
   off.
+- `NVF_PLAY_TEST_TALK` (conversations: start one, choose by index, topic or text) and
+  the rule that unattended runs never wait in a conversation:
+  docs/design/dialogue-play.md §4. The `var:` step takes names with a colon
+  (`var:scripted:<SCPT>:<variable>:<value>`).
 - `NVF_PLAY_SCRIPTS=0`: no scripts (Layer 4 play exactly as before).
 - `NVF_PLAY_TEST_DROP=<seconds>:<item>:use` (menu/test_aid.rs) uses an item from the
   inventory as Enter does; with an aid item its effects start in the runtime (§2).
@@ -279,6 +283,11 @@ finished":
   `main`'s and so are the results.
 
 ### 6.2 Round 2: the new game in `--play` (2026-10-09)
+
+*Since the dialogue screen (2026-10-10) the psych test and Doc's farewell of this run are
+real conversations driven by `NVF_PLAY_TEST_TALK`; the aids as given today and the
+result are in docs/design/dialogue-play.md §5–§6. What follows is the round 2 run as it
+was, with stand-in lines.*
 
 `nvforever --data <Data> --play --new-game --run-seconds 230` with
 `NVF_PLAY_TEST_SCRIPT_MENUS=1` (every box and character-creation menu answered OK /
@@ -431,9 +440,11 @@ with identical observations with and without voice lengths.
     VCG01Test calculation, fed by test aids in §6.2.
   - A script's `DisablePlayerControls` is still not applied (the opening disables
     movement until stage 55; here only menus hold the player).
-  - Dialogue with player choices (the psych test, Doc's farewell), the couch
-    (`IsCurrentFurnitureRef`, AI) and walking are test aids in §6.2; Doc's other lines
-    are the runtime's own (`Game::say` from the quests' SayTo).
+  - Dialogue with player choices (the psych test, Doc's farewell) is played on the
+    dialogue screen since 2026-10-10 (docs/design/dialogue-play.md); the couch
+    (`IsCurrentFurnitureRef`, AI), Doc's walk to the player for the farewell and walking
+    are still test aids; Doc's other lines are the runtime's own (`Game::say` from the
+    quests' SayTo).
   - Which of OnTriggerEnter and OnTrigger runs first on the entering frame
     (level-design.md §13 question 2), whether a capsule that touches a volume without
     its axis inside fires it, and whether non-actors fire triggers without ActorZone:
