@@ -99,6 +99,11 @@ apart and the last row/column coincides with the neighbour's first.
   default). Each `ATXT` adds a layer (LTEX, quadrant, layer number) whose opacity per
   vertex is given by the following `VTXT`: a list of (position, opacity f32) where
   position indexes a 17 × 17 grid over the quadrant. LTEX names a texture set (TXST).
+  In the engine each layer is a blended mesh over the quadrant's opaque base, drawn in
+  layer order and before every other blended mesh of the world (after the sky)
+  [engine rule, `nvf_assets::nif_material::sort_first`]: a blended mesh has no depth,
+  so a layer drawn after one would paint the ground behind it over it (seen on the
+  Goodsprings corn rows, docs/spec-notes/nif.md §6 "Alpha").
 - **Alpha grid orientation** [observed]: VTXT position = row × 17 + column, rows south →
   north, columns west → east. Neighbouring quadrants share an edge of the grid; for a
   texture layered on both sides, the edge opacities agree (within 1/255) for 38,039 of
