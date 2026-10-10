@@ -268,6 +268,9 @@ kffz_candidates, actor_anim_lists}`.
   rifle holstered and drawn, standing and crouched, against the player body's (§9.3); a
   video of a walk-to-run change and of drawing a weapon while walking, for blend times
   and layering (§9.4).
+- For §9.6: third person from the side with a rifle out, looking 60° up and 60° down
+  while walking, while running and while reloading (does the body stay bent?), and
+  standing at 30° and 60° (is the bend linear in the pitch?).
 
 ## 8. "Random Anim Start" (placed models)
 
@@ -403,19 +406,89 @@ Readings used by the player body [hypothesis]:
   9mm pistol sits at the right hip and the varmint rifle across the back [observed:
   screenshots, kept privately].
 - The weapon-out stance is the type's Aim group (looped), with `aimup`/`aimdown` blended
-  in by the view's pitch, and the `AimIS` clips while aiming down the sights.
+  in by the view's pitch, and the `AimIS` clips while aiming down the sights (§9.6).
 
 ### 9.4 Blending [hypothesis]
 
 nif.xml names the fields of `NiBlendInterpolator` "Array Size", "Weight Threshold",
 "Interp Count", "Single Index", "High Priority", "Next High Priority", "Single Time",
 "High Weights Sum", "Next High Weights Sum" and "High Ease Spinner" [documented: nif.xml],
-which reads as blending by priority first, then by weight within a priority. The player
-body uses that rule per bone (`nvf_assets::anim_blend`): tracks from the highest priority
-down; equal priorities share by their clips' weights; a priority group takes at most the
-weight still free; the bind pose fills the rest. Clips fade in over their `Blend` time
-(0.2 s without one) and out over 0.2 s. Nothing here was compared with the game frame
-by frame; §7 lists the captures that could.
+which reads as blending by priority first, then by weight within a priority, with the
+weights of a priority summed (so shared in proportion) and an ease apart from the
+weights. The player body uses that rule per bone (`nvf_assets::anim_blend`):
+
+- tracks are taken from the highest priority down;
+- tracks of equal priority share by their clips' weights, whatever the weights add up
+  to (a clip alone at its priority on a bone has all of that priority's part);
+- how much of the bone a priority takes is its clips' fade (ease, 0 to 1), added up and
+  at most what the priorities above left; the bind pose fills any rest;
+- clips fade in over their `Blend` time (0.2 s without one) and out over 0.2 s; a clip
+  fading out keeps its weight, so its share shrinks with its ease only.
+
+Until 2026-10-10 a priority took its clips' weights added up instead. That is wrong for
+the Aim group, whose level clip's weight falls as the view pitches (§9.6): the arms,
+which only the level clip drives for rifles, slid to the idle pose. Nothing here was
+compared with the game frame by frame; §7 lists the captures that could.
+
+### 9.6 Aiming up and down [observed unless tagged]
+
+Measured with the diagnostic `crates/fnv-nif/examples/kf_pose_compare.rs` (clips side by
+side, bone by bone: track priority, and the rotation's angle from the first clip's at the
+clips' start) on `Fallout - Meshes.bsa` and `Update.bsa`, `meshes\characters\_male`.
+
+- Which clips have `up` and `down` forms (the same file name with `up` or `down` added,
+  after `is` for the sights form: `2hraimup.kf`, `2hraimisdown.kf`, `2hrattack8up.kf`,
+  `2hrattackleftisup.kf`, `sneak2hraimup.kf`, `sneak2hrattack8down.kf`): the Aim clips of
+  `h2h`, `1hm`, `1hp`, `2hm`, `2hr`, `2ha`, `2hl`, `2hh` (not `1gt`, `1md`, `1lm`), and
+  attack clips of the gun types (`2hr`: `attackleft`, `attackright`, `attack3`–`attack9`,
+  each also `is`; `1hp`, `2ha`, `2hl`, `2hh`: those looked for exist, `attackloop` too
+  for `1hp`, `2ha`, `2hh`). Movement, jump, equip, reload, block and melee power-attack
+  clips have none (`2hrfastforwardup.kf`, `2hrjumploopforwardup.kf`, `2hrequipup.kf`,
+  `2hrreloadaup.kf`, `2hmblockidleup.kf`, `2hmattackpowerup.kf` do not exist). The
+  first-person folder has none (§9.5).
+- An up or down form has the length, text keys and track priorities of its level clip,
+  but not always its bones:
+
+  | Type | Level clip tracks | Up/down tracks | What the up/down form drives |
+  |---|---|---|---|
+  | `2hr` aim, aim `is` | 92, 99 | 19, 18 | spine (3 bones), neck, head, pelvis, legs, `Weapon`; no arm bones |
+  | `2hr` attacks | 61–85 | 13–25 (`attack6`, `attack7`: 58, 65) | `attackleftup`: spine, pelvis; no arm bones (the others not listed bone by bone) |
+  | `2hm` aim | 69 | 12 | head and upper neck, legs; no spine, no arm bones |
+  | `1hm` aim | 67 | 15 | head and upper neck, the four arm twist bones, legs; no spine |
+  | `2ha` aim | 77 | 30 | spine, both arms, neck, head |
+  | `1hp` aim | 120 | 68 | spine, both arms, neck, head |
+  | `2hl`, `2hh`, `h2h` aim | 64, 71, 61 | 59, 60, 61 | nearly as many tracks as the level clip (`2hl`: spine and arms) |
+
+- `2hraimup.kf` and `2hraimdown.kf` turn `Bip01 Spine`, `Spine1` and `Spine2` 30.0° each
+  from their `2hraim.kf` rotations (priority 30 in all three clips) and move nothing
+  else by more than 2.1° (the head). The same 30.0° on each spine bone holds for
+  `2hraimisup`/`down` against `2hraimis` (priority 50), `2hrattackleftup`/`down` against
+  `2hrattackleft` (55) and `2hrattackleftisup` against `2hrattackleftis` (56). `2haaimup`
+  turns them 29.2°, 27.3° and 28.5°; `1hpaimup` 13.1°, 13.4° and 17.5°, with the right
+  upper arm 100° from its level pose.
+- Readings [hypothesis]:
+  - the up and down forms are the poses at the ends of the view's pitch, ±90° (three
+    times 30° for the rifle), and the game mixes level with up or down by the pitch;
+  - a bone that only the level clip drives stays with the level clip in full however
+    the three are mixed: a rifle's arms and hands are in `2hraim.kf` alone, so the
+    level clip's weight cannot be what frees a bone for the clips below (§9.4);
+  - an attack plays with its own up and down forms mixed the same way, so the body
+    stays bent while firing (the level attack clip drives the spine above the aim
+    clips' priority and would straighten it).
+- Engine (`nvforever::player_body`, third person only): level, up and down aim clips at
+  weights linear in the pitch, the level clip played even at weight 0; an attack starts
+  its up and down forms with it (`fnv_actor::player_clips::aim_variant`) at the same
+  weights. Rendered with the varmint rifle [observed: screenshots, kept privately]: at
+  45° and 80° up and down, from the hip and down the sights, and while firing 60° up and
+  45° down, both hands stay on the rifle and the rifle points along the view. Before,
+  the rifle hung from the right hand at the hip at 80° and the left arm trailed.
+- Not explained: with a rifle out and moving, the movement clip drives the spine
+  (`2hrforward.kf` 31, `2hrfastforward.kf` 36) and, running, the arms (36) above the aim
+  clips (spine 30, arms 35), and it has no up or down form. By the priorities alone the
+  body does not bend with the pitch while walking or running, and ours does not: the
+  rifle stays level. Whether the game's does is not known (owner-review.md).
+  Reloading (`2hrreloada.kf`, spine at 65, no up or down form) straightens the body in
+  ours for the same reason.
 
 ### 9.5 The first-person rig [observed unless tagged]
 

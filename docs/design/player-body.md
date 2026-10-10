@@ -129,6 +129,10 @@ Menu Mode (Tab) are read through the bindings.
 - Blending: priority first, then weight (animation.md §9.4); fades from `Blend:N` keys
   (N/30 s), 0.2 s without one, 0.2 s out. The accumulation root is held at the identity:
   root motion is the character controller's.
+- Aiming up and down (third person, animation.md §9.6): the level Aim clip always plays
+  and shares the bones it has in common with `aimup`/`aimdown` by the pitch; an attack
+  plays with its own up and down forms at the same weights. Bones only the level clip
+  drives (a rifle's arms) stay with it.
 - First person: `Bip01 Looking` turned about the actor's right axis by the pitch;
   no aim up/down blend there.
 - Weapon placement: the `Weapon` node is re-parented to the holster bone or the right
@@ -165,6 +169,15 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
   `00104184`]: a cuff on the left forearm from below the elbow to the glove, screen
   outwards and dark, the three button lights lit; in first person with the varmint
   rifle up, on the left forearm in view (it was not drawn there before).
+- Rifle hands looking up and down (2026-10-10, owner report with a game screenshot:
+  with a two-handed weapon the hands drift off it the further up or down the view
+  goes, from the hip and down the sights): the blend gave the arms to the idle as the
+  level Aim clip's weight fell (animation.md §9.4, §9.6). After the fix [observed:
+  screenshots from the side with `orbit=90:<minus the pitch>`, varmint rifle
+  `0007EA24`]: both hands on the rifle and the rifle along the view at 45° and 80° up
+  and down, down the sights at 60° up and down, and while firing at 60° up and 45° down
+  (`2hrattack8.kf` with `2hrattack8up.kf`/`down`). Walking or running with the rifle
+  out the body does not bend with the pitch (open question 5).
 
 ## 5. Open questions for the owner
 
@@ -179,3 +192,6 @@ Unattended runs with the test aids [observed: logs and screenshots kept privatel
    glow shape is hidden until it is.
 4. In-game references would settle the hypotheses of animation.md §9 (captures listed
    in its §7): holster positions, aim poses, sneak speeds sideways and backwards.
+5. Third person with a rifle out, walking and running while looking steeply up or down:
+   does the body bend so the rifle follows the view, as it does standing? Ours keeps
+   the rifle level while moving (animation.md §9.6, owner-review.md).

@@ -1473,3 +1473,40 @@ Follows item 4 of "Pale blue frames inside the ruined house in Primm" above. Bra
    Most are Fallout 3 leftovers in the archive. They are now drawn without the
    fade. If the game fades them, the rule is "the mark, or hand-set values". I know of
    no place in the base game to check one.
+
+## Both hands stay on a rifle when you look up or down (2026-10-10, session "two-hand aim")
+
+Your report: in third person with a two-handed weapon, the hands drift off the weapon
+the further up or down you look, from the hip and down the sights. Branch
+`claude/two-hand-aim`. Facts: `docs/spec-notes/animation.md` §9.4 and §9.6. Pictures
+(yours and ours, before and after): `C:\fnv-private\references\two_hand_aim\`.
+
+1. **Cause:** the game has three poses for holding a weapon out: level, fully up and
+   fully down, and mixes them by how far you look up or down. For rifles the up and
+   down poses only bend the back; the arms are in the level pose alone. Our mixing
+   turned the level pose down as you looked up, and the arms went with it, towards the
+   arms-at-the-sides idle pose. One-handed melee and two-handed melee weapons had the
+   same fault; pistols did not (their up and down poses include the arms).
+2. **Fix:** a bone that only one pose moves now stays with that pose in full. The back
+   still bends by how far you look.
+3. **Also fixed, same cause:** firing while looking up or down straightened the body
+   for the length of the shot. Each firing animation has its own up and down poses;
+   they are mixed in now.
+4. **Checked in ours** (varmint rifle, seen from the side): 45° and 80° up and down,
+   down the sights at 60° up and down, firing at 60° up and 45° down. Both hands stay
+   on the rifle and the rifle points where you look (`after_*.png`). Your game
+   screenshot shows the same pose as `after_up80.png`.
+5. **Not fixed, needs your eyes in the game:** while walking or running with a rifle
+   out, our body does not bend at all when you look up or down; the rifle stays level
+   (`after_walk_up60.png`, `after_run_up60.png`). The walking and running animations
+   take over the back, and they have no up or down poses, so I cannot tell from the
+   files what the game does. Reloading straightens the body in the same way. Please
+   look in the game, third person, rifle out:
+   - run forward while looking steeply up: does the rifle point up, or stay level?
+   - reload while looking steeply up: does the body stay bent back?
+   A screenshot of each from the side would be enough. If the game bends the body
+   while moving, I will make the up and down poses apply over movement.
+6. **A guess I kept:** that fully up and fully down mean 90°, and that the mix is even
+   in between (half way at 45°). The rifle files support 90° (the back bends three
+   times 30°). A game screenshot looking about 45° up, from the side, would check the
+   in-between.

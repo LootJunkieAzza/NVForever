@@ -7,10 +7,15 @@
 //! "Next High Priority", "High Weights Sum" and "Next High Weights Sum", which reads as
 //! priority-first blending; the details are not documented]: for each bone, the tracks of
 //! the playing clips are taken from the highest priority down. Tracks of equal priority
-//! share by their clips' weights; a priority group takes at most the weight still free
-//! (starting at 1), and lower groups get what is left; the bind pose fills any rest.
-//! Clips fade in and out by moving their weight, so a change of clip at the same
-//! priority cross-fades.
+//! share by their clips' weights, whatever those add up to: a weight says how a clip
+//! shares a bone with the others at its priority, not how much of the bone the priority
+//! takes. How much it takes is the clips' fade (their ease, 0 to 1): a priority group
+//! takes its clips' eases added up, at most what is still free (starting at 1); lower
+//! groups get what is left and the bind pose fills any rest. So a clip that is alone at
+//! its priority on a bone has all of that bone once faded in, even at a small weight
+//! [observed: the rifles' `aimup` and `aimdown` clips have no arm tracks, so the arms
+//! must stay with `aim` while its weight drops; animation.md §9.6]. Clips fade in and out
+//! by their ease, so a change of clip at the same priority cross-fades.
 //!
 //! The actor's root node is its placement and is never posed; the clips' accumulation
 //! root is held at the identity: its motion is the actor's movement, which the
@@ -52,13 +57,19 @@ pub struct Layer {
     bound: Vec<(u16, u16, i32)>,
     /// Clip time since the clip's start (Loop and Once): seconds × rate × frequency.
     pub time: f32,
+    /// The clip's share among the tracks of its priority on a bone; follows `target`
+    /// while the layer is asked for and stays as it was while the layer fades out.
     pub weight: f32,
     pub target: f32,
-    /// Seconds to fade in (from weight 0 to 1); fading out takes [`DEFAULT_FADE`].
+    /// The fade, 0 to 1: how much of a bone the layer's priority takes from those below.
+    pub ease: f32,
+    /// Seconds to fade in (ease 0 to 1); fading out takes [`DEFAULT_FADE`].
     pub fade_in: f32,
     /// Playback speed multiplier (Loop and Once).
     pub rate: f32,
     seen: bool,
+    /// Not asked for at the last [`Animator::end`]: fading out.
+    leaving: bool,
 }
 
 impl Layer {
@@ -82,7 +93,9 @@ impl Layer {
 struct Contribution {
     bone: u16,
     priority: i32,
+    /// The layer's weight × ease: its share within its priority group.
     weight: f32,
+    ease: f32,
     layer: u16,
     track: u16,
 }
@@ -121,7 +134,8 @@ impl Animator {
     }
 
     /// Keep `clip` playing in role `tag` at `weight` (starting it, faded in, if it is not
-    /// playing in that role). Returns the layer's index.
+    /// playing in that role). A weight of 0 keeps the clip on the bones it has alone at
+    /// its priority. Returns the layer's index.
     pub fn want(&mut self, clip: &Arc<Clip>, tag: u32, weight: f32, mode: Mode, fade_in: f32) -> usize {
         if let Some(i) = self.find(clip, tag) {
             let l = &mut self.layers[i];
@@ -158,28 +172,29 @@ impl Animator {
                 (!self.held.contains(&b)).then_some((b as u16, ti as u16, p))
             })
             .collect();
-        let start = if fade_in <= 0.0 { weight } else { 0.0 };
+        let ease = if fade_in <= 0.0 { 1.0 } else { 0.0 };
         self.layers.push(Layer {
             clip: clip.clone(),
             tag,
             mode,
             bound,
             time: 0.0,
-            weight: start,
+            weight,
             target: weight,
+            ease,
             fade_in,
             rate: 1.0,
             seen: true,
+            leaving: false,
         });
         self.layers.len() - 1
     }
 
-    /// End of a frame's requests (see [`Self::begin`]).
+    /// End of a frame's requests (see [`Self::begin`]): the layers not asked for fade out
+    /// from here on, keeping their weights.
     pub fn end(&mut self) {
         for l in &mut self.layers {
-            if !l.seen {
-                l.target = 0.0;
-            }
+            l.leaving = !l.seen;
         }
     }
 
@@ -188,27 +203,29 @@ impl Animator {
         self.find(clip, tag).map(|i| &self.layers[i])
     }
 
-    /// Advance weights and times by `dt` seconds; synced layers move their shared phase
-    /// at `sync_rate` times their own speed (weighted by their weights). Layers faded
-    /// out are dropped.
+    /// Advance fades, weights and times by `dt` seconds; synced layers move their shared
+    /// phase at `sync_rate` times their own speed (weighted by their shares). Layers
+    /// faded out are dropped.
     pub fn advance(&mut self, dt: f32, sync_rate: f32) {
         let (mut len_sum, mut w_sum) = (0.0, 0.0);
         for l in &mut self.layers {
-            let step = if l.target > l.weight {
-                if l.fade_in <= 0.0 { f32::INFINITY } else { dt / l.fade_in }
+            if l.leaving {
+                l.ease = (l.ease - dt / DEFAULT_FADE).max(0.0);
             } else {
-                dt / DEFAULT_FADE
-            };
-            l.weight = if l.target > l.weight { (l.weight + step).min(l.target) } else { (l.weight - step).max(l.target) };
+                let up = if l.fade_in <= 0.0 { f32::INFINITY } else { dt / l.fade_in };
+                l.ease = (l.ease + up).min(1.0);
+                l.weight = if l.target > l.weight { (l.weight + up).min(l.target) } else { (l.weight - dt / DEFAULT_FADE).max(l.target) };
+            }
             match l.mode {
                 Mode::Synced => {
-                    len_sum += l.weight * l.clip.length() / l.clip.frequency;
-                    w_sum += l.weight;
+                    let w = l.weight * l.ease;
+                    len_sum += w * l.clip.length() / l.clip.frequency;
+                    w_sum += w;
                 }
                 _ => l.time += dt * l.rate * l.clip.frequency,
             }
         }
-        self.layers.retain(|l| l.weight > 0.0 || l.target > 0.0);
+        self.layers.retain(|l| l.ease > 0.0 || !l.leaving);
         if w_sum > 1e-6 && len_sum > 1e-6 {
             self.phase = (self.phase + dt * sync_rate * w_sum / len_sum).rem_euclid(1.0);
         }
@@ -219,11 +236,11 @@ impl Animator {
         let skel = &self.skel;
         self.scratch.clear();
         for (li, l) in self.layers.iter().enumerate() {
-            if l.weight <= 0.0 {
+            if l.ease <= 0.0 {
                 continue;
             }
             for &(bone, track, priority) in &l.bound {
-                self.scratch.push(Contribution { bone, priority, weight: l.weight, layer: li as u16, track });
+                self.scratch.push(Contribution { bone, priority, weight: l.weight * l.ease, ease: l.ease, layer: li as u16, track });
             }
         }
         self.scratch.sort_unstable_by_key(|c| (c.bone, Reverse(c.priority)));
@@ -244,18 +261,20 @@ impl Animator {
                 // One priority group.
                 let p = self.scratch[i].priority;
                 let g0 = i;
-                let mut sum = 0.0;
+                let (mut sum, mut ease) = (0.0, 0.0);
                 while i < self.scratch.len() && self.scratch[i].bone as usize == bone && self.scratch[i].priority == p {
                     sum += self.scratch[i].weight;
+                    ease += self.scratch[i].ease;
                     i += 1;
                 }
-                if free <= 1e-6 || sum <= 0.0 {
+                if free <= 1e-6 {
                     continue;
                 }
-                let take = sum.min(free);
+                let take = ease.min(free);
                 free -= take;
                 for c in &self.scratch[g0..i] {
-                    let f = c.weight / sum * take;
+                    // Clips all at weight 0 share by their fades.
+                    let f = if sum > 1e-6 { c.weight / sum * take } else { c.ease / ease * take };
                     let l = &self.layers[c.layer as usize];
                     let track = &l.clip.tracks[c.track as usize].1;
                     let time = l.sample_time(phase);
@@ -371,8 +390,8 @@ mod tests {
         assert_eq!(a.locals[2].translation, Vec3::new(20.0, 0.0, 0.0), "the higher priority takes the bone");
         assert_eq!(a.locals[3].translation, Vec3::new(0.0, 10.0, 0.0), "bones it does not drive keep the base");
         assert_eq!(a.locals[1], Transform::IDENTITY, "the accumulation root is held");
-        // Half weight on top: the base fills the other half.
-        a.layers[1].weight = 0.5;
+        // Half faded in on top: the base fills the other half.
+        a.layers[1].ease = 0.5;
         a.pose();
         assert!((a.locals[2].translation.x - 15.0).abs() < 1e-5);
         // Nothing on a bone at all: its bind pose.
@@ -405,6 +424,63 @@ mod tests {
         assert_eq!(a.layers.len(), 1, "a faded-out layer is dropped");
         a.pose();
         assert_eq!(a.locals[2].translation, Vec3::new(0.0, 10.0, 0.0));
+    }
+
+    /// A rifle's aim: `level` has the spine (A) and the arms (B), `up` the spine only,
+    /// both over an idle that has both bones.
+    #[test]
+    fn a_bone_one_clip_has_alone_stays_with_it_at_any_weight() {
+        let mut a = animator();
+        let idle = clip(&[("A", [1.0, 1.0, 1.0], 10), ("B", [2.0, 2.0, 2.0], 10)], 1.0);
+        let level = clip(&[("A", [10.0, 0.0, 0.0], 30), ("B", [0.0, 10.0, 0.0], 35)], 1.0);
+        let up = clip(&[("A", [30.0, 0.0, 0.0], 30)], 1.0);
+        for (wl, wu) in [(1.0, 0.0), (0.75, 0.25), (0.25, 0.75), (0.0, 1.0)] {
+            a.begin();
+            a.want(&idle, 0, 1.0, Mode::Loop, 0.0);
+            a.want(&level, 1, wl, Mode::Loop, 0.0);
+            a.want(&up, 2, wu, Mode::Loop, 0.0);
+            a.end();
+            // Long enough for the weights to reach their targets.
+            a.advance(1.0, 1.0);
+            a.pose();
+            assert!((a.locals[2].translation.x - (10.0 * wl + 30.0 * wu)).abs() < 1e-4, "the spine shares by weight at {wl}/{wu}: {}", a.locals[2].translation);
+            assert_eq!(a.locals[3].translation, Vec3::new(0.0, 10.0, 0.0), "the arms stay with the level clip at {wl}/{wu}");
+        }
+        // Let go of both: they fade out together and the idle comes through on both bones.
+        a.begin();
+        a.want(&idle, 0, 1.0, Mode::Loop, 0.0);
+        a.end();
+        a.advance(DEFAULT_FADE * 0.75, 1.0);
+        a.pose();
+        assert!((a.locals[3].translation - Vec3::new(1.5, 4.0, 1.5)).length() < 1e-4, "{}", a.locals[3].translation);
+        a.advance(DEFAULT_FADE, 1.0);
+        a.pose();
+        assert_eq!(a.layers.len(), 1);
+        assert_eq!((a.locals[2].translation, a.locals[3].translation), (Vec3::splat(1.0), Vec3::splat(2.0)));
+    }
+
+    #[test]
+    fn a_weight_change_moves_the_share_without_a_jump() {
+        let mut a = animator();
+        let x = clip(&[("A", [10.0, 0.0, 0.0], 30)], 1.0);
+        let y = clip(&[("A", [0.0, 10.0, 0.0], 30)], 1.0);
+        let step = |a: &mut Animator, wx: f32, wy: Option<f32>, dt: f32| {
+            a.begin();
+            a.want(&x, 0, wx, Mode::Loop, DEFAULT_FADE);
+            if let Some(wy) = wy {
+                a.want(&y, 1, wy, Mode::Loop, DEFAULT_FADE);
+            }
+            a.end();
+            a.advance(dt, 1.0);
+            a.pose();
+            a.locals[2].translation
+        };
+        assert_eq!(step(&mut a, 0.5, Some(0.5), 1.0), Vec3::new(5.0, 5.0, 0.0));
+        // y is let go and x asked for in full: the next frame is still close to half and half.
+        let t = step(&mut a, 1.0, None, 0.01);
+        assert!((t.x - 5.0).abs() < 0.5 && (t.y - 5.0).abs() < 0.5, "{t}");
+        let t = step(&mut a, 1.0, None, 1.0);
+        assert_eq!(t, Vec3::new(10.0, 0.0, 0.0));
     }
 
     #[test]
