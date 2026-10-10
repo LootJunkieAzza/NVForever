@@ -94,7 +94,7 @@ struct Loaded {
     load_order: Vec<String>,
 }
 
-fn table_path(a: &ScriptArgs) -> PathBuf {
+pub(crate) fn table_path(a: &ScriptArgs) -> PathBuf {
     a.functions.clone().unwrap_or_else(|| a.schema.join("..").join("script").join("functions.json"))
 }
 

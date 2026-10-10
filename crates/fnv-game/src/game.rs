@@ -214,6 +214,9 @@ pub struct RefExtra {
     /// SetMinimalUse of a door.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub minimal_use: Option<bool>,
+    /// The actor has been in a conversation with the player (GetTalkedToPC).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub talked_to_pc: bool,
 }
 
 fn is_zero(v: &u16) -> bool {
@@ -402,6 +405,10 @@ pub mod menus {
     pub const LOVE_TESTER: u16 = 1074;
     /// The trait menu (ShowTraitMenu).
     pub const TRAITS: u16 = 1084;
+    /// The dialogue menu [documented: GECK wiki GetMenuTargetRef, owner export; not
+    /// captured]. It is not kept in `Game::menu`: a conversation does not stop game time
+    /// (`crate::dialogue`).
+    pub const DIALOGUE: u16 = crate::dialogue::DIALOGUE_MENU;
 }
 
 /// A dialogue line being said (SayTo, Say): docs/spec-notes/scripts.md §7.7.
@@ -454,8 +461,15 @@ pub struct Game<'a> {
     pub boxes: Vec<FormId>,
     /// Dialogue lines being said (SayTo, Say), one per speaker.
     pub speech: Vec<Speech>,
-    /// (speaker, line) pairs of the Say Once lines already said.
+    /// (speaker, line) pairs of the Say Once lines already said, and of every line said
+    /// in a conversation with the player (the shading of choices).
     pub said: BTreeSet<(FormId, FormId)>,
+    /// Say Once a Day lines: speaker → line → the game clock in hours when it was last
+    /// said (`crate::dialogue`).
+    pub said_day: BTreeMap<FormId, BTreeMap<FormId, f64>>,
+    /// The conversation between the player and an actor, if one is running
+    /// (`crate::dialogue`).
+    pub dialogue: Option<crate::dialogue::Conversation>,
     pub frame: u64,
     /// Game time in seconds: the frame steps that were not in a menu or a loading
     /// screen. GetSecondsPassed reads it.
@@ -506,6 +520,10 @@ pub struct GameSnapshot {
     pub speech: Vec<Speech>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub said: BTreeSet<(FormId, FormId)>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub said_day: BTreeMap<FormId, BTreeMap<FormId, f64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dialogue: Option<crate::dialogue::Conversation>,
     pub frame: u64,
     pub time: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -575,6 +593,8 @@ impl<'a> Game<'a> {
             boxes: Vec::new(),
             speech: Vec::new(),
             said: BTreeSet::new(),
+            said_day: BTreeMap::new(),
+            dialogue: None,
             frame: 0,
             time: 0.0,
             pending_onload: Vec::new(),
@@ -920,7 +940,8 @@ impl<'a> Game<'a> {
     /// (WastelandWindowScript, copying GetCurrentTime every frame) saw the new hour in
     /// the same frame, `L5.quest.script_order`, layer5-captures.md §9.3 c; hypothesis
     /// for every other pair], each in FormID order [hypothesis], then the items the
-    /// player carries, then active magic effects, then dialogue [hypothesis].
+    /// player carries, then active magic effects, then dialogue (SayTo lines, then the
+    /// conversation with the player) [hypothesis].
     ///
     /// A menu opened by a GameMode script (a message box, the name menu…) holds the
     /// GameMode scripts that have not run yet in this frame: they run, quests on their
@@ -1007,6 +1028,7 @@ impl<'a> Game<'a> {
         if !in_menu {
             self.update_effects(dt);
             self.update_speech(dt);
+            self.update_dialogue(dt);
         }
     }
 
@@ -1117,61 +1139,24 @@ impl<'a> Game<'a> {
     /// script runs when the actor starts the line, the end script when the actor finishes
     /// it].
     ///
-    /// A line can be said when its quest is running and the quest's conditions pass
-    /// [documented: GECK wiki Quest Data Tab: quest conditions apply to all of the quest's
-    /// dialogue, checked first; hypothesis: a stopped quest's lines are not said], its
-    /// own conditions pass (subject the speaker, target the listener, the player for
-    /// Say) and, with Say Once, the speaker has not said it before [documented: Category:
-    /// Dialogue]. Lines of higher-priority quests come first [documented: Quest Data
-    /// Tab], then topic order [hypothesis] [observed: Doc Mitchell's SayTo VCG01Intro
-    /// took the next unsaid line each time, also the first line of the topic when it had
-    /// never been said (stage 60 without 55), layer5-captures.md §10.3]. Random lines
-    /// are not picked at random here [hypothesis: first passing line]. A speaker already
+    /// Which line: [`Game::select_line`] (who can say a line: [`Game::can_say`]), with
+    /// the listener as the conditions' target (the player for Say): lines of
+    /// higher-priority quests first, then the stored order, the first line the speaker
+    /// can say, Random stacks apart [observed: Doc Mitchell's SayTo VCG01Intro took the
+    /// next unsaid line each time, also the first line of the topic when it had never
+    /// been said (stage 60 without 55), layer5-captures.md §10.3]. A speaker already
     /// saying a line stops it (its end script does not run) [hypothesis].
     pub fn say(&mut self, speaker: FormId, target: Option<FormId>, topic: FormId, say_to: bool) -> Option<FormId> {
         let data = self.data;
-        let mut lines: Vec<FormId> = data.topics.get(&topic).cloned().unwrap_or_default();
-        let priority = |i: &FormId| {
-            data.infos.get(i).and_then(|d| d.quest).and_then(|q| data.quests.get(&q)).map_or(0, |q| q.priority)
-        };
-        lines.sort_by_key(|i| std::cmp::Reverse(priority(i)));
         let listener = target.or(Some(FormId::PLAYER_REF));
-        let speaker_base = functions::base_of(self, speaker);
-        let mut chosen = None;
-        for i in lines {
-            let Some(def) = data.infos.get(&i) else { continue };
-            if def.say_once && self.said.contains(&(speaker, i)) {
-                continue;
-            }
-            if def.speaker.is_some_and(|s| s != speaker && Some(s) != speaker_base) {
-                continue;
-            }
-            if let Some(q) = def.quest {
-                if !self.quests.get(&q).is_some_and(|s| s.running) {
-                    continue;
-                }
-                let qc = data.quests.get(&q).map(|d| &d.conditions);
-                if let Some(c) = qc.filter(|c| !c.is_empty()) {
-                    if !self.conditions_pass(c, Some(speaker), listener, &format!("QUST {q} dialogue")) {
-                        continue;
-                    }
-                }
-            }
-            if self.conditions_pass(&def.conditions, Some(speaker), listener, &format!("INFO {i}")) {
-                chosen = Some(i);
-                break;
-            }
-        }
-        let Some(info) = chosen else {
+        let Some(info) = self.select_line(speaker, listener, topic) else {
             self.emit(EventKind::NoLine { speaker, topic });
             return None;
         };
         self.cut_line(speaker);
         let def = &data.infos[&info];
-        if def.say_once {
-            self.said.insert((speaker, info));
-        }
-        let seconds = line_seconds(&def.response_chars);
+        self.mark_said(speaker, info, false);
+        let seconds = self.line_seconds(speaker, info);
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
         self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to });
         if let Some(u) = def.begin {
@@ -1182,16 +1167,18 @@ impl<'a> Game<'a> {
     }
 
     /// Stop the line a speaker is saying, without its end script.
-    fn cut_line(&mut self, speaker: FormId) {
+    pub(crate) fn cut_line(&mut self, speaker: FormId) {
         if let Some(k) = self.speech.iter().position(|s| s.speaker == speaker) {
             let s = self.speech.remove(k);
             self.emit(EventKind::LineEnded { speaker, info: s.info, cut: true });
         }
     }
 
-    /// Whether an actor is saying a line (IsTalking).
+    /// Whether an actor is saying a line (IsTalking): a SayTo or Say line, or a line of
+    /// the conversation with the player. While the player chooses, the actor is not
+    /// talking [hypothesis].
     pub fn is_talking(&self, actor: FormId) -> bool {
-        self.speech.iter().any(|s| s.speaker == actor)
+        self.speech.iter().any(|s| s.speaker == actor) || self.dialogue.as_ref().is_some_and(|c| c.actor == actor && c.line.is_some())
     }
 
     /// One frame of dialogue (game time only, like script time [hypothesis: a line does
@@ -1407,8 +1394,8 @@ impl<'a> Game<'a> {
             let why = self.explain_conditions(&def.conditions, speaker, Some(FormId::PLAYER_REF));
             return Err(format!("the conditions of {info} do not pass: {}", why.join("; ")));
         }
-        if let (true, Some(sp)) = (def.say_once, speaker) {
-            self.said.insert((sp, info));
+        if let Some(sp) = speaker {
+            self.mark_said(sp, info, false);
         }
         for u in [def.begin, def.end].into_iter().flatten() {
             self.emit(EventKind::ResultScript { unit: data.unit(u).key(), on: speaker });
@@ -1697,7 +1684,7 @@ impl<'a> Game<'a> {
         out
     }
 
-    fn condition_value(&mut self, c: &Condition, on: Option<FormId>, label: &str) -> f64 {
+    pub(crate) fn condition_value(&mut self, c: &Condition, on: Option<FormId>, label: &str) -> f64 {
         let ctx = Ctx {
             unit: label.to_string(),
             opcode: c.opcode(),
@@ -1774,6 +1761,8 @@ impl<'a> Game<'a> {
             boxes: self.boxes.clone(),
             speech: self.speech.clone(),
             said: self.said.clone(),
+            said_day: self.said_day.clone(),
+            dialogue: self.dialogue.clone(),
             frame: self.frame,
             time: self.time,
             pending_onload: self.pending_onload.clone(),
@@ -1802,6 +1791,8 @@ impl<'a> Game<'a> {
         g.boxes = s.boxes.clone();
         g.speech = s.speech.clone();
         g.said = s.said.clone();
+        g.said_day = s.said_day.clone();
+        g.dialogue = s.dialogue.clone();
         g.frame = s.frame;
         g.time = s.time;
         g.pending_onload = s.pending_onload.clone();
@@ -1823,12 +1814,21 @@ impl<'a> Game<'a> {
 pub const LINE_BASE_SECONDS: f64 = 1.1;
 pub const LINE_SECONDS_PER_CHAR: f64 = 1.0 / 16.0;
 
-/// How long a line lasts ([`LINE_BASE_SECONDS`], [`LINE_SECONDS_PER_CHAR`]).
+/// The fitted length of one response of `chars` characters ([`LINE_BASE_SECONDS`],
+/// [`LINE_SECONDS_PER_CHAR`]). The runtime times responses through
+/// [`Game::response_seconds`] only, which falls back to this.
+pub fn fitted_seconds(chars: usize) -> f64 {
+    LINE_BASE_SECONDS + chars as f64 * LINE_SECONDS_PER_CHAR
+}
+
+/// The fitted length of a line from its responses' character counts (for callers that
+/// have no game state, such as the subtitle display; the runtime uses
+/// [`Game::line_seconds`]).
 pub fn line_seconds(response_chars: &[usize]) -> f64 {
     if response_chars.is_empty() {
-        return LINE_BASE_SECONDS;
+        return fitted_seconds(0);
     }
-    response_chars.iter().map(|&c| LINE_BASE_SECONDS + c as f64 * LINE_SECONDS_PER_CHAR).sum()
+    response_chars.iter().map(|&c| fitted_seconds(c)).sum()
 }
 
 /// An argument as trace JSON (forms by FormID, with the Editor ID when known).

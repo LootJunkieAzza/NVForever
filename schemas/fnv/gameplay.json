@@ -870,6 +870,18 @@
      "confidence": "documented",
      "note": "xEdit wbDefinitionsFNV.pas DIAL record"
     },
+    "INFC": {
+     "name": "Info Connection",
+     "type": "formid",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas DIAL record: Added Quest / Shared Infos / Shared Info (INFC, INFX pairs after a QSTI); xEdit also notes INFC/INFX with absent FormIDs and no QSTI on a few records (\"probably error in GECK\")"
+    },
+    "INFX": {
+     "name": "Info Index",
+     "type": "i32",
+     "confidence": "documented",
+     "note": "xEdit wbDefinitionsFNV.pas DIAL record: Shared Info, signed 32-bit"
+    },
     "QSTR": {
      "name": "Removed Quest",
      "type": "formid",
