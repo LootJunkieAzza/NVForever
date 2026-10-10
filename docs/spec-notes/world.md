@@ -146,6 +146,8 @@ apart and the last row/column coincides with the neighbour's first.
   the normal map's alpha is a specular mask on terrain and how the exponent is used (the
   renderer draws terrain with a constant low specular); the game's light direction on
   terrain at a given hour.
+- **Grass**: landscape textures name the grass types that grow on them (LTEX `GNAM`);
+  see grass.md.
 - **Default texture** [documented: the game's `Fallout_default.ini`,
   `SDefaultLandDiffuseTexture=DirtWasteland01.dds`]: 51,000 of 65,552 WastelandNV
   quadrants have no BTXT (most of them outside the map; cell (−14, −6) south of
