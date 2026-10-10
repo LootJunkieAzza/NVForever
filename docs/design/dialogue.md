@@ -3,7 +3,10 @@
 Status 2026-10-10: **D1 and D2 done** (branch `claude/dialogue-core`: records,
 `fnvtool dialogue`, headless conversations; facts and rules in
 docs/spec-notes/dialogue.md) and **D3 done** (branch `claude/dialogue-voice`: voice
-paths, sound lengths, playback in `--play`; docs/spec-notes/voice.md); D4 and D5 open. Owner request 2026-10-10: "now that quests have been done are we
+paths, sound lengths, playback in `--play`; docs/spec-notes/voice.md) and **D4 done**
+(branch `claude/dialogue-screen`: the dialogue screen in `--play`, the test aid
+`NVF_PLAY_TEST_TALK`, the unattended intro with real conversations;
+docs/design/dialogue-play.md; playing it by hand is the owner's); D5 open. Owner request 2026-10-10: "now that quests have been done are we
 able to work on dialogue lines".
 
 Where it sits: dialogue is Layer 6 (README; layer5.md §1 lists it with AI packages and
@@ -126,7 +129,7 @@ question and is listed in docs/owner-review.md until a capture settles it.
 | Tool | `fnvtool dialogue topics|lines|talk` (list, inspect, run a scripted conversation headless) |
 | Trace | `fnv.dialogue.trace/1`: lines said, choices offered, results run, in order |
 | Voice | a small reader giving a line's sound path and its length, usable headless and by the engine; playback in `engine/nvf-play` |
-| Screen | `engine/nvf-play/src/dialogue.rs` (new): activation of an actor opens it; subtitles, the list of choices, keyboard and mouse; test aid `NVF_PLAY_TEST_TALK` |
+| Screen | `engine/nvf-play/src/dialogue.rs` (new): activation of an actor opens it; subtitles, the list of choices, keyboard and mouse; test aid `NVF_PLAY_TEST_TALK`; keys, states and checks in docs/design/dialogue-play.md |
 
 The conversation lives in `fnv-game` with no engine types, like quests and menus, so the
 lab can run it headless.
@@ -177,3 +180,35 @@ Lip sync and facial emotion (the `.lip` files and the emotion fields are read in
 data but not used), the dialogue camera, barter and repair services, companion wheels,
 radio stations, random conversations between NPCs and combat barks. The last three need
 AI packages and detection.
+
+## 8. Pausing ("living pause")
+
+[owner ruling 2026-10-10] A conversation with the player pauses the game, as in the
+original; lines said outside one (SayTo, Say) do not. [owner preference 2026-10-10] The
+world should not *look* paused: "ideally i dont want pausing because its archaic and non
+immersive; my issue is actions or npcs outside of the dialogue interaction and script
+interactions could cause issues if the game is not paused". So game logic and
+presentation are split. This deliberately departs from the original's look while keeping
+everything a script can see.
+
+- **Frozen while a conversation is open** (so every script sees what it would in the
+  original): script time (GameMode blocks, quest timers; the runtime's menu mode,
+  `Game::in_menu`), the game clock, trigger blocks, physics, combat, scripted movement
+  (`--npc-travel` travellers hold their place and blend to their idle), and the
+  player's own movement and actions. The player cannot walk away.
+- **Running**: the conversation's lines, subtitles and voice; and everything that is
+  only presentation: actors' idle animations, wind in the trees, water, the sky's
+  clouds, rendering effects. Nothing snaps to a frozen frame when the screen opens.
+- **Looking**: the player looks around freely with the mouse while the actor speaks;
+  while choices are offered the cursor is free for clicking and the view holds.
+- **The setting**: `nvforever --play --dialogue-pause living|original`, default
+  `living`. `original` stops the picture too (Bevy's virtual clock is paused for the
+  length of the conversation; the cursor is free throughout), so the two can be
+  compared. The existing menus (inventory, container, message boxes) hold game logic
+  but have never stopped the picture, so `original` is stricter than they are.
+- **Later**: a fully live world during conversations needs AI packages and guards
+  (NPCs on schedules keep moving, events are queued for scripts, the pair cannot be
+  attacked); it is written up separately (docs/owner-review.md item 34).
+
+Engine side: docs/design/dialogue-play.md §3 (`PlayState::Dialogue`, `WorldHeld`,
+`FreeLook`, `PauseMode`).

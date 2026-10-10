@@ -369,7 +369,16 @@ All of it is in `GameSnapshot`.
   conditions are met; not yet captured]. When an Add Topics list is applied (here: when
   the line ends) stays a [hypothesis].
 - **Leaving** (`Game::end_dialogue`). The line being said is cut without its end result
-  [hypothesis]. When the game lets the player leave is the screen's business (D4).
+  [hypothesis]. When the game lets the player leave is the screen's business (D4:
+  docs/design/dialogue-play.md §2).
+- **Skipping** (`Game::skip_response`, added for the screen). The response being said
+  ends at once: the next response of the line starts, and after the last one the line
+  ends exactly as a line said to the end (end result, Add Topics, Goodbye, follow-ups,
+  choices) [hypothesis: skipping only shortens a line; the other reading, a skipped
+  line running no end script as a cut line does, would stop every quest whose stages
+  are set by end scripts whenever the player clicks through; capture question §7.8].
+  Nothing is skipped while a menu on top of the conversation holds it. No trace event
+  of its own.
 - **Not modelled:** conversations between two NPCs (the Conversation tab: HELLO, link
   to/from, GOODBYE), radio, combat and detection barks, Low/High Intelligence lines and
   the Dumb Response, the quest flag "Allow Repeated Conversation Topics", the Fallout 3

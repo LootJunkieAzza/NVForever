@@ -435,7 +435,8 @@ pub enum ScriptAid {
     Button(i32),
     /// `close`: the player closes the open menu or message box (OK / Done).
     Close,
-    /// `var:<quest or reference>:<variable>:<value>`: sets a script variable.
+    /// `var:<quest or reference>:<variable>:<value>`: sets a script variable (the name
+    /// may be `scripted:<SCPT>` or `placed:<base>`).
     Var(String, String, f64),
     /// `walk:<reference>`: the player's feet are put on the floor under the reference (a
     /// trigger volume's centre), a stand-in for walking there.
@@ -489,8 +490,9 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["info", i, sp] => ScriptAid::Info(i.to_string(), Some(sp.to_string())),
                 ["button", b] => ScriptAid::Button(int(b)?),
                 ["close"] => ScriptAid::Close,
-                ["var", of, var, value] => {
-                    ScriptAid::Var(of.to_string(), var.to_string(), value.parse().map_err(|_| format!("{rest:?}: bad value {value:?}"))?)
+                // The owner's name may hold a colon too (`var:scripted:<SCPT>:<variable>:<value>`).
+                ["var", of @ .., var, value] if !of.is_empty() => {
+                    ScriptAid::Var(of.join(":"), var.to_string(), value.parse().map_err(|_| format!("{rest:?}: bad value {value:?}"))?)
                 }
                 _ => {
                     return Err(format!(
@@ -786,6 +788,12 @@ mod tests {
                 at(2.0, ScriptAid::Info("0x001057E8".into(), Some("DocMitchellREF".into()))),
             ]
         );
+        // A variable of a reference named with a colon (the couch trigger of the opening).
+        assert_eq!(
+            parse_aids("1@VCG01=80:var:scripted:0x001055B4:bRunTimer:1").unwrap(),
+            vec![TimedAid { at: 1.0, after: Some(("VCG01".into(), 80)), aid: ScriptAid::Var("scripted:0x001055B4".into(), "bRunTimer".into(), 1.0) }]
+        );
+        assert!(parse_aids("3:var:bRunTimer:1").is_err());
         assert!(parse_aids("3:stage:VCG01").is_err());
         assert!(parse_aids("3:jump").is_err());
         assert!(parse_aids("x:start:VCG00").is_err());
