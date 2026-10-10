@@ -488,6 +488,10 @@ engine:
 
 - Semi-automatic weapons fire once per press. Automatic weapons fire at their rate while
   Use is held. Which is which comes from the WEAP flags.
+- A weapon that spins up (a minigun: its attack clip has `Fire` and `Loop` keys) fires
+  its first shot at the clip's `Fire` key, then at its rate while Use stays held;
+  letting go before that fires nothing, and every new press spins up again [owner
+  decision 2026-10-10; combat-rules.md §4].
 - Ammo comes from the inventory (`fnv-sim`); a magazine holds the clip size. Reloading
   takes the reload clip's length; a reload cancelled partway keeps the old magazine.
 - The loaded ammo is the first of the weapon's acceptable ammo list the actor carries
