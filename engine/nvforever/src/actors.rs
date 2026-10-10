@@ -167,6 +167,8 @@ pub struct ActorStats {
     pub walking: usize,
     /// NPC bodies whose skin texture was tinted with the race's body `.egt`.
     pub skins_tinted: usize,
+    /// NPCs whose hand skin texture was tinted with the hand `.egt`.
+    pub hands_tinted: usize,
     /// Placed creatures drawn, unresolved, playing their idle, without an idle.
     pub creatures: usize,
     pub creatures_unresolved: usize,
@@ -179,26 +181,59 @@ pub struct ActorStats {
     pub weapon_missing: usize,
 }
 
+/// A race skin texture and the `.egt` that tints it; `image` is made on first use.
+struct SkinTint {
+    hand: bool,
+    texture: String,
+    egt: String,
+    image: Option<Option<Handle<Image>>>,
+}
+
 /// The parts of a resolved actor ready to assemble, each with its index in `a.parts`:
 /// models loaded, textures, FaceGen, body skin and hair colour applied, the hair's hat
 /// variant chosen. Parts whose model cannot be loaded are left out (counted in `stats`).
 /// Placed NPCs and the player's body (`player_body.rs`) build their parts here.
 pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: &mut ActorStats) -> Vec<(usize, PartUse)> {
     let mut uses = Vec::with_capacity(a.parts.len());
-    // The body skin, tinted once per actor with the race's body `.egt` (actors.md §4.1).
-    let mut skin: Option<Option<Handle<Image>>> = None;
-    let skin_texture = a.body_texture.as_deref().map(fnv_vfs::texture_path);
+    // The skin textures, each tinted once per actor: the race's upper body texture with
+    // the body `.egt`, its hand texture with the hand `.egt` (the left one for both
+    // hands) [hypothesis, actors.md §4.1].
+    let fgts = a.facegen.as_ref().filter(|_| world.facegen_enabled);
+    let mut skins: Vec<SkinTint> = Vec::new();
+    if let Some(body_egt) = a.body_egt.as_deref().filter(|_| fgts.is_some()) {
+        let hand_egt = fnv_actor::resolve::hand_egt(body_egt, true);
+        for (hand, texture, egt) in [(false, &a.body_texture, Some(body_egt.to_string())), (true, &a.hand_texture, hand_egt)] {
+            if let (Some(texture), Some(egt)) = (texture.as_deref().map(fnv_vfs::texture_path), egt) {
+                skins.push(SkinTint { hand, texture, egt, image: None });
+            }
+        }
+    }
+    let pipboy = a.parts.iter().any(|p| world.actors.armors.get(&p.form).is_some_and(|ar| ar.slots & fnv_actor::resolve::slot::PIPBOY != 0));
     for (pi, p) in a.parts.iter().enumerate() {
         let Some(part) = ctx.part(&p.model) else {
             stats.parts_missing += 1;
             continue;
         };
         let mut materials: Vec<_> = part.shapes.iter().map(|s| s.material.clone()).collect();
+        // The part's texture goes on its skin shapes when it has any: the race bodies
+        // also hold the underwear, which keeps its own texture (actors.md §3.1).
+        let takes_texture = part.texture_targets();
         if let Some(t) = &p.texture {
-            for (i, s) in part.shapes.iter().enumerate() {
-                if !s.cap {
+            for (i, _) in takes_texture.iter().enumerate().filter(|(_, &takes)| takes) {
+                materials[i] = ctx.material_with_texture(&p.model, &part, i, t);
+            }
+        }
+        // A worn model's skin shapes (skin showing inside an outfit or a glove) take the
+        // race's skin texture in place of the one they name, so a ghoul's or a raider's
+        // arms are not human skin [hypothesis, actors.md §3.1].
+        let mut worn_skin: Vec<Option<&str>> = vec![None; part.shapes.len()];
+        if p.role == "armor" {
+            for (i, s) in part.shapes.iter().enumerate().filter(|(_, s)| !s.cap && s.is_skin()) {
+                let Some(t) = a.worn_skin_texture(s.base_texture()) else { continue };
+                if s.base_texture().map(fnv_vfs::texture_path) != Some(fnv_vfs::texture_path(t)) {
                     materials[i] = ctx.material_with_texture(&p.model, &part, i, t);
                 }
+                worn_skin[i] = Some(t);
             }
         }
         let mut meshes = vec![None; part.shapes.len()];
@@ -208,10 +243,7 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
             if p.role == "head:head" {
                 let base = p.texture.clone().or_else(|| part.shapes.first().and_then(|s| s.base_texture()).map(str::to_string));
                 if let Some(img) = base.and_then(|t| cache.face_texture(ctx, &p.model, &t, fg)) {
-                    for (i, s) in part.shapes.iter().enumerate() {
-                        if s.cap {
-                            continue;
-                        }
+                    for (i, _) in takes_texture.iter().enumerate().filter(|(_, &takes)| takes) {
                         if let Some(mut m) = ctx.models.materials.get(&materials[i]).cloned() {
                             m.base.base_color_texture = Some(img.clone());
                             materials[i] = ctx.models.materials.add(m);
@@ -220,19 +252,21 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
                 }
             }
         }
-        // Body skin: every shape whose diffuse is the race's upper body texture (the race
-        // body, and skin inside outfits) gets the tinted copy [hypothesis, actors.md §4.1].
-        if let (Some(egt), Some(fg), Some(want)) = (a.body_egt.as_deref(), a.facegen.as_ref().filter(|_| world.facegen_enabled), skin_texture.as_deref()) {
+        // Skin: every shape whose diffuse is one of the race's skin textures (the race
+        // body and hands, and skin inside outfits and gloves) gets the tinted copy
+        // [hypothesis, actors.md §4.1].
+        if let Some(fg) = fgts {
             for (i, s) in part.shapes.iter().enumerate() {
-                let tex = if s.cap { None } else { p.texture.as_deref().or_else(|| s.base_texture()) };
-                if !tex.is_some_and(|t| fnv_vfs::texture_path(t) == want) {
-                    continue;
-                }
+                let given = worn_skin[i].or(p.texture.as_deref().filter(|_| takes_texture[i]));
+                let tex = if s.cap { None } else { given.or_else(|| s.base_texture()) };
+                let Some(tex) = tex.map(fnv_vfs::texture_path) else { continue };
+                let Some(skin) = skins.iter_mut().find(|k| k.texture == tex) else { continue };
                 let img = skin
+                    .image
                     .get_or_insert_with(|| {
                         let mut cache = world.facegen.lock().expect("facegen cache");
-                        let img = cache.skin_texture(ctx, egt, want, fg);
-                        stats.skins_tinted += usize::from(img.is_some());
+                        let img = cache.skin_texture(ctx, &skin.egt, &skin.texture, fg);
+                        *(if skin.hand { &mut stats.hands_tinted } else { &mut stats.skins_tinted }) += usize::from(img.is_some());
                         img
                     })
                     .clone();
@@ -264,7 +298,10 @@ pub fn part_uses(a: &Appearance, world: &ActorWorld, ctx: &mut ActorCtx, stats: 
             }
         }
         // The hair model holds a `NoHat` and a `Hat` shape (actors.md §2.4).
-        let hidden_shapes = if p.role == "hair" { vec![if a.hat { "NoHat" } else { "Hat" }.to_string()] } else { Vec::new() };
+        let mut hidden_shapes = if p.role == "hair" { vec![if a.hat { "NoHat" } else { "Hat" }.to_string()] } else { Vec::new() };
+        // The Pip-Boy light's glow shows only with the light on, which is not built, and
+        // outfits hold a left sleeve for wearing a Pip-Boy and one for not (actors.md §1.2).
+        hidden_shapes.extend(part.shapes.iter().filter_map(|s| s.name.clone().filter(|n| fnv_actor::mesh::hidden_for_pipboy(n, pipboy))));
         uses.push((pi, PartUse { meshes, part, materials, hidden_shapes, by_ancestor: false }));
     }
     uses
