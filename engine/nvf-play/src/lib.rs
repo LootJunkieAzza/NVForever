@@ -8,13 +8,15 @@
 //!
 //! Layer 5 (workstream 5D, docs/design/layer5-play.md): [`script`] runs the `fnv-game`
 //! runtime (quest and object scripts, events, messages) next to the simulation.
-//! [`dialogue`] is the screen for its conversations (docs/design/dialogue-play.md).
+//! [`dialogue`] is the screen for its conversations (docs/design/dialogue-play.md);
+//! [`dialogue_look`] turns the player's view to the actor they talk to.
 
 pub mod activate;
 pub mod bindings;
 pub mod combat;
 pub mod control;
 pub mod dialogue;
+pub mod dialogue_look;
 pub mod doors;
 pub mod dropped;
 pub mod hitvol;
@@ -204,7 +206,7 @@ impl Plugin for PlayPlugin {
             .add_message::<ItemUsed>()
             .configure_sets(Update, (PlaySet::Input, PlaySet::Physics, PlaySet::Activation, PlaySet::Scripts, PlaySet::Ui, PlaySet::Sync).chain())
             .add_plugins((sim::SimPlugin, phys::PhysPlugin, player::PlayerPlugin, activate::ActivatePlugin, menu::MenuPlugin, dropped::DroppedPlugin, moved::MovedPlugin, pause::PausePlugin))
-            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, voice::VoicePlugin, loading::LoadingPlugin));
+            .add_plugins((script::ScriptPlugin, hitvol::HitVolumePlugin, combat::CombatPlugin, voice::VoicePlugin, loading::LoadingPlugin, dialogue_look::DialogueLookPlugin));
         test_aid::setup(app);
     }
 }
