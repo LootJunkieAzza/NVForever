@@ -1644,3 +1644,45 @@ slide on firing, the minigun's barrel). Branch `claude/weapon-moving-parts`. Fac
 6. **Not done:** NPCs' weapons (they do not fire or reload with animations yet, so
    there is nothing to move); shell casings and muzzle flashes; the glow on the gatling
    laser and the screens on a few energy weapons, which are other kinds of animation.
+
+## Shots leave the barrel (2026-10-10, session "muzzle")
+
+Your report: a shot looks as if it comes from the camera, not from the gun's barrel,
+and you thought something in the weapon model controls it. Both were right. Branch
+`claude/muzzle-origin` (on top of `claude/weapon-moving-parts`). Facts:
+`docs/spec-notes/animation.md` §9.9; design: `docs/design/combat.md` §5.1. Pictures:
+`C:\fnv-private\references\muzzle\`.
+
+1. **Cause:** ours started every shot, tracer and all, at the eye. That was chosen on
+   purpose for aiming (the shot goes where the crosshair is), and the plan said the
+   barrel would be used for what you see. That second half was never built.
+2. **What the model has:** guns carry an empty marker called `ProjectileNode` at the
+   end of the barrel: 198 of the 362 weapon models in the base game, none of the melee
+   weapons, grenades or mines. A silencer moves it out by the silencer's length. That
+   it marks where the shot starts is my reading of its name and place; I did not
+   check it against the game.
+3. **Fix:** the tracer and the flash now start at that marker on the gun you see, in
+   first and third person, and run to the point the crosshair is on. What gets hit is
+   decided exactly as before.
+4. **Checked in ours:** 10mm pistol in first and third person and the minigun in third
+   person. Seen from the side, the minigun's tracers fan out from the end of the
+   barrel. The log gives the barrel's position for every shot.
+5. **Added, third person only:** if something stands right in front of the barrel
+   (within about 2 metres) between it and the point you aim at (you look over a low
+   wall, the gun is behind it), the shot now hits that thing instead of passing
+   through it. This was in the plan. It is covered by a test; I did not try it at a
+   wall in a run.
+6. **For you to decide, the hit rule:** the original fires along the gun's barrel, so
+   the shot can land off the crosshair. Ours keeps the crosshair true (your earlier
+   choice for combat). If you meant the shot itself should follow the barrel, say so.
+7. **For you to decide, third person:** the view ray starts at the character's head,
+   but the camera sits over the right shoulder, so shots should land about 40 units
+   (roughly 60 cm) to the left of the crosshair dot at every distance. That figure is
+   the camera's offset in the code; I did not measure it in a run. It was like this
+   before. The fix
+   would be to aim from the camera's own line in third person; that changes where
+   shots land, so I left it.
+8. **Not done:** the game's real muzzle flash effect and light (ours draws a small
+   marker), shell casings (the models have a marker for those too), models for missiles
+   and grenades in flight, and NPCs' shots (they do not shoot yet). Weapons without the
+   marker still draw from the eye.

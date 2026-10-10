@@ -147,6 +147,8 @@ impl Animator {
     /// through a clip moves with it.
     pub fn set_extra(&mut self, extra: Vec<ExtraNode>) {
         self.extra = extra;
+        // The last pose's extra nodes were the old list's.
+        self.locals.truncate(self.skel.locals.len());
         for i in 0..self.layers.len() {
             let bound = self.bind(&self.layers[i].clip);
             self.layers[i].bound = bound;
@@ -280,6 +282,12 @@ impl Animator {
             }
         }
         best.map(|(_, v)| v)
+    }
+
+    /// Where the last [`Self::pose`] put the extra node at `k` in the list given to
+    /// [`Self::set_extra`] (its local transform); `None` before the first pose with it.
+    pub fn extra_local(&self, k: usize) -> Option<Transform> {
+        self.locals.get(self.skel.locals.len() + k).copied()
     }
 
     /// The extra nodes the last [`Self::pose`] left away from their place in their

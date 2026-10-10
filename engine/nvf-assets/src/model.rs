@@ -112,6 +112,19 @@ pub fn model_nodes(objects: &[SceneObject]) -> (Vec<ModelNode>, HashMap<usize, u
     (nodes, index)
 }
 
+/// The way down from the root to the first node with one of `names` (letter case
+/// ignored): indices into `nodes`, the named node last.
+pub fn node_path(nodes: &[ModelNode], names: &[&str]) -> Option<Vec<usize>> {
+    let mut at = nodes.iter().position(|n| n.name.as_deref().is_some_and(|x| names.iter().any(|name| x.eq_ignore_ascii_case(name))));
+    let mut path = Vec::new();
+    while let Some(i) = at {
+        path.push(i);
+        at = nodes[i].parent;
+    }
+    path.reverse();
+    (!path.is_empty()).then_some(path)
+}
+
 /// A node of a [`Rig`]; node 0 is the model root, whose own transform a placed
 /// reference replaces (so it is the identity here).
 #[derive(Debug, Clone)]
@@ -509,5 +522,9 @@ mod tests {
         assert_eq!((index[&5], index[&1], index[&6]), (0, 1, 2));
         assert_eq!(nodes[1].local.translation.x, 5.0);
         assert!(!index.contains_key(&0) && !index.contains_key(&2));
+        // The way down to a node, whatever the case of its name.
+        assert_eq!(node_path(&nodes, &["##catch"]), Some(vec![1, 2]));
+        assert_eq!(node_path(&nodes, &["Clip", "##Clip"]), Some(vec![0]));
+        assert_eq!(node_path(&nodes, &["ProjectileNode"]), None);
     }
 }
