@@ -24,7 +24,7 @@ use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use fnv_nif::anim::sequences;
-use fnv_nif::scene::{scene_objects, Decoded, SceneObject};
+use fnv_nif::scene::{scene_objects, segment_triangles, Decoded, SceneObject};
 use fnv_nif::NifFile;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -41,6 +41,10 @@ pub struct PreparedShape {
     /// [`ModelCtx::model_with_cpu`]. GPU meshes are render-world only: once uploaded,
     /// their vertex data can no longer be read from the main world.
     pub cpu: Option<Arc<Mesh>>,
+    /// The triangles of each segment of a BSSegmentedTriShape, as ranges into the mesh's
+    /// triangle list (`fnv_nif::scene::segment_triangles`); empty for other shapes. Object
+    /// LOD blocks group their triangles by cell this way (docs/spec-notes/world.md §7).
+    pub segments: Vec<std::ops::Range<usize>>,
     /// The shader property sets BSShaderFlags bit 29 "External_Emittance": a reference
     /// that names an emittance source (REFR XEMI) drives its colour.
     pub external_emittance: bool,
@@ -350,6 +354,9 @@ impl ModelCtx<'_> {
             }
             let material = self.materials.add(material);
             let cpu = keep_cpu.then(|| Arc::new(mesh.clone()));
+            // Ranges into the mesh's triangles: only when `build_mesh` kept every one.
+            let drawn = mesh.indices().map_or(0, |i| i.len() / 3);
+            let segments = segment_triangles(shape, tris).filter(|_| drawn == tris).unwrap_or_default();
             // The rig's copy of a skinned mesh carries the joint attributes; the static
             // copy draws the bind pose without them.
             let rig_skinned = match (&rig, skin) {
@@ -378,6 +385,7 @@ impl ModelCtx<'_> {
             }
             out.shapes.push(PreparedShape {
                 cpu,
+                segments,
                 mesh,
                 material,
                 transform: t,

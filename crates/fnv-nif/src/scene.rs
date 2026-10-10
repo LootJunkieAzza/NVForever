@@ -240,3 +240,52 @@ pub fn mesh_data(s: &Struct) -> MeshData {
         triangles: triangle_indices(s),
     }
 }
+
+/// The triangles of each segment of a BSSegmentedTriShape, as ranges into its triangle
+/// list of `triangles` triangles: `start_index` counts indices, three per triangle, and
+/// `num_primitives` triangles [documented: nif.xml BSGeometrySegmentData]. `None` when
+/// the shape has no segments or they do not tile the triangle list in order (each
+/// non-empty segment starting where the one before ends, all of them together covering
+/// it), as they do in all 355 object LOD block shapes of `Fallout - Meshes.bsa`
+/// [observed: `examples/lod_segment_survey.rs`].
+pub fn segment_triangles(shape: &Struct, triangles: usize) -> Option<Vec<std::ops::Range<usize>>> {
+    let mut out = Vec::new();
+    let mut next = 0;
+    for seg in shape.list("segment")? {
+        let crate::Value::Struct(seg) = seg else { return None };
+        let (start, n) = (usize::try_from(seg.int("start_index")?).ok()?, usize::try_from(seg.int("num_primitives")?).ok()?);
+        if n > 0 && start != 3 * next {
+            return None;
+        }
+        out.push(next..next + n);
+        next += n;
+    }
+    (!out.is_empty() && next == triangles).then_some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Value;
+
+    fn shape(segments: &[(i64, i64)]) -> Struct {
+        let seg = |&(start, n): &(i64, i64)| {
+            Value::Struct(Struct {
+                fields: vec![("flags".into(), Value::Int(0)), ("start_index".into(), Value::Int(start)), ("num_primitives".into(), Value::Int(n))],
+            })
+        };
+        Struct { fields: vec![("segment".into(), Value::List(segments.iter().map(seg).collect()))] }
+    }
+
+    #[test]
+    fn segments_tile_the_triangle_list() {
+        // Start indices count indices; an empty segment's start is not looked at.
+        assert_eq!(segment_triangles(&shape(&[(0, 2), (0, 0), (6, 3)]), 5), Some(vec![0..2, 2..2, 2..5]));
+        // Not a segmented shape, a gap, an overlap, triangles left over.
+        assert_eq!(segment_triangles(&Struct::default(), 5), None);
+        assert_eq!(segment_triangles(&shape(&[(0, 2), (9, 2)]), 5), None);
+        assert_eq!(segment_triangles(&shape(&[(0, 2), (3, 3)]), 5), None);
+        assert_eq!(segment_triangles(&shape(&[(0, 2), (6, 2)]), 5), None);
+        assert_eq!(segment_triangles(&shape(&[]), 0), None);
+    }
+}

@@ -707,8 +707,31 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   cell, segment i holding cell (i / 4, i mod 4) of the square (x-major): in 39 of the 40
   non-empty segments that cell holds most of the segment's triangle centres, 83% of all
   triangles (the rest belong to objects reaching into the next cell). A block has up to
-  16 segments (x−12.y0: 14, 8 of them empty). That the game hides a loaded cell's
-  segment is [hypothesis]; the renderer splits blocks by triangle centre instead (lod.rs).
+  16 segments (x−12.y0: 14, 8 of them empty).
+  Segments over all blocks [observed: `crates/fnv-nif/examples/lod_segment_survey.rs`
+  over `Fallout - Meshes.bsa`]: each of the 355 block shapes is a BSSegmentedTriShape
+  with 1 to 16 segments (216 have 16), 5,009 in all, every one with flags 0. In every
+  shape the segments tile the triangle list in order: a non-empty segment's start index
+  is three times the triangles before it (start index counts indices, the count
+  triangles [documented: nif.xml BSGeometrySegmentData]) and together they cover the
+  list. Of the 3,577 non-empty segments 3,469 have most of their triangle centres in
+  cell (i / 4, i mod 4); 393,732 of the 2,059,770 triangles (19%) have their centre in
+  another cell. No vertex is used by two segments, and of the 544,846 connected pieces
+  of geometry (triangles sharing a vertex index) 23,121 reach over more than one cell
+  and none over more than one segment: a segment holds whole objects, not the
+  triangles inside a cell's square. Block x−20.y0, segment 1 (cell (−20, 1)): 345 of
+  its 464 triangle centres lie in that cell, 74 in cell (−19, 1) and 45 in the cells
+  north of the two; cell (−20, 1) holds two cliffs flagged visible when distant
+  (NVNCliffCanyonL01 at x −78,499 and CliffVertiA2 at x −78,385 [observed: `fnvtool
+  world refs`]), 675 and 561 units west of the edge to cell (−19, 1) at x −77,824. So
+  a segment reads as the LOD of the references placed in its cell [hypothesis: only
+  this segment was compared with the references], and that the game hides a loaded
+  cell's segment is [hypothesis]. The renderer splits blocks by segment (lod.rs).
+  Splitting by triangle centre instead cut those cliffs in two with cells (−19, −3) to
+  (−15, 1) loaded: the triangles in cell (−19, 1) went, the full models of cell
+  (−20, 1) were not drawn, and the peak north-west of Goodsprings showed holes where
+  the game shows it whole [observed: owner's frames from −66,426, −3,568, 8,738,
+  2026-10-10].
   Block alpha [observed: `crates/fnv-nif/examples/lod_alpha_survey.rs` over `Fallout -
   Meshes.bsa`]: all 355 block shapes (295 of them WastelandNV's) have a
   BSShaderPPLightingProperty with BSShaderFlags2 bit 2 "LOD_Building" [documented:

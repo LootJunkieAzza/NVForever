@@ -37,8 +37,18 @@
 //! once the cell is actually loaded and has faded in (fade.rs), never ahead of it: cells
 //! stream in one per frame, and cutting the LOD for the cells merely wanted left holes at
 //! the edge of the loaded area until they arrived. In a square with loaded cells the
-//! object block is split by cell (each triangle goes to the cell holding its centre), and
-//! each cell's part crossfades with the cell; elsewhere the block is drawn whole.
+//! object block is split by cell, and each cell's part crossfades with the cell;
+//! elsewhere the block is drawn whole. The split is the block's own: its shape is a
+//! BSSegmentedTriShape whose segment i holds the objects of cell (i / 4, i mod 4) of the
+//! square, each object whole, also where it reaches into the next cell [observed: no
+//! vertex is used by two segments and none of the 544,846 connected pieces of the 355
+//! block shapes lies in two, though 23,121 reach over more than one cell; world.md §7
+//! "Objects"]. So an object's LOD goes exactly when the cell that draws its full model
+//! has loaded [hypothesis that the game hides a loaded cell's segment]. Splitting by
+//! triangle centre instead cut such objects in two at the edge of the loaded cells: the
+//! cliffs on the peak north-west of Goodsprings, placed in cell (-20, 1), lost the part
+//! inside cell (-19, 1) while their own cell was not loaded [observed: owner's frames,
+//! 2026-10-10].
 //! Blocks are alpha-tested: their atlas cuts trees, pylons and lattices out in its alpha
 //! channel, though the meshes have no NiAlphaProperty (world.md §7 "Objects"; the model
 //! loader does it for the "LOD_Building" shader flag, `nif_spawn::shape_alpha_mode`).
@@ -671,21 +681,53 @@ fn spawn_block(
     out
 }
 
-/// A square's object block split by cell: each triangle goes to the cell holding its
-/// centre (triangles reaching past the square go to the nearest edge cell).
+/// A square's object block split by cell: by the block's own segments (module docs),
+/// which keep every object whole. A shape without usable segments is split by triangle
+/// instead, each going to the cell holding its centre (triangles reaching past the
+/// square go to the nearest edge cell).
 fn split_block(model: &PreparedModel, chunk: Grid, meshes: &mut Assets<Mesh>) -> Pieces {
     let mut out: Pieces = vec![Vec::new(); CELLS];
     for s in &model.shapes {
         let Some(m) = s.cpu.as_deref() else { continue };
         let st = model.root * s.transform;
         let t = Transform::from_matrix(Mat4::from(st));
-        for (i, part) in split_by_cell(m, &st, chunk).into_iter().enumerate() {
+        let parts = split_by_segment(m, &s.segments).unwrap_or_else(|| split_by_cell(m, &st, chunk));
+        for (i, part) in parts.into_iter().enumerate() {
             if let Some(p) = part {
                 out[i].push((meshes.add(p), s.material.clone(), t));
             }
         }
     }
     out
+}
+
+/// The cell of a level-4 square (as an index into its masks) that segment `i` of its
+/// object block holds: cell (i / 4, i mod 4), x first (module docs).
+fn segment_cell(i: usize) -> usize {
+    let l = LEVEL as usize;
+    (i % l) * l + i / l
+}
+
+/// A triangle-list mesh split by its shape's segments (`segments`: triangle ranges, one
+/// per cell in [`segment_cell`] order), each part keeping only the vertices it uses.
+/// `None` when the shape has no segments, more of them than the square has cells, or
+/// they reach past the mesh's triangles.
+fn split_by_segment(mesh: &Mesh, segments: &[std::ops::Range<usize>]) -> Option<Vec<Option<Mesh>>> {
+    if segments.is_empty() || segments.len() > CELLS {
+        return None;
+    }
+    let idx: Vec<u32> = match mesh.indices()? {
+        Indices::U32(i) => i.clone(),
+        Indices::U16(i) => i.iter().map(|&v| v as u32).collect(),
+    };
+    let mut out: Vec<Option<Mesh>> = vec![None; CELLS];
+    for (i, r) in segments.iter().enumerate() {
+        let tris = idx.get(3 * r.start..3 * r.end)?;
+        if !tris.is_empty() {
+            out[segment_cell(i)] = Some(submesh(mesh, tris));
+        }
+    }
+    Some(out)
 }
 
 /// A triangle-list mesh split by the cells of `chunk` its triangles' centres fall in
@@ -965,6 +1007,43 @@ mod tests {
         assert_eq!(b.count_vertices(), 3);
         let Some(VertexAttributeValues::Float32x2(uv)) = b.attribute(Mesh::ATTRIBUTE_UV_0) else { panic!() };
         assert_eq!(uv, &vec![[4.0, 0.0], [5.0, 0.0], [6.0, 0.0]]);
+    }
+
+    #[test]
+    fn split_by_segment_keeps_objects_whole() {
+        // An object of two triangles in segment 1 (cell (0, 1)) whose second triangle lies
+        // in cell (1, 1), and a triangle in segment 6 (cell (1, 2)); segment 0 is empty.
+        let s = CELL_SIZE;
+        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+        let pos = vec![
+            [0.5 * s, 1.5 * s, 0.0],
+            [0.9 * s, 1.5 * s, 0.0],
+            [0.9 * s, 1.9 * s, 0.0],
+            [1.4 * s, 1.5 * s, 0.0],
+            [1.2 * s, 2.2 * s, 0.0],
+            [1.4 * s, 2.2 * s, 0.0],
+            [1.3 * s, 2.4 * s, 0.0],
+        ];
+        m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+        m.insert_indices(Indices::U32(vec![0, 1, 2, 1, 3, 2, 4, 5, 6]));
+        let segments = [0..0, 0..2, 2..2, 2..2, 2..2, 2..2, 2..3];
+        let parts = split_by_segment(&m, &segments).unwrap();
+        assert_eq!(parts.len(), CELLS);
+        assert_eq!(parts.iter().filter(|p| p.is_some()).count(), 2);
+        // Cell (0, 1) is bit 1 * 4 + 0, cell (1, 2) bit 2 * 4 + 1 (`chunk_bit`).
+        assert_eq!((segment_cell(1), segment_cell(6)), (4, 9));
+        assert_eq!(chunk_bit((0, 1)).1, 1 << segment_cell(1));
+        let object = parts[4].as_ref().unwrap();
+        assert_eq!((object.count_vertices(), object.indices().unwrap().len()), (4, 6));
+        assert_eq!(parts[9].as_ref().unwrap().count_vertices(), 3);
+        // By triangle centre the object is cut in two.
+        let cut = split_by_cell(&m, &Affine3A::IDENTITY, (0, 0));
+        assert_eq!(cut[4].as_ref().unwrap().indices().unwrap().len(), 3);
+        assert!(cut[5].is_some());
+        // No segments, too many, or ranges past the mesh: not split this way.
+        assert!(split_by_segment(&m, &[]).is_none());
+        assert!(split_by_segment(&m, &vec![0..0; CELLS + 1]).is_none());
+        assert!(split_by_segment(&m, std::slice::from_ref(&(0..4))).is_none());
     }
 
     fn quad(uv: bool) -> Mesh {
