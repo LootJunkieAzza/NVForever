@@ -665,6 +665,27 @@ Textures2.bsa`, `Fallout - Misc.bsa`, DLC archives]:
   triangles (the rest belong to objects reaching into the next cell). A block has up to
   16 segments (x−12.y0: 14, 8 of them empty). That the game hides a loaded cell's
   segment is [hypothesis]; the renderer splits blocks by triangle centre instead (lod.rs).
+  Block alpha [observed: `crates/fnv-nif/examples/lod_alpha_survey.rs` over `Fallout -
+  Meshes.bsa`]: all 355 block shapes (295 of them WastelandNV's) have a
+  BSShaderPPLightingProperty with BSShaderFlags2 bit 2 "LOD_Building" [documented:
+  nif.xml] and no NiAlphaProperty; no other shape in the archive sets that bit (the 2,308
+  textured terrain LOD shapes set bit 1 "LOD_Landscape"). Yet the atlas carries cut-outs:
+  `wastelandnv.buildings.dds` is 2,048 × 1,024 DXT3 with 12 mips, 14.1% of its texels at
+  alpha 0 (near black in colour: Joshua trees, palms, pylons, the water tower's legs,
+  railings), 82.4% at 255 and 3.5% between. Over the 289 WastelandNV blocks, 220,916 of
+  1,704,051 triangles sample a texel below alpha 128 and only 617 lie wholly in such
+  texels (28 samples per triangle; `fnvtool nif decode` of each block against the atlas's
+  top mip), so the alpha is a cut-out mask for geometry made for
+  it, not data left over from opaque sources. Block x−16.y−4's first trees are crossed
+  planes with a quad facing each way (four per tree, back-to-back pairs about 2 units
+  apart), so they need no two-sided drawing. The `*_lod.nif` meshes set neither LOD bit
+  and state their alpha themselves: of 758 visible shapes 612 have no NiAlphaProperty, 128
+  only test (TEST_GREATER; thresholds 128: 45, 0: 28, 160: 15, 70: 13, 64: 9, eight others
+  at most 4 each; `watertower01_lod.nif`: 127), 14 only blend and 4 do both. That the game
+  alpha-tests the blocks is [hypothesis: the owner's frame at the Goodsprings sign shows
+  the tower's legs as a lattice and trees on the hill, where drawing the block opaque gave
+  a solid tower base and black boxes]; its cutoff is not known, the renderers use alpha
+  above 128 (`engine/nvf-assets/src/nif_spawn.rs`, `shape_alpha_mode`).
 - **Settings**: `lodsettings\<world>.dlodsettings`, 24 bytes. For WastelandNV:
   u32 4, u32 32, u32 128, i16 −64, i16 −64, i16 63, i16 63, u32 4 [observed], read as
   smallest and largest level, grid size in cells, south-west and north-east cells, and

@@ -176,8 +176,11 @@ What it does now:
   geometry over cells beyond the 5 × 5 loaded square, not a fade dither: they stay with
   `--tree-distance 0`, vanish with `--no-lod` (with the hill) and with `--radius 4`, which
   draws that hill's rocks and trees as the game's `goodsprings_east` frame shows them
-  [observed 2026-10-09]. Why the block rocks render dark and boxy (block normal maps or
-  shading) is open.
+  [observed 2026-10-09]. Cause [observed 2026-10-10]: the boxes were the blocks' tree
+  cards (and the solid base under the water tower its legs) drawn opaque. The block atlas
+  cuts them out in its alpha channel, but the block meshes have no NiAlphaProperty, only
+  the "LOD_Building" shader flag; shapes with that flag are now alpha-tested (world.md §7
+  "Objects", `nvf-assets` `shape_alpha_mode`; cutoff [hypothesis]).
 - SpeedTree trees (TREE; distant ones as billboards, see Distant LOD): geometry generated from the `.spt` parameters by `fnv-spt`
   (speedtree.md §5): bark tubes with the standard material, leaf cards turned towards
   the camera by a vertex shader (tree.wgsl, also in the prepass so depth and shadows

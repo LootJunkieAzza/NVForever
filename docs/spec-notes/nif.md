@@ -290,6 +290,10 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   TEST_GREATER keeps alpha strictly above the threshold; Bevy's mask keeps alpha ≥ the
   cutoff, so the cutoff moves half a step up [hypothesis]. Order-dependent blending
   remains possible for the blended shapes.
+
+  One kind of shape is cut by alpha without a NiAlphaProperty: object LOD blocks, whose
+  shader sets BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]. The renderers
+  alpha-test those at alpha above 128 [hypothesis; evidence in world.md §7 "Objects"].
 - **Skin shader type** [observed, `crates/fnv-nif/examples/skin_survey.rs` over
   `Fallout - Meshes.bsa`]: 255 visible shapes have BSShaderPPLightingProperty shader
   type 14 (`SHADER_SKIN` [documented: nif.xml BSShaderType]); the same 255 and no others
