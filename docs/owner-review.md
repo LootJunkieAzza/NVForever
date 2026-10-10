@@ -593,19 +593,45 @@ sessions. You already had it from an earlier playthrough.
       vertex-identical to its `.tri` (same order, up to 0.53 units apart). Nothing
       changes on screen.
 
-38. **Conversation partners look at each other (your request, 2026-10-10): in progress,
-    not merged.** Branch `claude/dialogue-look`, worktree `NVForever-dialogue-look`. In
-    a back-and-forth conversation the NPC's head turns to you (a standing NPC also turns
-    its body; a sitting one turns its head only) and your view eases onto the NPC when
-    the conversation starts. Lines an NPC just says out loud turn nobody. The session
-    that started it reached its usage limit before the work reported, so its PR (if one
-    is open) is unverified and unmerged; the next session should check and merge it.
-    - **For you to confirm:** you earlier chose free look while the NPC speaks. That is
-      kept: after the opening turn you can look around during a line, and the view eases
-      back onto the NPC when the choices appear (a setting, can be turned off). Say if
-      you would rather the view stay locked on the NPC throughout.
-    - Not included: a zoom or cinematic dialogue camera, eye movement, turn-in-place
-      animations.
+38. **Conversation partners look at each other (your request, 2026-10-10): built, PR #133
+    (`claude/dialogue-facing`), waiting for the coordinator's check and merge.** In a
+    back-and-forth conversation (the dialogue screen is open) the NPC turns its head to
+    you, a standing NPC also turns its body on the spot, and your view eases onto the
+    NPC's face. Lines an NPC just says out loud turn nobody: in the unattended intro Doc
+    Mitchell's 23 spoken lines turned no one and his two conversations did. Details and
+    what the screenshots show: `docs/design/dialogue-play.md` §8. Try it:
+    `nvforever --data <Data> --play --cell Goodsprings`, walk up to Easy Pete from the
+    side or from behind and press E.
+    - **For you to confirm (free look against facing).** You earlier chose free look
+      while the NPC speaks. That is kept: your view turns to the NPC when the
+      conversation starts (0.4 s), you can then look around with the mouse during a
+      line, and the view eases back onto the NPC when the choices appear. The mouse
+      always wins: moving it during a turn stops the turn. `--no-dialogue-recentre`
+      switches the coming back off. Say if you would rather the view stay locked on the
+      NPC throughout, or never come back by itself.
+    - **How far and how fast are our own choices, not the original's.** The head turns
+      at most 60° to a side (that number is the game's own: "Tracking Max Angle" of the
+      head in `DefaultBodyPartData`) and 30° up or down; it takes 0.45 s to turn and
+      0.6 s to ease back. A body more than 30° off turns at about 150° a second and
+      **keeps facing you after the conversation**. Say if any of it looks wrong (too
+      fast, too stiff, should turn back afterwards).
+    - **Sitting NPCs.** A sitting or lying NPC is meant to turn its head only. Nothing
+      in the engine seats anyone yet (every NPC is drawn standing, Doc Mitchell during
+      the psych test included, so he turned on the spot standing by his bed), so today
+      only the hook exists (`BodyHeld`); the furniture work has to set it.
+    - **Seen and left as it is:** NPCs are still drawn where the plugins place them, so
+      a conversation a script starts from afar turns your view to where the NPC stands,
+      even through a wall (Doc Mitchell's farewell, which in the original he walks over
+      for). This goes away when AI packages move NPCs.
+    - **Not included:** the eyes do not move in the head (at 60° the face is turned to
+      you but the eyes look straight out of it); no zoom or dialogue camera (the wiki
+      export does not describe the original's; tell us what it does, or we capture it);
+      creatures, robots and talking activators do not turn; the turn animation is asked
+      for but its pace is not matched to the turn and it was not checked in a picture.
+    - `--no-dialogue-look` turns the whole thing off. With `--menu-pause original` the
+      two are facing each other at once in the frozen picture.
+    - **Please play it by hand**: the turns were checked in screenshots a few frames
+      apart, not in motion, and the mouse during a turn only through a test aid.
 
 ## NPC coordinator on the owner's desktop (2026-10-09)
 
