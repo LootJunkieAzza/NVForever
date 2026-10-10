@@ -2,6 +2,8 @@
 //! resolved across a load order. No engine dependencies; the renderer consumes this.
 //!
 //! - [`fields`]: schema-decoded access to one record's subrecords
+//! - [`image_modifier`]: image space modifiers as animated screen effects
+//! - [`imagespace`]: image spaces and the weather's adapters (the colour grade)
 //! - [`index`]: which cells belong to which worldspace and which references to which cell
 //! - [`placed`]: a placed reference (REFR/ACHR/ACRE/...) and the base object it places
 //! - [`land`]: landscape heights, normals, vertex colours and texture layers
@@ -15,6 +17,7 @@
 
 pub mod fields;
 pub mod grass;
+pub mod image_modifier;
 pub mod imagespace;
 pub mod index;
 pub mod land;

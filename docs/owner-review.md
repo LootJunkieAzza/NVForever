@@ -1602,3 +1602,46 @@ the left hand is too high. Branch `claude/weapon-rest-pose`. Facts:
    animations, so the gun part should behave the same; whether their models have a
    back part like the minigun's I did not check). NPCs carrying these weapons still
    draw them the old way. In first person the backpack is not drawn at all.
+
+## Screen effects in the opening: white screen, blurred wake-up (2026-10-10, session "image space modifiers")
+
+Your request: the opening quest's screen effects (fade to black, white screen, blurred
+vision) should play in our engine. Branch `claude/imagespace-modifiers`. Facts:
+`docs/spec-notes/image-modifiers.md`. Pictures:
+`C:\fnv-private\references\image_modifiers\`.
+
+1. **What plays now:** a new game starts on a white screen. When the opening quest hands
+   over to Doc Mitchell's, the room comes out of the white over 5 seconds, blurred and
+   slightly doubled, and is sharp after 7. After Doc's first line there is a dark blink
+   and a bright, blurred flash that settles over 10 seconds (`newgame_1` to `newgame_5`).
+   Message boxes, subtitles and the HUD stay sharp on top.
+2. **It is not only the opening:** the three script commands behind this now work
+   everywhere, so the other scripts that use them get their effect too: 266 uses in the
+   base game, most of them fades to black and back. I only watched the opening.
+3. **Built:** fade to a colour, blur, double vision, blur around the edges of the screen,
+   and changes to brightness, contrast, saturation and tint. An effect with a set length
+   ends by itself; one without stays until a script removes it.
+4. **Not built:** depth of field (6 effects use it) and motion blur (7). Blood on the
+   screen, effects from explosions and weapons, and a script changing a room's whole
+   look are separate things and still do nothing.
+5. **Guesses, please check against the game:** the files say how strong each effect is
+   as a number, not what that number looks like. How wide a blur of "5" is, how far apart
+   the two images of double vision sit, and how they sway are my guesses. To compare,
+   this shows one effect frozen at a chosen second, in ours:
+   `nvforever --data <Data> --cell GSDocMitchellHouse --imod VCG01FadeInFromBlackISFX@3.5`
+   (`wakeup_held_3.5s.png` is that frame). A game screenshot from the same spot with the
+   console's `imod VCG01FadeInFromBlackISFX`, taken about 3 to 4 seconds in, would let me
+   set the blur. Leave `@3.5` off to watch it loop.
+6. **Two more guesses:**
+   - While a message box is open the wake-up effect waits (in ours the add-on pack boxes
+     pop up during it, so it takes longer than 7 seconds on the clock). If the game keeps
+     fading behind a box, say so.
+   - A script starting an effect that is already playing restarts it. The game might
+     layer a second copy instead.
+7. **Odd thing in the files:** the wake-up effect is named "fade in from black" but its
+   colour in the file is white, and a capture of your new-game save shows a white
+   screen at that point, so white it is.
+8. **Still wrong in the opening, not touched here:** you can walk and look around while
+   Doc is talking. The scripts ask for the controls to be locked; we do not obey that
+   yet. Before the opening's scripts have loaded (3 to 6 seconds) I hold the screen
+   white so the room does not show early.

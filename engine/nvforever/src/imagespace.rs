@@ -1,37 +1,77 @@
 //! The image-space grade as a full-screen pass after tonemapping: the worldspace's base
 //! image space with the weather's adapters for the time of day (fnv_world::imagespace,
-//! docs/spec-notes/world.md §6).
+//! docs/spec-notes/world.md §6), and on top of it the image space modifiers scripts play
+//! on the screen (fnv_world::image_modifier, docs/spec-notes/image-modifiers.md): a fade
+//! to a colour, blur, double vision, radial blur, and their changes to the grade.
 //!
 //! Formula [hypothesis: parameter names from the records; order and the use of display
 //! (sRGB) values follow the classic image-space pass, to compare with screenshots]:
 //! saturation around the luminance, then a tint towards luminance × tint colour by the
 //! tint amount, then brightness as a factor, then contrast around the average luminance.
+//!
+//! Modifiers (image-modifiers.md §5): the picture is blurred first (two passes of
+//! [`blur_pass`], only while a modifier blurs), read doubled and radially blurred by the
+//! grade pass, graded with the modifiers' multiply/add on the grade, and last covered by
+//! the fade colour. The modifiers on the screen are the script runtime's
+//! (`fnv_game::Game::image_modifiers`) and those of `--imod`.
 
 use crate::sky::SkyState;
-use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMaterialPlugin};
+use crate::world::WorldData;
+use bevy::core_pipeline::fullscreen_material::{fullscreen_material_system, FullscreenMaterial, FullscreenMaterialPlugin};
 use bevy::core_pipeline::tonemapping::tonemapping;
-use bevy::core_pipeline::Core3dSystems;
+use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
 use bevy::ecs::schedule::ScheduleConfigs;
 use bevy::ecs::system::BoxedSystem;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::render::extract_component::ExtractComponent;
-use bevy::render::render_resource::ShaderType;
+use bevy::render::extract_component::{ComponentUniforms, DynamicUniformIndex, ExtractComponent};
+use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_buffer};
+use bevy::render::render_resource::{
+    BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, CachedRenderPipelineId, ColorTargetState, ColorWrites, FilterMode, FragmentState,
+    Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor,
+    ShaderStages, ShaderType, TextureFormat, TextureSampleType,
+};
+use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
+use bevy::render::view::{ExtractedView, ViewTarget};
+use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 use bevy::shader::ShaderRef;
+use fnv_world::image_modifier::{combine, graded, image_modifier, ImageModifier, ScreenEffect};
 
 /// Grade parameters on the main camera.
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType)]
 pub struct ImageSpaceGrade {
     /// Tint colour (rgb) and amount (a).
     pub tint: Vec4,
+    /// Fade colour (rgb) and amount (a): the picture goes towards the colour.
+    pub fade: Vec4,
+    /// Radial blur strength, ramp up, start, ramp down.
+    pub radial: Vec4,
+    /// Radial blur down start, its centre (x, y in screen parts); double vision strength.
+    pub radial2: Vec4,
     pub saturation: f32,
     pub contrast: f32,
     pub contrast_avg_lum: f32,
     pub brightness: f32,
+    /// Blur radius in the records' units (0 none, 7 the most).
+    pub blur: f32,
+    /// Seconds, for the swing of double vision.
+    pub time: f32,
 }
 
 impl Default for ImageSpaceGrade {
     fn default() -> Self {
-        ImageSpaceGrade { tint: Vec4::new(1.0, 1.0, 1.0, 0.0), saturation: 1.0, contrast: 1.0, contrast_avg_lum: 0.5, brightness: 1.0 }
+        ImageSpaceGrade {
+            tint: Vec4::new(1.0, 1.0, 1.0, 0.0),
+            fade: Vec4::ZERO,
+            radial: Vec4::ZERO,
+            radial2: Vec4::new(0.0, 0.5, 0.5, 0.0),
+            saturation: 1.0,
+            contrast: 1.0,
+            contrast_avg_lum: 0.5,
+            brightness: 1.0,
+            blur: 0.0,
+            time: 0.0,
+        }
     }
 }
 
@@ -46,27 +86,226 @@ impl FullscreenMaterial for ImageSpaceGrade {
     }
 }
 
+/// A modifier put on the screen from the command line (`--imod`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Forced {
+    pub form: u32,
+    /// Hold the modifier at this many seconds after its start; without it an animated
+    /// one plays again and again, a second apart.
+    pub at: Option<f32>,
+}
+
+/// The image space modifiers on the screen.
+#[derive(Resource, Default)]
+pub struct ScreenModifiers {
+    records: HashMap<u32, Option<ImageModifier>>,
+    pub forced: Vec<Forced>,
+    /// The modifiers of the last frame, to log what comes and goes.
+    shown: Vec<u32>,
+}
+
+impl ScreenModifiers {
+    fn record(&mut self, world: &WorldData, form: u32) -> Option<&ImageModifier> {
+        self.records.entry(form).or_insert_with(|| image_modifier(world.lo, world.schema, form)).as_ref()
+    }
+}
+
+/// `--imod <Editor ID or 0xFormID>[@seconds]`.
+pub fn parse_forced(world: &WorldData, arg: &str) -> Result<Forced, String> {
+    let (name, at) = match arg.split_once('@') {
+        Some((n, t)) => (n, Some(t.parse::<f32>().map_err(|_| format!("--imod {arg}: {t} is not a number of seconds"))?)),
+        None => (arg, None),
+    };
+    let form = fnv_world::image_modifier::find_image_modifier(world.lo, world.schema, name).ok_or_else(|| format!("--imod {arg}: no image space modifier {name}"))?;
+    Ok(Forced { form, at })
+}
+
 pub struct ImageSpacePlugin;
 
 impl Plugin for ImageSpacePlugin {
     fn build(&self, app: &mut App) {
         bevy::asset::embedded_asset!(app, "imagespace.wgsl");
-        app.add_plugins(FullscreenMaterialPlugin::<ImageSpaceGrade>::default())
+        bevy::asset::embedded_asset!(app, "imagespace_blur.wgsl");
+        app.init_resource::<ScreenModifiers>()
+            .add_plugins(FullscreenMaterialPlugin::<ImageSpaceGrade>::default())
             .add_systems(Update, update_grade.after(crate::sky::update_sky));
+        let Some(render_app) = app.get_sub_app_mut(RenderApp) else { return };
+        render_app
+            .add_systems(RenderStartup, init_blur)
+            .add_systems(Render, prepare_blur.in_set(RenderSystems::Prepare))
+            .add_systems(Core3d, blur_pass.in_set(Core3dSystems::PostProcess).after(tonemapping).before(fullscreen_material_system::<ImageSpaceGrade>));
     }
 }
 
-/// Copy the sky's grade onto every graded camera.
-fn update_grade(sky: Res<SkyState>, mut grades: Query<&mut ImageSpaceGrade>) {
-    let c = sky.cinematic();
+/// The modifiers on the screen now as one effect: the script runtime's, each at its own
+/// age, and the command line's.
+fn screen_effect(mods: &mut ScreenModifiers, world: &WorldData, script: Option<&nvf_play::script::ScriptState>, now: f32) -> (ScreenEffect, Vec<u32>) {
+    let mut playing: Vec<(u32, f32)> = Vec::new();
+    if let Some(rt) = script.and_then(|s| s.rt.as_ref()) {
+        playing.extend(rt.game.image_modifiers.iter().map(|m| (m.modifier.0, m.elapsed as f32)));
+    }
+    for f in mods.forced.clone() {
+        let seconds = f.at.unwrap_or_else(|| {
+            // Again and again, a second apart.
+            let d = mods.record(world, f.form).filter(|m| m.animatable).map_or(0.0, |m| m.duration);
+            if d > 0.0 {
+                now % (d + 1.0)
+            } else {
+                now
+            }
+        });
+        playing.push((f.form, seconds));
+    }
+    let mut effects = Vec::new();
+    let mut forms = Vec::new();
+    for (form, seconds) in playing {
+        let Some(m) = mods.record(world, form) else { continue };
+        // A looping `--imod` is off the screen in its second apart.
+        if m.finished(seconds) {
+            continue;
+        }
+        effects.push(m.at(seconds));
+        forms.push(form);
+    }
+    (combine(&effects), forms)
+}
+
+/// Copy the sky's grade, with the modifiers on the screen, onto every graded camera.
+fn update_grade(
+    time: Res<Time>,
+    sky: Res<SkyState>,
+    world: Option<Res<WorldData>>,
+    script: Option<Res<nvf_play::script::ScriptState>>,
+    new_game: Option<Res<nvf_play::script::NewGame>>,
+    mut mods: ResMut<ScreenModifiers>,
+    mut grades: Query<&mut ImageSpaceGrade>,
+) {
+    let now = time.elapsed_secs();
+    let (mut effect, forms) = match &world {
+        Some(w) => screen_effect(&mut mods, w, script.as_deref(), now),
+        None => (ScreenEffect::default(), Vec::new()),
+    };
+    // A new game shows nothing of the world before its opening runs: until the scripts
+    // have started the screen is white, as the opening's first modifier then holds it
+    // [engineering choice: the script data loads while the room is already drawn].
+    if new_game.is_some() && script.as_deref().is_some_and(|s| s.rt.is_none() && s.off.is_none()) {
+        effect.fade = [1.0; 4];
+    }
+    if forms != mods.shown {
+        if let Some(w) = &world {
+            let names: Vec<String> = forms.iter().map(|&f| mods.record(w, f).map_or_else(|| format!("{f:#010x}"), |m| m.edid.clone())).collect();
+            info!("image space modifiers on the screen: {}", if names.is_empty() { "none".to_string() } else { names.join(", ") });
+        }
+        mods.shown = forms;
+    }
+    let c = graded(&sky.cinematic(), &effect);
+    let r = &effect.radial;
     let g = ImageSpaceGrade {
         tint: Vec4::new(c.tint[0], c.tint[1], c.tint[2], c.tint_amount),
+        fade: Vec4::from_array(effect.fade),
+        radial: Vec4::new(r.strength, r.ramp_up, r.start, r.ramp_down),
+        radial2: Vec4::new(r.down_start, r.center[0], r.center[1], effect.double_vision),
         saturation: c.saturation,
         contrast: c.contrast,
         contrast_avg_lum: c.contrast_avg_lum,
         brightness: c.brightness,
+        blur: effect.blur_radius.max(0.0),
+        time: now,
     };
     for mut grade in &mut grades {
         *grade = g;
+    }
+}
+
+/// The blur passes' pipelines: across and down, per target format.
+#[derive(Resource)]
+struct BlurPipelines {
+    layout: BindGroupLayoutDescriptor,
+    sampler: Sampler,
+    base: RenderPipelineDescriptor,
+    by_format: HashMap<TextureFormat, [CachedRenderPipelineId; 2]>,
+}
+
+/// The blur pipelines of a view.
+#[derive(Component)]
+struct BlurPipelineIds([CachedRenderPipelineId; 2]);
+
+fn init_blur(mut commands: Commands, device: Res<RenderDevice>, assets: Res<AssetServer>, fullscreen: Res<FullscreenShader>) {
+    let layout = BindGroupLayoutDescriptor::new(
+        "imagespace_blur_layout",
+        &BindGroupLayoutEntries::sequential(
+            ShaderStages::FRAGMENT,
+            (texture_2d(TextureSampleType::Float { filterable: true }), sampler(SamplerBindingType::Filtering), uniform_buffer::<ImageSpaceGrade>(true)),
+        ),
+    );
+    // Filtered: each sample of the blur reads two pixels at once.
+    let sampler = device.create_sampler(&SamplerDescriptor { mag_filter: FilterMode::Linear, min_filter: FilterMode::Linear, ..default() });
+    let base = RenderPipelineDescriptor {
+        label: Some("imagespace_blur_pipeline".into()),
+        layout: vec![layout.clone()],
+        vertex: fullscreen.to_vertex_state(),
+        fragment: Some(FragmentState { shader: assets.load("embedded://nvforever/imagespace_blur.wgsl"), ..default() }),
+        ..default()
+    };
+    commands.insert_resource(BlurPipelines { layout, sampler, base, by_format: HashMap::default() });
+}
+
+fn prepare_blur(
+    mut commands: Commands,
+    cache: Res<PipelineCache>,
+    mut pipelines: ResMut<BlurPipelines>,
+    views: Query<(Entity, &ExtractedView), With<ImageSpaceGrade>>,
+) {
+    for (entity, view) in &views {
+        let format = view.target_format;
+        let ids = match pipelines.by_format.get(&format) {
+            Some(ids) => *ids,
+            None => {
+                let ids = ["blur_across", "blur_down"].map(|entry| {
+                    let mut d = pipelines.base.clone();
+                    if let Some(f) = d.fragment.as_mut() {
+                        f.entry_point = Some(entry.into());
+                        f.targets = vec![Some(ColorTargetState { format, blend: None, write_mask: ColorWrites::ALL })];
+                    }
+                    cache.queue_render_pipeline(d)
+                });
+                pipelines.by_format.insert(format, ids);
+                ids
+            }
+        };
+        commands.entity(entity).insert(BlurPipelineIds(ids));
+    }
+}
+
+/// Blur the picture across and then down, while a modifier blurs.
+fn blur_pass(
+    view: ViewQuery<(&ViewTarget, &DynamicUniformIndex<ImageSpaceGrade>, &ImageSpaceGrade, &BlurPipelineIds)>,
+    pipelines: Res<BlurPipelines>,
+    cache: Res<PipelineCache>,
+    uniforms: Res<ComponentUniforms<ImageSpaceGrade>>,
+    device: Res<RenderDevice>,
+    mut ctx: RenderContext,
+) {
+    let (target, index, grade, ids) = view.into_inner();
+    if grade.blur <= 0.0 {
+        return;
+    }
+    let (Some(across), Some(down)) = (cache.get_render_pipeline(ids.0[0]), cache.get_render_pipeline(ids.0[1])) else { return };
+    let Some(binding) = uniforms.uniforms().binding() else { return };
+    let layout = cache.get_bind_group_layout(&pipelines.layout);
+    for pipeline in [across, down] {
+        let post = target.post_process_write();
+        let bind_group = device.create_bind_group("imagespace_blur_bind_group", &layout, &BindGroupEntries::sequential((post.source, &pipelines.sampler, binding.clone())));
+        let mut pass = ctx.command_encoder().begin_render_pass(&RenderPassDescriptor {
+            label: Some("imagespace_blur_pass"),
+            color_attachments: &[Some(RenderPassColorAttachment { view: post.destination, depth_slice: None, resolve_target: None, ops: Operations::default() })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bind_group, &[index.index()]);
+        pass.draw(0..3, 0..1);
     }
 }
