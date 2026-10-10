@@ -223,6 +223,18 @@ Step 4c, first part (2026-10-10):
   clock (the simulation advances it at TimeScale); it is set to the sky's hour once.
   `NVF_PLAY_TEST_SCRIPT_MENUS=1 … --play --npc-packages all,EasyPeteRef --hour 11.9
   --run-seconds 100`: Easy Pete's noon walk into the saloon, 25 residents, exit 0.
+- **`--play` alone is `--play --npc-packages all`** (2026-10-10, owner report: "none of
+  the npc actors were doing anything" in `--play`; the packages were only on with the
+  flag). `--no-npc-packages` gives the placed, standing actors back, and the actor test
+  aids (`--actor-pose bind`, `--actor-pose-time`, `--actor-walk-test`,
+  `--actor-turn-test`, `--actor-weapon-test`), `--no-actors`, `--npc-travel` and
+  `--npc-sit` keep them too. A message box a script opens holds the game, and with it
+  the actors, until the player answers it: at the start that is "Classic Pack items
+  added to inventory." on an install with the pre-order packs (in a 100-second run
+  that left it open the clock went from 11:53 to 11:55). Smoke test:
+  `NVF_PLAY_TEST_SCRIPT_MENUS=1 … --cell Goodsprings --play --hour 11.9 --run-seconds
+  100`: 25 residents, 14 packages chosen, Easy Pete's noon walk into the saloon, exit 0;
+  `--play --new-game`: Doc Mitchell on his chair, 1 resident, exit 0.
 - **The character controller near the player** (`--play`; `residents::PhysMover`, the
   `fnv_ai::Mover` hook, `nvf_play::phys::PhysState::npcs`): an actor walking where the
   collision world is loaded gets a character of its own; it steers along its path and
