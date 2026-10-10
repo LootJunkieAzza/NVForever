@@ -19,15 +19,16 @@
 //!   stand still) [owner ruling 2026-10-10: a conversation with the player pauses the
 //!   game; lines said outside one, SayTo and Say, do not]. The actor's lines go on in
 //!   real time (`Game::tick` advances them in menu mode too).
-//!   What the picture does is [`PauseMode`] (`--dialogue-pause`): `living` (the default)
-//!   keeps everything that is only presentation running (animations, wind, water, sky,
-//!   effects) and lets the player look around with the mouse while the actor speaks
-//!   ([`FreeLook`]; the cursor comes back when choices are offered); `original` stops
-//!   the virtual clock, so the picture stands still, with the cursor free throughout
-//!   [owner preference 2026-10-10 for `living`: a deliberate departure from the
-//!   original's look that keeps what scripts see]. A message box a result script shows
-//!   holds the conversation until it is answered (the runtime's rule); Esc opens the
-//!   pause menu.
+//!   What the picture does is the switch for every menu, [`MenuPause`] (`--menu-pause`,
+//!   `crate::pause`): `living` (the default) keeps everything that is only presentation
+//!   running (animations, wind, water, sky, effects) and lets the player look around
+//!   with the mouse while the actor speaks ([`FreeLook`]; the cursor comes back when
+//!   choices are offered [owner decision 2026-10-10]); `original` stops the virtual
+//!   clock, so the picture stands still, with the cursor free throughout [owner
+//!   preference 2026-10-10 for `living`: a deliberate departure from the original's look
+//!   that keeps what scripts see]. A message box a result script shows holds the
+//!   conversation until it is answered (the runtime's rule); Esc opens the pause menu,
+//!   which holds everything, the actor's voice included.
 //! - **The actor speaks.** The response being said is a subtitle, "Speaker: text"
 //!   ([`subtitle`], drawn by `crate::script_hud` with the other subtitles). Space, Enter,
 //!   Activate (E) or a click skip to the next response (`Game::skip_response`).
@@ -37,10 +38,12 @@
 //!   answered before is dimmed (`Choice::darkened`); a skill or perk line carries its tag.
 //! - **Leaving.** Tab says goodbye: it picks the offered Goodbye choice, so the actor
 //!   says its goodbye line and the conversation ends as the data ends it. Without such a
-//!   choice Tab is refused (a forced conversation); Shift+Tab breaks the conversation off
-//!   at any point (`Game::end_dialogue`: the line being said is cut, no end script)
-//!   [ours: a way out of a conversation the data gives no end to; not a claim about the
-//!   original].
+//!   choice Tab is refused (a forced conversation).
+//!
+//! Debug switch `NVF_PLAY_DEBUG_TALK_BREAK=1` (off unless set; a development tool, not
+//! for a release [owner decision 2026-10-10]): Shift+Tab breaks the conversation off at
+//! any point (`Game::end_dialogue`: the line being said is cut, no end script runs, so a
+//! quest result can be lost). Without the switch Shift+Tab does nothing.
 //!
 //! Test aid `NVF_PLAY_TEST_TALK=<when>:<who>[=<step>|<step>…][;…]` ([`parse_talks`]):
 //! - `<when>`: seconds after the start, or `<seconds>@<quest>=<stage>` (after that stage
@@ -52,7 +55,8 @@
 //!   choice (0-based, as `fnvtool dialogue talk`'s `index`), a topic's Editor ID or hex
 //!   FormID picks that topic, any other text picks the choice that reads so (ignoring
 //!   case; a part of it if only one choice contains it; quotes force text), `leave`
-//!   leaves as Tab does, and `skip` skips the response being said.
+//!   leaves as Tab does, `skip` skips the response being said, and `break` presses
+//!   Shift+Tab (which does something only with the debug switch).
 //!
 //! `NVF_PLAY_TEST_TALK_DELAY=<seconds>` (default [`AID_CHOOSE_SECONDS`]) is how long the
 //! choices stay on screen before a step picks one (for screenshots).
@@ -70,7 +74,7 @@
 
 use crate::bindings::{Control, ControlInput};
 use crate::menu::ActiveMenu;
-use crate::pause::Paused;
+use crate::pause::{MenuPause, Paused};
 use crate::phys::PhysState;
 use crate::script::{is_script_menu, with_world, ByHand, ScriptState};
 use crate::sim::SimState;
@@ -112,6 +116,8 @@ pub enum Step {
     Skip,
     /// Leave as Tab does (the Goodbye choice), else break off.
     Leave,
+    /// Shift+Tab: breaks the conversation off if the debug switch allows it.
+    Break,
 }
 
 /// One conversation of `NVF_PLAY_TEST_TALK`.
@@ -134,6 +140,7 @@ fn parse_step(s: &str) -> Step {
     match s.to_ascii_lowercase().as_str() {
         "leave" => Step::Leave,
         "skip" => Step::Skip,
+        "break" => Step::Break,
         _ => match s.parse::<usize>() {
             Ok(i) => Step::Index(i),
             Err(_) => Step::Named(s.to_string()),
@@ -207,7 +214,7 @@ pub fn pick(step: &Step, offers: &[Offer]) -> Result<usize, String> {
                 _ => Err(format!("{s:?} is part of several choices (offered: {})", listed(offers))),
             }
         }
-        Step::Skip | Step::Leave => Err("not a choice".into()),
+        Step::Skip | Step::Leave | Step::Break => Err("not a choice".into()),
     }
 }
 
@@ -305,7 +312,7 @@ fn view(g: &Game, sim: &SimState, sc: &DialogueScreen) -> Option<View> {
     let speaker = speaker_name(g, sim, c.actor);
     let note = sc.note.as_ref().map(|n| n.0.clone());
     if c.line.is_some() || c.choices.is_empty() {
-        return Some(View { speaker, rows: Vec::new(), above: 0, below: 0, hint: "Space, Enter, E or click: skip    Shift+Tab: break off".into(), note });
+        return Some(View { speaker, rows: Vec::new(), above: 0, below: 0, hint: "Space, Enter, E or click: skip".into(), note });
     }
     let len = c.choices.len();
     let first = window_start(sc.first, sc.selected.min(len - 1), len);
@@ -317,8 +324,8 @@ fn view(g: &Game, sim: &SimState, sc: &DialogueScreen) -> Option<View> {
             Row { index: i, label: row_label(i, g.choice_text(ch), &fallback, ch.challenge.as_ref().map(|t| tag_of(g, sim, t))), darkened: ch.darkened }
         })
         .collect();
-    let leave = if c.choices.iter().any(|ch| ch.goodbye) { "Tab: goodbye" } else { "Shift+Tab: break off" };
-    Some(View { speaker, rows, above: first, below: len - end, hint: format!("1-9, Up/Down + Enter or E, click: choose    {leave}"), note })
+    let leave = if c.choices.iter().any(|ch| ch.goodbye) { "    Tab: goodbye" } else { "" };
+    Some(View { speaker, rows, above: first, below: len - end, hint: format!("1-9, Up/Down + Enter or E, click: choose{leave}"), note })
 }
 
 // ---- the log ----------------------------------------------------------------------------
@@ -430,6 +437,8 @@ pub struct DialogueScreen {
     unattended: bool,
     /// Seconds the choices are on screen before the aid picks (`NVF_PLAY_TEST_TALK_DELAY`).
     aid_delay: f32,
+    /// `NVF_PLAY_DEBUG_TALK_BREAK`: Shift+Tab breaks a conversation off.
+    debug_break: bool,
     /// Since when (seconds) the conversation runs, the choices are offered, and the
     /// response (line, position) is being said.
     talk_since: Option<f32>,
@@ -441,7 +450,11 @@ pub struct DialogueScreen {
 impl DialogueScreen {
     fn new(talks: Vec<TalkScript>, unattended: bool) -> DialogueScreen {
         let aid_delay = std::env::var("NVF_PLAY_TEST_TALK_DELAY").ok().and_then(|d| d.trim().parse().ok()).unwrap_or(AID_CHOOSE_SECONDS);
-        DialogueScreen { aid: TalkAid { waiting: talks, ..default() }, unattended, aid_delay, ..default() }
+        let debug_break = debug_switch(std::env::var("NVF_PLAY_DEBUG_TALK_BREAK").ok().as_deref());
+        if debug_break {
+            info!("debug switch NVF_PLAY_DEBUG_TALK_BREAK: Shift+Tab breaks a conversation off (no end script runs)");
+        }
+        DialogueScreen { aid: TalkAid { waiting: talks, ..default() }, unattended, aid_delay, debug_break, ..default() }
     }
 
     fn conversation_over(&mut self) {
@@ -453,6 +466,12 @@ impl DialogueScreen {
         (self.selected, self.first, self.list) = (0, 0, None);
         (self.talk_since, self.choosing_since, self.speaking, self.note) = (None, None, None, None);
     }
+}
+
+/// Whether a debug switch's value turns it on: anything but unset, empty, `0`, `off`,
+/// `false` and `no`.
+pub fn debug_switch(value: Option<&str>) -> bool {
+    value.map(|v| v.trim().to_ascii_lowercase()).is_some_and(|v| !matches!(v.as_str(), "" | "0" | "off" | "false" | "no"))
 }
 
 /// What the player (or the aid) does this frame.
@@ -467,18 +486,6 @@ enum Act {
 
 // ---- plugin and systems -----------------------------------------------------------------
 
-/// What a conversation with the player holds besides game logic (`nvforever
-/// --dialogue-pause`; docs/design/dialogue.md, Pausing).
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum PauseMode {
-    /// Only game logic stands still; the picture lives on and the player looks around
-    /// freely while the actor speaks.
-    #[default]
-    Living,
-    /// The virtual clock stops: animations, wind, water and sky stand still too.
-    Original,
-}
-
 /// A conversation with the player is open: game logic stands still. What runs only
 /// while `Playing` holds by itself; this is for what does not know the play state
 /// (nvforever's travelling NPCs).
@@ -486,7 +493,7 @@ pub enum PauseMode {
 pub struct WorldHeld(pub bool);
 
 /// The player may look around with the mouse although not `Playing`: while an actor
-/// speaks in a conversation, in [`PauseMode::Living`] (`player::mouse_look`,
+/// speaks in a conversation, in [`MenuPause::Living`] (`player::mouse_look`,
 /// `player::grab_cursor`).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FreeLook(pub bool);
@@ -510,7 +517,6 @@ impl Plugin for DialoguePlugin {
         };
         let unattended = crate::test_aid::Unattended::from_env().0 || app.world().resource::<PlayWorld>().auto_walk > 0.0;
         app.insert_resource(DialogueScreen::new(talks, unattended))
-            .init_resource::<PauseMode>()
             .init_resource::<WorldHeld>()
             .init_resource::<FreeLook>()
             // After the keys of a script's menu (a key that answers a message box is not
@@ -534,7 +540,7 @@ fn input(
     keys: Res<ButtonInput<KeyCode>>,
     controls: ControlInput,
     scroll: Res<AccumulatedMouseScroll>,
-    time: (Res<Time>, Res<Time<Real>>),
+    time: (crate::pause::AidTime, Res<Time<Real>>),
     state: Res<State<PlayState>>,
     paused: Res<Paused>,
     phys: Res<PhysState>,
@@ -551,8 +557,8 @@ fn input(
     }
     let sc = &mut *screen;
     let st = &mut *script;
-    // The scripts' clock: it goes on while `PauseMode::Original` stops the virtual one.
-    let now = time.0.elapsed_secs() + st.stopped_secs;
+    // The aids' clock: it goes on while the picture stands still (`crate::pause`).
+    let now = time.0.elapsed_secs();
     let dt = time.1.delta_secs();
     let Some(rt) = st.rt.as_mut() else { return };
     let mut notes: Vec<serde_json::Value> = Vec::new();
@@ -643,6 +649,18 @@ fn input(
             Some(Step::Skip) => {
                 d.steps.pop_front();
             }
+            // Shift+Tab, once the response or the choices have been on screen a moment.
+            Some(Step::Break) => {
+                let shown = sc.speaking.is_some_and(|(_, t)| now - t >= AID_SKIP_SECONDS) || (choosing && chosen_for(sc.choosing_since, sc.aid_delay));
+                if shown {
+                    d.steps.pop_front();
+                    if sc.debug_break {
+                        act = Some((Act::BreakOff, "test aid (Shift+Tab)"));
+                    } else {
+                        info!("test aid NVF_PLAY_TEST_TALK: step Break: Shift+Tab does nothing (NVF_PLAY_DEBUG_TALK_BREAK is not set)");
+                    }
+                }
+            }
             step if choosing && chosen_for(sc.choosing_since, sc.aid_delay) => {
                 d.steps.pop_front();
                 act = Some(match step {
@@ -680,7 +698,10 @@ fn input(
         let shift = keys.any_pressed([ShiftLeft, ShiftRight]);
         let confirm = keys.any_just_pressed([Enter, NumpadEnter, Space]) || controls.just_pressed(Control::Activate);
         if keys.just_pressed(Tab) && shift {
-            act = Some((Act::BreakOff, "Shift+Tab"));
+            // Only with the debug switch; otherwise Shift+Tab does nothing (it is not Tab).
+            if sc.debug_break {
+                act = Some((Act::BreakOff, "Shift+Tab"));
+            }
         } else if speaking.is_some() {
             if confirm || controls.mouse.just_pressed(MouseButton::Left) {
                 act = Some((Act::Skip, "key or click"));
@@ -738,7 +759,7 @@ fn input(
         match (&error, act) {
             (Some(e), Act::Leave { .. }) => {
                 info!("dialogue: Tab refused: {e}");
-                sc.note = Some(("You cannot leave this conversation yet (Shift+Tab breaks it off).".into(), NOTE_SECONDS));
+                sc.note = Some(("You cannot leave this conversation yet.".into(), NOTE_SECONDS));
             }
             (Some(e), _) => warn!("dialogue: {op} by {by}: {e}"),
             (None, Act::BreakOff) => info!("dialogue: the conversation is broken off ({by})"),
@@ -758,17 +779,15 @@ fn input(
 /// (which would put the player in `Menu` for a message box): in a conversation the box
 /// is answered from the `Dialogue` state, and when the conversation ends under an open
 /// box the player goes to `Menu`.
-#[allow(clippy::too_many_arguments)]
 fn sync_state(
     script: Option<Res<ScriptState>>,
     active: Res<ActiveMenu>,
     paused: Res<Paused>,
-    mode: Res<PauseMode>,
+    mode: Res<MenuPause>,
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
     mut world_held: ResMut<WorldHeld>,
     mut look: ResMut<FreeLook>,
-    mut clock: ResMut<Time<Virtual>>,
 ) {
     let game = script.as_ref().and_then(|s| s.rt.as_ref()).map(|rt| &rt.game);
     let talking = game.is_some_and(|g| g.dialogue.is_some());
@@ -784,18 +803,8 @@ fn sync_state(
     // Free look while the actor speaks; the cursor while the player chooses or answers a
     // message box.
     let speaking = game.is_some_and(|g| !held(g) && g.dialogue.as_ref().is_some_and(|c| c.line.is_some()));
-    look.set_if_neq(FreeLook(*mode == PauseMode::Living && speaking && *state.get() == PlayState::Dialogue));
-    // `original`: the picture stands still with the conversation (and under the pause
-    // menu opened from it). Nothing else pauses the virtual clock.
-    let stop = *mode == PauseMode::Original && talking;
-    if clock.is_paused() != stop {
-        info!("dialogue: --dialogue-pause original: the virtual clock {}", if stop { "stops" } else { "runs again" });
-        if stop {
-            clock.pause();
-        } else {
-            clock.unpause();
-        }
-    }
+    // Whether the picture stands still meanwhile is `crate::pause::freeze_picture`'s.
+    look.set_if_neq(FreeLook(*mode == MenuPause::Living && speaking && *state.get() == PlayState::Dialogue));
 }
 
 // ---- drawing ----------------------------------------------------------------------------
@@ -908,6 +917,13 @@ mod tests {
                 TalkScript { at: 3.0, after: None, who: Some("SunnyREF".into()), steps: vec![] },
             ]
         );
+        assert_eq!(parse_talks("1:*=Break|skip").unwrap()[0].steps, vec![Step::Break, Step::Skip]);
+        // The debug switch is off unless it is given a value that is not a "no".
+        assert!(!debug_switch(None));
+        for off in ["", "0", "off", "FALSE", " no "] {
+            assert!(!debug_switch(Some(off)), "{off:?}");
+        }
+        assert!(debug_switch(Some("1")) && debug_switch(Some("on")));
         // Quotes force text: a number, a keyword.
         assert_eq!(parse_talks("1:*='3'|\"leave\"").unwrap()[0].steps, vec![Step::Named("3".into()), Step::Named("leave".into())]);
         assert!(parse_talks("EasyPeteRef").is_err());
@@ -943,6 +959,7 @@ mod tests {
         assert!(several.contains("several") && several.contains("TopicTownHistory"), "{several}");
         assert!(pick(&Step::Named("caps".into()), &o).unwrap_err().contains("offered"));
         assert!(pick(&Step::Leave, &o).is_err());
+        assert!(pick(&Step::Break, &o).is_err());
         assert!(pick(&Step::Index(0), &[]).is_err());
     }
 

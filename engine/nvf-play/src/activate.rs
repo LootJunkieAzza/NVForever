@@ -244,6 +244,7 @@ impl AutoActivate {
 fn activate(
     input: crate::bindings::ControlInput,
     time: Option<Res<Time>>,
+    clock: Option<Res<crate::pause::PlayClock>>,
     auto: Option<ResMut<AutoActivate>>,
     target: Res<Target>,
     mut sim: ResMut<SimState>,
@@ -255,7 +256,8 @@ fn activate(
     script: Option<ResMut<crate::script::ScriptState>>,
 ) {
     let fired = match (auto, time) {
-        (Some(mut a), Some(t)) => a.fire(t.elapsed_secs()),
+        // The aids' clock goes on while a menu holds the picture (`crate::pause`).
+        (Some(mut a), Some(t)) => a.fire(t.elapsed_secs() + clock.map_or(0.0, |c| c.stopped_secs())),
         _ => false,
     };
     if !input.just_pressed(crate::bindings::Control::Activate) && !fired {

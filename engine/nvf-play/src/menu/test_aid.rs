@@ -100,7 +100,7 @@ fn setup_drops(app: &mut App) {
 }
 
 pub(super) fn run_drops(
-    time: Res<Time>,
+    time: crate::pause::AidTime,
     drops: Option<ResMut<Drops>>,
     active: Res<ActiveMenu>,
     mut commands: Commands,
@@ -190,7 +190,7 @@ fn screenshot(commands: &mut Commands, path: PathBuf) {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run(
-    time: Res<Time>,
+    time: crate::pause::AidTime,
     script: Option<ResMut<Script>>,
     active: Res<ActiveMenu>,
     mut commands: Commands,

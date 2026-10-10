@@ -44,16 +44,16 @@ about the original unless it carries a tag.
 | | Enter, Space, Activate (E) | pick the selected choice |
 | | left click on a choice (hovering selects it) | picks it |
 | | Tab | says goodbye: picks the offered Goodbye choice, so the actor says its goodbye line and the conversation ends as the data ends it; refused when no Goodbye choice is offered |
-| Any time | Shift+Tab | breaks the conversation off (`Game::end_dialogue`: the line being said is cut, no end script runs) |
 | Any time | Esc | the pause menu (Resume goes back to the conversation) |
 
 - The original leaves a conversation with Tab [hypothesis: the coordinator's brief of
   2026-10-10, from play; when it allows leaving is not captured]. Ours: Tab only where
   the data offers a goodbye, so a forced conversation (the psych test) cannot be left by
   accident.
-- Shift+Tab is ours: a way out of a conversation the data gives no end to. It can skip a
-  quest result, which is why it is not on Tab. Remove it if it is not wanted
-  (owner item).
+- Breaking a conversation off (cutting the line, no end script) is not a key of the
+  game: it is a debug switch, off by default (§4) [owner decision 2026-10-10].
+- The cursor: free look while the actor speaks, the cursor released while the player
+  chooses (§3) [owner decision 2026-10-10].
 - A message box a result script shows during a conversation takes the keys first: it is
   drawn and answered as any other box (`script_hud.rs`), the conversation's lines wait
   for it (the runtime's rule), and the panel is hidden meanwhile.
@@ -79,24 +79,29 @@ a third state beside `Playing` and `Menu`.
   pauses the game; lines said outside one do not].
 - **Running**: the conversation's own lines (`Game::tick` advances them in real time),
   subtitles and voice.
-- **The picture** is the setting `--dialogue-pause living|original`
-  (`dialogue::PauseMode`; docs/design/dialogue.md, Pausing):
+- **The picture** is one switch for every menu, `--menu-pause living|original`
+  (`pause::MenuPause`; `--dialogue-pause` is its old name and still works;
+  docs/design/dialogue.md §8):
   - `living` (default): everything that is only presentation runs on (actors' idle
     animation, wind in the trees, water, the sky's clouds, effects), nothing snaps to a
     frozen frame, and the player looks around with the mouse while the actor speaks
     (`dialogue::FreeLook`). When choices are offered the cursor is released for
-    clicking and the view holds still; it is grabbed again when the next line starts.
-    [owner preference 2026-10-10: a deliberate departure from the original's look that
-    keeps what scripts see.]
-  - `original`: Bevy's virtual clock is paused for the length of the conversation, so
-    animations, wind, water and clouds stand still too; the cursor is free throughout.
-    Scripts, the conversation and the test aids' clock then run on real frame time
-    (`ScriptState::stopped_secs`); `--run-seconds` and the timed aids of other files
-    (screenshots, `NVF_PLAY_TEST_ACTIVATE`) count virtual time and so stand still until
-    the conversation is over.
-- **What the existing menus do**, for comparison: they hold game logic but never
-  stopped the picture (animations and wind run on under the inventory). `original` is
-  therefore stricter than the menus are today.
+    clicking and the view holds still; it is grabbed again when the next line starts
+    [owner decision 2026-10-10, of the two options offered]. [owner preference
+    2026-10-10 for `living`: a deliberate departure from the original's look that keeps
+    what scripts see.]
+  - `original`: Bevy's virtual clock is paused while the menu is open
+    (`pause::freeze_picture`), so animations, wind, water and clouds stand still too;
+    the cursor is free throughout. This holds for the dialogue screen, the inventory
+    and container menus, message boxes and the menus scripts open alike.
+- **The Esc pause menu holds everything in both modes**: the picture (the virtual
+  clock), scripts and the conversation (`script.rs` does not tick under it) and the
+  voice of the line being said, which is paused and resumed with it (`voice.rs`).
+- **What goes on while the picture stands still** reads `pause::AidTime` (the virtual
+  clock plus the real time it stood still): the scripts' frame time (so the
+  conversation's lines and MenuMode blocks run in real time under an `original` menu),
+  every timed test aid and the menus' timers. `--run-seconds` counts real time while the
+  virtual clock is paused, so an unattended run always ends.
 
 ## 4. Test aid `NVF_PLAY_TEST_TALK`
 
@@ -117,7 +122,21 @@ a third state beside `Playing` and `Menu`.
   - `leave`: as Tab; `skip`: skips the response being said (taken while the actor
     speaks).
 - When the steps run out, or a step names nothing that is offered (a warning), the aid
-  leaves: by the Goodbye choice if one is offered, else by breaking off.
+  leaves: by the Goodbye choice if one is offered, else by breaking off (this safety net
+  exists only in aid-driven runs and does not need the debug switch below).
+- `break`: Shift+Tab as the player would press it, once the response or the choices
+  have been on screen a moment: it does something only with the debug switch.
+
+**Debug switch `NVF_PLAY_DEBUG_TALK_BREAK=1`** (unset, empty, `0`, `off`, `false` and
+`no` leave it off; it does not make a run unattended): Shift+Tab breaks the conversation
+off at any point (`Game::end_dialogue`: the line being said is cut and no end script
+runs, so a quest result can be lost). Without the switch Shift+Tab does nothing, and no
+on-screen hint names it [owner decision 2026-10-10: "this should not be in the release
+version"].
+
+Debug switches (`NVF_PLAY_DEBUG_*`) and test aids (`NVF_PLAY_TEST_*`) are development
+tools: they are to be compiled out of packaged releases once packaging exists
+[coordinator's note 2026-10-10; no packaging work yet].
 
 **Unattended runs never wait for input** (any `NVF_PLAY_TEST_*` variable, or
 `--auto-walk`): a conversation no script answers is left the same way after 1 s of
@@ -144,6 +163,9 @@ line for each thing the player or the aid did (`op`: `activate`, `choose`, `skip
 
 `NVF_PLAY_TEST_SCRIPT`'s `var:` step now takes names with a colon
 (`var:scripted:0x001055B4:bRunTimer:1`).
+
+`NVF_PLAY_TEST_PAUSE=<seconds>:<seconds>[,…]` (`pause.rs`) opens the Esc pause menu at
+the first time and resumes at the second, as Esc would.
 
 ## 5. The unattended intro with real conversations
 
@@ -247,8 +269,9 @@ mode in conversations #120), `RUST_LOG=info`, each exit 0 with "run finished".
 - NPC idle animation is presentation and runs on in `living`; an NPC that was walking
   (`--npc-travel`) stops and stands. AI packages do not exist yet; when they do they
   have to honour `WorldHeld` too.
-- `original` stops the virtual clock, which also stops `--run-seconds`' count and the
-  other files' timed aids during a conversation (§3).
+- Between two message boxes shown one after the other the game is `Playing` for a frame
+  or two (the next box opens when the first has closed), so under `original` the
+  picture moves by that much between them.
 - Barter, repair and the companion wheel are not conversations here (dialogue.md §7).
 
 Seen in the runs of §6, for the rules' owner (nothing was changed in `fnv-game` for
