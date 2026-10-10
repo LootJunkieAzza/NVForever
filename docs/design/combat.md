@@ -378,6 +378,40 @@ role; their exact names come from C1.
   2026-10-09]; we deliberately don't do that. In third person, a second ray from the
   muzzle to the aim point stops shots that would pass through a wall right in front of
   the character. The muzzle only matters for visuals (tracer, flash).
+- **What is seen leaves the muzzle** (built 2026-10-10 after the owner's report that
+  shots looked as if they came from the camera; `fnv_combat::shot::leaving`, `Seen`).
+  - The muzzle is the `ProjectileNode` of the weapon model in the rig in view
+    [hypothesis: the node's meaning; docs/spec-notes/animation.md §9.9]. The player
+    body gives its place to combat each frame (`WeaponAnim::muzzle`).
+  - The **aim point** is what the view ray from the eye meets first, within the
+    projectile's range (100,000 units when it has none); the ray's end when it meets
+    nothing.
+  - The hit is still decided on the view ray. A projectile is **drawn** beside its
+    path: at the muzzle when it starts, and closer to its path in proportion to the
+    distance flown, until it is on it at the aim point's distance. So a tracer runs
+    from the barrel to the crosshair's point, and a missile or grenade is seen to
+    leave the barrel. Hitscan tracers are one line from the muzzle to the hit, or to
+    the end of the range when nothing is hit.
+  - A muzzle that is past the aim point (a barrel pushed through a wall) is not used:
+    the shot is drawn from the eye.
+  - **Cover, third person only:** the second ray goes from the muzzle towards the aim
+    point, 150 units at most ("right in front of the character"). If it stops on
+    something other than the actor aimed at, more than 4 units short of the aim
+    point, the projectiles leave the muzzle towards the aim point instead of the eye
+    along the view, so they strike what is in front of the barrel, with their spread
+    around that line. In first person the second ray is not cast: the gun is drawn
+    below the eye and would be stopped by every ledge the player looks over.
+    - Why the ray is short [observed 2026-10-10]: with the ray going all the way, a
+      gatling laser burst along level ground at Goodsprings had one shot of 16 stopped
+      by the ground itself, short of an aim point 1,328 units away, because the muzzle
+      is lower than the eye. Far things are for the view to decide.
+  - Without a muzzle (no player body, the weapon model has no such node) everything
+    is as before: drawn from the eye.
+  - Not built: the same for NPCs' shots (NPCs do not shoot yet); melee is unchanged.
+  - Open (docs/owner-review.md, "Shots leave the barrel"): in third person the view
+    ray starts at the character's head while the camera sits over the shoulder
+    (40 units to the right by default), so the ray runs parallel to the crosshair's
+    line and beside it. That was so before this change and is left alone.
 - **Projectiles by their PROJ type.** The PROJ type picks one of three paths.
   - Missiles are stepped on the physics tick by swept rays (`ray` from the previous
     position to the next), with the PROJ speed and gravity, up to the PROJ range.
@@ -511,6 +545,9 @@ engine:
   the player is hit, and the aimed target's name and health bar.
 - An ammo counter (magazine / carried) and the player's health, drawn as a small HUD
   like `script_hud.rs` until the game's HUD is built.
+- Tracers at the PROJ's tracer chance and a small flash marker for each shot, both at
+  the muzzle (§5.1), as line markers until the PROJ's muzzle flash model, light and
+  projectile models are drawn.
 - Hit reactions: a flinch clip layered over the current animation and an impulse to
   the hit body part once ragdolls exist.
 
@@ -592,7 +629,8 @@ beyond combat. Third, C5 already passes a hit location everywhere (`GetHitLocati
 | Health, death, script events | `fnv-game` (actor values, `KillActor`/`GetDead`, OnHit/OnDeath dispatch), `fnv-sim` (dead state) |
 | Attack, reload, hit and death clips | `fnv_actor::player_clips`, `fnv_actor::weapon` |
 | Input, projectiles in play, HUD | `engine/nvf-play/src/combat.rs` (new plugin) |
-| Posing hit volumes from bones; tracers, muzzle flash | `engine/nvforever` |
+| Posing hit volumes from bones; the muzzle's place (`player_body.rs`, for `WeaponAnim::muzzle`) | `engine/nvforever` |
+| Where a shot leaves and is drawn from (`shot::leaving`); tracers and the flash marker | `crates/fnv-combat`, `engine/nvf-play/src/combat.rs` |
 | Tools | `crates/fnvtool/src/combat_cmd.rs` (`fnvtool combat …`) |
 | Facts | `docs/spec-notes/combat-data.md` |
 

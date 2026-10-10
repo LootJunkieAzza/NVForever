@@ -255,6 +255,14 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
 - **Shots.**
   - They leave the eye along the view, inside the cone from §3. The stance is taken
     from the controls and the character: aiming, sneaking, moving, airborne.
+  - They are drawn from the muzzle of the weapon in hand (the model's
+    `ProjectileNode`, animation.md §9.9; `WeaponAnim::muzzle` from the player body),
+    closing on the view ray by the point aimed at. In third person a shot whose
+    muzzle has something between it and that point leaves the muzzle instead
+    (`fnv_combat::shot::leaving`; docs/design/combat.md §5.1) [design]. The debug log
+    gives each shot's eye, aim point, muzzle and where it is drawn from, and each
+    tracer's start; the summary at exit counts the shots drawn from the muzzle and
+    those from behind cover.
   - The skill is derived from its attribute and Luck (`damage::derived_skill`;
     which attribute governs which skill is a hypothesis), since the simulation has no
     skills yet.
@@ -268,10 +276,14 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   body part); applying it is step C5.
 - **Feedback** [design, until impact effects and audio]:
   - an impact marker for 0.3 s (0.6 s for explosions);
-  - tracers at the PROJ tracer chance;
+  - tracers at the PROJ tracer chance, from the muzzle, and a flash marker at the
+    muzzle for 0.06 s per shot; a hitscan tracer that hits nothing is drawn to the end
+    of its range;
   - an ammo counter (magazine / carried, the ammo's abbreviation).
 - **Test aids.** `NVF_PLAY_TEST_CONTROL` presses `fire`, `reload`, `swap` and
-  `aimactor` (look at the nearest actor's hit volume).
+  `aimactor` (look at the nearest actor's hit volume). `NVF_PLAY_TEST_TRACERS=<seconds>`
+  gives every projectile a tracer and keeps tracers and flash markers that long, so
+  one screenshot shows where shots were drawn from.
 - **Checked** [observed 2026-10-09, `nvforever --cell Goodsprings --play`, exit 0, "run
   finished"]:
   - **9mm pistol** (50 rounds given): magazine 13/13, one shot per trigger pull. Two

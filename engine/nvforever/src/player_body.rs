@@ -231,6 +231,11 @@ struct Rig {
     weapon_model: Option<Entity>,
     /// The weapon model's shapes.
     weapon_parts: Vec<WeaponPart>,
+    /// The way from the `Weapon` node down to the weapon model's `ProjectileNode`, when
+    /// it has one: each node's place in the animator's extra nodes (a named node; the
+    /// clips may move it) and its transform in the model [hypothesis: the node marks
+    /// the muzzle; animation.md §9.9].
+    muzzle: Option<Vec<(Option<usize>, Transform)>>,
     /// Third person: drawn entities to hide when it stands in for the first-person rig.
     head_entities: Vec<Entity>,
     /// Third person: the drawn entities the first-person rig has its own of (arms, hands,
@@ -250,6 +255,14 @@ struct Rig {
     attack_loop: Option<(f32, f32)>,
 }
 
+/// The node of a weapon model that shots are drawn from, by either of its names
+/// (animation.md §9.9).
+const MUZZLE_NODES: [&str; 2] = ["ProjectileNode", "##ProjectileNode"];
+
+fn affine(t: Transform) -> Affine3A {
+    Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.translation)
+}
+
 /// Where a layer's time is after going round the repeated part of its clip, `start` to
 /// `end` seconds into it: unchanged before `end`.
 fn loop_time(time: f32, start: f32, end: f32) -> f32 {
@@ -260,6 +273,19 @@ fn loop_time(time: f32, start: f32, end: f32) -> f32 {
 }
 
 impl Rig {
+    /// Where the weapon's muzzle is in the last pose with the rig at `root` (game
+    /// space): under the node the `Weapon` node hangs from, down the weapon model to its
+    /// `ProjectileNode`, each node where the clips have it.
+    fn muzzle_at(&self, root: Transform) -> Option<Vec3> {
+        let path = self.muzzle.as_ref()?;
+        let a = &self.animator;
+        let mut m = affine(root) * a.model_space(self.weapon_parent?) * affine(a.locals[self.weapon_node?]);
+        for (extra, bind) in path {
+            m *= affine(extra.and_then(|k| a.extra_local(k)).unwrap_or(*bind));
+        }
+        Some(m.translation.into())
+    }
+
     /// The first existing file of a clip choice in this rig's folder (cached, failures
     /// too).
     fn clip(&mut self, ctx: &mut ActorCtx, key: ClipKey) -> Option<Arc<ClipInfo>> {
@@ -500,6 +526,7 @@ fn ensure_body(
             commands.entity(e).despawn();
         }
         rig.animator.set_extra(Vec::new());
+        rig.muzzle = None;
         for p in rig.weapon_parts.drain(..).filter(|p| p.on_bone) {
             commands.entity(p.entity).despawn();
         }
@@ -526,8 +553,19 @@ fn ensure_body(
                 for (n, e) in pm.nodes.iter().zip(&part_nodes) {
                     commands.entity(n.parent.map_or(holder, |p| part_nodes[p])).add_child(*e);
                 }
-                let mut extra: Vec<ExtraNode> =
-                    pm.nodes.iter().zip(&part_nodes).filter_map(|(n, e)| Some(ExtraNode { name: n.name.clone()?, entity: *e, bind: local(&n.local) })).collect();
+                let mut extra: Vec<ExtraNode> = Vec::new();
+                // Each node's place among the extra nodes, if it has a name.
+                let extra_of: Vec<Option<usize>> = pm
+                    .nodes
+                    .iter()
+                    .zip(&part_nodes)
+                    .map(|(n, e)| {
+                        let name = n.name.clone()?;
+                        extra.push(ExtraNode { name, entity: *e, bind: local(&n.local) });
+                        Some(extra.len() - 1)
+                    })
+                    .collect();
+                rig.muzzle = nvf_assets::model::node_path(&pm.nodes, &MUZZLE_NODES).map(|path| path.into_iter().map(|i| (extra_of[i], local(&pm.nodes[i].local))).collect());
                 for s in &pm.shapes {
                     let bone = s.ancestors.iter().find_map(|a| skel.by_name.get(bones.get(a)?.trim()).copied());
                     if bone.is_some() && rig.view == View::First {
@@ -553,7 +591,16 @@ fn ensure_body(
                 }
                 rig.weapon_model = Some(holder);
                 rig.weapon_shown = None;
-                info!("player weapon model ({:?} person): {path}, {} nodes, {} named parts for the clips", rig.view, pm.nodes.len(), extra.len());
+                info!(
+                    "player weapon model ({:?} person): {path}, {} nodes, {} named parts for the clips, {}",
+                    rig.view,
+                    pm.nodes.len(),
+                    extra.len(),
+                    match &rig.muzzle {
+                        Some(p) => format!("{} {} node(s) down: shots are drawn from it", MUZZLE_NODES[0], p.len()),
+                        None => format!("no {}: shots are drawn from the eye", MUZZLE_NODES[0]),
+                    }
+                );
                 rig.animator.set_extra(extra);
             }
             None => warn!("player weapon {path}: model not loaded"),
@@ -651,6 +698,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         attached: weapon_parent,
         weapon_model: None,
         weapon_parts: Vec::new(),
+        muzzle: None,
         head_entities,
         arm_entities,
         shown: None,
@@ -994,6 +1042,7 @@ fn drive_body(
         view.pivot = None;
         // No body to time the weapon: it is ready as soon as it is wanted out.
         anim.ready = control.weapon_out;
+        anim.muzzle = None;
         return;
     };
     let dt = time.delta_secs();
@@ -1065,6 +1114,7 @@ fn drive_body(
         player.body_eye = eye.map(|e| e.to_array());
         view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0]);
         anim.ready = false;
+        anim.muzzle = None;
         show_rigs(body, &mut visibility, Shown { third: third_view || own_body, first: false, head: third_view, arms: true, weapon: true });
         return;
     }
@@ -1185,6 +1235,14 @@ fn drive_body(
     // from inside. With the body in first person, the arms rig's arms and weapon stand
     // in for the body's own while they are up (weapon out, drawing or putting away).
     let has_first = body.first.is_some();
+    // The muzzle of the weapon in hand, for combat (shots are drawn from it;
+    // `WeaponAnim::muzzle`): in the first-person rig while that view is on (its weapon
+    // is the one seen in hand, with or without the body below it), else the body's.
+    let seen = match body.first.as_ref() {
+        Some(f) if !third_view => f,
+        _ => &body.third,
+    };
+    anim.muzzle = if m.hands.in_hand { seen.muzzle_at(root).map(|p| p.to_array()) } else { None };
     let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
     let shown = if frame.upright {
         Shown { third: true, first: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }

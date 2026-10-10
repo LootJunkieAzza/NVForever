@@ -665,7 +665,8 @@ track) on `Fallout - Meshes.bsa` and `Update.bsa`.
     `##LR_CellRelease`, `##LR_CellReleaseLatch`, `##LR_CellReleaseSpring`,
     `##MicroFusionCell` (its attack clip moves none).
 - Not built: the colour, texture-transform and morph tracks on weapon parts; shell
-  casings and muzzle flashes (`ShellCasingNode`, `ProjectileNode`); placed NPCs'
+  casings (`ShellCasingNode`) and the muzzle flash model (`ProjectileNode` is read
+  for where shots are drawn from, §9.9); placed NPCs'
   weapons, which are still drawn as one rigid model (`nvforever::weapons`; NPCs play no
   attack or reload clips yet). The spinning melee weapons (`1hm` and `2hm`
   `attackspin`) keep combat's swing timing: no spin-up for them.
@@ -673,6 +674,86 @@ track) on `Fallout - Meshes.bsa` and `Update.bsa`.
   it (as §9.7 reads the `Weapon` node) rather than at its place in the model: the
   10mm's parts have no track in `1hpaim.kf`, so the two readings differ wherever a clip
   ends with a part away from its place. Not compared with the game frame by frame.
+
+### 9.9 The muzzle: `ProjectileNode` [observed unless tagged]
+
+Measured with `crates/fnv-nif/examples/muzzle_node_survey.rs` (every `.nif` under
+`meshes\weapons\`; `--list` prints one line per file) on `Fallout - Meshes.bsa` and
+`Update.bsa`, 362 models, all parsed.
+
+- 198 of the 362 have a node named `ProjectileNode`; in 6 of them it is spelt
+  `##ProjectileNode` (the four `lasergatling*.nif` hand models and the two
+  `plasmacaster*.nif`, under `##GatlingLaserGun`, with a `NiTransformController`).
+- By folder, with and without: `1handpistol` 65 and 3, `2handautomatic` 31 and 2,
+  `2handrifle` 73 and 7, `2handhandle` 21 and 13, `2handlauncher` 7 and 2, `hand2hand`
+  1 (`ballisticfistrigid.nif`) and 51; none of `1handmelee` (32), `2handmelee` (23),
+  `1handgrenadethrow` (21), `1handminedrop` (7) and `modkits` (3). The 27 without one
+  in the gun folders are not a gun in the hand: world models (`…go.nif`), magazines
+  and cells, shells and shell casings, hoses, the BB gun's can, and projectiles (the
+  missile, the mini nuke, the rifle grenade).
+- Where it hangs: directly under the root in 167; else under a part of the weapon
+  (`##MinigunGun` 7, `##GatlingLaserGun` 6, `##FlamerGun` 3, `##GaussRifleFront` 3,
+  `##sosgStock` 2, and one each under `##MinigunBarrel`, `##RIL`, `##Gun`,
+  `##CVSHStock`, `##snBarrell`, `HuntingRevolver`, `LaserPistol`, `Marksman`,
+  `Pulsegun`, `TeslaCannon`).
+- Where it is: 6.2 to 89.3 units from the model's origin, furthest along the model's
+  x axis in 189 and along y in 9 (the shoulder launchers).
+  - `weapons\1handpistol\10mmpistol.nif` (17.84, 4.05, 0.00); the same pistol with a
+    silencer (`10mmpistolsilenced.nif`) (34.27, 4.05, 0.00), 16.4 units further out;
+    `127mmpistol.nif` 18.69 and `127mmpistolsilencer.nif` 34.79 along x.
+  - `weapons\2handhandle\minigun.nif` (79.74, −11.80, 0.00) under `##MinigunGun`;
+    `weapons\2handrifle\varmintrifle.nif` (46.46, 7.00, 0.00);
+    `weapons\2handlauncher\missilelauncher.nif` (−5.89, −40.53, −11.23).
+- How it is turned: 196 of the 198 have a rotation of their own. In 193 the node's own
+  y axis lies along the model axis the node is furthest out on, pointing away from the
+  origin (the node's x, y, z along the model's z, x, y in 179). The five others:
+  `1handpistol\camera.nif`, `2handhandle\25mmgrndlnchr.nif` (turned by no right angle),
+  `hand2hand\ballisticfistrigid.nif` and the two plasma casters (not turned).
+- `ShellCasingNode`: 123 of the 362, 112 directly under the root.
+- First-person models: 10 files named `1st…`, nine of them melee weapons and one
+  `2handrifle\1stpersongaussrifleunique.nif` (the only one with the node). The 10mm
+  pistol and the minigun use one model for both rigs [observed: the engine's "player
+  weapon model" lines name the same file for the first- and third-person rig].
+- A clip moves it: `characters\_male\2hhattackloop.kf` and the first-person clip of the
+  same name have a transform track `##ProjectileNode` (priority 55) that starts at
+  (70.60, −14.76, 0.00), the node's place in `lasergatling.nif`, and travels 6.0 units
+  (5.75 in first person) with no turn. The minigun's node has no `##` and no track.
+- Reading [hypothesis]: the node marks the muzzle. The projectile and the muzzle flash
+  start there, and its y axis is the way the barrel points. For: its name; it sits at
+  the far end of the barrel; a silencer moves it out by the silencer's length; weapons
+  that fire nothing have none; a firing clip moves it with the gun's front. Not
+  checked against the game.
+- Engine (since 2026-10-10; docs/design/combat.md §5.1):
+  - the player body finds `ProjectileNode` or `##ProjectileNode` in the weapon model
+    of each rig (`nvf_assets::model::node_path`) and, each frame the weapon is in
+    hand, works out where it is in the rig in view from the pose it has just made: the
+    node the `Weapon` node hangs from, the `Weapon` node, then down the model's nodes,
+    each where the clips have it (`nvforever::player_body`, `Rig::muzzle_at`). It
+    gives that to combat as `nvf_play::combat::WeaponAnim::muzzle` (game space);
+  - combat draws shots from it (tracers, the flash marker) and uses it for the
+    third-person cover rule. The node's rotation is not used: the aim is the view's;
+  - a weapon model without the node, a holstered weapon and a run without a player
+    body (`--no-actors`) give no muzzle, and shots are drawn from the eye as before.
+- Checked in ours [observed 2026-10-10, `--play` at Goodsprings, `--hour 12`, exit 0
+  and "run finished" each time, `RUST_LOG=info,nvf_play::combat=debug`; screenshots
+  kept privately]:
+  - 10mm pistol (`0000434F`), third person: eye (−71680.0, 2044.3, 8490.4), muzzle
+    (−71678.7, 2086.8, 8445.0): 42.5 units ahead of the eye and 45.4 below it. First
+    person: muzzle (−71672.9, 2087.2, 8476.7), 7.1 units right of the eye, 42.9 ahead
+    and 13.7 below; the tracer starts there and ends at the hit by the crosshair.
+  - Minigun (`0000433F`), third person, trigger held: muzzle (−71659.5, 2128.6,
+    8429.1), 20.5 units right of the eye, 84.3 ahead and 61.3 below. Held 1.2 s: "24
+    shots (24 drawn from the muzzle, 0 from behind cover)", and each logged tracer
+    starts at the muzzle of its shot, within 6 units of the first (the gun moves as it
+    fires). Seen from the side (`orbit=75:5`) with `NVF_PLAY_TEST_TRACERS=3`, the
+    tracers of a 7-shot burst fan out from the end of the barrel, with the flash
+    marker on it.
+  - Gatling laser (`0000432E`, the `##ProjectileNode` spelling), third person,
+    trigger held 0.5 s: "ProjectileNode 2 node(s) down" for both rigs; muzzle
+    (−71659.6, 2119.2, 8426.8) at the first shot; "16 shots (16 drawn from the muzzle,
+    0 from behind cover)".
+- Not built: the PROJ's muzzle flash model and light (ours draws a marker), shell
+  casings from `ShellCasingNode`, NPCs' shots.
 
 ### 9.5 The first-person rig [observed unless tagged]
 
