@@ -54,6 +54,9 @@
 //!   case; a part of it if only one choice contains it; quotes force text), `leave`
 //!   leaves as Tab does, and `skip` skips the response being said.
 //!
+//! `NVF_PLAY_TEST_TALK_DELAY=<seconds>` (default [`AID_CHOOSE_SECONDS`]) is how long the
+//! choices stay on screen before a step picks one (for screenshots).
+//!
 //! When the steps run out the aid leaves: by the Goodbye choice if one is offered, else
 //! by breaking off. **Unattended runs never wait for input**: a conversation no script
 //! answers is left the same way after [`UNATTENDED_CHOOSE_SECONDS`] of choosing, and
@@ -425,6 +428,8 @@ pub struct DialogueScreen {
     aid: TalkAid,
     /// An unattended run: nobody is there to choose.
     unattended: bool,
+    /// Seconds the choices are on screen before the aid picks (`NVF_PLAY_TEST_TALK_DELAY`).
+    aid_delay: f32,
     /// Since when (seconds) the conversation runs, the choices are offered, and the
     /// response (line, position) is being said.
     talk_since: Option<f32>,
@@ -435,7 +440,8 @@ pub struct DialogueScreen {
 
 impl DialogueScreen {
     fn new(talks: Vec<TalkScript>, unattended: bool) -> DialogueScreen {
-        DialogueScreen { aid: TalkAid { waiting: talks, ..default() }, unattended, ..default() }
+        let aid_delay = std::env::var("NVF_PLAY_TEST_TALK_DELAY").ok().and_then(|d| d.trim().parse().ok()).unwrap_or(AID_CHOOSE_SECONDS);
+        DialogueScreen { aid: TalkAid { waiting: talks, ..default() }, unattended, aid_delay, ..default() }
     }
 
     fn conversation_over(&mut self) {
@@ -638,7 +644,7 @@ fn input(
             Some(Step::Skip) => {
                 d.steps.pop_front();
             }
-            step if choosing && chosen_for(sc.choosing_since, AID_CHOOSE_SECONDS) => {
+            step if choosing && chosen_for(sc.choosing_since, sc.aid_delay) => {
                 d.steps.pop_front();
                 act = Some(match step {
                     None => {
@@ -796,8 +802,11 @@ fn sync_state(
 // ---- drawing ----------------------------------------------------------------------------
 
 const PANEL: Color = Color::srgba(0.05, 0.05, 0.03, 0.90);
+/// Behind the hint while the actor speaks.
+const HINT_PANEL: Color = Color::srgba(0.05, 0.05, 0.03, 0.45);
 const TEXT: Color = Color::srgb(0.95, 0.95, 0.9);
 const DIM: Color = Color::srgb(0.55, 0.55, 0.50);
+const HINT: Color = Color::srgb(0.75, 0.75, 0.68);
 const ACCENT: Color = Color::srgb(1.0, 0.85, 0.4);
 const WARN: Color = Color::srgb(1.0, 0.45, 0.35);
 const SELECTED: Color = Color::srgba(0.30, 0.27, 0.12, 0.95);
@@ -851,7 +860,7 @@ fn spawn_panel(commands: &mut Commands, v: &View, selected: usize) {
         };
         // While the actor speaks only a slim hint shows, under the subtitle.
         let speaking = v.rows.is_empty();
-        root.spawn((panel, BackgroundColor(if speaking { Color::NONE } else { PANEL }), BorderColor::all(if speaking { Color::NONE } else { DIM }))).with_children(|p| {
+        root.spawn((panel, BackgroundColor(if speaking { HINT_PANEL } else { PANEL }), BorderColor::all(if speaking { Color::NONE } else { DIM }))).with_children(|p| {
             if !speaking {
                 p.spawn(text(v.speaker.clone(), 19.0, ACCENT));
                 if v.above > 0 {
@@ -866,7 +875,7 @@ fn spawn_panel(commands: &mut Commands, v: &View, selected: usize) {
                     p.spawn(text(format!("  v {} more", v.below), 12.0, DIM));
                 }
             }
-            p.spawn(text(v.hint.clone(), 13.0, DIM));
+            p.spawn(text(v.hint.clone(), 13.0, HINT));
             if let Some(n) = &v.note {
                 p.spawn(text(n.clone(), 14.0, WARN));
             }
