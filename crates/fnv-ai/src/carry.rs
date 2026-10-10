@@ -79,6 +79,23 @@ pub struct Logged {
     pub event: AiEvent,
 }
 
+/// What the caller of [`Ai::update_moved`] does itself.
+pub trait Mover {
+    /// A door that opens in place stands in `actor`'s way: start it opening, and say
+    /// whether it is fully open.
+    fn open(&mut self, _actor: FormId, _door: u32) -> bool {
+        true
+    }
+
+    /// Move `actor` along its walker's path for `dt` seconds by other means than the
+    /// walker's own (which keeps to the navmesh surface): update the walker's place,
+    /// heading and follower as `fnv_nav::Walker::update_with` would and say what
+    /// happened. `None`: leave this actor to the walker for this update.
+    fn walk(&mut self, _actor: FormId, _walker: &mut Walker, _nav: &NavGraph, _dt: f32) -> Option<WalkEvent> {
+        None
+    }
+}
+
 /// One actor the AI moves.
 pub struct Agent {
     pub walker: Walker,
@@ -136,6 +153,18 @@ impl Ai {
     /// (it should start the door opening); the actor stands meanwhile
     /// (`fnv_nav::Walker::update_with`).
     pub fn update_with(&mut self, game: &mut Game, nav: &NavGraph, dt: f32, open: &mut dyn FnMut(FormId, u32) -> bool) {
+        struct Doors<'a>(&'a mut dyn FnMut(FormId, u32) -> bool);
+        impl Mover for Doors<'_> {
+            fn open(&mut self, actor: FormId, door: u32) -> bool {
+                (self.0)(actor, door)
+            }
+        }
+        self.update_moved(game, nav, dt, &mut Doors(open))
+    }
+
+    /// [`Ai::update`] with the caller's [`Mover`]: its doors, and its own way of moving
+    /// the actors it chooses to (the engine's character controller near the player).
+    pub fn update_moved(&mut self, game: &mut Game, nav: &NavGraph, dt: f32, open: &mut dyn Mover) {
         let actors: Vec<FormId> = self.agents.keys().copied().collect();
         for actor in actors {
             if !game.present(actor) || game.extra.get(&actor).is_some_and(|e| e.dead) {
@@ -241,9 +270,12 @@ impl Ai {
         game.block_package(actor, package, self.cfg.retry_hours);
     }
 
-    fn walk(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, open: &mut dyn FnMut(FormId, u32) -> bool) {
+    fn walk(&mut self, game: &mut Game, nav: &NavGraph, actor: FormId, dt: f32, mover: &mut dyn Mover) {
         let a = self.agents.get_mut(&actor).expect("listed");
-        let ev = a.walker.update_with(nav, dt, &mut |door| open(actor, door));
+        let ev = match mover.walk(actor, &mut a.walker, nav, dt) {
+            Some(ev) => ev,
+            None => a.walker.update_with(nav, dt, &mut |door| mover.open(actor, door)),
+        };
         a.waiting_at = match ev {
             WalkEvent::WaitingForDoor(d) => Some(d),
             _ => None,

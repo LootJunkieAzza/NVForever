@@ -879,11 +879,21 @@ Facts and figures: `docs/spec-notes/packages.md`; design and the decisions taken
     Doc standing still. Watching an NPC walk through that house in the game, or the
     cell's navmesh in the GECK, would settle it (design §7, note 21).
 
-14. **Step 4c, first part:** `--npc-packages all` hands every actor of the loaded cells
-    to the package layer, and with `--play` the choice now uses the game's own state
-    (quests, deaths, menus pausing it). Not done: physics for NPCs near the player. Not
-    rerun after the last change: the three-resident and `--npc-travel` smoke tests, and
-    the parity lab (no root crate changed in this part).
+14. **Step 4c, done:** `--npc-packages all` hands every actor of the loaded cells to the
+    package layer; with `--play` the choice uses the game's own state (quests, deaths,
+    menus pausing it); and near the player actors are moved by the character controller
+    (they go round furniture and follow the floor), falling back to the navmesh surface
+    when stuck and for the last steps to a chair or bed.
+15. **A change you will see in `--play`: the sky now follows the game's clock.** Time
+    passes at the game's TimeScale (one game hour in two minutes), starting at `--hour`.
+    `--still-sky` gives the old fixed sky back. Say if you would rather have it off by
+    default.
+16. **Your rewrite of `main`'s history** (commits re-authored with the GitHub noreply
+    address) left `claude/ai-packages` on the old history. This work is now one commit
+    on the new history, on **`claude/ai-packages-v2`** (same files; authored with the
+    noreply address). I did not touch the old remote branch `claude/ai-packages`: it
+    still holds the old commits with the old address, so you will want to delete it.
+    Other old-history branches on the remote are in the same position.
 
 ## Loading screens (2026-10-10, session "loading screen")
 

@@ -9,5 +9,5 @@
 pub mod carry;
 pub mod goal;
 
-pub use carry::{Activity, Agent, Ai, AiConfig, AiEvent, Logged};
+pub use carry::{Activity, Agent, Ai, AiConfig, AiEvent, Logged, Mover};
 pub use goal::{Goal, Route};

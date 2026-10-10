@@ -17,22 +17,28 @@
 //! calendar, which the simulation advances at the TimeScale global (`nvf_play::sim`);
 //! this module only sets it to the sky's hour once, at the start.
 //!
-//! Actors move on the navmesh surface (`fnv_nav::Walker`), without physics.
+//! **Movement.** With `--play`, an actor walking where the collision world is loaded
+//! (around the player) is moved by the character controller ([`PhysMover`]): it steers
+//! along its path and physics decides where it ends up, so it goes round furniture and
+//! follows the floor. Stuck for a few seconds, or anywhere else (other cells, other
+//! spaces, without `--play`), it moves on the navmesh surface (`fnv_nav::Walker`).
 
 use crate::actors::ActorWorld;
 use crate::locomotion::Locomotion;
 use crate::nav::{self, Lead, NavState};
 use crate::world::{CellKey, Streamer, WorldData, WorldRoot};
 use bevy::prelude::*;
-use fnv_ai::{Activity, Ai, AiConfig, AiEvent};
+use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Mover};
 use fnv_game::game::{Game, GameConfig};
 use fnv_game::GameData;
-use fnv_nav::Space;
+use fnv_nav::follow::{heading_of, turn_towards, Advice, Unstuck};
+use fnv_nav::{NavGraph, Space, Steer, WalkEvent, Walker};
+use nvf_play::phys::PhysState;
 use fnv_sim::{clock, FormId, FormStore, RefTable, SimConfig, World};
 use nvf_assets::actor::ActorParts;
 use nvf_assets::model::ModelCtx;
 use nvf_play::RefVisual;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Where the function catalogue is when `NVF_PLAY_SCRIPT_FUNCTIONS` is not set (as
 /// `nvf_play::script`).
@@ -43,6 +49,137 @@ const PACKAGE_INTERVAL: f64 = 10.0;
 
 /// Actors drawn for the first time per frame at most (drawing one loads its parts).
 const SPAWNS_PER_FRAME: usize = 3;
+
+/// After the character controller could not get an actor along its path, the actor
+/// keeps to the navmesh surface for this long, seconds [our choice].
+const PHYSICS_RETRY: f32 = 8.0;
+
+/// The walker takes the last stretch of a walk, game units [our choice].
+const LAST_STRETCH: f32 = 64.0;
+
+/// The character controller for actors walking near the player, and the doors.
+struct PhysMover<'a> {
+    doors: &'a mut nvf_play::doors::Doors,
+    phys: Option<&'a mut PhysState>,
+    unstuck: &'a mut HashMap<u32, Unstuck>,
+    /// Actors left to the walker until this time (elapsed seconds).
+    skip_until: &'a mut HashMap<u32, f32>,
+    now: f32,
+    /// Actors moved by physics in this update; times physics gave up.
+    stats: &'a mut [usize; 2],
+}
+
+/// A door known here (drawn, with its animation) is opened and waited for.
+fn open_door(doors: &mut nvf_play::doors::Doors, door: u32) -> bool {
+    if doors.get(door).is_none() {
+        return true;
+    }
+    doors.set_open(door, true);
+    doors.is_open(door) == Some(true)
+}
+
+impl Mover for PhysMover<'_> {
+    fn open(&mut self, _actor: FormId, door: u32) -> bool {
+        open_door(self.doors, door)
+    }
+
+    fn walk(&mut self, actor: FormId, walker: &mut Walker, _nav: &NavGraph, dt: f32) -> Option<WalkEvent> {
+        let phys = self.phys.as_deref_mut()?;
+        let id = actor.0;
+        let here = match (walker.space, phys.space) {
+            (Space::Interior(c), nvf_play::phys::cells::Space::Interior(i)) => c == i,
+            (Space::World(w), nvf_play::phys::cells::Space::Exterior) => w == phys.worldspace,
+            _ => false,
+        };
+        let skipped = self.skip_until.get(&id).is_some_and(|t| self.now < *t);
+        if !here || skipped || walker.follower.is_none() || !phys.ready_at(walker.feet) {
+            phys.remove_npc(id);
+            return None;
+        }
+        if !phys.npcs.contains_key(&id) {
+            if !phys.add_npc(id, walker.feet) {
+                return None;
+            }
+            self.unstuck.insert(id, Unstuck::new(walker.speed));
+        }
+        let feet = phys.npcs[&id].ch.feet;
+        let mut f = walker.follower.take()?;
+        // Back to the walker: where physics left the actor, on the same path.
+        let give_up = |phys: &mut PhysState, walker: &mut Walker, f| {
+            phys.remove_npc(id);
+            walker.follower = Some(f);
+            walker.tri = fnv_nav::graph::NONE;
+        };
+        // Fallen out of the world, or far off the path's height.
+        if (feet[2] - walker.feet[2]).abs() > 400.0 {
+            self.skip_until.insert(id, self.now + PHYSICS_RETRY);
+            self.stats[1] += 1;
+            give_up(phys, walker, f);
+            return None;
+        }
+        let (event, velocity) = match f.steer(feet) {
+            Steer::Arrived => {
+                phys.remove_npc(id);
+                walker.travelled += (feet[0] - walker.feet[0]).hypot(feet[1] - walker.feet[1]);
+                walker.feet = feet;
+                return Some(WalkEvent::Arrived);
+            }
+            Steer::OpenDoor { door, .. } => {
+                if open_door(self.doors, door) {
+                    f.door_opened();
+                    (WalkEvent::Moved, [0.0, 0.0])
+                } else {
+                    (WalkEvent::WaitingForDoor(door), [0.0, 0.0])
+                }
+            }
+            Steer::Door(d) => {
+                // Through a door into another space: the walker's from here (the
+                // collision there is not the one loaded).
+                f.door_used();
+                walker.space = f.space().unwrap_or(walker.space);
+                walker.feet = d.arrival;
+                walker.heading = d.arrival_heading;
+                walker.tri = d.to;
+                walker.follower = Some(f);
+                phys.remove_npc(id);
+                return Some(WalkEvent::UsedDoor(d));
+            }
+            // The last steps to the place itself are the walker's: packages send actors
+            // to chairs, beds and markers, which the character cannot stand in.
+            Steer::Walk { remaining, .. } if remaining < LAST_STRETCH && f.leg + 1 == f.path.legs.len() => {
+                self.skip_until.insert(id, self.now + 4.0);
+                walker.feet = feet;
+                give_up(phys, walker, f);
+                return None;
+            }
+            Steer::Walk { dir, remaining, .. } => match self.unstuck.entry(id).or_insert_with(|| Unstuck::new(walker.speed)).advise(remaining, dir, dt) {
+                Advice::Head(h) => {
+                    let speed = walker.speed.min(remaining / dt.max(1e-3));
+                    walker.heading = turn_towards(walker.heading, heading_of(h), walker.turn_rate * dt);
+                    (WalkEvent::Moved, [h[0] * speed, h[1] * speed])
+                }
+                // Stuck: the navmesh surface from here, for a while.
+                _ => {
+                    self.skip_until.insert(id, self.now + PHYSICS_RETRY);
+                    self.unstuck.remove(&id);
+                    self.stats[1] += 1;
+                    walker.feet = feet;
+                    give_up(phys, walker, f);
+                    return None;
+                }
+            },
+        };
+        walker.travelled += (feet[0] - walker.feet[0]).hypot(feet[1] - walker.feet[1]);
+        walker.feet = feet;
+        walker.tri = fnv_nav::graph::NONE;
+        walker.follower = Some(f);
+        if let Some(b) = phys.npcs.get_mut(&id) {
+            b.velocity = velocity;
+        }
+        self.stats[0] += 1;
+        Some(event)
+    }
+}
 
 /// Where the residents' clock starts and how fast it runs.
 #[derive(Clone, Copy)]
@@ -89,6 +226,13 @@ struct Core {
     clock_text: String,
     /// Trips, arrivals, unreachable places, packages chosen.
     counts: [usize; 4],
+    /// The character controller's stuck detection per actor, and who is left to the
+    /// walker until when.
+    unstuck: HashMap<u32, Unstuck>,
+    skip_until: HashMap<u32, f32>,
+    /// Updates in which an actor was moved by physics; times physics gave up; the most
+    /// actors moved by physics in one frame.
+    physics: [usize; 3],
 }
 
 #[derive(Resource)]
@@ -133,6 +277,9 @@ impl Residents {
             prepared: false,
             clock_text: String::new(),
             counts: [0; 4],
+            unstuck: HashMap::new(),
+            skip_until: HashMap::new(),
+            physics: [0; 3],
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -245,7 +392,7 @@ impl Core {
     /// One frame of the package choice and the walks in `game`. `own`: the game state is
     /// this module's (it is ticked here).
     #[allow(clippy::too_many_arguments)]
-    fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, dt: f32, now: f32) {
+    fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, mut phys: Option<&mut PhysState>, dt: f32, now: f32) {
         if !self.prepared {
             self.prepared = true;
             game.cfg.package_interval = Some(PACKAGE_INTERVAL);
@@ -257,6 +404,9 @@ impl Core {
         }
         // A menu, a conversation or a loading screen holds the game: nobody moves.
         if game.menu.is_some() || game.loading || game.dialogue.is_some() {
+            for b in phys.iter_mut().flat_map(|p| p.npcs.values_mut()) {
+                b.velocity = [0.0, 0.0];
+            }
             return;
         }
         for r in self.list.iter_mut().filter(|r| !r.joined) {
@@ -278,15 +428,20 @@ impl Core {
             game.tick();
         }
         self.clock_text = clock_text(game);
-        let mut open = |_: FormId, door: u32| {
-            // A door known here (drawn, with its animation) is opened and waited for.
-            if doors.get(door).is_none() {
-                return true;
+        let mut moved = [0usize; 2];
+        let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, now, stats: &mut moved };
+        self.ai.update_moved(game, &nav.graph, dt, &mut mover);
+        self.physics[0] += moved[0];
+        self.physics[1] += moved[1];
+        self.physics[2] = self.physics[2].max(moved[0]);
+        // No character is kept for an actor that is not on its way.
+        if let Some(p) = phys {
+            let idle: Vec<u32> = p.npcs.keys().copied().filter(|id| self.ai.agents.get(&FormId(*id)).is_none_or(|a| a.activity != Activity::Travelling)).collect();
+            for id in idle {
+                p.remove_npc(id);
+                self.unstuck.remove(&id);
             }
-            doors.set_open(door, true);
-            doors.is_open(door) == Some(true)
-        };
-        self.ai.update_with(game, &nav.graph, dt, &mut open);
+        }
         if own {
             game.events.clear();
         }
@@ -391,6 +546,7 @@ pub fn drive(
     mut doors: ResMut<nvf_play::doors::Doors>,
     script: Option<ResMut<nvf_play::script::ScriptState>>,
     sim: Option<ResMut<nvf_play::sim::SimState>>,
+    mut phys: Option<ResMut<PhysState>>,
 ) {
     let Ok(root) = root.single() else { return };
     let dt = time.delta_secs().min(0.1);
@@ -410,7 +566,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, game.world.placed);
             }
-            res.core.think(game, true, &nav, &world, &mut doors, dt, now);
+            res.core.think(game, true, &nav, &world, &mut doors, None, dt, now);
         }
         (None, Some(mut script), Some(mut sim)) => {
             let script = &mut *script;
@@ -425,7 +581,8 @@ pub fn drive(
                 res.core.take_cells(&world, &streamer, sim.refs);
             }
             let core = &mut res.core;
-            nvf_play::script::with_world(rt, &mut sim, |rt| core.think(&mut rt.game, false, &nav, &world, &mut doors, dt, now));
+            let phys = phys.as_deref_mut();
+            nvf_play::script::with_world(rt, &mut sim, |rt| core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, dt, now));
         }
         _ => return,
     }
@@ -491,7 +648,7 @@ pub fn report(
     each.extend(crowd.into_iter().take(6).filter_map(one));
     let by = |a: Activity| core.ai.agents.values().filter(|x| x.activity == a).count();
     info!(
-        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {}",
+        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; physics moved actors in {} updates (at most {} at once), gave up {} times; {}",
         core.clock_text,
         core.list.len(),
         core.counts[3],
@@ -502,6 +659,9 @@ pub fn report(
         by(Activity::Travelling),
         by(Activity::Staying),
         core.list.iter().filter(|r| r.spawned).count(),
+        core.physics[0],
+        core.physics[2],
+        core.physics[1],
         each.join("; ")
     );
 }

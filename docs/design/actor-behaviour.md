@@ -8,13 +8,13 @@ interiors and worldspaces if need be. Facts and tags: `docs/spec-notes/packages.
 factions, idles). Navigation: `docs/design/navmesh.md`. Combat AI is planned in
 `docs/design/combat.md`.
 
-Status 2026-10-10: steps 1 to 4b are **done**: the records, the typed reader, the
+Status 2026-10-10: steps 1 to 4c are **done**: the records, the typed reader, the
 package choice, actors going where their package sends them over the navmesh (headless),
-and the same in `nvforever` for the actors named with `--npc-packages` (§5.4).
-**Next**: every actor of the loaded cells, one game state with `--play`, the package
-types and behaviours not carried out yet, and the notes in §7. The six package types not
-yet seen running in a capture (Find, Follow, Escort, Wander, Use Item At, Use Weapon) are
-set aside until the owner captures them.
+and in `nvforever` (`--npc-packages`, §5.4) for named actors or every actor of the loaded
+cells, on the game's own state in `--play`, moved by the character controller near the
+player. **Next**: the package types and behaviours not carried out yet, and the notes in
+§7. The six package types not yet seen running in a capture (Find, Follow, Escort,
+Wander, Use Item At, Use Weapon) are set aside until the owner captures them.
 
 ## 1. The plan
 
@@ -25,7 +25,7 @@ set aside until the owner captures them.
 | 3 | Package choice `fnv_game::ai`: schedules, list order, validity, flags, periodic choice; `ai day`, the replay in `ai observed` | done |
 | 4 | Carrying packages out, headless: crate `fnv-ai` (a package's goal, reachability with keys, the walk, arrival reported with `package_goal_met`, unreachable places); `ai run`, `ai reach` | done |
 | 4b | The same in the engine: `nvforever --npc-packages` (the named actors live by their packages, drawn and animated) | done |
-| 4c | Every actor of the loaded cells; the package choice in `--play`'s own game state; the character controller near the player | next |
+| 4c | Every actor of the loaded cells (`--npc-packages all`); the package choice in `--play`'s own game state; the character controller near the player; the sky on the game's clock | done |
 | 5 | Checks against the game: the observer timelines hour by hour, new captures | partly (the replay; `ai run --samples`) |
 
 ## 2. Where things live
@@ -223,17 +223,27 @@ Step 4c, first part (2026-10-10):
   clock (the simulation advances it at TimeScale); it is set to the sky's hour once.
   `NVF_PLAY_TEST_SCRIPT_MENUS=1 … --play --npc-packages all,EasyPeteRef --hour 11.9
   --run-seconds 100`: Easy Pete's noon walk into the saloon, 25 residents, exit 0.
-- Still to do: the character controller for actors near the player; the sky does not
-  follow the game's clock; the named-resident and `--npc-travel` smoke tests were not
-  rerun after the last drawing change (the reference's scale is now applied).
+- **The character controller near the player** (`--play`; `residents::PhysMover`, the
+  `fnv_ai::Mover` hook, `nvf_play::phys::PhysState::npcs`): an actor walking where the
+  collision world is loaded gets a character of its own; it steers along its path and
+  the physics step moves it with the player's, so it goes round furniture and follows
+  the floor. It walks slopes up to 60 degrees (navmeshes cross slopes a little above the
+  player's 45) and passes through actor hit volumes (its own among them). Stuck (the
+  `Unstuck` rule of the walk tests: detours, then giving up), fallen far off the path,
+  through a door into another space, or within 64 units of its destination (chairs,
+  beds and markers cannot be stood in), it is the walker's again: on the navmesh
+  surface, as everywhere else. Smoke test: Easy Pete's noon walk, 243 updates moved by
+  physics, gave up 0 times, arrived after 18.0 s (16.2 s on the navmesh surface).
+- **The sky follows the game's clock in `--play`** (`sky_follows_game`): GameHour starts
+  at `--hour`, runs at the TimeScale global, and the sky shows it (17:30 became 17:55
+  in a 50-second run); an hour set with the `[` `]` keys becomes the game's.
+  `--still-sky` keeps the old behaviour; `--time-scale` keeps the sky's own clock.
 
-Limits of this step (step 4c):
-- **Only the named actors.** Handing over every actor of the loaded cells needs them
-  added and dropped as cells stream.
-- **A game state of its own.** In `--play` the scripts' quest state does not reach the
-  package conditions, and package scripts run in the AI's state, not the game's.
-- **No physics**: residents move on the navmesh surface (`Walker`), like travellers;
-  near the player they should use the character controller (navmesh.md §6.3).
+Limits that remain:
+- Without `--play` there is no collision world: actors keep to the navmesh surface, and
+  the package choice runs in a game state of its own (no quests).
+- Characters of actors do not push each other or the player's hit volumes aside; two
+  actors meeting in a doorway rely on the stuck rule.
 - The chase camera can end up behind furniture indoors.
 
 ## 6. Decisions for the owner
@@ -310,8 +320,9 @@ Not done yet:
 17. Package types not carried out: Follow, Accompany and Escort (297 actor/package
     pairs), Find and Use Item At (263), Use Weapon (244), Dialogue (209), Ambush and
     Flee Not Combat (94); and the run-time type codes of the six types not seen running.
-18. In the engine only named actors live by their packages, in a game state separate
-    from `--play`'s, without physics (§5.4).
+18. In the engine the residents' physics is a first version: the player's capsule
+    with a steeper slope limit, no actor-to-actor avoidance, the walker for the last 64
+    units and whenever physics gets stuck (§5.4).
 19. Package flags not acted on: the door flags (lock or unlock the cell's doors),
     Always Sneak, Allow Swimming, Allow Falls, Weapon Drawn, the Fallout behaviour
     switches; package idles and begin / end / change idles and topics.
