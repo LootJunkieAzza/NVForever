@@ -662,6 +662,45 @@ fn say_to_done_follows_say_as_well_as_say_to() {
 }
 
 #[test]
+fn a_line_lasts_as_long_as_its_voice_file_when_the_game_knows_it() {
+    // docs/spec-notes/voice.md §8: the hook gives a response's length; a response it
+    // does not know keeps the length fitted to its text.
+    struct Sounds;
+    impl fnv_game::voice::VoiceLengths for Sounds {
+        fn response_seconds(&self, info: FormId, response: usize, speaker_base: Option<FormId>) -> Option<f64> {
+            (info == FormId(INFO_A) && response == 0 && speaker_base == Some(FormId(NPC))).then_some(0.5)
+        }
+    }
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let speaker = FormId(NPC_REF);
+    let started = |g: &Game, info: u32| {
+        g.events.iter().rev().find_map(|e| match e.kind {
+            EventKind::LineStarted { info: i, seconds, .. } if i == FormId(info) => Some(seconds),
+            _ => None,
+        })
+    };
+    // Without the hook: "Hello there" is 1.1 s + 11 / 16 s.
+    assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![1.7875]);
+    g.voice = Some(std::sync::Arc::new(Sounds));
+    assert_eq!(g.response_lengths(speaker, FormId(INFO_A)), vec![0.5]);
+    assert_eq!(g.response_lengths_as(Some(FormId(NPC)), FormId(INFO_A)), vec![0.5]);
+    // Another speaker's base: the hook has no sound for it.
+    assert_eq!(g.response_lengths_as(None, FormId(INFO_A)), vec![1.7875]);
+    assert_eq!(g.say(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_A)));
+    assert_eq!(started(&g, INFO_A), Some(0.5));
+    g.frames(29);
+    assert!(g.is_talking(speaker));
+    g.frames(2);
+    assert!(!g.is_talking(speaker));
+    assert_eq!(g.world.global(FormId(GLOBAL)).unwrap(), 3.0);
+    // "Bye" has no sound: 1.1 s + 3 / 16 s.
+    assert_eq!(g.say(speaker, None, FormId(TOPIC), false), Some(FormId(INFO_B)));
+    assert_eq!(started(&g, INFO_B), Some(1.2875));
+}
+
+#[test]
 fn a_message_box_is_a_menu_until_closed_and_holds_the_rest_of_the_frame() {
     use fnv_game::game::menus;
     let f = fixture();
