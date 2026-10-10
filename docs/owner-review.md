@@ -1688,6 +1688,34 @@ vision) should play in our engine. Branch `claude/imagespace-modifiers`. Facts:
    yet. Before the opening's scripts have loaded (3 to 6 seconds) I hold the screen
    white so the room does not show early.
 
+## Body in first person: a switch (2026-10-10, session "first-person body")
+
+Your request: an option to toggle the body rendering in first person. Branch
+`claude/first-person-body`. Design: `docs/design/player-body.md` §1.5.
+
+1. **The switch:** "Body in first person" on the Esc menu's settings page (under
+   Picture), or start with `--first-person-body`. It is off by default, because the
+   original only draws the arms.
+2. **On:** looking down you see your chest, legs and feet in what you are wearing. With
+   the weapon away your arms hang at your sides; with it out, the usual first-person
+   arms and weapon are drawn and the body's own arms are hidden. Your view does not
+   move: the body is placed under the camera.
+3. **Sitting (your report, with the screenshot of the view inside the jumpsuit):** with
+   the switch on, a seated view now turns at most 80° to either side and 75° down, like
+   a head on a neck, and the eyes swing round the neck as the head turns, so you see
+   your shoulder and arm at the limit and never the inside of the body. If you sit down
+   looking the other way, the view comes round by itself. While you sit down and get up
+   the view now turns with the body (your second report: the camera stayed put while the
+   body turned); you said that looked a lot better.
+4. **For you to decide:**
+   - With the switch off, the seated view is as before: free to turn all the way round,
+     and not turned by the body as it sits down (no body is drawn, so nothing looks
+     wrong). Should the neck limit and the turning apply there too?
+   - 80° and 75° are my guesses at a comfortable limit. Say if it feels too tight.
+5. **Not done:** your shadow. With the switch on it is a body without a head (and
+   without its own arms while the weapon is out). Fixing that means letting hidden
+   parts still cast shadows; it is a separate piece of work.
+
 ## Actors can be pushed (2026-10-10, session "actor push")
 
 Your request: the player or an NPC that is moving should be able to push another actor
