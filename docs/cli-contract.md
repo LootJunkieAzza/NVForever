@@ -353,6 +353,13 @@ stand-ins for Layer 6) and the trace's `events` and `final` are in
 docs/spec-notes/scripts.md §8. `script coverage` fills `implemented` and `stub` per opcode
 and reports the intro chain's coverage (scripts.md §7).
 
+# Dialogue (Layer 6, steps D1 and D2)
+
+`fnvtool dialogue topics` (`fnv.dialogue.topics/1`), `dialogue lines`
+(`fnv.dialogue.lines/1`) and `dialogue talk` (`fnv.dialogue.actions/1` →
+`fnv.dialogue.trace/1`: a scripted conversation run headless) are defined in
+docs/spec-notes/dialogue.md §8. Texts are game data and are printed only with `--text`.
+
 # Combat data (Layer 6, step C1)
 
 `fnvtool combat weapon` (`fnv.combat.weapon/1`), `fnvtool combat form`

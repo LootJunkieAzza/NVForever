@@ -74,8 +74,24 @@ pub enum EventKind {
     /// A dialogue line ended (its end result script runs next) or was cut off (`cut`:
     /// the speaker started another line, or was disabled or died).
     LineEnded { speaker: FormId, info: FormId, #[serde(skip_serializing_if = "std::ops::Not::not")] cut: bool },
-    /// SayTo or Say found no line of the topic the speaker could say.
+    /// SayTo, Say or the start of a conversation found no line of the topic the speaker
+    /// could say.
     NoLine { speaker: FormId, topic: FormId },
+    /// A conversation between the player and `actor` started with a line of `topic`
+    /// (`line_started` follows).
+    DialogueStarted { actor: FormId, topic: FormId },
+    /// One response of a conversation line started: its response number, the length of
+    /// its text in characters, its emotion type code and how long it lasts.
+    ResponseSaid { speaker: FormId, info: FormId, number: u8, chars: usize, emotion: u8, seconds: f64 },
+    /// The list the player chooses from, in the order offered.
+    ChoicesOffered { actor: FormId, choices: Vec<crate::dialogue::Choice> },
+    /// The player chose entry `index` of the list.
+    ChoiceMade { actor: FormId, index: usize, topic: FormId, info: FormId },
+    /// A topic joined the topics the player knows: by a line's Add Topics list (`by`) or
+    /// by AddTopic.
+    TopicAdded { topic: FormId, #[serde(skip_serializing_if = "Option::is_none")] by: Option<FormId> },
+    /// The conversation ended: `goodbye`, `no_choices`, `left` or `actor_gone`.
+    DialogueEnded { actor: FormId, reason: &'static str, lines: u32 },
     /// A reputation changed: infamy (axis 0) or fame (axis 1), the new value.
     ReputationChanged { reputation: FormId, axis: usize, value: f64 },
 }
