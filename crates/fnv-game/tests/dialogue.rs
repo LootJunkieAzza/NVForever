@@ -693,6 +693,45 @@ fn leaving_cuts_the_line_without_its_end_script() {
 }
 
 #[test]
+fn skipping_a_response_ends_it_early_and_the_line_still_runs_its_end_script() {
+    let f = fixture();
+    let mut g = game(&f);
+    // The first greeting has two responses ("First" then "Second.") and both scripts.
+    g.start_dialogue(actor(), None).unwrap();
+    g.frames(3);
+    assert_eq!((out(&g), g.dialogue_emotion(actor())), (1.0, 3));
+    // Skipping the first response starts the second with its full length.
+    assert!(g.skip_response());
+    let line = g.dialogue.as_ref().and_then(|c| c.line.clone()).unwrap();
+    assert_eq!((line.response, line.remaining), (1, fnv_game::game::fitted_seconds(7)));
+    assert_eq!((out(&g), g.dialogue_emotion(actor())), (1.0, 5));
+    // Skipping the last one ends the line as if it had been said: the end script ran,
+    // the line is not cut and its choices are offered, with no frame in between.
+    let frame = g.frame;
+    assert!(g.skip_response());
+    assert_eq!((g.frame, out(&g)), (frame, 2.0));
+    assert_eq!(offered(&g), vec![T_ASK, T_BYE]);
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { cut: true, .. })));
+    let said: Vec<u8> = g.events.iter().filter_map(|e| if let EventKind::ResponseSaid { number, .. } = e.kind { Some(number) } else { None }).collect();
+    assert_eq!(said, vec![1, 2]);
+    // Nothing to skip while the player chooses.
+    assert!(!g.skip_response());
+    // A skipped Goodbye line ends the conversation, end script included.
+    pick(&mut g, T_BYE);
+    assert!(g.skip_response());
+    assert!(g.dialogue.is_none());
+    assert_eq!(out(&g), 9.0);
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { reason: "goodbye", lines: 2, .. })));
+    assert!(!g.skip_response());
+    // A menu holds the conversation: nothing is skipped under it.
+    let mut h = game(&f);
+    h.start_dialogue(actor(), None).unwrap();
+    h.menu = Some(1001);
+    assert!(!h.skip_response());
+    assert_eq!(h.dialogue.as_ref().and_then(|c| c.line.as_ref()).map(|l| l.response), Some(0));
+}
+
+#[test]
 fn random_lines_form_a_stack_from_which_one_is_picked() {
     let f = fixture();
     let mut seen = std::collections::BTreeSet::new();

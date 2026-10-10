@@ -225,8 +225,12 @@ pub fn drive(
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>)>,
     mut travel: MessageWriter<nvf_play::Travel>,
     mut doors: ResMut<nvf_play::doors::Doors>,
+    held: Option<Res<nvf_play::dialogue::WorldHeld>>,
 ) {
     let Ok(root) = root.single() else { return };
+    // A conversation with the player holds the travellers where they are (they blend to
+    // their idle: no velocity below); docs/design/dialogue.md, Pausing.
+    let held = held.is_some_and(|h| h.0);
     let dt = time.delta_secs().min(0.1);
     let now = time.elapsed_secs();
     let drawn = drawn_space(&world, &streamer);
@@ -268,7 +272,11 @@ pub fn drive(
                 doors.set_open(door, true);
                 doors.is_open(door) == Some(true)
             };
-            tr.walker.update_with(&nav.graph, dt, &mut open)
+            if held {
+                WalkEvent::Idle
+            } else {
+                tr.walker.update_with(&nav.graph, dt, &mut open)
+            }
         };
         let tr = &mut nav.travellers[i];
         let elapsed = now - tr.started.unwrap_or(now);
