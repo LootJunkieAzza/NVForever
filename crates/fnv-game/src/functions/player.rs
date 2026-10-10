@@ -259,11 +259,10 @@ pub fn set_pc_can_use_power_armor(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<
     none()
 }
 
-/// The topic joins the topics the player knows: from then on every actor that has a
-/// line of it to say offers it in its topic list (`Game::build_choices`)
-/// [documented: catalogue summary of AddTopic; hypothesis on "every actor": the GECK
-/// wiki's AddTopic page speaks of the Add Topic list of a topic, docs/spec-notes/
-/// dialogue.md §5].
+/// The topic joins the topics the player knows: from then on every actor that can say
+/// a line of it offers it in its topic list (`Game::build_choices`)
+/// [documented: catalogue summary of AddTopic; owner statement 2026-10-10 for "every
+/// actor", not yet captured; docs/spec-notes/dialogue.md §5].
 pub fn add_topic(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let topic = a.form(0)?;
     if g.player.topics.insert(topic) {

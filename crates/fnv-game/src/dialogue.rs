@@ -10,6 +10,10 @@
 //! definition; `[owner statement 2026-10-10]` is the owner's ruling from GECK use, not yet
 //! captured; `[hypothesis]` is the simplest rule where the documentation is silent, each
 //! one a capture question (dialogue.md §7).
+//!
+//! A conversation is a menu: while one runs the game is in menu mode
+//! ([`Game::in_menu`]) [owner statement 2026-10-10], and only the conversation's own
+//! lines go on, in real time ([`Game::update_dialogue`]).
 
 use crate::cond::{Operand, RunOn};
 use crate::data::{info_flag, InfoDef};
@@ -137,10 +141,12 @@ impl<'a> Game<'a> {
     ///   Category:Dialogue: both are per actor];
     /// - the speaker is the line's fixed speaker, if it has one (a reference of that
     ///   base form) [documented: Category:Dialogue: "Speaker" acts like GetIsID];
-    /// - the line's quest is running [hypothesis: holds for the SayTo captures; not
-    ///   tested with a stopped quest] and the quest's conditions pass [documented:
-    ///   Quest Data Tab: quest conditions gate all of the quest's dialogue, checked
-    ///   first];
+    /// - the line's quest is running and the quest's own conditions pass [owner
+    ///   statement 2026-10-10: every actor has the line as long as the quest is active
+    ///   and the conditions are met; documented: Quest Data Tab: quest conditions gate
+    ///   all of the quest's dialogue, checked first]. The quest's conditions run like
+    ///   the line's, with the speaker as subject and the listener as target
+    ///   [hypothesis: the page does not say on whom];
     /// - the line's conditions pass with the speaker as subject and the listener as
     ///   target [documented: Category:Conditions, Run On].
     pub fn can_say(&mut self, speaker: FormId, listener: Option<FormId>, info: FormId) -> bool {
@@ -185,40 +191,50 @@ impl<'a> Game<'a> {
     ///    line the speaker can say ([`Game::can_say`]) is the one
     ///    [owner statement 2026-10-10, from GECK use; not yet captured; observed for
     ///    SayTo: Doc Mitchell's VCG01Intro lines, layer5-captures.md §10.3].
-    /// 3. Unless lines carry the Random flag: a qualifying Random line is put on a
-    ///    stack instead; the stack grows with each further qualifying Random line until
-    ///    one of them has Random End or a qualifying line without Random is reached;
-    ///    then one line of the stack is picked at random [documented: Category:Dialogue,
-    ///    flags Random and Random End]. The same page's "Random dialogue in-depth"
-    ///    example 3 instead skips a non-Random line between Random ones; the flag
-    ///    description is followed here [hypothesis; capture question, dialogue.md §7].
+    /// 3. Unless lines carry the Random flag. Random lines that sit together in that
+    ///    order form a pool; a line without the flag between two groups of Random lines
+    ///    splits them into two pools, whether or not that line can be said
+    ///    [owner statement 2026-10-10; not yet captured]. A Random End line closes its
+    ///    pool at that line [documented: Category:Dialogue, flag Random End; hypothesis
+    ///    that it does so even when it cannot be said itself]. Going down the list, a
+    ///    plain line is taken if the speaker can say it; a pool is taken if the speaker
+    ///    can say any of its lines, and then one of those is picked at random
+    ///    [documented: Category:Dialogue, flag Random, for the pick].
     ///
-    /// The pick uses the game's seeded generator, and only when the stack holds more
-    /// than one line.
+    /// The pick uses the game's seeded generator, and only when more than one line of
+    /// the pool can be said.
     pub fn select_line(&mut self, speaker: FormId, listener: Option<FormId>, topic: FormId) -> Option<FormId> {
         let data = self.data;
-        let mut stack: Vec<FormId> = Vec::new();
-        for i in data.lines_by_priority(topic) {
-            if !self.can_say(speaker, listener, i) {
+        let lines = data.lines_by_priority(topic);
+        let flag = |i: &FormId, f: u16| data.infos.get(i).is_some_and(|d| d.has(f));
+        let mut at = 0;
+        while at < lines.len() {
+            if !flag(&lines[at], info_flag::RANDOM) {
+                if self.can_say(speaker, listener, lines[at]) {
+                    return Some(lines[at]);
+                }
+                at += 1;
                 continue;
             }
-            let def = &data.infos[&i];
-            if def.has(info_flag::RANDOM) {
-                stack.push(i);
-                if def.has(info_flag::RANDOM_END) {
+            // A pool: the Random lines from here to the first line without the flag, or
+            // through the first one with Random End.
+            let mut end = at;
+            while end < lines.len() && flag(&lines[end], info_flag::RANDOM) {
+                end += 1;
+                if flag(&lines[end - 1], info_flag::RANDOM_END) {
                     break;
                 }
-            } else if stack.is_empty() {
-                return Some(i);
-            } else {
-                break;
             }
+            let pool: Vec<FormId> = lines[at..end].to_vec();
+            let sayable: Vec<FormId> = pool.into_iter().filter(|i| self.can_say(speaker, listener, *i)).collect();
+            match sayable.len() {
+                0 => {}
+                1 => return Some(sayable[0]),
+                n => return Some(sayable[self.rng.next_u32() as usize % n]),
+            }
+            at = end;
         }
-        match stack.len() {
-            0 => None,
-            1 => Some(stack[0]),
-            n => Some(stack[self.rng.next_u32() as usize % n]),
-        }
+        None
     }
 
     /// The speaker said the line: Say Once and Say Once a Day remember it per actor
@@ -270,12 +286,15 @@ impl<'a> Game<'a> {
     /// StartConversation: nothing happens when either side is disabled]. One
     /// conversation at a time: a second start while one runs is refused [hypothesis].
     ///
-    /// While the conversation runs, `MenuMode 1009` reads 1, but game time, GameMode
-    /// blocks and quest timers go on: the dialogue menu does not pause the game
-    /// [hypothesis; one script of the masters (the Lucky 38 elevator Securitron,
-    /// SCPT 0x0015725D) waits in its GameMode block for `MenuMode 1009` to end before
-    /// it shows a message box, which only makes sense if GameMode runs during dialogue;
-    /// dialogue.md §6].
+    /// While the conversation runs the game is paused behind it, as behind the other
+    /// menus: GameMode blocks do not run, game time and GameMode timers stand still,
+    /// `MenuMode` and `MenuMode 1009` read 1 and MenuMode blocks run
+    /// [owner statement 2026-10-10: a back-and-forth dialogue with the player pauses the
+    /// game in the background, unlike lines spoken outside dialogue; not yet captured;
+    /// the details follow the menu rules observed for other menus, scripts.md §7.7].
+    /// A conversation started from a GameMode block holds the rest of that frame's
+    /// GameMode scripts, as any menu does. [`Game::menu`] stays as it is: the
+    /// conversation is the menu ([`Game::in_menu`], dialogue.md §6).
     pub fn start_dialogue(&mut self, actor: FormId, topic: Option<FormId>) -> Result<FormId, String> {
         let data = self.data;
         if let Some(c) = &self.dialogue {
@@ -341,8 +360,10 @@ impl<'a> Game<'a> {
         }
     }
 
-    /// One frame of the conversation (game time, like SayTo lines: a real menu such as a
-    /// message box holds it): the responses of the line are said one after another, in
+    /// One frame of the conversation, in real time: the game is paused behind it but its
+    /// own lines go on [owner statement 2026-10-10]; a menu opened on top of it (a
+    /// message box from a result script) holds it [hypothesis]. The responses of the
+    /// line are said one after another, in
     /// response-number order [documented: xEdit "Response number"]; when the last is
     /// over the line ends ([`Game::finish_line`]). An actor that died, was disabled or
     /// deleted ends the conversation [hypothesis].
@@ -384,10 +405,9 @@ impl<'a> Game<'a> {
     ///    line ends, and stay known after the conversation];
     /// 3. a Goodbye line ends the conversation [documented: Category:Dialogue];
     /// 4. otherwise, if the line has follow-up lines (TCFU), the first one the actor can
-    ///    say is said next, with no choice by the player [hypothesis: the field is not
-    ///    described in our sources; in the masters a line with follow-ups has no choices
-    ///    (16 exceptions in 2,478) and follow-ups carry no prompt (25 exceptions), and
-    ///    Doc Mitchell's farewell chains its lines this way, dialogue.md §3.4];
+    ///    say is said next, with no choice by the player [owner statement 2026-10-10:
+    ///    follow-ups have no player response, as in Doc Mitchell's farewell; not yet
+    ///    captured; hypothesis: the first sayable of several, dialogue.md §3.4];
     /// 5. otherwise the player is offered choices ([`Game::build_choices`]); with
     ///    nothing to offer the conversation ends [hypothesis].
     fn finish_line(&mut self, actor: FormId, info: FormId) {
@@ -437,8 +457,9 @@ impl<'a> Game<'a> {
     ///   [documented: Category:Dialogue: top-level topics are "the ones that come up when
     ///   an info isn't linked to anything in particular"; Quest and Dialogue Tutorial];
     /// - otherwise the top-level topics and the topics the player knows (lines' Add
-    ///   Topics lists and `AddTopic`) [documented: the same pages; hypothesis that added
-    ///   topics are offered by every actor that has a line for them].
+    ///   Topics lists and `AddTopic`) [documented: the same pages]; a known topic is
+    ///   offered by every actor that can say a line of it [owner statement 2026-10-10;
+    ///   not yet captured].
     ///
     /// Each topic is offered only if the actor has a line of it to say now, and that
     /// line is the one chosen later [hypothesis; the editor's filtered dialogue window
