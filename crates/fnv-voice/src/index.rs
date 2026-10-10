@@ -18,6 +18,9 @@ pub struct Response {
     pub sound: Option<u32>,
     /// Characters of the response text.
     pub chars: usize,
+    /// Which consonant letter groups the text has (`lip::letter_groups`; used to check
+    /// the `.lip` channels against the text, docs/spec-notes/lipsync.md §3.1).
+    pub letters: u16,
 }
 
 /// A dialogue line (INFO), winning definition.
@@ -110,11 +113,12 @@ impl VoiceIndex {
                                         let local = u32::from_le_bytes(b.try_into().ok()?);
                                         (local != 0).then(|| lo.to_global(pi, local)).flatten()
                                     });
-                                    line.responses.push(Response { number: s.data[12], sound, chars: 0 });
+                                    line.responses.push(Response { number: s.data[12], sound, chars: 0, letters: 0 });
                                 }
                                 b"NAM1" => {
                                     if let Some(r) = line.responses.last_mut() {
                                         r.chars = zstring_len(&s.data);
+                                        r.letters = crate::lip::letter_groups(&String::from_utf8_lossy(&s.data[..r.chars]));
                                     }
                                 }
                                 _ => {}
