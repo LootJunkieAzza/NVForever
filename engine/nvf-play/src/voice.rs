@@ -15,9 +15,14 @@
 //!   (cut by another line, or its speaker gone) has the sound stopped. One log line per
 //!   sound started: `voice: playing <path> (<seconds> s) ...`; a response without a file
 //!   logs `voice: no file ...`.
+//! - **Held with its line.** Whatever holds a line's timer holds its sound
+//!   ([`line_held`]): a SayTo or Say line stands still in menu mode (the inventory, a
+//!   container, a message box, a conversation with the player), so its sound is paused
+//!   there and resumed after; a line of the conversation itself goes on in real time and
+//!   is held only by a message box on top of it; the pause menu holds every line. One log
+//!   line each way (`voice: … held` / `goes on`).
 //! - Not done [decision]: 3D placement (voices play flat, at full volume wherever the
-//!   speaker stands), pausing with the pause menu or a script's menu (the sound plays on
-//!   while script time stands still), lip sync (`.lip`).
+//!   speaker stands), lip sync (`.lip`).
 //!
 //! Switches: [`VoiceSettings`] (`nvforever --no-voice`, `--voice-volume`);
 //! `NVF_PLAY_VOICE_LENGTHS=0` keeps the fitted line lengths (sounds still play).
@@ -58,8 +63,13 @@ struct Playing {
     info: FormId,
     response: usize,
     entity: Option<Entity>,
-    /// Real time (seconds since start) at which the sound is over.
+    /// Real time (seconds since start) at which the sound is over (moved on by the time
+    /// the sound is held).
     ends_at: f64,
+    /// A line of the conversation with the player (else a SayTo or Say line).
+    conversation: bool,
+    /// The line's timer stands still, and so does the sound ([`line_held`]).
+    held: bool,
     /// The line's time left when last seen: a rise means the line was said again.
     remaining: f64,
 }
@@ -122,16 +132,18 @@ struct Said {
     /// Seconds left (of the line for SayTo and Say, of the response in a conversation):
     /// only its direction is used.
     remaining: f64,
+    /// A line of the conversation with the player.
+    conversation: bool,
 }
 
 /// Every response being said: the SayTo and Say lines, and the conversation's line.
 fn said_now(g: &Game, sim: &SimState) -> Vec<Said> {
     let mut out: Vec<Said> =
-        g.speech.iter().map(|s| Said { speaker: s.speaker, info: s.info, response: speech_response(g, sim, s), remaining: s.remaining }).collect();
+        g.speech.iter().map(|s| Said { speaker: s.speaker, info: s.info, response: speech_response(g, sim, s), remaining: s.remaining, conversation: false }).collect();
     if let Some((c, line)) = g.dialogue.as_ref().and_then(|c| Some((c, c.line.as_ref()?))) {
         let order = g.data.infos.get(&line.info).map(|d| d.response_order()).unwrap_or_default();
         if let Some(&r) = order.get(line.response) {
-            out.push(Said { speaker: c.actor, info: line.info, response: r, remaining: line.remaining });
+            out.push(Said { speaker: c.actor, info: line.info, response: r, remaining: line.remaining, conversation: true });
         }
     }
     out
@@ -152,6 +164,16 @@ pub fn step(playing: Option<(FormId, usize, f64)>, info: FormId, response: usize
         Some((i, r, before)) if i == info && r == response && remaining <= before + 1e-6 => Step::Keep,
         _ => Step::Start(response),
     }
+}
+
+/// Whether a line's timer stands still, in which case its sound is paused and resumed
+/// with it. A SayTo or Say line is held by menu mode (`Game::tick` advances it only
+/// outside menus: the inventory, a container, a message box, a conversation with the
+/// player). A line of the conversation itself goes on in real time by design and is held
+/// only by a menu on top of the conversation (a message box). The pause menu holds every
+/// line (`script.rs` does not tick under it).
+pub fn line_held(conversation: bool, pause_menu: bool, in_menu: bool, menu_on_top: bool) -> bool {
+    pause_menu || if conversation { menu_on_top } else { in_menu }
 }
 
 /// A sound whose line stopped this long before the sound's end is left to finish (the
@@ -215,6 +237,8 @@ fn play(
     script: Res<ScriptState>,
     sim: Res<SimState>,
     sounds: Option<ResMut<Assets<AudioSource>>>,
+    paused: Res<crate::pause::Paused>,
+    sinks: Query<&AudioSink, With<VoiceSound>>,
 ) {
     let st = &mut *state;
     let (Some(bank), Some(rt)) = (st.bank.clone(), script.rt.as_ref()) else { return };
@@ -223,9 +247,10 @@ fn play(
     let mut sounds = sounds;
     let said_now = said_now(g, &sim);
     // Lines no longer said: stop a sound that is not nearly over (the line was cut).
+    // A held sound cannot finish by itself: it is stopped as well.
     st.playing.retain(|speaker, p| {
         let said = said_now.iter().any(|s| s.speaker == *speaker && s.info == p.info);
-        if !said && now < p.ends_at - TAIL_SECONDS {
+        if !said && (p.held || now < p.ends_at - TAIL_SECONDS) {
             if let Some(e) = p.entity.take() {
                 commands.entity(e).try_despawn();
             }
@@ -233,6 +258,26 @@ fn play(
         }
         said
     });
+    // Whatever holds a line's timer holds its sound: the sink is paused, the sound's end
+    // moves on by the time held, and both go on together.
+    for (speaker, p) in st.playing.iter_mut() {
+        let hold = line_held(p.conversation, paused.0, g.in_menu(), g.menu.is_some());
+        if hold {
+            p.ends_at += time.delta_secs_f64();
+        }
+        if hold != p.held {
+            p.held = hold;
+            info!("voice: {} line {} {}", g.data.name(*speaker), g.data.name(p.info), if hold { "held (its timer stands still)" } else { "goes on" });
+        }
+        // The sink appears a frame or two after the sound was spawned.
+        if let Some(sink) = p.entity.and_then(|e| sinks.get(e).ok()) {
+            if hold && !sink.is_paused() {
+                sink.pause();
+            } else if !hold && sink.is_paused() {
+                sink.play();
+            }
+        }
+    }
     for s in &said_now {
         let k = s.response;
         let was = st.playing.get(&s.speaker).map(|p| (p.info, p.response, p.remaining));
@@ -243,7 +288,7 @@ fn play(
             continue;
         }
         if let Some(old) = st.playing.remove(&s.speaker) {
-            if now < old.ends_at - TAIL_SECONDS {
+            if old.held || now < old.ends_at - TAIL_SECONDS {
                 if let Some(e) = old.entity {
                     commands.entity(e).try_despawn();
                 }
@@ -280,7 +325,7 @@ fn play(
                 (None, fitted)
             }
         };
-        st.playing.insert(s.speaker, Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining });
+        st.playing.insert(s.speaker, Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining, conversation: s.conversation, held: false });
     }
 }
 
@@ -307,6 +352,22 @@ mod tests {
         // Past the end (the last frame of a line): the last response.
         assert_eq!(response_at(&l, 99.0), 2);
         assert_eq!(response_at(&[], 1.0), 0);
+    }
+
+    #[test]
+    fn a_sound_is_held_with_its_lines_timer() {
+        // (conversation, pause menu, menu mode, a menu on top of the conversation)
+        // A SayTo line: free in the world, held by any menu and by a conversation.
+        assert!(!line_held(false, false, false, false));
+        assert!(line_held(false, false, true, false));
+        assert!(line_held(false, false, true, true));
+        // The conversation's own line: menu mode is the conversation itself, so it plays;
+        // a message box on top holds it.
+        assert!(!line_held(true, false, true, false));
+        assert!(line_held(true, false, true, true));
+        // The pause menu holds everything.
+        assert!(line_held(true, true, true, false));
+        assert!(line_held(false, true, false, false));
     }
 
     #[test]
