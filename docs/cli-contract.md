@@ -405,8 +405,9 @@ NPC draws) is defined in docs/spec-notes/actors.md §9.5 together with the weapo
 lengths), `voice coverage` (`fnv.voice.coverage/1`: the voice files of an install against
 the lines of a load order) and `voice length` (`fnv.voice.length/1`: the headers of loose
 sound files) are defined in docs/spec-notes/voice.md §10 together with the voice notes.
-`fnvtool script run` reads voice file lengths by default (`--no-voice-lengths` or
-`FNVTOOL_VOICE_LENGTHS=0` keep the fitted line length; voice.md §8).
+`fnvtool script run` and `fnvtool dialogue talk` read voice file lengths by default
+(`--no-voice-lengths` or `FNVTOOL_VOICE_LENGTHS=0` keep the fitted line length; voice.md
+§8).
 
 # Navigation (navmeshes)
 

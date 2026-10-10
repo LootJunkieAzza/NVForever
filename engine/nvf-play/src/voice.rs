@@ -7,7 +7,8 @@
 //!   bank becomes the runtime's line-length hook (`Game::voice`): a response lasts as
 //!   long as its voice file, and keeps the length fitted to its text when it has none.
 //!   A line started before that keeps the length it started with.
-//! - **Playback.** Each frame the lines being said are compared with what is playing:
+//! - **Playback.** Each frame the lines being said (`Game::speech`, and the line of a
+//!   conversation with the player, `Game::dialogue`) are compared with what is playing:
 //!   a response that starts gets its file read from the archive and played through
 //!   Bevy's audio (`AudioPlayer`, Ogg Vorbis by the `vorbis` feature; the 40 lines that
 //!   also exist as WAV play their Ogg file); a line that stops before its sound is over
@@ -93,10 +94,47 @@ pub fn response_at(lengths: &[f64], elapsed: f64) -> usize {
     lengths.len().saturating_sub(1)
 }
 
-/// The response lengths of a line being said, with the speaker's base taken from the
-/// simulation (between frames the runtime's own world is swapped out, `script::with_world`).
+/// The response lengths of a line being said, in record order, with the speaker's base
+/// taken from the simulation (between frames the runtime's own world is swapped out,
+/// `script::with_world`).
 pub fn line_lengths(g: &Game, sim: &SimState, s: &Speech) -> Vec<f64> {
     g.response_lengths_as(sim.base_of(s.speaker.0), s.info)
+}
+
+/// Which response (index in record order) of a SayTo or Say line is being said: the
+/// responses follow one another in response-number order (`InfoDef::response_order`),
+/// each for its length.
+pub fn speech_response(g: &Game, sim: &SimState, s: &Speech) -> usize {
+    let lengths = line_lengths(g, sim, s);
+    let order = g.data.infos.get(&s.info).map(|d| d.response_order()).filter(|o| o.len() == lengths.len());
+    let order = order.unwrap_or_else(|| (0..lengths.len()).collect());
+    let in_order: Vec<f64> = order.iter().map(|&r| lengths[r]).collect();
+    let total: f64 = in_order.iter().sum();
+    order.get(response_at(&in_order, total - s.remaining)).copied().unwrap_or(0)
+}
+
+/// A response being said this frame.
+struct Said {
+    speaker: FormId,
+    info: FormId,
+    /// Index in record order.
+    response: usize,
+    /// Seconds left (of the line for SayTo and Say, of the response in a conversation):
+    /// only its direction is used.
+    remaining: f64,
+}
+
+/// Every response being said: the SayTo and Say lines, and the conversation's line.
+fn said_now(g: &Game, sim: &SimState) -> Vec<Said> {
+    let mut out: Vec<Said> =
+        g.speech.iter().map(|s| Said { speaker: s.speaker, info: s.info, response: speech_response(g, sim, s), remaining: s.remaining }).collect();
+    if let Some((c, line)) = g.dialogue.as_ref().and_then(|c| Some((c, c.line.as_ref()?))) {
+        let order = g.data.infos.get(&line.info).map(|d| d.response_order()).unwrap_or_default();
+        if let Some(&r) = order.get(line.response) {
+            out.push(Said { speaker: c.actor, info: line.info, response: r, remaining: line.remaining });
+        }
+    }
+    out
 }
 
 /// What to do about one speaker's sound this frame.
@@ -183,9 +221,10 @@ fn play(
     let g = &rt.game;
     let now = time.elapsed_secs_f64();
     let mut sounds = sounds;
+    let said_now = said_now(g, &sim);
     // Lines no longer said: stop a sound that is not nearly over (the line was cut).
     st.playing.retain(|speaker, p| {
-        let said = g.speech.iter().any(|s| s.speaker == *speaker && s.info == p.info);
+        let said = said_now.iter().any(|s| s.speaker == *speaker && s.info == p.info);
         if !said && now < p.ends_at - TAIL_SECONDS {
             if let Some(e) = p.entity.take() {
                 commands.entity(e).try_despawn();
@@ -194,10 +233,8 @@ fn play(
         }
         said
     });
-    for s in &g.speech {
-        let lengths = line_lengths(g, &sim, s);
-        let total: f64 = lengths.iter().sum();
-        let k = response_at(&lengths, total - s.remaining);
+    for s in &said_now {
+        let k = s.response;
         let was = st.playing.get(&s.speaker).map(|p| (p.info, p.response, p.remaining));
         if step(was, s.info, k, s.remaining) == Step::Keep {
             if let Some(p) = st.playing.get_mut(&s.speaker) {
@@ -213,12 +250,13 @@ fn play(
             }
         }
         let base = sim.base_of(s.speaker.0);
+        let fitted = g.response_seconds_as(base, s.info, k);
         let who = g.data.name(s.speaker);
         let number = bank.index.lines.get(&s.info.0).and_then(|l| l.responses.get(k)).map_or(0, |r| r.number);
         let file = base.and_then(|b| bank.file(s.info.0, k, b.0));
         let (entity, seconds) = match &file {
             Some(path) => {
-                let seconds = bank.seconds(path).unwrap_or(lengths.get(k).copied().unwrap_or(0.0));
+                let seconds = bank.seconds(path).unwrap_or(fitted);
                 let entity = match (settings.play, sounds.as_mut(), bank.read(path)) {
                     (true, Some(assets), Some(bytes)) => {
                         let source = assets.add(AudioSource { bytes: bytes.into() });
@@ -239,7 +277,7 @@ fn play(
                 st.missing += 1;
                 let voice = base.and_then(|b| bank.index.voice_of(b.0)).and_then(|v| bank.index.voice_types.get(&v));
                 info!("voice: no file for {who} line {} response {number} (voice type {})", g.data.name(s.info), voice.map_or("none", |v| v.as_str()));
-                (None, lengths.get(k).copied().unwrap_or(0.0))
+                (None, fitted)
             }
         };
         st.playing.insert(s.speaker, Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining });
