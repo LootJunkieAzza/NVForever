@@ -950,3 +950,32 @@ Branch `claude/furniture` (worktree `NVForever-furniture`).
    `GetSitting` is 1 (furniture.md §5); not needed for what is built.
 5. Game runs took both locks. The repository move orphaned this session's first
    worktree mid-way; its two unpushed commits were rebuilt from the files on disk.
+
+## Skin tone by race (2026-10-10, session "race facegen")
+
+Follows item 4 of "The player's unclothed body" above. Numbers and reasons:
+`docs/spec-notes/actors.md` §4.2.
+
+1. **Changed:** an NPC's skin tint (face, body, hands) now comes from its own face
+   texture values plus its race's. Before, only its own were used, and African American
+   NPCs (357 NPC records) were drawn with light skin, lighter than Caucasian NPCs: their
+   own values hold none of the race's colour, the race's values hold all of it. The
+   other races barely change (their race values are small), nor does the player's body.
+2. **For you to judge, with the original game beside it:** Joe Cobb and Easy Pete. Our
+   pictures with and without the change are in `C:\fnv-private\references\race_facegen\`
+   (`sheet.png`: Joe Cobb, Sunny Smiles, Easy Pete; top row before, bottom row after).
+   - Joe Cobb: pale before, dark brown now.
+   - Easy Pete: his record's race is African American (old aged). He was pale grey-white
+     before and is a dark red-brown now, darker than Joe Cobb. If the original shows him
+     clearly lighter than that, the rule is too strong for him and I need to know.
+   - Sunny Smiles: no visible change (her record's race is Hispanic).
+
+   `--no-race-facegen` shows the old look for comparison.
+3. **Not changed: the face shape.** The data suggests the race's shape values are meant
+   to be added the same way, but I have nothing to check a face shape against. An
+   in-game picture of Joe Cobb's face from the front and from the side would settle it.
+4. **Added, off by default:** `--show-disabled-actors` draws the actors a script has not
+   enabled yet. Joe Cobb is one of them (hidden in the saloon until the story shows
+   him), so the pictures needed it.
+5. This branch is stacked on the open pull request #139 (hand tint, underwear); merge
+   that one first.
