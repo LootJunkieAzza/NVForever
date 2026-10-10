@@ -171,7 +171,9 @@ impl Lip {
             return Err(LipError::Frames { frames: count, need, have: raw.len() });
         }
         let frames = raw[8..]
-            .chunks_exact(CHANNELS * 4)
+            .as_chunks::<{ CHANNELS * 4 }>()
+            .0
+            .iter()
             .map(|f| {
                 let mut v = [0.0f32; CHANNELS];
                 for (c, x) in v.iter_mut().enumerate() {
