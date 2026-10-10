@@ -124,6 +124,19 @@ and "Body in first person" on the settings page (key `first-person-body`).
   of the body"). The eyes go round the neck (`Bip01 Head`) with the view, as a turned
   head's do. With the switch off the seated view is as it was: free, not turned by the
   body, and no body.
+- On a bed (owner requests 2026-10-10: lie down as a sleeping NPC does, "sideways the
+  camera when laying") the view is the lying body's, with the switch on or off
+  (`lying_view`). That code does not assume an upright body: the frame is the pelvis's
+  whole turn since the bind pose (`bone_turn`), not only its turn about the vertical.
+  The view keeps its turn and tilt in that frame while the body lies down and gets up,
+  so the picture leans with the body (`Player::body_view`: the camera takes a whole
+  rotation, not a heading and pitch, as it does for an idle that turns the view) and the mouse moves the
+  head in the frame (`PlayerSeat::look`). Limits: the seated 80° and 75° about the
+  body's own axes, and no more than 10° below level once lying (`LYING_DOWN`), as lower
+  is the pillow. With the switch on the eyes go round the neck about the body's length.
+  The player's heading and pitch are set to the level view nearest the leaning one.
+  In third person the pivot is lifted up to 40 units (`LYING_PIVOT_UP`) so the camera
+  clears the bed. Facts and what was seen: docs/spec-notes/furniture.md §7.
 - Not built: the shadow. The body's shadow in first person has no head, and while the
   weapon is out no arms of its own (the arms rig's shadow floats in front, as it does
   with the switch off).
@@ -150,7 +163,7 @@ from it.
 | Bindings | `engine/nvf-play/src/bindings.rs` | every `[Controls]` control with the game's default key and mouse button; `ControlInput` |
 | Controls and camera | `engine/nvf-play/src/control.rs` | `PlayerControl` (sneak, weapon, Block, Always Run, Auto Move, view, distance, `Orbit`), `ControlSettings` (GMSTs), `BodyView`, `place_camera` |
 | Movement keys, mouse look | `engine/nvf-play/src/player.rs` | movement through the bindings; mouse look turns the orbit while Toggle POV is held; `Player::body_eye`, `BodySet` |
-| Body | `engine/nvforever/src/player_body.rs` (`PlayerBodyPlugin`, with `--play` and actors on) | both rigs, weapon models, clip caches, per-frame clip choice, eye and pivot, which rig is shown; the body in first person (§1.5: `PlayerBody::first_person_body`, `Shown`, `seated_heading`) |
+| Body | `engine/nvforever/src/player_body.rs` (`PlayerBodyPlugin`, with `--play` and actors on) | both rigs, weapon models, clip caches, per-frame clip choice, eye and pivot, which rig is shown; the body in first person (§1.5: `PlayerBody::first_person_body`, `Shown`, `seated_heading`, `lying_view`) |
 | Shared part building | `engine/nvforever/src/actors.rs` (`part_uses`) | NPCs and the player build parts the same way |
 | Test aids | `engine/nvf-play/src/test_aid.rs` | `NVF_PLAY_TEST_EQUIP`, `NVF_PLAY_TEST_MOVE`, `NVF_PLAY_TEST_CONTROL` (`sneak`, `weapon`, `aim`, `view`, `jump`, `zoom=`, `orbit=<yaw>:<pitch>`, `release`); for a session played by hand, the debug switches `NVF_PLAY_DEBUG_GIVE` and `NVF_PLAY_DEBUG_EQUIP` (same values as the `TEST` ones, the run stays attended) |
 

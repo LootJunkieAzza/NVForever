@@ -41,6 +41,12 @@
 //! the hand. On furniture the seated body is drawn without its head, the view turns no
 //! further from the way the body faces than a neck does ([`seated_heading`]) and the eyes
 //! go round the neck with it.
+//!
+//! **Lying on a bed** ([`lying_view`]; owner requests 2026-10-10): in first person the
+//! view is the lying body's, whether or not the body is drawn. It keeps its place in the
+//! body's own frame while the body lies down and gets up, so the picture leans with the
+//! head and ends on its side; the mouse turns the head in that frame, as far as a neck
+//! does. In third person the camera's pivot is lifted clear of the bed.
 
 use crate::actors::{part_uses, ActorWorld};
 use crate::idles::{IdleSlot, PlayerIdles};
@@ -63,7 +69,7 @@ use nvf_assets::model::ModelCtx;
 use nvf_play::combat::WeaponAnim;
 use nvf_play::control::{BodyView, PlayerControl};
 use nvf_play::phys::PhysState;
-use nvf_play::player::{MoveIntent, Player};
+use nvf_play::player::{MoveIntent, Player, MAX_PITCH};
 use nvf_play::sim::SimState;
 use nvf_play::PlayWorld;
 use std::collections::HashMap;
@@ -116,6 +122,14 @@ const NECK_RETURN_RATE: f32 = 4.0;
 /// And how far down it tilts, radians [engineering choice: 75 degrees, head and eyes;
 /// steeper, the view is down the body's own collar].
 const NECK_DOWN: f32 = 75.0 * std::f32::consts::PI / 180.0;
+/// Lying on a bed: how far the third-person camera's pivot is lifted above the head, in
+/// game units, so the camera's way round the body is clear of the mattress and the bed's
+/// frame [engineering choice].
+const LYING_PIVOT_UP: f32 = 40.0;
+/// Lying on a bed: how far below level the first-person view looks at most, radians
+/// [engineering choice: 10 degrees; the head is on the pillow, and lower is the inside of
+/// the mattress].
+const LYING_DOWN: f32 = 10.0 * std::f32::consts::PI / 180.0;
 /// An attack clip with a `Loop` key goes round its repeated part while the shots come no
 /// further apart than this, seconds [engineering choice: the clips that have the key are
 /// the `attackspin` ones, of weapons that fire many times a second; animation.md §9.8].
@@ -360,6 +374,8 @@ struct Motion {
     seat_settled: bool,
     /// The same: the way the body faced last frame, to turn the view with it.
     seat_facing: Option<f32>,
+    /// Lying on a bed in first person: where the view looks in the body's own frame.
+    lying: Option<LyingView>,
     /// The attack, reload and spin-up counts last acted on (`WeaponAnim`).
     attacks_seen: u32,
     reloads_seen: u32,
@@ -395,6 +411,7 @@ impl Default for Motion {
             log_elapsed: 0.0,
             seat_settled: false,
             seat_facing: None,
+            lying: None,
             attacks_seen: 0,
             reloads_seen: 0,
             spin_ups_seen: 0,
@@ -1027,6 +1044,92 @@ fn bone_heading(rig: &Rig, b: usize, heading: f32) -> f32 {
     heading + forward.x.atan2(forward.y)
 }
 
+/// How bone `b` of the posed rig is turned in game space since the bind pose, the rig's
+/// root facing `heading`: it takes +X to the bone's right, +Y to the way it faces and +Z
+/// to its up (the bind pose stands upright facing the rig's +Y).
+fn bone_turn(rig: &Rig, b: usize, heading: f32) -> Quat {
+    let a = &rig.animator;
+    let turned = Mat3::from(a.model_space(b).matrix3 * a.skel.bind_world[b].matrix3.inverse());
+    (Quat::from_rotation_z(-heading) * Quat::from_mat3(&turned)).normalize()
+}
+
+/// The way a view looks and the top of its picture, for a turn clockwise from +Y towards
+/// +X and a tilt up from the XY plane: in game space for a compass heading and a pitch,
+/// in a body's own frame ([`bone_turn`]) for its head's turn and tilt.
+fn view_axes(turn: f32, tilt: f32) -> (Vec3, Vec3) {
+    let (st, ct) = turn.sin_cos();
+    let (sp, cp) = tilt.sin_cos();
+    (Vec3::new(st * cp, ct * cp, sp), Vec3::new(-st * sp, -ct * sp, cp))
+}
+
+/// The compass heading and pitch of the level view nearest a view that looks along
+/// `forward` with `up` the top of its picture (game space). Looking straight up or down
+/// the top of the picture says which way the view is turned; `heading` is kept when
+/// neither does.
+fn view_angles(forward: Vec3, up: Vec3, heading: f32) -> (f32, f32) {
+    let pitch = forward.z.clamp(-1.0, 1.0).asin().clamp(-MAX_PITCH, MAX_PITCH);
+    let (sp, cp) = pitch.sin_cos();
+    let flat = forward.truncate() * cp - up.truncate() * sp;
+    let heading = if flat.length_squared() > 1e-6 { flat.x.atan2(flat.y).rem_euclid(std::f32::consts::TAU) } else { heading };
+    (heading, pitch)
+}
+
+/// The first-person view of a body lying on a bed, in the body's own frame: the head's
+/// turn to the body's right and its tilt towards the top of the body's head, radians.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LyingView {
+    turn: f32,
+    tilt: f32,
+    /// The heading and pitch given to the player for it.
+    wrote: (f32, f32),
+}
+
+/// One frame of the view of a body lying on a bed (or lying down on it, or getting up)
+/// [engineering choice throughout; the original's player never lies down]:
+///
+/// - The view keeps its place in the body's frame (`frame`, [`bone_turn`] of the pelvis)
+///   from frame to frame, so it lies back with the body and the picture leans with it:
+///   on its back the body looks at the ceiling, the top of the picture towards the top
+///   of its head; with the head turned on the pillow the room is on its side [owner
+///   request 2026-10-10: the camera sideways when lying].
+/// - The mouse (`look`: the heading and pitch asked for since the last frame) turns and
+///   tilts the head in that frame. A heading and pitch set by anything else (the first
+///   frame, a test aid) are taken as they are, in game space.
+/// - The head turns as far as a seated one ([`NECK_TURN`], [`NECK_DOWN`];
+///   [`seated_heading`] for a view that starts further round): beyond that the view is
+///   in the body.
+/// - The further the body has lain back, the less the view looks below level, down to
+///   [`LYING_DOWN`]: the head is on the pillow and below it is the mattress. A body on
+///   its side turns its head up to the ceiling but not down into the pillow.
+///
+/// Returns the view, the way it looks and the top of its picture (game space), and
+/// whether it is within the neck's reach.
+fn lying_view(last: Option<LyingView>, frame: Quat, heading: f32, pitch: f32, look: [f32; 2], settled: &mut bool, dt: f32) -> (LyingView, [Vec3; 2], bool) {
+    use std::f32::consts::{PI, TAU};
+    let near = |a: f32, b: f32| ((a - b + PI).rem_euclid(TAU) - PI).abs() < 1e-3;
+    let (turn, tilt) = match last {
+        Some(v) if near(heading, v.wrote.0 + look[0]) && near(pitch, (v.wrote.1 + look[1]).clamp(-MAX_PITCH, MAX_PITCH)) => (v.turn + look[0], v.tilt + look[1]),
+        _ => {
+            let d = frame.inverse() * view_axes(heading, pitch).0;
+            (d.x.atan2(d.y), d.z.clamp(-1.0, 1.0).asin())
+        }
+    };
+    let (turn, within) = seated_heading(turn, 0.0, settled, dt);
+    let mut turn = (turn + PI).rem_euclid(TAU) - PI;
+    let mut tilt = tilt.clamp(-NECK_DOWN, MAX_PITCH);
+    let lain = (1.0 - (frame * Vec3::Z).z).clamp(0.0, 1.0);
+    let lowest = -MAX_PITCH + (MAX_PITCH - LYING_DOWN) * lain;
+    let ahead = frame * view_axes(turn, tilt).0;
+    if ahead.z < lowest.sin() {
+        // Up to the lowest it may look, the same way round.
+        let d = frame.inverse() * (ahead.truncate().try_normalize().unwrap_or(Vec2::Y) * lowest.cos()).extend(lowest.sin());
+        (turn, tilt) = (d.x.atan2(d.y), d.z.clamp(-1.0, 1.0).asin());
+    }
+    let (forward, up) = view_axes(turn, tilt);
+    let (forward, up) = (frame * forward, frame * up);
+    (LyingView { turn, tilt, wrote: view_angles(forward, up, heading) }, [forward, up], within)
+}
+
 /// What of the body is drawn.
 #[derive(Clone, Copy)]
 struct Shown {
@@ -1082,6 +1185,7 @@ fn drive_body(
     let state = &mut *state;
     player.body_view = None;
     let own_body = state.first_person_body;
+    let seat_look = std::mem::take(&mut seat.look);
     let Some(body) = state.body.as_mut() else {
         player.body_eye = None;
         view.pivot = None;
@@ -1128,14 +1232,36 @@ fn drive_body(
         // view turns only as far as a neck does, so it never looks into the body.
         let root = Transform { translation: Vec3::from_array(o.pos), rotation: Quat::from_rotation_z(-o.heading), scale: Vec3::splat(body.scale) };
         let mut eye = pose_furniture(&mut body.third, o, dt, root, &mut transforms);
-        let own_body = if own_body && !third_view {
+        let pelvis = body.third.animator.skel.by_name.get("Bip01 Pelvis").copied();
+        // A body on a bed: the frame it lies in is its pelvis's.
+        let lying = o.lying.then(|| pelvis.map_or(root.rotation, |b| bone_turn(&body.third, b, o.heading)));
+        let own_body = if let (Some(frame), false) = (lying, third_view) {
+            // Lying down: the view is the lying body's, drawn or not ([`lying_view`]).
+            let third = &body.third;
+            let (v, [forward, up], within) = lying_view(m.lying, frame, player.heading, player.pitch, seat_look, &mut m.seat_settled, dt);
+            (player.heading, player.pitch) = v.wrote;
+            m.lying = Some(v);
+            m.seat_facing = None;
+            // The camera leans with the head: its right, the way it looks and its top.
+            player.body_view = Some(Quat::from_mat3(&Mat3::from_cols(forward.cross(up), forward, up)));
+            // With the body drawn the eyes go round the neck with the view, about the
+            // body's own length, as a head turned on a pillow: the open neck stays
+            // behind the view.
+            if let (true, Some(e), Some(h)) = (own_body, eye.as_mut(), third.head) {
+                let root_m = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation);
+                let neck = Vec3::from((root_m * third.animator.model_space(h)).translation);
+                let faces = frame.inverse() * (bone_turn(third, h, o.heading) * Vec3::Y);
+                *e = neck + Quat::from_axis_angle(frame * Vec3::Z, faces.x.atan2(faces.y) - v.turn) * (*e - neck);
+            }
+            own_body && within
+        } else if own_body && !third_view {
             use std::f32::consts::{PI, TAU};
             let third = &body.third;
+            m.lying = None;
             // The way the body faces is its pelvis's: the clips of getting on and off
             // turn it inside the rig. The view turns with it (owner report 2026-10-10:
             // sitting down, the camera "didn't move in line with the rest of the body"),
             // and within a neck's reach of it is the player's.
-            let pelvis = third.animator.skel.by_name.get("Bip01 Pelvis").copied();
             let facing = pelvis.map_or(o.heading, |b| bone_heading(third, b, o.heading)).rem_euclid(TAU);
             if let Some(last) = m.seat_facing.replace(facing) {
                 player.heading = (player.heading + (facing - last + PI).rem_euclid(TAU) - PI).rem_euclid(TAU);
@@ -1154,10 +1280,14 @@ fn drive_body(
         } else {
             m.seat_settled = false;
             m.seat_facing = None;
+            m.lying = None;
             false
         };
         player.body_eye = eye.map(|e| e.to_array());
-        view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0]);
+        // Third person: the pivot is above the body; the further the body has lain
+        // back, the higher, clear of the bed.
+        let lift = lying.map_or(0.0, |frame| LYING_PIVOT_UP * (1.0 - (frame * Vec3::Z).z).clamp(0.0, 1.0));
+        view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0 + lift]);
         anim.ready = false;
         anim.muzzle = None;
         show_rigs(body, &mut visibility, Shown { third: third_view || own_body, first: false, head: third_view, arms: true, weapon: true });
@@ -1168,6 +1298,7 @@ fn drive_body(
     }
     m.seat_settled = false;
     m.seat_facing = None;
+    m.lying = None;
     // The weapon: draw and holster, timed by the clips of the rig in view.
     let prefix = m.prefix;
     let timing_rig = match body.first.as_mut() {
@@ -1396,6 +1527,80 @@ mod tests {
             assert!(frames < 100);
         }
         assert!(settled && frames > 10);
+    }
+
+    #[test]
+    fn a_view_lies_down_with_its_body() {
+        use std::f32::consts::{FRAC_PI_2, PI, TAU};
+        let close = |a: Vec3, b: Vec3| (a - b).length() < 1e-3;
+        // Standing, facing east: the view is the player's, level.
+        let standing = Quat::from_rotation_z(-FRAC_PI_2);
+        let mut settled = false;
+        let (v, [forward, up], within) = lying_view(None, standing, FRAC_PI_2 + 0.3, -0.2, [0.0; 2], &mut settled, 0.016);
+        assert!((v.turn - 0.3).abs() < 1e-4 && (v.tilt + 0.2).abs() < 1e-4 && within, "{v:?}");
+        assert!(close(forward, view_axes(FRAC_PI_2 + 0.3, -0.2).0) && close(up, view_axes(FRAC_PI_2 + 0.3, -0.2).1));
+        assert!((v.wrote.0 - (FRAC_PI_2 + 0.3)).abs() < 1e-4 && (v.wrote.1 + 0.2).abs() < 1e-4, "{v:?}");
+
+        // The body lies back, its head to the west: a view straight ahead looks at the
+        // ceiling, the top of the picture towards the top of the head. The level view
+        // nearest to it looks east, the way the feet point, as far up as a view goes.
+        let on_back = standing * Quat::from_rotation_x(FRAC_PI_2);
+        assert!(close(on_back * Vec3::Y, Vec3::Z) && close(on_back * Vec3::Z, -Vec3::X));
+        let ahead = LyingView { turn: 0.0, tilt: 0.0, wrote: (FRAC_PI_2, 0.0) };
+        let (v, [forward, up], _) = lying_view(Some(ahead), on_back, FRAC_PI_2, 0.0, [0.0; 2], &mut settled, 0.016);
+        assert!(close(forward, Vec3::Z) && close(up, -Vec3::X), "{forward} {up}");
+        assert!((v.wrote.0 - FRAC_PI_2).abs() < 1e-3 && v.wrote.1 == MAX_PITCH, "{v:?}");
+        // The mouse turns the head in the body's frame, also where a level view is
+        // already as far up as it goes: to the body's right is south here.
+        let (heading, pitch) = look_after(v, [0.5, 0.25]);
+        let (v, [forward, _], _) = lying_view(Some(v), on_back, heading, pitch, [0.5, 0.25], &mut settled, 0.016);
+        assert!((v.turn - 0.5).abs() < 1e-4 && (v.tilt - 0.25).abs() < 1e-4, "{v:?}");
+        assert!(forward.y < -0.3 && forward.z > 0.5 && forward.x < -0.1, "{forward}");
+        // No further than a neck turns, and not down into the body.
+        let (heading, pitch) = look_after(v, [2.0, -3.0]);
+        let (v, _, within) = lying_view(Some(v), on_back, heading, pitch, [2.0, -3.0], &mut settled, 0.016);
+        assert!((v.turn - NECK_TURN).abs() < 1e-4 && v.tilt >= -NECK_DOWN - 1e-4 && within, "{v:?}");
+        // A heading and pitch set from outside are taken in game space: north and a
+        // little up is to the body's left.
+        let (v, [forward, _], _) = lying_view(Some(v), on_back, 0.0, 0.3, [0.0; 2], &mut settled, 0.016);
+        assert!(close(forward, view_axes(0.0, 0.3).0) && v.turn < -1.0, "{v:?} {forward}");
+
+        // On its right side (its right is down): the head turns up to the ceiling but
+        // not into the pillow.
+        let on_side = on_back * Quat::from_rotation_z(-FRAC_PI_2);
+        assert!(close(on_side * Vec3::X, -Vec3::Z), "{}", on_side * Vec3::X);
+        let mut settled = true;
+        for (turn, tilt) in [(1.2, 0.0), (0.8, -0.9), (0.6, 0.7), (-1.3, 0.2), (0.0, 0.0)] {
+            let last = LyingView { turn: 0.0, tilt: 0.0, wrote: (0.0, 0.0) };
+            let (v, [forward, up], _) = lying_view(Some(last), on_side, turn, tilt, [turn, tilt], &mut settled, 0.016);
+            assert!(forward.z >= -LYING_DOWN.sin() - 1e-3, "{turn} {tilt}: {forward}");
+            assert!((forward.length() - 1.0).abs() < 1e-3 && forward.dot(up).abs() < 1e-3);
+            // Looking up is left alone.
+            assert!(turn > 0.0 || ((v.turn - turn).abs() < 1e-4 && (v.tilt - tilt).abs() < 1e-4), "{turn} {tilt}: {v:?}");
+            assert!((0.0..TAU).contains(&v.wrote.0) && v.wrote.1.abs() <= MAX_PITCH && v.turn.abs() <= PI);
+        }
+    }
+
+    /// The heading and pitch the mouse leaves the player with after `look`.
+    fn look_after(v: LyingView, look: [f32; 2]) -> (f32, f32) {
+        ((v.wrote.0 + look[0]).rem_euclid(std::f32::consts::TAU), (v.wrote.1 + look[1]).clamp(-MAX_PITCH, MAX_PITCH))
+    }
+
+    #[test]
+    fn a_level_view_is_found_for_a_leaning_one() {
+        use std::f32::consts::FRAC_PI_2;
+        // A level view is its own.
+        for (h, p) in [(0.3, 0.2), (4.0, -1.0), (2.0, 1.3)] {
+            let (forward, up) = view_axes(h, p);
+            let (heading, pitch) = view_angles(forward, up, 0.0);
+            assert!((heading - h).abs() < 1e-4 && (pitch - p).abs() < 1e-4, "{h} {p}");
+        }
+        // Straight up, the top of the picture to the west: the view is turned east.
+        let (heading, pitch) = view_angles(Vec3::Z, -Vec3::X, 0.0);
+        assert!((heading - FRAC_PI_2).abs() < 1e-3 && pitch == MAX_PITCH);
+        // Level, the picture on its side: the heading is the view's own.
+        let (heading, pitch) = view_angles(Vec3::X, Vec3::Y, 0.0);
+        assert!((heading - FRAC_PI_2).abs() < 1e-4 && pitch.abs() < 1e-4);
     }
 
     #[test]

@@ -262,6 +262,7 @@ fn activate(
     mut open: MessageWriter<OpenContainer>,
     mut changed: MessageWriter<RefChanged>,
     mut sit: MessageWriter<crate::furniture::UseFurniture>,
+    mut seat: ResMut<crate::furniture::PlayerSeat>,
     script: Option<ResMut<crate::script::ScriptState>>,
     locks: Option<Res<crate::control::ControlLocks>>,
     stats: Option<ResMut<crate::control::LockStats>>,
@@ -283,7 +284,12 @@ fn activate(
         }
         return;
     }
-    let Some(t) = target.0.as_ref() else { return };
+    let Some(t) = target.0.as_ref() else {
+        // On furniture with nothing under the crosshair (lying on a bed, the bed is out
+        // of view): Activate gets up [design].
+        seat.leave |= seat.hold.is_some();
+        return;
+    };
     // The actor's place before, to put back if a teleport cannot be followed.
     let before = sim.world.peek(FormId::PLAYER_REF).map(|p| (p.cell, p.pos, p.rot));
     let a = match crate::script::activate_by_hand(script.map(|s| s.into_inner()), &mut sim, t.form_id) {
