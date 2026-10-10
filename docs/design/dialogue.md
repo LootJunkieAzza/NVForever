@@ -9,7 +9,7 @@ paths, sound lengths, playback in `--play`; docs/spec-notes/voice.md) and **D4 d
 docs/design/dialogue-play.md; playing it by hand is the owner's) and **D6 done**
 (branch `claude/dialogue-lip`: lip sync — the `.lip` files decoded, the face morphs
 of the `.tri` files, a speaker's mouth, lids and brows moving with the voice in
-`--play`; docs/spec-notes/lipsync.md) and **D7 done** (branch `claude/dialogue-look`:
+`--play`; docs/spec-notes/lipsync.md) and **D7 done** (branch `claude/dialogue-facing`:
 in a conversation the actor turns its head, and standing its body, to the player and
 the player's view turns to the actor's face; docs/design/dialogue-play.md §8); D5 open. Owner request 2026-10-10: "now that quests have been done are we
 able to work on dialogue lines".
