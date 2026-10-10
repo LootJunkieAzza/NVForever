@@ -123,6 +123,22 @@ once per model; SpeedTree models (`.spt`, trees) hold no Havok blocks and get no
 [observed: they are not NIF files; whether trees block the player in-game is a capture
 question, §6].
 
+**Placed actors** (ACHR, ACRE: base NPC_ or CREA) get no collision from this rule. The
+model such a base names is its skeleton, and the skeleton's collision objects are
+keyframed bodies on the Biped layer, one per bone [observed: `fnvtool phys cell --cell
+GSProspectorSaloonInterior --list-refs`, 2026-10-10, before this rule: Sunny Smiles,
+the Goodsprings settler 0x00104F08 and Cheyenne each listed with Biped keyframed
+objects at their placement]. They are the actor's own bodies and move with its bones
+[hypothesis: not captured; they are what ragdolls are built from, ragdoll.md §1]. Added
+as a reference's collision they stood, in the skeleton's bind pose, where the actor was
+placed, and stayed there when it walked off or sat down [observed in play by the owner,
+2026-10-10: the settler sat on a saloon stool, its collision still where it had stood].
+`refs.counts` reports them as `actor`. What stands in the player's way instead is in
+§6.8; shots hit the actor's hit volumes (combat.md §5.2). On the owner's install the rule leaves out 3 actors with 57 colliders in the Prospector
+Saloon (316 → 313 references with collision) and 11 actors with 173 colliders around
+Goodsprings (838 → 827 references, 1,367 → 1,194 colliders: Easy Pete, two settlers, five
+bighorners, three ravens) [observed: `fnvtool phys cell --list-refs`, 2026-10-10].
+
 On the owner's install, Goodsprings with the cells around it (radius 1): 1,136 placed
 references; 839 get collision (1,369 colliders from 167 of the 194 distinct models, none
 unreadable), 211 use a model without collision objects, 43 are trees, 25 have no model, 8
@@ -1747,6 +1763,35 @@ door headings of 0 are [observed] for these cells only.
 first placed reference when a cell has no COCMarkerHeading; the XMarker / door-arrival
 rule above would replace it (left to the Layer 5 owner).
 
+### 6.8 Actors in the player's way (`engine/nvf-play`, `blocking.rs`)
+
+How the game keeps characters apart is not captured [hypothesis: every actor has a
+character controller of its own on the Char Controller layer, 30; nothing here depends
+on it]. What the engine does is [design]:
+
+- Each frame, every drawn, living actor has a **block** where its body is now: the line
+  on the ground under its torso's bones (pelvis to neck, from the posed skeleton that
+  also places its hit capsules), widened by 0.17 of the height of its render bounds (22
+  units for a person 128 tall, the player's own radius; at least 10, at most 60), from
+  the bottom of the bounds to their top. A standing or sitting person is a circle, a
+  sleeper or a four-legged creature a strip along its body. Without posed parts the
+  line is the middle of the bounds. The block follows the actor through walking,
+  furniture clips and beds, because it is read from the skeleton as drawn.
+- Before each fixed step the player's wanted horizontal velocity is clipped against the
+  blocks whose height overlaps the player's: no closer to a block than touching it
+  (the part of the velocity along the block's edge is kept, so the player slides
+  round), and a player caught inside one (an actor walked or sat down into them) is
+  moved out at 80 units a second and may walk out faster. The character controller
+  then moves the player as before, so walls still hold.
+- Blocks are not colliders: rays, shots, dynamic clutter and the walking actors'
+  characters do not meet them, and they cannot wedge the character. The dead have none
+  (their ragdoll's bodies are in the world). An actor the character controller walks
+  (`PhysState::npcs`) has none either: its character already blocks the player.
+
+Not done: actors do not block each other, the player does not block an actor that walks
+on the navmesh surface, and a wide, low creature (a radscorpion) is narrower than it
+looks.
+
 ## 7. CLI contract
 
 Both commands take the load order like `fnvtool world` (`<data_dir> <plugins...>
@@ -1797,7 +1842,8 @@ gains `water_volume` for references whose model holds one); probes report `swimm
 
 `refs.counts` keys appear only when non-zero: `placed`, `unreadable`, `deleted`,
 `initially_disabled`, `disabled_by_parent` (enabled itself but disabled at the start by
-its enable-parent chain, §4), `no_base`, `no_model`, `collision_primitive` (CollisionMarker
+its enable-parent chain, §4), `no_base`, `actor` (placed NPCs and creatures, which get no
+collision here, §4), `no_model`, `collision_primitive` (CollisionMarker
 primitives added), `bad_primitive`, `speedtree`, `model_without_collision`,
 `model_unreadable`, `awaiting_collision` (meshes not loaded), `with_collision`
 (references added to the world), `colliders` (their collider count) and `object_errors`.
