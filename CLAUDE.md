@@ -68,6 +68,13 @@ docs/design/actor-behaviour.md §5.6), also run the force-greet smoke test, with
 After furniture changes (docs/spec-notes/furniture.md §7), run the sitting smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-sit EasyPeteRef=0010634A:8 --follow-npc --run-seconds 45`
 (expect exit 0 and "furniture summary: 1 of 1 actors sat down, 1 got up again").
+After idle animation changes (docs/spec-notes/idles.md §7: `fnv-game` `idles`, `fnv-actor`
+`idle_play`, the engine's `idles.rs`, the player body's idles or view), run the opening:
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.05 engine/target/release/nvforever --data <Data> --play --new-game --no-voice --run-seconds 90`
+(expect exit 0, "run finished", "VCG01 stage 55 set", "idle summary: 10 idles asked for (1 by scripts,
+4 by packages' begin, end and change, 1 from collections, 4 by dialogue lines); 5 started on actors,
+5 on the player; 0 for actors not drawn, 0 without a usable clip", and Doc Mitchell getting off his
+chair "by clip SpecialIdle_DocSitLeftExit" in the "furniture:" lines).
 
 ## Commits
 

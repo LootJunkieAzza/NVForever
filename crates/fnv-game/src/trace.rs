@@ -92,6 +92,10 @@ pub enum EventKind {
     TopicAdded { topic: FormId, #[serde(skip_serializing_if = "Option::is_none")] by: Option<FormId> },
     /// The conversation ended: `goodbye`, `no_choices`, `left` or `actor_gone`.
     DialogueEnded { actor: FormId, reason: &'static str, lines: u32 },
+    /// An actor is to play an idle animation, and what asked for it (`crate::idles`).
+    IdleAsked { actor: FormId, idle: FormId, source: crate::idles::IdleSource },
+    /// An idle was asked for and cannot be played, and why.
+    IdleNotPlayed { actor: FormId, idle: FormId, source: crate::idles::IdleSource, reason: &'static str },
     /// A reputation changed: infamy (axis 0) or fame (axis 1), the new value.
     ReputationChanged { reputation: FormId, axis: usize, value: f64 },
 }

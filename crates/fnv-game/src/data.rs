@@ -458,8 +458,43 @@ pub struct GameData {
     pub furniture: HashMap<FormId, u32>,
     /// IDLM: the idle collection of each idle marker base.
     pub idle_markers: HashMap<FormId, crate::package::IdleCollection>,
+    /// IDLE: what playing an idle animation needs (`crate::idles`).
+    pub idles: HashMap<FormId, IdleDef>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
+}
+
+/// An idle animation (IDLE) as far as playing it goes: the file it names and how often
+/// it repeats. The tree and the conditions are read by `fnv_actor::idle`
+/// (docs/spec-notes/animation.md §1.1).
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize)]
+pub struct IdleDef {
+    /// `MODL` as stored, relative to `meshes\`; only a name ending in `.kf` is an
+    /// animation file (other records name a folder: the inner nodes of the tree).
+    pub model: Option<String>,
+    /// DATA loop minimum and maximum [documented: xEdit IDLE DATA].
+    pub loop_min: u8,
+    pub loop_max: u8,
+    /// The record's conditions; `None` when one of them could not be read (the idle is
+    /// then never chosen by its conditions, `Game::idle_allowed`).
+    pub conditions: Option<Vec<Condition>>,
+}
+
+impl IdleDef {
+    /// From the raw `MODL` (a NUL-terminated name) and `DATA` (animation group section,
+    /// loop minimum, loop maximum, … [documented: xEdit IDLE DATA]) subrecords.
+    pub fn from_raw(modl: Option<&[u8]>, data: Option<&[u8]>) -> IdleDef {
+        let model = modl
+            .map(|b| String::from_utf8_lossy(b.split(|c| *c == 0).next().unwrap_or_default()).trim().to_string())
+            .filter(|s| !s.is_empty());
+        let byte = |i: usize| data.and_then(|d| d.get(i)).copied().unwrap_or(0);
+        IdleDef { model, loop_min: byte(1), loop_max: byte(2), conditions: Some(Vec::new()) }
+    }
+
+    /// Whether the record names an animation file.
+    pub fn has_file(&self) -> bool {
+        self.model.as_deref().is_some_and(|m| m.to_ascii_lowercase().ends_with(".kf"))
+    }
 }
 
 fn hexid(v: &Json) -> Option<u32> {
@@ -502,6 +537,7 @@ struct Read {
     weapon_anim_type: Option<i64>,
     furniture: Option<u32>,
     idle_marker: Option<crate::package::IdleCollection>,
+    idle: Option<IdleDef>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -561,6 +597,7 @@ impl GameData {
             weapon_anim_types: HashMap::new(),
             furniture: HashMap::new(),
             idle_markers: HashMap::new(),
+            idles: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };
@@ -689,6 +726,9 @@ impl GameData {
             }
             if let Some(v) = r.idle_marker {
                 d.idle_markers.insert(id, v);
+            }
+            if let Some(v) = r.idle {
+                d.idles.insert(id, v);
             }
         }
         let (lines, order) = topic_lines(lo);
@@ -865,10 +905,17 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             | b"FACT"
             | b"WEAP"
             | b"IDLM"
+            | b"IDLE"
     ) || subs.iter().any(|s| &s.sig == b"DEST");
     if &sig == b"FURN" {
         let flags = subs.iter().find(|s| &s.sig == b"MNAM").and_then(|s| <[u8; 4]>::try_from(s.data.as_slice()).ok()).map(u32::from_le_bytes);
         out.furniture = Some(flags.unwrap_or(0));
+    }
+    if &sig == b"IDLE" {
+        out.idle = Some(IdleDef::from_raw(
+            subs.iter().find(|s| &s.sig == b"MODL").map(|s| s.data.as_slice()),
+            subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()),
+        ));
     }
     for s in &subs {
         match &s.sig {
@@ -1299,6 +1346,16 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                     })
                     .collect(),
             );
+        }
+        b"IDLE" => {
+            // A condition that cannot be read is no issue of the script data (some idle
+            // conditions use functions scripts never call, animation.md §1.2): the idle
+            // is only marked as one that cannot be judged.
+            let mut unread = Issues::default();
+            let conds: Vec<Option<Condition>> = decoded.iter().filter(|(s, _)| *s == b"CTDA").map(|(_, v)| cond(v, &mut unread)).collect();
+            if let Some(i) = out.idle.as_mut() {
+                i.conditions = conds.into_iter().collect();
+            }
         }
         b"IDLM" => {
             let code = |sub: &[u8; 4], field: &str, v: &Json| field_code(schema, &sig, sub, Some(field), v);

@@ -403,7 +403,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1184, "SetDisposition", Stub("dialogue (disposition)")),
         (0x115C, "SendTrespassAlarm", Stub("crime")),
         (0x1013, "PlayGroup", Stub("animation")),
-        (0x1190, "PlayIdle", Stub("animation")),
+        (0x1190, "PlayIdle", Impl(crate::idles::play_idle)),
         (0x105C, "Look", Stub("animation (head tracking)")),
         (0x105D, "StopLook", Stub("animation (head tracking)")),
         (0x11E4, "AgeRace", Stub("character appearance")),
@@ -451,7 +451,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         // Layer 6 systems added 2026-10-09 (function coverage round): recorded, no effect.
         (0x1128, "IsAnimPlaying", Stub("animation")),
         (0x10DB, "GetAnimAction", Stub("animation")),
-        (0x1070, "IsIdlePlaying", Stub("animation")),
+        (0x1070, "IsIdlePlaying", Impl(crate::idles::is_idle_playing)),
         (0x1064, "PickIdle", Stub("animation")),
         (0x111D, "IsLeftUp", Stub("animation")),
         (0x106A, "IsFacingUp", Stub("animation (ragdoll)")),

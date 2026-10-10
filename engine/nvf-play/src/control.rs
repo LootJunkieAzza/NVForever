@@ -325,7 +325,7 @@ pub fn place_camera(
     let (Some(p), Ok(mut t)) = (player, cams.single_mut()) else { return };
     let eye = p.eye();
     if !control.third_person_view() {
-        t.rotation = space::look_rotation(p.heading, p.pitch);
+        t.rotation = p.body_view.map_or_else(|| space::look_rotation(p.heading, p.pitch), space::view_rotation);
         t.translation = space::to_bevy(eye);
         return;
     }

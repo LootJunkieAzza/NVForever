@@ -20,7 +20,7 @@ fn play_data() -> PlayData {
     let lo: &'static fnv_esm::LoadOrder<'static> = Box::leak(Box::new(fnv_esm::LoadOrder::new(&[]).expect("empty load order")));
     let schema: &'static fnv_esm::Schema = Box::leak(Box::default());
     let index: &'static WorldIndex = Box::leak(Box::default());
-    PlayData { lo, schema, index, world: 0x3C, interior: None, eye: [0.0; 3], heading_deg: 0.0, pitch_deg: 0.0, auto_walk: 0.0, start_at_cell_spot: false }
+    PlayData { lo, schema, index, world: 0x3C, interior: None, eye: [0.0; 3], heading_deg: 0.0, pitch_deg: 0.0, auto_walk: 0.0, start_at_cell_spot: false, packages: false }
 }
 
 fn object(half: f32, motion: Motion) -> CollisionObject {

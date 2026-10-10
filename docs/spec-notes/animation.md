@@ -190,6 +190,9 @@ of 18,881; creatures: 94,471 of 97,292.
 
 ## 5. Open questions for the owner
 
+Idles played on request (scripts, packages, dialogue) and what they showed about loop
+counts, loop keys and first-person clips: docs/spec-notes/idles.md.
+
 1. **Bits 0x40 / 0x80 of the IDLE group byte**: xEdit calls 0x40 "Loose Idle" and links
    0x80 to "must return a file". 441 records set 0x40 (414 Special Idles); 93 set 0x80.
    Do you know (GECK UI, wiki) what they do?
