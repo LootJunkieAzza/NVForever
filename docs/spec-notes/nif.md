@@ -307,6 +307,10 @@ quaternions [documented: nif.xml hkQuaternion vs Quaternion].
   blended mesh (docs/spec-notes/world.md §"Texture layers"); the rows are solid.
   Whether the game writes depth for blended shapes is open; within one blended mesh
   the triangles are drawn in their stored order.
+
+  One kind of shape is cut by alpha without a NiAlphaProperty: object LOD blocks, whose
+  shader sets BSShaderFlags2 bit 2 "LOD_Building" [documented: nif.xml]. The renderers
+  alpha-test those at alpha above 128 [hypothesis; evidence in world.md §7 "Objects"].
 - **Skin shader type** [observed, `crates/fnv-nif/examples/skin_survey.rs` over
   `Fallout - Meshes.bsa`]: 255 visible shapes have BSShaderPPLightingProperty shader
   type 14 (`SHADER_SKIN` [documented: nif.xml BSShaderType]); the same 255 and no others
