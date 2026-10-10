@@ -130,8 +130,9 @@ pub fn is_light_effect_shape(name: &str) -> bool {
 /// (`PipBoyOn…`), `Some(false)` worn without (`PipBoyOff…`) [observed: the names, in 170
 /// worn models (159 hold both, 11 only the latter), `PipBoy0n` in places; in
 /// `vaultsuitarmor\m\outfitm.nif` `PipBoyOff` covers the forearm from 3 to 18 units
-/// below the elbow and `PipBoyOn` leaves out 3 to 15, where the Pip-Boy sits;
-/// hypothesis: the game draws the one that matches; actors.md §1.2].
+/// below the elbow and `PipBoyOn` leaves out 3 to 15, where the Pip-Boy sits; owner
+/// statement 2026-10-10: with a Pip-Boy on, the sleeve drawn is the `PipBoyOn` one;
+/// hypothesis: without one it is `PipBoyOff`; actors.md §1.2].
 pub fn pipboy_sleeve(name: &str) -> Option<bool> {
     let n = name.trim().to_ascii_lowercase();
     if n.starts_with("pipboyoff") {

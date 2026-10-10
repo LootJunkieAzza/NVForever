@@ -114,18 +114,24 @@ actor meshes`]:
   [observed]. It is the glow of the Pip-Boy light and shows only while that light is on
   [owner statement 2026-10-10]. NVForever has no Pip-Boy light yet, so the shape is not
   drawn (`fnv_actor::mesh::is_light_effect_shape`); drawn, it was a flat bright green
-  square over the screen. Still drawn as they are, and open [hypothesis: the menu
-  lights them]: the three button lights `StatsGlow`, `ItemsGlow`, `DataGlow`, the
-  `glare` sheet, and `ScreenLit` beside `pipboyscreen`.
+  square over the screen. The three orange button lights (`StatsGlow`, `ItemsGlow`,
+  `DataGlow`) are always lit [owner statement 2026-10-10] and are drawn. Drawn as they
+  are, and open: the `glare` sheet, and `ScreenLit` beside `pipboyscreen` [hypothesis:
+  one of the two screens is for the light or the menu].
 - Outfits hold two left sleeves: 170 of the 498 worn models have shapes named
   `PipBoyOff…`, 159 of them also `PipBoyOn…` (`PipBoyOn`, `PipBoyOn:0`, `PipBoyOn1:0`,
   `PipBoy0n:0`, `PipBoyOnLegate:0`, …) [observed: `armor_pipboy_sleeves`]. In
   `vaultsuitarmor\m\outfitm.nif` `PipBoyOff` (175 vertices) covers the left forearm from
   3 to 18 units below the elbow and the hand's cuff; `PipBoyOn` (111 vertices) leaves
-  out 3 to 15, where the Pip-Boy sits [observed]. Rule [hypothesis, from the names and
-  that gap]: an actor wearing an item in the PipBoy biped slot (bit 6) draws the
-  `PipBoyOn…` shapes, any other actor the `PipBoyOff…` shapes
-  (`fnv_actor::mesh::pipboy_sleeve`). Before 2026-10-10 both were drawn on everyone.
+  out 3 to 15, where the Pip-Boy sits [observed]. Rule: an actor wearing an item in the
+  PipBoy biped slot (bit 6) draws the `PipBoyOn…` shapes [owner statement 2026-10-10:
+  "we see a sleeve on the arm with a pipboy, it is rendered over the outfit using the
+  pipboy on node"; two in-game first-person screenshots: a jumpsuit's blue sleeve from
+  the elbow to the Pip-Boy, and another outfit's brown cuff between the Pip-Boy and the
+  glove], any other actor the `PipBoyOff…` shapes [hypothesis, from the names]
+  (`fnv_actor::mesh::pipboy_sleeve`). The same holds in first person, where the sleeve
+  is drawn beside the `Arms…` shapes (`fnv_actor::first_person::is_first_person_shape`).
+  Before 2026-10-10 both sleeves were drawn on everyone, and none in first person.
 - Hair-shader shapes (BSShaderFlags bit 18) carry a mask in their vertex colours, not a
   colour: red 0.04–0.39 with green and blue at 1 in `hairbase.nif` and
   `beardmustachecurly.nif` [observed]; multiplied in, hair turns cyan. They are not
