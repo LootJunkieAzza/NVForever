@@ -1645,6 +1645,77 @@ slide on firing, the minigun's barrel). Branch `claude/weapon-moving-parts`. Fac
    there is nothing to move); shell casings and muzzle flashes; the glow on the gatling
    laser and the screens on a few energy weapons, which are other kinds of animation.
 
+## Screen effects in the opening: white screen, blurred wake-up (2026-10-10, session "image space modifiers")
+
+Your request: the opening quest's screen effects (fade to black, white screen, blurred
+vision) should play in our engine. Branch `claude/imagespace-modifiers`. Facts:
+`docs/spec-notes/image-modifiers.md`. Pictures:
+`C:\fnv-private\references\image_modifiers\`.
+
+1. **What plays now:** a new game starts on a white screen. When the opening quest hands
+   over to Doc Mitchell's, the room comes out of the white over 5 seconds, blurred and
+   slightly doubled, and is sharp after 7. After Doc's first line there is a dark blink
+   and a bright, blurred flash that settles over 10 seconds (`newgame_1` to `newgame_5`).
+   Message boxes, subtitles and the HUD stay sharp on top.
+2. **It is not only the opening:** the three script commands behind this now work
+   everywhere, so the other scripts that use them get their effect too: 266 uses in the
+   base game, most of them fades to black and back. I only watched the opening.
+3. **Built:** fade to a colour, blur, double vision, blur around the edges of the screen,
+   and changes to brightness, contrast, saturation and tint. An effect with a set length
+   ends by itself; one without stays until a script removes it.
+4. **Not built:** depth of field (6 effects use it) and motion blur (7). Blood on the
+   screen, effects from explosions and weapons, and a script changing a room's whole
+   look are separate things and still do nothing.
+5. **Guesses, please check against the game:** the files say how strong each effect is
+   as a number, not what that number looks like. How wide a blur of "5" is, how far apart
+   the two images of double vision sit, and how they sway are my guesses. To compare,
+   this shows one effect frozen at a chosen second, in ours:
+   `nvforever --data <Data> --cell GSDocMitchellHouse --imod VCG01FadeInFromBlackISFX@3.5`
+   (`wakeup_held_3.5s.png` is that frame). A game screenshot from the same spot with the
+   console's `imod VCG01FadeInFromBlackISFX`, taken about 3 to 4 seconds in, would let me
+   set the blur. Leave `@3.5` off to watch it loop.
+6. **Two more guesses:**
+   - While a message box is open the wake-up effect waits (in ours the add-on pack boxes
+     pop up during it, so it takes longer than 7 seconds on the clock). If the game keeps
+     fading behind a box, say so.
+   - A script starting an effect that is already playing restarts it. The game might
+     layer a second copy instead.
+7. **Odd thing in the files:** the wake-up effect is named "fade in from black" but its
+   colour in the file is white, and a capture of your new-game save shows a white
+   screen at that point, so white it is.
+8. **Still wrong in the opening, not touched here:** you can walk and look around while
+   Doc is talking. The scripts ask for the controls to be locked; we do not obey that
+   yet. Before the opening's scripts have loaded (3 to 6 seconds) I hold the screen
+   white so the room does not show early.
+
+## Body in first person: a switch (2026-10-10, session "first-person body")
+
+Your request: an option to toggle the body rendering in first person. Branch
+`claude/first-person-body`. Design: `docs/design/player-body.md` §1.5.
+
+1. **The switch:** "Body in first person" on the Esc menu's settings page (under
+   Picture), or start with `--first-person-body`. It is off by default, because the
+   original only draws the arms.
+2. **On:** looking down you see your chest, legs and feet in what you are wearing. With
+   the weapon away your arms hang at your sides; with it out, the usual first-person
+   arms and weapon are drawn and the body's own arms are hidden. Your view does not
+   move: the body is placed under the camera.
+3. **Sitting (your report, with the screenshot of the view inside the jumpsuit):** with
+   the switch on, a seated view now turns at most 80° to either side and 75° down, like
+   a head on a neck, and the eyes swing round the neck as the head turns, so you see
+   your shoulder and arm at the limit and never the inside of the body. If you sit down
+   looking the other way, the view comes round by itself. While you sit down and get up
+   the view now turns with the body (your second report: the camera stayed put while the
+   body turned); you said that looked a lot better.
+4. **For you to decide:**
+   - With the switch off, the seated view is as before: free to turn all the way round,
+     and not turned by the body as it sits down (no body is drawn, so nothing looks
+     wrong). Should the neck limit and the turning apply there too?
+   - 80° and 75° are my guesses at a comfortable limit. Say if it feels too tight.
+5. **Not done:** your shadow. With the switch on it is a body without a head (and
+   without its own arms while the weapon is out). Fixing that means letting hidden
+   parts still cast shadows; it is a separate piece of work.
+
 ## Shots leave the barrel (2026-10-10, session "muzzle")
 
 Your report: a shot looks as if it comes from the camera, not from the gun's barrel,

@@ -32,13 +32,22 @@
 //! actors (`--no-actors`) there is no body and the eye stays at the fixed eye height;
 //! without a first-person skeleton the third-person body's head gives the eye and its
 //! head is hidden in first person.
+//!
+//! **The body in first person** ([`PlayerBody::first_person_body`], `--first-person-body`
+//! and the settings page; off as the original, which draws the arms rig alone): the
+//! third-person body is drawn in first person too, without its head, standing so that
+//! its eyes are under the camera, and upright whatever the pitch. While the arms rig's
+//! arms are up the body's own arms and hands are hidden, and its weapon while it is in
+//! the hand. On furniture the seated body is drawn without its head, the view turns no
+//! further from the way the body faces than a neck does ([`seated_heading`]) and the eyes
+//! go round the neck with it.
 
 use crate::actors::{part_uses, ActorWorld};
 use crate::world::WorldRoot;
 use bevy::math::Affine3A;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
-use fnv_actor::first_person::{self, is_first_person_shape, Show};
+use fnv_actor::first_person::{self, is_first_person_shape, shape_shows, Show};
 use fnv_actor::player_clips::{
     aim_clips, aim_variant, aim_weights, attack_clips, attack_stem, block_clips, blocks, direction_weights, equip_clips, holster_clips, idle_clips, jump_clips,
     move_clips, reload_clips, turn_clips, Aim, ClipKeys, Dir, HandEvent, Stance, Transition, WeaponHands, WeaponPhase, UNARMED,
@@ -90,6 +99,19 @@ const TURN_RATE: f32 = 1.0;
 const NECK_PITCH: f32 = 0.6;
 /// Blend-in of an attack clip, seconds [engineering choice: a shot should show at once].
 const ATTACK_FADE: f32 = 0.03;
+/// The body in first person: how far behind the camera its eyes stand, in the skeleton's
+/// units, so the open neck stays out of the picture looking down [engineering choice].
+const OWN_BODY_BACK: f32 = 4.0;
+/// The body in first person on furniture: how far the view turns to either side of the
+/// way the body faces, radians [owner decision 2026-10-10: "limited to a real person's
+/// head movement"; engineering choice: 80 degrees, about what a neck turns].
+const NECK_TURN: f32 = 80.0 * std::f32::consts::PI / 180.0;
+/// How fast a view turned further than that when the body sits down comes round to it,
+/// radians per second [engineering choice].
+const NECK_RETURN_RATE: f32 = 4.0;
+/// And how far down it tilts, radians [engineering choice: 75 degrees, head and eyes;
+/// steeper, the view is down the body's own collar].
+const NECK_DOWN: f32 = 75.0 * std::f32::consts::PI / 180.0;
 /// An attack clip with a `Loop` key goes round its repeated part while the shots come no
 /// further apart than this, seconds [engineering choice: the clips that have the key are
 /// the `attackspin` ones, of weapons that fire many times a second; animation.md §9.8].
@@ -216,9 +238,15 @@ struct Rig {
     muzzle: Option<Vec<(Option<usize>, Transform)>>,
     /// Third person: drawn entities to hide when it stands in for the first-person rig.
     head_entities: Vec<Entity>,
-    /// Whether the rig is shown, and whether its head is (last applied).
+    /// Third person: the drawn entities the first-person rig has its own of (arms, hands,
+    /// gloves, the Pip-Boy), to hide while that rig's arms are up in front of the body.
+    arm_entities: Vec<Entity>,
+    /// Whether the rig is shown, and whether its head, its arms and its weapon are (last
+    /// applied).
     shown: Option<bool>,
     head_shown: Option<bool>,
+    arms_shown: Option<bool>,
+    weapon_shown: Option<bool>,
     /// The furniture clip it plays (`BodyClip::serial`), while it plays one.
     furniture: Option<u32>,
     /// Seconds since the last attack started, and the repeated part of its clip, if it
@@ -321,6 +349,11 @@ struct Motion {
     turn_rate: f32,
     /// Once-a-second status (debug log).
     log_elapsed: f32,
+    /// On furniture with the body in first person: the view has come within the neck's
+    /// reach of the way the body faces, and is held there.
+    seat_settled: bool,
+    /// The same: the way the body faced last frame, to turn the view with it.
+    seat_facing: Option<f32>,
     /// The attack, reload and spin-up counts last acted on (`WeaponAnim`).
     attacks_seen: u32,
     reloads_seen: u32,
@@ -353,6 +386,8 @@ impl Default for Motion {
             last_heading: None,
             turn_rate: 0.0,
             log_elapsed: 0.0,
+            seat_settled: false,
+            seat_facing: None,
             attacks_seen: 0,
             reloads_seen: 0,
             spin_ups_seen: 0,
@@ -363,6 +398,8 @@ impl Default for Motion {
 
 #[derive(Resource, Default)]
 pub struct PlayerBody {
+    /// Draw the body in first person too (`--first-person-body`, the settings page).
+    pub first_person_body: bool,
     body: Option<Body>,
     motion: Motion,
     /// Why the body could not be built (reported once).
@@ -376,12 +413,15 @@ impl PlayerBody {
     }
 }
 
-pub struct PlayerBodyPlugin;
+pub struct PlayerBodyPlugin {
+    /// `--first-person-body`.
+    pub first_person_body: bool,
+}
 
 impl Plugin for PlayerBodyPlugin {
     fn build(&self, app: &mut App) {
         // Furniture (`furniture.rs`) says what the body plays before it is posed.
-        app.init_resource::<PlayerBody>()
+        app.insert_resource(PlayerBody { first_person_body: self.first_person_body, ..default() })
             .init_resource::<crate::furniture::BodyOverride>()
             .init_resource::<crate::furniture::PlayerUse>()
             .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body).chain().in_set(nvf_play::player::BodySet));
@@ -550,6 +590,7 @@ fn ensure_body(
                     rig.weapon_parts.push(WeaponPart { entity: e, tags, on_bone: bone.is_some(), shown: Some(shown) });
                 }
                 rig.weapon_model = Some(holder);
+                rig.weapon_shown = None;
                 info!(
                     "player weapon model ({:?} person): {path}, {} nodes, {} named parts for the clips, {}",
                     rig.view,
@@ -619,10 +660,16 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         p.role.starts_with("head") || p.role == "hair" || world.actors.armors.get(&p.form).is_some_and(|ar| ar.slots & HEAD_SLOTS != 0)
     };
     let hide: Vec<bool> = uses.iter().map(|(i, _)| head_part(*i)).collect();
+    // Third person: per part, how the first-person rig shows it.
+    let arms: Vec<Option<Show>> = uses.iter().map(|(i, _)| (view == View::Third).then(|| first_person::show(&world.actors, &a.parts[*i])).flatten()).collect();
     let uses: Vec<PartUse> = uses.into_iter().map(|(_, u)| u).collect();
     let spawned = spawn_actor(commands, parent, Transform::from_scale(Vec3::splat(a.race_height as f32)), &skel, &uses);
     commands.entity(spawned.root).insert(Name::new(format!("Player body ({view:?} person)")));
     let head_entities = spawned.drawn.iter().zip(&spawned.part_of).filter(|(_, &p)| hide[p]).map(|(e, _)| *e).collect();
+    let arm_entities = (spawned.drawn.iter().zip(&spawned.part_of).zip(&spawned.shape_of))
+        .filter(|((_, &p), &s)| shape_shows(arms[p], uses[p].part.shapes[s].name.as_deref()))
+        .map(|((e, _), _)| *e)
+        .collect();
     let folder = a.skeleton.rfind('\\').map_or(String::new(), |i| a.skeleton[..=i].to_string());
     let node = |n: &str| skel.by_name.get(n).copied();
     let weapon_node = node("Weapon");
@@ -653,8 +700,11 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         weapon_parts: Vec::new(),
         muzzle: None,
         head_entities,
+        arm_entities,
         shown: None,
         head_shown: None,
+        arms_shown: None,
+        weapon_shown: None,
         furniture: None,
         since_attack: f32::INFINITY,
         attack_loop: None,
@@ -676,6 +726,9 @@ struct Frame {
     landing: bool,
     turn_rate: f32,
     pitch: f32,
+    /// The third-person body is drawn in first person: it stays upright whatever the
+    /// pitch, as the arms rig alone follows the view.
+    upright: bool,
     /// Block held.
     aiming: bool,
     speed: f32,
@@ -767,8 +820,8 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
     }
     // First person pitches the whole arms rig instead of bending the body.
     let aim_w = match rig.view {
-        View::First => [(Aim::Level, 1.0), (Aim::Up, 0.0), (Aim::Down, 0.0)],
-        View::Third => aim_weights(f.pitch),
+        View::Third if !f.upright => aim_weights(f.pitch),
+        _ => [(Aim::Level, 1.0), (Aim::Up, 0.0), (Aim::Down, 0.0)],
     };
     if f.hands.in_hand && f.hands.phase != WeaponPhase::Drawing {
         if f.aiming && blocks(f.prefix) {
@@ -903,27 +956,64 @@ fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, dt: f32, root: 
     rig.head.map(|h| (root_m * a.model_space(h)).transform_point3(rig.eye_local))
 }
 
-/// Show or hide the rigs and the third-person head.
-fn show_rigs(body: &mut Body, visibility: &mut Query<&mut Visibility>, third: bool, first: bool, head: bool) {
-    let mut show = |rig: &mut Rig, on: bool| {
-        if rig.shown != Some(on) {
-            if let Ok(mut v) = visibility.get_mut(rig.root) {
-                *v = if on { Visibility::Inherited } else { Visibility::Hidden };
+/// The view's heading on furniture with the body in first person: within [`NECK_TURN`] of
+/// `facing` (the body's heading) it is the player's; the mouse cannot take it further
+/// once it has been there (`settled`); a view further round when the body sits down
+/// comes to the nearer limit at [`NECK_RETURN_RATE`]. Also whether it is within reach.
+fn seated_heading(heading: f32, facing: f32, settled: &mut bool, dt: f32) -> (f32, bool) {
+    use std::f32::consts::{PI, TAU};
+    let turned = (heading - facing + PI).rem_euclid(TAU) - PI;
+    let over = turned.abs() - NECK_TURN;
+    if over <= 0.0 {
+        *settled = true;
+        return (heading, true);
+    }
+    let back = if *settled { over } else { over.min(NECK_RETURN_RATE * dt) };
+    let within = back >= over;
+    *settled |= within;
+    ((facing + turned.signum() * (turned.abs() - back)).rem_euclid(TAU), within)
+}
+
+/// The compass heading bone `b` of the posed rig faces when the rig's root faces
+/// `heading`: the root's, turned by the bone's turn about the vertical since the bind
+/// pose (the clips of getting on furniture turn the body inside the rig).
+fn bone_heading(rig: &Rig, b: usize, heading: f32) -> f32 {
+    let a = &rig.animator;
+    let forward = a.model_space(b).matrix3 * a.skel.bind_world[b].matrix3.inverse() * Vec3A::Y;
+    heading + forward.x.atan2(forward.y)
+}
+
+/// What of the body is drawn.
+#[derive(Clone, Copy)]
+struct Shown {
+    third: bool,
+    first: bool,
+    /// Of the third-person rig: its head, its arms and hands, the weapon on its `Weapon`
+    /// node.
+    head: bool,
+    arms: bool,
+    weapon: bool,
+}
+
+/// Show or hide the rigs and the third-person rig's head, arms and weapon.
+fn show_rigs(body: &mut Body, visibility: &mut Query<&mut Visibility>, s: Shown) {
+    let mut show = |entities: &[Entity], shown: &mut Option<bool>, on: bool| {
+        if *shown != Some(on) {
+            for e in entities {
+                if let Ok(mut v) = visibility.get_mut(*e) {
+                    *v = if on { Visibility::Inherited } else { Visibility::Hidden };
+                }
             }
-            rig.shown = Some(on);
+            *shown = Some(on);
         }
     };
-    show(&mut body.third, third);
+    let third = &mut body.third;
+    show(&[third.root], &mut third.shown, s.third);
+    show(&third.head_entities, &mut third.head_shown, s.head);
+    show(&third.arm_entities, &mut third.arms_shown, s.arms);
+    show(third.weapon_model.as_slice(), &mut third.weapon_shown, s.weapon);
     if let Some(f) = body.first.as_mut() {
-        show(f, first);
-    }
-    if body.third.head_shown != Some(head) {
-        for e in &body.third.head_entities {
-            if let Ok(mut v) = visibility.get_mut(*e) {
-                *v = if head { Visibility::Inherited } else { Visibility::Hidden };
-            }
-        }
-        body.third.head_shown = Some(head);
+        show(&[f.root], &mut f.shown, s.first);
     }
 }
 
@@ -946,6 +1036,7 @@ fn drive_body(
     furniture: Res<crate::furniture::BodyOverride>,
 ) {
     let state = &mut *state;
+    let own_body = state.first_person_body;
     let Some(body) = state.body.as_mut() else {
         player.body_eye = None;
         view.pivot = None;
@@ -987,19 +1078,51 @@ fn drive_body(
     if let Some(o) = furniture.0.as_ref() {
         // On furniture: the third-person body plays the furniture's clip where the
         // furniture has it. In first person the view is that body's eye and the body is
-        // not drawn (seen from inside it gets in the way of looking round) [design].
+        // not drawn (seen from inside it gets in the way of looking round) [design],
+        // unless the body is wanted in first person: then all but its head is, and the
+        // view turns only as far as a neck does, so it never looks into the body.
         let root = Transform { translation: Vec3::from_array(o.pos), rotation: Quat::from_rotation_z(-o.heading), scale: Vec3::splat(body.scale) };
-        let eye = pose_furniture(&mut body.third, o, dt, root, &mut transforms);
+        let mut eye = pose_furniture(&mut body.third, o, dt, root, &mut transforms);
+        let own_body = if own_body && !third_view {
+            use std::f32::consts::{PI, TAU};
+            let third = &body.third;
+            // The way the body faces is its pelvis's: the clips of getting on and off
+            // turn it inside the rig. The view turns with it (owner report 2026-10-10:
+            // sitting down, the camera "didn't move in line with the rest of the body"),
+            // and within a neck's reach of it is the player's.
+            let pelvis = third.animator.skel.by_name.get("Bip01 Pelvis").copied();
+            let facing = pelvis.map_or(o.heading, |b| bone_heading(third, b, o.heading)).rem_euclid(TAU);
+            if let Some(last) = m.seat_facing.replace(facing) {
+                player.heading = (player.heading + (facing - last + PI).rem_euclid(TAU) - PI).rem_euclid(TAU);
+            }
+            let (heading, within) = seated_heading(player.heading, facing, &mut m.seat_settled, dt);
+            player.heading = heading;
+            player.pitch = player.pitch.max(-NECK_DOWN);
+            // The eyes go round the neck with the view, as a turned head's do: the open
+            // neck stays behind the view whichever way it looks.
+            if let (Some(e), Some(h)) = (eye.as_mut(), third.head) {
+                let root_m = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation);
+                let neck = Vec3::from((root_m * third.animator.model_space(h)).translation);
+                *e = neck + Quat::from_rotation_z(bone_heading(third, h, o.heading) - heading) * (*e - neck);
+            }
+            within
+        } else {
+            m.seat_settled = false;
+            m.seat_facing = None;
+            false
+        };
         player.body_eye = eye.map(|e| e.to_array());
         view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0]);
         anim.ready = false;
         anim.muzzle = None;
-        show_rigs(body, &mut visibility, third_view, false, third_view);
+        show_rigs(body, &mut visibility, Shown { third: third_view || own_body, first: false, head: third_view, arms: true, weapon: true });
         return;
     }
     if body.third.furniture.take().is_some() {
         body.third.animator.cut(TAG_FURNITURE);
     }
+    m.seat_settled = false;
+    m.seat_facing = None;
     // The weapon: draw and holster, timed by the clips of the rig in view.
     let prefix = m.prefix;
     let timing_rig = match body.first.as_mut() {
@@ -1042,6 +1165,7 @@ fn drive_body(
         landing,
         turn_rate: m.turn_rate,
         pitch: player.pitch,
+        upright: own_body && !third_view && body.first.is_some(),
         aiming: control.aiming,
         speed: m.speed,
         attack: Some(attack),
@@ -1073,6 +1197,15 @@ fn drive_body(
     player.body_eye = eye.map(|e| e.to_array());
     view.pivot = third_eye.or(eye).map(|e| [feet[0], feet[1], e.z + 5.0]);
 
+    // The body in first person stands where its eyes are under the camera (and a little
+    // behind), feet on the ground: the view is the arms rig's, the body is moved to it.
+    if let (true, Some(cam), Some(head)) = (frame.upright, first_eye, third_eye) {
+        let back = root.rotation * Vec3::new(0.0, OWN_BODY_BACK * body.scale, 0.0);
+        if let Ok(mut t) = transforms.get_mut(body.third.root) {
+            t.translation += Vec3::new(cam.x - head.x - back.x, cam.y - head.y - back.y, 0.0);
+        }
+    }
+
     // The weapon nodes' parents, and the weapon parts the clips show or hide (a part
     // no playing clip speaks for stays as it was).
     for rig in std::iter::once(&mut body.third).chain(body.first.as_mut()) {
@@ -1099,16 +1232,24 @@ fn drive_body(
         }
     }
     // Which rig is seen; without a first-person rig the third-person head is hidden
-    // from inside.
+    // from inside. With the body in first person, the arms rig's arms and weapon stand
+    // in for the body's own while they are up (weapon out, drawing or putting away).
     let has_first = body.first.is_some();
-    // The muzzle of the weapon in hand in that rig, for combat (shots are drawn from
-    // it; `WeaponAnim::muzzle`).
+    // The muzzle of the weapon in hand, for combat (shots are drawn from it;
+    // `WeaponAnim::muzzle`): in the first-person rig while that view is on (its weapon
+    // is the one seen in hand, with or without the body below it), else the body's.
     let seen = match body.first.as_ref() {
         Some(f) if !third_view => f,
         _ => &body.third,
     };
     anim.muzzle = if m.hands.in_hand { seen.muzzle_at(root).map(|p| p.to_array()) } else { None };
-    show_rigs(body, &mut visibility, third_view || !has_first, !third_view, third_view || has_first);
+    let arms_up = m.hands.in_hand || m.hands.phase != WeaponPhase::Holstered;
+    let shown = if frame.upright {
+        Shown { third: true, first: true, head: false, arms: !arms_up, weapon: !m.hands.in_hand }
+    } else {
+        Shown { third: third_view || !has_first, first: !third_view, head: third_view || has_first, arms: true, weapon: true }
+    };
+    show_rigs(body, &mut visibility, shown);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {
@@ -1153,6 +1294,36 @@ mod tests {
         for b in [2, 3, 4, 5, 6, 7, 8, 15] {
             assert!(HEAD_SLOTS & 1 << b == 0, "bit {b}");
         }
+    }
+
+    #[test]
+    fn a_seated_view_turns_as_far_as_a_neck() {
+        let deg = |d: f32| d.to_radians().rem_euclid(std::f32::consts::TAU);
+        let close = |a: f32, b: f32| ((a - b + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI).abs() < 1e-4;
+        // Within reach the view is the player's, either side, across north too.
+        let mut settled = false;
+        for h in [350.0, 10.0, 80.0, 290.0] {
+            assert_eq!(seated_heading(deg(h), deg(10.0), &mut settled, 0.016), (deg(h), true), "{h}");
+        }
+        assert!(settled);
+        // Once there, the mouse takes it no further than the limit.
+        let (h, within) = seated_heading(deg(150.0), deg(10.0), &mut settled, 0.016);
+        assert!(close(h, deg(90.0)) && within, "{h}");
+        let (h, within) = seated_heading(deg(200.0), deg(10.0), &mut settled, 0.016);
+        assert!(close(h, deg(290.0)) && within, "{h}");
+        // Sitting down facing the chair: the view comes round at the return rate, and
+        // is out of reach until it has.
+        let mut settled = false;
+        let (h, within) = seated_heading(deg(170.0), deg(10.0), &mut settled, 0.1);
+        assert!(close(h, deg(170.0) - 0.1 * NECK_RETURN_RATE) && !within && !settled, "{h}");
+        let mut h = deg(170.0);
+        let mut frames = 0;
+        while !seated_heading(h, deg(10.0), &mut settled, 0.016).1 {
+            h = seated_heading(h, deg(10.0), &mut settled, 0.016).0;
+            frames += 1;
+            assert!(frames < 100);
+        }
+        assert!(settled && frames > 10);
     }
 
     #[test]

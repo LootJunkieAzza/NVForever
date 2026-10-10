@@ -781,6 +781,13 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   (`Game::set_furniture_use`, docs/spec-notes/furniture.md §2–3); 0 for an actor on no
   furniture, as the stubs gave. All five are still named in the stub list below as it
   stood after round 4.
+- **Image space modifiers (2026-10-10)**: ApplyImageSpaceModifier,
+  RemoveImageSpaceModifier and IsImageSpaceActive keep the modifiers on the screen in
+  `Game::image_modifiers` (docs/spec-notes/image-modifiers.md §3: an animatable one
+  ends by itself after its duration, the others stay until removed); trace events
+  `image_modifier_applied` and `image_modifier_removed`. They were stubs before and
+  are still covered by "image space" in the stub list below as it stood after round
+  4; the screen splatter functions and SetCellImageSpace remain stubs.
 - **Layer 6 stubs (170 after round 3; 163 after round 4)**, traced as `stub` with
   their arguments and no effect; `functions::registry()` names each one's system. From
   round 2: AI packages (ResetAI, GetCurrentAIPackage, GetCurrentAIProcedure, SetAlert,
