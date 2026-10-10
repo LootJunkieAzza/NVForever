@@ -46,6 +46,12 @@
 //!   push loose objects. Bullets damage destructibles they hit. Destruction stages
 //!   (`Game::damage_object`, as `DamageObject`) disable, destroy, burn down by their
 //!   self-damage and set off their explosions, which can set off others.
+//! - **Shots on objects** (combat-rules.md §14): a shot that lands on a placed object
+//!   that is not an actor runs the object's OnHit and OnHitWith blocks
+//!   (`Game::hit_object`: the tutorial's bottles count the player's shots there) and
+//!   strikes its loose body with the projectile's impact force ([`OBJECT_PUSH`]), so
+//!   bottles and cans are knocked away [design]. The scripts are told when the player's
+//!   weapon is out (`IsWeaponOut`): [`WeaponAnim::ready`].
 //! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
 //!   tracers at the projectile's tracer chance, an ammo counter, a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
@@ -124,6 +130,14 @@ pub struct ActorPush {
 pub const SHOT_PUSH: f32 = 140.0;
 pub const MELEE_PUSH: f32 = 220.0;
 pub const POWER_PUSH: f32 = 1.6;
+
+/// A shot's push on a loose object [design]: the projectile's Impact Force (PROJ DATA)
+/// read as an impulse in the stored collision's units, mass × metres per second
+/// [hypothesis: the field's unit is not documented; the masters' bullets carry 3–6, which
+/// on a bottle of mass 1 is 3–6 m/s], times this.
+pub const OBJECT_PUSH: f32 = 1.0;
+/// The most speed one shot gives an object, game units per second [design].
+pub const OBJECT_PUSH_MAX_SPEED: f32 = 700.0;
 
 /// The player's limb conditions (codes 25–31, 100 healthy, 0 or less crippled), read
 /// from the script runtime each frame (step C8).
@@ -225,6 +239,9 @@ pub struct CombatStats {
     pub projectiles: u32,
     pub actor_hits: u32,
     pub world_hits: u32,
+    /// Shots on objects whose OnHit / OnHitWith blocks ran, and objects knocked away.
+    pub object_scripts: u32,
+    pub objects_pushed: u32,
     pub explosions: u32,
     pub damage: f32,
     pub reloads: u32,
@@ -252,6 +269,8 @@ struct Flying {
     origin: V3,
     tracer: bool,
     projectiles_per_shot: u32,
+    /// The projectile's Impact Force (PROJ DATA), for [`OBJECT_PUSH`].
+    force: f32,
 }
 
 /// A hit waiting for its delivery time (hitscan: distance ÷ speed).
@@ -266,6 +285,7 @@ struct Pending {
     /// The way the projectile was flying.
     dir: V3,
     projectiles: u32,
+    force: f32,
 }
 
 /// A short-lived marker [design].
@@ -310,6 +330,9 @@ pub struct Combat {
     marks: Vec<Mark>,
     rng: SplitMix,
     time: f32,
+    /// Test aid `NVF_PLAY_TEST_NO_SPREAD=1`: shots leave exactly along the view (no
+    /// spread, no bloom), so an unattended check hits what it aims at.
+    no_spread: bool,
 }
 
 pub struct CombatPlugin;
@@ -325,7 +348,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Startup, (init_combat, spawn_hud, spawn_hit_hud))
             .add_systems(
                 Update,
-                (track_limbs, equip_sync, fire, melee, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
+                (track_limbs, weapon_state, equip_sync, fire, melee, fly).chain().in_set(PlaySet::Activation).run_if(in_state(PlayState::Playing)).run_if(resource_exists::<Combat>),
             )
             .add_systems(Update, (draw_marks, update_hud, update_hit_hud).run_if(resource_exists::<Combat>))
             .add_systems(Last, report);
@@ -344,6 +367,15 @@ fn track_limbs(mut limbs: ResMut<PlayerLimbs>, mut script: Option<ResMut<ScriptS
                 info!("combat: player's {} {}", LIMB_NAMES[(c - 25) as usize], if limbs.crippled(c) { "crippled" } else { "healed" });
             }
         }
+    }
+}
+
+/// Tell the script runtime whether the player's weapon is out (`IsWeaponOut`): drawn and
+/// in hand, as the body reports it [documented: the value changes when the weapon is
+/// attached to the weapon node, catalogue notes of IsWeaponOut].
+fn weapon_state(anim: Res<WeaponAnim>, mut script: Option<ResMut<ScriptState>>) {
+    if let Some(rt) = script.as_deref_mut().and_then(|s| s.rt.as_mut()) {
+        rt.game.set_weapon_out(FormId::PLAYER_REF, anim.ready);
     }
 }
 
@@ -375,6 +407,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         marks: Vec::new(),
         rng: SplitMix(1),
         time: 0.0,
+        no_spread: std::env::var_os("NVF_PLAY_TEST_NO_SPREAD").is_some_and(|v| v != "0"),
     });
 }
 
@@ -576,18 +609,18 @@ fn fire(
                     right_arm_crippled: limbs.arms().1,
                 };
                 let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
-                let cone = spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects);
+                let cone = if c.no_spread { 0.0 } else { spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects) };
                 let eye = player.eye();
                 let aim = player.look_dir();
                 let gravity = phys.world.params.gravity;
                 let rng = &mut c.rng;
                 let mut rand = || rng.next_f32();
                 let shots = shot::fire(&c.forms, &chain, eye, aim, cone, Some(PLAYER), gravity, &c.tuning, &mut rand);
-                let tracer_chance = chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or(0.0, |p| p.tracer_chance);
+                let (tracer_chance, force) = chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
                 stats.projectiles += shots.len() as u32;
                 for p in shots {
                     let tracer = c.rng.next_f32() < tracer_chance;
-                    c.flying.push(Flying { p, origin: eye, tracer, projectiles_per_shot: chain.projectiles_per_shot });
+                    c.flying.push(Flying { p, origin: eye, tracer, projectiles_per_shot: chain.projectiles_per_shot, force });
                 }
                 let kick = c.kick.shot(&c.tuning, w.min_spread, w.base_damage as f32);
                 player.pitch = (player.pitch + kick.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
@@ -894,7 +927,7 @@ fn fly(
                         let from = if f.p.hitscan { f.origin } else { before };
                         let d = vec::sub(point, from);
                         let dir = if vec::len(d) > 1e-3 { vec::scale(d, 1.0 / vec::len(d)) } else { [0.0; 3] };
-                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, projectiles: f.projectiles_per_shot });
+                        c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, projectiles: f.projectiles_per_shot, force: f.force });
                         if f.tracer {
                             c.marks.push(Mark { from, to: point, age: 0.0, life: 0.08, impact: false });
                         }
@@ -994,10 +1027,29 @@ fn fly(
         let roll = c.rng.next_f32();
         let Some(actor) = p.actor else {
             stats.world_hits += 1;
-            // A destructible object takes the hit's damage (no armour) (step C7).
+            debug!("combat: shot lands at ({:.0}, {:.0}, {:.0}) on {}", p.point[0], p.point[1], p.point[2], p.object.map_or("no object".to_string(), |o| format!("{:08X}", o as u32)));
             if let Some(obj) = p.object {
+                let r = FormId(obj as u32);
+                // The object's OnHit and OnHitWith blocks, before any damage
+                // [documented: GECK wiki Event Handling] (combat-rules.md §14).
+                let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location: -1, critical: false, limb: None };
+                let ran = script.as_deref_mut().and_then(|s| s.rt.as_mut()).is_some_and(|rt| with_world(rt, &mut sim, |rt| rt.game.hit_object(r, info)));
+                // A destructible object takes the hit's damage (no armour) (step C7).
                 let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
-                damage_destructible(c, &mut sim, script.as_deref_mut(), FormId(obj as u32), d.dealt);
+                damage_destructible(c, &mut sim, script.as_deref_mut(), r, d.dealt);
+                // A loose object is knocked away.
+                let impulse = vec::scale(p.dir, p.force * OBJECT_PUSH * phys.world.params.units_per_metre);
+                let pushed = phys.world.push_ref(obj as u32, p.point, impulse, OBJECT_PUSH_MAX_SPEED);
+                stats.object_scripts += ran as u32;
+                stats.objects_pushed += pushed.is_some() as u32;
+                if ran || pushed.is_some() {
+                    info!(
+                        "combat: shot hits {} {r}{}{}",
+                        sim.base_of(obj as u32).and_then(|b| sim.name(b).map(str::to_string)).unwrap_or_else(|| "object".into()),
+                        if ran { ", its hit blocks ran" } else { "" },
+                        pushed.map_or(String::new(), |v| format!(", knocked away at {v:.0} units/s"))
+                    );
+                }
             }
             continue;
         };
@@ -1083,8 +1135,8 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
     if exit.read().last().is_some() {
         let s = &*stats;
         info!(
-            "combat: {} shots, {} projectiles, {} actor hits, {} world hits, {} explosions ({} knockdowns), {} swings ({} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
-            s.shots, s.projectiles, s.actor_hits, s.world_hits, s.explosions, s.knockdowns, s.swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
+            "combat: {} shots, {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
+            s.shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
         );
     }
 }

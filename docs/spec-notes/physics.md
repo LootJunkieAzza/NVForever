@@ -542,6 +542,12 @@ are fixed, but how many run per frame depends on frame times).
   moves, since `move_character` updates queries first) never moved [observed: test
   `bodies_added_then_queried_still_simulate`, rapier 0.36.0]. `update_queries` flags such
   bodies changed again so the next step registers them. Re-check when upgrading rapier.
+  The same pipeline loses the wake-up of a sleeping body that was struck
+  (`push_ref`, `push_dynamic`) since the last step: the body counts as awake, keeps its
+  new velocity and never moves [observed: test
+  `a_sleeping_body_struck_then_queried_still_moves`; in play, a bottle shot off a fence
+  stayed put]. `update_queries` puts such a body to sleep and wakes it with its velocity
+  again.
 - **f32 range**: a ray–sphere test from about 10,000 units away was off by about one unit
   (cancellation in the quadratic), from 100 units by under 0.01 [observed: tests]. Probes
   and activation rays should start near what they test; `fnvtool phys` starts ground rays

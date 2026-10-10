@@ -25,7 +25,7 @@ mod refs;
 mod reputation;
 
 pub use reputation::{store as reputation_store, tiers as reputation_tiers};
-pub use actor::{actor_value, av_code, set_current as set_actor_value_current};
+pub use actor::{actor_value, av_code, set_current as set_actor_value_current, weapon_anim_code};
 pub use misc::clock_now;
 
 use crate::game::{Game, InstKey};
@@ -433,8 +433,8 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x108F, "GetCurrentAIProcedure", Stub("AI packages")),
         (0x10A1, "GetIsCurrentPackage", Impl(actor::get_is_current_package)),
         (0x10A2, "IsCurrentFurnitureRef", Impl(furniture::is_current_furniture_ref)),
-        (0x1065, "IsWeaponOut", Stub("combat (weapon drawn)")),
-        (0x106C, "GetWeaponAnimType", Stub("combat (weapon)")),
+        (0x1065, "IsWeaponOut", Impl(actor::is_weapon_out)),
+        (0x106C, "GetWeaponAnimType", Impl(actor::get_weapon_anim_type)),
         (0x111E, "IsSneaking", Stub("movement (sneaking)")),
         (0x1032, "GetTalkedToPC", Impl(misc::get_talked_to_pc)),
         (0x1245, "ShowLoveTesterMenuParams", Impl(misc::show_love_tester_menu)),

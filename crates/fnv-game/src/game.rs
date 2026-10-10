@@ -213,6 +213,10 @@ pub struct RefExtra {
     /// The last hit taken (combat), for GetHitLocation.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_hit: Option<LastHit>,
+    /// The actor has its weapon out (IsWeaponOut): told by whoever animates the actor
+    /// ([`Game::set_weapon_out`]).
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub weapon_out: bool,
     /// Health damage taken from the player, and from anyone (kill XP's share rule).
     #[serde(skip_serializing_if = "is_zero_f64", default)]
     pub player_damage: f64,

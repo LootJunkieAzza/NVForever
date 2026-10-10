@@ -289,6 +289,9 @@ pub struct PhysWorld {
     dirty: bool,
     /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
     new_bodies: Vec<RigidBodyHandle>,
+    /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) since the
+    /// last step (see [`PhysWorld::update_queries`]).
+    struck: Vec<RigidBodyHandle>,
     steps: u64,
     /// Water: cell surfaces by area and placed volumes (`crate::water`).
     pub(crate) water: crate::water::Waters,
@@ -313,6 +316,7 @@ impl PhysWorld {
             shells: HashMap::new(),
             dirty: false,
             new_bodies: Vec::new(),
+            struck: Vec::new(),
             steps: 0,
             water: Default::default(),
         }
@@ -515,7 +519,7 @@ impl PhysWorld {
             self.rouse_ragdoll(id);
         }
         let mut n = 0;
-        for (_, b) in self.w.bodies.iter_mut() {
+        for (h, b) in self.w.bodies.iter_mut() {
             if !b.is_dynamic() {
                 continue;
             }
@@ -528,9 +532,52 @@ impl PhysWorld {
             let dv = speed * k * (1.0 - dist / r);
             let m = b.mass();
             b.apply_impulse(dir * (dv * m), true);
+            // A query before the next step must not lose the wake-up (`update_queries`).
+            self.struck.push(h);
             n += 1;
         }
         n
+    }
+
+    /// Strike a reference's dynamic body at `at` with `impulse` (mass × game units per
+    /// second), as a shot that hits loose clutter does (combat) [design]: the body nearest
+    /// to `at` gains `impulse ÷ mass` of speed, at most `max_dv`, and is turned as a blow
+    /// at `at` turns it, by at most [`crate::ragdoll::MAX_PUSH_SPIN`] (as
+    /// [`PhysWorld::push_ragdoll`] bounds it: a small body struck off centre would
+    /// otherwise spin fast enough to pass through what it rests on). Returns the speed
+    /// gained, `None` when the reference has no dynamic body.
+    pub fn push_ref(&mut self, form_id: u32, at: [f32; 3], impulse: [f32; 3], max_dv: f32) -> Option<f32> {
+        let k = self.k;
+        let p = vec3(at) * k;
+        let (b, _) = self
+            .refs
+            .get(&form_id)?
+            .iter()
+            .filter_map(|&b| {
+                let body = self.w.bodies.get(b).filter(|x| x.is_dynamic())?;
+                Some((b, (body.center_of_mass() - p).length_squared()))
+            })
+            .min_by(|x, y| x.1.total_cmp(&y.1))?;
+        let body = &mut self.w.bodies[b];
+        let m = body.mass();
+        if !(m.is_finite() && m > 0.0) {
+            return None;
+        }
+        let dv = (vec3(impulse) * k / m).clamp_length_max(max_dv.max(0.0) * k);
+        let r = p - body.center_of_mass();
+        let spin = r.cross(dv) / r.length_squared().max((crate::ragdoll::PUSH_ARM * k).powi(2));
+        let spin = spin.clamp_length_max(crate::ragdoll::MAX_PUSH_SPIN);
+        body.set_linvel(body.linvel() + dv, true);
+        body.set_angvel(body.angvel() + spin, true);
+        // A query before the next step must not lose the wake-up (`update_queries`).
+        self.struck.push(b);
+        Some(dv.length() / k)
+    }
+
+    /// The centre of mass of a reference's first body, game units.
+    pub fn ref_center(&self, form_id: u32) -> Option<[f32; 3]> {
+        let b = *self.refs.get(&form_id)?.first()?;
+        Some(arr3(self.w.bodies.get(b)?.center_of_mass() / self.k))
     }
 
     /// Current state of each body of a reference, in object order.
@@ -549,6 +596,7 @@ impl PhysWorld {
         self.step_world();
         self.dirty = false;
         self.new_bodies.clear();
+        self.struck.clear();
         self.steps += 1;
     }
 
@@ -570,6 +618,18 @@ impl PhysWorld {
                 if let Some(b) = self.w.bodies.get_mut(h) {
                     let p = *b.position();
                     b.set_position(p, false);
+                }
+            }
+            // The same loses the wake-up of a sleeping body struck since the last step:
+            // it counts as awake, keeps its new velocity and never moves [observed: test
+            // `a_sleeping_body_struck_then_queried_still_moves`]. Put it to sleep and
+            // wake it with its velocity again, so the next step sees it wake.
+            for &h in &self.struck {
+                if let Some(b) = self.w.bodies.get_mut(h) {
+                    let (v, spin) = (b.linvel(), b.angvel());
+                    b.sleep();
+                    b.set_linvel(v, true);
+                    b.set_angvel(spin, true);
                 }
             }
             self.dirty = false;
@@ -654,6 +714,7 @@ impl PhysWorld {
             shells: self.shells.clone(),
             dirty: self.dirty,
             new_bodies: self.new_bodies.clone(),
+            struck: self.struck.clone(),
             steps: self.steps,
             water: self.water.clone(),
         }

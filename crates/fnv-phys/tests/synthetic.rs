@@ -532,6 +532,56 @@ fn bodies_added_then_queried_still_simulate() {
 }
 
 #[test]
+fn a_struck_dynamic_body_moves_and_a_fixed_one_does_not() {
+    let mut w = ground();
+    w.add_ref(&at(0x99, [100.0, 100.0, 10.0]), &[CollisionObject { mass: 2.0, ..object(boxed([5.0, 5.0, 10.0]), Motion::Dynamic) }]);
+    w.add_ref(&at(0x9A, [300.0, 100.0, 10.0]), &[object(boxed([5.0, 5.0, 10.0]), Motion::Static)]);
+    for _ in 0..60 {
+        w.step();
+    }
+    let (before, v0) = (w.ref_bodies(0x99)[0].translation, w.ref_bodies(0x99)[0].linvel);
+    // 400 of impulse on a mass of 2: 200 units per second along +x, struck on the line
+    // through the body's centre.
+    let gained = w.push_ref(0x99, [before[0] - 5.0, before[1], before[2]], [400.0, 0.0, 0.0], 1000.0).expect("a dynamic body");
+    assert!((gained - 200.0).abs() < 1.0, "speed gained {gained}");
+    let v = w.ref_bodies(0x99)[0].linvel;
+    assert!((v[0] - v0[0] - 200.0).abs() < 1.0 && (v[1] - v0[1]).abs() < 1.0, "velocity {v0:?} -> {v:?}");
+    for _ in 0..30 {
+        w.step();
+    }
+    let after = w.ref_bodies(0x99)[0].translation;
+    assert!(after[0] > before[0] + 20.0, "pushed along +x: {before:?} -> {after:?}");
+    // The speed gained is bounded.
+    assert_eq!(w.push_ref(0x99, after, [1.0e6, 0.0, 0.0], 300.0).map(f32::round), Some(300.0));
+    // No dynamic body, no reference: nothing.
+    assert_eq!(w.push_ref(0x9A, [300.0, 100.0, 10.0], [400.0, 0.0, 0.0], 1000.0), None);
+    assert_eq!(w.push_ref(0x77, [0.0; 3], [400.0, 0.0, 0.0], 1000.0), None);
+}
+
+#[test]
+fn a_sleeping_body_struck_then_queried_still_moves() {
+    // The engine queries between a shot and the next step, with the broad phase out of
+    // date (an actor's hit volume moved, a cell streamed in): the strike must survive it.
+    // A bottle-sized box asleep on a shelf.
+    let mut w = ground();
+    w.add_ref(&at(0x9C, [100.0, 100.0, 10.0]), &[object(boxed([50.0, 50.0, 10.0]), Motion::Static)]);
+    w.add_ref(&at(0x99, [100.0, 100.0, 34.5]), &[CollisionObject { mass: 1.0, ..object(boxed([3.0, 3.0, 14.0]), Motion::Dynamic) }]);
+    for _ in 0..600 {
+        w.step();
+    }
+    let before = w.ref_bodies(0x99)[0];
+    assert!(before.sleeping, "the box came to rest: {before:?}");
+    assert!(w.push_ref(0x99, before.translation, [200.0, 0.0, 0.0], 1000.0).is_some());
+    w.add_ref(&at(0x9B, [600.0, 600.0, 10.0]), &[object(boxed([5.0, 5.0, 10.0]), Motion::Static)]);
+    let _ = down(&mut w, 0.0, 0.0);
+    for _ in 0..30 {
+        w.step();
+    }
+    let after = w.ref_bodies(0x99)[0].translation;
+    assert!(after[0] > before.translation[0] + 20.0, "pushed along +x: {:?} -> {after:?}", before.translation);
+}
+
+#[test]
 fn snapshot_continues_identically() {
     let mut a = scene();
     let mut ca = a.add_character(1, CharacterParams::default(), [-50.0, -50.0, 5.0]);
