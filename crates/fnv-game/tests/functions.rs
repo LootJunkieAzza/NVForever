@@ -358,11 +358,13 @@ fn restore_heals_damage_only() {
     assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(25)]), 100.0);
     call(&mut g, 0x1182, Some(PLAYER), &[av(25), n(100.0)]);
     assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(25)]), 100.0);
-    // ForceActorValue moves the permanent part so the current value is the target.
+    // ForceActorValue moves the permanent modifier so the current value is the target;
+    // the base stays.
     call(&mut g, 0x1181, Some(PLAYER), &[av(25), n(10.0)]);
     call(&mut g, 0x110E, Some(PLAYER), &[av(25), n(50.0)]);
     assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(25)]), 50.0);
-    assert_eq!(call(&mut g, 0x1115, Some(PLAYER), &[av(25)]), 60.0);
+    assert_eq!(call(&mut g, 0x1115, Some(PLAYER), &[av(25)]), 100.0);
+    assert_eq!(call(&mut g, 0x11EF, Some(PLAYER), &[av(25)]), 60.0);
     call(&mut g, 0x1182, Some(PLAYER), &[av(25), n(100.0)]);
     assert_eq!(call(&mut g, 0x100E, Some(PLAYER), &[av(25)]), 60.0);
     // ModActorValue is permanent.

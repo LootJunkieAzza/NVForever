@@ -569,13 +569,39 @@ fn view(phys: &mut PhysState) -> PhysView<'_> {
     PhysView { q: phys.world.queries(), player, actors }
 }
 
-/// The player's attacker values: S.P.E.C.I.A.L. from the simulation, the weapon's skill
-/// derived from its attribute and Luck (skills are not in the simulation yet).
-fn attacker(sim: &mut SimState, skill: Option<&str>, aiming_vats: bool) -> Attacker {
-    let mut av = |n: &str| sim.world.actor_value(FormId::PLAYER_REF, n).unwrap_or(5.0);
-    let (strength, luck, endurance) = (av("Strength"), av("Luck"), av("Endurance"));
-    let skill_v = skill.and_then(damage::governing_special).map_or(50.0, |a| damage::derived_skill(av(a), luck, false));
-    Attacker { skill: skill_v, strength, luck, unarmed_skill: damage::derived_skill(endurance, luck, false), in_vats: aiming_vats, ..Attacker::default() }
+/// An actor's current value as the formulas read it (within its range: S.P.E.C.I.A.L.
+/// 1–10, skills 0–100), from the script runtime's actor values (the record, the
+/// formulas and whatever scripts changed: docs/spec-notes/actor-values.md); `None`
+/// without a runtime.
+fn actor_av(script: Option<&mut ScriptState>, sim: &mut SimState, actor: FormId, code: u16) -> Option<f32> {
+    let rt = script.and_then(|s| s.rt.as_mut())?;
+    Some(with_world(rt, sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, actor, code)) as f32)
+}
+
+/// The player's attacker values: the weapon's skill, Strength, Luck and Unarmed, and
+/// what the Melee Damage, Unarmed Damage and Critical Chance actor values hold above
+/// their formulas (scripts' changes). Without a script runtime, the defaults.
+fn attacker(mut script: Option<&mut ScriptState>, sim: &mut SimState, rules: &Rules, skill: Option<&str>, aiming_vats: bool) -> Attacker {
+    use fnv_game::actor_values as avs;
+    let d = Attacker::default();
+    let p = FormId::PLAYER_REF;
+    let mut av = |code: u16, or: f32| actor_av(script.as_deref_mut(), sim, p, code).unwrap_or(or);
+    let (strength, luck, unarmed_skill) = (av(avs::STRENGTH, d.strength), av(avs::LUCK, d.luck), av(avs::UNARMED, d.unarmed_skill));
+    let skill = skill.and_then(fnv_game::functions::av_by_name).map_or(d.skill, |code| av(code, d.skill));
+    let melee = damage::melee_damage_av(rules, strength);
+    let unarmed = damage::unarmed_damage_av(rules, unarmed_skill);
+    let crit = rules.crit_luck_base + rules.crit_luck_mult * luck;
+    Attacker {
+        skill,
+        strength,
+        luck,
+        unarmed_skill,
+        melee_damage_bonus: av(avs::MELEE_DAMAGE, melee) - melee,
+        unarmed_damage_bonus: av(avs::UNARMED_DAMAGE, unarmed) - unarmed,
+        crit_chance_bonus: av(avs::CRITICAL_CHANCE, crit) - crit,
+        in_vats: aiming_vats,
+        ..d
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -653,14 +679,15 @@ fn fire(
                     continue;
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
+                let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, w.skill.as_deref(), false);
                 let stance = Stance {
                     aiming: control.aiming,
                     moving: phys.player.as_ref().is_some_and(|ch| ch.velocity[0].hypot(ch.velocity[1]) > 1.0),
                     running: control.always_run,
                     sneaking: control.sneak,
                     airborne: phys.player.as_ref().is_some_and(|ch| !ch.grounded && !ch.swimming),
-                    skill: attacker(&mut sim, w.skill.as_deref(), false).skill,
-                    strength: sim.world.actor_value(FormId::PLAYER_REF, "Strength").unwrap_or(5.0),
+                    skill: shooter.skill,
+                    strength: shooter.strength,
                     aiming_move_divisor: 1.0,
                     left_arm_crippled: limbs.arms().0,
                     right_arm_crippled: limbs.arms().1,
@@ -726,10 +753,15 @@ fn fire(
 
 /// The target's DT and DR from the armour it wears (its carried ARMO by the wearing rule).
 /// The simulation creates an actor's inventory on first touch (`World::inventory_mut`).
-fn target_armor(c: &Combat, sim: &mut SimState, target: FormId) -> (f32, f32) {
+fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
     let items: Vec<FormId> = sim.world.inventory_mut(target).map(|i| i.iter().filter(|(_, n)| *n > 0).map(|(id, _)| id).collect()).unwrap_or_default();
     let worn = c.forms.worn_armor(items);
-    c.forms.armor_values(&worn)
+    let (dt, dr) = c.forms.armor_values(&worn);
+    // The actor's own Damage Threshold (76) and Damage Resistance (18) actor values:
+    // nothing until a script changes them (abilities are not applied yet).
+    let own_dt = actor_av(script.as_deref_mut(), sim, target, 76).unwrap_or(0.0);
+    let own_dr = actor_av(script, sim, target, 18).unwrap_or(0.0);
+    (dt + own_dt, dr + own_dr)
 }
 
 /// Apply `dealt` health damage through the script runtime; report and remember it.
@@ -863,15 +895,15 @@ fn melee(
         for (actor, hit) in hits {
             let target = FormId(actor as u32);
             stats.melee_hits += 1;
-            let (dt_v, dr) = target_armor(c, &mut sim, target);
-            let mut a = attacker(&mut sim, w.skill.as_deref(), false);
+            let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
+            let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, w.skill.as_deref(), false);
             a.arm_condition = limbs.arm_condition();
             let bp = body_part(c, &parts, actor, hit.part);
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
             let h = HitInput { weapon: &w, projectiles: 1, condition: 1.0, ammo_effects: &[], part, power: if power { c.tuning.power_damage } else { 1.0 } };
             let roll = c.rng.next_f32();
             let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
-            let agility = sim.world.actor_value(target, "Agility").unwrap_or(5.0);
+            let agility = actor_av(script.as_deref_mut(), &mut sim, target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
             let push = damage::knockback_force(&c.rules, d.dealt, agility);
             let location = bp.as_ref().map_or(0, BodyPart::location);
             let limb = limb_hit(bp.as_ref(), d.dealt, &w);
@@ -1055,12 +1087,12 @@ fn fly(
         let by_formula = x.flags.iter().any(|f| f == "Knock Down - By Formula");
         for b in hits {
             let target = FormId(b.actor as u32);
-            let (dt_v, dr) = target_armor(c, &mut sim, target);
+            let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
             let dealt = (b.damage - dt_v).max(b.damage * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: -1, critical: false, limb: None };
             if let Some(r) = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
                 // Knockdown [documented: the EXPL flags; Explosion Knockdown Formula].
-                let agility = sim.world.actor_value(target, "Agility").unwrap_or(5.0);
+                let agility = actor_av(script.as_deref_mut(), &mut sim, target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
                 let chance = if r.died || r.immune {
                     0.0
                 } else if always {
@@ -1113,7 +1145,7 @@ fn fly(
     for p in due {
         c.marks.push(Mark::at(p.point, 0.3, MarkKind::Impact));
         let effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
-        let a = attacker(&mut sim, w.skill.as_deref(), false);
+        let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, w.skill.as_deref(), false);
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part));
         let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
         let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: 1.0, ammo_effects: &effects, part, power: 1.0 };
@@ -1148,7 +1180,7 @@ fn fly(
         };
         stats.actor_hits += 1;
         let target = FormId(actor as u32);
-        let (dt_v, dr) = target_armor(c, &mut sim, target);
+        let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
         let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
         // Without body parts the whole capsule counts as the torso (location 0).
         let location = bp.as_ref().map_or(0, BodyPart::location);

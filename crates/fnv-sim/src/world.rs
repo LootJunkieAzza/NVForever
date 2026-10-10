@@ -656,6 +656,12 @@ impl<'a> World<'a> {
         })
     }
 
+    /// The weight a reference carries, as [`World::encumbrance`] counts it.
+    pub fn carried_weight(&mut self, actor: FormId) -> Result<f64, SimError> {
+        let (forms, hardcore) = (self.forms, self.cfg.hardcore);
+        Ok(self.inventory(actor)?.totals(forms, hardcore).weight)
+    }
+
     /// The worldspace a reference is in now: that of its cell (`None` in an interior).
     /// The cell is the truth: a teleport into another worldspace moves the actor into an
     /// exterior cell of that worldspace, so position, cell and worldspace change
