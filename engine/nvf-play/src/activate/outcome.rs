@@ -158,7 +158,9 @@ pub fn effects(a: &Activation, target: u32, name: &str, index: &WorldIndex, name
             out.push(Effect::Travel { world, interior, feet: *pos, heading_deg: heading_deg(*rot) });
         }
         Outcome::DoorToggled { open } => out.push(Effect::Message(format!("{name} {}", if *open { "opened" } else { "closed" }))),
-        Outcome::Talk { .. } => out.push(Effect::Message(format!("{name}: dialogue is not implemented yet"))),
+        // An actor with a greeting is talked to before this is reached (`script::by_hand`,
+        // `crate::dialogue`); this is the actor that has none, or a game without scripts.
+        Outcome::Talk { .. } => out.push(Effect::Message(format!("{name} has nothing to say"))),
         Outcome::Activated if a.script.is_some() => {
             out.push(Effect::Message(format!("{name}: its script would run (scripts are not implemented yet)")))
         }

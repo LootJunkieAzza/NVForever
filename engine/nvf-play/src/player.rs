@@ -374,13 +374,16 @@ fn grab_cursor(
     d: Res<PlayWorld>,
     unattended: Option<Res<crate::test_aid::Unattended>>,
     hud: Option<Res<crate::script_hud::ScriptHud>>,
+    look: Option<Res<crate::dialogue::FreeLook>>,
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
 ) {
     let Ok((window, mut cursor)) = windows.single_mut() else { return };
     let driven = d.auto_walk > 0.0 || unattended.is_some_and(|u| u.0);
     let boxed = hud.is_some_and(|h| h.front().is_some());
-    // Kept through a loading screen: the player is back in the world after it.
-    let grab = *state.get() != PlayState::Menu && !driven && !boxed && window.focused;
+    // Also while an actor speaks in a conversation (free look, `crate::dialogue`), and
+    // kept through a loading screen: the player is back in the world after it.
+    let playing = matches!(*state.get(), PlayState::Playing | PlayState::Loading) || look.is_some_and(|l| l.0);
+    let grab = playing && !driven && !boxed && window.focused;
     // Windows cannot lock the cursor in place; confining it still gives raw motion.
     let mode = match (grab, cfg!(target_os = "windows")) {
         (false, _) => CursorGrabMode::None,
@@ -421,11 +424,14 @@ fn mouse_look(
     state: Res<State<PlayState>>,
     bindings: Res<Bindings>,
     cursor: Query<&CursorOptions, With<PrimaryWindow>>,
+    look: Option<Res<crate::dialogue::FreeLook>>,
     mut control: ResMut<PlayerControl>,
     mut player: ResMut<Player>,
 ) {
     let grabbed = cursor.single().is_ok_and(|c| c.grab_mode != CursorGrabMode::None);
-    if !grabbed || *state.get() != PlayState::Playing || motion.delta == Vec2::ZERO {
+    // The player looks around freely while an actor speaks in a conversation.
+    let playing = *state.get() == PlayState::Playing || look.is_some_and(|l| l.0);
+    if !grabbed || !playing || motion.delta == Vec2::ZERO {
         return;
     }
     let (s, inv) = (bindings.mouse_sensitivity, bindings.invert_y);

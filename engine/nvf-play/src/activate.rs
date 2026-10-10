@@ -272,6 +272,11 @@ fn activate(
             info!("activate 0x{:08X} {} ({}): its script's OnActivate ran", t.form_id, t.name, t.action.label());
             return;
         }
+        Ok(crate::script::ByHand::Talk) => {
+            // The dialogue screen opens (`crate::dialogue`).
+            info!("activate 0x{:08X} {} ({}): a conversation started", t.form_id, t.name, t.action.label());
+            return;
+        }
         Err(e) => {
             warn!("activate 0x{:08X} {}: {e}", t.form_id, t.name);
             hud.show(format!("{}: {e}", t.name));

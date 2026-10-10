@@ -567,6 +567,31 @@ impl<'a> Game<'a> {
         Ok(choice.info)
     }
 
+    /// The player skips the response the actor is saying (a click or a key on the
+    /// dialogue screen): that response ends now, as if its time had run out. The next
+    /// response of the line starts at once; after the last one the line ends as a line
+    /// said to the end does ([`Game::finish_line`]): end result script, Add Topics,
+    /// Goodbye, follow-ups, choices [hypothesis: skipping only shortens a line. The
+    /// other reading, a skipped line counted as cut and running no end script, as a line
+    /// cut by leaving does ([`Game::end_dialogue`]), would stop every quest whose stages
+    /// are set by end scripts whenever the player clicks through; capture question,
+    /// dialogue.md §7 item 8]. No trace event of its own: the next `response_said` or
+    /// the `line_ended` (not cut) simply comes early.
+    ///
+    /// Returns whether a response was skipped: not outside a conversation, not while the
+    /// player chooses, and not while a loading screen or a menu opened on top of the
+    /// conversation (a message box a result script showed, [`Game::menu`]) holds its
+    /// lines ([`Game::tick`]).
+    pub fn skip_response(&mut self) -> bool {
+        if self.loading || self.menu.is_some() {
+            return false;
+        }
+        let Some(line) = self.dialogue.as_mut().and_then(|c| c.line.as_mut()) else { return false };
+        line.remaining = 0.0;
+        self.update_dialogue(0.0);
+        true
+    }
+
     /// The player leaves the conversation. A line being said is cut off without its end
     /// result script [hypothesis, as for a SayTo line that is cut]. Whether the game
     /// lets the player leave at any point is not modelled: the engine decides when to
