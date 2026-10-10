@@ -44,6 +44,7 @@ use fnv_game::game::{Game, GameConfig};
 use fnv_game::GameData;
 use fnv_nav::follow::{heading_of, turn_towards, Advice, Unstuck};
 use fnv_nav::{NavGraph, Space, Steer, WalkEvent, Walker};
+use nvf_play::blocking::ActorBlocks;
 use nvf_play::phys::PhysState;
 use fnv_sim::{clock, FormId, FormStore, RefTable, SimConfig, World};
 use nvf_assets::actor::ActorParts;
@@ -67,6 +68,23 @@ const PHYSICS_RETRY: f32 = 8.0;
 
 /// The walker takes the last stretch of a walk, game units [our choice].
 const LAST_STRETCH: f32 = 64.0;
+
+/// A standing actor that had no room to give way when it was pushed is not pushed again
+/// for this long, seconds: it stands in the way like a seated one [our choice].
+const NO_ROOM_SECONDS: f32 = 1.5;
+/// A push that moved the actor less than this share of its length found no room.
+const NO_ROOM_SHARE: f32 = 0.25;
+/// A push is over (and logged) when the actor has not been pushed for this long, seconds.
+const PUSH_OVER_SECONDS: f32 = 0.5;
+
+/// A standing actor being pushed aside: where it stood, how far it has moved, how many
+/// updates found no room, and when it was last pushed (elapsed seconds).
+struct Pushed {
+    from: [f32; 3],
+    units: f32,
+    no_room: usize,
+    last: f32,
+}
 
 /// The character controller for actors walking near the player, and the doors.
 struct PhysMover<'a> {
@@ -272,6 +290,15 @@ struct Core {
     sandbox: [usize; 6],
     /// Conversations and Say To lines started by Dialogue packages.
     talks: usize,
+    /// Standing actors that had no room when pushed, and until when (elapsed seconds)
+    /// each is left standing.
+    no_room: HashMap<u32, f32>,
+    /// Updates in which a standing actor was pushed aside, and in which one had no room.
+    pushes: [usize; 2],
+    /// How far standing actors were pushed in all, game units.
+    pushed_units: f32,
+    /// The pushes going on, by actor (for the log).
+    pushing: HashMap<u32, Pushed>,
 }
 
 #[derive(Resource)]
@@ -322,6 +349,10 @@ impl Residents {
             seats: [0; 2],
             sandbox: [0; 6],
             talks: 0,
+            no_room: HashMap::new(),
+            pushes: [0; 2],
+            pushed_units: 0.0,
+            pushing: HashMap::new(),
         };
         for name in names.iter().flat_map(|n| n.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
             if name.eq_ignore_ascii_case("all") {
@@ -436,7 +467,13 @@ impl Core {
     /// One frame of the package choice and the walks in `game`. `own`: the game state is
     /// this module's (it is ticked here).
     #[allow(clippy::too_many_arguments)]
-    fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, mut phys: Option<&mut PhysState>, dt: f32, now: f32) {
+    fn think(&mut self, game: &mut Game, own: bool, nav: &NavState, world: &WorldData, doors: &mut nvf_play::doors::Doors, mut phys: Option<&mut PhysState>, mut blocks: Option<&mut ActorBlocks>, dt: f32, now: f32) {
+        // Who a walker pushed since the last frame, and (below) who may be pushed in
+        // the next: nobody while the game is held.
+        let pushed = blocks.as_deref_mut().map(|b| {
+            b.standing.clear();
+            b.take_pushes()
+        });
         // Whoever is on furniture, or getting off it, does not walk yet.
         let held: HashSet<u32> = self.list.iter().filter(|r| matches!(r.seat, Seat::Ordered(..) | Seat::GettingUp(_))).map(|r| r.actor.0).collect();
         if !self.prepared {
@@ -477,6 +514,42 @@ impl Core {
             game.tick();
         }
         self.clock_text = clock_text(game);
+        // Standing actors give way to who walked into them, where they have room.
+        for (id, by) in pushed.into_iter().flatten() {
+            let from = self.ai.agents.get(&FormId(id)).map_or([0.0; 3], |a| a.walker.feet);
+            let moved = self.ai.push(game, &nav.graph, FormId(id), by);
+            let no_room = moved < NO_ROOM_SHARE * by[0].hypot(by[1]);
+            self.pushes[0] += 1;
+            self.pushed_units += moved;
+            if no_room {
+                self.pushes[1] += 1;
+                self.no_room.insert(id, now + NO_ROOM_SECONDS);
+            }
+            let p = self.pushing.entry(id).or_insert(Pushed { from, units: 0.0, no_room: 0, last: now });
+            p.units += moved;
+            p.no_room += usize::from(no_room);
+            p.last = now;
+        }
+        // Pushes that are over, for the log.
+        let over: Vec<u32> = self.pushing.iter().filter(|(_, p)| now - p.last >= PUSH_OVER_SECONDS).map(|(id, _)| *id).collect();
+        for id in over {
+            let p = self.pushing.remove(&id).expect("listed");
+            let (Some(r), Some(a)) = (self.list.iter().find(|r| r.actor.0 == id), self.ai.agents.get(&FormId(id))) else { continue };
+            let to = a.walker.feet;
+            info!(
+                "ai [{}] {}: was pushed aside {:.0} units, from ({:.0}, {:.0}, {:.0}) to ({:.0}, {:.0}, {:.0}){}",
+                self.clock_text,
+                r.label,
+                p.units,
+                p.from[0],
+                p.from[1],
+                p.from[2],
+                to[0],
+                to[1],
+                to[2],
+                if p.no_room > 0 { format!("; no room in {} updates", p.no_room) } else { String::new() }
+            );
+        }
         let mut moved = [0usize; 2];
         let mut mover = PhysMover { doors, phys: phys.as_deref_mut(), unstuck: &mut self.unstuck, skip_until: &mut self.skip_until, now, stats: &mut moved, held: &held };
         self.ai.update_moved(game, &nav.graph, dt, &mut mover);
@@ -520,14 +593,21 @@ impl Core {
             let line = format!("ai [{hour}] {}: {}", r.label, describe(game.data, world, &e.event));
             match e.event {
                 _ if r.named => info!("{line}"),
-                AiEvent::Trip { .. } | AiEvent::Unreachable { .. } | AiEvent::Approach { .. } | AiEvent::Talk { .. } | AiEvent::NoTalk { .. } => info!("{line}"),
+                AiEvent::Trip { .. } | AiEvent::Unreachable { .. } | AiEvent::Approach { .. } | AiEvent::Talk { .. } | AiEvent::NoTalk { .. } | AiEvent::PushedBack { .. } => info!("{line}"),
                 _ => debug!("{line}"),
             }
         }
         self.ai.events.clear();
+        self.no_room.retain(|_, until| now < *until);
         for r in self.list.iter_mut() {
             r.present = r.joined && !r.failed && game.present(r.actor);
             let Some(agent) = self.ai.agents.get(&r.actor) else { continue };
+            // Drawn and standing: a walker pushes it aside (`nvf_play::blocking`).
+            if let Some(b) = blocks.as_deref_mut() {
+                if r.present && r.spawned && r.seat == Seat::None && !held.contains(&r.actor.0) && !self.no_room.contains_key(&r.actor.0) && self.ai.stands(game, r.actor) {
+                    b.standing.insert(r.actor.0, [agent.walker.feet[0], agent.walker.feet[1]]);
+                }
+            }
             // The furniture it is to use, once it stands there.
             r.wants = agent.using.filter(|_| agent.activity == Activity::There).map(|f| f.0);
             // Doors that open in place: when it starts waiting and when it walks on.
@@ -574,6 +654,7 @@ fn describe(data: &GameData, world: &WorldData, e: &AiEvent) -> String {
             doors.len()
         ),
         AiEvent::AlreadyThere { .. } => "is where its package wants it".into(),
+        AiEvent::PushedBack { package, away } => format!("was pushed {away:.0} units from the place of {}: goes back", n(package)),
         AiEvent::Door { door, .. } => format!("used door {door}"),
         AiEvent::Arrived { seconds, travelled, .. } => format!("arrived after {seconds:.1}s, {travelled:.0} units"),
         AiEvent::Unreachable { package, why } => format!("cannot reach the place of {}: {why}", n(package)),
@@ -620,7 +701,12 @@ fn drawn(world: &WorldData, streamer: &Streamer, space: Space, feet: [f32; 3]) -
 
 /// The game being played, when there is one: its scripts' state, its simulation and
 /// its collision world.
-type PlayState<'w> = (Option<ResMut<'w, nvf_play::script::ScriptState>>, Option<ResMut<'w, nvf_play::sim::SimState>>, Option<ResMut<'w, PhysState>>);
+type PlayState<'w> = (
+    Option<ResMut<'w, nvf_play::script::ScriptState>>,
+    Option<ResMut<'w, nvf_play::sim::SimState>>,
+    Option<ResMut<'w, PhysState>>,
+    Option<ResMut<'w, ActorBlocks>>,
+);
 
 /// Run the package choice and the walks, log what happens, keep the visuals in step.
 #[allow(clippy::too_many_arguments)]
@@ -638,7 +724,7 @@ pub fn drive(
     roots: Query<(Entity, &RefVisual, &ChildOf)>,
     mut actors: Query<(&mut Transform, Option<&mut Locomotion>), Without<OnFurniture>>,
     mut doors: ResMut<nvf_play::doors::Doors>,
-    (script, sim, mut phys): PlayState,
+    (script, sim, mut phys, mut blocks): PlayState,
     seated: Query<&RefVisual, With<OnFurniture>>,
 ) {
     let Ok(root) = root.single() else { return };
@@ -659,7 +745,7 @@ pub fn drive(
             if all {
                 res.core.take_cells(&world, &streamer, game.world.placed);
             }
-            res.core.think(game, true, &nav, &world, &mut doors, None, dt, now);
+            res.core.think(game, true, &nav, &world, &mut doors, None, None, dt, now);
         }
         (None, Some(mut script), Some(mut sim)) => {
             let script = &mut *script;
@@ -674,8 +760,8 @@ pub fn drive(
                 res.core.take_cells(&world, &streamer, sim.refs);
             }
             let core = &mut res.core;
-            let phys = phys.as_deref_mut();
-            nvf_play::script::with_world(rt, &mut sim, |rt| core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, dt, now));
+            let (phys, blocks) = (phys.as_deref_mut(), blocks.as_deref_mut());
+            nvf_play::script::with_world(rt, &mut sim, |rt| core.think(&mut rt.game, false, &nav, &world, &mut doors, phys, blocks, dt, now));
         }
         _ => return,
     }
@@ -779,7 +865,7 @@ pub fn report(
     each.extend(crowd.into_iter().take(6).filter_map(one));
     let by = |a: Activity| core.ai.agents.values().filter(|x| x.activity == a).count();
     info!(
-        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; {} talks started by dialogue packages; physics moved actors in {} updates (at most {} at once), gave up {} times; {}",
+        "ai summary at {}: {} residents, {} packages chosen, {} trips, {} arrivals, {} unreachable; {} there, {} on their way, {} staying, {} drawn; {} told to use furniture, {} to get up, {} on furniture now; sandbox: {} wanders, {} seats, {} idle markers, {} sleeps, {} meals, {} times nothing to do; {} talks started by dialogue packages; physics moved actors in {} updates (at most {} at once), gave up {} times; standing actors pushed aside {} times ({:.0} units in all, {} times no room); {}",
         core.clock_text,
         core.list.len(),
         core.counts[3],
@@ -803,6 +889,9 @@ pub fn report(
         core.physics[0],
         core.physics[2],
         core.physics[1],
+        core.pushes[0],
+        core.pushed_units,
+        core.pushes[1],
         each.join("; ")
     );
 }

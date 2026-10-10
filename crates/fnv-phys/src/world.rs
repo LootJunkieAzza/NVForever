@@ -289,8 +289,9 @@ pub struct PhysWorld {
     dirty: bool,
     /// Bodies inserted since the last step (see [`PhysWorld::update_queries`]).
     new_bodies: Vec<RigidBodyHandle>,
-    /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) since the
-    /// last step (see [`PhysWorld::update_queries`]).
+    /// Bodies struck ([`PhysWorld::push_ref`], [`PhysWorld::push_dynamic`]) or moved by
+    /// setting their position ([`PhysWorld::body_placed`]) since the last step (see
+    /// [`PhysWorld::update_queries`]).
     struck: Vec<RigidBodyHandle>,
     steps: u64,
     /// Water: cell surfaces by area and placed volumes (`crate::water`).
@@ -589,6 +590,14 @@ impl PhysWorld {
         let h = self.w.insert_body(b);
         self.new_bodies.push(h);
         h
+    }
+
+    /// A body was moved by setting its position (a teleport), which wakes it: like a
+    /// body struck since the last step, the next query must not lose the wake-up for
+    /// the step ([`PhysWorld::update_queries`]).
+    pub(crate) fn body_placed(&mut self, h: RigidBodyHandle) {
+        self.struck.push(h);
+        self.mark_dirty();
     }
 
     /// Advance one fixed step.

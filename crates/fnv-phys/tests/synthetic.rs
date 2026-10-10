@@ -1222,3 +1222,57 @@ fn a_swinging_door_is_not_solid() {
     walk(&mut w, &mut c, [-80.0, 0.0], 150);
     assert!(c.feet[0] > 100.0 + 20.0, "blocked from the far side: {:?}", c.feet);
 }
+
+#[test]
+fn a_character_told_to_passes_other_characters() {
+    let mut w = ground();
+    let mut stander = w.add_character(1, CharacterParams::default(), [100.0, 0.0, 1.0]);
+    let mut blocked = w.add_character(2, CharacterParams::default(), [0.0, 0.0, 1.0]);
+    let mut passing = w.add_character(3, CharacterParams::default(), [0.0, 300.0, 1.0]);
+    passing.passes_characters = true;
+    for c in [&mut stander, &mut blocked, &mut passing] {
+        settle(&mut w, c, 30);
+    }
+    // Another character is in the way: stopped touching it (two radii and the gap).
+    walk(&mut w, &mut blocked, [120.0, 0.0], 120);
+    assert!(blocked.feet[0] > 50.0 && blocked.feet[0] < 57.0, "{:?}", blocked.feet);
+    // Put behind the two, the third walks through both and is not turned aside.
+    w.place_character(&mut passing, [-60.0, 0.0, 1.0]);
+    settle(&mut w, &mut passing, 30);
+    let steps = walk(&mut w, &mut passing, [120.0, 0.0], 180);
+    assert!(passing.feet[0] > 250.0 && passing.feet[1].abs() < 0.01, "{:?}", passing.feet);
+    assert!(steps.iter().all(|s| s.touched.iter().all(|o| !matches!(o.key(), Key::Character(_)))));
+    // Walking through them it took neither along.
+    settle(&mut w, &mut blocked, 1);
+    settle(&mut w, &mut stander, 1);
+    assert!(blocked.feet[0] < 57.0 && (stander.feet[0] - 100.0).abs() < 0.01, "{:?} {:?}", blocked.feet, stander.feet);
+    // The one passed still meets the one that passes it.
+    let p = passing.feet;
+    w.place_character(&mut stander, [p[0] + 100.0, p[1], 1.0]);
+    settle(&mut w, &mut stander, 30);
+    walk(&mut w, &mut stander, [-120.0, 0.0], 60);
+    assert!(stander.feet[0] > p[0] + 43.0 && stander.feet[0] < p[0] + 46.0, "{:?} {p:?}", stander.feet);
+}
+
+#[test]
+fn a_placed_character_takes_its_body_along() {
+    // Regression: placed after it had stood long enough for its kinematic body to sleep,
+    // the body stayed where it was put while the character walked on, so rays and other
+    // characters met it there.
+    let mut w = ground();
+    let mut c = w.add_character(1, CharacterParams::default(), [0.0, 0.0, 1.0]);
+    settle(&mut w, &mut c, 30);
+    for _ in 0..600 {
+        w.step();
+    }
+    w.place_character(&mut c, [300.0, 0.0, 1.0]);
+    settle(&mut w, &mut c, 30);
+    walk(&mut w, &mut c, [0.0, 120.0], 120);
+    assert!(c.feet[1] > 200.0, "{:?}", c.feet);
+    w.update_queries();
+    // A ray across where it was put meets nothing; one across where it is meets it.
+    assert!(w.queries().ray([200.0, 0.0, 60.0], [1.0, 0.0, 0.0], 200.0, &Filter::default()).is_none());
+    let hit = w.queries().ray([200.0, c.feet[1], 60.0], [1.0, 0.0, 0.0], 200.0, &Filter::default()).unwrap();
+    assert_eq!(hit.owner, Owner::Character { id: 1 });
+    assert!((hit.distance - 78.0).abs() < 1.0, "{}", hit.distance);
+}
