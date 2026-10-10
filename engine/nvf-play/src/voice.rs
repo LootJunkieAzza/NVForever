@@ -17,7 +17,8 @@
 //!   logs `voice: no file ...`.
 //! - Not done [decision]: 3D placement (voices play flat, at full volume wherever the
 //!   speaker stands), pausing with the pause menu or a script's menu (the sound plays on
-//!   while script time stands still), lip sync (`.lip`).
+//!   while script time stands still). Lip sync follows [`VoiceState::spoken`] from
+//!   `nvforever`'s `lips.rs` (docs/spec-notes/lipsync.md).
 //!
 //! Switches: [`VoiceSettings`] (`nvforever --no-voice`, `--voice-volume`);
 //! `NVF_PLAY_VOICE_LENGTHS=0` keeps the fitted line lengths (sounds still play).
@@ -62,6 +63,27 @@ struct Playing {
     ends_at: f64,
     /// The line's time left when last seen: a rise means the line was said again.
     remaining: f64,
+    /// The sound's file (`None`: the response has none), and the real time it started.
+    path: Option<String>,
+    started_at: f64,
+}
+
+/// A response being said, for what follows the voice (lip sync, `nvforever`'s
+/// `lips.rs`): who, the sound's file, and when it started and ends on the real-time
+/// clock (`Time<Real>`, seconds since start) — also with `--no-voice`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spoken<'a> {
+    pub speaker: FormId,
+    pub path: Option<&'a str>,
+    pub started_at: f64,
+    pub ends_at: f64,
+}
+
+impl VoiceState {
+    /// The responses being said this frame, one per speaker.
+    pub fn spoken(&self) -> impl Iterator<Item = Spoken<'_>> {
+        self.playing.iter().map(|(&speaker, p)| Spoken { speaker, path: p.path.as_deref(), started_at: p.started_at, ends_at: p.ends_at })
+    }
 }
 
 #[derive(Resource, Default)]
@@ -280,7 +302,7 @@ fn play(
                 (None, fitted)
             }
         };
-        st.playing.insert(s.speaker, Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining });
+        st.playing.insert(s.speaker, Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining, path: file, started_at: now });
     }
 }
 
