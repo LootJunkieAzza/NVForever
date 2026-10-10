@@ -1,7 +1,8 @@
 //! Dialogue packages carried out (`fnv_ai`, docs/design/actor-behaviour.md §5.6) on a
 //! plugin and a navmesh built in memory (no game data): one room, a greeting, a trigger
 //! box, and actors with one Dialogue package each. The rules are the GECK wiki's
-//! (Dialogue Package, "Behavior").
+//! (Dialogue Package, "Behavior"). The greeting opens a conversation; with the Goodbye
+//! flag (`fixture_with`) it is said at the player without one.
 
 use fnv_ai::{Activity, Ai, AiConfig, AiEvent, Talking};
 use fnv_esm::raw::{write_subrecords, Subrecord};
@@ -161,7 +162,8 @@ const ROOM: Space = Space::Interior(CELL);
 const GREETER: [f32; 3] = [600.0, 900.0, 0.0];
 const CORNER: [f32; 3] = [100.0, 100.0, 0.0];
 
-fn plugin_bytes() -> Vec<u8> {
+/// The plugin; `greeting` is the flags of the one GREETING line.
+fn plugin_bytes(greeting: u16) -> Vec<u8> {
     let globs = [
         glob(0x801, "GameYear", 2281.0),
         glob(0x802, "GameMonth", 9.0),
@@ -196,7 +198,7 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let quest = record(b"QUST", QUEST, &[sub(b"EDID", z("TalkQuest")), sub(b"DATA", [vec![1, 50, 0, 0], 0f32.to_le_bytes().to_vec()].concat())]);
-    let dial = [topic(GREETING, "GREETING", Some((I_HELLO, GOODBYE, "Hello there."))), topic(T_SAY, "SayTopic", Some((I_SAY, 0, "Mind the step."))), topic(T_EMPTY, "EmptyTopic", None)].concat();
+    let dial = [topic(GREETING, "GREETING", Some((I_HELLO, greeting, "Hello there."))), topic(T_SAY, "SayTopic", Some((I_SAY, 0, "Mind the step."))), topic(T_EMPTY, "EmptyTopic", None)].concat();
     let bases = [record(b"STAT", STAT, &[sub(b"EDID", z("Marker"))]), record(b"ACTI", ACTI, &[sub(b"EDID", z("TalkTrigger"))])];
     let refs = [
         placed(b"REFR", TRIGGER, "TriggerBox", ACTI, [600.0, 600.0, 100.0], Some(box_primitive([300.0, 350.0, 110.0]))),
@@ -264,8 +266,13 @@ struct Fixture {
     refs: RefTable,
 }
 
+/// The greeting opens a conversation, as Sunny Smiles's does.
 fn fixture() -> Fixture {
-    let plugins = vec![Plugin::parse(&plugin_bytes(), "Talk.esm".into()).unwrap()];
+    fixture_with(0)
+}
+
+fn fixture_with(greeting: u16) -> Fixture {
+    let plugins = vec![Plugin::parse(&plugin_bytes(greeting), "Talk.esm".into()).unwrap()];
     let lo = LoadOrder::new(&plugins).unwrap();
     let schema = Schema::load_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schemas/fnv")).unwrap();
     let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/script/functions.json");
@@ -361,14 +368,14 @@ fn an_actor_walks_up_to_a_player_who_enters_its_trigger_box_and_greets() {
     // It stops at the activate distance and the conversation starts with the greeting.
     s.run(5.0);
     let ev = s.events();
-    assert!(matches!(ev[2], AiEvent::Talk { package, line, away, say_to: false, .. } if package.0 == P_GREET && line.0 == I_HELLO && *away <= 256.0 && *away > 220.0), "{:?}", ev[2]);
+    assert!(matches!(ev[2], AiEvent::Talk { package, line, away, say_to: false, greeting: false, .. } if package.0 == P_GREET && line.0 == I_HELLO && *away <= 256.0 && *away > 220.0), "{:?}", ev[2]);
     let feet = s.agent(R_GREET).walker.feet;
     let walked = flat(feet, GREETER);
     assert!(walked > 340.0 && walked < 380.0, "{walked}");
     // The game knows where it stands.
     assert!(flat(s.game.world.peek(FormId(R_GREET)).unwrap().pos, feet) < 1.0);
-    // The conversation ran its line (a Goodbye line) and is over: the package is done
-    // and does not start again.
+    // The conversation ran its line and, with nothing for the player to choose, is
+    // over: the package is done and does not start again.
     s.run(20.0);
     assert!(s.game.dialogue.is_none());
     assert!(matches!(s.events()[3], AiEvent::TalkOver { package } if package.0 == P_GREET), "{:?}", s.events()[3]);
@@ -402,6 +409,42 @@ fn a_player_within_the_activate_distance_is_greeted_on_the_spot() {
     let heading = s.agent(R_GREET).walker.heading;
     assert!((heading - std::f32::consts::FRAC_PI_4).abs() < 0.1, "{heading}");
     assert!((s.game.world.peek(FormId(R_GREET)).unwrap().rot[2] - heading).abs() < 1e-4);
+}
+
+/// A greeting with the Goodbye flag is said at the player and opens no conversation
+/// (`Game::start_dialogue`; docs/spec-notes/dialogue.md §5): the actor talks, and turns
+/// to the player, for as long as the line lasts, and its package is done when the line
+/// is.
+#[test]
+fn a_goodbye_greeting_is_said_at_the_player_and_the_package_lasts_as_long_as_the_line() {
+    let f = fixture_with(GOODBYE);
+    let mut s = sim(&f, R_GREET, [750.0, 1050.0, 0.0]);
+    s.run(1.0);
+    let ev = s.events();
+    assert!(matches!(ev[1], AiEvent::Talk { package, line, say_to: false, greeting: true, .. } if package.0 == P_GREET && line.0 == I_HELLO), "{ev:?}");
+    assert_eq!(ev.len(), 2, "{ev:?}");
+    // No conversation and no menu: the game goes on while the line is said.
+    assert!(s.game.dialogue.is_none());
+    assert!(!s.game.in_menu());
+    assert!(s.game.is_talking(FormId(R_GREET)));
+    assert_eq!(s.agent(R_GREET).talk, Some(Talking::Speaking));
+    assert!(!s.game.extra[&FormId(R_GREET)].package_goal_met);
+    assert_eq!(s.game.package_held(FormId(R_GREET)), Some("must complete"));
+    // It has turned to the player (heading 45 degrees) where it stood.
+    assert_eq!(s.agent(R_GREET).walker.feet, GREETER);
+    let heading = s.agent(R_GREET).walker.heading;
+    assert!((heading - std::f32::consts::FRAC_PI_4).abs() < 0.1, "{heading}");
+    // The line is over (12 characters: under two seconds): so is the package, once.
+    s.run(2.0);
+    assert!(!s.game.is_talking(FormId(R_GREET)));
+    assert!(matches!(s.events()[2], AiEvent::TalkOver { package } if package.0 == P_GREET), "{:?}", s.events()[2]);
+    assert_eq!(s.agent(R_GREET).talk, Some(Talking::Done));
+    assert!(s.game.extra[&FormId(R_GREET)].package_goal_met);
+    assert_eq!(s.game.package_held(FormId(R_GREET)), None);
+    assert!(s.game.extra[&FormId(R_GREET)].talked_to_pc);
+    s.run(30.0);
+    assert_eq!(s.talks(), 1);
+    assert_eq!(s.events().len(), 3, "{:?}", s.events());
 }
 
 /// The documented case 3: no trigger location, so the actor goes to its target at once;

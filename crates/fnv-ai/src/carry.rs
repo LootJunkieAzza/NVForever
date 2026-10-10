@@ -6,7 +6,8 @@
 //! A Dialogue package ([`goal::Talk`]) is carried out here too: the actor waits where
 //! the package has it wait, goes up to its target when the target is where the package
 //! says, and starts the conversation with the player (`Game::start_dialogue`: the force
-//! greet) or says its line (`Game::say`); docs/design/actor-behaviour.md §5.6.
+//! greet; a greeting with the Goodbye flag is said at the player without one) or says
+//! its line (`Game::say`); docs/design/actor-behaviour.md §5.6.
 //!
 //! Movement here is `fnv_nav::Walker` (on the navmesh surface, no physics): the engine
 //! moves actors near the player with collision instead and uses this for the rest.
@@ -86,9 +87,19 @@ pub enum AiEvent {
     /// is `away` units from it (`None`: in another space).
     Approach { package: FormId, target: FormId, away: Option<f32>, length: f32, doors: Vec<FormId>, running: bool },
     /// It starts talking, `away` units from its target: a conversation with the player
-    /// (`line` is what it says first), or the one line of a Say To package.
-    Talk { package: FormId, target: FormId, line: FormId, away: f32, say_to: bool },
-    /// The conversation it started is over.
+    /// (`line` is what it says first), or the one line of a Say To package. `greeting`:
+    /// the line is a greeting with the Goodbye flag, said at the player without a
+    /// conversation (`Game::start_dialogue`).
+    Talk {
+        package: FormId,
+        target: FormId,
+        line: FormId,
+        away: f32,
+        say_to: bool,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        greeting: bool,
+    },
+    /// The conversation it started is over, or its greeting is said.
     TalkOver { package: FormId },
     /// It was to talk and did not (it has no line to say).
     NoTalk { package: FormId, why: String },
@@ -105,10 +116,17 @@ pub enum Talking {
     /// Going up to its target, last planned for where the target stood (`to`); from
     /// `replan` on (`Game::time`) the way is planned again when the target has moved.
     Approaching { to: Place, replan: f64 },
-    /// In the conversation it started.
+    /// In the conversation it started, or saying its greeting at the player (a Goodbye
+    /// line, which opens no conversation).
     Speaking,
     /// It has talked: the package has met its goal.
     Done,
+}
+
+/// Whether `actor` is saying its greeting at the player outside a conversation
+/// (`Speech::greeting`).
+fn greets(game: &Game, actor: FormId) -> bool {
+    game.speech.iter().any(|s| s.greeting && s.speaker == actor)
 }
 
 /// A target that has moved this far from where the way to it was planned to is planned
@@ -306,7 +324,11 @@ impl Ai {
         match phase {
             Talking::ToWait | Talking::Done => return,
             Talking::Speaking => {
-                if game.dialogue.as_ref().is_some_and(|c| c.actor == actor) {
+                // A greeting with the Goodbye flag opens no conversation
+                // (`Game::start_dialogue`): the actor talks for as long as it says the
+                // line [hypothesis: the package lasts as long as the line, as it lasts
+                // as long as a conversation].
+                if game.dialogue.as_ref().is_some_and(|c| c.actor == actor) || greets(game, actor) {
                     // It turns to the one it talks to [documented: unless No
                     // Headtracking, speaker and target are "forced to look at each
                     // other by the package"; how fast is our choice].
@@ -398,7 +420,7 @@ impl Ai {
         if talk.say_to {
             let Some(topic) = talk.topic else { return };
             match game.say(actor, Some(talk.target), topic, true) {
-                Some(line) => self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: true }),
+                Some(line) => self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: true, greeting: false }),
                 None => {
                     let why = format!("it has no line of {} to say", game.data.name(topic));
                     self.log(game, actor, AiEvent::NoTalk { package, why });
@@ -413,7 +435,8 @@ impl Ai {
         match game.start_dialogue(actor, talk.topic) {
             Ok(line) => {
                 self.agents.get_mut(&actor).expect("listed").talk = Some(Talking::Speaking);
-                self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: false });
+                let greeting = greets(game, actor);
+                self.log(game, actor, AiEvent::Talk { package, target: talk.target, line, away, say_to: false, greeting });
             }
             // Nothing to say: the package is over, or the actor would try every frame
             // [our choice].
