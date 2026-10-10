@@ -106,12 +106,16 @@ open and close the runtime's menu), plus `--new-game` in `engine/nvforever/src/m
 - **Holding the player** (`script::hold_player`): while a script's menu or box is open
   the game is in `PlayState::Menu`: no moving, looking or activating, the cursor is
   free, the game clock stops (`sim.rs`) [observed: the pack boxes held the world clock,
-  layer5-captures.md §10.1]. Round 1 left the player free under a box.
+  layer5-captures.md §10.1]. Round 1 left the player free under a box. Whether the
+  picture stands still too is `--menu-pause` (default `living`: it does not;
+  docs/design/dialogue.md §8); a SayTo line held by the box has its sound paused with it
+  (`voice.rs`).
 - **The pause menu** (Esc, `crate::pause`, #97) is a `PlayState::Menu` of its own:
   `hold_player` leaves it alone, and scripts do not tick while it is open (no MenuMode
   code of the original's pause menu is known, so script time simply stops) [decision].
   It cannot open while a script's menu holds the player (Esc opens it only while
-  playing).
+  playing or in a conversation). It holds everything, whatever `--menu-pause` says: the
+  picture (the virtual clock is paused) and the voices of the lines being said.
 
 Activation by hand (`activate.rs`, `PlaySet::Activation`, before this) calls
 `script::activate_by_hand`: a target whose script has an OnActivate block runs it
