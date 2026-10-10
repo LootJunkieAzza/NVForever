@@ -305,8 +305,9 @@ the speaker is a drawn NPC with head parts:
 One log line per response: `lip: animating <path> (<tracks> tracks, <applied> applied;
 <frames> frames, <seconds> s from <start> s) speaker <who>: <shapes> shapes, <morphs>
 morphs`, or `lip: skipped <path>: <reason>` (no `.lip`, or the speaker has no face rig:
-a creature, a robot, a talking activator, or an actor not drawn). `--no-lip` turns it
-off. Test aid: `NVF_LIP_TEST_HOLD=<channel>=<weight>[,...]` makes every NPC hold those
+a creature, a robot, a talking activator, or an actor not drawn), and `lip: cut <path>
+…` when a response is skipped or interrupted before its sound is over. `--no-lip` turns
+it off. Test aid: `NVF_LIP_TEST_HOLD=<channel>=<weight>[,...]` makes every NPC hold those
 weights (screenshots of single morphs; not a game behaviour).
 
 Cost: nothing while nobody speaks. A speaking actor rewrites about 1,500 to 2,500
@@ -346,3 +347,40 @@ vertex positions a frame.
   with the sounds (§2.4, check 2).
 - `fnvtool actor tri <data> --nif-schema <dir> [--path <file>]` (`fnv.actor.tri/1`): the
   `.tri` files against their models (§4); with `--path`, each morph's scale and reach.
+
+## 8. Checks (2026-10-10)
+
+Windowed runs unattended with `--no-voice` (the animation runs on the line's clock
+either way), after merging main up to #123; each exit 0 with "run finished".
+Screenshots are kept privately, outside the repository.
+
+- **The intro with real conversations** (docs/design/dialogue-play.md §5, 360 s): VCG01
+  completed at stage 200; 52 `voice: playing` lines (Doc Mitchell's 23 SayTo lines and
+  the 29 responses of the two conversations) and 52 `lip: animating` lines, none
+  skipped, none cut.
+- **Doc Mitchell's first line in close-up** ("You're awake. How about that.", 34 shots
+  0.1 s apart, each timed against the `lip: animating` log line): mouth a little open
+  0.10 s in, open at 0.32 s ("You're"), rounded at 0.48 s (the w of "awake"), teeth
+  showing at 0.78 s, closed from 1.0 to 1.3 s (the pause between the sentences), open
+  at 1.78 s ("How"), lips pressed together at 2.02 s (the b of "about") with the eyes
+  half shut by a blink the file has there, open again at 2.31 s, teeth at 2.58 s (the
+  last t), at rest at 3.35 s. The moustache follows the lip; the face keeps its FaceGen
+  shape; no vertex strays.
+- **A conversation** (`--cell Goodsprings`, `NVF_PLAY_TEST_TALK=12:EasyPeteRef=…`, the
+  old male head with a full beard): every response animated (greeting, two answers,
+  goodbye); with a `skip` step the answer was cut 0.38 s in (`lip: cut …`), and the
+  shots 0.5 s to 1.7 s after the cut show the mouth closed while the choices are on
+  screen; the goodbye line then animates. With `--dialogue-pause original` the log
+  shows the same animation and cut (the mouth runs on the real-time clock, like the
+  voice); it was not photographed, because the screenshot aid's clock stands still in
+  that mode.
+- **Single morphs held** (`NVF_LIP_TEST_HOLD`, Sunny Smiles, the female head): at rest
+  the mouth is closed; `BigAah=1` opens it wide, tongue and dark mouth behind the
+  lips; `Ee=1` spreads the lips over the teeth; `OohQ=1` purses them;
+  `BlinkLeft=1,BlinkRight=1` closes both lids over the eyes; `BrowUpLeft=1,BrowUpRight=1`
+  raises the brows. No gap opens between head, mouth and teeth.
+- `--no-lip`: no `lip:` line but the notice that it is off; the voice lines as before.
+- Goodsprings `--play` 40 s and the moving-camera smoke test (214 cells): exit 0.
+- Not checked: sync by ear (the runs were silent; the owner's to judge), child and ghoul
+  heads on screen (their `.tri` files parse and fit their models, §4.3), a speaker
+  whose cell unloads mid-line.
