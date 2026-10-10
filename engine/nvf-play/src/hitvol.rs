@@ -7,7 +7,8 @@
 //! bottom centre, height the box's height, radius the smaller horizontal half-extent
 //! (clamped to [`MIN_RADIUS`]..[`MAX_RADIUS`]). An actor that is hidden, removed by the
 //! simulation or no longer drawn loses its volume. Dead actors (the script runtime's dead
-//! state, combat C5) are on the DEAD_BIP layer.
+//! state, combat C5) are on the DEAD_BIP layer; once a dead actor has a ragdoll in the
+//! physics world, the ragdoll's bodies are what rays hit and it has no volume here.
 //!
 //! **Body parts** (step C8): when the renderer publishes an actor's posed body parts
 //! ([`ActorParts`]: for each part of its BPTD, the segments along the part's bones), the
@@ -188,7 +189,8 @@ fn sync_volumes(
             e.1[k] = e.1[k].max(hi[k]);
         }
     }
-    bounds.retain(|&id, _| sim.present(id));
+    // A corpse with a ragdoll is hit on its ragdoll bodies (`fnv_phys::ragdoll`).
+    bounds.retain(|&id, _| sim.present(id) && !phys.world.has_ragdoll(id));
     let stale: Vec<u32> = phys.world.actor_volumes().filter(|id| !bounds.contains_key(id)).collect();
     for id in stale {
         phys.world.remove_actor_volume(id);
