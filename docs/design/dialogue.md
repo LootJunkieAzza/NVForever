@@ -206,15 +206,33 @@ everything a script can see.
   only presentation: actors' idle animations, wind in the trees, water, the sky's
   clouds, rendering effects. Nothing snaps to a frozen frame when the screen opens.
 - **Looking**: the player looks around freely with the mouse while the actor speaks;
-  while choices are offered the cursor is free for clicking and the view holds.
-- **The setting**: `nvforever --play --dialogue-pause living|original`, default
-  `living`. `original` stops the picture too (Bevy's virtual clock is paused for the
-  length of the conversation; the cursor is free throughout), so the two can be
-  compared. The existing menus (inventory, container, message boxes) hold game logic
-  but have never stopped the picture, so `original` is stricter than they are.
+  while choices are offered the cursor is free for clicking and the view holds
+  [owner decision 2026-10-10: "go with the first option"].
+- **One switch for all menus** [owner decision 2026-10-10: "add the pause switch to all
+  menus except the actual ESC pause menu"]: `nvforever --play --menu-pause
+  living|original`, default `living` (`--dialogue-pause` is the old name and still
+  works). It covers the dialogue screen, the inventory, containers, a script's message
+  boxes and the menus scripts open (character creation).
+  - `living`: game logic is held as each menu already holds it; presentation runs on.
+    This is what the inventory, container and message boxes always did.
+  - `original`: the picture stands still too while the menu is open (Bevy's virtual
+    clock is paused; the cursor is free throughout), so the two can be compared.
+- **The Esc pause menu is the exception: it always holds everything**, in both modes:
+  the picture and animation (the virtual clock), scripts and conversations, and sound
+  (the voice of a line being said is paused and resumed with the menu, not played on
+  underneath it).
+- **A line's sound follows its timer** in every mode: a SayTo or Say line, whose timer
+  stands still in menu mode (the inventory, a container, a message box, a conversation
+  with the player), has its sound paused there and resumed after. A line of the
+  conversation itself goes on in real time by design and is held only by a message box
+  on top of it, and by the pause menu.
+- **Leaving**: a conversation is left where the data offers a goodbye (Tab). Breaking
+  one off with the line cut is a debug switch, off by default, not part of a release
+  [owner decision 2026-10-10] (docs/design/dialogue-play.md §4).
 - **Later**: a fully live world during conversations needs AI packages and guards
   (NPCs on schedules keep moving, events are queued for scripts, the pair cannot be
   attacked); it is written up separately (docs/owner-review.md item 34).
 
 Engine side: docs/design/dialogue-play.md §3 (`PlayState::Dialogue`, `WorldHeld`,
-`FreeLook`, `PauseMode`).
+`FreeLook`) and `engine/nvf-play/src/pause.rs` (`MenuPause`, `freeze_picture`,
+`AidTime`).
