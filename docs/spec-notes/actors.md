@@ -985,3 +985,183 @@ lights_hidden` the lights.
 Observed (`--cell Goodsprings --auto-fly 4000`, 40 s, 2026-10-09): 31 actors and
 creatures spawned hidden. Not yet checked in a `--play` run that enables one (the
 showing goes through the existing `RefVisual` sync).
+
+## 12. Head tracking (NVForever design)
+
+An actor's head turns to look at the player character or at another NPC near it (owner
+request 2026-10-10). This is an **NVForever design feature, not a parity target**: how
+far, how fast and at whom the original's actors look is not captured, so every number
+and rule in §12.2 is a design choice, tagged **[design]**. The facts the feature leans
+on are in §12.1 with the usual tags. Pure rules and their tests:
+`crates/fnv-actor/src/head_look.rs`; the engine side: `engine/nvforever/src/head_look.rs`.
+
+### 12.1 Facts used
+
+- **The neck of the human skeleton** (`characters\_male\skeleton.nif`): `Bip01 Head` is
+  the child of `Bip01 Neck1`, which is the child of `Bip01 Neck`. `Bip01 L Clavicle` and
+  `Bip01 R Clavicle` are children of `Bip01 Neck` too, so that bone carries the
+  shoulders and arms [observed: nvforever's `head tracking:` log line, 2026-10-10].
+  Turning `Bip01 Neck` swings the shoulders and arms with the head [observed: the first
+  build turned it; screenshot kept privately].
+- **Other skeletons with a node named `Bip01 Head`** [observed: the same log lines, cells
+  around Goodsprings]: `creatures\nvbighorner` (head under a `Bip01 Neck` that carries
+  the clavicles), `creatures\nvsecuritron` (head under `Bip01 Spin02`, no neck bone),
+  `creatures\nvmantis` (head under `Bip01 Neck`, under `Bip01 Thorax01`),
+  `creatures\dog` (`Bip01 Neck` → `Bip01 Neck1` → `Bip01 Neck2` → `Bip01 Head`),
+  `creatures\centaur\skeletonevolved.nif` (head under `Bip01 Neck3`; `Bip01 Neck2`
+  carries other bones). Without one: `creatures\nvraven`, `creatures\radscorpion`.
+- **Body part data** (BPTD, docs/spec-notes/combat-data.md §1.5): a part has a flag
+  "IK Data - Headtracking", an IK start node (`BPNI`) and a tracking max angle (an f32
+  in `BPND`) [documented: xEdit, as schemas/fnv/combat.json]. For the body part data of
+  `characters\_male\skeleton.nif` the flagged part is `Head`, its IK start node
+  `Bip01 Head` and its angle 60; the dog's body part data has no part with the flag
+  [observed: the log line of a `--play` run in GSProspectorSaloonInterior, 2026-10-10].
+  That the angle is in degrees and bounds the turn to either side is a **[hypothesis]**;
+  what the original does with the IK start node (which bones it turns, and how) is not
+  known.
+- **What follows the head bone**: face, eyes, ears, hair, beard and hat stay on the head
+  as it turns, and the neck joins the body without a gap at a 60° turn [observed:
+  screenshots of GSSettlerAM and of Easy Pete with Sunny Smiles next to him, with and
+  without `--no-head-tracking`, a close-up of Easy Pete at the limit, and Sunny Smiles
+  in the saloon; kept privately]. This agrees with §7.4.
+- **The bind pose faces +y**: with no clip playing (`--actor-pose bind`) the head's
+  bind rotation taken as "facing the actor's +y, z up" gives a head that turns to the
+  camera as expected [observed: screenshot]; this supports the actor axes of §8.2
+  [hypothesis there] for the head.
+- **Not captured**: the original's notice distance, field of view, turn limits in
+  pitch, turn speed, whom an actor prefers to look at, and whether creatures track.
+  A capture would be needed before any of §12.2 is called parity.
+
+### 12.2 Rules [design]
+
+All of this section is **[design]**. Angles are measured in the frame of the bone the
+turn is made against (§12.3): yaw to either side of straight ahead, pitch up and down.
+
+| What | Value |
+|---|---|
+| Notice a target within | 350 units (about 5 m) and 100° to either side |
+| Keep the target looked at out to | 440 units and 120° to either side |
+| Another actor takes over when nearer than | 0.75 × the distance to the one looked at |
+| Turn to either side, at most | the body part data's tracking angle (60° for humans, §12.1), 60° without data, never more than 80° |
+| Tilt, at most | 30° up, 25° down |
+| Target nearly straight behind (beyond 150°) | keeps the side the head was turned to |
+| Share of the turn on the neck bones above the head | 0.4, spread evenly; the head bone has the whole turn |
+| Easing | critically damped, time constant 0.25 s (nine tenths of the way after 0.5 s), never faster than 240°/s |
+| Heads are turned only within | 2500 units of the camera |
+| Eye point of an actor | 9 units in front of and 7 above its head bone (the looker measures from 7 above its own) |
+
+- **Who looks**: every drawn, living actor with a head bone to turn (§12.3). Dead actors
+  (`locomotion::Dying`, `ragdoll::Corpse`, dead in the simulation) and hidden ones (§11)
+  neither look nor are looked at; a head that was turned when its actor dies is let go
+  at once (the death pose or the ragdoll owns the bones).
+- **At whom**: the player's eyes (`Player::eye`), or the eye point of another living,
+  drawn **NPC**. Creatures are looked at by nobody (the request names NPCs and the
+  player); creatures with a head bone do look at NPCs and the player.
+- **Choice** (`fnv_actor::head_look::choose`): only targets within the notice distance
+  and angle count (the keep values for the one already looked at); the player, when it
+  counts, before any actor; otherwise the nearest, the one looked at staying until
+  another is clearly nearer; equal distances go to the lower reference FormID. Nobody
+  to look at: the head eases back onto its animated pose.
+- **Limits** apply to where the head faces, not to how far it is turned away from the
+  animation: a head the idle already holds 9° to one side turns 69° to face 60° to the
+  other.
+- **A forced target** (§12.3) is looked at whatever its distance and direction; the
+  turn limits and the easing still hold.
+- **No stare breaking**: an actor looks at its target for as long as the target counts.
+  Glancing away, blinking and eye movement are not built.
+
+### 12.3 Engine
+
+- **Bones** (`head_rig`): the head bone is the IK start node of the body part with the
+  head-tracking flag when the actor's body part data is read (`--play`:
+  `nvf_play::combat::Combat`, `CombatForms::body_parts_for`); an actor whose data has
+  no such part does not track. Without that data (no `--play`) it is the node named
+  `Bip01 Head`. A skeleton without the bone is skipped silently (a `debug` line). Up to
+  two bones right above the head whose name contains `neck` share the turn, but only
+  bones that carry nothing except the next bone of the chain: on the human skeleton
+  that is `Bip01 Neck1` and `Bip01 Head`, measured against `Bip01 Neck` (§12.1).
+- **Frame**: the turn is measured against the bone above the chain (how that bone is
+  turned away from its bind pose), not against the actor's root, so the limits are the
+  neck's own whatever the spine does.
+- **On top of the animation**: each frame, after `locomotion::drive` has posed the
+  skeleton and before transforms are propagated, the animated direction of the head is
+  read, the wanted direction (the target's, limited) gives the turn wanted on top of it,
+  the turn is eased, and the chain's local rotations are replaced by rotations that put
+  the head exactly at "animated direction + eased turn" (`turned_locals`), the neck
+  bones at their share. The animation's own head movement and roll stay under the turn;
+  a zero turn leaves the animated rotations untouched.
+- **Bones no clip poses** keep what was last written to them, so the animated rotation
+  of a bone that still holds last frame's written value is the remembered one
+  (`animated_rotation`); it is given back when the head is at rest [observed: with
+  `--actor-pose bind` the head turns once and holds, it does not wind up].
+- **State and API** (components on the actor's root, the entity with `ActorRig`):
+  - `HeadLook`: inserted by the module on every drawn actor; `target()` (what the head
+    is turned to: `LookAt::Player`, `LookAt::Actor(reference)` or `LookAt::Point`),
+    `turn()` and `facing()`.
+  - `LookOverride(LookAt)`: inserted by another system to force a target (a
+    conversation's speaker looking at the player, a script's `Look`); it comes before
+    the proximity choice and ignores distance, direction and the camera radius. Remove
+    it to give the head back. When the target cannot be found (no player; the actor is
+    dead, hidden or not drawn near the camera) the proximity choice applies.
+  - `NoHeadLook`: the actor's head is left to its animation (it eases back first).
+- **Without `--play`** there is no player: only actor-to-actor tracking. The free camera
+  is not looked at, unless the test aid `--head-track-camera` makes it stand in for
+  the player.
+- **Pausing**: the easing runs on the virtual clock, so the Esc pause menu and
+  `--menu-pause original` hold it; the turn is written every frame all the same (the
+  frame's animation is posed under it).
+- **Cost**: the choice and the turn run only for actors within 2500 units of the camera
+  (or with a forced target); the rest cost a distance test. `--no-head-tracking` adds
+  no system.
+
+### 12.4 CLI contract
+
+- `--no-head-tracking`: heads stay on their animation (the module is not added).
+- `--head-track-camera` (test aid, not with `--play`): the free camera stands in for the
+  player.
+- `--head-track-point x,y,z` (test aid): every actor near the camera gets a
+  `LookOverride` to that game position, the way another system forces a target.
+- Log (`head tracking:`): once per skeleton, the bones turned, their shares, the bone
+  they are measured against, the yaw limit and where bone and angle come from; at the
+  end of a run `head tracking summary: N of M actors with a head to turn looked at
+  something (… at the player, … at another actor, … at a target forced on them), up to
+  … at once, … at the end; largest turn on top of the animation …°; … us per frame on
+  average`, then one `head tracking at the end:` line for up to twelve actors still
+  looking (who, where, at whom, how far the head is turned). `debug` lines name every
+  change of target.
+
+### 12.5 Checks (2026-10-10, owner's install)
+
+- Unit tests: `fnv_actor::head_look` (choice, hysteresis, the player first, limits, the
+  side kept behind, shares, easing in and out without a snap, determinism, a paused
+  clock) and `nvforever::head_look` (the head ends exactly at the animated direction
+  plus the turn for a chain with arbitrary bind rotations, the neck turns less than the
+  head, the animation's movement stays under the turn, no double turn of an unposed
+  bone).
+- NPC to NPC: `--npc-travel SunnyRef=EasyPeteRef` (Sunny Smiles stops 56 units from Easy
+  Pete): both look at each other, Easy Pete's head at the 60° limit, Sunny's 8° up on
+  top of her idle; the travel smoke test of CLAUDE.md ends with Doc Mitchell and Chet
+  looking at each other in the store, 58 units apart, and both travellers arrived.
+- The player: `--play` in GSProspectorSaloonInterior, the player 130 units in front of
+  Sunny Smiles: her head turns 31° to the player. Standing behind her she does not
+  notice the player (outside the 100°).
+- Forced: `--head-track-point` below the floor of the saloon: all three drawn actors
+  look down at the 25° limit.
+- Cost: 5.1 µs per frame on average over the moving-camera run (`--cell Goodsprings
+  --auto-fly 4000`, 40 s; 151 actors given a head to turn in all, up to 79 posed at
+  once, actor posing itself 395 µs per frame); 2 actors looked at another on the way.
+
+### 12.6 Open
+
+- **Conversations** (dialogue step D7, another session): the speaker's head should be
+  driven through `LookOverride(LookAt::Player)`. Two systems writing the head bone
+  after `locomotion::drive` would turn it twice.
+- Sitting, sleeping and other furniture poses: nothing marks such actors yet;
+  `NoHeadLook` is there for it. The frame of §12.3 keeps the limits sensible in such a
+  pose, but that is not checked.
+- Creatures: only the skeletons of §12.1 were seen; none was checked by eye. Without
+  `--play` a creature with a `Bip01 Head` tracks even when its body part data has no
+  head-tracking part (the data is not read then).
+- Eyes do not move; a target beyond the turn limit is looked at with the head at the
+  limit.
+- The original's values (§12.1, "Not captured").
