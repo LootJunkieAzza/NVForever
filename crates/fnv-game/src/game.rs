@@ -406,8 +406,9 @@ pub mod menus {
     /// The trait menu (ShowTraitMenu).
     pub const TRAITS: u16 = 1084;
     /// The dialogue menu [documented: GECK wiki GetMenuTargetRef, owner export; not
-    /// captured]. It is not kept in `Game::menu`: a conversation does not stop game time
-    /// (`crate::dialogue`).
+    /// captured]. It is not kept in `Game::menu`: the conversation itself
+    /// (`Game::dialogue`) is the open menu, under any other menu that opens during it
+    /// (`Game::in_menu`, `Game::open_menu_code`, `Game::menu_open`).
     pub const DIALOGUE: u16 = crate::dialogue::DIALOGUE_MENU;
 }
 
@@ -940,8 +941,10 @@ impl<'a> Game<'a> {
     /// (WastelandWindowScript, copying GetCurrentTime every frame) saw the new hour in
     /// the same frame, `L5.quest.script_order`, layer5-captures.md §9.3 c; hypothesis
     /// for every other pair], each in FormID order [hypothesis], then the items the
-    /// player carries, then active magic effects, then dialogue (SayTo lines, then the
-    /// conversation with the player) [hypothesis].
+    /// player carries, then active magic effects, then dialogue (SayTo lines)
+    /// [hypothesis]. Last, in menu mode as well, the conversation with the player
+    /// (`crate::dialogue`): it is a menu that pauses the game while its own lines go on
+    /// [owner statement 2026-10-10].
     ///
     /// A menu opened by a GameMode script (a message box, the name menu…) holds the
     /// GameMode scripts that have not run yet in this frame: they run, quests on their
@@ -954,7 +957,8 @@ impl<'a> Game<'a> {
             return;
         }
         let dt = self.cfg.frame_seconds;
-        let in_menu = self.menu.is_some();
+        // A conversation with the player is menu mode too (`Game::in_menu`).
+        let in_menu = self.in_menu();
         if !in_menu {
             self.time += dt;
         }
@@ -964,7 +968,7 @@ impl<'a> Game<'a> {
             }
         }
         let ev = if in_menu { event::MENU_MODE } else { event::GAME_MODE };
-        let subject = self.menu.map(|m| Value::Num(m as f64));
+        let subject = self.open_menu_code().map(|m| Value::Num(m as f64));
         let data = self.data;
         let due: Vec<(FormId, FormId)> = self
             .quests
@@ -980,7 +984,7 @@ impl<'a> Game<'a> {
             })
             .collect();
         // A menu opened during this frame's GameMode holds the rest of it.
-        let held = |g: &Game| !in_menu && g.menu.is_some();
+        let held = |g: &Game| !in_menu && g.in_menu();
         for (q, script) in due {
             if held(self) {
                 break;
@@ -1028,6 +1032,10 @@ impl<'a> Game<'a> {
         if !in_menu {
             self.update_effects(dt);
             self.update_speech(dt);
+        }
+        // The conversation's own lines go on in real time while it pauses the game;
+        // another menu on top of it (a message box) holds it.
+        if self.menu.is_none() {
             self.update_dialogue(dt);
         }
     }
@@ -1061,9 +1069,33 @@ impl<'a> Game<'a> {
             .collect()
     }
 
-    /// Whether game time is stopped for scripts (a menu or a loading screen).
+    /// Whether game time is stopped for scripts (a menu, a conversation with the player,
+    /// or a loading screen).
     pub fn paused(&self) -> bool {
-        self.menu.is_some() || self.loading
+        self.in_menu() || self.loading
+    }
+
+    /// Whether the game is in menu mode: a menu is open ([`Game::menu`]) or a
+    /// conversation with the player is running ([`Game::dialogue`]) [owner statement
+    /// 2026-10-10: a back-and-forth dialogue with the player pauses the game in the
+    /// background; lines said outside one (SayTo, Say) do not]. In menu mode
+    /// [`Game::tick`] runs MenuMode blocks instead of GameMode and game time stands
+    /// still, by the rules observed for the other menus.
+    pub fn in_menu(&self) -> bool {
+        self.menu.is_some() || self.dialogue.is_some()
+    }
+
+    /// The code of the menu on top: [`Game::menu`], else the dialogue menu (1009)
+    /// during a conversation. `Begin MenuMode <code>` blocks get this code.
+    pub fn open_menu_code(&self) -> Option<u16> {
+        self.menu.or(self.dialogue.as_ref().map(|_| menus::DIALOGUE))
+    }
+
+    /// Whether the menu with this code is open (`MenuMode <code>`): the menu on top, or
+    /// the dialogue menu under it during a conversation [hypothesis: a message box over
+    /// a conversation leaves `MenuMode 1009` at 1].
+    pub fn menu_open(&self, code: u16) -> bool {
+        self.menu == Some(code) || (code == menus::DIALOGUE && self.dialogue.is_some())
     }
 
     /// A function asks the running script to stop as `Return` does (RemoveMe).
@@ -1176,7 +1208,8 @@ impl<'a> Game<'a> {
 
     /// Whether an actor is saying a line (IsTalking): a SayTo or Say line, or a line of
     /// the conversation with the player. While the player chooses, the actor is not
-    /// talking [hypothesis].
+    /// talking [hypothesis]. A SayTo line held by a menu (a conversation included) still
+    /// counts, as for the other menus.
     pub fn is_talking(&self, actor: FormId) -> bool {
         self.speech.iter().any(|s| s.speaker == actor) || self.dialogue.as_ref().is_some_and(|c| c.actor == actor && c.line.is_some())
     }
