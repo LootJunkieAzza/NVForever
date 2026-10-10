@@ -30,8 +30,8 @@
 //!   body keeps its new heading afterwards [design: AI packages will take over].
 //! - **Head only** for an actor whose body something else places or holds: a
 //!   `--npc-travel` traveller (its heading is the walker's), an actor under the walk test,
-//!   and one marked [`BodyHeld`] (in furniture or lying down: nothing marks actors so
-//!   yet, since the engine seats nobody; every living actor is drawn standing).
+//!   and one marked [`BodyHeld`] (in furniture or lying down: `furniture.rs` marks the
+//!   actors it seats).
 //! - **Nobody turns** when the actor is dead or a ragdoll (never touched), is not a
 //!   human-style NPC (a creature, a robot, a talking activator), has no such bone, or its
 //!   body part data does not allow head tracking. The view still turns to it.
@@ -48,6 +48,7 @@
 //! Test aid `NVF_PLAY_TEST_TALK_HEAD_ONLY=1`: no body turns (as if every actor were
 //! [`BodyHeld`]), to see the head at its limit. Not a game behaviour.
 
+use crate::head_look::{HeadLook, LookAt};
 use crate::limbs::ActorRig;
 use crate::locomotion::{Dying, Locomotion, WalkTest};
 use crate::nav::NavState;
@@ -101,7 +102,7 @@ const HEADTRACKING_FLAG: &str = "IK Data - Headtracking";
 const HEAD_BONE: &str = "Bip01 Head";
 
 /// On an actor's root: its body must not be turned to face anyone (it sits or lies in
-/// furniture). Nothing inserts it yet: the engine seats nobody (AI packages, Layer 6).
+/// furniture; inserted and removed by `furniture.rs`).
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct BodyHeld;
 
@@ -272,6 +273,14 @@ pub struct Looks {
     head_only: bool,
 }
 
+impl Looks {
+    /// Whether a conversation turns this reference's head now (facing the player, or
+    /// easing back): head tracking (`head_look.rs`) keeps off the head meanwhile.
+    pub fn turns_head(&self, reference: u32) -> bool {
+        self.by_ref.get(&reference).is_some_and(|l| l.head.is_some())
+    }
+}
+
 pub struct DialogueLookPlugin;
 
 impl Plugin for DialogueLookPlugin {
@@ -358,7 +367,7 @@ fn heading_deg(rotation: Quat) -> f32 {
 /// Turn the conversation's actor to the player, and ease back the ones whose
 /// conversation is over (the module notes).
 #[allow(clippy::too_many_arguments)]
-fn turn_speaker(
+pub(crate) fn turn_speaker(
     time: Res<Time>,
     settings: Res<LookSettings>,
     mode: Res<MenuPause>,
@@ -371,6 +380,7 @@ fn turn_speaker(
     mut looks: ResMut<Looks>,
     mut face: ResMut<SpeakerFace>,
     actors: Query<Actor>,
+    heads: Query<&HeadLook>,
     mut locos: Query<&mut Locomotion>,
     globals: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform>,
@@ -464,7 +474,11 @@ fn turn_speaker(
                 // its head is (a bone it still holds keeps its remembered animation pose).
                 let before = looks.by_ref.remove(&r).filter(|l| l.entity == entity && l.head.is_some() && head.is_ok());
                 // Without a head to turn the entry only says where the view may look.
-                let mut look = Look::new(entity, name, head.ok(), before.as_ref().map_or(0.0, |l| l.weight), body);
+                // A head that head tracking (`head_look.rs`) already had on the player goes
+                // on from there: it hands the head over for the conversation.
+                let on_player = heads.get(entity).is_ok_and(|h| h.target() == Some(LookAt::Player));
+                let weight = before.as_ref().map_or(if on_player { 1.0 } else { 0.0 }, |l| l.weight);
+                let mut look = Look::new(entity, name, head.ok(), weight, body);
                 if let Some(b) = before.filter(|b| b.written.len() == look.written.len()) {
                     look.written = b.written;
                 }
@@ -555,13 +569,17 @@ fn turn_speaker(
         // its remembered animation rotation.
         let top = rig.skel.parents.get(head.chain[0].0).copied().flatten().unwrap_or(0);
         let Some(above_m) = in_actor_space(rig, top, &transforms) else { continue };
+        // (A bone head tracking wrote last frame and nothing posed since has the animation
+        // rotation head tracking remembers.)
+        let tracked = heads.get(look.entity).ok();
         let locals: Option<Vec<Transform>> = head
             .chain
             .iter()
             .zip(&look.written)
             .map(|(&(i, _), w)| {
                 let t = transforms.get(*rig.nodes.get(i)?).ok().copied()?;
-                Some(Transform { rotation: animated_rotation(t.rotation, *w), ..t })
+                let now = tracked.map_or(t.rotation, |h| h.animated(i, t.rotation));
+                Some(Transform { rotation: animated_rotation(now, *w), ..t })
             })
             .collect();
         let Some(locals) = locals else { continue };

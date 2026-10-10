@@ -65,6 +65,7 @@ const TAG_HOLSTER: u32 = 50;
 const TAG_EQUIP: u32 = 60;
 const TAG_ATTACK: u32 = 70;
 const TAG_RELOAD: u32 = 71;
+const TAG_FURNITURE: u32 = 80;
 
 /// Biped slots of headgear hidden in first person when the third-person body has to stand
 /// in for the first-person rig: Head, Hair, Headband, Hat, Eye Glasses, Nose Ring,
@@ -166,6 +167,8 @@ struct Rig {
     /// Whether the rig is shown, and whether its head is (last applied).
     shown: Option<bool>,
     head_shown: Option<bool>,
+    /// The furniture clip it plays (`BodyClip::serial`), while it plays one.
+    furniture: Option<u32>,
 }
 
 impl Rig {
@@ -266,11 +269,22 @@ pub struct PlayerBody {
     failed: Option<String>,
 }
 
+impl PlayerBody {
+    /// Whether the body drawn is a woman's; `None` without a body.
+    pub fn female(&self) -> Option<bool> {
+        self.body.as_ref().map(|b| b.female)
+    }
+}
+
 pub struct PlayerBodyPlugin;
 
 impl Plugin for PlayerBodyPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PlayerBody>().add_systems(Update, (ensure_body, drive_body).chain().in_set(nvf_play::player::BodySet));
+        // Furniture (`furniture.rs`) says what the body plays before it is posed.
+        app.init_resource::<PlayerBody>()
+            .init_resource::<crate::furniture::BodyOverride>()
+            .init_resource::<crate::furniture::PlayerUse>()
+            .add_systems(Update, (crate::furniture::drive_player, ensure_body, drive_body).chain().in_set(nvf_play::player::BodySet));
     }
 }
 
@@ -477,6 +491,7 @@ fn build_rig(commands: &mut Commands, parent: Entity, world: &ActorWorld, ctx: &
         head_entities,
         shown: None,
         head_shown: None,
+        furniture: None,
     })
 }
 
@@ -651,6 +666,54 @@ fn pose_rig(rig: &mut Rig, f: &Frame, events: &[HandEvent], root: Transform, ctx
     }
 }
 
+/// Pose the third-person rig with a furniture clip alone and place it at `root`
+/// (`crate::furniture`); returns the eye. The clips of one use play in different frames,
+/// so a new clip replaces the last at once instead of fading in.
+fn pose_furniture(rig: &mut Rig, o: &crate::furniture::BodyClip, dt: f32, root: Transform, transforms: &mut Query<&mut Transform>) -> Option<Vec3> {
+    let a = &mut rig.animator;
+    let mode = if o.looped { Mode::Loop } else { Mode::Once };
+    if rig.furniture != Some(o.serial) {
+        a.layers.clear();
+        a.restart(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+        rig.furniture = Some(o.serial);
+    }
+    a.begin();
+    a.want(&o.clip, TAG_FURNITURE, 1.0, mode, 0.0);
+    a.end();
+    a.advance(dt, 1.0);
+    a.pose();
+    a.apply(transforms);
+    if let Ok(mut t) = transforms.get_mut(rig.root) {
+        *t = root;
+    }
+    let root_m = Affine3A::from_scale_rotation_translation(root.scale, root.rotation, root.translation);
+    rig.head.map(|h| (root_m * a.model_space(h)).transform_point3(rig.eye_local))
+}
+
+/// Show or hide the rigs and the third-person head.
+fn show_rigs(body: &mut Body, visibility: &mut Query<&mut Visibility>, third: bool, first: bool, head: bool) {
+    let mut show = |rig: &mut Rig, on: bool| {
+        if rig.shown != Some(on) {
+            if let Ok(mut v) = visibility.get_mut(rig.root) {
+                *v = if on { Visibility::Inherited } else { Visibility::Hidden };
+            }
+            rig.shown = Some(on);
+        }
+    };
+    show(&mut body.third, third);
+    if let Some(f) = body.first.as_mut() {
+        show(f, first);
+    }
+    if body.third.head_shown != Some(head) {
+        for e in &body.third.head_entities {
+            if let Ok(mut v) = visibility.get_mut(*e) {
+                *v = if head { Visibility::Inherited } else { Visibility::Hidden };
+            }
+        }
+        body.third.head_shown = Some(head);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn drive_body(
     mut commands: Commands,
@@ -667,6 +730,7 @@ fn drive_body(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     mut anim: ResMut<WeaponAnim>,
+    furniture: Res<crate::furniture::BodyOverride>,
 ) {
     let state = &mut *state;
     let Some(body) = state.body.as_mut() else {
@@ -705,8 +769,23 @@ fn drive_body(
     m.airborne = if grounded || swimming { 0.0 } else { m.airborne + dt };
     let landing = airborne_before >= AIRBORNE_LAND && m.airborne == 0.0;
 
-    // The weapon: draw and holster, timed by the clips of the rig in view.
     let third_view = control.third_person_view();
+    if let Some(o) = furniture.0.as_ref() {
+        // On furniture: the third-person body plays the furniture's clip where the
+        // furniture has it. In first person the view is that body's eye and the body is
+        // not drawn (seen from inside it gets in the way of looking round) [design].
+        let root = Transform { translation: Vec3::from_array(o.pos), rotation: Quat::from_rotation_z(-o.heading), scale: Vec3::splat(body.scale) };
+        let eye = pose_furniture(&mut body.third, o, dt, root, &mut transforms);
+        player.body_eye = eye.map(|e| e.to_array());
+        view.pivot = eye.map(|e| [o.pos[0], o.pos[1], e.z + 5.0]);
+        anim.ready = false;
+        show_rigs(body, &mut visibility, third_view, false, third_view);
+        return;
+    }
+    if body.third.furniture.take().is_some() {
+        body.third.animator.cut(TAG_FURNITURE);
+    }
+    // The weapon: draw and holster, timed by the clips of the rig in view.
     let prefix = m.prefix;
     let timing_rig = match body.first.as_mut() {
         Some(f) if !third_view => f,
@@ -786,30 +865,10 @@ fn drive_body(
             }
         }
     }
-    // Which rig is seen.
+    // Which rig is seen; without a first-person rig the third-person head is hidden
+    // from inside.
     let has_first = body.first.is_some();
-    let mut show = |rig: &mut Rig, on: bool| {
-        if rig.shown != Some(on) {
-            if let Ok(mut v) = visibility.get_mut(rig.root) {
-                *v = if on { Visibility::Inherited } else { Visibility::Hidden };
-            }
-            rig.shown = Some(on);
-        }
-    };
-    show(&mut body.third, third_view || !has_first);
-    if let Some(f) = body.first.as_mut() {
-        show(f, !third_view);
-    }
-    // Without a first-person rig the third-person head is hidden from inside.
-    let head_on = third_view || has_first;
-    if body.third.head_shown != Some(head_on) {
-        for e in &body.third.head_entities {
-            if let Ok(mut v) = visibility.get_mut(*e) {
-                *v = if head_on { Visibility::Inherited } else { Visibility::Hidden };
-            }
-        }
-        body.third.head_shown = Some(head_on);
-    }
+    show_rigs(body, &mut visibility, third_view || !has_first, !third_view, third_view || has_first);
 
     m.log_elapsed += dt;
     if m.log_elapsed >= 1.0 {

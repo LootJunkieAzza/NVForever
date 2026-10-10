@@ -97,6 +97,8 @@ pub(crate) struct Props {
     unlit: bool,
     /// BSShaderFlags bit 18 "Hair" [documented: nif.xml].
     pub(crate) hair: bool,
+    /// The shader property's type is [`SHADER_SKIN`]: the shape is an actor's skin.
+    pub(crate) skin: bool,
     /// The view-angle falloff of a BSShaderNoLightingProperty.
     falloff: Option<Falloff>,
     /// BSShaderFlags bit 29 "External_Emittance" [documented: nif.xml].
@@ -123,6 +125,13 @@ impl Props {
         self.has_properties && !self.shader && self.textures.is_empty()
     }
 }
+
+/// BSShaderType 14 "SHADER_SKIN" [documented: nif.xml BSShaderType]. In
+/// `Fallout - Meshes.bsa` the 255 visible shapes of this type are exactly those with the
+/// "FaceGen" shader flag (bit 10), and all but 2 (which name no texture) name a head,
+/// upper body or hand texture under `textures\characters\` [observed:
+/// `crates/fnv-nif/examples/skin_survey.rs`, docs/spec-notes/actors.md §3.1].
+pub(crate) const SHADER_SKIN: i64 = 14;
 
 fn text_list(s: &Struct, name: &str) -> Vec<String> {
     s.list(name)
@@ -162,6 +171,7 @@ fn apply_property(file: &NifFile, dec: &Decoded, r: i32, p: &mut Props) {
         p.specular = flags & 1 != 0;
         p.vertex_alpha = flags & (1 << 3) != 0;
         p.hair = flags & (1 << 18) != 0;
+        p.skin = s.int("shader_type") == Some(SHADER_SKIN);
         p.external_emittance = flags & (1 << 29) != 0;
         p.falloff = None;
     }
