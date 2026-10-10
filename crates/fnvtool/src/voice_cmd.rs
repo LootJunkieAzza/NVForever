@@ -43,6 +43,40 @@ pub enum VoiceCmd {
         #[arg(required = true)]
         files: Vec<PathBuf>,
     },
+    /// A `.lip` file decoded: the face animation of a response as one track of weights
+    /// per channel, 30 frames per second (fnv.voice.lip/1; docs/spec-notes/lipsync.md).
+    Lip {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        /// Path of the `.lip` (or of its sound) in the archives, e.g.
+        /// `sound\voice\falloutnv.esm\<voice type>\<name>.lip`.
+        #[arg(long, conflicts_with = "info")]
+        path: Option<String>,
+        /// Instead of a path: the line (INFO), load-order FormID in hex.
+        #[arg(long, value_parser = crate::parse_formid)]
+        info: Option<u32>,
+        /// With --info: the response's number (default: the line's first response).
+        #[arg(long)]
+        response: Option<u8>,
+        /// With --info: who says it (Editor ID or hex FormID). Default: the line's fixed
+        /// speaker, else the first voice type that has the file.
+        #[arg(long)]
+        speaker: Option<String>,
+    },
+    /// Loose `.lip` files decoded (fnv.voice.lip/1 each).
+    LipFile {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
+    /// Every `.lip` file of the install decoded and counted: files decoded without
+    /// residue, frames, channels in use, the letter test (fnv.voice.lip_coverage/1).
+    LipCoverage {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        /// Also measure every sound and compare the animation's end with it (slow).
+        #[arg(long)]
+        lengths: bool,
+    },
 }
 
 /// The archives and loose files of `data_dir` for `plugins`, in the game's precedence.
@@ -56,6 +90,21 @@ pub fn run(cmd: VoiceCmd) -> anyhow::Result<Value> {
     match cmd {
         VoiceCmd::Line { lo, info, speaker } => with_bank(&lo, |bank, lo| line(bank, lo, info, speaker.as_deref())),
         VoiceCmd::Coverage { lo, lengths } => with_bank(&lo, |bank, _| Ok(fnv_voice::coverage::coverage(bank, lengths))),
+        VoiceCmd::Lip { lo, path, info, response, speaker } => with_bank(&lo, |bank, lo| lip(bank, lo, path.as_deref(), info, response, speaker.as_deref())),
+        VoiceCmd::LipCoverage { lo, lengths } => with_bank(&lo, |bank, _| Ok(fnv_voice::lip_coverage::lip_coverage(bank, lengths))),
+        VoiceCmd::LipFile { files } => {
+            let rows: Vec<Value> = files
+                .iter()
+                .map(|f| {
+                    let r = std::fs::read(f).map_err(|e| e.to_string()).and_then(|b| fnv_voice::Lip::parse(&b).map_err(|e| e.to_string()));
+                    match r {
+                        Ok(l) => l.to_json(Some(&f.display().to_string()), None),
+                        Err(e) => json!({"format": fnv_voice::lip::LIP_FORMAT, "path": f.display().to_string(), "error": e}),
+                    }
+                })
+                .collect();
+            Ok(json!({"format": "fnv.voice.lip_files/1", "files": rows}))
+        }
         VoiceCmd::Length { files } => {
             let rows: Vec<Value> = files
                 .iter()
@@ -77,6 +126,41 @@ fn with_bank(a: &LoadOrderArgs, f: impl FnOnce(&VoiceBank, &LoadOrder<'_>) -> an
     let lo = LoadOrder::new(&plugins)?;
     let vfs = Arc::new(open_vfs(&a.data_dir, &a.plugins)?);
     f(&VoiceBank::build(&lo, vfs), &lo)
+}
+
+/// `fnvtool voice lip`: one `.lip` of the archives, by path or by line.
+fn lip(bank: &VoiceBank, lo: &LoadOrder, path: Option<&str>, info: Option<u32>, response: Option<u8>, speaker: Option<&str>) -> anyhow::Result<Value> {
+    let sound = match (path, info) {
+        (Some(p), _) => {
+            let p = fnv_vfs::normalize(p);
+            let stem = p.rsplit_once('.').map_or(p.as_str(), |x| x.0).to_string();
+            fnv_voice::path::SOUND_EXTENSIONS.iter().map(|e| format!("{stem}.{e}")).find(|s| bank.vfs().exists(s)).unwrap_or(format!("{stem}.ogg"))
+        }
+        (None, Some(info)) => {
+            let ix = &bank.index;
+            let Some(l) = ix.lines.get(&info) else { bail!("no dialogue line (INFO) {}", hex(info)) };
+            let k = match response {
+                Some(n) => l.responses.iter().position(|r| r.number == n).with_context(|| format!("line {} has no response number {n}", hex(info)))?,
+                None => 0,
+            };
+            let base = match speaker {
+                Some(s) => Some(speaker_base(lo, s)?),
+                None => l.speaker,
+            };
+            let by_speaker = base.and_then(|b| bank.file(info, k, b));
+            let any = || ix.voice_types.keys().find_map(|&vt| bank.file_for_voice(info, k, vt));
+            by_speaker.or_else(any).with_context(|| format!("no voice file for line {} response index {k}", hex(info)))?
+        }
+        (None, None) => bail!("give --path or --info"),
+    };
+    let lip_path = fnv_voice::lip::lip_path(&sound);
+    let bytes = bank.read(&lip_path).with_context(|| format!("no file {lip_path}"))?;
+    let lip = fnv_voice::Lip::parse(&bytes).with_context(|| lip_path.clone())?;
+    let mut v = lip.to_json(Some(&lip_path), bank.seconds(&sound));
+    v["source"] = json!(bank.vfs().source_of(&lip_path));
+    v["stored_bytes"] = json!(bytes.len());
+    v["reencode_byte_identical"] = json!(lip.to_bytes() == bytes);
+    Ok(v)
 }
 
 fn hex(id: u32) -> String {

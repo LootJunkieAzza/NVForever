@@ -22,7 +22,8 @@
 //!   is held only by a message box on top of it; the pause menu holds every line. One log
 //!   line each way (`voice: … held` / `goes on`).
 //! - Not done [decision]: 3D placement (voices play flat, at full volume wherever the
-//!   speaker stands), lip sync (`.lip`).
+//!   speaker stands). Lip sync follows [`VoiceState::spoken`] from `nvforever`'s
+//!   `lips.rs` (docs/spec-notes/lipsync.md).
 //!
 //! Switches: [`VoiceSettings`] (`nvforever --no-voice`, `--voice-volume`);
 //! `NVF_PLAY_VOICE_LENGTHS=0` keeps the fitted line lengths (sounds still play).
@@ -72,6 +73,41 @@ struct Playing {
     held: bool,
     /// The line's time left when last seen: a rise means the line was said again.
     remaining: f64,
+    /// The sound's file (`None`: the response has none), and the real time it started.
+    path: Option<String>,
+    started_at: f64,
+    /// Real seconds the sound has stood still so far (`held`).
+    held_secs: f64,
+}
+
+/// A response being said, for what follows the voice (lip sync, `nvforever`'s
+/// `lips.rs`): who, the sound's file, and when it started and ends on the real-time
+/// clock (`Time<Real>`, seconds since start) — also with `--no-voice`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spoken<'a> {
+    pub speaker: FormId,
+    pub path: Option<&'a str>,
+    pub started_at: f64,
+    /// Moves on while the sound is held.
+    pub ends_at: f64,
+    /// Real seconds the sound has stood still so far, held with its line (a menu, the
+    /// pause menu): the sound's own time is `now - started_at - held_secs`
+    /// ([`Spoken::position`]), which is what a mouth follows.
+    pub held_secs: f64,
+}
+
+impl Spoken<'_> {
+    /// Seconds into the sound at real time `now`: it stands still while the sound is held.
+    pub fn position(&self, now: f64) -> f64 {
+        now - self.started_at - self.held_secs
+    }
+}
+
+impl VoiceState {
+    /// The responses being said this frame, one per speaker.
+    pub fn spoken(&self) -> impl Iterator<Item = Spoken<'_>> {
+        self.playing.iter().map(|(&speaker, p)| Spoken { speaker, path: p.path.as_deref(), started_at: p.started_at, ends_at: p.ends_at, held_secs: p.held_secs })
+    }
 }
 
 #[derive(Resource, Default)]
@@ -264,6 +300,7 @@ fn play(
         let hold = line_held(p.conversation, paused.0, g.in_menu(), g.menu.is_some());
         if hold {
             p.ends_at += time.delta_secs_f64();
+            p.held_secs += time.delta_secs_f64();
         }
         if hold != p.held {
             p.held = hold;
@@ -325,7 +362,10 @@ fn play(
                 (None, fitted)
             }
         };
-        st.playing.insert(s.speaker, Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining, conversation: s.conversation, held: false });
+        st.playing.insert(
+            s.speaker,
+            Playing { info: s.info, response: k, entity, ends_at: now + seconds, remaining: s.remaining, path: file, started_at: now, held_secs: 0.0, conversation: s.conversation, held: false },
+        );
     }
 }
 

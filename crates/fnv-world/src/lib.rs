@@ -6,6 +6,7 @@
 //! - [`placed`]: a placed reference (REFR/ACHR/ACRE/...) and the base object it places
 //! - [`land`]: landscape heights, normals, vertex colours and texture layers
 //! - [`lighting`]: interior cell lighting and light sources
+//! - [`loadscreen`]: loading screens and the places they belong to
 //! - [`sky`]: climate, weather and water records; time-of-day colours, sun and fog
 //! - [`transform`]: reference rotation convention
 //!
@@ -16,6 +17,7 @@ pub mod imagespace;
 pub mod index;
 pub mod land;
 pub mod lighting;
+pub mod loadscreen;
 pub mod placed;
 pub mod sky;
 pub mod transform;

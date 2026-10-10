@@ -8,6 +8,7 @@
 //! - [`resolve`]: placed actor → [`resolve::Appearance`] (parts list, worn armour), placed
 //!   creature → [`resolve::CreatureAppearance`] (skeleton, NIFZ models, base scale)
 //! - [`facegen`]: `.egm`/`.egt` FaceGen morphs and applying coefficients to them
+//! - [`tri`]: `.tri` FaceGen morph targets (mouth shapes, expressions, eyelids, brows)
 //! - [`mesh`]: how a part mesh joins the skeleton (skinned by bone name, rigid by `Prn`)
 //! - [`idle`]: IDLE records (idle animations) as data: model, links, group, raw conditions
 //! - [`anims`]: where `.kf` files sit relative to skeletons, and what their tracks bind to
@@ -30,6 +31,7 @@ pub mod mesh;
 pub mod player_clips;
 pub mod records;
 pub mod resolve;
+pub mod tri;
 pub mod weapon;
 
 pub use records::ActorForms;

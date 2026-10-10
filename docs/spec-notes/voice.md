@@ -169,7 +169,8 @@ untested, since none exists].
   with a `bext` chunk before `fmt ` [observed]. Which of the two the game plays is [hypothesis: unknown]; the reader takes
   the `.ogg` [decision: same length, and the engine's audio decodes Ogg Vorbis].
 - **`.lip`**: lip-sync data, one per sound for 60,702 of the 61,290 sounds; none without
-  its sound [observed]. Not decoded (out of scope, docs/design/dialogue.md §7).
+  its sound [observed]. Its layout and what it drives: docs/spec-notes/lipsync.md
+  (dialogue step D6; reader `fnv_voice::lip`).
 
 ## 5. Length from the headers
 
@@ -307,7 +308,9 @@ of it; the pause menu holds every line. Before, the sound played on while the ti
 stood still, ran ahead of it, and the subtitle outlasted the sound after the menu.
 
 Not done [decision]: 3D placement and distance (voices play flat), the response's sound
-form (§6), lip sync and emotions.
+form (§6) and emotions. Lip sync follows the voice from
+`engine/nvforever/src/lips.rs` (`VoiceState::spoken`; docs/spec-notes/lipsync.md §5),
+and holds with it.
 
 ## 10. Tools
 
