@@ -35,8 +35,12 @@
 //!   nearest ragdoll), `aimnpc` (the same, NPCs only),
 //!   `aimnpc=<share>` (at that share of the NPC's height, 0 feet to 1 top: the head or
 //!   legs for limb hits), `aimpart=<n>` (at the nearest NPC's body part `n`, its index in
-//!   the NPC's BPTD, step C8) and `equip=<FormID hex>` (give one unless carried and equip it,
-//!   as `NVF_PLAY_TEST_EQUIP`).
+//!   the NPC's BPTD, step C8), `aimref=<FormID hex>` (at the collision body of a placed
+//!   object, e.g. a bottle to shoot) and `equip=<FormID hex>` (give one unless carried and
+//!   equip it, as `NVF_PLAY_TEST_EQUIP`).
+//!
+//! - `NVF_PLAY_TEST_NO_SPREAD=1` (combat.rs): the player's shots leave exactly along the
+//!   view, with no spread or bloom, so a shot aimed with `aimref` or `aimpart` lands there.
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the
@@ -126,6 +130,7 @@ enum Press {
     AimNpc,
     AimNpcAt(f32),
     AimPart(u8),
+    AimRef(u32),
     Equip(FormId),
 }
 
@@ -150,6 +155,8 @@ fn press(rest: &str) -> Result<Press, String> {
                 Press::AimNpcAt(h)
             } else if let Some(Ok(n)) = rest.strip_prefix("aimpart=").map(|n| n.trim().parse::<u8>()) {
                 Press::AimPart(n)
+            } else if let Some(Ok(id)) = rest.strip_prefix("aimref=").map(|h| u32::from_str_radix(h.trim().trim_start_matches("0x"), 16)) {
+                Press::AimRef(id)
             } else if let Some(Ok(d)) = rest.strip_prefix("zoom=").map(|d| d.trim().parse::<f32>()) {
                 Press::Zoom(d)
             } else if let Some(Ok((y, p))) = rest.strip_prefix("orbit=").map(look_angles) {
@@ -340,6 +347,7 @@ fn keys_and_controls(
             Press::AimNpc => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), None),
             Press::AimNpcAt(h) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Share(h))),
             Press::AimPart(n) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Part(n))),
+            Press::AimRef(id) => aim_at_ref(&phys, &mut player, id),
             Press::Equip(item) => {
                 let w = &mut sim.world;
                 let carried = w.item_count(FormId::PLAYER_REF, item).unwrap_or(0) > 0;
@@ -393,6 +401,19 @@ fn aim_at_nearest_actor(phys: &PhysState, player: &mut Player, keep: impl Fn(u32
     player.heading = dx.atan2(dy);
     player.pitch = dz.atan2(dx.hypot(dy));
     info!("test aid: aiming at actor {id:08X} ({:.0} units away)", d2(c).sqrt());
+}
+
+/// Aim at the collision body of a placed object (its first body's centre of mass).
+fn aim_at_ref(phys: &PhysState, player: &mut Player, id: u32) {
+    let Some(c) = phys.world.ref_center(id) else {
+        warn!("test aid: aimref: {id:08X} has no collision body");
+        return;
+    };
+    let eye = player.eye();
+    let (dx, dy, dz) = (c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]);
+    player.heading = dx.atan2(dy);
+    player.pitch = dz.atan2(dx.hypot(dy));
+    info!("test aid: aiming at {id:08X} ({:.0} units away)", (dx * dx + dy * dy + dz * dz).sqrt());
 }
 
 /// Aim at the trunk of the nearest ragdoll (a dead actor's body in the physics world).
@@ -516,6 +537,7 @@ mod tests {
         assert_eq!(press("fire").unwrap(), Press::Fire);
         assert_eq!(press("aimactor").unwrap(), Press::AimActor);
         assert_eq!(press("aimnpc=0.9").unwrap(), Press::AimNpcAt(0.9));
+        assert_eq!(press("aimref=0010A202").unwrap(), Press::AimRef(0x10A202));
         assert_eq!(press("aimpart=4").unwrap(), Press::AimPart(4));
         assert!(press("shoot").is_err());
         assert_eq!(press("orbit=180:0").unwrap(), Press::Orbit(std::f32::consts::PI, 0.0));

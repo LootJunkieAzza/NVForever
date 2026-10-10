@@ -263,6 +263,32 @@ impl Game<'_> {
         out
     }
 
+    /// A hit on a reference that is not an actor (a bottle, a target, a switch): its
+    /// OnHit blocks run with the attacker and its OnHitWith blocks with the weapon, as
+    /// for an actor; nothing else changes (object damage is [`Game::damage_object`]).
+    /// Returns whether a block ran.
+    ///
+    /// [documented: GECK wiki Event Handling, the target of OnHit and OnHitWith is "any
+    /// reference"; observed: the tutorial's bottles (MISC `VCG02Bottle`, script
+    /// `VCG02TargetSCRIPT`) count the player's shots in an OnHitWith block without a
+    /// parameter. Hypothesis: OnHit's subject is the attacking actor here too — that page
+    /// gives a projectile reference for a ranged hit on a non-actor, and we have no
+    /// projectile references.]
+    pub fn hit_object(&mut self, target: FormId, info: HitInfo) -> bool {
+        let mut ran = self.ref_event(target, event::ON_HIT, info.attacker.map(|a| Value::Ref(a.0)), info.attacker);
+        if let Some(w) = info.weapon {
+            ran |= self.ref_event(target, event::ON_HIT_WITH, Some(Value::Ref(w.0)), info.attacker);
+        }
+        ran
+    }
+
+    /// Tell the scripts whether an actor has its weapon out (IsWeaponOut).
+    pub fn set_weapon_out(&mut self, actor: FormId, out: bool) {
+        if self.extra.get(&actor).is_some_and(|e| e.weapon_out) != out {
+            self.extra.entry(actor).or_default().weapon_out = out;
+        }
+    }
+
     /// Lower a limb's condition by a hit (see the module notes): its condition after, and
     /// whether this hit crippled it.
     pub fn damage_limb(&mut self, target: FormId, l: LimbHit, max_health: f64) -> (f64, bool) {
