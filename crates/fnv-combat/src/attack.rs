@@ -8,6 +8,14 @@
 //! multiplier × animation multiplier) when the engine knows the clip, else
 //! 1 ÷ "Attack Shots/Sec". The shot leaves at the clip's `Hit` key [documented: GECK wiki
 //! NiTextKeyExtraData], `fire_delay` after the trigger.
+//!
+//! Spin-up [documented: GECK wiki NiTextKeyExtraData, `Fire` "works like `Hit` and also
+//! starts the internal loop of a clamped sequence; `Loop` jumps back to it"; owner
+//! decision 2026-10-10]: an automatic weapon whose attack clip has that loop (a minigun's
+//! `AttackSpin`) fires its first shot at the clip's `Fire` key, `spin_up` after the
+//! trigger, then at its rate for as long as the trigger stays held. Letting go during
+//! the spin-up fires nothing; every new pull, and firing on after a reload, spins up
+//! again [design].
 
 use serde::Serialize;
 
@@ -23,6 +31,9 @@ pub struct ClipTiming {
     pub hit_time: Option<f32>,
     /// Length of the reload clip, seconds.
     pub reload_len: Option<f32>,
+    /// The attack clip has an internal loop (`Fire` and `Loop` keys): seconds from its
+    /// start to the `Fire` key.
+    pub spin_up: Option<f32>,
 }
 
 /// The intervals the cycle runs on.
@@ -33,6 +44,9 @@ pub struct Timing {
     /// Seconds from the trigger to the shot.
     pub fire_delay: f32,
     pub reload: f32,
+    /// Seconds from a new pull of the trigger to the first shot of an automatic weapon
+    /// that has to spin up; 0 for the others.
+    pub spin_up: f32,
 }
 
 impl Timing {
@@ -51,13 +65,19 @@ impl Timing {
         // The animation multiplier does not speed up reloads [documented: GECK wiki
         // Weapons, Animation section].
         let reload = clips.reload_len.unwrap_or(t.fallback_reload);
-        Timing { interval, fire_delay, reload }
+        // In clip seconds: the body plays the attack clip at its own speed, and the
+        // shot should leave when the clip reaches its key.
+        let spin_up = if w.automatic { clips.spin_up.unwrap_or(0.0).max(0.0) } else { 0.0 };
+        Timing { interval, fire_delay, reload, spin_up }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum Phase {
     Ready,
+    /// The trigger was pulled on a weapon that has to spin up; the first shot leaves
+    /// when `left` reaches 0 if the trigger is still held.
+    SpinUp { left: f32 },
     /// The trigger was pulled; the shot leaves when `left` reaches 0.
     WindUp { left: f32 },
     /// Between shots.
@@ -79,6 +99,8 @@ pub struct Input {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Event {
+    /// The weapon started to spin up: the first shot follows in `Timing::spin_up`.
+    SpinUp,
     /// A shot left the weapon: `rounds` taken from the magazine.
     Fired { rounds: u32 },
     /// Trigger on an empty magazine with nothing to reload.
@@ -107,6 +129,8 @@ pub struct Cycle {
     regen_acc: f32,
     /// The trigger was held last tick (semi-automatic weapons need a fresh pull).
     held: bool,
+    /// Spun up: shots have left since the trigger was last pulled.
+    spun: bool,
     pub timing: Timing,
 }
 
@@ -123,6 +147,7 @@ impl Cycle {
             regen: (w.regen_rate > 0.0).then_some(w.regen_rate),
             regen_acc: 0.0,
             held: false,
+            spun: false,
             timing,
         }
     }
@@ -140,6 +165,9 @@ impl Cycle {
         let fresh = i.trigger && !self.held;
         let pulled = fresh || (i.trigger && self.automatic);
         self.held = i.trigger;
+        if !i.trigger {
+            self.spun = false;
+        }
         if let Some(r) = self.regen {
             if self.magazine < self.clip_size {
                 self.regen_acc += i.dt;
@@ -159,12 +187,19 @@ impl Cycle {
                 Phase::Ready => {
                     if i.reload && self.can_reload(i.carried) {
                         self.phase = Phase::Reloading { left: self.timing.reload };
+                        self.spun = false;
                         out.push(Event::ReloadStarted);
                     } else if pulled {
                         if self.has_round() {
-                            self.phase = Phase::WindUp { left: self.timing.fire_delay };
+                            if self.timing.spin_up > 0.0 && !self.spun {
+                                self.phase = Phase::SpinUp { left: self.timing.spin_up };
+                                out.push(Event::SpinUp);
+                            } else {
+                                self.phase = Phase::WindUp { left: self.timing.fire_delay };
+                            }
                         } else if t.auto_reload && self.can_reload(i.carried) {
                             self.phase = Phase::Reloading { left: self.timing.reload };
+                            self.spun = false;
                             out.push(Event::ReloadStarted);
                         } else {
                             // One click per pull, also for automatic weapons.
@@ -176,6 +211,20 @@ impl Cycle {
                     } else {
                         break;
                     }
+                }
+                Phase::SpinUp { left } => {
+                    if !i.trigger {
+                        // Let go before the first shot: none leaves.
+                        self.phase = Phase::Ready;
+                        break;
+                    }
+                    if left > dt {
+                        self.phase = Phase::SpinUp { left: left - dt };
+                        break;
+                    }
+                    dt -= left;
+                    self.spun = true;
+                    self.phase = Phase::WindUp { left: self.timing.fire_delay };
                 }
                 Phase::WindUp { left } => {
                     if left > dt {

@@ -235,7 +235,9 @@ Code: `engine/nvforever/src/furniture.rs` (actors and the player), `nvf_play::fu
   at the frames of §4; movement, jumping and the character's collision are off
   (`PlayerSeat`), the weapon is put away [design], and a movement control or activating
   the furniture again gets up [design, §5 item 9]. Afterwards the character stands at the
-  entry point. In first person the view is the body's eye and the body is not drawn.
+  entry point. In first person the view is the body's eye and the body is not drawn
+  (with `--first-person-body` it is, and the view is held to a neck's reach:
+  docs/design/player-body.md §1.5).
 - **Scripts.** While a use lasts, `GetSitting` / `GetSleeping` give 2, 3 and 4 for the
   phases and `GetFurnitureMarkerID`, `IsCurrentFurnitureRef` and `IsCurrentFurnitureObj`
   answer for the user. State 1 is never reported (§5 item 4).

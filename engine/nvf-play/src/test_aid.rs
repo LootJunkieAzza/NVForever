@@ -41,6 +41,9 @@
 //!
 //! - `NVF_PLAY_TEST_NO_SPREAD=1` (combat.rs): the player's shots leave exactly along the
 //!   view, with no spread or bloom, so a shot aimed with `aimref` or `aimpart` lands there.
+//! - `NVF_PLAY_TEST_TRACERS=<seconds>` (combat.rs): every projectile of the player's
+//!   draws a tracer, and tracers and muzzle flashes stay that long, so one screenshot
+//!   shows where the shots were drawn from.
 //!
 //! With any `NVF_PLAY_TEST_*` variable set the run is unattended ([`Unattended`]): the
 //! cursor is not grabbed, so the desktop's mouse neither leaves the user nor turns the

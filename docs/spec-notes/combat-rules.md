@@ -117,7 +117,14 @@ each the identity by default. Reading PERK records is a later step.
     multiplier) when the engine passes it, else 1 ÷ "Attack Shots/Sec" [documented:
     GECK wiki Weapons].
 - **When the shot leaves.** At the attack clip's `Hit` key [documented:
-  NiTextKeyExtraData]. Automatic weapons fire at once.
+  NiTextKeyExtraData]. Automatic weapons fire at once, except those that spin up.
+- **Spin-up** [owner decision 2026-10-10]. An automatic weapon whose attack clip has
+  an internal loop (`Fire` and `Loop` keys: a minigun's `AttackSpin`) fires its first
+  shot at the clip's `Fire` key [documented: NiTextKeyExtraData, `Fire` works like
+  `Hit`], `spin_up` seconds after the pull, then at its rate while the trigger stays
+  held. Letting go during the spin-up fires nothing; every new pull, and firing on
+  after a reload, spins up again [design]. `Event::SpinUp` marks the start, for the
+  body's clip (docs/spec-notes/animation.md §9.8).
 - **Reload.** Takes the reload clip's length; the animation multiplier does not speed
   it up [documented]. Without a clip length, `fallback_reload`.
 - **Trigger.** A semi-automatic weapon needs a fresh pull per shot; an automatic one
@@ -239,14 +246,23 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   [design].
 - **Readiness and clips.** The cycle runs once the player body reports the weapon drawn
   and in hand (`WeaponAnim::ready`; without a body, as soon as it is wanted out).
-  - The body gives the attack clip's length and `Hit` key and the reload clip's
-    length, from the rig in view. The attack clip is `{prefix}{attack}{is}.kf` from the
+  - The body gives the attack clip's length and `Hit` key (and whether a `Loop`
+    key follows it: the spin-up time) and the reload clip's length, from the rig in
+    view. The attack clip is `{prefix}{attack}{is}.kf` from the
     WEAP attack animation; the reload clip is `{prefix}reload{x}.kf`
     (`fnv_actor::player_clips`).
   - The body plays the clip once each time combat counts an attack or a reload.
 - **Shots.**
   - They leave the eye along the view, inside the cone from §3. The stance is taken
     from the controls and the character: aiming, sneaking, moving, airborne.
+  - They are drawn from the muzzle of the weapon in hand (the model's
+    `ProjectileNode`, animation.md §9.9; `WeaponAnim::muzzle` from the player body),
+    closing on the view ray by the point aimed at. In third person a shot whose
+    muzzle has something between it and that point leaves the muzzle instead
+    (`fnv_combat::shot::leaving`; docs/design/combat.md §5.1) [design]. The debug log
+    gives each shot's eye, aim point, muzzle and where it is drawn from, and each
+    tracer's start; the summary at exit counts the shots drawn from the muzzle and
+    those from behind cover.
   - The skill is derived from its attribute and Luck (`damage::derived_skill`;
     which attribute governs which skill is a hypothesis), since the simulation has no
     skills yet.
@@ -260,10 +276,14 @@ Examples [observed, seed 1, skill 50, 100 HP target]:
   body part); applying it is step C5.
 - **Feedback** [design, until impact effects and audio]:
   - an impact marker for 0.3 s (0.6 s for explosions);
-  - tracers at the PROJ tracer chance;
+  - tracers at the PROJ tracer chance, from the muzzle, and a flash marker at the
+    muzzle for 0.06 s per shot; a hitscan tracer that hits nothing is drawn to the end
+    of its range;
   - an ammo counter (magazine / carried, the ammo's abbreviation).
 - **Test aids.** `NVF_PLAY_TEST_CONTROL` presses `fire`, `reload`, `swap` and
-  `aimactor` (look at the nearest actor's hit volume).
+  `aimactor` (look at the nearest actor's hit volume). `NVF_PLAY_TEST_TRACERS=<seconds>`
+  gives every projectile a tracer and keeps tracers and flash markers that long, so
+  one screenshot shows where shots were drawn from.
 - **Checked** [observed 2026-10-09, `nvforever --cell Goodsprings --play`, exit 0, "run
   finished"]:
   - **9mm pistol** (50 rounds given): magazine 13/13, one shot per trigger pull. Two

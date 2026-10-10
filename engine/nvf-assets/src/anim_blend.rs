@@ -53,7 +53,8 @@ pub struct Layer {
     /// The caller's name for the role the clip plays (two roles may play one clip).
     pub tag: u32,
     pub mode: Mode,
-    /// (skeleton node, track index, priority) for every track that drives a node.
+    /// (node, track index, priority) for every track that drives a node: a skeleton node,
+    /// or an extra node counted on from the skeleton's last ([`Animator::set_extra`]).
     bound: Vec<(u16, u16, i32)>,
     /// Clip time since the clip's start (Loop and Once): seconds × rate × frequency.
     pub time: f32,
@@ -100,6 +101,16 @@ struct Contribution {
     track: u16,
 }
 
+/// A node outside the skeleton that clips drive by name: a part of the weapon model
+/// the actor holds (`##Slide`, `##Clip`; docs/spec-notes/animation.md §9.8).
+#[derive(Debug, Clone)]
+pub struct ExtraNode {
+    pub name: String,
+    pub entity: Entity,
+    /// Its transform in the model: what it takes where no clip drives it.
+    pub bind: Transform,
+}
+
 /// Layered clips on a spawned actor's skeleton ([`crate::actor::spawn_actor`]).
 #[derive(Component)]
 pub struct Animator {
@@ -109,8 +120,11 @@ pub struct Animator {
     pub layers: Vec<Layer>,
     /// Shared phase (0–1) of the [`Mode::Synced`] layers.
     pub phase: f32,
-    /// The pose of the last [`Animator::pose`]: local transforms in NIF space.
+    /// The pose of the last [`Animator::pose`]: local transforms in NIF space, the
+    /// skeleton's nodes first, then the extra nodes.
     pub locals: Vec<Transform>,
+    /// Nodes outside the skeleton ([`Self::set_extra`]).
+    extra: Vec<ExtraNode>,
     /// Nodes held at the identity (the accumulation root).
     held: Vec<usize>,
     /// Nodes with a rest pose of their own in place of the bind pose ([`Self::set_rest`]).
@@ -124,7 +138,52 @@ impl Animator {
     pub fn new(skel: Arc<PreparedSkeleton>, nodes: Vec<Entity>, accum_root: Option<&str>) -> Animator {
         let held = accum_root.and_then(|r| clip_target(&skel, r)).into_iter().collect();
         let locals = skel.locals.clone();
-        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, held, rest: Vec::new(), scratch: Vec::new() }
+        Animator { skel, nodes, layers: Vec::new(), phase: 0.0, locals, extra: Vec::new(), held, rest: Vec::new(), scratch: Vec::new() }
+    }
+
+    /// Replace the nodes outside the skeleton that clips drive by name (none: an empty
+    /// list). A name the skeleton has stays the skeleton's, and the first of equal names
+    /// counts. The clips playing are bound again, so a weapon that arrives half way
+    /// through a clip moves with it.
+    pub fn set_extra(&mut self, extra: Vec<ExtraNode>) {
+        self.extra = extra;
+        // The last pose's extra nodes were the old list's.
+        self.locals.truncate(self.skel.locals.len());
+        for i in 0..self.layers.len() {
+            let bound = self.bind(&self.layers[i].clip);
+            self.layers[i].bound = bound;
+        }
+    }
+
+    /// The node a track named `name` drives: a skeleton node (not the root), else an
+    /// extra node, numbered after the skeleton's.
+    fn target(&self, name: &str) -> Option<usize> {
+        if self.skel.by_name.contains_key(name) {
+            return clip_target(&self.skel, name);
+        }
+        self.extra.iter().position(|x| x.name == name).map(|k| self.skel.locals.len() + k)
+    }
+
+    /// `clip`'s tracks bound to nodes: (node, track index, priority).
+    fn bind(&self, clip: &Clip) -> Vec<(u16, u16, i32)> {
+        clip.tracks
+            .iter()
+            .zip(&clip.priorities)
+            .enumerate()
+            .filter_map(|(ti, ((name, _), &p))| {
+                let b = self.target(name)?;
+                (!self.held.contains(&b)).then_some((b as u16, ti as u16, p))
+            })
+            .collect()
+    }
+
+    /// The names of the extra nodes `clip` has a transform track for (for reports).
+    pub fn extra_driven<'a>(&'a self, clip: &Clip) -> Vec<&'a str> {
+        let n = self.skel.locals.len();
+        let mut out: Vec<&str> = clip.tracks.iter().filter_map(|(name, _)| self.target(name)?.checked_sub(n)).map(|k| self.extra[k].name.as_str()).collect();
+        out.sort_unstable();
+        out.dedup();
+        out
     }
 
     /// Give `node` a rest pose in place of its bind pose (`None`: the bind pose again):
@@ -173,17 +232,7 @@ impl Animator {
     }
 
     fn push(&mut self, clip: &Arc<Clip>, tag: u32, weight: f32, mode: Mode, fade_in: f32) -> usize {
-        let skel = &self.skel;
-        let bound = clip
-            .tracks
-            .iter()
-            .zip(&clip.priorities)
-            .enumerate()
-            .filter_map(|(ti, ((name, _), &p))| {
-                let b = clip_target(skel, name)?;
-                (!self.held.contains(&b)).then_some((b as u16, ti as u16, p))
-            })
-            .collect();
+        let bound = self.bind(clip);
         let ease = if fade_in <= 0.0 { 1.0 } else { 0.0 };
         self.layers.push(Layer {
             clip: clip.clone(),
@@ -235,6 +284,21 @@ impl Animator {
         best.map(|(_, v)| v)
     }
 
+    /// Where the last [`Self::pose`] put the extra node at `k` in the list given to
+    /// [`Self::set_extra`] (its local transform); `None` before the first pose with it.
+    pub fn extra_local(&self, k: usize) -> Option<Transform> {
+        self.locals.get(self.skel.locals.len() + k).copied()
+    }
+
+    /// The extra nodes the last [`Self::pose`] left away from their place in their
+    /// model, with how far: units moved and degrees turned (for reports).
+    pub fn extra_moved(&self) -> impl Iterator<Item = (&str, f32, f32)> {
+        let n = self.skel.locals.len();
+        self.extra.iter().zip(self.locals.iter().skip(n)).filter(|(x, l)| x.bind != **l).map(|(x, l)| {
+            (x.name.as_str(), x.bind.translation.distance(l.translation), x.bind.rotation.angle_between(l.rotation).to_degrees())
+        })
+    }
+
     /// Advance fades, weights and times by `dt` seconds; synced layers move their shared
     /// phase at `sync_rate` times their own speed (weighted by their shares). Layers
     /// faded out are dropped.
@@ -277,8 +341,9 @@ impl Animator {
         }
         self.scratch.sort_unstable_by_key(|c| (c.bone, Reverse(c.priority)));
         // Bones without tracks: the bind pose, or their own rest pose; held nodes: the
-        // identity.
+        // identity; extra nodes: their place in their model.
         self.locals.clone_from(&skel.locals);
+        self.locals.extend(self.extra.iter().map(|x| x.bind));
         for &h in &self.held {
             self.locals[h] = Transform::IDENTITY;
         }
@@ -340,12 +405,14 @@ impl Animator {
         }
     }
 
-    /// Write the pose to the skeleton's node entities (the root excluded).
+    /// Write the pose to the skeleton's node entities (the root excluded) and to the
+    /// extra nodes.
     pub fn apply(&self, transforms: &mut Query<&mut Transform>) {
-        for (i, e) in self.nodes.iter().enumerate().skip(1) {
+        let extra = self.extra.iter().map(|x| &x.entity).zip(self.locals.iter().skip(self.skel.locals.len()));
+        for (e, local) in self.nodes.iter().zip(&self.locals).skip(1).chain(extra) {
             if let Ok(mut tr) = transforms.get_mut(*e) {
-                if *tr != self.locals[i] {
-                    *tr = self.locals[i];
+                if *tr != *local {
+                    *tr = *local;
                 }
             }
         }
@@ -561,6 +628,39 @@ mod tests {
         a.set_rest(3, None);
         a.pose();
         assert_eq!(a.locals[3].translation, Vec3::new(0.0, 2.0, 0.0), "the bind pose again");
+    }
+
+    /// A pistol's slide: a node of the weapon model, not of the skeleton.
+    #[test]
+    fn clips_drive_extra_nodes_by_name() {
+        let mut a = animator();
+        let bind = Transform::from_xyz(5.0, 0.0, 0.0);
+        let part = |name: &str| ExtraNode { name: name.to_string(), entity: Entity::from_raw_u32(9).unwrap(), bind };
+        let fire = clip(&[("A", [1.0, 0.0, 0.0], 30), ("##Slide", [2.0, 0.0, 0.0], 55), ("##Other", [7.0, 0.0, 0.0], 55)], 1.0);
+        // Started before the weapon is there: nothing of it to drive yet.
+        a.want(&fire, 0, 1.0, Mode::Once, 0.0);
+        a.pose();
+        assert_eq!(a.locals.len(), 4);
+        // The weapon arrives: the playing clip takes its slide; a name the skeleton has
+        // stays the skeleton's.
+        a.set_extra(vec![part("##Slide"), part("A"), part("##Idle")]);
+        assert_eq!(a.extra_driven(&fire), ["##Slide"]);
+        a.pose();
+        assert_eq!(a.locals.len(), 7);
+        assert_eq!(a.locals[4].translation, Vec3::new(2.0, 0.0, 0.0));
+        assert_eq!(a.locals[5], bind, "the skeleton's A is driven, not the weapon's");
+        assert_eq!(a.locals[2].translation, Vec3::new(1.0, 0.0, 0.0));
+        assert_eq!(a.locals[6], bind, "a part no clip drives keeps its place in the model");
+        assert_eq!(a.extra_moved().collect::<Vec<_>>(), [("##Slide", 3.0, 0.0)]);
+        // Half faded in: the rest is the part's place in the model.
+        a.layers[0].ease = 0.5;
+        a.pose();
+        assert!((a.locals[4].translation.x - 3.5).abs() < 1e-5);
+        // The weapon goes: the clip plays on without it.
+        a.set_extra(Vec::new());
+        a.pose();
+        assert_eq!(a.locals.len(), 4);
+        assert_eq!(a.locals[2].translation, Vec3::new(1.0, 0.0, 0.0));
     }
 
     #[test]

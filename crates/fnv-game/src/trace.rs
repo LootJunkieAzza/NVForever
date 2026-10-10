@@ -96,6 +96,11 @@ pub enum EventKind {
     IdleAsked { actor: FormId, idle: FormId, source: crate::idles::IdleSource },
     /// An idle was asked for and cannot be played, and why.
     IdleNotPlayed { actor: FormId, idle: FormId, source: crate::idles::IdleSource, reason: &'static str },
+    /// An image space modifier started playing on the screen (ApplyImageSpaceModifier).
+    ImageModifierApplied { modifier: FormId },
+    /// An image space modifier left the screen: removed by a script, or (`ended`) an
+    /// animated one reached the end of its duration.
+    ImageModifierRemoved { modifier: FormId, #[serde(skip_serializing_if = "std::ops::Not::not")] ended: bool },
     /// A reputation changed: infamy (axis 0) or fame (axis 1), the new value.
     ReputationChanged { reputation: FormId, axis: usize, value: f64 },
 }

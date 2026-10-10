@@ -460,6 +460,8 @@ pub struct GameData {
     pub idle_markers: HashMap<FormId, crate::package::IdleCollection>,
     /// IDLE: what playing an idle animation needs (`crate::idles`).
     pub idles: HashMap<FormId, IdleDef>,
+    /// IMAD: how long each image space modifier plays.
+    pub image_modifiers: HashMap<FormId, ImageModifierDef>,
     pub issues: Issues,
     pub read_issues: ReadIssues,
 }
@@ -495,6 +497,17 @@ impl IdleDef {
     pub fn has_file(&self) -> bool {
         self.model.as_deref().is_some_and(|m| m.to_ascii_lowercase().ends_with(".kf"))
     }
+}
+
+/// The timing of an image space modifier (IMAD DNAM) [documented: xEdit
+/// wbDefinitionsFNV.pas IMAD DNAM "Animatable" u32, "Duration" f32;
+/// docs/spec-notes/image-modifiers.md §1].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ImageModifierDef {
+    /// The modifier plays over `duration` seconds and then ends; without the flag it
+    /// stays until it is removed.
+    pub animatable: bool,
+    pub duration: f32,
 }
 
 fn hexid(v: &Json) -> Option<u32> {
@@ -538,6 +551,7 @@ struct Read {
     furniture: Option<u32>,
     idle_marker: Option<crate::package::IdleCollection>,
     idle: Option<IdleDef>,
+    image_modifier: Option<ImageModifierDef>,
     units: Vec<ScriptUnit>,
     issues: Issues,
     read_issues: ReadIssues,
@@ -598,6 +612,7 @@ impl GameData {
             furniture: HashMap::new(),
             idle_markers: HashMap::new(),
             idles: HashMap::new(),
+            image_modifiers: HashMap::new(),
             issues: Issues::default(),
             read_issues: ReadIssues::default(),
         };
@@ -729,6 +744,9 @@ impl GameData {
             }
             if let Some(v) = r.idle {
                 d.idles.insert(id, v);
+            }
+            if let Some(v) = r.image_modifier {
+                d.image_modifiers.insert(id, v);
             }
         }
         let (lines, order) = topic_lines(lo);
@@ -916,6 +934,12 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             subs.iter().find(|s| &s.sig == b"MODL").map(|s| s.data.as_slice()),
             subs.iter().find(|s| &s.sig == b"DATA").map(|s| s.data.as_slice()),
         ));
+    }
+    if &sig == b"IMAD" {
+        let word = |o: usize| subs.iter().find(|s| &s.sig == b"DNAM").and_then(|s| <[u8; 4]>::try_from(s.data.get(o..o + 4)?).ok());
+        if let (Some(a), Some(d)) = (word(0), word(4)) {
+            out.image_modifier = Some(ImageModifierDef { animatable: u32::from_le_bytes(a) != 0, duration: f32::from_le_bytes(d) });
+        }
     }
     for s in &subs {
         match &s.sig {

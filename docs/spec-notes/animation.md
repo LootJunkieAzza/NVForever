@@ -552,10 +552,211 @@ tracks that are not transforms) on `Fallout - Meshes.bsa` and `Update.bsa`.
     game screenshot; 0.3 s into the draw still no gun, 0.8 s in the gun is in the
     hands; drawn, gun and ammunition box in the hands and the backpack on the back;
     0.3 s into putting it away the gun still shows, 0.8 s in it is gone.
-  - Not built: the other things these clips animate on weapon parts (the
-    `NiMaterialColorController` tracks on `##GatlingLaserGun:0`, transform tracks on
-    `##` nodes such as `##BBCarton`), and the same for placed NPCs' weapons
-    (`nvforever::weapons`).
+  - Not built: the `NiMaterialColorController` tracks on `##GatlingLaserGun:0`, and
+    all of this for placed NPCs' weapons (`nvforever::weapons`). The transform tracks
+    on `##` nodes are §9.8.
+
+### 9.8 The moving parts of a weapon [observed unless tagged]
+
+Measured with `crates/fnv-nif/examples/weapon_parts_survey.rs` (a model's scene objects;
+per clip, the tracks whose target is not a skeleton node, how far each moves its target
+and which of the models have an object of that name; `PARTS_DETAIL=<node>` samples one
+track) on `Fallout - Meshes.bsa` and `Update.bsa`.
+
+- A weapon model holds each moving part as a node of its own named `##…`, under the
+  root or under another part, with the part's shape `<name>:0` below it and a
+  `NiTransformController` on the node. The weapon files hold no sequences.
+  - `weapons\1handpistol\10mmpistol.nif`: `##Slide`, `##Trigger`, `##Catch`, `##Hammer`,
+    `##Clip` under the root `10MMPistol`, beside `Object` (the frame), `ShellCasingNode`,
+    `ProjectileNode` and `##SightingNode`.
+  - `weapons\2handhandle\minigun.nif`: `##MinigunGun` (a `NiVisController`, §9.7) with
+    `##MinigunAmmo`, `##MinigunAmmoLock` and `##MinigunBarrel` under it.
+  - `weapons\2handrifle\varmintrifle.nif`: `##VRBolt`, `##VRTrigger`, `##VRClip`, and a
+    node `Silencer` with a controller but no `##`.
+- The actor clips move those parts: a clip's transform tracks name them as they name
+  bones. These are the tracks that bind to no skeleton node (§3.3).
+  - `characters\_male\1hpreloada.kf` (1.3 s; 64 tracks, 62 on bones): `##Clip` at
+    priority 65 travels 52.7 units from its place and turns 115°, `##Slide` (65) goes
+    back 4.85 units. The first-person clip of the same name: `##Clip` 57.5 units and
+    146°, `##Slide` 4.2 units, `##Hammer` 41°.
+  - `1hpattackright.kf` (0.5 s; 112 tracks, 61 on bones): `##Slide` (55) goes back 3.79
+    units, `##Trigger` turns 17°, `##Hammer` 43°. The other 48 tracks off the skeleton
+    (30 of them transforms) name parts of other pistols (`##cmSlide`, `##nmBar`,
+    `##NifRound`, `##dgLever`, …).
+  - `1hpaim.kf` (120 tracks, 60 on bones) has tracks for parts of other pistols and
+    none for the 10mm's; `2hhaim.kf` holds `##MinigunAmmo`, `##MinigunAmmoLock` and
+    `##MinigunBarrel` at their places (priority 35).
+  - `2hhattackspin.kf` (2.5 s, cycle type 2; text keys `Fire` at 0.97 s and `Loop` at
+    1.63 s): its one part track turns `##MinigunBarrel` (57) about the gun's long axis
+    (x), with no translation. Sampled 30 times a second, the barrel turns at 675° a
+    second for 0.4 s, 900° to 0.87 s, then 2,700° a second until 1.63 s (five whole
+    turns between `Fire` and `Loop`), and slows from there to 450° a second at the end,
+    where it is back at its starting angle after ten turns. So the clip is a spin-up
+    to `Fire`, a steady part from `Fire` to `Loop` and a spin-down after `Loop`.
+    `2hhattackloop.kf` (0.2 s) has a `##MinigunBarrel` track that pulls the node back
+    11.5 units along x and returns it with no turn; the minigun's WEAP names
+    `AttackSpin`, so that clip is not the one it plays.
+  - The `Loop` key is on the `attackspin` clips only: 30 of the 938 clips directly in
+    `characters\_male` (`1hm`, `2hm` and `2hh`; `attackspin` and `attackspin2`, with
+    their up, down and sneak forms), each with a `Fire` key before it.
+  - The keys' meaning [documented: GECK wiki NiTextKeyExtraData, owner export; quoted
+    in docs/design/combat.md §4.2]: `Fire` works like `Hit` (the shot leaves) and also
+    starts the internal loop of a clamped sequence; `Loop` jumps back to it. The
+    barrel's speed above fits: the steady part is the loop.
+  - On the owner's install the engine resolves a different `2hhattackspin.kf`, in both
+    folders [observed: the body's debug line, which now gives each chosen clip's length
+    and keys]: 1.733 s long, `Fire` at 0.200 s, `Loop` at 0.867 s. A later archive of
+    the install overrides the base file; which one was not looked up, and that file
+    was not measured (surveys read the base archives only).
+- One clip carries the tracks for the parts of every weapon of its type; a weapon takes
+  the tracks whose names its model has. Which clip plays comes from the WEAP record
+  (attack and reload animation), so two weapons of one type can move differently.
+- Transform tracks target nodes. The other kinds on weapon parts target shapes or
+  nodes: `NiVisController` (`##MinigunGun`, `##NifRound`, `##cmClip`; §9.7),
+  `NiMaterialColorController` (`##GatlingLaserGun:0`), `NiTextureTransformController`
+  (`##Display01:0`) and `NiGeomMorpherController` (`##dgRubberBand:0`).
+- Reading [hypothesis]: the weapon model is attached below the skeleton's `Weapon` node
+  and the clip's tracks find their targets by name in the whole tree, the weapon's nodes
+  included.
+- Engine (since 2026-10-10):
+  - a prepared model keeps its nodes below the root and each shape's node and own
+    transform (`nvf_assets::model::PreparedModel::nodes`, `PreparedShape::node`, `own`);
+  - the player's weapon model is spawned as that tree under the `Weapon` node, and
+    every named node and shape of it is given to the rig's animator as an extra node
+    (`nvf_assets::anim_blend::Animator::set_extra`): a track drives the skeleton node of
+    its name, else the weapon's. Parts blend by priority and fade like bones; a part no
+    playing clip drives is at its place in the model. Both rigs, first and third person;
+  - an attack clip with a `Loop` key is not started again by the shots that follow
+    while it runs; it goes round from its `Fire` key to its `Loop` key while shots come
+    no more than 0.25 s apart [engineering choice], then plays out from where it is
+    (`nvforever::player_body`, `LOOP_HOLD`);
+  - spin-up [owner decision 2026-10-10]: an automatic weapon with such a clip fires its
+    first shot at the clip's `Fire` key. On the pull, combat starts the spin-up
+    (`fnv_combat::attack`, `Phase::SpinUp`, `Event::SpinUp`) and the body starts the
+    clip from its beginning (`WeaponAnim::spin_ups`), so the shot and the key meet;
+    the shots then come at the weapon's rate while the trigger stays held. Letting go
+    before the first shot fires nothing and the clip plays out; every new pull, and
+    firing on after a reload, spins up again [design]. The time is the key's time in
+    the clip the rig in view resolves, not scaled by the weapon's animation
+    multipliers, because the body plays attack clips at their own speed;
+  - the body's once-a-second debug line lists the parts the clips hold away from their
+    place, and each attack or reload clip that starts lists the parts it moves
+    (`RUST_LOG=info,nvforever::player_body=debug`).
+- Checked in ours [observed 2026-10-10, `--play` at Goodsprings with
+  `NVF_PLAY_TEST_EQUIP`, `NVF_PLAY_TEST_GIVE` (ammunition) and
+  `NVF_PLAY_TEST_CONTROL=<t>:weapon,<t>:fire,<t>:fire,<t>:reload`, exit 0 and "run
+  finished" each time; screenshots kept privately]:
+  - 10mm pistol (`0000434F`), first person: 0.08 s after the shot the slide is back and
+    the barrel shows; 0.35 s into the reload the magazine is out of the grip, in the
+    left hand, and at 0.6 s the hand is bringing it back up. The clips report
+    `##Hammer`, `##Slide`, `##Trigger` (attack) and `##Clip`, `##Hammer`, `##Slide`
+    (reload; the third-person clip `##Clip`, `##Slide`).
+  - Minigun (`0000433F`), trigger held 4 s (80 shots), before the spin-up rule:
+    `AttackSpin` stays for the whole burst and about a second after it, with the
+    barrel at a different angle in each status line (46°, 141°, 45°, 70°, 170°, 148°),
+    then the barrel is back at its place. Before, each shot started the clip again,
+    so it never got past its first twentieth of a second.
+  - Minigun with the spin-up rule (the install's clip, `Fire` at 0.2 s): the first
+    shot left 0.18 s after the pull ("spins up, first shot in 0.20 s", then the first
+    "shot" line); a 3 s hold gave 57 shots at 20 a second; a pull let go 0.1 s into
+    the spin-up fired nothing while the clip and the barrel ran on.
+  - Parts reported for other weapons: varmint rifle `2hrattack8.kf` `##VRBolt`,
+    `##VRClip`, `##VRTrigger`; 9mm pistol `##nmBar`, `##nmHammer`, `##nmTrigger`; cowboy
+    repeater `2hrattack5.kf` `##BoltLock`, `##CRHammer`, `##CRLever`, `##LeverBolt`,
+    `##ReloadCap`; assault carbine `2haattackloop.kf` and `2hareloadf.kf`
+    `##ChargingHandle`, `##Clip`, `##CockingMech`; laser rifle `2hrreloadb.kf`
+    `##LR_CellRelease`, `##LR_CellReleaseLatch`, `##LR_CellReleaseSpring`,
+    `##MicroFusionCell` (its attack clip moves none).
+- Not built: the colour, texture-transform and morph tracks on weapon parts; shell
+  casings (`ShellCasingNode`) and the muzzle flash model (`ProjectileNode` is read
+  for where shots are drawn from, §9.9); placed NPCs'
+  weapons, which are still drawn as one rigid model (`nvforever::weapons`; NPCs play no
+  attack or reload clips yet). The spinning melee weapons (`1hm` and `2hm`
+  `attackspin`) keep combat's swing timing: no spin-up for them.
+- Open: whether the game holds a part where the last clip left it when no clip drives
+  it (as §9.7 reads the `Weapon` node) rather than at its place in the model: the
+  10mm's parts have no track in `1hpaim.kf`, so the two readings differ wherever a clip
+  ends with a part away from its place. Not compared with the game frame by frame.
+
+### 9.9 The muzzle: `ProjectileNode` [observed unless tagged]
+
+Measured with `crates/fnv-nif/examples/muzzle_node_survey.rs` (every `.nif` under
+`meshes\weapons\`; `--list` prints one line per file) on `Fallout - Meshes.bsa` and
+`Update.bsa`, 362 models, all parsed.
+
+- 198 of the 362 have a node named `ProjectileNode`; in 6 of them it is spelt
+  `##ProjectileNode` (the four `lasergatling*.nif` hand models and the two
+  `plasmacaster*.nif`, under `##GatlingLaserGun`, with a `NiTransformController`).
+- By folder, with and without: `1handpistol` 65 and 3, `2handautomatic` 31 and 2,
+  `2handrifle` 73 and 7, `2handhandle` 21 and 13, `2handlauncher` 7 and 2, `hand2hand`
+  1 (`ballisticfistrigid.nif`) and 51; none of `1handmelee` (32), `2handmelee` (23),
+  `1handgrenadethrow` (21), `1handminedrop` (7) and `modkits` (3). The 27 without one
+  in the gun folders are not a gun in the hand: world models (`…go.nif`), magazines
+  and cells, shells and shell casings, hoses, the BB gun's can, and projectiles (the
+  missile, the mini nuke, the rifle grenade).
+- Where it hangs: directly under the root in 167; else under a part of the weapon
+  (`##MinigunGun` 7, `##GatlingLaserGun` 6, `##FlamerGun` 3, `##GaussRifleFront` 3,
+  `##sosgStock` 2, and one each under `##MinigunBarrel`, `##RIL`, `##Gun`,
+  `##CVSHStock`, `##snBarrell`, `HuntingRevolver`, `LaserPistol`, `Marksman`,
+  `Pulsegun`, `TeslaCannon`).
+- Where it is: 6.2 to 89.3 units from the model's origin, furthest along the model's
+  x axis in 189 and along y in 9 (the shoulder launchers).
+  - `weapons\1handpistol\10mmpistol.nif` (17.84, 4.05, 0.00); the same pistol with a
+    silencer (`10mmpistolsilenced.nif`) (34.27, 4.05, 0.00), 16.4 units further out;
+    `127mmpistol.nif` 18.69 and `127mmpistolsilencer.nif` 34.79 along x.
+  - `weapons\2handhandle\minigun.nif` (79.74, −11.80, 0.00) under `##MinigunGun`;
+    `weapons\2handrifle\varmintrifle.nif` (46.46, 7.00, 0.00);
+    `weapons\2handlauncher\missilelauncher.nif` (−5.89, −40.53, −11.23).
+- How it is turned: 196 of the 198 have a rotation of their own. In 193 the node's own
+  y axis lies along the model axis the node is furthest out on, pointing away from the
+  origin (the node's x, y, z along the model's z, x, y in 179). The five others:
+  `1handpistol\camera.nif`, `2handhandle\25mmgrndlnchr.nif` (turned by no right angle),
+  `hand2hand\ballisticfistrigid.nif` and the two plasma casters (not turned).
+- `ShellCasingNode`: 123 of the 362, 112 directly under the root.
+- First-person models: 10 files named `1st…`, nine of them melee weapons and one
+  `2handrifle\1stpersongaussrifleunique.nif` (the only one with the node). The 10mm
+  pistol and the minigun use one model for both rigs [observed: the engine's "player
+  weapon model" lines name the same file for the first- and third-person rig].
+- A clip moves it: `characters\_male\2hhattackloop.kf` and the first-person clip of the
+  same name have a transform track `##ProjectileNode` (priority 55) that starts at
+  (70.60, −14.76, 0.00), the node's place in `lasergatling.nif`, and travels 6.0 units
+  (5.75 in first person) with no turn. The minigun's node has no `##` and no track.
+- Reading [hypothesis]: the node marks the muzzle. The projectile and the muzzle flash
+  start there, and its y axis is the way the barrel points. For: its name; it sits at
+  the far end of the barrel; a silencer moves it out by the silencer's length; weapons
+  that fire nothing have none; a firing clip moves it with the gun's front. Not
+  checked against the game.
+- Engine (since 2026-10-10; docs/design/combat.md §5.1):
+  - the player body finds `ProjectileNode` or `##ProjectileNode` in the weapon model
+    of each rig (`nvf_assets::model::node_path`) and, each frame the weapon is in
+    hand, works out where it is in the rig in view from the pose it has just made: the
+    node the `Weapon` node hangs from, the `Weapon` node, then down the model's nodes,
+    each where the clips have it (`nvforever::player_body`, `Rig::muzzle_at`). It
+    gives that to combat as `nvf_play::combat::WeaponAnim::muzzle` (game space);
+  - combat draws shots from it (tracers, the flash marker) and uses it for the
+    third-person cover rule. The node's rotation is not used: the aim is the view's;
+  - a weapon model without the node, a holstered weapon and a run without a player
+    body (`--no-actors`) give no muzzle, and shots are drawn from the eye as before.
+- Checked in ours [observed 2026-10-10, `--play` at Goodsprings, `--hour 12`, exit 0
+  and "run finished" each time, `RUST_LOG=info,nvf_play::combat=debug`; screenshots
+  kept privately]:
+  - 10mm pistol (`0000434F`), third person: eye (−71680.0, 2044.3, 8490.4), muzzle
+    (−71678.7, 2086.8, 8445.0): 42.5 units ahead of the eye and 45.4 below it. First
+    person: muzzle (−71672.9, 2087.2, 8476.7), 7.1 units right of the eye, 42.9 ahead
+    and 13.7 below; the tracer starts there and ends at the hit by the crosshair.
+  - Minigun (`0000433F`), third person, trigger held: muzzle (−71659.5, 2128.6,
+    8429.1), 20.5 units right of the eye, 84.3 ahead and 61.3 below. Held 1.2 s: "24
+    shots (24 drawn from the muzzle, 0 from behind cover)", and each logged tracer
+    starts at the muzzle of its shot, within 6 units of the first (the gun moves as it
+    fires). Seen from the side (`orbit=75:5`) with `NVF_PLAY_TEST_TRACERS=3`, the
+    tracers of a 7-shot burst fan out from the end of the barrel, with the flash
+    marker on it.
+  - Gatling laser (`0000432E`, the `##ProjectileNode` spelling), third person,
+    trigger held 0.5 s: "ProjectileNode 2 node(s) down" for both rigs; muzzle
+    (−71659.6, 2119.2, 8426.8) at the first shot; "16 shots (16 drawn from the muzzle,
+    0 from behind cover)".
+- Not built: the PROJ's muzzle flash model and light (ours draws a marker), shell
+  casings from `ShellCasingNode`, NPCs' shots.
 
 ### 9.5 The first-person rig [observed unless tagged]
 

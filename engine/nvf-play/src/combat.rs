@@ -13,7 +13,11 @@
 //!   attack and reload clips when [`WeaponAnim::attacks`] / [`WeaponAnim::reloads`] count
 //!   up and gives their timing back.
 //! - **Shots** leave the eye along the view, inside the spread cone (the documented New
-//!   Vegas spread plus bloom); recoil kicks the view up and recovers [design].
+//!   Vegas spread plus bloom); recoil kicks the view up and recovers [design]. They are
+//!   drawn from the muzzle of the held weapon ([`WeaponAnim::muzzle`], the model's
+//!   `ProjectileNode`), closing on the view ray by the point aimed at; in third person a
+//!   shot with something between the muzzle and that point leaves the muzzle instead
+//!   (`fnv_combat::shot::leaving`; docs/design/combat.md §5.1).
 //! - **Projectiles** fly through the physics world (`fnv_phys` rays; actor hit volumes,
 //!   combat C3).
 //! - **Melee and unarmed** (step C6): a tap of Use swings, holding it
@@ -53,7 +57,8 @@
 //!   bottles and cans are knocked away [design]. The scripts are told when the player's
 //!   weapon is out (`IsWeaponOut`): [`WeaponAnim::ready`].
 //! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
-//!   tracers at the projectile's tracer chance, an ammo counter, a hit marker at the
+//!   a flash at the muzzle for each shot, tracers from the muzzle at the projectile's
+//!   tracer chance, an ammo counter, a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
 //!   health, and a line for kills with their XP.
 
@@ -63,6 +68,7 @@ use fnv_combat::damage::{self, Attacker, AttackKind, HitInput, HitPart, NoPerks,
 use fnv_combat::data::AmmoEffect;
 use fnv_combat::projectile::{blast, ActorId, CombatWorld, ProjEvent, Projectile, WorldHit};
 use fnv_combat::rng::SplitMix;
+use fnv_combat::shot::Seen;
 use fnv_combat::spread::{self, Kick, Stance};
 use fnv_combat::vec::{self, V3};
 use fnv_combat::{shot, CombatForms, CombatTuning, Rules};
@@ -99,8 +105,17 @@ pub struct WeaponAnim {
     /// clip when it sees a new count.
     pub attacks: u32,
     pub reloads: u32,
+    /// Counted up by combat when a weapon starts to spin up: the body plays the attack
+    /// clip from its start, and the first shot follows at the clip's `Fire` key.
+    pub spin_ups: u32,
     /// The last attack is a power attack (melee), for the body's clip choice.
     pub power: bool,
+    /// Set by the body each frame: where the muzzle of the weapon in hand is, in the rig
+    /// in view (game space): the weapon model's `ProjectileNode` [hypothesis: that the
+    /// node marks where projectiles and the muzzle flash start, from its name and its
+    /// place at the end of the barrel; docs/spec-notes/animation.md §9.9]. `None`
+    /// without a body, a weapon in hand or such a node: shots are drawn from the eye.
+    pub muzzle: Option<[f32; 3]>,
 }
 
 /// An actor was hit (and maybe died) by combat.
@@ -252,6 +267,10 @@ pub struct CombatStats {
     pub power_attacks: u32,
     pub melee_hits: u32,
     pub knockdowns: u32,
+    /// Shots drawn from the weapon's muzzle, and shots that left it because something
+    /// stood in front of the barrel (third person).
+    pub muzzle_shots: u32,
+    pub covered_shots: u32,
 }
 
 /// A melee swing in progress (step C6).
@@ -263,10 +282,12 @@ struct Swing {
     struck: bool,
 }
 
-/// A projectile in flight with where it left from and whether it draws a tracer.
+/// A projectile in flight with where it left from, where it is drawn and whether it
+/// draws a tracer.
 struct Flying {
     p: Projectile,
     origin: V3,
+    seen: Seen,
     tracer: bool,
     projectiles_per_shot: u32,
     /// The projectile's Impact Force (PROJ DATA), for [`OBJECT_PUSH`].
@@ -288,14 +309,41 @@ struct Pending {
     force: f32,
 }
 
+/// What a [`Mark`] shows.
+#[derive(Clone, Copy, PartialEq)]
+enum MarkKind {
+    Tracer,
+    Impact,
+    /// A shot left the muzzle at `to`.
+    Flash,
+}
+
 /// A short-lived marker [design].
 struct Mark {
     from: V3,
     to: V3,
     age: f32,
     life: f32,
-    impact: bool,
+    kind: MarkKind,
 }
+
+impl Mark {
+    fn tracer(from: V3, to: V3, life: f32) -> Mark {
+        Mark { from, to, age: 0.0, life, kind: MarkKind::Tracer }
+    }
+
+    fn at(point: V3, life: f32, kind: MarkKind) -> Mark {
+        Mark { from: point, to: point, age: 0.0, life, kind }
+    }
+}
+
+/// How long the flash at the muzzle shows, seconds, and its size, units [design, until
+/// the PROJ's muzzle flash model and light are drawn].
+const FLASH_LIFE: f32 = 0.06;
+const FLASH_SIZE: f32 = 2.5;
+/// The reach of the view ray that finds the aim point when the projectile has no range
+/// of its own, units [design].
+const AIM_REACH: f32 = 100_000.0;
 
 /// The player's combat state.
 #[derive(Resource)]
@@ -333,6 +381,10 @@ pub struct Combat {
     /// Test aid `NVF_PLAY_TEST_NO_SPREAD=1`: shots leave exactly along the view (no
     /// spread, no bloom), so an unattended check hits what it aims at.
     no_spread: bool,
+    /// Test aid `NVF_PLAY_TEST_TRACERS=<seconds>`: every projectile draws a tracer, and
+    /// tracers and muzzle flashes stay that long, so one screenshot of an unattended
+    /// check shows where the shots were drawn from.
+    tracer_hold: Option<f32>,
 }
 
 pub struct CombatPlugin;
@@ -408,6 +460,7 @@ fn init_combat(mut commands: Commands, d: Res<PlayWorld>) {
         rng: SplitMix(1),
         time: 0.0,
         no_spread: std::env::var_os("NVF_PLAY_TEST_NO_SPREAD").is_some_and(|v| v != "0"),
+        tracer_hold: std::env::var("NVF_PLAY_TEST_TRACERS").ok().and_then(|v| v.trim().parse().ok()).filter(|s: &f32| *s > 0.0),
     });
 }
 
@@ -530,7 +583,7 @@ fn fire(
     time: Res<Time>,
     mut c: ResMut<Combat>,
     mut sim: ResMut<SimState>,
-    phys: Res<PhysState>,
+    mut phys: ResMut<PhysState>,
     mut player: ResMut<Player>,
     mut control: ResMut<PlayerControl>,
     mut anim: ResMut<WeaponAnim>,
@@ -574,6 +627,10 @@ fn fire(
     let Some(chain) = c.forms.chain(id, c.ammo) else { return };
     for e in events {
         match e {
+            Event::SpinUp => {
+                anim.spin_ups += 1;
+                debug!("combat: {} spins up, first shot in {:.2} s", w.edid.as_deref().unwrap_or("?"), cycle.timing.spin_up);
+            }
             Event::Fired { rounds } => {
                 anim.attacks += 1;
                 stats.shots += 1;
@@ -611,17 +668,41 @@ fn fire(
                 let actor_spread = spread::actor_spread(&c.rules, &c.tuning, &w, &stance);
                 let cone = if c.no_spread { 0.0 } else { spread::cone_deg(actor_spread, c.kick.bloom, &w, &effects) };
                 let eye = player.eye();
-                let aim = player.look_dir();
                 let gravity = phys.world.params.gravity;
+                let (tracer_chance, force, range) =
+                    chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or((0.0, 0.0, 0.0), |p| (p.tracer_chance, p.impact_force, p.range));
+                // The aim is the view ray from the eye; the shot is drawn from the
+                // muzzle, and in third person leaves it when the barrel is behind cover
+                // (docs/design/combat.md §5.1).
+                let reach = if range > 0.0 { range } else { AIM_REACH };
+                let leaving = {
+                    let world = view(&mut phys);
+                    shot::leaving(&world, eye, player.look_dir(), anim.muzzle, reach, Some(PLAYER), control.third_person_view())
+                };
                 let rng = &mut c.rng;
                 let mut rand = || rng.next_f32();
-                let shots = shot::fire(&c.forms, &chain, eye, aim, cone, Some(PLAYER), gravity, &c.tuning, &mut rand);
-                let (tracer_chance, force) = chain.projectile.and_then(|p| c.forms.projectiles.get(&p)).map_or((0.0, 0.0), |p| (p.tracer_chance, p.impact_force));
+                let shots = shot::fire(&c.forms, &chain, leaving.origin, leaving.aim, cone, Some(PLAYER), gravity, &c.tuning, &mut rand);
                 stats.projectiles += shots.len() as u32;
                 for p in shots {
-                    let tracer = c.rng.next_f32() < tracer_chance;
-                    c.flying.push(Flying { p, origin: eye, tracer, projectiles_per_shot: chain.projectiles_per_shot, force });
+                    let tracer = c.rng.next_f32() < tracer_chance || c.tracer_hold.is_some();
+                    c.flying.push(Flying { p, origin: leaving.origin, seen: leaving.seen, tracer, projectiles_per_shot: chain.projectiles_per_shot, force });
                 }
+                let seen_from = leaving.seen.at(leaving.origin, 0.0);
+                if anim.muzzle.is_some() {
+                    c.marks.push(Mark::at(seen_from, c.tracer_hold.unwrap_or(FLASH_LIFE), MarkKind::Flash));
+                }
+                stats.muzzle_shots += (seen_from != eye) as u32;
+                stats.covered_shots += leaving.covered as u32;
+                let p3 = |v: V3| format!("({:.1}, {:.1}, {:.1})", v[0], v[1], v[2]);
+                debug!(
+                    "combat: shot aimed from the eye {} at {} ({:.0} units), muzzle {}, drawn from {}{}",
+                    p3(eye),
+                    p3(leaving.aim_point),
+                    leaving.aim_distance,
+                    anim.muzzle.map_or("none (the eye)".to_string(), p3),
+                    p3(seen_from),
+                    if leaving.covered { "; cover in front of the barrel: it leaves the muzzle" } else { "" }
+                );
                 let kick = c.kick.shot(&c.tuning, w.min_spread, w.base_damage as f32);
                 player.pitch = (player.pitch + kick.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
                 debug!("combat: shot, cone {cone:.2}°, magazine {}", cycle.magazine);
@@ -919,8 +1000,11 @@ fn fly(
     }
     {
         let world = view(&mut phys);
+        let hold = c.tracer_hold;
         for f in &mut c.flying {
             let before = f.p.pos;
+            // Where it is drawn: from the muzzle, closing on its path (`Seen`).
+            let seen_before = f.seen.at(before, f.p.travelled);
             for e in f.p.step(&world, dt) {
                 match e {
                     ProjEvent::Hit { actor, part, object, point, delay, .. } => {
@@ -929,15 +1013,24 @@ fn fly(
                         let dir = if vec::len(d) > 1e-3 { vec::scale(d, 1.0 / vec::len(d)) } else { [0.0; 3] };
                         c.pending.push(Pending { due: c.time + delay, actor, part, object, point, dir, projectiles: f.projectiles_per_shot, force: f.force });
                         if f.tracer {
-                            c.marks.push(Mark { from, to: point, age: 0.0, life: 0.08, impact: false });
+                            debug!(
+                                "combat: tracer from ({:.1}, {:.1}, {:.1}) to the hit at ({:.1}, {:.1}, {:.1})",
+                                seen_before[0], seen_before[1], seen_before[2], point[0], point[1], point[2]
+                            );
+                            c.marks.push(Mark::tracer(seen_before, point, hold.unwrap_or(0.08)));
                         }
                     }
                     ProjEvent::Explode { explosion, point } => c.boom.push((explosion, point)),
-                    ProjEvent::Expired { .. } => {}
+                    // A tracer that meets nothing is drawn to where it ends.
+                    ProjEvent::Expired { point } => {
+                        if f.tracer {
+                            c.marks.push(Mark::tracer(seen_before, point, hold.unwrap_or(0.08)));
+                        }
+                    }
                 }
             }
             if f.tracer && f.p.alive {
-                c.marks.push(Mark { from: before, to: f.p.pos, age: 0.0, life: 0.05, impact: false });
+                c.marks.push(Mark::tracer(seen_before, f.seen.at(f.p.pos, f.p.travelled), hold.unwrap_or(0.05)));
             }
         }
         c.flying.retain(|f| f.p.alive);
@@ -997,7 +1090,7 @@ fn fly(
             damage_destructible(c, &mut sim, script.as_deref_mut(), r, dmg);
         }
         let pushed = phys.world.push_dynamic(at, x.radius, x.force);
-        c.marks.push(Mark { from: at, to: at, age: 0.0, life: 0.6, impact: true });
+        c.marks.push(Mark::at(at, 0.6, MarkKind::Impact));
         info!(
             "combat: explosion {} at ({:.0}, {:.0}, {:.0}), {pushed} loose object(s) pushed{}",
             x.edid.as_deref().unwrap_or("?"),
@@ -1018,7 +1111,7 @@ fn fly(
     let chain = c.forms.chain(id, c.ammo);
     let effect_ids = chain.map(|ch| ch.ammo_effects).unwrap_or_default();
     for p in due {
-        c.marks.push(Mark { from: p.point, to: p.point, age: 0.0, life: 0.3, impact: true });
+        c.marks.push(Mark::at(p.point, 0.3, MarkKind::Impact));
         let effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
         let a = attacker(&mut sim, w.skill.as_deref(), false);
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part));
@@ -1086,15 +1179,17 @@ fn draw_marks(time: Res<Time>, mut c: ResMut<Combat>, mut gizmos: Gizmos) {
     for m in &mut c.marks {
         m.age += dt;
         let fade = (1.0 - m.age / m.life).clamp(0.0, 1.0);
-        if m.impact {
-            let p = space::to_bevy(m.to);
-            let s = 4.0;
-            let col = Color::srgba(1.0, 0.8, 0.3, fade);
-            gizmos.line(p - Vec3::X * s, p + Vec3::X * s, col);
-            gizmos.line(p - Vec3::Y * s, p + Vec3::Y * s, col);
-            gizmos.line(p - Vec3::Z * s, p + Vec3::Z * s, col);
-        } else {
-            gizmos.line(space::to_bevy(m.from), space::to_bevy(m.to), Color::srgba(1.0, 0.9, 0.6, fade));
+        match m.kind {
+            MarkKind::Tracer => {
+                gizmos.line(space::to_bevy(m.from), space::to_bevy(m.to), Color::srgba(1.0, 0.9, 0.6, fade));
+            }
+            MarkKind::Impact | MarkKind::Flash => {
+                let p = space::to_bevy(m.to);
+                let (s, col) = if m.kind == MarkKind::Flash { (FLASH_SIZE, Color::srgba(1.0, 0.95, 0.7, fade)) } else { (4.0, Color::srgba(1.0, 0.8, 0.3, fade)) };
+                gizmos.line(p - Vec3::X * s, p + Vec3::X * s, col);
+                gizmos.line(p - Vec3::Y * s, p + Vec3::Y * s, col);
+                gizmos.line(p - Vec3::Z * s, p + Vec3::Z * s, col);
+            }
         }
     }
     c.marks.retain(|m| m.age < m.life);
@@ -1135,8 +1230,8 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
     if exit.read().last().is_some() {
         let s = &*stats;
         info!(
-            "combat: {} shots, {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
-            s.shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
+            "combat: {} shots ({} drawn from the muzzle, {} from behind cover), {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
+            s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
         );
     }
 }
@@ -1242,8 +1337,14 @@ fn update_hit_hud(
     }
 }
 
-/// The cycle's clip timing from the attack clip (length, `Hit` key) and the reload
-/// clip's length, as the player body reads them.
-pub fn clip_timing(attack: Option<(f32, Option<f32>)>, reload: Option<f32>) -> ClipTiming {
-    ClipTiming { attack_len: attack.map(|a| a.0).filter(|l| *l > 0.0), hit_time: attack.and_then(|a| a.1), reload_len: reload.filter(|l| *l > 0.0) }
+/// The cycle's clip timing from the attack clip (length, `Hit` or `Fire` key, and
+/// whether a `Loop` key follows that key) and the reload clip's length, as the player
+/// body reads them.
+pub fn clip_timing(attack: Option<(f32, Option<f32>, bool)>, reload: Option<f32>) -> ClipTiming {
+    ClipTiming {
+        attack_len: attack.map(|a| a.0).filter(|l| *l > 0.0),
+        hit_time: attack.and_then(|a| a.1),
+        reload_len: reload.filter(|l| *l > 0.0),
+        spin_up: attack.filter(|a| a.2).and_then(|a| a.1),
+    }
 }

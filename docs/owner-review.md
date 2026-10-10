@@ -1603,6 +1603,160 @@ the left hand is too high. Branch `claude/weapon-rest-pose`. Facts:
    back part like the minigun's I did not check). NPCs carrying these weapons still
    draw them the old way. In first person the backpack is not drawn at all.
 
+## Weapons' moving parts: slides, magazines, the minigun's barrel (2026-10-10, session "weapon parts")
+
+Your report: no weapon's moving parts are animated (the 10mm's magazine on reload, its
+slide on firing, the minigun's barrel). Branch `claude/weapon-moving-parts`. Facts:
+`docs/spec-notes/animation.md` §9.8. Pictures: `C:\fnv-private\references\weapon_parts\`
+(`10mm-sheet.png`: holding, firing, two moments of the reload).
+
+1. **Cause:** nothing was missing from what we read out of the files. The body
+   animations (fire, reload, hold) also carry the movements of the weapon's parts, each
+   addressed by the part's name inside the weapon model (`##Slide`, `##Clip`,
+   `##MinigunBarrel`). We drew the weapon as loose pieces with those names thrown away,
+   so the movements had nothing to act on and were dropped.
+2. **Fix:** the weapon in your hands keeps its parts as named pieces, and the animations
+   move them the same way they move bones. First and third person.
+3. **Checked in ours:** 10mm pistol in first person: the slide snaps back at the shot;
+   on reload the magazine comes out in the left hand and goes back in. Minigun: the
+   barrel turns for as long as the trigger is held. The log also names moving parts for
+   the varmint rifle (bolt), 9mm pistol, cowboy repeater (lever), assault carbine
+   (charging handle, magazine) and laser rifle (cell on reload). I did not compare
+   any of it with the game frame by frame.
+4. **Decision taken, the minigun's firing animation:** measured from the file, the
+   barrel spins up for about a second, turns at full speed for two thirds of a second
+   between two markers (`Fire` and `Loop`), then spins down. Before, every shot
+   restarted the animation, so it never got going. Now it plays the spin-up once,
+   repeats the full-speed part while you hold the trigger, and spins down when you let
+   go. That the game repeats exactly that part is my reading of the markers, not
+   something I saw in the game; if it does it differently, say so.
+5. **The spin-up delay (you asked for it, 2026-10-10):** built. The minigun now waits
+   for the animation's `Fire` marker before the first shot, then fires at its normal
+   rate while you hold the trigger. Letting go before the first shot fires nothing
+   (the barrel still spins and winds down); every new press spins up again, and so
+   does firing on after a reload. Those last two rules are my choice.
+   **A correction to what I told you:** I quoted about a second of spin-up. That is
+   the file in the base game archive. Your install uses a different version of that
+   animation from a later archive (1.7 s long, `Fire` marker 0.2 s in), so the delay
+   you will see is 0.2 s. I did not look up which archive it comes from. If 0.2 s
+   feels too short, say so and say what you want instead; a fixed time would be our
+   own number rather than the file's.
+6. **Not done:** NPCs' weapons (they do not fire or reload with animations yet, so
+   there is nothing to move); shell casings and muzzle flashes; the glow on the gatling
+   laser and the screens on a few energy weapons, which are other kinds of animation.
+
+## Screen effects in the opening: white screen, blurred wake-up (2026-10-10, session "image space modifiers")
+
+Your request: the opening quest's screen effects (fade to black, white screen, blurred
+vision) should play in our engine. Branch `claude/imagespace-modifiers`. Facts:
+`docs/spec-notes/image-modifiers.md`. Pictures:
+`C:\fnv-private\references\image_modifiers\`.
+
+1. **What plays now:** a new game starts on a white screen. When the opening quest hands
+   over to Doc Mitchell's, the room comes out of the white over 5 seconds, blurred and
+   slightly doubled, and is sharp after 7. After Doc's first line there is a dark blink
+   and a bright, blurred flash that settles over 10 seconds (`newgame_1` to `newgame_5`).
+   Message boxes, subtitles and the HUD stay sharp on top.
+2. **It is not only the opening:** the three script commands behind this now work
+   everywhere, so the other scripts that use them get their effect too: 266 uses in the
+   base game, most of them fades to black and back. I only watched the opening.
+3. **Built:** fade to a colour, blur, double vision, blur around the edges of the screen,
+   and changes to brightness, contrast, saturation and tint. An effect with a set length
+   ends by itself; one without stays until a script removes it.
+4. **Not built:** depth of field (6 effects use it) and motion blur (7). Blood on the
+   screen, effects from explosions and weapons, and a script changing a room's whole
+   look are separate things and still do nothing.
+5. **Guesses, please check against the game:** the files say how strong each effect is
+   as a number, not what that number looks like. How wide a blur of "5" is, how far apart
+   the two images of double vision sit, and how they sway are my guesses. To compare,
+   this shows one effect frozen at a chosen second, in ours:
+   `nvforever --data <Data> --cell GSDocMitchellHouse --imod VCG01FadeInFromBlackISFX@3.5`
+   (`wakeup_held_3.5s.png` is that frame). A game screenshot from the same spot with the
+   console's `imod VCG01FadeInFromBlackISFX`, taken about 3 to 4 seconds in, would let me
+   set the blur. Leave `@3.5` off to watch it loop.
+6. **Two more guesses:**
+   - While a message box is open the wake-up effect waits (in ours the add-on pack boxes
+     pop up during it, so it takes longer than 7 seconds on the clock). If the game keeps
+     fading behind a box, say so.
+   - A script starting an effect that is already playing restarts it. The game might
+     layer a second copy instead.
+7. **Odd thing in the files:** the wake-up effect is named "fade in from black" but its
+   colour in the file is white, and a capture of your new-game save shows a white
+   screen at that point, so white it is.
+8. **Still wrong in the opening, not touched here:** you can walk and look around while
+   Doc is talking. The scripts ask for the controls to be locked; we do not obey that
+   yet. Before the opening's scripts have loaded (3 to 6 seconds) I hold the screen
+   white so the room does not show early.
+
+## Body in first person: a switch (2026-10-10, session "first-person body")
+
+Your request: an option to toggle the body rendering in first person. Branch
+`claude/first-person-body`. Design: `docs/design/player-body.md` §1.5.
+
+1. **The switch:** "Body in first person" on the Esc menu's settings page (under
+   Picture), or start with `--first-person-body`. It is off by default, because the
+   original only draws the arms.
+2. **On:** looking down you see your chest, legs and feet in what you are wearing. With
+   the weapon away your arms hang at your sides; with it out, the usual first-person
+   arms and weapon are drawn and the body's own arms are hidden. Your view does not
+   move: the body is placed under the camera.
+3. **Sitting (your report, with the screenshot of the view inside the jumpsuit):** with
+   the switch on, a seated view now turns at most 80° to either side and 75° down, like
+   a head on a neck, and the eyes swing round the neck as the head turns, so you see
+   your shoulder and arm at the limit and never the inside of the body. If you sit down
+   looking the other way, the view comes round by itself. While you sit down and get up
+   the view now turns with the body (your second report: the camera stayed put while the
+   body turned); you said that looked a lot better.
+4. **For you to decide:**
+   - With the switch off, the seated view is as before: free to turn all the way round,
+     and not turned by the body as it sits down (no body is drawn, so nothing looks
+     wrong). Should the neck limit and the turning apply there too?
+   - 80° and 75° are my guesses at a comfortable limit. Say if it feels too tight.
+5. **Not done:** your shadow. With the switch on it is a body without a head (and
+   without its own arms while the weapon is out). Fixing that means letting hidden
+   parts still cast shadows; it is a separate piece of work.
+
+## Shots leave the barrel (2026-10-10, session "muzzle")
+
+Your report: a shot looks as if it comes from the camera, not from the gun's barrel,
+and you thought something in the weapon model controls it. Both were right. Branch
+`claude/muzzle-origin` (on top of `claude/weapon-moving-parts`). Facts:
+`docs/spec-notes/animation.md` §9.9; design: `docs/design/combat.md` §5.1. Pictures:
+`C:\fnv-private\references\muzzle\`.
+
+1. **Cause:** ours started every shot, tracer and all, at the eye. That was chosen on
+   purpose for aiming (the shot goes where the crosshair is), and the plan said the
+   barrel would be used for what you see. That second half was never built.
+2. **What the model has:** guns carry an empty marker called `ProjectileNode` at the
+   end of the barrel: 198 of the 362 weapon models in the base game, none of the melee
+   weapons, grenades or mines. A silencer moves it out by the silencer's length. That
+   it marks where the shot starts is my reading of its name and place; I did not
+   check it against the game.
+3. **Fix:** the tracer and the flash now start at that marker on the gun you see, in
+   first and third person, and run to the point the crosshair is on. What gets hit is
+   decided exactly as before.
+4. **Checked in ours:** 10mm pistol in first and third person and the minigun in third
+   person. Seen from the side, the minigun's tracers fan out from the end of the
+   barrel. The log gives the barrel's position for every shot.
+5. **Added, third person only:** if something stands right in front of the barrel
+   (within about 2 metres) between it and the point you aim at (you look over a low
+   wall, the gun is behind it), the shot now hits that thing instead of passing
+   through it. This was in the plan. It is covered by a test; I did not try it at a
+   wall in a run.
+6. **For you to decide, the hit rule:** the original fires along the gun's barrel, so
+   the shot can land off the crosshair. Ours keeps the crosshair true (your earlier
+   choice for combat). If you meant the shot itself should follow the barrel, say so.
+7. **For you to decide, third person:** the view ray starts at the character's head,
+   but the camera sits over the right shoulder, so shots should land about 40 units
+   (roughly 60 cm) to the left of the crosshair dot at every distance. That figure is
+   the camera's offset in the code; I did not measure it in a run. It was like this
+   before. The fix
+   would be to aim from the camera's own line in third person; that changes where
+   shots land, so I left it.
+8. **Not done:** the game's real muzzle flash effect and light (ours draws a small
+   marker), shell casings (the models have a marker for those too), models for missiles
+   and grenades in flight, and NPCs' shots (they do not shoot yet). Weapons without the
+   marker still draw from the eye.
 ## Idle animations: scripts, packages, dialogue, and the wake-up at Doc Mitchell's (2026-10-10, session "idles")
 
 Your request: idles from scripts (PlayIdle), from the package tabs (Idles, and

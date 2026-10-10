@@ -126,6 +126,10 @@ What it does now:
 - Image-space grade (world.md §6, `imagespace.rs`/`imagespace.wgsl`): a full-screen pass
   after tonemapping with the worldspace's image space and the weather's adapters for the
   time of day (warm amber by day, darker grey-navy at night); `--no-grade` turns it off.
+  The same pass draws the image space modifiers scripts play on the screen (fade to a
+  colour, double vision, radial blur, changes to the grade), after a two-pass blur
+  that runs only while a modifier blurs (`imagespace_blur.wgsl`;
+  docs/spec-notes/image-modifiers.md §5); `--imod <record>[@seconds]` shows one.
   Compared with the owner's screenshots: night ground still a little bright (HDR eye
   adaptation not applied), and the game still shows sunset colours at 20:00 where the
   renderer is already at night (time-of-day keys to revisit).
