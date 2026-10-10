@@ -67,7 +67,9 @@ impl Plugin for SimPlugin {
 /// Game time runs at TimeScale while the player is in the world, not in the container
 /// and inventory menus (`PlayState::Menu`) [observed for the container menu: the game
 /// clock stopped there, docs/spec-notes/layer5-captures.md §8.3 e; it kept running in the
-/// console and Wait menus, docs/spec-notes/simulation.md §5b].
+/// console and Wait menus, docs/spec-notes/simulation.md §5b]. It stops in a conversation
+/// with the player as well (`PlayState::Dialogue`) [owner ruling 2026-10-10: a
+/// conversation with the player pauses the game; `crate::dialogue`].
 fn advance_clock(time: Res<Time>, mut sim: ResMut<SimState>) {
     if let Err(e) = sim.world.advance_real_seconds(time.delta_secs_f64()) {
         warn_once!("game clock: {e}");

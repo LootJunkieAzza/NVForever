@@ -258,6 +258,13 @@ struct Args {
     /// --pos and --heading are ignored.
     #[arg(long, requires = "play")]
     new_game: bool,
+    /// With --play: what a conversation with the player holds. "living": game logic
+    /// only (scripts' game time, the game clock, physics, travelling NPCs, the player's
+    /// movement), while animations, wind, water and sky go on and the player looks around
+    /// freely while the actor speaks. "original": the picture stands still too.
+    /// docs/design/dialogue.md, Pausing.
+    #[arg(long, default_value = "living", value_parser = ["living", "original"], requires = "play")]
+    dialogue_pause: String,
 }
 
 #[derive(Component)]
@@ -524,6 +531,7 @@ fn main() -> AppExit {
     if args.new_game {
         app.insert_resource(nvf_play::script::NewGame);
     }
+    app.insert_resource(if args.dialogue_pause == "original" { nvf_play::dialogue::PauseMode::Original } else { nvf_play::dialogue::PauseMode::Living });
     if let Some(data) = play {
         // Travel reloads cells before streaming runs again; the play systems run in
         // nvf-play's own sets.
