@@ -87,12 +87,17 @@ below 30).
 
 ## 3. Playing one idle
 
-- **Loop counts** [hypothesis; xEdit names the fields only]: loop minimum and maximum both
-  0 play the idle once; a maximum of 255 loops it until something replaces it; otherwise
-  it plays a number of times from the minimum to the maximum. Consistent with §2: the two
-  poses the player stays in (lying awake, sitting on the bed) store 255 / 255, the two
-  movements 0 / 0. In the ten masters 1,462 idles store 0 / 0 and 93 store 255 / 255
-  [observed: animation.md §1.1].
+- **Loop counts**: the editor offers "Loop Forever" (the animation loops continually)
+  and a minimum and a maximum "number of times an animation will loop", all three only
+  for animations that can loop [documented: GECK wiki, Idle Animations Window, §9]. So an
+  idle can loop for ever, and the two bytes are loop counts. How Loop Forever is *stored*
+  is not stated: the record has the two loop bytes and no flag for it [documented: xEdit
+  IDLE DATA], and the two poses the player stays in (lying awake, sitting on the bed)
+  store 255 / 255 while the two movements store 0 / 0 (§2); in the ten masters 1,462
+  idles store 0 / 0 and 93 store 255 / 255 [observed: animation.md §1.1]. Reading
+  [hypothesis, one look in the editor settles it: is Loop Forever ticked on
+  `LooseVCG01PlayerWakeup`?]: 255 / 255 is Loop Forever; both 0 play the idle once;
+  otherwise it plays a number of times from the minimum to the maximum.
 - **Loop stretch** [hypothesis]: a looping idle plays to its `EndLoop` key and goes back
   to its `StartLoop` key; without the keys the whole clip repeats. On its last pass it
   plays on to the end of the clip.
@@ -244,3 +249,32 @@ below 30).
    by `PlayIdle`, counting repeats); whether `PlayIdle` on an idle with failing conditions
    plays; whether an actor with a collection plays an idle whose conditions fail; when
    Doc Mitchell gets up (§6).
+
+## 9. The editor's Idle Animations window [documented]
+
+From the GECK wiki page "Idle Animations Window" (the owner's paste, 2026-10-10), in our
+words, with where ours stands:
+
+- **Animation group section**: only one animation file plays on an animation group at a
+  time, so an idle on a group ends what played on that group. Whole Body ends all other
+  animations; Upper Body ends those of the upper body's groups; most idles use Special
+  Idle. Ours: an NPC's idle is laid over its other clips by track priority whatever its
+  group; the player's idle stops the rig's other clips once it covers the rig, also for
+  the Special Idle group (§4). Neither follows the group yet.
+- **Looping**: Loop Forever, minimum, maximum (§3). **Replay delay**: the time between
+  replays; not used by ours.
+- **No Attacking**: no attacking while the idle plays; not applied.
+- **Picking** (the idle manager; it confirms the tree walk of animation.md §2.2): the top
+  item matching the actor's skeleton, then its first child; an idle whose conditions fail
+  is passed over for its next sibling; one whose conditions pass has its children tried
+  the same way; the idle whose conditions pass and none of whose children's do is the
+  one to play.
+- **Must Return a File**: when the idle picked has no file, the flag decides: set, it
+  is skipped as if its conditions had failed and its next sibling is tried; not set,
+  nothing is played. Ours (`fnv_actor::furniture::UseIdles`, the only tree walk built)
+  always goes on to the next sibling, as if the flag were set on every idle.
+- **When the idle manager is asked**: `PickIdle`; getting up after a knock-down or
+  unconsciousness; yielding in combat; constantly while sleeping or eating; by the
+  speaker and by the listener each time a new line of a conversation is said; and at
+  random times by the actor's energy level while its lower body is idle (low energy
+  idles more often). None of these is built (§8 item 1).
