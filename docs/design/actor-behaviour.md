@@ -12,8 +12,9 @@ Status 2026-10-10: steps 1 to 4c are **done**: the records, the typed reader, th
 package choice, actors going where their package sends them over the navmesh (headless),
 and in `nvforever` (`--npc-packages`, §5.4) for named actors or every actor of the loaded
 cells, on the game's own state in `--play`, moved by the character controller near the
-player. **Next**: the package types and behaviours not carried out yet, and the notes in
-§7. The six package types not yet seen running in a capture (Find, Follow, Escort,
+player. Dialogue packages aimed at the player (the force greet) are carried out since
+2026-10-10 (§5.6). **Next**: the package types and behaviours not carried out yet, and
+the notes in §7. The six package types not yet seen running in a capture (Find, Follow, Escort,
 Wander, Use Item At, Use Weapon) are set aside until the owner captures them.
 
 ## 1. The plan
@@ -108,7 +109,8 @@ periodic choice.
 | Travel, Sandbox, Sleep, Eat, Guard, Wander | its location 1: go there and stay [documented: each type's page] |
 | Patrol located near a reference, or near the actor's linked reference | walk that reference and the chain of references linked from it [documented; observed: Victor] |
 | Patrol with another location | go to that location [hypothesis] |
-| Follow, Accompany, Escort, Dialogue, Use Weapon, Find, Use Item At, Ambush, Flee Not Combat | not carried out yet: the actor stays where it is |
+| Dialogue | wait at location 1, go up to the target, talk (§5.6); a conversation between two actors is not carried out |
+| Follow, Accompany, Escort, Use Weapon, Find, Use Item At, Ambush, Flee Not Combat | not carried out yet: the actor stays where it is |
 
 | Location | Meaning |
 |---|---|
@@ -169,11 +171,16 @@ than 32 units [our choice]. Travel "stops at the edge of the destination radius"
   walks the eleven points without stopping (§7, note 6).
 - **`fnvtool ai reach`** asks, for every placed actor and every package of its list,
   whether the place can be reached from where the actor stands in the editor (15,603
-  pairs, 16 seconds): 9,417 reachable (8,189 without a door, 753 through one, 257 two,
-  141 three, 77 four or more, up to eight) and 17 with a key the actor carries; 1,571
-  stay where they are; 504 cannot be reached (§7, notes 1 to 4); 2,810 are never chosen
-  (a linked reference the actor lacks); 177 are located at the player; 1,107 are of
-  types not carried out yet.
+  pairs, 17 seconds): 9,488 reachable (8,246 without a door, 762 through one, 257 two,
+  144 three, 79 four or more, up to eight) and 18 with a key the actor carries; 1,571
+  stay where they are; 512 cannot be reached (§7, notes 1 to 4); 2,810 are never chosen
+  (a linked reference the actor lacks); 177 are located at the player; 126 are
+  Dialogue packages without a wait location (the actor goes up to its target from
+  where it is); 901 are of types not carried out yet. (Before Dialogue packages were
+  carried out, 2026-10-10: 9,417 reachable, 17 with a key, 504 not reachable, 1,107
+  not carried out. The whole difference is the 209 Dialogue pairs: the wait location
+  of 71 is reachable, of 1 with a key, of 8 not; 126 have none; 3 are conversations
+  between two actors.)
 
 ### 5.4 In the engine (step 4b)
 
@@ -356,6 +363,94 @@ point of a linked patrol route" [documented]; energy changing over the day; the 
 real scores and durations (to be captured: an observer run in a loaded sandbox area
 recording GetSitting, GetCurrentAIProcedure and positions).
 
+### 5.6 Dialogue packages: the force greet (2026-10-10, owner request)
+
+Owner request 2026-10-10: Sunny Smiles is supposed to greet the player who enters the
+Prospector Saloon, and did not. The cause: nothing carried Dialogue packages out
+(`Goal::NotCarriedOut("a dialogue package")`). What the data holds and what the game was
+seen doing: packages.md §2 to §4. No trigger script is involved: the package itself
+names a box around her spot as its trigger location.
+
+`fnv_ai::goal::talk` turns the package into a `Talk` (whom, the activate distance, the
+wait location, the trigger location, the topic, Say To or conversation) and
+`Ai::talk_step` (`carry.rs`) carries it out, one `Talking` phase after another:
+
+| Phase | What the actor does | Source |
+|---|---|---|
+| `ToWait` | walks to location 1, if the package has one and the actor is not there | [documented] |
+| `Waiting` | stands. Without a trigger location it sets off at once (case 3). With one, it sets off when the target is in it (case 1). With one and a wait radius of 0 it talks as soon as the target is within the activate distance (case 2), and also sets off when the target is in the trigger location | [documented: cases 1 to 3; **hypothesis**: setting off in case 2] |
+| `Approaching` | walks (runs with Always Run) to where the target is, through doors if need be; the way is planned again when the target has moved 64 units, at most twice a second | [documented: "begin moving towards the target"; the numbers are ours] |
+| (start) | within the activate distance it stops: a conversation with the player starts (`Game::start_dialogue`, the package's topic or GREETING), or the Say To line is said (`Game::say`) | [documented] |
+| `Speaking` | turns to the target at the standing turn rate (120° a second), unless "No Headtracking" | [documented: they are "forced to look at each other"; observed: Sunny turned from 90° to 178° towards the player; the rate is ours] |
+| `Done` | the conversation is over: the package's goal is met (`package_goal_met`), so a Must Complete package can be replaced and the end script runs. The actor does not start over while it keeps the package | [documented: Must Complete; ours: no starting over] |
+
+- **The trigger location** (`goal::Trigger::holds`): within the radius of the
+  reference, the editor location or the actor; in the cell; and **inside the
+  reference's own box or sphere** when it carries one (REFR XPRM, read into
+  `PlacedRef::primitive`). The last is a [hypothesis] the data asks for: 32 of the 33
+  trigger references with radius 0 are boxes placed for it (packages.md §2), and a
+  radius of 0 around a point could never be entered. The target's feet, middle and head
+  (64 units apart) are tested [our choice].
+- **Why the actor sets off in case 2** [hypothesis]: the documentation says it stays
+  until the target is within the activate distance. But the player comes into the saloon
+  inside Sunny's box and 343 units from her, with an activate distance of 256, and the
+  greeting is expected as the player comes in (owner, 2026-10-10). Both cannot hold
+  unless she closes the distance. Staying is still what happens while the player is
+  outside the box (as in the owner's `saloon_evening` capture: six game hours in the
+  same cell, 773 units away, and she never moved). To be captured (packages.md §6).
+- **The activate distance** is the target's count / distance; a stored 0 is taken as
+  the standard 150 [documented value; hypothesis that 0 means it].
+- **No way to the target**: the package is set aside for an hour like any other (§5.2).
+- **Nothing to say** (no line of the topic passes its conditions): the package is done
+  [our choice; otherwise the actor would try every frame].
+- **A held game** (a menu, another conversation): the start waits; nobody walks.
+
+Not done:
+- A **conversation between two actors** (39 of FalloutNV.esm's 332 Dialogue packages
+  target someone else; 35 are conversations): not carried out, the actor stays.
+- **The target is not controlled**: the player is not held while the actor comes
+  ("Do Not Control Target Movement" off), and nobody is sent to the trigger location.
+- **Wandering** within the wait location's radius; the dialogue menu's **FOV**.
+- A package that its own conversation replaces (a result script calls
+  EvaluatePackage, as Sunny's does) runs its change script, not its end script: the
+  actor has another package before the AI sees the conversation is over.
+- The game's run-time DIALOGUE package (0xFF…, type 6) has no counterpart: the actor
+  keeps its list package (§7, note 20).
+
+**In the engine**: an actor handed to the AI (`--npc-packages`) starts the conversation
+in the game's own state with `--play`, so the dialogue screen opens as for
+`StartConversation` (docs/design/dialogue-play.md §1). `Ai::update_held` keeps the
+speaker turning while the conversation holds the game. Log: `ai [12:01] SunnyRef: walks
+up to 0x00000014 to talk (SunnyMeetPlayerDialoguePackage): 343 units away, 343 units to
+go, 0 doors`, `… starts a conversation with 0x00000014 from 255 units (…), line
+0x00104E7E`, and the summary's `1 talks started by dialogue packages`. **Without
+`--npc-packages` no actor runs packages, so nobody greets.**
+
+**Checks** (2026-10-10):
+- 9 tests in `crates/fnv-ai/tests/talk.rs` on a plugin built in memory: the box read
+  from the record; an actor walking up to a player who steps into its box and greeting
+  at the activate distance, once; the greeting on the spot within the distance (and
+  the turn towards the player); coming at once without a trigger location and
+  following a player who moves; staying at a wait location with a radius until the
+  trigger location is entered; a Say To line; two actors; nothing to say; a player who
+  is nowhere.
+- Headless against the captures (`fnvtool ai run --samples`): SunnyRef ran the same
+  package as the game in all 2,904 samples of `town_day` and stood 0.0 units from where
+  the game had her. The other actors' figures are those of §5.3; `fnvtool ai observed`
+  gives the replay figures of §4 unchanged; `fnvtool ai packages` `all_agree` true.
+- **In `nvforever`** (windowed, unattended, `--no-voice`, each exit 0 with "run
+  finished"): `NVF_PLAY_TEST_SCRIPT_MENUS=1 NVF_PLAY_TEST_SCRIPT=14:activate:ProspectorSaloonDoor
+  … --cell Goodsprings --play --npc-packages SunnyRef --run-seconds 45`: the player
+  goes in by the door; Sunny sets off 343 units away and 1.06 s later, from 255 units,
+  says "Cheyenne, stay. Don't worry, she won't bite unless I tell her to."; the choices
+  are offered; the unattended run takes the first ("Doc Mitchell said you could teach
+  me…"), which completes the objective "Talk to Sunny Smiles in the Prospector Saloon"
+  and gives her VCG02SunnyTravelOutside: she walks out of the saloon. A screenshot
+  during the greeting shows her standing in front of the player, facing them, Cheyenne
+  beside her. With `--npc-packages all` the same (34 residents); with the player moved
+  across the room while she came (`NVF_PLAY_TEST_GOTO`), she turned after them and
+  greeted from 253 units.
+
 ## 6. Decisions for the owner
 
 1. **Keep-current when nothing is valid** (rule 3) rather than "no package": taken from
@@ -373,6 +468,12 @@ recording GetSitting, GetCurrentAIProcedure and positions).
 6. **Arrival meets the goal of every package type that goes somewhere** (§5.2).
 7. **In the engine by name first** (`--npc-packages`), with a game state of its own;
    every actor and `--play`'s state come next (§5.4).
+8. **A Dialogue package's actor goes up to a target inside its trigger box** also when
+   its wait location has no radius (§5.6): the documentation has it stay; the data and
+   the greeting in the saloon say otherwise. One capture settles it.
+9. **`--play` runs no packages unless `--npc-packages` is given**, so the force greets
+   of the game need `--play --npc-packages all`. Making that the default of `--play` is
+   the owner's call (frame rate with every actor of the loaded cells: §5.4).
 
 ## 7. Notes to look into
 
@@ -430,8 +531,9 @@ Rules that are our choice or a hypothesis (also §6):
 
 Not done yet:
 17. Package types not carried out: Follow, Accompany and Escort (297 actor/package
-    pairs), Find and Use Item At (263), Use Weapon (244), Dialogue (209), Ambush and
-    Flee Not Combat (94); and the run-time type codes of the six types not seen running.
+    pairs), Find and Use Item At (263), Use Weapon (244), Ambush and Flee Not Combat
+    (94), Dialogue packages between two actors (3; the others are carried out, §5.6);
+    and the run-time type codes of the six types not seen running.
 18. In the engine the residents' physics is a first version: the player's capsule
     with a steeper slope limit, no actor-to-actor avoidance, the walker for the last 64
     units and whenever physics gets stuck (§5.4).

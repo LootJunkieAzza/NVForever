@@ -374,6 +374,17 @@ pub struct VoicePlugin;
 impl Plugin for VoicePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<VoiceSettings>().init_resource::<VoiceState>().add_systems(Update, (load, hook, play).chain().in_set(PlaySet::Ui));
+        crate::settings::add_setting(
+            app,
+            crate::settings::Setting {
+                key: "voice",
+                group: crate::pause::GROUP_MENUS,
+                label: "Dialogue voice",
+                note: "On: lines are spoken. Off: they are silent from the next line on, and still last as long as their sound. (--no-voice)",
+                get: |w| w.resource::<VoiceSettings>().play,
+                set: |w, on| w.resource_mut::<VoiceSettings>().play = on,
+            },
+        );
     }
 }
 

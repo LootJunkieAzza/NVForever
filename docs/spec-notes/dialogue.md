@@ -328,6 +328,27 @@ All of it is in `GameSnapshot`.
   actor says when spoken to; StartConversation: a named topic replaces the greeting].
   An actor with no such line cannot be talked to [hypothesis]; nor a dead, disabled or
   deleted one. One conversation at a time [hypothesis].
+- **A greeting with the Goodbye flag starts no conversation.** When the line picked from
+  GREETING carries the flag, the actor says it at the player and that is all: no
+  dialogue menu, no pause, nothing to choose or to leave, and the player is not held
+  [owner statement 2026-10-10: a GREETING line marked Goodbye "does not draw the player
+  into a dialogue exchange, it just is spoken at the player without locking them in";
+  not yet captured]. 3,023 of GREETING's 5,579 lines carry the flag (2,972 of them
+  first defined in FalloutNV), so this is the usual answer of an actor with nothing
+  particular to say; 73 of them have a begin result, 150 an end result, 3 an Add Topics
+  list, 99 Say Once, none a follow-up [observed: `fnvtool dialogue lines … --topic
+  GREETING`, counted over `lines`]. In the runtime the line is a `Speech`
+  (`Speech::greeting`), said like a SayTo line to the player (`Game::say_line`):
+  `Game::dialogue` stays empty, the begin result runs at once and the end result when
+  the line is over, in game time, and the trace has `line_started` / `line_ended` but
+  no `dialogue_started`. What a conversation of that one line did is kept: the Add
+  Topics list is applied when the line ends and the actor counts as having talked to
+  the player (GetTalkedToPC); no SayToDone block runs [hypothesis for the three].
+  Talking to the actor again while it speaks cuts the line (no end result) and starts
+  the greeting afresh [hypothesis, as for a second SayTo]. A Goodbye line of a topic
+  named by StartConversation still opens a conversation that ends with it [hypothesis:
+  the statement is about GREETING]. StartConversation without a topic is the greeting,
+  so the rule applies to it.
 - **A conversation pauses the game** behind it; lines spoken outside one (SayTo, Say)
   do not [owner statement 2026-10-10: Doc Mitchell's Rorschach test, "a back and forth
   dialogue with chosen options from the player", is what makes "the game … pause in
@@ -390,7 +411,7 @@ All of it is in `GameSnapshot`.
 | Function | During a conversation | Source |
 |---|---|---|
 | `IsTalking` | 1 while the actor says a response; 0 while the player chooses | [documented: IsTalking for "currently talking"; hypothesis for the choosing phase] |
-| `MenuMode`, `MenuMode 1009` | 1 from the greeting to the end | [owner statement 2026-10-10: the conversation pauses the game; documented: GetMenuTargetRef names menu 1009's target as the actor spoken to] |
+| `MenuMode`, `MenuMode 1009` | 1 from the greeting to the end (0 throughout for a greeting with the Goodbye flag: no conversation, §5) | [owner statement 2026-10-10: the conversation pauses the game; documented: GetMenuTargetRef names menu 1009's target as the actor spoken to] |
 | GameMode blocks, game time (`Game::time`, GetSecondsPassed), GameMode quest delays | stopped: **the conversation is menu mode** (`Game::in_menu`), by the rules observed for the other menus (scripts.md §7.2, §7.7) | [owner statement for the pause; the details are the existing menu rules] |
 | `Begin MenuMode` and `Begin MenuMode 1009` blocks | run, with the MenuMode quest delay counter | [the existing menu rules; hypothesis for this menu] |
 | Magic effects, SayTo and Say lines of other actors | stand still, as in any menu | [the existing menu rules; hypothesis] |
@@ -400,7 +421,7 @@ All of it is in `GameSnapshot`.
 | `StartConversation player [topic]` | starts the conversation at once; ignored while one runs or when the actor has no line; the walk to the player needs AI packages | [documented: StartConversation; stand-in for the walk] |
 | `StartConversation <npc>` | recorded, no effect (NPC conversations) | – |
 | `AddTopic` | the topic joins the known topics (trace `topic_added`) | [documented: catalogue; hypothesis, §5] |
-| `GetIsCurrentPackage` | unchanged (no dialogue package is modelled) | – |
+| `GetIsCurrentPackage` | unchanged. Dialogue packages are carried out by `fnv_ai` for actors handed to it (docs/design/actor-behaviour.md §5.6): the actor goes up to the player and the conversation starts as with `StartConversation player` | [documented: GECK wiki, Dialogue Package] |
 
 `Game::menu` holds the other menus and stays empty for a conversation: the conversation
 itself is the menu (`Game::in_menu()`, `Game::open_menu_code()` 1009,
@@ -436,6 +457,8 @@ Still stubs: `IsActorTalkingThroughActivator` (talking activators), `GetDisposit
 - E. Follow-up lines are said next with no player choice (§3.4).
 - F. Random pools are runs of Random lines that sit together; a plain line between two
   groups splits them, sayable or not (§4 rule 4).
+- G. A GREETING line with the Goodbye flag is said at the player without a conversation
+  (§5): no dialogue menu, the player keeps control, `MenuMode 1009` stays 0.
 
 **Open hypotheses** (numbers kept from the first version of this note; 2 and 4 moved
 up to C and F):
@@ -460,6 +483,10 @@ up to C and F):
     `Begin MenuMode 1009` blocks and the MenuMode quest delay; whether magic effects
     and other actors' SayTo lines stand still; a message box over a conversation; the
     quest conditions' subject and target (C).
+13. A greeting with the Goodbye flag (G), what the statement leaves open: GetTalkedToPC
+    afterwards; whether its Add Topics list is applied; SayToDone; activating the actor
+    again while it speaks (cut and restart, or ignored); and whether a Goodbye line of
+    a topic named by StartConversation opens the menu.
 13. Say Once across two actors sharing a line; Say Once a Day's clock; Say Once and
     Say Once a Day counted from the line's start or end.
 14. Response order where numbers and stored order disagree.

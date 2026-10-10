@@ -1473,3 +1473,64 @@ Follows item 4 of "Pale blue frames inside the ruined house in Primm" above. Bra
    Most are Fallout 3 leftovers in the archive. They are now drawn without the
    fade. If the game fades them, the rule is "the mark, or hand-set values". I know of
    no place in the base game to check one.
+
+## A greeting marked Goodbye is just said at you (2026-10-10, session "greeting goodbye")
+
+You said: when the GREETING line an actor picks is marked Goodbye in the data, the game
+does not pull the player into a dialogue; the line is spoken at the player and the
+player is not locked in.
+
+1. **What was wrong:** we opened a full conversation for that one line. The game
+   paused, the dialogue screen came up and you could not move until the line was over.
+2. **Done:** such a greeting is now said like any line an actor calls out. You hear it
+   and see its subtitle, the game keeps running, you can walk away, and scripts no
+   longer see a dialogue menu. Greetings without the mark open the conversation as
+   before.
+3. **How common it is:** 3,023 of the 5,579 GREETING lines in the ten masters carry the
+   mark, so this is what most actors with nothing particular to say do.
+4. **Checked:** in `--play` in Goodsprings a scripted press of E on settler 04
+   (`GoodspringsSettler04Ref`) made her say her line with no conversation and the run
+   went on; ten seconds later the same press on Easy Pete opened his conversation as
+   before and it ended by his goodbye. I did not watch it by eye (the run was
+   unattended and silent). To see it: `nvforever --data <Data> --cell Goodsprings
+   --play`, walk up to a settler and press E.
+5. **My guesses, please correct any that are wrong:**
+   - The actor still counts as "has talked to the player" afterwards.
+   - Topics the line adds are still added when it ends.
+   - Pressing E again while the actor is still speaking cuts the line and starts the
+     greeting again.
+   - The rule is only for GREETING. A script that starts a conversation with another
+     topic whose first line is marked Goodbye still opens the dialogue screen for that
+     line.
+
+## Shooting Sunny's bottles (2026-10-10, session "object hits")
+
+Your report: in "Back in the Saddle" the shots at the three bottles did not count, and
+the bottles did not move when hit. Branch `claude/object-hits`. Facts:
+`docs/spec-notes/combat-rules.md` §14.
+
+1. **Why the shots did not count:** each bottle counts a hit in its own script, and
+   three things were missing.
+   - Shots only told actors' scripts they were hit, never an object's.
+   - The script asks whether your weapon is drawn. That question always answered no.
+   - It asks what kind of weapon you hold. That question always answered 0.
+2. **Why the bottles did not move:** three more.
+   - Bullets gave loose objects no push at all.
+   - A resting object that was pushed could stay frozen (a fault in how we use the
+     physics library). Explosions had the same fault.
+   - Objects that a script switches on during play, like these bottles, were never
+     redrawn where physics moved them.
+3. **Done:** all six. Checked in a run: three shots with the Varmint Rifle, Sunny
+   reacts to each, the objective completes on the third, and the bottles fly off the
+   fence.
+4. **A guess, for you to check:** the numbers the game gives for "what kind of weapon".
+   - The wiki page (GetWeaponAnimType) has the table, but your export does not include
+     it and the site blocks me.
+   - I worked the numbers out from the game's own scripts. The tutorial counts rifles
+     and pistols whichever way the one unsure part falls.
+   - If you can paste the table from that page, I will check ours against it.
+5. **Push strength is my choice:** a rifle shot sends a bottle off at about 3 metres per
+   second. Say if it should be harder or softer (`OBJECT_PUSH` in
+   `engine/nvf-play/src/combat.rs`).
+6. **Not done:** melee hits on objects (they only strike actors so far), bullet impact
+   effects and sounds.

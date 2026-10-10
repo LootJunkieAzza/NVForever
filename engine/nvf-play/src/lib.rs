@@ -13,6 +13,7 @@
 
 pub mod activate;
 pub mod bindings;
+pub mod blocking;
 pub mod combat;
 pub mod control;
 pub mod dialogue;
@@ -32,6 +33,7 @@ pub mod script_draw;
 pub mod script_events;
 pub mod script_hud;
 pub mod script_trigger;
+pub mod settings;
 pub mod sim;
 pub mod space;
 mod test_aid;

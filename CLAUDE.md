@@ -59,6 +59,12 @@ docs/design/actor-behaviour.md §4 and §5.3 and explain any change. After chang
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-packages EasyPeteRef,GSChetRef,GoodspringsSettler04Ref --hour 21.9 --follow-npc --run-seconds 150`
 (expect exit 0, "ai summary … 3 residents, 6 packages chosen, 4 trips, 4 arrivals, 0 unreachable"
 and Easy Pete sitting on 0010634A, getting off it, and on his bed 00176ACE in the "furniture:" lines).
+After changes to Dialogue packages (`fnv-ai` `goal::talk`, `carry` `talk_step`;
+docs/design/actor-behaviour.md §5.6), also run the force-greet smoke test, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=1` and `NVF_PLAY_TEST_SCRIPT=14:activate:ProspectorSaloonDoor` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --npc-packages SunnyRef --no-voice --run-seconds 45`
+(expect exit 0, "SunnyRef: walks up to 0x00000014 to talk", "dialogue: conversation with SunnyRef started
+(topic GREETING)" and "1 talks started by dialogue packages" in the ai summary).
 After furniture changes (docs/spec-notes/furniture.md §7), run the sitting smoke test:
 `engine/target/release/nvforever --data <Data> --cell Goodsprings --npc-sit EasyPeteRef=0010634A:8 --follow-npc --run-seconds 45`
 (expect exit 0 and "furniture summary: 1 of 1 actors sat down, 1 got up again").

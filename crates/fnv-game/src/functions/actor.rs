@@ -220,6 +220,53 @@ pub fn get_hit_location(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, Str
     Ok(Value::Num(g.extra.get(&r).and_then(|e| e.last_hit).map_or(-1, |h| h.location) as f64))
 }
 
+/// 1 while the actor has a weapon out [documented: catalogue summary and notes of
+/// IsWeaponOut: the value changes when the weapon is attached to the weapon node]. The
+/// state is the animating side's ([`Game::set_weapon_out`]); an actor nobody reported
+/// has its weapon away.
+pub fn is_weapon_out(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    yes(g.extra.get(&r).is_some_and(|e| e.weapon_out))
+}
+
+/// GetWeaponAnimType's value for a WEAP DNAM animation type (the record's numbering).
+///
+/// [documented: GECK wiki GetWeaponAnimType — the function tells 11 animation types
+/// apart and has one catch-all value, several of the 13 (Fallout 3) or 14 (New Vegas)
+/// record types sharing a value. The page's table itself is a template we have no copy
+/// of.] The numbering here is a [hypothesis] fitted to the shipped scripts
+/// (docs/spec-notes/combat-rules.md §14):
+/// - the record's types in order starting at 1, the two pistol types sharing 4 and the
+///   ballistic and energy rifles sharing 5, which leaves the 11 values 1–11;
+/// - Thrown (New Vegas's 14th type) and anything else: the catch-all, 0.
+///
+/// [observed: `GetWeaponAnimType == 4` is tested together with `GetEquipped
+/// NVWeapMS22Camera`, whose record type is 3, Pistol - Ballistic (1 Hand); the weapon
+/// alarm scripts test `IsWeaponOut == 1 && GetWeaponAnimType != 1` (raised fists are no
+/// alarm) and the tutorial's bottles `> 3 && < 9`, which is then every gun: pistols 4,
+/// rifles 5, automatic rifles 6, Handle 7, Launcher 8.] Which types share a value besides
+/// the pistols is the unchecked part.
+pub fn weapon_anim_code(record_type: i64) -> i64 {
+    match record_type {
+        0..=2 => record_type + 1,
+        3 | 4 => 4,
+        5 | 7 => 5,
+        6 => 6,
+        8..=12 => record_type - 1,
+        _ => 0,
+    }
+}
+
+/// `actor.GetWeaponAnimType`: the animation type of the equipped weapon as
+/// [`weapon_anim_code`] numbers it; an actor with no weapon equipped fights with its
+/// hands, Hand to Hand, 1 [hypothesis: scripts treat `<= 1` as unarmed and `!= 1` as
+/// armed].
+pub fn get_weapon_anim_type(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    let record_type = super::items::equipped_weapon(g, r).and_then(|w| g.data.weapon_anim_types.get(&w).copied());
+    Ok(Value::Num(record_type.map_or(1, weapon_anim_code) as f64))
+}
+
 pub fn resurrect_actor(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     g.extra.entry(r).or_default().dead = false;

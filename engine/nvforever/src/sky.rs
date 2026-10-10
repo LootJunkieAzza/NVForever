@@ -41,7 +41,7 @@
 use crate::fly::FlyCam;
 use crate::world::{game_to_bevy, WorldData};
 use bevy::asset::RenderAssetUsages;
-use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
+use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
 use bevy::math::Affine2;
 use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::pbr::{DistanceFog, ExtendedMaterial, FogFalloff, MaterialExtension};
@@ -101,6 +101,9 @@ const WEATHER_FADE_HOURS: f32 = 0.5;
 /// sky (centred on the camera) first; blended world meshes write no depth and would
 /// otherwise be painted over. Within the sky, lower biases are drawn first.
 const SKY_SORT_BIAS: f32 = -1.0e6;
+/// How far the sun's shadows reach when they are switched on in a run started without
+/// them (game units): the default of `--shadow-distance`.
+pub const DEFAULT_SHADOW_DISTANCE: f32 = 16_000.0;
 
 /// Light level that makes a colour of 1.0 light a white surface to 1.0 on screen: the
 /// inverse of the camera's exposure (Bevy's default, EV100 9.7). The game's lighting is
@@ -194,8 +197,14 @@ pub struct SkyState {
     pub interior: Option<fnv_world::lighting::CellLighting>,
     /// Interior mode: the cell's own image space (CELL XCIM) grades the picture.
     pub interior_grade: Option<Cinematic>,
-    /// Sun shadows reach this far from the camera (game units); 0 = no shadows.
+    /// The sun casts shadows (`--shadow-distance` above 0; the settings page:
+    /// [`set_shadows`]).
+    pub shadows: bool,
+    /// Sun shadows reach this far from the camera (game units).
     pub shadow_distance: f32,
+    /// The picture is graded by the image space (`--no-grade` and the settings page turn
+    /// it off).
+    pub grade: bool,
     /// Test aid: game hours per real second (0: time stands still).
     pub time_scale: f32,
     /// The time-lapse clock runs (set once the cells around the start are loaded).
@@ -209,7 +218,7 @@ pub struct SkyState {
     /// The climate's weathers with their gates, when the weather follows the climate
     /// (no --weather).
     choices: Vec<Choice>,
-    /// The worldspace's base image space (WRLD INAM); None turns the grade off.
+    /// The worldspace's base image space (WRLD INAM); without one there is no grade.
     pub image_space: Option<Cinematic>,
     /// Each weather's image space adapters per time of day, by weather form ID.
     adapters: HashMap<u32, [Option<Adapter>; 6]>,
@@ -277,7 +286,9 @@ impl SkyState {
             fog_override: None,
             interior: None,
             interior_grade: None,
-            shadow_distance: 0.0,
+            shadows: false,
+            shadow_distance: DEFAULT_SHADOW_DISTANCE,
+            grade: true,
             time_scale: 0.0,
             clock_running: false,
             days_passed: 0.0,
@@ -372,6 +383,9 @@ impl SkyState {
     /// The image-space grade now: the base image space with the weather's adapters for
     /// the time of day, blended across a weather fade; none indoors yet [interim].
     pub fn cinematic(&self) -> Cinematic {
+        if !self.grade {
+            return Cinematic::default();
+        }
         if self.interior.is_some() {
             return self.interior_grade.unwrap_or_default();
         }
@@ -785,25 +799,50 @@ pub fn setup_sky(
             NotShadowReceiver,
         ));
     }
-    let shadows = sky.shadow_distance > 0.0;
     let mut sun = commands.spawn((
         Name::new("Sun"),
         Sun,
-        DirectionalLight { illuminance: PI * light_unit(), shadow_maps_enabled: shadows, ..default() },
+        DirectionalLight { illuminance: PI * light_unit(), shadow_maps_enabled: sky.shadows, ..default() },
         Transform::IDENTITY,
     ));
-    if shadows {
-        // Cascades in game units: the first covers the area right around the camera.
-        sun.insert(
-            CascadeShadowConfigBuilder {
-                num_cascades: 4,
-                minimum_distance: 5.0,
-                first_cascade_far_bound: (sky.shadow_distance / 12.0).max(200.0),
-                maximum_distance: sky.shadow_distance,
-                overlap_proportion: 0.2,
-            }
-            .build(),
-        );
+    if sky.shadows {
+        sun.insert(shadow_cascades(sky.shadow_distance));
+    }
+}
+
+/// The sun's shadow cascades, in game units: the first covers the area right around the
+/// camera.
+fn shadow_cascades(distance: f32) -> CascadeShadowConfig {
+    CascadeShadowConfigBuilder {
+        num_cascades: 4,
+        minimum_distance: 5.0,
+        first_cascade_far_bound: (distance / 12.0).max(200.0),
+        maximum_distance: distance,
+        overlap_proportion: 0.2,
+    }
+    .build()
+}
+
+/// Switch the sun's shadows on or off now (the settings page); they reach
+/// [`SkyState::shadow_distance`].
+pub fn set_shadows(world: &mut World, on: bool) {
+    let distance = {
+        let mut sky = world.resource_mut::<SkyState>();
+        sky.shadows = on;
+        sky.shadow_distance
+    };
+    let mut suns = world.query_filtered::<(Entity, &mut DirectionalLight), With<Sun>>();
+    let lit: Vec<Entity> = suns
+        .iter_mut(world)
+        .map(|(e, mut light)| {
+            light.shadow_maps_enabled = on;
+            e
+        })
+        .collect();
+    if on {
+        for e in lit {
+            world.entity_mut(e).insert(shadow_cascades(distance));
+        }
     }
 }
 

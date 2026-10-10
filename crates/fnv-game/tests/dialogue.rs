@@ -53,6 +53,7 @@ const A_EQUAL: u32 = 0xA05;
 const R1: u32 = 0xA06;
 const R2: u32 = 0xA07;
 const R_AFTER: u32 = 0xA08;
+const A_BARK: u32 = 0xA09;
 const B_ASK: u32 = 0xB01;
 const B_FOLLOW: u32 = 0xB02;
 const C_BYE: u32 = 0xC01;
@@ -231,6 +232,19 @@ fn plugin_bytes() -> Vec<u8> {
                 L { id: R1, quest: QA, flags: info_flag::RANDOM, speaker: Some(NPC2), responses: one("One"), ..L::default() },
                 L { id: R2, quest: QA, flags: info_flag::RANDOM | info_flag::RANDOM_END, speaker: Some(NPC2), responses: one("Two"), ..L::default() },
                 L { id: R_AFTER, quest: QA, speaker: Some(NPC2), responses: one("After"), ..L::default() },
+                // A greeting with the Goodbye flag: said at the player, no conversation.
+                L {
+                    id: A_BARK,
+                    quest: QHI,
+                    flags: info_flag::GOODBYE,
+                    speaker: me,
+                    conds: vec![gate(EQ, 7.0)],
+                    responses: one("Move along"),
+                    add: vec![T_ADDED],
+                    begin: Some("3"),
+                    end: Some("4"),
+                    ..L::default()
+                },
             ],
         ),
         topic(
@@ -490,7 +504,7 @@ fn the_higher_priority_quest_wins_and_equal_priorities_keep_the_stored_order() {
     assert_eq!(h.start_dialogue(actor(), None), Ok(FormId(A_LATER)));
     assert_eq!(
         f.data.lines_by_priority(FormId(GREETING)).iter().map(|i| i.0).collect::<Vec<_>>(),
-        vec![A_OFF, A_HIGH, A_FIRST, A_LATER, A_EQUAL, R1, R2, R_AFTER]
+        vec![A_OFF, A_HIGH, A_BARK, A_FIRST, A_LATER, A_EQUAL, R1, R2, R_AFTER]
     );
 }
 
@@ -669,6 +683,57 @@ fn a_goodbye_line_ends_the_conversation() {
     assert_eq!(pick(&mut h, GOODBYE), FormId(I_BYE));
     listen(&mut h);
     assert!(h.dialogue.is_none());
+}
+
+#[test]
+fn a_goodbye_greeting_is_said_at_the_player_without_a_conversation() {
+    let f = fixture();
+    let mut g = game(&f);
+    set_global(&mut g, G_GATE, 7.0);
+    let ticks = |g: &Game| (g.world.global(FormId(G_TICKS)).unwrap(), g.world.global(FormId(G_MENU_TICKS)).unwrap());
+    g.frames(3);
+    assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_BARK)));
+    // No conversation: no menu mode, no pause, nothing to choose or to leave.
+    assert!(g.dialogue.is_none() && !g.paused() && !g.in_menu() && !g.menu_open(1009));
+    assert!(g.dialogue_choices().is_empty() && !g.end_dialogue());
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueStarted { .. })));
+    assert_eq!(call(&mut g, 0x1024, NPC1_REF, &[ArgValue::Value(Value::Num(1009.0))]), 0.0);
+    // The actor says the line at the player; its begin script ran.
+    assert!(matches!(g.speech.as_slice(), [s] if s.speaker == actor() && s.target == Some(FormId::PLAYER_REF) && s.info == FormId(A_BARK) && s.greeting));
+    assert_eq!((call(&mut g, 0x108D, NPC1_REF, &[]), call(&mut g, 0x1032, NPC1_REF, &[])), (1.0, 1.0));
+    assert_eq!(out(&g), 3.0);
+    // The game goes on while it is heard: GameMode blocks run, game time passes.
+    let (t0, f0) = (g.time, g.frame);
+    for _ in 0..20_000 {
+        if g.speech.is_empty() {
+            break;
+        }
+        g.tick();
+    }
+    let heard = (g.frame - f0) as f32;
+    assert!(g.speech.is_empty() && heard > 30.0);
+    assert_eq!(ticks(&g), (3.0 + heard, 0.0));
+    assert!(g.time > t0);
+    // Its end: the end script and the Add Topics list, and no conversation event.
+    assert_eq!(out(&g), 4.0);
+    assert!(g.player.topics.contains(&FormId(T_ADDED)));
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: false, .. } if info == FormId(A_BARK))));
+    assert!(!g.events.iter().any(|e| matches!(e.kind, EventKind::DialogueEnded { .. })));
+    // Talked to again while it speaks: the line is cut and the greeting starts afresh.
+    g.start_dialogue(actor(), None).unwrap();
+    g.frames(2);
+    assert_eq!(g.start_dialogue(actor(), None), Ok(FormId(A_BARK)));
+    assert_eq!(g.speech.len(), 1);
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::LineEnded { info, cut: true, .. } if info == FormId(A_BARK))));
+    // StartConversation without a topic is the same greeting.
+    let mut h = game(&f);
+    set_global(&mut h, G_GATE, 7.0);
+    call(&mut h, 0x1056, NPC1_REF, &[ArgValue::Value(Value::Ref(FormId::PLAYER_REF.0))]);
+    assert!(h.dialogue.is_none() && h.speech.len() == 1);
+    // A greeting without the flag is a conversation as before.
+    let mut k = game(&f);
+    k.start_dialogue(actor(), None).unwrap();
+    assert!(k.dialogue.is_some() && k.speech.is_empty());
 }
 
 #[test]

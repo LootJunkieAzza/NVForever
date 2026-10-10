@@ -5,7 +5,9 @@
 //! Keys: W/A/S/D move, Q/E down/up, Shift faster, right mouse drag look, wheel speed,
 //! F12 screenshot, Esc quit. With `--play` the camera is the player instead (Layer 4,
 //! `nvf-play`: walking with collision, activation, menus; docs/design/layer4-play.md),
-//! Esc opens the pause menu (Resume / Quit) and closes the open menu.
+//! Esc opens the pause menu (Resume / Settings / Quit; the settings page switches what
+//! `settings.rs` and `nvf_play::settings` list while the game runs) and closes the open
+//! menu.
 
 mod actors;
 mod deaths;
@@ -31,6 +33,7 @@ mod ragdoll;
 mod reflection;
 mod residents;
 mod ripples;
+mod settings;
 mod imagespace;
 mod sky;
 mod terrain;
@@ -147,13 +150,13 @@ struct Args {
     #[arg(long)]
     day: Option<f32>,
     /// Do not apply the image-space grade (the worldspace's image space and the weather's
-    /// adapters), for comparisons.
+    /// adapters, an interior cell's own image space), for comparisons.
     #[arg(long)]
     no_grade: bool,
     /// Sun shadows reach this far from the camera (game units); 0 turns them off. On by
     /// default (owner decision 2026-10-09), although the original game casts no sun shadows
     /// from the world (docs/spec-notes/world.md §6, "Sun path and shadows").
-    #[arg(long, default_value_t = 16_000.0)]
+    #[arg(long, default_value_t = sky::DEFAULT_SHADOW_DISTANCE)]
     shadow_distance: f32,
     /// Samples per pixel for anti-aliasing: 1 (off), 2, 4 or 8. The cut-out edges of
     /// alpha-tested shapes (plants, fences, hair, grass) are smoothed with it too, like
@@ -502,10 +505,11 @@ fn main() -> AppExit {
         Ok(s) => s,
         Err(e) => return fail(e),
     };
-    sky_state.shadow_distance = args.shadow_distance.max(0.0);
-    if args.no_grade {
-        sky_state.image_space = None;
+    sky_state.shadows = args.shadow_distance > 0.0;
+    if sky_state.shadows {
+        sky_state.shadow_distance = args.shadow_distance;
     }
+    sky_state.grade = !args.no_grade;
     sky_state.time_scale = args.time_scale.max(0.0);
     sky_state.days_passed = args.day.or_else(|| sky::find_global(&world, "GameDaysPassed")).unwrap_or(0.0).floor();
     if let Some(dir) = &args.timelapse {
@@ -555,8 +559,9 @@ fn main() -> AppExit {
         start_at_cell_spot: args.pos.is_none(),
     });
     // Also for an interior start: LOD stays off inside and is switched on at the door out
-    // (world::travel), with generated terrain for the start worldspace.
-    let lodgen = if args.no_lod || args.no_lodgen {
+    // (world::travel), with generated terrain for the start worldspace. Also with
+    // --no-lod: the settings page can switch distant LOD on.
+    let lodgen = if args.no_lodgen {
         None
     } else {
         match lodgen_job(&args, &world, &game) {
@@ -582,6 +587,8 @@ fn main() -> AppExit {
         a
     });
     let open_doors = args.open_doors;
+    // What the overlay system and the settings page go by.
+    args.no_overlay |= args.frame_json.is_some();
     if args.follow_npc && args.npc_travel.is_empty() && args.npc_sit.is_empty() && args.npc_packages.is_empty() {
         return fail("--follow-npc needs --npc-travel, --npc-sit or --npc-packages".to_string());
     }
@@ -696,7 +703,7 @@ fn main() -> AppExit {
         heading: args.heading,
         pitch: args.pitch,
         fov: args.fov,
-        overlay: !args.no_overlay && args.frame_json.is_none(),
+        overlay: !args.no_overlay,
         play: play.is_some(),
         msaa,
     })
@@ -734,16 +741,13 @@ fn main() -> AppExit {
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);
-        if args.no_head_tracking {
-            info!("head tracking: off (--no-head-tracking)");
-        } else {
-            let force_point = match args.head_track_point.as_deref().map(|p| parse_vec::<3>(p).ok_or(p)) {
-                Some(Err(p)) => return fail(format!("--head-track-point {p}: expected x,y,z")),
-                Some(Ok(p)) => Some(p),
-                None => None,
-            };
-            app.add_plugins(head_look::HeadLookPlugin { camera_is_player: args.head_track_camera, force_point });
-        }
+        let force_point = match args.head_track_point.as_deref().map(|p| parse_vec::<3>(p).ok_or(p)) {
+            Some(Err(p)) => return fail(format!("--head-track-point {p}: expected x,y,z")),
+            Some(Ok(p)) => Some(p),
+            None => None,
+        };
+        // Also with --no-head-tracking: the settings page can switch it on.
+        app.add_plugins(head_look::HeadLookPlugin { enabled: !args.no_head_tracking, camera_is_player: args.head_track_camera, force_point });
         if play.is_some() {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin));
@@ -752,7 +756,7 @@ fn main() -> AppExit {
             app.add_plugins(dialogue_look::DialogueLookPlugin);
         }
     }
-    if play.is_some() && !args.still_sky {
+    if play.is_some() {
         app.add_systems(Update, sky_follows_game.before(sky::update_sky));
     }
     if let Some(f) = furnishings {
@@ -844,6 +848,9 @@ fn main() -> AppExit {
         };
         app.add_systems(Update, summary);
     }
+    if play.is_some() {
+        settings::register(&mut app);
+    }
     app.run()
 }
 
@@ -893,13 +900,12 @@ fn setup(mut commands: Commands, start: Res<StartPose>) {
     if start.play {
         commands.entity(cam).insert(nvf_play::PlayerCamera);
     }
-    if !start.overlay {
-        return;
-    }
+    // Hidden with --no-overlay; the settings page can show it.
     commands.spawn((
         Text::new(""),
         TextFont { font_size: FontSize::Px(14.0), ..default() },
         Node { position_type: PositionType::Absolute, top: Val::Px(8.0), left: Val::Px(8.0), ..default() },
+        if start.overlay { Visibility::Inherited } else { Visibility::Hidden },
         Overlay,
     ));
 }
@@ -916,7 +922,11 @@ fn overlay(
     cam: Query<&GlobalTransform, With<FlyCam>>,
     mut text: Query<&mut Text, With<Overlay>>,
     play_state: Option<Res<State<nvf_play::PlayState>>>,
+    args: Res<Args>,
 ) {
+    if args.no_overlay {
+        return;
+    }
     let (Ok(cam), Ok(mut t)) = (cam.single(), text.single_mut()) else { return };
     let g = world::bevy_to_game(cam.translation());
     let c = fnv_world::cell_of(g.x, g.y);
@@ -958,9 +968,10 @@ fn keys(
 /// `--play`: one clock. The game's GameHour starts at the sky's hour (`--hour`); from
 /// then on the sky shows the game's time of day, which the simulation advances at the
 /// TimeScale global. An hour set by hand (the `[` and `]` keys) becomes the game's. The
-/// time-lapse test aid (`--time-scale`) keeps the sky's own clock.
-fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, mut shown: Local<Option<f32>>) {
-    if sky.time_scale > 0.0 {
+/// time-lapse test aid (`--time-scale`) keeps the sky's own clock, and so does
+/// `--still-sky` (the settings page switches it while the game runs).
+fn sky_follows_game(mut sim: ResMut<nvf_play::sim::SimState>, mut sky: ResMut<sky::SkyState>, args: Res<Args>, mut shown: Local<Option<f32>>) {
+    if sky.time_scale > 0.0 || args.still_sky {
         return;
     }
     let set_by_hand = shown.is_none_or(|h| (h - sky.hour).abs() > 1e-4);

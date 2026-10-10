@@ -194,7 +194,8 @@ pub fn start_conversation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, St
 
 /// 1 once the actor has been in a conversation with the player [documented: GECK wiki
 /// GetTalkedToPC, owner export: whether the NPC has ever spoken to the player;
-/// hypothesis: SayTo lines do not count].
+/// hypothesis: SayTo lines do not count; a greeting with the Goodbye flag, said at the
+/// player without a conversation (`Game::start_dialogue`), does].
 pub fn get_talked_to_pc(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let who = ctx.subject()?;
     Ok(Value::bool(g.extra.get(&who).is_some_and(|e| e.talked_to_pc)))

@@ -281,6 +281,22 @@ impl<'a> Game<'a> {
     /// [documented: Topics Tab: GREETING is what an actor says when spoken to;
     /// StartConversation: the named topic replaces the greeting]. Returns the line.
     ///
+    /// **A greeting with the Goodbye flag starts no conversation**: when the line picked
+    /// from GREETING carries the flag, the actor just says it at the player, as a SayTo
+    /// line is said ([`Game::say_line`]). [`Game::dialogue`] stays empty, so there is no
+    /// menu mode, no pause and nothing to choose or leave: the player is not held and
+    /// the game goes on while the line is heard [owner statement 2026-10-10: such a line
+    /// "does not draw the player into a dialogue exchange, it just is spoken at the
+    /// player without locking them in"; not yet captured]. The begin result script runs
+    /// at once and the end result script when the line is over, in game time; its Add
+    /// Topics are applied then, the actor counts as having talked to the player
+    /// (GetTalkedToPC) and no SayToDone block runs [hypothesis for these three: what a
+    /// conversation of that one line did]. Talking to the actor again while it speaks
+    /// cuts the line and starts the greeting afresh [hypothesis, as for a second
+    /// SayTo]. A Goodbye line of a topic named by StartConversation still opens a
+    /// conversation that ends with it [hypothesis: the statement is about GREETING;
+    /// capture question, dialogue.md §7].
+    ///
     /// An actor with no line to say cannot be talked to: nothing starts
     /// [hypothesis]. Neither does a dead, disabled or deleted actor [documented for
     /// StartConversation: nothing happens when either side is disabled]. One
@@ -309,6 +325,11 @@ impl<'a> Game<'a> {
             self.emit(EventKind::NoLine { speaker: actor, topic });
             return Err(format!("{} has no line of {} to say", data.name(actor), data.name(topic)));
         };
+        if Some(topic) == data.greeting && data.infos.get(&info).is_some_and(|d| d.goodbye) {
+            self.extra.entry(actor).or_default().talked_to_pc = true;
+            self.say_line(actor, listener, topic, info, false, true);
+            return Ok(info);
+        }
         self.dialogue = Some(Conversation { actor, line: None, choices: Vec::new(), lines: 0 });
         self.extra.entry(actor).or_default().talked_to_pc = true;
         self.emit(EventKind::DialogueStarted { actor, topic });

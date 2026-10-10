@@ -194,11 +194,17 @@ fn plugin_bytes() -> Vec<u8> {
     ]
     .concat();
     let qscript = [vec![sub(b"EDID", z("QScript"))], unit(1, &script(&[(0, None, body)]), &[(1, "fTimer", 0), (2, "bRun", 1)], &[QUEST])].concat();
-    // Activator script: nUsed (1, short).
+    // Activator script: nUsed (1, short), nHit (2, short).
     //   begin OnActivate player
     //     set nUsed to nUsed + 1
     //     SetStage Q 10
     //     ShowMessage TestMsg
+    //   end
+    //   begin OnHit player
+    //     set nHit to nHit + 10
+    //   end
+    //   begin OnHitWith
+    //     set nHit to nHit + 1
     //   end
     let body = [
         set(var(b's', 1), ex(&[var(b's', 1), a("1"), a("+")])),
@@ -208,7 +214,16 @@ fn plugin_bytes() -> Vec<u8> {
     .concat();
     let actscript = [
         vec![sub(b"EDID", z("ActScript"))],
-        unit(0, &script(&[(2, Some([le16(1), r(1)].concat()), body)]), &[(1, "nUsed", 1)], &[0x14, QUEST, MESSAGE]),
+        unit(
+            0,
+            &script(&[
+                (2, Some([le16(1), r(1)].concat()), body),
+                (0x08, Some([le16(1), r(1)].concat()), set(var(b's', 2), ex(&[var(b's', 2), a("10"), a("+")]))),
+                (0x09, None, set(var(b's', 2), ex(&[var(b's', 2), a("1"), a("+")]))),
+            ]),
+            &[(1, "nUsed", 1), (2, "nHit", 1)],
+            &[0x14, QUEST, MESSAGE],
+        ),
     ]
     .concat();
     // NPC script: nDone (1, short).
@@ -856,6 +871,56 @@ fn combat_hits_damage_health_kill_and_reward() {
     g.hit(npc, 70.0, HitInfo { attacker: None, ..by_player });
     let r = g.hit(npc, 10.0, by_player);
     assert!(r.died && r.xp == 0.0);
+}
+
+#[test]
+fn a_hit_on_an_object_runs_its_hit_blocks() {
+    use fnv_game::combat::HitInfo;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let target = FormId(ACT_REF);
+    let hits = |g: &Game| g.var(InstKey::Ref { reference: target }, 2).num();
+    let by_player = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: None, location: -1, critical: false, limb: None };
+    // Without a weapon: `OnHit player` only.
+    assert!(g.hit_object(target, by_player));
+    assert_eq!(hits(&g), 10.0);
+    // With one (any form stands in for it): OnHit, then OnHitWith.
+    assert!(g.hit_object(target, HitInfo { weapon: Some(FormId(MESSAGE)), ..by_player }));
+    assert_eq!(hits(&g), 21.0);
+    // Someone else's shot: `OnHit player` does not accept it, OnHitWith does.
+    assert!(g.hit_object(target, HitInfo { attacker: Some(FormId(NPC_REF)), weapon: Some(FormId(MESSAGE)), ..by_player }));
+    assert_eq!(hits(&g), 22.0);
+    // The object takes no damage and remembers no hit.
+    assert!(g.extra.get(&target).is_none_or(|e| e.last_hit.is_none() && e.damage.is_none()));
+    // A reference whose script has no hit block.
+    assert!(!g.hit_object(FormId(NPC_REF), by_player));
+}
+
+#[test]
+fn weapon_out_and_weapon_animation_type() {
+    use fnv_game::functions::weapon_anim_code;
+    let f = fixture();
+    let mut g = game(&f);
+    g.new_game();
+    let ask = |g: &mut Game, opcode: u16| {
+        let ctx = Ctx { unit: "test".into(), opcode, on: Some(FormId::PLAYER_REF), self_ref: None, action_ref: None, quest: None, inst: None, in_condition: true };
+        g.call_function(&ctx, &[]).num()
+    };
+    const IS_WEAPON_OUT: u16 = 0x1065;
+    const GET_WEAPON_ANIM_TYPE: u16 = 0x106C;
+    assert_eq!(ask(&mut g, IS_WEAPON_OUT), 0.0);
+    g.set_weapon_out(FormId::PLAYER_REF, true);
+    assert_eq!(ask(&mut g, IS_WEAPON_OUT), 1.0);
+    g.set_weapon_out(FormId::PLAYER_REF, false);
+    assert_eq!(ask(&mut g, IS_WEAPON_OUT), 0.0);
+    // Nothing equipped: Hand to Hand.
+    assert_eq!(ask(&mut g, GET_WEAPON_ANIM_TYPE), 1.0);
+    // The record's 14 types (0 Hand to Hand … 13 Thrown) as the function numbers them:
+    // both pistols 4, the ballistic and energy rifles 5, Thrown the catch-all.
+    let codes: Vec<i64> = (0..=13).map(weapon_anim_code).collect();
+    assert_eq!(codes, [1, 2, 3, 4, 4, 5, 6, 5, 7, 8, 9, 10, 11, 0]);
+    assert_eq!(weapon_anim_code(99), 0);
 }
 
 #[test]

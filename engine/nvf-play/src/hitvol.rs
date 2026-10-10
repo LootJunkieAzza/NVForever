@@ -20,6 +20,9 @@
 //! cap would otherwise cover the lower head) [design]. The torso's lower end (the pelvis)
 //! stays: pulled in, it left the hips between the thighs uncovered [observed: the
 //! Goodsprings Settler, 2026-10-09].
+//!
+//! The same bounds and posed parts say where each living actor stands in the player's
+//! way (`crate::blocking`); hit volumes themselves do not stop anyone walking.
 
 use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
@@ -28,6 +31,7 @@ use fnv_phys::{HitVolume, PartCapsule};
 use fnv_sim::FormId;
 use std::collections::{BTreeMap, HashMap};
 
+use crate::blocking::{self, ActorBlocks};
 use crate::phys::{PhysState, PhysSystems};
 use crate::sim::SimState;
 use crate::{space, PlayWorld, RefVisual};
@@ -129,6 +133,7 @@ impl Plugin for HitVolumePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HitVolumes>()
             .init_resource::<ActorParts>()
+            .init_resource::<ActorBlocks>()
             .add_systems(Update, sync_volumes.after(PhysSystems).in_set(crate::PlaySet::Physics))
             .add_systems(Last, report);
     }
@@ -168,6 +173,7 @@ fn is_actor(play: &PlayWorld, form_id: u32) -> bool {
     play.index.refs.get(&form_id).is_some_and(|e| &e.sig == b"ACHR" || &e.sig == b"ACRE")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sync_volumes(
     play: Res<PlayWorld>,
     sim: Res<SimState>,
@@ -176,6 +182,7 @@ fn sync_volumes(
     parts: Query<(&RefVisual, &Aabb, &GlobalTransform, &InheritedVisibility)>,
     mut phys: ResMut<PhysState>,
     mut vols: ResMut<HitVolumes>,
+    mut blocks: ResMut<ActorBlocks>,
 ) {
     let mut bounds: BTreeMap<u32, ([f32; 3], [f32; 3])> = BTreeMap::new();
     for (r, aabb, gt, vis) in &parts {
@@ -195,10 +202,17 @@ fn sync_volumes(
     for id in stale {
         phys.world.remove_actor_volume(id);
     }
+    blocks.list.clear();
     for (&id, &(lo, hi)) in &bounds {
         let dead = crate::combat::is_dead(script.as_deref(), id);
         let v = volume_for(lo, hi, dead);
-        match posed.by_ref.get(&id).filter(|p| !p.segments.is_empty()) {
+        let posed = posed.by_ref.get(&id).filter(|p| !p.segments.is_empty());
+        // In the player's way where its body is now, unless the character controller
+        // walks it (its character blocks the player already).
+        if !dead && id != FormId::PLAYER_REF.0 && !phys.npcs.contains_key(&id) {
+            blocks.list.push(blocking::block_for(id, lo, hi, posed.and_then(|p| blocking::torso(&p.segments))));
+        }
+        match posed {
             Some(p) => {
                 let size = (0..3).map(|k| hi[k] - lo[k]).fold(0.0f32, f32::max);
                 let caps = part_capsules(&p.segments, size);
@@ -221,7 +235,7 @@ fn sync_volumes(
 /// (from the side the player is on) at its aim point (the torso with body parts, else the
 /// capsule's middle) should hit that actor first,
 /// unless something stands in between.
-fn report(mut exit: MessageReader<AppExit>, vols: Res<HitVolumes>, mut phys: ResMut<PhysState>) {
+fn report(mut exit: MessageReader<AppExit>, vols: Res<HitVolumes>, blocks: Res<ActorBlocks>, mut phys: ResMut<PhysState>) {
     if exit.read().last().is_none() {
         return;
     }
@@ -247,6 +261,14 @@ fn report(mut exit: MessageReader<AppExit>, vols: Res<HitVolumes>, mut phys: Res
         "actor hit volumes: {} at exit ({with_parts} with body parts), at most {} at once; probe rays: {hit} hit their actor, {other} hit something else first, {none} hit nothing",
         vols.count, vols.most
     );
+    // The block nearest to the player and how far the two are from touching.
+    let nearest = phys.player.as_ref().and_then(|c| {
+        let room = |b: &blocking::Block| b.room([c.feet[0], c.feet[1]], c.params.radius);
+        blocks.list.iter().min_by(|a, b| room(a).total_cmp(&room(b))).map(|b| {
+            format!("; the nearest, {:08X} round ({:.0}, {:.0}) to ({:.0}, {:.0}), is {:.1} units from touching the player at ({:.0}, {:.0}, {:.0})", b.actor, b.a[0], b.a[1], b.b[0], b.b[1], room(b), c.feet[0], c.feet[1], c.feet[2])
+        })
+    });
+    info!("actors in the player's way: {} at exit; they changed the player's step {} times{}", blocks.list.len(), blocks.steps_blocked, nearest.unwrap_or_default());
 }
 
 #[cfg(test)]
