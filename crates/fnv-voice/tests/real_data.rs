@@ -87,3 +87,77 @@ fn the_wav_copies_are_as_long_as_their_ogg_files() {
         }
     });
 }
+
+/// docs/spec-notes/lipsync.md §2 and §3: every `.lip` decodes by the rules of
+/// `fnv_voice::lip`, and the consonant channels follow the letters of the text.
+#[test]
+fn every_lip_file_decodes() {
+    with_bank("every_lip_file_decodes", |bank| {
+        let c = fnv_voice::lip_coverage::lip_coverage(bank, true);
+        assert_eq!(c["files"], 60702);
+        assert_eq!(c["decoded_without_residue"], 60702);
+        assert_eq!(c["reencode_byte_identical"], 60702);
+        assert_eq!(c["failed"], 0);
+        assert_eq!(c["header_version_and_flag"], serde_json::json!({"1/1": 60702}));
+        assert_eq!(c["frames"], serde_json::json!({"total": 8436876, "fewest": 15, "most": 1260}));
+        assert_eq!((c["start_frame"]["lowest"].as_i64(), c["start_frame"]["highest"].as_i64()), (Some(-36), Some(6)));
+        assert_eq!(c["start_frame"]["files_above_zero"], 35);
+        assert_eq!(c["files_with_a_value_that_is_not_finite"], 0);
+        assert_eq!(c["files_without_any_mouth_shape"], 0);
+        // Channels no file uses: brow down, brow in, squint.
+        let unused: Vec<u64> = c["channels"].as_array().unwrap().iter().filter(|x| x["files_active"] == 0).map(|x| x["index"].as_u64().unwrap()).collect();
+        assert_eq!(unused, vec![18, 19, 20, 21, 28, 29]);
+        // Mouth shapes stay within 0..1 (rounding aside); only the head turns go below 0.
+        for x in c["channels"].as_array().unwrap() {
+            let (i, lo, hi) = (x["index"].as_u64().unwrap(), x["min"].as_f64().unwrap(), x["max"].as_f64().unwrap());
+            if i < 16 {
+                assert!(lo == 0.0 && hi <= 1.000001, "channel {i}: {lo}..{hi}");
+            }
+            if i < 30 {
+                assert!(lo > -1e-6, "channel {i}: {lo}");
+            }
+        }
+        let r = &c["relations"];
+        assert_eq!(r["files_where_blink_left_equals_blink_right_in_every_frame"], 60702);
+        assert_eq!(r["files_where_brow_up_left_equals_brow_up_right_in_every_frame"], 60702);
+        assert_eq!(r["frames_with_look_down_and_look_up"], 0);
+        assert_eq!(r["frames_with_look_left_and_look_right"], 0);
+        // The letter test: a consonant channel is used by most lines whose text has its
+        // letters and by few of the others.
+        let t = &c["letter_test"];
+        assert_eq!(t["files_with_the_text_of_their_response"], 60600);
+        for x in t["channels"].as_array().unwrap() {
+            let n = |k: &str| x[k].as_f64().unwrap();
+            let with = n("used_with_the_letters") / n("lines_with_the_letters");
+            let without = n("used_without_the_letters") / n("lines_without_the_letters");
+            assert!(with > 0.66 && without < 0.14 && with > 5.0 * without, "{}: {with:.3} against {without:.3}", x["name"]);
+        }
+        // 30 frames a second: the last mouth shape ends within a frame of the sound's end
+        // for three files in four.
+        let s = &c["against_sound"];
+        assert_eq!(s["files_with_a_sound"], 60702);
+        assert_eq!(s["last_mouth_shape_against_sound_end"]["within 1 frame"], 45042);
+    });
+}
+
+#[test]
+fn doc_mitchells_first_line_has_a_lip_file() {
+    with_bank("doc_mitchells_first_line_has_a_lip_file", |bank| {
+        let path = bank.file(0x0010_4BEE, 0, 0x0010_4C0C).expect("the line has a sound");
+        let lip = bank.lip(&path).expect("and a lip file");
+        assert_eq!((lip.version, lip.flag, lip.start_frame, lip.frames.len()), (1, 1, -4, 127));
+        assert_eq!(lip.speech_frames(), Some((0, 89)));
+        assert_eq!(lip.active_channels().len(), 17);
+        // "You're awake. How about that.": the lips meet for the b of "about" about two
+        // seconds in, and nowhere else.
+        let bmp = fnv_voice::lip::channel("BMP").unwrap();
+        let peak = (0..lip.frames.len()).max_by(|&a, &b| lip.frames[a][bmp].total_cmp(&lip.frames[b][bmp])).unwrap();
+        assert!((lip.time_of(peak) - 1.97).abs() < 0.04, "{}", lip.time_of(peak));
+        assert!(lip.frames.iter().enumerate().all(|(f, v)| v[bmp] == 0.0 || (58..=65).contains(&f)));
+        // No f, v, ch, j or sh in the line.
+        for name in ["FV", "ChJSh"] {
+            let c = fnv_voice::lip::channel(name).unwrap();
+            assert!(lip.frames.iter().all(|v| v[c] == 0.0), "{name}");
+        }
+    });
+}
