@@ -507,6 +507,11 @@ pub struct Speech {
     /// conversation goes on with the next line, and no SayToDone block runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<u32>,
+    /// A hello said to the player as the player passes (`Game::say_hello`,
+    /// docs/spec-notes/dialogue.md §5.2): when it ends no SayToDone block runs and no
+    /// topic is added [hypothesis for both].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hello: bool,
     /// Position (in the order the responses are said) of the response whose idles were
     /// last asked for (`crate::idles`); not part of the saved state.
     #[serde(skip)]
@@ -522,6 +527,8 @@ pub enum LineKind {
     Greeting,
     /// Line `n` of a conversation between two actors ([`Speech::conversation`]).
     Conversation(u32),
+    /// A hello to the passing player ([`Speech::hello`]).
+    Hello,
 }
 
 pub struct Game<'a> {
@@ -1341,8 +1348,8 @@ impl<'a> Game<'a> {
             _ => self.line_seconds(speaker, info),
         };
         self.emit(EventKind::LineStarted { speaker, target, topic, info, seconds });
-        let (say_to, greeting) = (kind == LineKind::SayTo, kind == LineKind::Greeting);
-        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, response: 0 });
+        let (say_to, greeting, hello) = (kind == LineKind::SayTo, kind == LineKind::Greeting, kind == LineKind::Hello);
+        self.speech.push(Speech { speaker, target, topic, info, remaining: seconds, say_to, greeting, conversation, hello, response: 0 });
         if let Some(&first) = def.response_order().first() {
             self.ask_response_idles(speaker, target, info, first);
         }
@@ -1457,6 +1464,9 @@ impl<'a> Game<'a> {
             // SayTo lines [hypothesis].
             if let Some(lines) = s.conversation {
                 self.next_conversation_line(&s, lines);
+                continue;
+            }
+            if s.hello {
                 continue;
             }
             // SayToDone follows a line said by Say as well as by SayTo [documented: GECK
