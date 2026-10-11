@@ -2469,3 +2469,29 @@ the groundwork for combat encounters. Scripts' GetDetected now answers from it.
    flicker as an actor turns its head), noise events from explosions and
    CreateDetectionEvent, NPCs sneaking, the sneak meter on the HUD, shade from the sun.
 
+## Reloading one round at a time (2026-10-11, session "looping reload")
+
+Docs: docs/spec-notes/combat-rules.md §4 ("Round by round"). Your rules (2026-10-11): a
+trigger pull closes the weapon first, then it fires; the close plays every time.
+
+1. **Which weapons:** none are listed in the code. A weapon loads round by round when
+   its reload animation has an opening clip in the game's files. That is true of the
+   .357 Magnum Revolver, Lucky, the Lever-Action Shotgun, the Hunting Shotgun, Dinner
+   Bell, the Cowboy Repeater, the Brush Gun, the Trail Carbine, and also the **Grenade
+   Launcher** (it shares the hunting shotgun's animation). If the grenade launcher
+   reloads all at once in the game, tell me.
+2. **How it runs:** the opening clip plays once (the .357's cylinder swings out:
+   1.07 s); each round is the reload clip from its start to its `Hit` key (0.63 s for
+   the .357, 0.47–0.5 s for the rifles and shotguns); after the last round the rest of
+   that clip closes the weapon (about 1.1 s). Please compare a full .357 reload
+   (2 missing: about 3.5 s) with the game.
+3. **Guesses I had to make:**
+   - The shot after a stopped reload follows by itself; you do not have to pull again.
+     A pull while it is closing also fires once it is closed.
+   - A pull while the weapon is still opening lets the first round go in, then closes.
+   - Each round's clip starts straight after the last without blending, so the hands
+     should not jump. If you see a jerk between rounds, tell me which weapon.
+4. **Try it:** equip the .357 (or another one above), fire two shots, press R, then
+   click partway through.
+5. **Not built:** NPCs reloading (they do not reload with animations yet), the Reload
+   Speed perks.
