@@ -74,13 +74,16 @@ impl Action {
     }
 }
 
-/// The two prompt lines under the crosshair: the target's name, then the key and action.
-pub fn prompt(name: &str, action: &Action) -> String {
-    let name = match action {
-        Action::Take { count } if *count > 1 => format!("{name} ({count})"),
-        _ => name.to_string(),
-    };
-    format!("{name}\nE) {}", action.label())
+/// The two prompt lines under the crosshair, as the original sets them: the action (the
+/// key goes before it), then what it is done to [observed: the owner's screenshots,
+/// docs/spec-notes/reticle.md §3]. A stack is named with its count; a door that leads
+/// elsewhere by where it leads, with the action "Open" [hypothesis, reticle.md §5].
+pub fn prompt(name: &str, action: &Action) -> (String, String) {
+    match action {
+        Action::Take { count } if *count > 1 => (action.label(), format!("{name} ({count})")),
+        Action::Travel { to: Some(to) } => ("Open".into(), to.clone()),
+        _ => (action.label(), name.to_string()),
+    }
 }
 
 /// Where a door's destination cell is, from the world index.
@@ -277,10 +280,12 @@ mod tests {
 
     #[test]
     fn prompts() {
-        assert_eq!(prompt("Stimpak", &Action::Take { count: 3 }), "Stimpak (3)\nE) Take");
-        assert_eq!(prompt("Stimpak", &Action::Take { count: 1 }), "Stimpak\nE) Take");
-        assert_eq!(prompt("Door", &Action::Travel { to: Some("Goodsprings".into()) }), "Door\nE) Open: Goodsprings");
-        assert_eq!(prompt("Safe", &Action::Locked { level: 50 }), "Safe\nE) Locked (Average)");
+        let p = |a: &str, b: &str| (a.to_string(), b.to_string());
+        assert_eq!(prompt("Stimpak", &Action::Take { count: 3 }), p("Take", "Stimpak (3)"));
+        assert_eq!(prompt("Stimpak", &Action::Take { count: 1 }), p("Take", "Stimpak"));
+        assert_eq!(prompt("Door", &Action::Travel { to: Some("Goodsprings".into()) }), p("Open", "Goodsprings"));
+        assert_eq!(prompt("Door", &Action::Travel { to: None }), p("Open", "Door"));
+        assert_eq!(prompt("Safe", &Action::Locked { level: 50 }), p("Locked (Average)", "Safe"));
         assert_eq!(Action::Locked { level: 255 }.label(), "Locked (Requires Key)");
     }
 

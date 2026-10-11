@@ -40,6 +40,7 @@ pub mod pipboy;
 pub mod player;
 pub mod quest_messages;
 pub mod radio;
+pub mod reticle;
 pub mod script;
 pub mod script_draw;
 pub mod script_events;

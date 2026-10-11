@@ -6,10 +6,10 @@
 //!   through `fnv_sim::World::activate` and its outcome becomes messages
 //!   ([`outcome`]): `RefChanged`, `TravelRequest` (travel behind a loading screen,
 //!   `crate::loading`), `OpenContainer` or an on-screen line.
-//! - `PlaySet::Ui`: the crosshair, the prompt and the message line (hidden in menus).
+//! - `PlaySet::Ui`: the message line (hidden in menus). The crosshair and the prompt
+//!   under it are drawn by `crate::reticle` from [`Target`].
 //! - While a script has the player's controls off (`control::ControlLocks`,
-//!   docs/spec-notes/controls.md §5): with movement off E does nothing and the
-//!   crosshair is hidden; with rollover text off the prompt is hidden.
+//!   docs/spec-notes/controls.md §5): with movement off E does nothing.
 //! - `PlaySet::Sync`: `RefVisual` entities are hidden while the simulation says their
 //!   reference is not in the world, on `RefChanged` and when cells stream in.
 //!
@@ -88,12 +88,6 @@ impl HudMessage {
 
 #[derive(Component)]
 struct Hud;
-
-#[derive(Component)]
-struct Crosshair;
-
-#[derive(Component)]
-struct PromptText;
 
 #[derive(Component)]
 struct MessageText;
@@ -384,54 +378,21 @@ fn spawn_hud(mut commands: Commands) {
             Visibility::Inherited,
         ))
         .with_children(|hud| {
-            // The crosshair: a small square at the centre of the view.
-            hud.spawn((
-                Crosshair,
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Percent(50.0),
-                    top: Val::Percent(50.0),
-                    width: Val::Px(4.0),
-                    height: Val::Px(4.0),
-                    margin: UiRect { left: Val::Px(-2.0), top: Val::Px(-2.0), ..default() },
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(1.0, 0.85, 0.4, 0.9)),
-                Visibility::Inherited,
-            ));
-            hud.spawn(line(18.0)).with_child((Text::new(""), font(16.0), TextColor(Color::srgb(1.0, 0.85, 0.4)), PromptText));
+            // The crosshair and the prompt under it are `crate::reticle`'s.
             hud.spawn(line(72.0)).with_child((Text::new(""), font(15.0), TextColor(Color::NONE), MessageText));
         });
 }
 
-#[allow(clippy::too_many_arguments)]
 fn update_hud(
     state: Res<State<PlayState>>,
-    target: Res<Target>,
     time: Res<Time>,
-    locks: Option<Res<crate::control::ControlLocks>>,
     mut msg: ResMut<HudMessage>,
-    mut hud: Query<&mut Visibility, (With<Hud>, Without<Crosshair>)>,
-    mut crosshair: Query<&mut Visibility, With<Crosshair>>,
-    mut prompt: Query<&mut Text, (With<PromptText>, Without<MessageText>)>,
+    mut hud: Query<&mut Visibility, With<Hud>>,
     mut message: Query<(&mut Text, &mut TextColor), With<MessageText>>,
 ) {
     let playing = *state.get() == PlayState::Playing;
     for mut v in &mut hud {
         v.set_if_neq(if playing { Visibility::Inherited } else { Visibility::Hidden });
-    }
-    // A script's DisablePlayerControls: movement off hides the crosshair, rollover text
-    // off the prompt [documented: GECK wiki DisablePlayerControls, MovementFlag and
-    // RolloverTextFlag].
-    let locks = locks.as_deref().copied().unwrap_or_default();
-    for mut v in &mut crosshair {
-        v.set_if_neq(if locks.movement { Visibility::Hidden } else { Visibility::Inherited });
-    }
-    let want = target.0.as_ref().filter(|_| !locks.rollover).map_or_else(String::new, |t| outcome::prompt(&t.name, &t.action));
-    for mut t in &mut prompt {
-        if t.0 != want {
-            t.0.clone_from(&want);
-        }
     }
     msg.age += time.delta_secs();
     let alpha = if msg.text.is_empty() { 0.0 } else { (1.0 - (msg.age - MESSAGE_HOLD) / MESSAGE_FADE).clamp(0.0, 1.0) };
