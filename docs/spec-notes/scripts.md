@@ -649,8 +649,8 @@ and per scripted item in an inventory (holder, item). Instances are created on f
 (an event that runs the script, or a variable access): an instance never touched has all
 variables 0, so this is the same state as creating it when the reference is materialised.
 `Game::snapshot` (`fnv.game.state/1`) carries the instances, quest states, the extra
-per-reference state (dead, destroyed, factions, actor values other than S.P.E.C.I.A.L.,
-script packages), the player state (XP, perks, notes, reputation, tag skills, controls,
+per-reference state (dead, destroyed, factions, actor value overrides, modifiers and
+damage, script packages), the player state (XP, perks, notes, reputation, tag skills, controls,
 misc stats), run-time form-list additions, loaded cells, menu and message box, clock and
 the RNG position, on top of the Layer 4 snapshot; a restored game continues exactly as
 the original (test `snapshots_round_trip`).
@@ -813,8 +813,8 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   SetSecuritronExpression, Reset3DState, AttachAshPile, SetCellImageSpace), weather
   (SetWeather, IsRaining, GetIsCurrentWeather), GetRadiationLevel, radio, menus
   (ForceTerminalBack, ShowCaravanMenu, OpenTeammateContainer, Add/SetSPECIALPoints,
-  AddTagSkills, the repair, recipe, casino, barber, surgeon, tutorial, sleep and loading
-  menus), ShowAllMapMarkers (map markers are not read), sleeping, GetIsLockBroken
+  AddTagSkills, the repair, recipe, casino, barber, surgeon, tutorial and loading
+  menus), ShowAllMapMarkers (map markers are not read), GetIsLockBroken
   (lockpicking), saving, ExitGame. AddScriptPackage and RemoveScriptPackage keep the
   actor's package list and also trace a stub.
 - **Unhandled (5 used opcodes, 35 uses)**: AddItemToLeveledList (20: run-time leveled
@@ -824,24 +824,26 @@ test checks the name against `functions.json`). Dispatch is by opcode only.
   GetIsObjectType (1: form type names). The first call per opcode and unit is traced, all
   are counted in `final.unhandled`, the value is 0.
 
-**Actor values** (round 3). Each value is a permanent part (base and permanent
-modifiers) minus a damage part. SetActorValue sets the permanent part [documented:
-catalogue, "sets the base value"]; ModActorValue adds to it; ForceActorValue changes it by
-the difference between the target and the current value [documented: catalogue notes];
-DamageActorValue adds to the damage; RestoreActorValue takes it off, never below zero, so
-a value is never restored past its permanent part [documented: catalogue notes of
-DamageActorValue and RestoreActorValue; observed: Contreras' supplies (three blocks of
-`RestoreActorValue <limb> 100`) left a head condition damaged by 40 at 100,
-`L5.quest.effect_start`, layer5-captures.md §9.3 b]. Base and permanent modifiers are
-kept together and GetBaseActorValue / GetPermanentActorValue read the permanent part
-[hypothesis]. Damage is per reference in `RefExtra::av_damage` (S.P.E.C.I.A.L.
-included).
+**Actor values** (round 3; the base values and the separate pools since 2026-10-10,
+docs/spec-notes/actor-values.md). Each value is a base, a permanent modifier and a
+damage part [documented: GECK wiki ActorValue]. SetActorValue puts a number in the
+base's place; ModActorValue adds to the permanent modifier; ForceActorValue changes that
+modifier by the difference between the target and the current value; DamageActorValue
+adds to the damage; RestoreActorValue takes it off, never below zero, so a value is
+never restored past its permanent value [documented: the pages of those functions;
+observed: Contreras' supplies (three blocks of `RestoreActorValue <limb> 100`) left a
+head condition damaged by 40 at 100, `L5.quest.effect_start`, layer5-captures.md §9.3 b].
+GetBaseActorValue reads the base and GetPermanentActorValue the base plus the permanent
+modifier [documented]. The override, the modifier and the damage are per reference in
+`RefExtra` (`actor_values`, `av_permanent`, `av_damage`); the permanent value of
+S.P.E.C.I.A.L. is in the Layer 4 world.
 
-Defaults where nothing is read yet [hypothesis]: actor values other than S.P.E.C.I.A.L.
-start at 0, except body-part conditions (codes 25–31) at 100; a living actor is at full
-health; with no weapon equipped GetWeaponHealthPerc is 100. Without these the
-CGTutorial script read a new character as hurt, crippled and with a broken weapon on its
-first run (its stages 200, 210 and 218), which the capture saves never show
+Where a value starts: S.P.E.C.I.A.L., skills, the derived statistics and the AI
+attributes from the actor's record and the formulas (actor-values.md §2 to §5);
+body-part conditions (codes 25–31) at 100; the others at 0. A living actor is at full
+health; with no weapon equipped GetWeaponHealthPerc is 100. Without the last three
+the CGTutorial script read a new character as hurt, crippled and with a broken weapon
+on its first run (its stages 200, 210 and 218), which the capture saves never show
 (layer5-captures.md §2: only stage 2 done).
 
 ### 7.4 Coverage (`fnvtool script coverage`, 2026-10-09, after rounds 3 and 4)
@@ -1329,8 +1331,7 @@ and Trudy's lines in the VCG02 / VCG03 part are still `say_info` / `say_first` i
   whether two different items with the same base effect merge; effects on actors other
   than the player and abilities' Start/Finish; ScriptEffectElapsedSeconds read in a
   script; the early end of effects (up to 0.2 s); AddReputationExact's limits and a
-  loss from a negative value; base against permanent actor values (GetBaseActorValue
-  after ModActorValue); GetDayOfWeek on the start date; GetDestructionStage after
+  loss from a negative value; GetDayOfWeek on the start date; GetDestructionStage after
   DamageObject; PlaceAtMe of a stackable item with a count; GetFactionRelation between
   members of factions with mixed reactions.
 - The game clock: `Game::tick` does not move GameHour (the engine and `fnv-sim` own the

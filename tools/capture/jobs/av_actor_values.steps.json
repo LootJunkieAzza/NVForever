@@ -1,0 +1,870 @@
+{
+ "format": "fnv.capture.steps/1",
+ "name": "av_actor_values",
+ "title": "Actor values of the player, five NPCs and two creatures: current and base, and the pools on the player (under a minute, no input)",
+ "start": "nvfdoc (Doc Mitchell's house); stays inside, nothing is moved.",
+ "steps": [
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"FalloutNV.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "FalloutNV.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"DeadMoney.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "DeadMoney.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"HonestHearts.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "HonestHearts.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"OldWorldBlues.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "OldWorldBlues.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"LonesomeRoad.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "LonesomeRoad.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"GunRunnersArsenal.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "GunRunnersArsenal.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"ClassicPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "ClassicPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"MercenaryPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "MercenaryPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"TribalPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "TribalPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := GetModIndex \"CaravanPack.esm\"\nSetFunctionValue fV\nEnd\n",
+   "label": "__modindex__",
+   "field": "CaravanPack.esm"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetLevel\nSetFunctionValue fV\nEnd\n",
+   "label": "player",
+   "field": "level"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetActorValue 0\nlet fV1 := player.GetActorValue 1\nlet fV2 := player.GetActorValue 2\nlet fV3 := player.GetActorValue 3\nlet fV4 := player.GetActorValue 4\nlet fV5 := player.GetActorValue 5\nlet fV6 := player.GetActorValue 6\nlet fV7 := player.GetActorValue 7\nlet fV8 := player.GetActorValue 8\nlet fV9 := player.GetActorValue 9\nlet fV10 := player.GetActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player current",
+   "field": "0-10"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetActorValue 11\nlet fV1 := player.GetActorValue 12\nlet fV2 := player.GetActorValue 13\nlet fV3 := player.GetActorValue 14\nlet fV4 := player.GetActorValue 15\nlet fV5 := player.GetActorValue 16\nlet fV6 := player.GetActorValue 17\nlet fV7 := player.GetActorValue 18\nlet fV8 := player.GetActorValue 19\nlet fV9 := player.GetActorValue 20\nlet fV10 := player.GetActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player current",
+   "field": "11-21"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetActorValue 22\nlet fV1 := player.GetActorValue 23\nlet fV2 := player.GetActorValue 24\nlet fV3 := player.GetActorValue 25\nlet fV4 := player.GetActorValue 26\nlet fV5 := player.GetActorValue 27\nlet fV6 := player.GetActorValue 28\nlet fV7 := player.GetActorValue 29\nlet fV8 := player.GetActorValue 30\nlet fV9 := player.GetActorValue 31\nlet fV10 := player.GetActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player current",
+   "field": "22-32"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetActorValue 33\nlet fV1 := player.GetActorValue 34\nlet fV2 := player.GetActorValue 35\nlet fV3 := player.GetActorValue 36\nlet fV4 := player.GetActorValue 37\nlet fV5 := player.GetActorValue 38\nlet fV6 := player.GetActorValue 39\nlet fV7 := player.GetActorValue 40\nlet fV8 := player.GetActorValue 41\nlet fV9 := player.GetActorValue 42\nlet fV10 := player.GetActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player current",
+   "field": "33-43"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetActorValue 44\nlet fV1 := player.GetActorValue 45\nlet fV2 := player.GetActorValue 46\nlet fV3 := player.GetActorValue 47\nlet fV4 := player.GetActorValue 48\nlet fV5 := player.GetActorValue 49\nlet fV6 := player.GetActorValue 50\nlet fV7 := player.GetActorValue 51\nlet fV8 := player.GetActorValue 52\nlet fV9 := player.GetActorValue 53\nlet fV10 := player.GetActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player current",
+   "field": "44-54"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetActorValue 55\nlet fV1 := player.GetActorValue 56\nlet fV2 := player.GetActorValue 57\nlet fV3 := player.GetActorValue 58\nlet fV4 := player.GetActorValue 59\nlet fV5 := player.GetActorValue 60\nlet fV6 := player.GetActorValue 61\nlet fV7 := player.GetActorValue 62\nlet fV8 := player.GetActorValue 63\nlet fV9 := player.GetActorValue 64\nlet fV10 := player.GetActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player current",
+   "field": "55-65"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetActorValue 66\nlet fV1 := player.GetActorValue 67\nlet fV2 := player.GetActorValue 68\nlet fV3 := player.GetActorValue 69\nlet fV4 := player.GetActorValue 70\nlet fV5 := player.GetActorValue 71\nlet fV6 := player.GetActorValue 72\nlet fV7 := player.GetActorValue 73\nlet fV8 := player.GetActorValue 74\nlet fV9 := player.GetActorValue 75\nlet fV10 := player.GetActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player current",
+   "field": "66-76"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetBaseActorValue 0\nlet fV1 := player.GetBaseActorValue 1\nlet fV2 := player.GetBaseActorValue 2\nlet fV3 := player.GetBaseActorValue 3\nlet fV4 := player.GetBaseActorValue 4\nlet fV5 := player.GetBaseActorValue 5\nlet fV6 := player.GetBaseActorValue 6\nlet fV7 := player.GetBaseActorValue 7\nlet fV8 := player.GetBaseActorValue 8\nlet fV9 := player.GetBaseActorValue 9\nlet fV10 := player.GetBaseActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player base",
+   "field": "0-10"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetBaseActorValue 11\nlet fV1 := player.GetBaseActorValue 12\nlet fV2 := player.GetBaseActorValue 13\nlet fV3 := player.GetBaseActorValue 14\nlet fV4 := player.GetBaseActorValue 15\nlet fV5 := player.GetBaseActorValue 16\nlet fV6 := player.GetBaseActorValue 17\nlet fV7 := player.GetBaseActorValue 18\nlet fV8 := player.GetBaseActorValue 19\nlet fV9 := player.GetBaseActorValue 20\nlet fV10 := player.GetBaseActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player base",
+   "field": "11-21"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetBaseActorValue 22\nlet fV1 := player.GetBaseActorValue 23\nlet fV2 := player.GetBaseActorValue 24\nlet fV3 := player.GetBaseActorValue 25\nlet fV4 := player.GetBaseActorValue 26\nlet fV5 := player.GetBaseActorValue 27\nlet fV6 := player.GetBaseActorValue 28\nlet fV7 := player.GetBaseActorValue 29\nlet fV8 := player.GetBaseActorValue 30\nlet fV9 := player.GetBaseActorValue 31\nlet fV10 := player.GetBaseActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player base",
+   "field": "22-32"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetBaseActorValue 33\nlet fV1 := player.GetBaseActorValue 34\nlet fV2 := player.GetBaseActorValue 35\nlet fV3 := player.GetBaseActorValue 36\nlet fV4 := player.GetBaseActorValue 37\nlet fV5 := player.GetBaseActorValue 38\nlet fV6 := player.GetBaseActorValue 39\nlet fV7 := player.GetBaseActorValue 40\nlet fV8 := player.GetBaseActorValue 41\nlet fV9 := player.GetBaseActorValue 42\nlet fV10 := player.GetBaseActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player base",
+   "field": "33-43"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetBaseActorValue 44\nlet fV1 := player.GetBaseActorValue 45\nlet fV2 := player.GetBaseActorValue 46\nlet fV3 := player.GetBaseActorValue 47\nlet fV4 := player.GetBaseActorValue 48\nlet fV5 := player.GetBaseActorValue 49\nlet fV6 := player.GetBaseActorValue 50\nlet fV7 := player.GetBaseActorValue 51\nlet fV8 := player.GetBaseActorValue 52\nlet fV9 := player.GetBaseActorValue 53\nlet fV10 := player.GetBaseActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player base",
+   "field": "44-54"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetBaseActorValue 55\nlet fV1 := player.GetBaseActorValue 56\nlet fV2 := player.GetBaseActorValue 57\nlet fV3 := player.GetBaseActorValue 58\nlet fV4 := player.GetBaseActorValue 59\nlet fV5 := player.GetBaseActorValue 60\nlet fV6 := player.GetBaseActorValue 61\nlet fV7 := player.GetBaseActorValue 62\nlet fV8 := player.GetBaseActorValue 63\nlet fV9 := player.GetBaseActorValue 64\nlet fV10 := player.GetBaseActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player base",
+   "field": "55-65"
+  },
+  {
+   "query": "float fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fV0 := player.GetBaseActorValue 66\nlet fV1 := player.GetBaseActorValue 67\nlet fV2 := player.GetBaseActorValue 68\nlet fV3 := player.GetBaseActorValue 69\nlet fV4 := player.GetBaseActorValue 70\nlet fV5 := player.GetBaseActorValue 71\nlet fV6 := player.GetBaseActorValue 72\nlet fV7 := player.GetBaseActorValue 73\nlet fV8 := player.GetBaseActorValue 74\nlet fV9 := player.GetBaseActorValue 75\nlet fV10 := player.GetBaseActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "player base",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV := rF1.GetLevel\nSetFunctionValue fV\nEnd\n",
+   "label": "sunny",
+   "field": "level"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetActorValue 0\nlet fV1 := rF1.GetActorValue 1\nlet fV2 := rF1.GetActorValue 2\nlet fV3 := rF1.GetActorValue 3\nlet fV4 := rF1.GetActorValue 4\nlet fV5 := rF1.GetActorValue 5\nlet fV6 := rF1.GetActorValue 6\nlet fV7 := rF1.GetActorValue 7\nlet fV8 := rF1.GetActorValue 8\nlet fV9 := rF1.GetActorValue 9\nlet fV10 := rF1.GetActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny current",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetActorValue 11\nlet fV1 := rF1.GetActorValue 12\nlet fV2 := rF1.GetActorValue 13\nlet fV3 := rF1.GetActorValue 14\nlet fV4 := rF1.GetActorValue 15\nlet fV5 := rF1.GetActorValue 16\nlet fV6 := rF1.GetActorValue 17\nlet fV7 := rF1.GetActorValue 18\nlet fV8 := rF1.GetActorValue 19\nlet fV9 := rF1.GetActorValue 20\nlet fV10 := rF1.GetActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny current",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetActorValue 22\nlet fV1 := rF1.GetActorValue 23\nlet fV2 := rF1.GetActorValue 24\nlet fV3 := rF1.GetActorValue 25\nlet fV4 := rF1.GetActorValue 26\nlet fV5 := rF1.GetActorValue 27\nlet fV6 := rF1.GetActorValue 28\nlet fV7 := rF1.GetActorValue 29\nlet fV8 := rF1.GetActorValue 30\nlet fV9 := rF1.GetActorValue 31\nlet fV10 := rF1.GetActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny current",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetActorValue 33\nlet fV1 := rF1.GetActorValue 34\nlet fV2 := rF1.GetActorValue 35\nlet fV3 := rF1.GetActorValue 36\nlet fV4 := rF1.GetActorValue 37\nlet fV5 := rF1.GetActorValue 38\nlet fV6 := rF1.GetActorValue 39\nlet fV7 := rF1.GetActorValue 40\nlet fV8 := rF1.GetActorValue 41\nlet fV9 := rF1.GetActorValue 42\nlet fV10 := rF1.GetActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny current",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetActorValue 44\nlet fV1 := rF1.GetActorValue 45\nlet fV2 := rF1.GetActorValue 46\nlet fV3 := rF1.GetActorValue 47\nlet fV4 := rF1.GetActorValue 48\nlet fV5 := rF1.GetActorValue 49\nlet fV6 := rF1.GetActorValue 50\nlet fV7 := rF1.GetActorValue 51\nlet fV8 := rF1.GetActorValue 52\nlet fV9 := rF1.GetActorValue 53\nlet fV10 := rF1.GetActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny current",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetActorValue 55\nlet fV1 := rF1.GetActorValue 56\nlet fV2 := rF1.GetActorValue 57\nlet fV3 := rF1.GetActorValue 58\nlet fV4 := rF1.GetActorValue 59\nlet fV5 := rF1.GetActorValue 60\nlet fV6 := rF1.GetActorValue 61\nlet fV7 := rF1.GetActorValue 62\nlet fV8 := rF1.GetActorValue 63\nlet fV9 := rF1.GetActorValue 64\nlet fV10 := rF1.GetActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny current",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetActorValue 66\nlet fV1 := rF1.GetActorValue 67\nlet fV2 := rF1.GetActorValue 68\nlet fV3 := rF1.GetActorValue 69\nlet fV4 := rF1.GetActorValue 70\nlet fV5 := rF1.GetActorValue 71\nlet fV6 := rF1.GetActorValue 72\nlet fV7 := rF1.GetActorValue 73\nlet fV8 := rF1.GetActorValue 74\nlet fV9 := rF1.GetActorValue 75\nlet fV10 := rF1.GetActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny current",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetBaseActorValue 0\nlet fV1 := rF1.GetBaseActorValue 1\nlet fV2 := rF1.GetBaseActorValue 2\nlet fV3 := rF1.GetBaseActorValue 3\nlet fV4 := rF1.GetBaseActorValue 4\nlet fV5 := rF1.GetBaseActorValue 5\nlet fV6 := rF1.GetBaseActorValue 6\nlet fV7 := rF1.GetBaseActorValue 7\nlet fV8 := rF1.GetBaseActorValue 8\nlet fV9 := rF1.GetBaseActorValue 9\nlet fV10 := rF1.GetBaseActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny base",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetBaseActorValue 11\nlet fV1 := rF1.GetBaseActorValue 12\nlet fV2 := rF1.GetBaseActorValue 13\nlet fV3 := rF1.GetBaseActorValue 14\nlet fV4 := rF1.GetBaseActorValue 15\nlet fV5 := rF1.GetBaseActorValue 16\nlet fV6 := rF1.GetBaseActorValue 17\nlet fV7 := rF1.GetBaseActorValue 18\nlet fV8 := rF1.GetBaseActorValue 19\nlet fV9 := rF1.GetBaseActorValue 20\nlet fV10 := rF1.GetBaseActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny base",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetBaseActorValue 22\nlet fV1 := rF1.GetBaseActorValue 23\nlet fV2 := rF1.GetBaseActorValue 24\nlet fV3 := rF1.GetBaseActorValue 25\nlet fV4 := rF1.GetBaseActorValue 26\nlet fV5 := rF1.GetBaseActorValue 27\nlet fV6 := rF1.GetBaseActorValue 28\nlet fV7 := rF1.GetBaseActorValue 29\nlet fV8 := rF1.GetBaseActorValue 30\nlet fV9 := rF1.GetBaseActorValue 31\nlet fV10 := rF1.GetBaseActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny base",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetBaseActorValue 33\nlet fV1 := rF1.GetBaseActorValue 34\nlet fV2 := rF1.GetBaseActorValue 35\nlet fV3 := rF1.GetBaseActorValue 36\nlet fV4 := rF1.GetBaseActorValue 37\nlet fV5 := rF1.GetBaseActorValue 38\nlet fV6 := rF1.GetBaseActorValue 39\nlet fV7 := rF1.GetBaseActorValue 40\nlet fV8 := rF1.GetBaseActorValue 41\nlet fV9 := rF1.GetBaseActorValue 42\nlet fV10 := rF1.GetBaseActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny base",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetBaseActorValue 44\nlet fV1 := rF1.GetBaseActorValue 45\nlet fV2 := rF1.GetBaseActorValue 46\nlet fV3 := rF1.GetBaseActorValue 47\nlet fV4 := rF1.GetBaseActorValue 48\nlet fV5 := rF1.GetBaseActorValue 49\nlet fV6 := rF1.GetBaseActorValue 50\nlet fV7 := rF1.GetBaseActorValue 51\nlet fV8 := rF1.GetBaseActorValue 52\nlet fV9 := rF1.GetBaseActorValue 53\nlet fV10 := rF1.GetBaseActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny base",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetBaseActorValue 55\nlet fV1 := rF1.GetBaseActorValue 56\nlet fV2 := rF1.GetBaseActorValue 57\nlet fV3 := rF1.GetBaseActorValue 58\nlet fV4 := rF1.GetBaseActorValue 59\nlet fV5 := rF1.GetBaseActorValue 60\nlet fV6 := rF1.GetBaseActorValue 61\nlet fV7 := rF1.GetBaseActorValue 62\nlet fV8 := rF1.GetBaseActorValue 63\nlet fV9 := rF1.GetBaseActorValue 64\nlet fV10 := rF1.GetBaseActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny base",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068677\nlet fV0 := rF1.GetBaseActorValue 66\nlet fV1 := rF1.GetBaseActorValue 67\nlet fV2 := rF1.GetBaseActorValue 68\nlet fV3 := rF1.GetBaseActorValue 69\nlet fV4 := rF1.GetBaseActorValue 70\nlet fV5 := rF1.GetBaseActorValue 71\nlet fV6 := rF1.GetBaseActorValue 72\nlet fV7 := rF1.GetBaseActorValue 73\nlet fV8 := rF1.GetBaseActorValue 74\nlet fV9 := rF1.GetBaseActorValue 75\nlet fV10 := rF1.GetBaseActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "sunny base",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV := rF1.GetLevel\nSetFunctionValue fV\nEnd\n",
+   "label": "doc",
+   "field": "level"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetActorValue 0\nlet fV1 := rF1.GetActorValue 1\nlet fV2 := rF1.GetActorValue 2\nlet fV3 := rF1.GetActorValue 3\nlet fV4 := rF1.GetActorValue 4\nlet fV5 := rF1.GetActorValue 5\nlet fV6 := rF1.GetActorValue 6\nlet fV7 := rF1.GetActorValue 7\nlet fV8 := rF1.GetActorValue 8\nlet fV9 := rF1.GetActorValue 9\nlet fV10 := rF1.GetActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc current",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetActorValue 11\nlet fV1 := rF1.GetActorValue 12\nlet fV2 := rF1.GetActorValue 13\nlet fV3 := rF1.GetActorValue 14\nlet fV4 := rF1.GetActorValue 15\nlet fV5 := rF1.GetActorValue 16\nlet fV6 := rF1.GetActorValue 17\nlet fV7 := rF1.GetActorValue 18\nlet fV8 := rF1.GetActorValue 19\nlet fV9 := rF1.GetActorValue 20\nlet fV10 := rF1.GetActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc current",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetActorValue 22\nlet fV1 := rF1.GetActorValue 23\nlet fV2 := rF1.GetActorValue 24\nlet fV3 := rF1.GetActorValue 25\nlet fV4 := rF1.GetActorValue 26\nlet fV5 := rF1.GetActorValue 27\nlet fV6 := rF1.GetActorValue 28\nlet fV7 := rF1.GetActorValue 29\nlet fV8 := rF1.GetActorValue 30\nlet fV9 := rF1.GetActorValue 31\nlet fV10 := rF1.GetActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc current",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetActorValue 33\nlet fV1 := rF1.GetActorValue 34\nlet fV2 := rF1.GetActorValue 35\nlet fV3 := rF1.GetActorValue 36\nlet fV4 := rF1.GetActorValue 37\nlet fV5 := rF1.GetActorValue 38\nlet fV6 := rF1.GetActorValue 39\nlet fV7 := rF1.GetActorValue 40\nlet fV8 := rF1.GetActorValue 41\nlet fV9 := rF1.GetActorValue 42\nlet fV10 := rF1.GetActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc current",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetActorValue 44\nlet fV1 := rF1.GetActorValue 45\nlet fV2 := rF1.GetActorValue 46\nlet fV3 := rF1.GetActorValue 47\nlet fV4 := rF1.GetActorValue 48\nlet fV5 := rF1.GetActorValue 49\nlet fV6 := rF1.GetActorValue 50\nlet fV7 := rF1.GetActorValue 51\nlet fV8 := rF1.GetActorValue 52\nlet fV9 := rF1.GetActorValue 53\nlet fV10 := rF1.GetActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc current",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetActorValue 55\nlet fV1 := rF1.GetActorValue 56\nlet fV2 := rF1.GetActorValue 57\nlet fV3 := rF1.GetActorValue 58\nlet fV4 := rF1.GetActorValue 59\nlet fV5 := rF1.GetActorValue 60\nlet fV6 := rF1.GetActorValue 61\nlet fV7 := rF1.GetActorValue 62\nlet fV8 := rF1.GetActorValue 63\nlet fV9 := rF1.GetActorValue 64\nlet fV10 := rF1.GetActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc current",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetActorValue 66\nlet fV1 := rF1.GetActorValue 67\nlet fV2 := rF1.GetActorValue 68\nlet fV3 := rF1.GetActorValue 69\nlet fV4 := rF1.GetActorValue 70\nlet fV5 := rF1.GetActorValue 71\nlet fV6 := rF1.GetActorValue 72\nlet fV7 := rF1.GetActorValue 73\nlet fV8 := rF1.GetActorValue 74\nlet fV9 := rF1.GetActorValue 75\nlet fV10 := rF1.GetActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc current",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetBaseActorValue 0\nlet fV1 := rF1.GetBaseActorValue 1\nlet fV2 := rF1.GetBaseActorValue 2\nlet fV3 := rF1.GetBaseActorValue 3\nlet fV4 := rF1.GetBaseActorValue 4\nlet fV5 := rF1.GetBaseActorValue 5\nlet fV6 := rF1.GetBaseActorValue 6\nlet fV7 := rF1.GetBaseActorValue 7\nlet fV8 := rF1.GetBaseActorValue 8\nlet fV9 := rF1.GetBaseActorValue 9\nlet fV10 := rF1.GetBaseActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc base",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetBaseActorValue 11\nlet fV1 := rF1.GetBaseActorValue 12\nlet fV2 := rF1.GetBaseActorValue 13\nlet fV3 := rF1.GetBaseActorValue 14\nlet fV4 := rF1.GetBaseActorValue 15\nlet fV5 := rF1.GetBaseActorValue 16\nlet fV6 := rF1.GetBaseActorValue 17\nlet fV7 := rF1.GetBaseActorValue 18\nlet fV8 := rF1.GetBaseActorValue 19\nlet fV9 := rF1.GetBaseActorValue 20\nlet fV10 := rF1.GetBaseActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc base",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetBaseActorValue 22\nlet fV1 := rF1.GetBaseActorValue 23\nlet fV2 := rF1.GetBaseActorValue 24\nlet fV3 := rF1.GetBaseActorValue 25\nlet fV4 := rF1.GetBaseActorValue 26\nlet fV5 := rF1.GetBaseActorValue 27\nlet fV6 := rF1.GetBaseActorValue 28\nlet fV7 := rF1.GetBaseActorValue 29\nlet fV8 := rF1.GetBaseActorValue 30\nlet fV9 := rF1.GetBaseActorValue 31\nlet fV10 := rF1.GetBaseActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc base",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetBaseActorValue 33\nlet fV1 := rF1.GetBaseActorValue 34\nlet fV2 := rF1.GetBaseActorValue 35\nlet fV3 := rF1.GetBaseActorValue 36\nlet fV4 := rF1.GetBaseActorValue 37\nlet fV5 := rF1.GetBaseActorValue 38\nlet fV6 := rF1.GetBaseActorValue 39\nlet fV7 := rF1.GetBaseActorValue 40\nlet fV8 := rF1.GetBaseActorValue 41\nlet fV9 := rF1.GetBaseActorValue 42\nlet fV10 := rF1.GetBaseActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc base",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetBaseActorValue 44\nlet fV1 := rF1.GetBaseActorValue 45\nlet fV2 := rF1.GetBaseActorValue 46\nlet fV3 := rF1.GetBaseActorValue 47\nlet fV4 := rF1.GetBaseActorValue 48\nlet fV5 := rF1.GetBaseActorValue 49\nlet fV6 := rF1.GetBaseActorValue 50\nlet fV7 := rF1.GetBaseActorValue 51\nlet fV8 := rF1.GetBaseActorValue 52\nlet fV9 := rF1.GetBaseActorValue 53\nlet fV10 := rF1.GetBaseActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc base",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetBaseActorValue 55\nlet fV1 := rF1.GetBaseActorValue 56\nlet fV2 := rF1.GetBaseActorValue 57\nlet fV3 := rF1.GetBaseActorValue 58\nlet fV4 := rF1.GetBaseActorValue 59\nlet fV5 := rF1.GetBaseActorValue 60\nlet fV6 := rF1.GetBaseActorValue 61\nlet fV7 := rF1.GetBaseActorValue 62\nlet fV8 := rF1.GetBaseActorValue 63\nlet fV9 := rF1.GetBaseActorValue 64\nlet fV10 := rF1.GetBaseActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc base",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068047\nlet fV0 := rF1.GetBaseActorValue 66\nlet fV1 := rF1.GetBaseActorValue 67\nlet fV2 := rF1.GetBaseActorValue 68\nlet fV3 := rF1.GetBaseActorValue 69\nlet fV4 := rF1.GetBaseActorValue 70\nlet fV5 := rF1.GetBaseActorValue 71\nlet fV6 := rF1.GetBaseActorValue 72\nlet fV7 := rF1.GetBaseActorValue 73\nlet fV8 := rF1.GetBaseActorValue 74\nlet fV9 := rF1.GetBaseActorValue 75\nlet fV10 := rF1.GetBaseActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "doc base",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV := rF1.GetLevel\nSetFunctionValue fV\nEnd\n",
+   "label": "easy pete",
+   "field": "level"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetActorValue 0\nlet fV1 := rF1.GetActorValue 1\nlet fV2 := rF1.GetActorValue 2\nlet fV3 := rF1.GetActorValue 3\nlet fV4 := rF1.GetActorValue 4\nlet fV5 := rF1.GetActorValue 5\nlet fV6 := rF1.GetActorValue 6\nlet fV7 := rF1.GetActorValue 7\nlet fV8 := rF1.GetActorValue 8\nlet fV9 := rF1.GetActorValue 9\nlet fV10 := rF1.GetActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete current",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetActorValue 11\nlet fV1 := rF1.GetActorValue 12\nlet fV2 := rF1.GetActorValue 13\nlet fV3 := rF1.GetActorValue 14\nlet fV4 := rF1.GetActorValue 15\nlet fV5 := rF1.GetActorValue 16\nlet fV6 := rF1.GetActorValue 17\nlet fV7 := rF1.GetActorValue 18\nlet fV8 := rF1.GetActorValue 19\nlet fV9 := rF1.GetActorValue 20\nlet fV10 := rF1.GetActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete current",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetActorValue 22\nlet fV1 := rF1.GetActorValue 23\nlet fV2 := rF1.GetActorValue 24\nlet fV3 := rF1.GetActorValue 25\nlet fV4 := rF1.GetActorValue 26\nlet fV5 := rF1.GetActorValue 27\nlet fV6 := rF1.GetActorValue 28\nlet fV7 := rF1.GetActorValue 29\nlet fV8 := rF1.GetActorValue 30\nlet fV9 := rF1.GetActorValue 31\nlet fV10 := rF1.GetActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete current",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetActorValue 33\nlet fV1 := rF1.GetActorValue 34\nlet fV2 := rF1.GetActorValue 35\nlet fV3 := rF1.GetActorValue 36\nlet fV4 := rF1.GetActorValue 37\nlet fV5 := rF1.GetActorValue 38\nlet fV6 := rF1.GetActorValue 39\nlet fV7 := rF1.GetActorValue 40\nlet fV8 := rF1.GetActorValue 41\nlet fV9 := rF1.GetActorValue 42\nlet fV10 := rF1.GetActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete current",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetActorValue 44\nlet fV1 := rF1.GetActorValue 45\nlet fV2 := rF1.GetActorValue 46\nlet fV3 := rF1.GetActorValue 47\nlet fV4 := rF1.GetActorValue 48\nlet fV5 := rF1.GetActorValue 49\nlet fV6 := rF1.GetActorValue 50\nlet fV7 := rF1.GetActorValue 51\nlet fV8 := rF1.GetActorValue 52\nlet fV9 := rF1.GetActorValue 53\nlet fV10 := rF1.GetActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete current",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetActorValue 55\nlet fV1 := rF1.GetActorValue 56\nlet fV2 := rF1.GetActorValue 57\nlet fV3 := rF1.GetActorValue 58\nlet fV4 := rF1.GetActorValue 59\nlet fV5 := rF1.GetActorValue 60\nlet fV6 := rF1.GetActorValue 61\nlet fV7 := rF1.GetActorValue 62\nlet fV8 := rF1.GetActorValue 63\nlet fV9 := rF1.GetActorValue 64\nlet fV10 := rF1.GetActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete current",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetActorValue 66\nlet fV1 := rF1.GetActorValue 67\nlet fV2 := rF1.GetActorValue 68\nlet fV3 := rF1.GetActorValue 69\nlet fV4 := rF1.GetActorValue 70\nlet fV5 := rF1.GetActorValue 71\nlet fV6 := rF1.GetActorValue 72\nlet fV7 := rF1.GetActorValue 73\nlet fV8 := rF1.GetActorValue 74\nlet fV9 := rF1.GetActorValue 75\nlet fV10 := rF1.GetActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete current",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetBaseActorValue 0\nlet fV1 := rF1.GetBaseActorValue 1\nlet fV2 := rF1.GetBaseActorValue 2\nlet fV3 := rF1.GetBaseActorValue 3\nlet fV4 := rF1.GetBaseActorValue 4\nlet fV5 := rF1.GetBaseActorValue 5\nlet fV6 := rF1.GetBaseActorValue 6\nlet fV7 := rF1.GetBaseActorValue 7\nlet fV8 := rF1.GetBaseActorValue 8\nlet fV9 := rF1.GetBaseActorValue 9\nlet fV10 := rF1.GetBaseActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete base",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetBaseActorValue 11\nlet fV1 := rF1.GetBaseActorValue 12\nlet fV2 := rF1.GetBaseActorValue 13\nlet fV3 := rF1.GetBaseActorValue 14\nlet fV4 := rF1.GetBaseActorValue 15\nlet fV5 := rF1.GetBaseActorValue 16\nlet fV6 := rF1.GetBaseActorValue 17\nlet fV7 := rF1.GetBaseActorValue 18\nlet fV8 := rF1.GetBaseActorValue 19\nlet fV9 := rF1.GetBaseActorValue 20\nlet fV10 := rF1.GetBaseActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete base",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetBaseActorValue 22\nlet fV1 := rF1.GetBaseActorValue 23\nlet fV2 := rF1.GetBaseActorValue 24\nlet fV3 := rF1.GetBaseActorValue 25\nlet fV4 := rF1.GetBaseActorValue 26\nlet fV5 := rF1.GetBaseActorValue 27\nlet fV6 := rF1.GetBaseActorValue 28\nlet fV7 := rF1.GetBaseActorValue 29\nlet fV8 := rF1.GetBaseActorValue 30\nlet fV9 := rF1.GetBaseActorValue 31\nlet fV10 := rF1.GetBaseActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete base",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetBaseActorValue 33\nlet fV1 := rF1.GetBaseActorValue 34\nlet fV2 := rF1.GetBaseActorValue 35\nlet fV3 := rF1.GetBaseActorValue 36\nlet fV4 := rF1.GetBaseActorValue 37\nlet fV5 := rF1.GetBaseActorValue 38\nlet fV6 := rF1.GetBaseActorValue 39\nlet fV7 := rF1.GetBaseActorValue 40\nlet fV8 := rF1.GetBaseActorValue 41\nlet fV9 := rF1.GetBaseActorValue 42\nlet fV10 := rF1.GetBaseActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete base",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetBaseActorValue 44\nlet fV1 := rF1.GetBaseActorValue 45\nlet fV2 := rF1.GetBaseActorValue 46\nlet fV3 := rF1.GetBaseActorValue 47\nlet fV4 := rF1.GetBaseActorValue 48\nlet fV5 := rF1.GetBaseActorValue 49\nlet fV6 := rF1.GetBaseActorValue 50\nlet fV7 := rF1.GetBaseActorValue 51\nlet fV8 := rF1.GetBaseActorValue 52\nlet fV9 := rF1.GetBaseActorValue 53\nlet fV10 := rF1.GetBaseActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete base",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetBaseActorValue 55\nlet fV1 := rF1.GetBaseActorValue 56\nlet fV2 := rF1.GetBaseActorValue 57\nlet fV3 := rF1.GetBaseActorValue 58\nlet fV4 := rF1.GetBaseActorValue 59\nlet fV5 := rF1.GetBaseActorValue 60\nlet fV6 := rF1.GetBaseActorValue 61\nlet fV7 := rF1.GetBaseActorValue 62\nlet fV8 := rF1.GetBaseActorValue 63\nlet fV9 := rF1.GetBaseActorValue 64\nlet fV10 := rF1.GetBaseActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete base",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068160\nlet fV0 := rF1.GetBaseActorValue 66\nlet fV1 := rF1.GetBaseActorValue 67\nlet fV2 := rF1.GetBaseActorValue 68\nlet fV3 := rF1.GetBaseActorValue 69\nlet fV4 := rF1.GetBaseActorValue 70\nlet fV5 := rF1.GetBaseActorValue 71\nlet fV6 := rF1.GetBaseActorValue 72\nlet fV7 := rF1.GetBaseActorValue 73\nlet fV8 := rF1.GetBaseActorValue 74\nlet fV9 := rF1.GetBaseActorValue 75\nlet fV10 := rF1.GetBaseActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "easy pete base",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV := rF1.GetLevel\nSetFunctionValue fV\nEnd\n",
+   "label": "chet",
+   "field": "level"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetActorValue 0\nlet fV1 := rF1.GetActorValue 1\nlet fV2 := rF1.GetActorValue 2\nlet fV3 := rF1.GetActorValue 3\nlet fV4 := rF1.GetActorValue 4\nlet fV5 := rF1.GetActorValue 5\nlet fV6 := rF1.GetActorValue 6\nlet fV7 := rF1.GetActorValue 7\nlet fV8 := rF1.GetActorValue 8\nlet fV9 := rF1.GetActorValue 9\nlet fV10 := rF1.GetActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet current",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetActorValue 11\nlet fV1 := rF1.GetActorValue 12\nlet fV2 := rF1.GetActorValue 13\nlet fV3 := rF1.GetActorValue 14\nlet fV4 := rF1.GetActorValue 15\nlet fV5 := rF1.GetActorValue 16\nlet fV6 := rF1.GetActorValue 17\nlet fV7 := rF1.GetActorValue 18\nlet fV8 := rF1.GetActorValue 19\nlet fV9 := rF1.GetActorValue 20\nlet fV10 := rF1.GetActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet current",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetActorValue 22\nlet fV1 := rF1.GetActorValue 23\nlet fV2 := rF1.GetActorValue 24\nlet fV3 := rF1.GetActorValue 25\nlet fV4 := rF1.GetActorValue 26\nlet fV5 := rF1.GetActorValue 27\nlet fV6 := rF1.GetActorValue 28\nlet fV7 := rF1.GetActorValue 29\nlet fV8 := rF1.GetActorValue 30\nlet fV9 := rF1.GetActorValue 31\nlet fV10 := rF1.GetActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet current",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetActorValue 33\nlet fV1 := rF1.GetActorValue 34\nlet fV2 := rF1.GetActorValue 35\nlet fV3 := rF1.GetActorValue 36\nlet fV4 := rF1.GetActorValue 37\nlet fV5 := rF1.GetActorValue 38\nlet fV6 := rF1.GetActorValue 39\nlet fV7 := rF1.GetActorValue 40\nlet fV8 := rF1.GetActorValue 41\nlet fV9 := rF1.GetActorValue 42\nlet fV10 := rF1.GetActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet current",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetActorValue 44\nlet fV1 := rF1.GetActorValue 45\nlet fV2 := rF1.GetActorValue 46\nlet fV3 := rF1.GetActorValue 47\nlet fV4 := rF1.GetActorValue 48\nlet fV5 := rF1.GetActorValue 49\nlet fV6 := rF1.GetActorValue 50\nlet fV7 := rF1.GetActorValue 51\nlet fV8 := rF1.GetActorValue 52\nlet fV9 := rF1.GetActorValue 53\nlet fV10 := rF1.GetActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet current",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetActorValue 55\nlet fV1 := rF1.GetActorValue 56\nlet fV2 := rF1.GetActorValue 57\nlet fV3 := rF1.GetActorValue 58\nlet fV4 := rF1.GetActorValue 59\nlet fV5 := rF1.GetActorValue 60\nlet fV6 := rF1.GetActorValue 61\nlet fV7 := rF1.GetActorValue 62\nlet fV8 := rF1.GetActorValue 63\nlet fV9 := rF1.GetActorValue 64\nlet fV10 := rF1.GetActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet current",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetActorValue 66\nlet fV1 := rF1.GetActorValue 67\nlet fV2 := rF1.GetActorValue 68\nlet fV3 := rF1.GetActorValue 69\nlet fV4 := rF1.GetActorValue 70\nlet fV5 := rF1.GetActorValue 71\nlet fV6 := rF1.GetActorValue 72\nlet fV7 := rF1.GetActorValue 73\nlet fV8 := rF1.GetActorValue 74\nlet fV9 := rF1.GetActorValue 75\nlet fV10 := rF1.GetActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet current",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetBaseActorValue 0\nlet fV1 := rF1.GetBaseActorValue 1\nlet fV2 := rF1.GetBaseActorValue 2\nlet fV3 := rF1.GetBaseActorValue 3\nlet fV4 := rF1.GetBaseActorValue 4\nlet fV5 := rF1.GetBaseActorValue 5\nlet fV6 := rF1.GetBaseActorValue 6\nlet fV7 := rF1.GetBaseActorValue 7\nlet fV8 := rF1.GetBaseActorValue 8\nlet fV9 := rF1.GetBaseActorValue 9\nlet fV10 := rF1.GetBaseActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet base",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetBaseActorValue 11\nlet fV1 := rF1.GetBaseActorValue 12\nlet fV2 := rF1.GetBaseActorValue 13\nlet fV3 := rF1.GetBaseActorValue 14\nlet fV4 := rF1.GetBaseActorValue 15\nlet fV5 := rF1.GetBaseActorValue 16\nlet fV6 := rF1.GetBaseActorValue 17\nlet fV7 := rF1.GetBaseActorValue 18\nlet fV8 := rF1.GetBaseActorValue 19\nlet fV9 := rF1.GetBaseActorValue 20\nlet fV10 := rF1.GetBaseActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet base",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetBaseActorValue 22\nlet fV1 := rF1.GetBaseActorValue 23\nlet fV2 := rF1.GetBaseActorValue 24\nlet fV3 := rF1.GetBaseActorValue 25\nlet fV4 := rF1.GetBaseActorValue 26\nlet fV5 := rF1.GetBaseActorValue 27\nlet fV6 := rF1.GetBaseActorValue 28\nlet fV7 := rF1.GetBaseActorValue 29\nlet fV8 := rF1.GetBaseActorValue 30\nlet fV9 := rF1.GetBaseActorValue 31\nlet fV10 := rF1.GetBaseActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet base",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetBaseActorValue 33\nlet fV1 := rF1.GetBaseActorValue 34\nlet fV2 := rF1.GetBaseActorValue 35\nlet fV3 := rF1.GetBaseActorValue 36\nlet fV4 := rF1.GetBaseActorValue 37\nlet fV5 := rF1.GetBaseActorValue 38\nlet fV6 := rF1.GetBaseActorValue 39\nlet fV7 := rF1.GetBaseActorValue 40\nlet fV8 := rF1.GetBaseActorValue 41\nlet fV9 := rF1.GetBaseActorValue 42\nlet fV10 := rF1.GetBaseActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet base",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetBaseActorValue 44\nlet fV1 := rF1.GetBaseActorValue 45\nlet fV2 := rF1.GetBaseActorValue 46\nlet fV3 := rF1.GetBaseActorValue 47\nlet fV4 := rF1.GetBaseActorValue 48\nlet fV5 := rF1.GetBaseActorValue 49\nlet fV6 := rF1.GetBaseActorValue 50\nlet fV7 := rF1.GetBaseActorValue 51\nlet fV8 := rF1.GetBaseActorValue 52\nlet fV9 := rF1.GetBaseActorValue 53\nlet fV10 := rF1.GetBaseActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet base",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetBaseActorValue 55\nlet fV1 := rF1.GetBaseActorValue 56\nlet fV2 := rF1.GetBaseActorValue 57\nlet fV3 := rF1.GetBaseActorValue 58\nlet fV4 := rF1.GetBaseActorValue 59\nlet fV5 := rF1.GetBaseActorValue 60\nlet fV6 := rF1.GetBaseActorValue 61\nlet fV7 := rF1.GetBaseActorValue 62\nlet fV8 := rF1.GetBaseActorValue 63\nlet fV9 := rF1.GetBaseActorValue 64\nlet fV10 := rF1.GetBaseActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet base",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068153\nlet fV0 := rF1.GetBaseActorValue 66\nlet fV1 := rF1.GetBaseActorValue 67\nlet fV2 := rF1.GetBaseActorValue 68\nlet fV3 := rF1.GetBaseActorValue 69\nlet fV4 := rF1.GetBaseActorValue 70\nlet fV5 := rF1.GetBaseActorValue 71\nlet fV6 := rF1.GetBaseActorValue 72\nlet fV7 := rF1.GetBaseActorValue 73\nlet fV8 := rF1.GetBaseActorValue 74\nlet fV9 := rF1.GetBaseActorValue 75\nlet fV10 := rF1.GetBaseActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "chet base",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV := rF1.GetLevel\nSetFunctionValue fV\nEnd\n",
+   "label": "ringo",
+   "field": "level"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetActorValue 0\nlet fV1 := rF1.GetActorValue 1\nlet fV2 := rF1.GetActorValue 2\nlet fV3 := rF1.GetActorValue 3\nlet fV4 := rF1.GetActorValue 4\nlet fV5 := rF1.GetActorValue 5\nlet fV6 := rF1.GetActorValue 6\nlet fV7 := rF1.GetActorValue 7\nlet fV8 := rF1.GetActorValue 8\nlet fV9 := rF1.GetActorValue 9\nlet fV10 := rF1.GetActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo current",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetActorValue 11\nlet fV1 := rF1.GetActorValue 12\nlet fV2 := rF1.GetActorValue 13\nlet fV3 := rF1.GetActorValue 14\nlet fV4 := rF1.GetActorValue 15\nlet fV5 := rF1.GetActorValue 16\nlet fV6 := rF1.GetActorValue 17\nlet fV7 := rF1.GetActorValue 18\nlet fV8 := rF1.GetActorValue 19\nlet fV9 := rF1.GetActorValue 20\nlet fV10 := rF1.GetActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo current",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetActorValue 22\nlet fV1 := rF1.GetActorValue 23\nlet fV2 := rF1.GetActorValue 24\nlet fV3 := rF1.GetActorValue 25\nlet fV4 := rF1.GetActorValue 26\nlet fV5 := rF1.GetActorValue 27\nlet fV6 := rF1.GetActorValue 28\nlet fV7 := rF1.GetActorValue 29\nlet fV8 := rF1.GetActorValue 30\nlet fV9 := rF1.GetActorValue 31\nlet fV10 := rF1.GetActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo current",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetActorValue 33\nlet fV1 := rF1.GetActorValue 34\nlet fV2 := rF1.GetActorValue 35\nlet fV3 := rF1.GetActorValue 36\nlet fV4 := rF1.GetActorValue 37\nlet fV5 := rF1.GetActorValue 38\nlet fV6 := rF1.GetActorValue 39\nlet fV7 := rF1.GetActorValue 40\nlet fV8 := rF1.GetActorValue 41\nlet fV9 := rF1.GetActorValue 42\nlet fV10 := rF1.GetActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo current",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetActorValue 44\nlet fV1 := rF1.GetActorValue 45\nlet fV2 := rF1.GetActorValue 46\nlet fV3 := rF1.GetActorValue 47\nlet fV4 := rF1.GetActorValue 48\nlet fV5 := rF1.GetActorValue 49\nlet fV6 := rF1.GetActorValue 50\nlet fV7 := rF1.GetActorValue 51\nlet fV8 := rF1.GetActorValue 52\nlet fV9 := rF1.GetActorValue 53\nlet fV10 := rF1.GetActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo current",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetActorValue 55\nlet fV1 := rF1.GetActorValue 56\nlet fV2 := rF1.GetActorValue 57\nlet fV3 := rF1.GetActorValue 58\nlet fV4 := rF1.GetActorValue 59\nlet fV5 := rF1.GetActorValue 60\nlet fV6 := rF1.GetActorValue 61\nlet fV7 := rF1.GetActorValue 62\nlet fV8 := rF1.GetActorValue 63\nlet fV9 := rF1.GetActorValue 64\nlet fV10 := rF1.GetActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo current",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetActorValue 66\nlet fV1 := rF1.GetActorValue 67\nlet fV2 := rF1.GetActorValue 68\nlet fV3 := rF1.GetActorValue 69\nlet fV4 := rF1.GetActorValue 70\nlet fV5 := rF1.GetActorValue 71\nlet fV6 := rF1.GetActorValue 72\nlet fV7 := rF1.GetActorValue 73\nlet fV8 := rF1.GetActorValue 74\nlet fV9 := rF1.GetActorValue 75\nlet fV10 := rF1.GetActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo current",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetBaseActorValue 0\nlet fV1 := rF1.GetBaseActorValue 1\nlet fV2 := rF1.GetBaseActorValue 2\nlet fV3 := rF1.GetBaseActorValue 3\nlet fV4 := rF1.GetBaseActorValue 4\nlet fV5 := rF1.GetBaseActorValue 5\nlet fV6 := rF1.GetBaseActorValue 6\nlet fV7 := rF1.GetBaseActorValue 7\nlet fV8 := rF1.GetBaseActorValue 8\nlet fV9 := rF1.GetBaseActorValue 9\nlet fV10 := rF1.GetBaseActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo base",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetBaseActorValue 11\nlet fV1 := rF1.GetBaseActorValue 12\nlet fV2 := rF1.GetBaseActorValue 13\nlet fV3 := rF1.GetBaseActorValue 14\nlet fV4 := rF1.GetBaseActorValue 15\nlet fV5 := rF1.GetBaseActorValue 16\nlet fV6 := rF1.GetBaseActorValue 17\nlet fV7 := rF1.GetBaseActorValue 18\nlet fV8 := rF1.GetBaseActorValue 19\nlet fV9 := rF1.GetBaseActorValue 20\nlet fV10 := rF1.GetBaseActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo base",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetBaseActorValue 22\nlet fV1 := rF1.GetBaseActorValue 23\nlet fV2 := rF1.GetBaseActorValue 24\nlet fV3 := rF1.GetBaseActorValue 25\nlet fV4 := rF1.GetBaseActorValue 26\nlet fV5 := rF1.GetBaseActorValue 27\nlet fV6 := rF1.GetBaseActorValue 28\nlet fV7 := rF1.GetBaseActorValue 29\nlet fV8 := rF1.GetBaseActorValue 30\nlet fV9 := rF1.GetBaseActorValue 31\nlet fV10 := rF1.GetBaseActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo base",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetBaseActorValue 33\nlet fV1 := rF1.GetBaseActorValue 34\nlet fV2 := rF1.GetBaseActorValue 35\nlet fV3 := rF1.GetBaseActorValue 36\nlet fV4 := rF1.GetBaseActorValue 37\nlet fV5 := rF1.GetBaseActorValue 38\nlet fV6 := rF1.GetBaseActorValue 39\nlet fV7 := rF1.GetBaseActorValue 40\nlet fV8 := rF1.GetBaseActorValue 41\nlet fV9 := rF1.GetBaseActorValue 42\nlet fV10 := rF1.GetBaseActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo base",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetBaseActorValue 44\nlet fV1 := rF1.GetBaseActorValue 45\nlet fV2 := rF1.GetBaseActorValue 46\nlet fV3 := rF1.GetBaseActorValue 47\nlet fV4 := rF1.GetBaseActorValue 48\nlet fV5 := rF1.GetBaseActorValue 49\nlet fV6 := rF1.GetBaseActorValue 50\nlet fV7 := rF1.GetBaseActorValue 51\nlet fV8 := rF1.GetBaseActorValue 52\nlet fV9 := rF1.GetBaseActorValue 53\nlet fV10 := rF1.GetBaseActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo base",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetBaseActorValue 55\nlet fV1 := rF1.GetBaseActorValue 56\nlet fV2 := rF1.GetBaseActorValue 57\nlet fV3 := rF1.GetBaseActorValue 58\nlet fV4 := rF1.GetBaseActorValue 59\nlet fV5 := rF1.GetBaseActorValue 60\nlet fV6 := rF1.GetBaseActorValue 61\nlet fV7 := rF1.GetBaseActorValue 62\nlet fV8 := rF1.GetBaseActorValue 63\nlet fV9 := rF1.GetBaseActorValue 64\nlet fV10 := rF1.GetBaseActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo base",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1068157\nlet fV0 := rF1.GetBaseActorValue 66\nlet fV1 := rF1.GetBaseActorValue 67\nlet fV2 := rF1.GetBaseActorValue 68\nlet fV3 := rF1.GetBaseActorValue 69\nlet fV4 := rF1.GetBaseActorValue 70\nlet fV5 := rF1.GetBaseActorValue 71\nlet fV6 := rF1.GetBaseActorValue 72\nlet fV7 := rF1.GetBaseActorValue 73\nlet fV8 := rF1.GetBaseActorValue 74\nlet fV9 := rF1.GetBaseActorValue 75\nlet fV10 := rF1.GetBaseActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "ringo base",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV := rF1.GetLevel\nSetFunctionValue fV\nEnd\n",
+   "label": "cheyenne",
+   "field": "level"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetActorValue 0\nlet fV1 := rF1.GetActorValue 1\nlet fV2 := rF1.GetActorValue 2\nlet fV3 := rF1.GetActorValue 3\nlet fV4 := rF1.GetActorValue 4\nlet fV5 := rF1.GetActorValue 5\nlet fV6 := rF1.GetActorValue 6\nlet fV7 := rF1.GetActorValue 7\nlet fV8 := rF1.GetActorValue 8\nlet fV9 := rF1.GetActorValue 9\nlet fV10 := rF1.GetActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne current",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetActorValue 11\nlet fV1 := rF1.GetActorValue 12\nlet fV2 := rF1.GetActorValue 13\nlet fV3 := rF1.GetActorValue 14\nlet fV4 := rF1.GetActorValue 15\nlet fV5 := rF1.GetActorValue 16\nlet fV6 := rF1.GetActorValue 17\nlet fV7 := rF1.GetActorValue 18\nlet fV8 := rF1.GetActorValue 19\nlet fV9 := rF1.GetActorValue 20\nlet fV10 := rF1.GetActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne current",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetActorValue 22\nlet fV1 := rF1.GetActorValue 23\nlet fV2 := rF1.GetActorValue 24\nlet fV3 := rF1.GetActorValue 25\nlet fV4 := rF1.GetActorValue 26\nlet fV5 := rF1.GetActorValue 27\nlet fV6 := rF1.GetActorValue 28\nlet fV7 := rF1.GetActorValue 29\nlet fV8 := rF1.GetActorValue 30\nlet fV9 := rF1.GetActorValue 31\nlet fV10 := rF1.GetActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne current",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetActorValue 33\nlet fV1 := rF1.GetActorValue 34\nlet fV2 := rF1.GetActorValue 35\nlet fV3 := rF1.GetActorValue 36\nlet fV4 := rF1.GetActorValue 37\nlet fV5 := rF1.GetActorValue 38\nlet fV6 := rF1.GetActorValue 39\nlet fV7 := rF1.GetActorValue 40\nlet fV8 := rF1.GetActorValue 41\nlet fV9 := rF1.GetActorValue 42\nlet fV10 := rF1.GetActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne current",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetActorValue 44\nlet fV1 := rF1.GetActorValue 45\nlet fV2 := rF1.GetActorValue 46\nlet fV3 := rF1.GetActorValue 47\nlet fV4 := rF1.GetActorValue 48\nlet fV5 := rF1.GetActorValue 49\nlet fV6 := rF1.GetActorValue 50\nlet fV7 := rF1.GetActorValue 51\nlet fV8 := rF1.GetActorValue 52\nlet fV9 := rF1.GetActorValue 53\nlet fV10 := rF1.GetActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne current",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetActorValue 55\nlet fV1 := rF1.GetActorValue 56\nlet fV2 := rF1.GetActorValue 57\nlet fV3 := rF1.GetActorValue 58\nlet fV4 := rF1.GetActorValue 59\nlet fV5 := rF1.GetActorValue 60\nlet fV6 := rF1.GetActorValue 61\nlet fV7 := rF1.GetActorValue 62\nlet fV8 := rF1.GetActorValue 63\nlet fV9 := rF1.GetActorValue 64\nlet fV10 := rF1.GetActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne current",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetActorValue 66\nlet fV1 := rF1.GetActorValue 67\nlet fV2 := rF1.GetActorValue 68\nlet fV3 := rF1.GetActorValue 69\nlet fV4 := rF1.GetActorValue 70\nlet fV5 := rF1.GetActorValue 71\nlet fV6 := rF1.GetActorValue 72\nlet fV7 := rF1.GetActorValue 73\nlet fV8 := rF1.GetActorValue 74\nlet fV9 := rF1.GetActorValue 75\nlet fV10 := rF1.GetActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne current",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetBaseActorValue 0\nlet fV1 := rF1.GetBaseActorValue 1\nlet fV2 := rF1.GetBaseActorValue 2\nlet fV3 := rF1.GetBaseActorValue 3\nlet fV4 := rF1.GetBaseActorValue 4\nlet fV5 := rF1.GetBaseActorValue 5\nlet fV6 := rF1.GetBaseActorValue 6\nlet fV7 := rF1.GetBaseActorValue 7\nlet fV8 := rF1.GetBaseActorValue 8\nlet fV9 := rF1.GetBaseActorValue 9\nlet fV10 := rF1.GetBaseActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne base",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetBaseActorValue 11\nlet fV1 := rF1.GetBaseActorValue 12\nlet fV2 := rF1.GetBaseActorValue 13\nlet fV3 := rF1.GetBaseActorValue 14\nlet fV4 := rF1.GetBaseActorValue 15\nlet fV5 := rF1.GetBaseActorValue 16\nlet fV6 := rF1.GetBaseActorValue 17\nlet fV7 := rF1.GetBaseActorValue 18\nlet fV8 := rF1.GetBaseActorValue 19\nlet fV9 := rF1.GetBaseActorValue 20\nlet fV10 := rF1.GetBaseActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne base",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetBaseActorValue 22\nlet fV1 := rF1.GetBaseActorValue 23\nlet fV2 := rF1.GetBaseActorValue 24\nlet fV3 := rF1.GetBaseActorValue 25\nlet fV4 := rF1.GetBaseActorValue 26\nlet fV5 := rF1.GetBaseActorValue 27\nlet fV6 := rF1.GetBaseActorValue 28\nlet fV7 := rF1.GetBaseActorValue 29\nlet fV8 := rF1.GetBaseActorValue 30\nlet fV9 := rF1.GetBaseActorValue 31\nlet fV10 := rF1.GetBaseActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne base",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetBaseActorValue 33\nlet fV1 := rF1.GetBaseActorValue 34\nlet fV2 := rF1.GetBaseActorValue 35\nlet fV3 := rF1.GetBaseActorValue 36\nlet fV4 := rF1.GetBaseActorValue 37\nlet fV5 := rF1.GetBaseActorValue 38\nlet fV6 := rF1.GetBaseActorValue 39\nlet fV7 := rF1.GetBaseActorValue 40\nlet fV8 := rF1.GetBaseActorValue 41\nlet fV9 := rF1.GetBaseActorValue 42\nlet fV10 := rF1.GetBaseActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne base",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetBaseActorValue 44\nlet fV1 := rF1.GetBaseActorValue 45\nlet fV2 := rF1.GetBaseActorValue 46\nlet fV3 := rF1.GetBaseActorValue 47\nlet fV4 := rF1.GetBaseActorValue 48\nlet fV5 := rF1.GetBaseActorValue 49\nlet fV6 := rF1.GetBaseActorValue 50\nlet fV7 := rF1.GetBaseActorValue 51\nlet fV8 := rF1.GetBaseActorValue 52\nlet fV9 := rF1.GetBaseActorValue 53\nlet fV10 := rF1.GetBaseActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne base",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetBaseActorValue 55\nlet fV1 := rF1.GetBaseActorValue 56\nlet fV2 := rF1.GetBaseActorValue 57\nlet fV3 := rF1.GetBaseActorValue 58\nlet fV4 := rF1.GetBaseActorValue 59\nlet fV5 := rF1.GetBaseActorValue 60\nlet fV6 := rF1.GetBaseActorValue 61\nlet fV7 := rF1.GetBaseActorValue 62\nlet fV8 := rF1.GetBaseActorValue 63\nlet fV9 := rF1.GetBaseActorValue 64\nlet fV10 := rF1.GetBaseActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne base",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1071246\nlet fV0 := rF1.GetBaseActorValue 66\nlet fV1 := rF1.GetBaseActorValue 67\nlet fV2 := rF1.GetBaseActorValue 68\nlet fV3 := rF1.GetBaseActorValue 69\nlet fV4 := rF1.GetBaseActorValue 70\nlet fV5 := rF1.GetBaseActorValue 71\nlet fV6 := rF1.GetBaseActorValue 72\nlet fV7 := rF1.GetBaseActorValue 73\nlet fV8 := rF1.GetBaseActorValue 74\nlet fV9 := rF1.GetBaseActorValue 75\nlet fV10 := rF1.GetBaseActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "cheyenne base",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV := rF1.GetLevel\nSetFunctionValue fV\nEnd\n",
+   "label": "victor",
+   "field": "level"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetActorValue 0\nlet fV1 := rF1.GetActorValue 1\nlet fV2 := rF1.GetActorValue 2\nlet fV3 := rF1.GetActorValue 3\nlet fV4 := rF1.GetActorValue 4\nlet fV5 := rF1.GetActorValue 5\nlet fV6 := rF1.GetActorValue 6\nlet fV7 := rF1.GetActorValue 7\nlet fV8 := rF1.GetActorValue 8\nlet fV9 := rF1.GetActorValue 9\nlet fV10 := rF1.GetActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor current",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetActorValue 11\nlet fV1 := rF1.GetActorValue 12\nlet fV2 := rF1.GetActorValue 13\nlet fV3 := rF1.GetActorValue 14\nlet fV4 := rF1.GetActorValue 15\nlet fV5 := rF1.GetActorValue 16\nlet fV6 := rF1.GetActorValue 17\nlet fV7 := rF1.GetActorValue 18\nlet fV8 := rF1.GetActorValue 19\nlet fV9 := rF1.GetActorValue 20\nlet fV10 := rF1.GetActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor current",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetActorValue 22\nlet fV1 := rF1.GetActorValue 23\nlet fV2 := rF1.GetActorValue 24\nlet fV3 := rF1.GetActorValue 25\nlet fV4 := rF1.GetActorValue 26\nlet fV5 := rF1.GetActorValue 27\nlet fV6 := rF1.GetActorValue 28\nlet fV7 := rF1.GetActorValue 29\nlet fV8 := rF1.GetActorValue 30\nlet fV9 := rF1.GetActorValue 31\nlet fV10 := rF1.GetActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor current",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetActorValue 33\nlet fV1 := rF1.GetActorValue 34\nlet fV2 := rF1.GetActorValue 35\nlet fV3 := rF1.GetActorValue 36\nlet fV4 := rF1.GetActorValue 37\nlet fV5 := rF1.GetActorValue 38\nlet fV6 := rF1.GetActorValue 39\nlet fV7 := rF1.GetActorValue 40\nlet fV8 := rF1.GetActorValue 41\nlet fV9 := rF1.GetActorValue 42\nlet fV10 := rF1.GetActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor current",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetActorValue 44\nlet fV1 := rF1.GetActorValue 45\nlet fV2 := rF1.GetActorValue 46\nlet fV3 := rF1.GetActorValue 47\nlet fV4 := rF1.GetActorValue 48\nlet fV5 := rF1.GetActorValue 49\nlet fV6 := rF1.GetActorValue 50\nlet fV7 := rF1.GetActorValue 51\nlet fV8 := rF1.GetActorValue 52\nlet fV9 := rF1.GetActorValue 53\nlet fV10 := rF1.GetActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor current",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetActorValue 55\nlet fV1 := rF1.GetActorValue 56\nlet fV2 := rF1.GetActorValue 57\nlet fV3 := rF1.GetActorValue 58\nlet fV4 := rF1.GetActorValue 59\nlet fV5 := rF1.GetActorValue 60\nlet fV6 := rF1.GetActorValue 61\nlet fV7 := rF1.GetActorValue 62\nlet fV8 := rF1.GetActorValue 63\nlet fV9 := rF1.GetActorValue 64\nlet fV10 := rF1.GetActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor current",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetActorValue 66\nlet fV1 := rF1.GetActorValue 67\nlet fV2 := rF1.GetActorValue 68\nlet fV3 := rF1.GetActorValue 69\nlet fV4 := rF1.GetActorValue 70\nlet fV5 := rF1.GetActorValue 71\nlet fV6 := rF1.GetActorValue 72\nlet fV7 := rF1.GetActorValue 73\nlet fV8 := rF1.GetActorValue 74\nlet fV9 := rF1.GetActorValue 75\nlet fV10 := rF1.GetActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor current",
+   "field": "66-76"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetBaseActorValue 0\nlet fV1 := rF1.GetBaseActorValue 1\nlet fV2 := rF1.GetBaseActorValue 2\nlet fV3 := rF1.GetBaseActorValue 3\nlet fV4 := rF1.GetBaseActorValue 4\nlet fV5 := rF1.GetBaseActorValue 5\nlet fV6 := rF1.GetBaseActorValue 6\nlet fV7 := rF1.GetBaseActorValue 7\nlet fV8 := rF1.GetBaseActorValue 8\nlet fV9 := rF1.GetBaseActorValue 9\nlet fV10 := rF1.GetBaseActorValue 10\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor base",
+   "field": "0-10"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetBaseActorValue 11\nlet fV1 := rF1.GetBaseActorValue 12\nlet fV2 := rF1.GetBaseActorValue 13\nlet fV3 := rF1.GetBaseActorValue 14\nlet fV4 := rF1.GetBaseActorValue 15\nlet fV5 := rF1.GetBaseActorValue 16\nlet fV6 := rF1.GetBaseActorValue 17\nlet fV7 := rF1.GetBaseActorValue 18\nlet fV8 := rF1.GetBaseActorValue 19\nlet fV9 := rF1.GetBaseActorValue 20\nlet fV10 := rF1.GetBaseActorValue 21\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor base",
+   "field": "11-21"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetBaseActorValue 22\nlet fV1 := rF1.GetBaseActorValue 23\nlet fV2 := rF1.GetBaseActorValue 24\nlet fV3 := rF1.GetBaseActorValue 25\nlet fV4 := rF1.GetBaseActorValue 26\nlet fV5 := rF1.GetBaseActorValue 27\nlet fV6 := rF1.GetBaseActorValue 28\nlet fV7 := rF1.GetBaseActorValue 29\nlet fV8 := rF1.GetBaseActorValue 30\nlet fV9 := rF1.GetBaseActorValue 31\nlet fV10 := rF1.GetBaseActorValue 32\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor base",
+   "field": "22-32"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetBaseActorValue 33\nlet fV1 := rF1.GetBaseActorValue 34\nlet fV2 := rF1.GetBaseActorValue 35\nlet fV3 := rF1.GetBaseActorValue 36\nlet fV4 := rF1.GetBaseActorValue 37\nlet fV5 := rF1.GetBaseActorValue 38\nlet fV6 := rF1.GetBaseActorValue 39\nlet fV7 := rF1.GetBaseActorValue 40\nlet fV8 := rF1.GetBaseActorValue 41\nlet fV9 := rF1.GetBaseActorValue 42\nlet fV10 := rF1.GetBaseActorValue 43\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor base",
+   "field": "33-43"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetBaseActorValue 44\nlet fV1 := rF1.GetBaseActorValue 45\nlet fV2 := rF1.GetBaseActorValue 46\nlet fV3 := rF1.GetBaseActorValue 47\nlet fV4 := rF1.GetBaseActorValue 48\nlet fV5 := rF1.GetBaseActorValue 49\nlet fV6 := rF1.GetBaseActorValue 50\nlet fV7 := rF1.GetBaseActorValue 51\nlet fV8 := rF1.GetBaseActorValue 52\nlet fV9 := rF1.GetBaseActorValue 53\nlet fV10 := rF1.GetBaseActorValue 54\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor base",
+   "field": "44-54"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetBaseActorValue 55\nlet fV1 := rF1.GetBaseActorValue 56\nlet fV2 := rF1.GetBaseActorValue 57\nlet fV3 := rF1.GetBaseActorValue 58\nlet fV4 := rF1.GetBaseActorValue 59\nlet fV5 := rF1.GetBaseActorValue 60\nlet fV6 := rF1.GetBaseActorValue 61\nlet fV7 := rF1.GetBaseActorValue 62\nlet fV8 := rF1.GetBaseActorValue 63\nlet fV9 := rF1.GetBaseActorValue 64\nlet fV10 := rF1.GetBaseActorValue 65\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor base",
+   "field": "55-65"
+  },
+  {
+   "query": "float fM1\nref rF1\nfloat fV0\nfloat fV1\nfloat fV2\nfloat fV3\nfloat fV4\nfloat fV5\nfloat fV6\nfloat fV7\nfloat fV8\nfloat fV9\nfloat fV10\nBegin Function { }\nlet fM1 := GetModIndex \"FalloutNV.esm\"\nlet rF1 := BuildRef fM1 1078248\nlet fV0 := rF1.GetBaseActorValue 66\nlet fV1 := rF1.GetBaseActorValue 67\nlet fV2 := rF1.GetBaseActorValue 68\nlet fV3 := rF1.GetBaseActorValue 69\nlet fV4 := rF1.GetBaseActorValue 70\nlet fV5 := rF1.GetBaseActorValue 71\nlet fV6 := rF1.GetBaseActorValue 72\nlet fV7 := rF1.GetBaseActorValue 73\nlet fV8 := rF1.GetBaseActorValue 74\nlet fV9 := rF1.GetBaseActorValue 75\nlet fV10 := rF1.GetBaseActorValue 76\nSetFunctionValue (($ fV0) + \" \" + ($ fV1) + \" \" + ($ fV2) + \" \" + ($ fV3) + \" \" + ($ fV4) + \" \" + ($ fV5) + \" \" + ($ fV6) + \" \" + ($ fV7) + \" \" + ($ fV8) + \" \" + ($ fV9) + \" \" + ($ fV10))\nEnd\n",
+   "label": "victor base",
+   "field": "66-76"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 8\nSetFunctionValue fV\nEnd\n",
+   "label": "charisma before",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 8\nSetFunctionValue fV\nEnd\n",
+   "label": "charisma before",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 8\nSetFunctionValue fV\nEnd\n",
+   "label": "charisma before",
+   "field": "permanent"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter before",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter before",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter before",
+   "field": "permanent"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 43\nSetFunctionValue fV\nEnd\n",
+   "label": "speech before",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 43\nSetFunctionValue fV\nEnd\n",
+   "label": "speech before",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 43\nSetFunctionValue fV\nEnd\n",
+   "label": "speech before",
+   "field": "permanent"
+  },
+  {
+   "script": "Begin Function { }\nplayer.DamageActorValue 8 2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 8\nSetFunctionValue fV\nEnd\n",
+   "label": "charisma damaged 2",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 8\nSetFunctionValue fV\nEnd\n",
+   "label": "charisma damaged 2",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 8\nSetFunctionValue fV\nEnd\n",
+   "label": "charisma damaged 2",
+   "field": "permanent"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter, charisma damaged 2",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter, charisma damaged 2",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter, charisma damaged 2",
+   "field": "permanent"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 43\nSetFunctionValue fV\nEnd\n",
+   "label": "speech, charisma damaged 2",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 43\nSetFunctionValue fV\nEnd\n",
+   "label": "speech, charisma damaged 2",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 43\nSetFunctionValue fV\nEnd\n",
+   "label": "speech, charisma damaged 2",
+   "field": "permanent"
+  },
+  {
+   "script": "Begin Function { }\nplayer.RestoreActorValue 8 2\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter, charisma restored",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter, charisma restored",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter, charisma restored",
+   "field": "permanent"
+  },
+  {
+   "script": "Begin Function { }\nplayer.ModActorValue 32 5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter modified 5",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter modified 5",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter modified 5",
+   "field": "permanent"
+  },
+  {
+   "script": "Begin Function { }\nplayer.ModActorValue 32 -5\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter modified back",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter modified back",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 32\nSetFunctionValue fV\nEnd\n",
+   "label": "barter modified back",
+   "field": "permanent"
+  },
+  {
+   "script": "Begin Function { }\nplayer.ModActorValue 5 1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 5\nSetFunctionValue fV\nEnd\n",
+   "label": "strength modified 1",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 5\nSetFunctionValue fV\nEnd\n",
+   "label": "strength modified 1",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 5\nSetFunctionValue fV\nEnd\n",
+   "label": "strength modified 1",
+   "field": "permanent"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 13\nSetFunctionValue fV\nEnd\n",
+   "label": "strength modified 1",
+   "field": "carry weight"
+  },
+  {
+   "script": "Begin Function { }\nplayer.ModActorValue 5 -1\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "script": "Begin Function { }\nplayer.SetActorValue 43 50\nSetFunctionValue 1\nEnd\n"
+  },
+  {
+   "frames": 30
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetActorValue 43\nSetFunctionValue fV\nEnd\n",
+   "label": "speech set 50",
+   "field": "current"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetBaseActorValue 43\nSetFunctionValue fV\nEnd\n",
+   "label": "speech set 50",
+   "field": "base"
+  },
+  {
+   "query": "float fV\nBegin Function { }\nlet fV := player.GetPermanentActorValue 43\nSetFunctionValue fV\nEnd\n",
+   "label": "speech set 50",
+   "field": "permanent"
+  }
+ ]
+}

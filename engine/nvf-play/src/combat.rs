@@ -69,6 +69,13 @@
 //!   that lands sends an [`ImpactFx`] with the IPCT its weapon's impact data set names
 //!   for the surface's material, and plays that impact's sounds there; an explosion
 //!   sends an [`ExplosionFx`] and plays the EXPL's sounds.
+//! - **Item condition** (docs/spec-notes/combat-rules.md §17, `fnv_combat::condition`):
+//!   each shot, and each swing that lands, wears the player's weapon; a hit wears the
+//!   armour the target wears where it lands (head or body; an explosion both); a hit on
+//!   the weapon an actor holds ([`crate::hitvol::WEAPON_PART`]) takes its damage from
+//!   that weapon's condition and none from the actor. The player's weapon at zero is
+//!   unequipped and stays in the inventory, broken; another actor's falls to the ground
+//!   ([`WeaponBroken`]). A worn weapon hits for less and worn armour protects less.
 //! - **Feedback** [design, until impact effects and audio exist]: a marker at each impact,
 //!   a line from the muzzle along each hitscan shot, an ammo counter, a hit marker at the
 //!   crosshair (red on a kill), the last target's health for a few seconds, the player's
@@ -76,6 +83,7 @@
 
 use bevy::prelude::*;
 use fnv_combat::attack::{ClipTiming, Cycle, Event, Input, Timing};
+use fnv_combat::condition::{self, Wear, Zone};
 use fnv_combat::damage::{self, Attacker, AttackKind, HitInput, HitPart, NoPerks, Target};
 use fnv_combat::data::AmmoEffect;
 use fnv_combat::projectile::{blast, ActorId, CombatWorld, Motion, ProjEvent, Projectile, WorldHit};
@@ -89,7 +97,7 @@ use fnv_sim::FormId;
 
 use crate::activate::HudMessage;
 use crate::sfx::{LoopSound, PlaySound, Sfx};
-use crate::hitvol::ActorParts;
+use crate::hitvol::{ActorParts, WEAPON_PART};
 use fnv_combat::data::{BodyPart, WeaponStats};
 use fnv_game::combat::LimbHit;
 use crate::control::PlayerControl;
@@ -209,6 +217,16 @@ pub struct ActorHit {
     pub crippled: bool,
     /// The body part hit is crippled (by this hit or an earlier one).
     pub part_crippled: bool,
+}
+
+/// An actor's weapon reached zero condition in its hand and fell (§17): the renderer
+/// takes it out of the hand (nvforever `weapons`); `dropped` is the reference lying on
+/// the ground, drawn like any dropped item.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct WeaponBroken {
+    pub form_id: u32,
+    pub weapon: FormId,
+    pub dropped: Option<FormId>,
 }
 
 /// A hit shoves an actor's body at a point (game space): the ragdoll of a dead actor is
@@ -352,6 +370,13 @@ pub struct CombatStats {
     /// stood in front of the barrel (third person).
     pub muzzle_shots: u32,
     pub covered_shots: u32,
+    /// Item condition (§17): health points the player's weapons lost, hits on weapons
+    /// actors hold, weapons broken, health points armour lost, armour worn to zero.
+    pub weapon_wear: f32,
+    pub weapon_hits: u32,
+    pub weapons_broken: u32,
+    pub armor_wear: f32,
+    pub armor_broken: u32,
 }
 
 /// A melee swing in progress (step C6).
@@ -535,6 +560,7 @@ impl Plugin for CombatPlugin {
             .init_resource::<PlayerLimbs>()
             .add_message::<ActorHit>()
             .add_message::<ActorPush>()
+            .add_message::<WeaponBroken>()
             .add_systems(Startup, (init_combat, spawn_hud, spawn_hit_hud))
             .add_systems(
                 Update,
@@ -613,10 +639,17 @@ fn player_count(sim: &SimState, item: Option<FormId>) -> u32 {
 }
 
 /// Follow the equipped weapon: a new weapon gets a new cycle, loaded from what is carried.
-fn equip_sync(mut c: ResMut<Combat>, sim: Res<SimState>, mut anim: ResMut<WeaponAnim>) {
+fn equip_sync(mut c: ResMut<Combat>, mut sim: ResMut<SimState>, mut anim: ResMut<WeaponAnim>) {
     let c = &mut *c;
     let equipped = sim.world.peek(FormId::PLAYER_REF).and_then(|s| s.inventory.as_ref()).map(|i| i.equipped()).unwrap_or_default();
-    let equipped = equipped.into_iter().find(|id| c.forms.weapons.contains_key(id));
+    let mut equipped = equipped.into_iter().find(|id| c.forms.weapons.contains_key(id));
+    // A weapon at zero condition does not stay in the hand, however it got there (a
+    // script's SetWeaponHealthPerc) (§17).
+    if let Some(id) = equipped.filter(|&id| item_condition(&sim, FormId::PLAYER_REF, id) <= 0.0) {
+        let _ = sim.world.unequip(FormId::PLAYER_REF, id);
+        info!("combat: the player's {} ({id}) is broken: unequipped", item_name(&sim, id));
+        equipped = None;
+    }
     if c.equipped == Some(equipped) {
         return;
     }
@@ -711,13 +744,39 @@ fn view(phys: &mut PhysState) -> PhysView<'_> {
     PhysView { q: phys.world.queries(), player, actors }
 }
 
-/// The player's attacker values: S.P.E.C.I.A.L. from the simulation, the weapon's skill
-/// derived from its attribute and Luck (skills are not in the simulation yet).
-fn attacker(sim: &mut SimState, skill: Option<&str>, aiming_vats: bool) -> Attacker {
-    let mut av = |n: &str| sim.world.actor_value(FormId::PLAYER_REF, n).unwrap_or(5.0);
-    let (strength, luck, endurance) = (av("Strength"), av("Luck"), av("Endurance"));
-    let skill_v = skill.and_then(damage::governing_special).map_or(50.0, |a| damage::derived_skill(av(a), luck, false));
-    Attacker { skill: skill_v, strength, luck, unarmed_skill: damage::derived_skill(endurance, luck, false), in_vats: aiming_vats, ..Attacker::default() }
+/// An actor's current value as the formulas read it (within its range: S.P.E.C.I.A.L.
+/// 1–10, skills 0–100), from the script runtime's actor values (the record, the
+/// formulas and whatever scripts changed: docs/spec-notes/actor-values.md); `None`
+/// without a runtime.
+fn actor_av(script: Option<&mut ScriptState>, sim: &mut SimState, actor: FormId, code: u16) -> Option<f32> {
+    let rt = script.and_then(|s| s.rt.as_mut())?;
+    Some(with_world(rt, sim, |rt| fnv_game::functions::actor_value_capped(&mut rt.game, actor, code)) as f32)
+}
+
+/// The player's attacker values: the weapon's skill, Strength, Luck and Unarmed, and
+/// what the Melee Damage, Unarmed Damage and Critical Chance actor values hold above
+/// their formulas (scripts' changes). Without a script runtime, the defaults.
+fn attacker(mut script: Option<&mut ScriptState>, sim: &mut SimState, rules: &Rules, skill: Option<&str>, aiming_vats: bool) -> Attacker {
+    use fnv_game::actor_values as avs;
+    let d = Attacker::default();
+    let p = FormId::PLAYER_REF;
+    let mut av = |code: u16, or: f32| actor_av(script.as_deref_mut(), sim, p, code).unwrap_or(or);
+    let (strength, luck, unarmed_skill) = (av(avs::STRENGTH, d.strength), av(avs::LUCK, d.luck), av(avs::UNARMED, d.unarmed_skill));
+    let skill = skill.and_then(fnv_game::functions::av_by_name).map_or(d.skill, |code| av(code, d.skill));
+    let melee = damage::melee_damage_av(rules, strength);
+    let unarmed = damage::unarmed_damage_av(rules, unarmed_skill);
+    let crit = rules.crit_luck_base + rules.crit_luck_mult * luck;
+    Attacker {
+        skill,
+        strength,
+        luck,
+        unarmed_skill,
+        melee_damage_bonus: av(avs::MELEE_DAMAGE, melee) - melee,
+        unarmed_damage_bonus: av(avs::UNARMED_DAMAGE, unarmed) - unarmed,
+        crit_chance_bonus: av(avs::CRITICAL_CHANCE, crit) - crit,
+        in_vats: aiming_vats,
+        ..d
+    }
 }
 
 /// The weapon's Equip sound when the player starts to draw it and its Unequip sound
@@ -751,6 +810,7 @@ fn fire(
     mut sounds: MessageWriter<PlaySound>,
     mut casings: MessageWriter<CasingFx>,
     mut loops: MessageWriter<LoopSound>,
+    mut hud: Option<ResMut<HudMessage>>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -845,14 +905,15 @@ fn fire(
                     sounds.write(PlaySound { sound, at: None });
                 }
                 let effects: Vec<&AmmoEffect> = chain.ammo_effects.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
+                let shooter = attacker(script.as_deref_mut(), &mut sim, &c.rules, w.skill.as_deref(), false);
                 let stance = Stance {
                     aiming: control.aiming,
                     moving: phys.player.as_ref().is_some_and(|ch| ch.velocity[0].hypot(ch.velocity[1]) > 1.0),
                     running: control.always_run,
                     sneaking: control.sneak,
                     airborne: phys.player.as_ref().is_some_and(|ch| !ch.grounded && !ch.swimming),
-                    skill: attacker(&mut sim, w.skill.as_deref(), false).skill,
-                    strength: sim.world.actor_value(FormId::PLAYER_REF, "Strength").unwrap_or(5.0),
+                    skill: shooter.skill,
+                    strength: shooter.strength,
                     aiming_move_divisor: 1.0,
                     left_arm_crippled: limbs.arms().0,
                     right_arm_crippled: limbs.arms().1,
@@ -907,6 +968,13 @@ fn fire(
                 let kick = c.kick.shot(&c.tuning, w.min_spread, w.base_damage as f32);
                 player.pitch = (player.pitch + kick.to_radians()).clamp(-MAX_PITCH, MAX_PITCH);
                 debug!("combat: shot, cone {cone:.2}°, magazine {}", cycle.magazine);
+                // The shot wears the weapon (§17); a thrown weapon is spent instead.
+                if !c.self_ammo {
+                    let points = condition::weapon_wear(&c.rules, &w, &effects);
+                    if wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, FormId::PLAYER_REF, id, points, None).is_some_and(|w| w.broke) {
+                        break;
+                    }
+                }
             }
             Event::ReloadStarted => {
                 anim.reloads += 1;
@@ -930,10 +998,139 @@ fn fire(
 
 /// The target's DT and DR from the armour it wears (its carried ARMO by the wearing rule).
 /// The simulation creates an actor's inventory on first touch (`World::inventory_mut`).
-fn target_armor(c: &Combat, sim: &mut SimState, target: FormId) -> (f32, f32) {
-    let items: Vec<FormId> = sim.world.inventory_mut(target).map(|i| i.iter().filter(|(_, n)| *n > 0).map(|(id, _)| id).collect()).unwrap_or_default();
-    let worn = c.forms.worn_armor(items);
-    c.forms.armor_values(&worn)
+/// Each piece protects by its condition (§17).
+fn target_armor(c: &Combat, mut script: Option<&mut ScriptState>, sim: &mut SimState, target: FormId) -> (f32, f32) {
+    let (dt, dr) = c.forms.armor_values_worn(&c.tuning, &worn_armor(&c.forms, sim, target));
+    // The actor's own Damage Threshold (76) and Damage Resistance (18) actor values:
+    // nothing until a script changes them (abilities are not applied yet).
+    let own_dt = actor_av(script.as_deref_mut(), sim, target, 76).unwrap_or(0.0);
+    let own_dr = actor_av(script, sim, target, 18).unwrap_or(0.0);
+    (dt + own_dt, dr + own_dr)
+}
+
+/// The armour `target` wears, each piece with its condition: what the player has
+/// equipped; of another actor, its carried ARMO by the wearing rule.
+fn worn_armor(forms: &CombatForms, sim: &mut SimState, target: FormId) -> Vec<(FormId, f32)> {
+    let Ok(inv) = sim.world.inventory_mut(target) else { return Vec::new() };
+    let items: Vec<FormId> = if target == FormId::PLAYER_REF { inv.equipped() } else { inv.iter().filter(|(_, n)| *n > 0).map(|(id, _)| id).collect() };
+    forms.worn_armor(items).into_iter().map(|id| (id, inv.condition_in_use(id).unwrap_or(1.0))).collect()
+}
+
+/// The condition of the unit of `item` that `actor` uses; 1 when it carries none (the
+/// Fists).
+fn item_condition(sim: &SimState, actor: FormId, item: FormId) -> f32 {
+    sim.world.peek(actor).and_then(|s| s.inventory.as_ref()).and_then(|i| i.condition_in_use(item)).unwrap_or(1.0)
+}
+
+fn item_name(sim: &SimState, item: FormId) -> String {
+    sim.name(item).map_or_else(|| item.to_string(), str::to_string)
+}
+
+/// A hit of `damage` (before armour) wears the armour `target` wears in `zone` (§17).
+fn wear_armor(c: &Combat, sim: &mut SimState, stats: &mut CombatStats, target: FormId, zone: Zone, damage: f32) {
+    let worn: Vec<FormId> = worn_armor(&c.forms, sim, target).into_iter().map(|w| w.0).collect();
+    let struck = c.forms.armor_struck(&worn, zone);
+    if struck.is_empty() || damage <= 0.0 {
+        return;
+    }
+    let points = condition::armor_wear(&c.rules, damage) / struck.len() as f32;
+    for item in struck {
+        let health = c.forms.item_health(item);
+        let Some(w) = sim.world.inventory_mut(target).ok().and_then(|inv| condition::wear_item(inv, item, points, health)) else { continue };
+        stats.armor_wear += (w.before - w.after) * health as f32;
+        info!("combat: {target}'s {} ({zone:?} hit) loses {points:.1}: condition {:.1}% -> {:.1}%", item_name(sim, item), w.before * 100.0, w.after * 100.0);
+        if w.broke {
+            stats.armor_broken += 1;
+            info!("combat: {target}'s {} ({item}) is worn to nothing", item_name(sim, item));
+        }
+    }
+}
+
+/// Take `points` health points from the weapon `item` that `actor` uses (§17). At zero
+/// it breaks: the player's is unequipped and stays in the inventory, where it cannot be
+/// equipped until it is repaired; another actor's falls to the ground (at `at`, when
+/// given) and [`WeaponBroken`] tells the renderer. `None` when the weapon does not wear
+/// (not carried, or its record has no health).
+#[allow(clippy::too_many_arguments)]
+pub fn wear_weapon(
+    forms: &CombatForms,
+    sim: &mut SimState,
+    stats: &mut CombatStats,
+    hud: Option<&mut HudMessage>,
+    broken: Option<&mut MessageWriter<WeaponBroken>>,
+    actor: FormId,
+    item: FormId,
+    points: f32,
+    at: Option<V3>,
+) -> Option<Wear> {
+    let health = forms.item_health(item);
+    let w = condition::wear_item(sim.world.inventory_mut(actor).ok()?, item, points, health)?;
+    if actor == FormId::PLAYER_REF {
+        stats.weapon_wear += (w.before - w.after) * health as f32;
+    }
+    if !w.broke {
+        return Some(w);
+    }
+    stats.weapons_broken += 1;
+    let name = item_name(sim, item);
+    if actor == FormId::PLAYER_REF {
+        let _ = sim.world.unequip(actor, item);
+        if let Some(h) = hud {
+            h.show(format!("{name} is broken"));
+        }
+        info!("combat: the player's {name} ({item}) broke: unequipped, it stays in the inventory until repaired");
+        return Some(w);
+    }
+    let dropped = match sim.world.drop_equipped(actor, item) {
+        Ok(refs) => refs.first().copied(),
+        Err(e) => {
+            warn!("combat: {actor}'s broken {name} could not be dropped: {e}");
+            None
+        }
+    };
+    if let (Some(r), Some(at)) = (dropped, at) {
+        if let Ok(s) = sim.world.get(r) {
+            s.pos = at;
+        }
+    }
+    if let Some(h) = hud {
+        h.show(format!("{name} broken"));
+    }
+    info!("combat: {actor}'s {name} ({item}) broke and fell{}", dropped.map_or(String::new(), |r| format!(": reference {r}")));
+    if let Some(b) = broken {
+        b.write(WeaponBroken { form_id: actor.0, weapon: item, dropped });
+    }
+    Some(w)
+}
+
+/// A hit landed on the weapon `target` holds (§17): the hit's damage comes off the
+/// weapon's condition; the actor is not hurt [design: the owner's rule, 2026-10-11].
+/// The weapon is the one the renderer put in the hand (`PosedParts::weapon`); when the
+/// simulation's inventory, rolled on its own, lacks it, one is added first [design].
+#[allow(clippy::too_many_arguments)]
+fn strike_weapon(
+    forms: &CombatForms,
+    sim: &mut SimState,
+    stats: &mut CombatStats,
+    feedback: &mut HitFeedback,
+    hud: Option<&mut HudMessage>,
+    broken: &mut MessageWriter<WeaponBroken>,
+    parts: &ActorParts,
+    target: FormId,
+    points: f32,
+    at: V3,
+) {
+    let Some(item) = parts.by_ref.get(&target.0).and_then(|p| p.weapon) else { return };
+    if sim.world.inventory_mut(target).is_ok_and(|i| i.count(item) == 0) {
+        let _ = sim.world.add_item(target, item, 1);
+    }
+    stats.weapon_hits += 1;
+    feedback.marker_age = Some(0.0);
+    feedback.kill = false;
+    match wear_weapon(forms, sim, stats, hud, Some(broken), target, item, points, Some(at)) {
+        Some(w) => info!("combat: hit {target}'s {} for {points:.1}: condition {:.1}% -> {:.1}%", item_name(sim, item), w.before * 100.0, w.after * 100.0),
+        None => info!("combat: hit {target}'s {} ({item}): it does not wear", item_name(sim, item)),
+    }
 }
 
 /// Apply `dealt` health damage through the script runtime; report and remember it.
@@ -1000,6 +1197,7 @@ fn melee(
     mut pushes: MessageWriter<ActorPush>,
     parts: Res<ActorParts>,
     limbs: Res<PlayerLimbs>,
+    mut broken: MessageWriter<WeaponBroken>,
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -1064,24 +1262,39 @@ fn melee(
             }
             hits
         };
+        // A blow that lands wears the weapon, once however many it strikes (§17); the
+        // blow itself is dealt at the condition the weapon had.
+        let weapon_condition = item_condition(&sim, FormId::PLAYER_REF, id);
+        if !hits.is_empty() {
+            wear_weapon(&c.forms, &mut sim, &mut stats, hud.as_deref_mut(), None, FormId::PLAYER_REF, id, condition::weapon_wear(&c.rules, &w, &[]), None);
+        }
         for (actor, hit) in hits {
             let target = FormId(actor as u32);
             stats.melee_hits += 1;
-            let (dt_v, dr) = target_armor(c, &mut sim, target);
-            let mut a = attacker(&mut sim, w.skill.as_deref(), false);
+            let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
+            let mut a = attacker(script.as_deref_mut(), &mut sim, &c.rules, w.skill.as_deref(), false);
             a.arm_condition = limbs.arm_condition();
             let bp = body_part(c, &parts, actor, hit.part);
             let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
-            let h = HitInput { weapon: &w, projectiles: 1, condition: 1.0, ammo_effects: &[], part, power: if power { c.tuning.power_damage } else { 1.0 } };
+            let h = HitInput { weapon: &w, projectiles: 1, condition: weapon_condition, ammo_effects: &[], part, power: if power { c.tuning.power_damage } else { 1.0 } };
             let roll = c.rng.next_f32();
+            if hit.part == Some(WEAPON_PART) {
+                let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
+                strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut broken, &parts, target, d.raw, hit.point);
+                continue;
+            }
             let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
-            let agility = sim.world.actor_value(target, "Agility").unwrap_or(5.0);
+            let agility = actor_av(script.as_deref_mut(), &mut sim, target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
             let push = damage::knockback_force(&c.rules, d.dealt, agility);
             let location = bp.as_ref().map_or(0, BodyPart::location);
             let limb = limb_hit(bp.as_ref(), d.dealt, &w);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
             pushes.write(ActorPush { form_id: target.0, point: hit.point, dv: vec::scale(player.look_dir(), MELEE_PUSH * if power { POWER_PUSH } else { 1.0 }) });
-            match apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
+            let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages);
+            if r.as_ref().is_none_or(|r| !r.immune) {
+                wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
+            }
+            match r {
                 Some(r) => info!(
                     "combat: {}{} hits {target} on {} for {:.1} (DT {:.0}{}), health {:.0}/{:.0}, knockback {push:.0}",
                     w.edid.as_deref().unwrap_or("?"),
@@ -1179,7 +1392,7 @@ fn fly(
     mut visuals: ResMut<ShotVisuals>,
     anim: Res<WeaponAnim>,
     sfx: Option<Res<Sfx>>,
-    mut effects: (MessageWriter<PlaySound>, MessageWriter<ImpactFx>, MessageWriter<ExplosionFx>),
+    mut effects: (MessageWriter<PlaySound>, MessageWriter<ImpactFx>, MessageWriter<ExplosionFx>, MessageWriter<WeaponBroken>),
 ) {
     let dt = time.delta_secs();
     let c = &mut *c;
@@ -1318,12 +1531,16 @@ fn fly(
         let by_formula = x.flags.iter().any(|f| f == "Knock Down - By Formula");
         for b in hits {
             let target = FormId(b.actor as u32);
-            let (dt_v, dr) = target_armor(c, &mut sim, target);
+            let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
             let dealt = (b.damage - dt_v).max(b.damage * c.tuning.dt_floor) * (1.0 - dr.clamp(0.0, c.rules.max_armor_rating) / 100.0);
             let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon, location: -1, critical: false, limb: None };
-            if let Some(r) = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
+            let r = apply_hit(script.as_deref_mut(), &mut sim, target, dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages);
+            if r.as_ref().is_none_or(|r| !r.immune) {
+                wear_armor(c, &mut sim, &mut stats, target, Zone::All, b.damage);
+            }
+            if let Some(r) = r {
                 // Knockdown [documented: the EXPL flags; Explosion Knockdown Formula].
-                let agility = sim.world.actor_value(target, "Agility").unwrap_or(5.0);
+                let agility = actor_av(script.as_deref_mut(), &mut sim, target, fnv_game::actor_values::AGILITY).unwrap_or(5.0);
                 let chance = if r.died || r.immune {
                     0.0
                 } else if always {
@@ -1390,11 +1607,11 @@ fn fly(
                 debug!("combat: impact {} on {material} (collision material {:?})", s.forms.impacts.get(&impact).and_then(|i| i.edid.as_deref()).unwrap_or("?"), p.material);
             }
         }
-        let effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
-        let a = attacker(&mut sim, w.skill.as_deref(), false);
+        let ammo_effects: Vec<&AmmoEffect> = effect_ids.iter().filter_map(|e| c.forms.ammo_effects.get(e)).collect();
+        let a = attacker(script.as_deref_mut(), &mut sim, &c.rules, w.skill.as_deref(), false);
         let bp = p.actor.and_then(|a| body_part(c, &parts, a, p.part));
         let part = bp.as_ref().map_or_else(HitPart::default, BodyPart::hit_part);
-        let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: 1.0, ammo_effects: &effects, part, power: 1.0 };
+        let h = HitInput { weapon: &w, projectiles: p.projectiles, condition: item_condition(&sim, FormId::PLAYER_REF, id), ammo_effects: &ammo_effects, part, power: 1.0 };
         let roll = c.rng.next_f32();
         let Some(actor) = p.actor else {
             stats.world_hits += 1;
@@ -1426,14 +1643,24 @@ fn fly(
         };
         stats.actor_hits += 1;
         let target = FormId(actor as u32);
-        let (dt_v, dr) = target_armor(c, &mut sim, target);
+        // A shot on the weapon the actor holds wears the weapon, not the actor (§17).
+        if p.part == Some(WEAPON_PART) {
+            let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target::default(), &NoPerks, &NoPerks, roll);
+            strike_weapon(&c.forms, &mut sim, &mut stats, &mut feedback, hud.as_deref_mut(), &mut effects.3, &parts, target, d.raw, p.point);
+            continue;
+        }
+        let (dt_v, dr) = target_armor(c, script.as_deref_mut(), &mut sim, target);
         let d = damage::hit(&c.rules, &c.tuning, &h, &a, &Target { dt: dt_v, dr, ..Target::default() }, &NoPerks, &NoPerks, roll);
         // Without body parts the whole capsule counts as the torso (location 0).
         let location = bp.as_ref().map_or(0, BodyPart::location);
         let limb = limb_hit(bp.as_ref(), d.dealt, &w);
         let info = HitInfo { attacker: Some(FormId::PLAYER_REF), weapon: Some(id), location, critical: d.critical, limb };
         pushes.write(ActorPush { form_id: target.0, point: p.point, dv: vec::scale(p.dir, SHOT_PUSH) });
-        match apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages) {
+        let r = apply_hit(script.as_deref_mut(), &mut sim, target, d.dealt, info, &mut stats, &mut feedback, hud.as_deref_mut(), &mut messages);
+        if r.as_ref().is_none_or(|r| !r.immune) {
+            wear_armor(c, &mut sim, &mut stats, target, Zone::of(bp.as_ref()), d.raw);
+        }
+        match r {
             Some(r) => info!(
                 "combat: hit {target} on {} for {:.1} (DT {:.0}{}), health {:.0}/{:.0}{}",
                 bp.as_ref().and_then(|b| b.name.as_deref()).unwrap_or("the body"),
@@ -1499,7 +1726,8 @@ fn update_hud(state: Res<State<PlayState>>, c: Res<Combat>, sim: Res<SimState>, 
         (Some(_), Some(cy)) if *state.get() == PlayState::Playing && control.weapon_out && !cy.no_ammo => {
             let total = player_count(&sim, c.ammo);
             let abbrev = c.ammo.and_then(|a| c.forms.ammo.get(&a)).and_then(|a| a.abbrev.clone().or(a.short_name.clone())).unwrap_or_default();
-            format!("{} / {}  {}", cy.magazine.min(total), total.saturating_sub(cy.magazine), abbrev)
+            let cnd = c.equipped.flatten().map_or(String::new(), |id| format!("   CND {}%", condition::percent(item_condition(&sim, FormId::PLAYER_REF, id))));
+            format!("{} / {}  {}{cnd}", cy.magazine.min(total), total.saturating_sub(cy.magazine), abbrev)
         }
         (Some(id), Some(_)) if *state.get() == PlayState::Playing && control.weapon_out && c.self_ammo => format!("{}", player_count(&sim, Some(id))),
         _ => String::new(),
@@ -1515,6 +1743,10 @@ fn report(mut exit: MessageReader<AppExit>, stats: Res<CombatStats>) {
         info!(
             "combat: {} shots ({} drawn from the muzzle, {} from behind cover), {} projectiles, {} actor hits, {} world hits ({} objects' hit blocks, {} objects knocked away), {} explosions ({} knockdowns), {} swings ({} power, {} hits), {:.0} health damage, {} kills (+{} XP), {} reloads, {} dry fires",
             s.shots, s.muzzle_shots, s.covered_shots, s.projectiles, s.actor_hits, s.world_hits, s.object_scripts, s.objects_pushed, s.explosions, s.knockdowns, s.swings, s.power_attacks, s.melee_hits, s.damage, s.kills, s.xp, s.reloads, s.dry_fires
+        );
+        info!(
+            "condition summary: the player's weapons lost {:.1} health, {} hits on held weapons, {} weapons broken, armour lost {:.1} health, {} pieces worn to nothing",
+            s.weapon_wear, s.weapon_hits, s.weapons_broken, s.armor_wear, s.armor_broken
         );
     }
 }

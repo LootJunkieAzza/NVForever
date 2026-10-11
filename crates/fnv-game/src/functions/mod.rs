@@ -25,7 +25,7 @@ mod refs;
 mod reputation;
 
 pub use reputation::{store as reputation_store, tiers as reputation_tiers};
-pub use actor::{actor_value, av_code, set_current as set_actor_value_current, weapon_anim_code};
+pub use actor::{faction_relation, actor_value, actor_value_capped, actor_value_parts, av_by_name, av_code, set_current as set_actor_value_current, weapon_anim_code, AV_NAMES};
 pub use misc::clock_now;
 
 use crate::game::{Game, InstKey};
@@ -219,7 +219,7 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x1181, "DamageActorValue", Impl(actor::damage_actor_value)),
         (0x1182, "RestoreActorValue", Impl(actor::restore_actor_value)),
         (0x1115, "GetBaseActorValue", Impl(actor::get_base_actor_value)),
-        (0x11EF, "GetPermanentActorValue", Impl(actor::get_base_actor_value)),
+        (0x11EF, "GetPermanentActorValue", Impl(actor::get_permanent_actor_value)),
         (0x102E, "GetDead", Impl(actor::get_dead)),
         (0x108B, "KillActor", Impl(actor::kill_actor)),
         (0x108C, "ResurrectActor", Impl(actor::resurrect_actor)),
@@ -553,12 +553,13 @@ pub fn registry() -> &'static [(u16, &'static str, Kind)] {
         (0x11F1, "ShowBarberMenu", Stub("menus (appearance)")),
         (0x11F2, "ShowPlasticSurgeonMenu", Stub("menus (appearance)")),
         (0x11E3, "ShowTutorialMenu", Stub("menus (tutorial)")),
-        (0x1279, "ShowSleepWaitMenu", Stub("menus (sleep and wait)")),
+        (0x1279, "ShowSleepWaitMenu", Impl(crate::rest::show_sleep_wait_menu)),
         (0x1270, "EnableLoadingMenu", Stub("menus (loading)")),
         (0x11F8, "ShowAllMapMarkers", Stub("Pip-Boy (map markers)")),
-        (0x10AE, "WakeUpPC", Stub("sleeping")),
-        (0x10BD, "SetPCSleepHours", Stub("sleeping")),
-        (0x10AF, "IsPCSleeping", Stub("sleeping")),
+        (0x10AE, "WakeUpPC", Impl(crate::rest::wake_up_pc)),
+        (0x10BD, "SetPCSleepHours", Impl(crate::rest::set_pc_sleep_hours)),
+        (0x10AF, "IsPCSleeping", Impl(crate::rest::is_pc_sleeping)),
+        (0x1109, "IsTimePassing", Impl(crate::rest::is_time_passing)),
         (0x120A, "GetIsLockBroken", Stub("lockpicking")),
         (0x127B, "SystemSave", Stub("saving")),
         (0x1217, "ForceSave", Stub("saving")),

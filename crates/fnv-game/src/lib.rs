@@ -20,6 +20,7 @@
 //!
 //! Behaviour notes with confidence tags: docs/spec-notes/scripts.md §4 and later.
 
+pub mod actor_values;
 pub mod ai;
 pub mod combat;
 pub mod cond;
@@ -31,6 +32,7 @@ pub mod idles;
 pub mod intro;
 pub mod package;
 pub mod quest;
+pub mod rest;
 pub mod runner;
 pub mod trace;
 pub mod voice;

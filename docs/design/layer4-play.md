@@ -364,6 +364,10 @@ keep the positions. Changed in `nvf-play` (`player.rs` `keys`, `read_keys`):
   `--menu-pause`: the picture too (Bevy's virtual clock is paused) and the voice of a
   line being said; the test aids' clock and `--run-seconds` go on in real time meanwhile
   (`pause.rs`: `AidTime`; test aid `NVF_PLAY_TEST_PAUSE=<open>:<resume>`).
+- T (the game's Rest control) opens the Wait menu, which is a Sleep menu while the
+  player lies on a bed (`wait.rs`, docs/spec-notes/wait-menu.md): 1 to 24 hours on a
+  slider, then the hours pass one at a time on the game's calendar. Also a
+  `PlayState::Menu`; test aid `NVF_PLAY_TEST_WAIT=<seconds>:<step>[,…]`.
 - `--menu-pause living|original` (default `living`; docs/design/dialogue.md §8) says
   whether the picture stands still while a menu is open: the container and inventory
   menus of Part U, message boxes, the menus scripts open and the dialogue screen.

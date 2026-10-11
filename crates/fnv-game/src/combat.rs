@@ -6,7 +6,8 @@
 //! - **Level** [documented: GECK wiki Stats Tab pages]: ACBS level, or with "PC Level
 //!   Mult" the player's level × the multiplier, kept within the calculated minimum and
 //!   maximum (a maximum of 0 is none).
-//! - **Maximum health** (the permanent part of Health, code 16, when no script set it):
+//! - **Maximum health** (the base of Health, code 16; `crate::actor_values` has the
+//!   other values), from permanent Endurance:
 //!   - player: `fAVDHealthEnduranceOffset` + Endurance × `fAVDHealthEnduranceMult` +
 //!     (level − 1) × `fAVDHealthLevelMult` + its NPC_ Base Health;
 //!   - NPC: Base Health + Endurance × `fAVDNPCHealthEnduranceMult` + level ×
@@ -45,8 +46,7 @@ use fnv_script::vm::Value;
 use fnv_sim::FormId;
 use serde::Serialize;
 
-/// Health's actor value code.
-pub const HEALTH: u16 = 16;
+pub use crate::actor_values::{HEALTH, LIMB_CONDITIONS};
 
 /// What scripts ask of the engine's combat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -113,34 +113,17 @@ pub struct HitInfo {
     pub limb: Option<LimbHit>,
 }
 
-/// The limb-condition actor value codes, Perception Condition (25) to Brain Condition
-/// (31) [documented: xEdit ActorValue].
-pub const LIMB_CONDITIONS: std::ops::RangeInclusive<u16> = 25..=31;
-
 /// The limb-condition actor value code of a BPTD part's actor value name.
 pub fn limb_condition(name: &str) -> Option<u16> {
     actor::av_by_name(name).filter(|c| LIMB_CONDITIONS.contains(c))
 }
 
 /// Settings with their documented defaults (GECK wiki Experience Settings).
-fn setting(g: &Game, name: &str, default: f64) -> f64 {
+pub(crate) fn setting(g: &Game, name: &str, default: f64) -> f64 {
     g.world.forms.setting_f32(name).map_or(default, |v| v as f64)
 }
 
 impl Game<'_> {
-    /// The actor definition supplying `r`'s stats: its base, or the base's template
-    /// when it has the "Stats" template flag (followed a few levels).
-    fn stats_def(&self, r: FormId) -> Option<&crate::data::ActorDef> {
-        let mut def = self.data.actors.get(&base_of(self, r)?)?;
-        for _ in 0..8 {
-            match def.template.filter(|_| def.template_stats).and_then(|t| self.data.actors.get(&t)) {
-                Some(d) => def = d,
-                None => break,
-            }
-        }
-        Some(def)
-    }
-
     /// The player's level.
     pub fn player_level(&self) -> f64 {
         self.player.level.unwrap_or(self.world.config().player_level as i32) as f64
@@ -170,10 +153,11 @@ impl Game<'_> {
 
     /// Maximum health before any script changed it (see the module notes).
     pub fn max_health(&mut self, r: FormId) -> f64 {
-        let end = self.world.actor_value(r, "Endurance").map(|v| v as f64).ok();
         let level = self.actor_level(r);
-        let Some(d) = self.stats_def(r).cloned() else { return 100.0 };
-        let end = end.unwrap_or(d.endurance as f64);
+        let Some(d) = self.stats_def(r) else { return 100.0 };
+        // The permanent value, as before the other actor values were read
+        // [hypothesis: whether damage to Endurance lowers the maximum].
+        let end = actor::actor_value_base(self, r, crate::actor_values::ENDURANCE);
         if r == FormId::PLAYER_REF {
             return setting(self, "fAVDHealthEnduranceOffset", 0.0)
                 + end * setting(self, "fAVDHealthEnduranceMult", 20.0)

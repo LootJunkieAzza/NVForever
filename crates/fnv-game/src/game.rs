@@ -173,12 +173,16 @@ pub struct RefExtra {
     /// Faction rank changes: a rank, or −1 for "removed".
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub factions: BTreeMap<FormId, i8>,
-    /// Actor values other than S.P.E.C.I.A.L. (those live in the world), by code: the
-    /// permanent part (base and permanent modifiers), without damage.
+    /// SetActorValue's number in place of an actor value's base, by code. Not for
+    /// S.P.E.C.I.A.L. of actors whose attributes the world holds (`functions::actor`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub actor_values: BTreeMap<u16, f64>,
+    /// The permanent modifier per actor value code (ModActorValue, ForceActorValue),
+    /// S.P.E.C.I.A.L. included.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub av_permanent: BTreeMap<u16, f64>,
     /// Damage taken per actor value code (DamageActorValue; RestoreActorValue heals it),
-    /// S.P.E.C.I.A.L. included. The current value is the permanent part minus this.
+    /// S.P.E.C.I.A.L. included. The current value is the permanent value minus this.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub av_damage: BTreeMap<u16, f64>,
     /// Packages added with AddScriptPackage (the last one is current).
@@ -499,6 +503,9 @@ pub struct Game<'a> {
     /// The idle animations actors were asked to play (`crate::idles::IdleRequest`), for
     /// the layer that animates actors to take.
     pub idle_requests: Vec<crate::idles::IdleRequest>,
+    /// Sleeping and waiting as scripts see and ask for them (`crate::rest`); the menu is
+    /// the engine's. Not part of the saved state.
+    pub rest: crate::rest::Rest,
     pub world: World<'a>,
     pub cfg: GameConfig,
     pub quests: BTreeMap<FormId, QuestState>,
@@ -658,6 +665,7 @@ impl<'a> Game<'a> {
             data,
             combat_requests: Vec::new(),
             idle_requests: Vec::new(),
+            rest: Default::default(),
             world,
             cfg,
             quests: BTreeMap::new(),

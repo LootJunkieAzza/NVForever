@@ -10,6 +10,7 @@ mod ai_run;
 mod actor_furniture;
 mod actor_locomotion;
 mod actor_tri;
+mod actor_values;
 mod actor_weapons;
 mod actor_cmd;
 mod bsa_cmd;
@@ -113,6 +114,24 @@ enum Cmd {
 
 #[derive(Subcommand)]
 pub enum ActorCmd {
+    /// Actor values (docs/spec-notes/actor-values.md): the 77 values of each named
+    /// actor as its record and the formulas give them in a game where nothing has
+    /// happened; with --survey, what the NPC_ and CREA records hold, how the skill
+    /// formula fits the stored skills for each attribute, and the settings read
+    /// (fnv.actor.values/1).
+    Values {
+        #[command(flatten)]
+        w: WorldArgs,
+        /// Script function catalogue (default: `script/functions.json` next to --schema).
+        #[arg(long)]
+        functions: Option<PathBuf>,
+        /// `player`, a placed actor, or an actor base (its first placed reference), by
+        /// Editor ID or load-order FormID (repeatable).
+        #[arg(long)]
+        actor: Vec<String>,
+        #[arg(long)]
+        survey: bool,
+    },
     /// The parts list of placed NPCs: skeleton, race parts, hair, head parts, worn
     /// armour and FaceGen coefficients (fnv.actor.appearance/1).
     #[command(group(clap::ArgGroup::new("which").required(true).args(["reference", "cell", "all"])))]

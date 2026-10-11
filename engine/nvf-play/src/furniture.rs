@@ -25,6 +25,11 @@ pub struct PlayerSeat {
     /// it asked for, radians, the pitch not stopped at straight up or down. For a holder
     /// that turns the view in a frame of its own (a body lying on a bed).
     pub look: [f32; 2],
+    /// The furniture is a bed and the player lies on it (from lying down until getting
+    /// up starts): the Wait menu is a Sleep menu meanwhile (`crate::wait`).
+    pub bed: bool,
+    /// The furniture reference holding the player.
+    pub on: Option<u32>,
 }
 
 /// Tell the script runtime which furniture `actor` uses, so GetSitting and the other

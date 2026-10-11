@@ -59,6 +59,7 @@
 //!   `<seconds>@<quest>=<stage>`, seconds after the stage was first seen done):
 //!   `start:<quest>`, `stop:<quest>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`,
 //!   `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]`, `button:<n>`, `close`,
+//!   `message:<MESG>`,
 //!   `var:<form>:<variable>:<value>`, `walk:<reference>`, `activate:<reference>`.
 //! - `NVF_PLAY_TEST_SCRIPT_MENUS=<seconds>|off`: every menu or message box a script opens
 //!   is closed (OK / Done, button 0) after it has been on screen that long. Unattended
@@ -105,6 +106,11 @@ pub const MENU_CONTAINER: u16 = 1008;
 /// checked against a capture].
 pub const MENU_INVENTORY: u16 = 1002;
 
+/// The Sleep / Wait menu (`crate::wait`) [observed: `Begin MenuMode 1012` blocks of six
+/// FalloutNV.esm scripts, one commented as the rest menu; docs/spec-notes/wait-menu.md
+/// §5].
+pub const MENU_SLEEP_WAIT: u16 = 1012;
+
 /// The MenuMode code of an engine menu.
 pub fn menu_code(mode: Mode) -> u16 {
     match mode {
@@ -114,10 +120,10 @@ pub fn menu_code(mode: Mode) -> u16 {
 }
 
 /// A menu the scripts opened (a message box, a character-creation menu), as opposed to
-/// the engine's container and inventory menus: the script overlay shows it and the
+/// the engine's container, inventory and wait menus: the script overlay shows it and the
 /// player closes it there.
 pub fn is_script_menu(code: u16) -> bool {
-    code != MENU_CONTAINER && code != MENU_INVENTORY
+    code != MENU_CONTAINER && code != MENU_INVENTORY && code != MENU_SLEEP_WAIT
 }
 
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
@@ -597,6 +603,30 @@ impl Runtime {
         done
     }
 
+    /// The Sleep menu opens for the player lying on `bed`: a bed with an OnActivate
+    /// block is activated by the player again, without its default action (the player
+    /// is on it already). Returns whether a block ran.
+    ///
+    /// [engineering choice] The game's bed script (FalloutNV.esm SCPT 0x000B5431) notes
+    /// the activation in a variable that its next GameMode frame clears, and gives Well
+    /// Rested only if it sees the player sleeping in a menu before that: in the original
+    /// the menu must therefore open with the activation [hypothesis]. In NVForever the
+    /// player lies down first and the menu opens seconds later, so the activation is
+    /// told again when it does (docs/spec-notes/wait-menu.md §8).
+    pub(crate) fn bed_activated_for_sleep(&mut self, bed: FormId) -> bool {
+        let g = &mut self.game;
+        if !g.ref_script(bed).and_then(|s| g.data.script(s)).is_some_and(|u| u.has_block(event::ON_ACTIVATE)) {
+            return false;
+        }
+        let from = g.events.len();
+        if let Err(e) = g.activate(FormId::PLAYER_REF, bed, ActMode::Hand) {
+            warn!("wait menu: the bed's OnActivate block: {e}");
+        }
+        let again = g.events.iter().enumerate().skip(from).filter(|(_, e)| matches!(&e.kind, EventKind::Activated { reference, .. } if *reference == bed)).map(|(i, _)| i);
+        self.skip.extend(again);
+        true
+    }
+
     /// Something the player does to the game between ticks (a choice on the dialogue
     /// screen, a skipped response): inventory changes the menus made are seen first, and
     /// what the action's scripts change is the scripts' own.
@@ -657,6 +687,15 @@ impl Runtime {
             ScriptAid::Close => {
                 if !self.answer(None) {
                     return Err("no script menu or message box is open".into());
+                }
+            }
+            ScriptAid::Message(m) => {
+                let m = resolve(g, m)?;
+                let def = g.data.messages.get(&m).ok_or_else(|| format!("{} is not a message", g.data.name(m)))?;
+                let (text, buttons, is_box) = (def.text.clone(), def.buttons.clone(), def.message_box);
+                g.emit(EventKind::MessageShown { message: m, text, buttons: buttons.clone() });
+                if is_box || !buttons.is_empty() {
+                    g.show_box(m);
                 }
             }
             ScriptAid::Activate(r) => {
@@ -763,6 +802,10 @@ impl EffectCtx for PlayCtx<'_> {
     fn activation_effects(&self, a: &Activation, target: FormId) -> Vec<Effect> {
         outcome::effects(a, target.0, &self.display(target), self.index, |id| self.display(id))
     }
+
+    fn is_furniture(&self, r: FormId) -> bool {
+        self.sim.base_of(r.0).and_then(|b| self.sim.forms.get(b)).is_some_and(|b| matches!(b.data, fnv_sim::forms::BaseData::Furniture))
+    }
 }
 
 /// The response texts (NAM1) of a dialogue line, in order.
@@ -862,6 +905,7 @@ pub(crate) fn run_scripts(
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
     mut used: MessageReader<ItemUsed>,
+    mut sit: MessageWriter<crate::furniture::UseFurniture>,
     paused: Res<crate::pause::Paused>,
     loading: Res<crate::loading::Loading>,
 ) {
@@ -1058,6 +1102,10 @@ pub(crate) fn run_scripts(
             }
             ScriptEffect::Notify(text) => hud.notify(text),
             ScriptEffect::MessageBox(b) => hud.message_box(b),
+            ScriptEffect::UseFurniture(reference) => {
+                info!("script: the player uses furniture {reference:08X} (a script's Activate)");
+                sit.write(crate::furniture::UseFurniture { reference });
+            }
         }
     }
 }
@@ -1107,11 +1155,13 @@ fn hold_player(
     script: Res<ScriptState>,
     active: Res<ActiveMenu>,
     paused: Res<crate::pause::Paused>,
+    wait: Res<crate::wait::WaitMenu>,
     state: Res<State<PlayState>>,
     mut next: ResMut<NextState<PlayState>>,
 ) {
     // The pause menu is also a `PlayState::Menu` without an engine menu: it is its own.
-    if active.0.is_some() || paused.0 {
+    // So is the wait menu (`crate::wait`).
+    if active.0.is_some() || paused.0 || wait.is_open() {
         return;
     }
     let held = script.rt.as_ref().and_then(|rt| rt.game.menu).is_some_and(is_script_menu);

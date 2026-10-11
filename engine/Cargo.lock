@@ -2797,6 +2797,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fnv-font"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "fnv-game"
 version = "0.1.0"
 dependencies = [
@@ -4218,6 +4225,7 @@ dependencies = [
  "fnv-collide",
  "fnv-combat",
  "fnv-esm",
+ "fnv-font",
  "fnv-game",
  "fnv-nif",
  "fnv-phys",

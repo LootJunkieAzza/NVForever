@@ -1,20 +1,28 @@
 //! Actor functions: actor values, death, factions, voice, sex, race, flags.
 //!
 //! Actor value codes are the indices of `ActorValue` in `schemas/fnv/common.json`
-//! [documented: xEdit; scripts.md §2.4]. S.P.E.C.I.A.L. (codes 5–11) live in the Layer 4
-//! world (base from `NPC_ DATA`); Health (code 16) starts at the actor's maximum health
-//! (`crate::combat`); the body part conditions (codes 25–31) start at 100 (undamaged)
-//! and the other values at 0 here [hypothesis: their base values (skills, derived stats)
-//! are not read yet; a new character has no crippled limbs] and change through the
-//! setters.
+//! [documented: xEdit; scripts.md §2.4]. What a value starts at (its record field or
+//! formula) is `crate::actor_values`; docs/spec-notes/actor-values.md has the whole
+//! model.
 //!
-//! Each value is a permanent part (base plus permanent modifiers: SetActorValue,
-//! ModActorValue, ForceActorValue) minus a damage part (DamageActorValue, healed by
-//! RestoreActorValue, which never heals past zero damage) [documented: catalogue
-//! summaries of DamageActorValue and RestoreActorValue; observed: Contreras' supplies
-//! restoring 100 of a head condition damaged by 40 left it at 100,
-//! `L5.quest.effect_start`, layer5-captures.md §9.3 b]. Base and permanent modifiers are
-//! kept together [hypothesis: nothing captured tells them apart yet].
+//! A value is its base plus three pools [documented: GECK wiki ActorValue]:
+//!
+//! - the **base**: from the record or formula, or the number `SetActorValue` put in its
+//!   place (`GetBaseActorValue` reads it);
+//! - the **permanent modifier**: `ModActorValue` adds to it and `ForceActorValue` moves
+//!   it so that the current value is the one asked for (`GetPermanentActorValue` reads
+//!   base + this);
+//! - the **damage**: `DamageActorValue` adds to it, `RestoreActorValue` takes from it and
+//!   never past zero [documented: both pages; observed: Contreras' supplies restoring
+//!   100 of a head condition damaged by 40 left it at 100, `L5.quest.effect_start`,
+//!   layer5-captures.md §9.3 b]; combat's health and limb damage goes here;
+//! - the **temporary modifier** (active effects and worn enchantments): nothing feeds
+//!   it yet, so it is not kept.
+//!
+//! The permanent value (base + permanent modifier) of S.P.E.C.I.A.L. lives in the Layer
+//! 4 world, where the carry weight rule and the menus read and write it; the override
+//! and the permanent modifier of everything else, and of the attributes of actors the
+//! world holds none for (creatures), live here.
 
 use super::{base_of, none, yes, Args, Ctx};
 use crate::game::Game;
@@ -28,7 +36,7 @@ fn special(code: u16) -> Option<&'static str> {
 
 /// The names of the actor value codes 0–76 [documented: xEdit `ActorValue`,
 /// `schemas/fnv/common.json`].
-const AV_NAMES: [&str; 77] = [
+pub const AV_NAMES: [&str; 77] = [
     "Aggression", "Confidence", "Energy", "Responsibility", "Mood", "Strength", "Perception", "Endurance",
     "Charisma", "Intelligence", "Agility", "Luck", "Action Points", "Carry Weight", "Critical Chance",
     "Heal Rate", "Health", "Melee Damage", "Damage Resistance", "Poison Resistance", "Rad Resistance",
@@ -70,20 +78,33 @@ pub fn av_code(g: &Game, name: &str) -> Result<u16, String> {
     AV_NAMES.iter().position(|n| squash(n) == want).map(|i| i as u16).ok_or_else(|| format!("no actor value named {name:?}"))
 }
 
-/// The permanent part of an actor value (base and permanent modifiers). Health's base is
-/// the actor's maximum health (`crate::combat`) until a script sets it.
-fn permanent(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
-    match special(code) {
-        Some(name) => g.world.actor_value(actor, name).map(|v| v as f64).map_err(|e| e.to_string()),
-        None => match g.extra.get(&actor).and_then(|e| e.actor_values.get(&code)).copied() {
-            Some(v) => Ok(v),
-            None if code == crate::combat::HEALTH => Ok(g.max_health(actor)),
-            None => Ok(default_value(code)),
-        },
+/// The permanent modifier of an actor value (ModActorValue, ForceActorValue).
+fn modifier(g: &Game, actor: FormId, code: u16) -> f64 {
+    g.extra.get(&actor).and_then(|e| e.av_permanent.get(&code)).copied().unwrap_or(0.0)
+}
+
+/// The world's run-time value of an attribute: its permanent value, when it holds one.
+fn world_special(g: &Game, actor: FormId, code: u16) -> Option<f64> {
+    g.world.peek(actor)?.actor_values.get(special(code)?).map(|v| *v as f64)
+}
+
+/// The base value: SetActorValue's number, else the record's or the formula's.
+fn base(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
+    if let Some(v) = world_special(g, actor, code) {
+        return Ok(v - modifier(g, actor, code));
+    }
+    match g.extra.get(&actor).and_then(|e| e.actor_values.get(&code)).copied() {
+        Some(v) => Ok(v),
+        None => g.base_actor_value(actor, code),
     }
 }
 
-/// The permanent part of an actor value, 0 when it cannot be read.
+/// The permanent value: the base plus the permanent modifier.
+fn permanent(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
+    Ok(base(g, actor, code)? + modifier(g, actor, code))
+}
+
+/// The permanent value of an actor value, 0 when it cannot be read.
 pub(crate) fn actor_value_base(g: &mut Game, actor: FormId, code: u16) -> f64 {
     permanent(g, actor, code).unwrap_or(0.0)
 }
@@ -108,26 +129,69 @@ fn set_damage(g: &mut Game, actor: FormId, code: u16, d: f64) {
     }
 }
 
-/// The current value: the permanent part minus the damage.
+/// The current value: the permanent value minus the damage.
 pub fn actor_value(g: &mut Game, actor: FormId, code: u16) -> Result<f64, String> {
     Ok(permanent(g, actor, code)? - damage(g, actor, code))
 }
 
-fn set_value(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String> {
-    match special(code) {
-        Some(name) => g.world.set_actor_value(actor, name, v as f32).map_err(|e| e.to_string()),
-        None => {
-            g.extra.entry(actor).or_default().actor_values.insert(code, v);
-            Ok(())
-        }
-    }
+/// The current value within the range the game calculates with (S.P.E.C.I.A.L. 1–10,
+/// skills 0–100), 0 when it cannot be read [documented: GECK wiki
+/// GetThresholdedActorValue].
+pub fn actor_value_capped(g: &mut Game, actor: FormId, code: u16) -> f64 {
+    crate::actor_values::capped(code, actor_value(g, actor, code).unwrap_or(0.0))
 }
 
-/// Make the current value exactly `v` with no damage (the state a capture save reports:
-/// the runner's `given` of kind `actor_value`).
+/// The value's parts: base, permanent modifier, damage (as GetActorValueInfo lists them).
+pub fn actor_value_parts(g: &mut Game, actor: FormId, code: u16) -> Result<[f64; 3], String> {
+    Ok([base(g, actor, code)?, modifier(g, actor, code), damage(g, actor, code)])
+}
+
+/// Put `v` in the base's place (as SetActorValue). An attribute's permanent value goes
+/// to the world when the world holds attributes for the actor.
+fn set_base(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String> {
+    if let Some(name) = special(code) {
+        // Something that has no attributes takes none.
+        base(g, actor, code)?;
+        if g.world.set_actor_value(actor, name, (v + modifier(g, actor, code)) as f32).is_ok() {
+            return Ok(());
+        }
+    }
+    g.extra.entry(actor).or_default().actor_values.insert(code, v);
+    Ok(())
+}
+
+/// Add `d` to the permanent modifier (as ModActorValue).
+fn add_modifier(g: &mut Game, actor: FormId, code: u16, d: f64) -> Result<(), String> {
+    let before = permanent(g, actor, code)?;
+    let e = g.extra.entry(actor).or_default();
+    let m = e.av_permanent.get(&code).copied().unwrap_or(0.0) + d;
+    if m != 0.0 {
+        e.av_permanent.insert(code, m);
+    } else {
+        e.av_permanent.remove(&code);
+    }
+    if let Some(name) = special(code) {
+        // The world's number is the permanent value; without one the base stays the
+        // record's and the modifier is added on reading.
+        let _ = g.world.set_actor_value(actor, name, (before + d) as f32);
+    }
+    Ok(())
+}
+
+/// Move the base by `d`, leaving the modifier and the damage alone.
+pub(crate) fn shift_base(g: &mut Game, actor: FormId, code: u16, d: f64) -> Result<(), String> {
+    let v = base(g, actor, code)? + d;
+    set_base(g, actor, code, v)
+}
+
+/// Make the current value exactly `v` with no modifier and no damage (the state a
+/// capture save reports: the runner's `given` of kind `actor_value`).
 pub fn set_current(g: &mut Game, actor: FormId, code: u16, v: f64) -> Result<(), String> {
     set_damage(g, actor, code, 0.0);
-    set_value(g, actor, code, v)
+    if let Some(e) = g.extra.get_mut(&actor) {
+        e.av_permanent.remove(&code);
+    }
+    set_base(g, actor, code, v)
 }
 
 pub fn get_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
@@ -135,38 +199,45 @@ pub fn get_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, Strin
     Ok(Value::Num(actor_value(g, r, a.code(0)?)?))
 }
 
-/// The base value: the permanent part, without damage [hypothesis: base and permanent
-/// modifiers are not kept apart].
+/// `GetBaseActorValue`: the base value, without the modifiers and the damage
+/// [documented: GECK wiki ActorValue, GetBaseActorValue].
 pub fn get_base_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
+    let r = ctx.subject()?;
+    Ok(Value::Num(base(g, r, a.code(0)?)?))
+}
+
+/// `GetPermanentActorValue`: the base value plus the permanent modifier [documented:
+/// GECK wiki ActorValue, "the combined base value + the permanent modifier"].
+pub fn get_permanent_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     Ok(Value::Num(permanent(g, r, a.code(0)?)?))
 }
 
-/// `SetActorValue`: the base value becomes the given number; damage stays [documented:
-/// catalogue summary, "sets the base value"].
+/// `SetActorValue`: the base value becomes the given number; the modifiers and the
+/// damage stay [documented: GECK wiki ActorValue, "this base value can be overridden by
+/// the SetActorValue command"].
 pub fn set_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    set_value(g, r, a.code(0)?, a.num(1)?)?;
+    set_base(g, r, a.code(0)?, a.num(1)?)?;
     none()
 }
 
 /// `ForceActorValue`: the current value becomes the given number, by changing the
-/// permanent part by the difference [documented: catalogue notes].
+/// permanent modifier by the difference [documented: GECK wiki ForceActorValue, the
+/// equivalent ModActorValue; ActorValue, "will alter the permanent modifier"].
 pub fn force_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     let code = a.code(0)?;
     let diff = a.num(1)? - actor_value(g, r, code)?;
-    let v = permanent(g, r, code)? + diff;
-    set_value(g, r, code, v)?;
+    add_modifier(g, r, code, diff)?;
     none()
 }
 
-/// `ModActorValue`: a permanent change by the amount [documented: catalogue summary].
+/// `ModActorValue`: the permanent modifier changes by the amount [documented: GECK wiki
+/// ActorValue, the permanent pool].
 pub fn mod_actor_value(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    let code = a.code(0)?;
-    let v = permanent(g, r, code)? + a.num(1)?;
-    set_value(g, r, code, v)?;
+    add_modifier(g, r, a.code(0)?, a.num(1)?)?;
     none()
 }
 
@@ -490,14 +561,18 @@ pub fn get_faction_combat_reaction(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result
 /// faction the player is a crime enemy of.
 pub fn get_faction_relation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
-    let o = a.form(0)?;
+    Ok(Value::Num(faction_relation(g, r, a.form(0)?) as f64))
+}
+
+/// [`get_faction_relation`]'s value for actor `r` towards `o`.
+pub fn faction_relation(g: &Game, r: FormId, o: FormId) -> i64 {
     let mine = factions_of(g, r);
     if o == FormId::PLAYER_REF && mine.iter().any(|f| g.player.enemy_of.contains(f)) {
-        return Ok(Value::Num(1.0));
+        return 1;
     }
     let theirs = factions_of(g, o);
     let all: Vec<i64> = mine.iter().flat_map(|&x| theirs.iter().map(move |&y| (x, y))).map(|(x, y)| reaction(g, x, y)).collect();
-    let v = if all.contains(&1) {
+    if all.contains(&1) {
         1
     } else if all.contains(&3) {
         3
@@ -505,8 +580,7 @@ pub fn get_faction_relation(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, 
         2
     } else {
         0
-    };
-    Ok(Value::Num(v as f64))
+    }
 }
 
 /// `SetEnemy f1 f2 [flag12 flag21]`: each direction becomes enemy (flag 0, the default)
@@ -609,11 +683,15 @@ pub fn get_player_teammate_count(g: &mut Game, _ctx: &Ctx, _a: &Args) -> Result<
     Ok(Value::Num(n as f64))
 }
 
-/// Health back to its base: the stored Health (code 16) change is dropped.
+/// `ResetHealth`: the actor's health is restored and its crippled limbs cured: the
+/// damage of Health and of the limb conditions goes [documented: GECK wiki ResetHealth].
 pub fn reset_health(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
     let r = ctx.subject()?;
     if let Some(e) = g.extra.get_mut(&r) {
-        e.actor_values.remove(&16);
+        e.av_damage.remove(&crate::combat::HEALTH);
+        for code in crate::combat::LIMB_CONDITIONS {
+            e.av_damage.remove(&code);
+        }
     }
     none()
 }
@@ -663,15 +741,6 @@ pub fn get_is_current_package(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value
     let r = ctx.subject()?;
     let p = a.form(0)?;
     yes(g.current_package(r) == Some(p))
-}
-
-/// The starting value of an actor value this crate keeps (see the module notes).
-fn default_value(code: u16) -> f64 {
-    if (25..=31).contains(&code) {
-        100.0
-    } else {
-        0.0
-    }
 }
 
 /// Current health over base health [documented: catalogue notes]; a dead actor is at 0.

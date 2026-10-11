@@ -29,6 +29,9 @@ pub enum ScriptEffect {
     Notify(String),
     /// A message box (`MESG` flagged "Message Box", or one with buttons).
     MessageBox(BoxMessage),
+    /// A script's `Activate` ran a piece of furniture's default activation for the
+    /// player: the player uses it (`crate::furniture`).
+    UseFurniture(u32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +63,10 @@ pub trait EffectCtx {
     fn destination(&self, cell: Option<FormId>) -> Destination;
     /// The effects of an activation's outcome (`activate::outcome::effects`).
     fn activation_effects(&self, a: &Activation, target: FormId) -> Vec<Effect>;
+    /// Whether the reference's base is a piece of furniture.
+    fn is_furniture(&self, _r: FormId) -> bool {
+        false
+    }
 }
 
 /// `fnv_sim::world::Activation` as the trace serialises it (`EventKind::Activated`
@@ -164,6 +171,11 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             }
             EventKind::Activated { reference, by, outcome: Some(o) } => {
                 let Some(a) = activation_from_json(o) else { continue };
+                // Furniture's default activation, as by hand (`activate.rs`).
+                if *by == player && matches!(a.outcome, Outcome::Activated) && ctx.is_furniture(*reference) {
+                    out.push(ScriptEffect::UseFurniture(reference.0));
+                    continue;
+                }
                 for eff in ctx.activation_effects(&a, *reference) {
                     match eff {
                         Effect::RefChanged(id) => changed(&mut out, FormId(id)),
@@ -435,6 +447,9 @@ pub enum ScriptAid {
     Button(i32),
     /// `close`: the player closes the open menu or message box (OK / Done).
     Close,
+    /// `message:<MESG>`: the message is shown as ShowMessage shows it, for looking at a
+    /// message box outside the script that shows it (no script reads its button).
+    Message(String),
     /// `var:<quest or reference>:<variable>:<value>`: sets a script variable (the name
     /// may be `scripted:<SCPT>` or `placed:<base>`).
     Var(String, String, f64),
@@ -490,13 +505,14 @@ pub fn parse_aids(v: &str) -> Result<Vec<TimedAid>, String> {
                 ["info", i, sp] => ScriptAid::Info(i.to_string(), Some(sp.to_string())),
                 ["button", b] => ScriptAid::Button(int(b)?),
                 ["close"] => ScriptAid::Close,
+                ["message", m] => ScriptAid::Message(m.to_string()),
                 // The owner's name may hold a colon too (`var:scripted:<SCPT>:<variable>:<value>`).
                 ["var", of @ .., var, value] if !of.is_empty() => {
                     ScriptAid::Var(of.join(":"), var.to_string(), value.parse().map_err(|_| format!("{rest:?}: bad value {value:?}"))?)
                 }
                 _ => {
                     return Err(format!(
-                        "{rest:?}: expected start:, stop:, stage:, objective:, objective_done:, info:, button:, close, var:, walk: or activate:"
+                        "{rest:?}: expected start:, stop:, stage:, objective:, objective_done:, info:, button:, close, message:, var:, walk: or activate:"
                     ))
                 }
             };
@@ -795,6 +811,7 @@ mod tests {
         );
         assert!(parse_aids("3:var:bRunTimer:1").is_err());
         assert!(parse_aids("3:stage:VCG01").is_err());
+        assert_eq!(parse_aids("2:message:VMS18VancesGunMessage").unwrap()[0].aid, ScriptAid::Message("VMS18VancesGunMessage".into()));
         assert!(parse_aids("3:jump").is_err());
         assert!(parse_aids("x:start:VCG00").is_err());
         assert!(parse_aids("3@VCG01:close").is_err());

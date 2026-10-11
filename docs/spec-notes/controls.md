@@ -63,7 +63,9 @@ The second hotkey's line is named `Ammo Swap`.
 - Toggle POV: a tap switches first and third person; held while the mouse moves, the
   camera circles the player without turning them, and swings back when let go. The
   mouse wheel zooms the third-person camera.
-- Not built yet (a line on screen says so): attacking, reloading, Rest, VATS, the
+- Rest: the Wait menu, or the Sleep menu while lying on a bed
+  (docs/spec-notes/wait-menu.md).
+- Not built yet (a line on screen says so): attacking, reloading, VATS, the
   hotkeys and Ammo Swap, Quick Save, Quick Load, Grab.
 
 ## 4. Captures wanted
@@ -178,8 +180,11 @@ written to the script trace as a `controls` line.
 - `--new-game`: every group is held from the first frame until the opening's first
   script frame, which turns the controls off itself (the scripts take about a second to
   load) [design].
-- Not built: the Wait menu (Rest is not built at all); the action-point part of the HUD
-  (NVForever has none yet); the image-space reset.
+- The Wait menu (Rest) stays shut with the Pip-Boy group off, as the inventory does
+  (docs/spec-notes/wait-menu.md §6); each refused request counts under "Pip-Boy" in the
+  summary below.
+- Not built: the action-point part of the HUD (NVForever has none yet); the image-space
+  reset.
 - At exit, when scripts changed the controls at all: "controls summary: scripts changed
   the player's controls N times; disabled at exit: …; held back: …" (per group, the
   frames or presses in which something the player asked for was struck).

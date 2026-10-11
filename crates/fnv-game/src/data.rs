@@ -265,6 +265,8 @@ impl TopicDef {
 
 #[derive(Debug, Clone, Default)]
 pub struct MessageDef {
+    /// FULL: the title of a message box.
+    pub title: Option<String>,
     pub text: Option<String>,
     pub buttons: Vec<String>,
     pub message_box: bool,
@@ -297,8 +299,32 @@ pub struct ActorDef {
     /// NPC_ DATA Base Health (added to the health derived from Endurance and level) or
     /// CREA DATA Health (the creature's health).
     pub base_health: i64,
-    /// DATA Endurance.
-    pub endurance: i64,
+    /// DATA attributes, S.P.E.C.I.A.L. in that order (NPC_ and CREA) [documented: xEdit;
+    /// observed: every NPC_ and CREA of FalloutNV.esm has them, actor-values.md §2].
+    pub attributes: Option<[u8; 7]>,
+    /// NPC_ DNAM: the fourteen skill values and skill offsets, Barter to Unarmed (actor
+    /// value codes 32–45 in order) [documented: xEdit].
+    pub skills: Option<[u8; 14]>,
+    pub skill_offsets: Option<[u8; 14]>,
+    /// CREA DATA Combat Skill and Stealth Skill [documented: xEdit; GECK wiki Stats Tab -
+    /// Creatures].
+    pub combat_skill: Option<u8>,
+    pub stealth_skill: Option<u8>,
+    /// ACBS Fatigue, Speed Multiplier (percent) and Karma [documented: xEdit].
+    pub fatigue: i64,
+    pub speed_mult: i64,
+    pub karma: f64,
+    /// AIDT Aggression, Confidence, Responsibility, Mood and Assistance as their codes
+    /// [documented: xEdit enumerations; GECK wiki Confidence for that scale].
+    pub aggression: Option<i64>,
+    pub confidence: Option<i64>,
+    pub responsibility: Option<i64>,
+    pub mood: Option<i64>,
+    pub assistance: Option<i64>,
+    /// ACBS template flag "AI Data": the template supplies the AIDT values.
+    pub template_ai: bool,
+    /// NPC_ ACBS "Auto-calc stats".
+    pub autocalc: bool,
     /// ACBS level, or the player-level multiplier ×1000 with "PC Level Mult", and the
     /// calculated level's bounds.
     pub level_raw: i64,
@@ -1223,6 +1249,7 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
             let mut m = MessageDef::default();
             for (s, v) in &decoded {
                 match *s {
+                    b"FULL" => m.title = v.as_ref().and_then(|v| v.as_str().map(str::to_string)).filter(|t| !t.trim().is_empty()),
                     b"DESC" => m.text = v.as_ref().and_then(|v| v.as_str().map(str::to_string)),
                     b"ITXT" => m.buttons.push(v.as_ref().and_then(|v| v.as_str()).unwrap_or_default().to_string()),
                     b"DNAM" => m.message_box = has_flag(v.as_ref(), "Message Box"),
@@ -1253,24 +1280,39 @@ fn read_one(lo: &LoadOrder, schema: &Schema, types: &ParamTypes, g: u32, pi: usi
                         a.creature_type =
                             v.as_ref().and_then(|v| v.get("type")).and_then(|t| field_code(schema, &sig, b"DATA", Some("type"), t));
                         a.base_health = v.as_ref().and_then(|v| v.get("health")).and_then(Json::as_i64).unwrap_or(0);
-                        a.endurance = v.as_ref().and_then(|v| v.get("attributes")).and_then(|x| x.get("endurance")).and_then(Json::as_i64).unwrap_or(0);
+                        a.attributes = v.as_ref().and_then(|v| v.get("attributes")).and_then(attributes);
+                        let skill = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_u64).map(|n| n.min(255) as u8);
+                        (a.combat_skill, a.stealth_skill) = (skill("combat_skill"), skill("stealth_skill"));
                     }
                     b"DATA" if &sig == b"NPC_" => {
                         a.base_health = v.as_ref().and_then(|v| v.get("base_health")).and_then(Json::as_i64).unwrap_or(0);
-                        a.endurance = v.as_ref().and_then(|v| v.get("attributes")).and_then(|x| x.get("endurance")).and_then(Json::as_i64).unwrap_or(0);
+                        a.attributes = v.as_ref().and_then(|v| v.get("attributes")).and_then(attributes);
                     }
-                    b"AIDT" => a.energy = v.as_ref().and_then(|v| v.get("energy_level")).and_then(Json::as_u64).map(|e| e.min(255) as u8),
+                    b"DNAM" if &sig == b"NPC_" => {
+                        a.skills = v.as_ref().and_then(|v| v.get("skill_values")).and_then(skills);
+                        a.skill_offsets = v.as_ref().and_then(|v| v.get("skill_offsets")).and_then(skills);
+                    }
+                    b"AIDT" => {
+                        a.energy = v.as_ref().and_then(|v| v.get("energy_level")).and_then(Json::as_u64).map(|e| e.min(255) as u8);
+                        let code = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(|t| field_code(schema, &sig, b"AIDT", Some(k), t));
+                        (a.aggression, a.confidence, a.mood, a.assistance) = (code("aggression"), code("confidence"), code("mood"), code("assistance"));
+                        a.responsibility = v.as_ref().and_then(|v| v.get("responsibility")).and_then(Json::as_i64);
+                    }
                     b"ACBS" => {
                         let f = v.as_ref().and_then(|v| v.get("flags"));
                         a.female = has_flag(f, "Female");
                         a.essential = has_flag(f, "Essential");
                         a.invulnerable = has_flag(f, "Invulnerable");
                         a.pc_level_mult = has_flag(f, "PC Level Mult");
+                        a.autocalc = &sig == b"NPC_" && has_flag(f, "Auto-calc stats");
                         let n = |k: &str| v.as_ref().and_then(|v| v.get(k)).and_then(Json::as_i64).unwrap_or(0);
                         (a.level_raw, a.calc_min, a.calc_max) = (n("level_or_level_mult_raw"), n("calc_min"), n("calc_max"));
+                        (a.fatigue, a.speed_mult) = (n("fatigue"), n("speed_multiplier"));
+                        a.karma = v.as_ref().and_then(|v| v.get("karma")).and_then(Json::as_f64).unwrap_or(0.0);
                         let tf = v.as_ref().and_then(|v| v.get("template_flags"));
                         a.template_packages = has_flag(tf, "AI Packages");
                         a.template_stats = has_flag(tf, "Stats");
+                        a.template_ai = has_flag(tf, "AI Data");
                     }
                     _ => {}
                 }
@@ -1407,6 +1449,24 @@ fn resolve<'s>(schema: &'s Schema, t: &'s TypeDef) -> &'s TypeDef {
 /// The integer code of a decoded enumeration value (the decoder gives the value's
 /// name, or the number when the schema has no name for it), from the schema layout of
 /// `sig`/`sub` (and the struct field `field`).
+/// DATA attributes: S.P.E.C.I.A.L. in record order.
+fn attributes(v: &Json) -> Option<[u8; 7]> {
+    let mut out = [0u8; 7];
+    for (o, name) in out.iter_mut().zip(fnv_sim::forms::SPECIAL) {
+        *o = v.get(name)?.as_u64()?.min(255) as u8;
+    }
+    Some(out)
+}
+
+/// One of NPC_ DNAM's two skill arrays, Barter to Unarmed.
+fn skills(v: &Json) -> Option<[u8; 14]> {
+    let mut out = [0u8; 14];
+    for (o, name) in out.iter_mut().zip(crate::actor_values::SKILL_FIELDS) {
+        *o = v.get(name)?.as_u64()?.min(255) as u8;
+    }
+    Some(out)
+}
+
 fn field_code(schema: &Schema, sig: &[u8; 4], sub: &[u8; 4], field: Option<&str>, v: &Json) -> Option<i64> {
     if let Some(n) = v.as_i64() {
         return Some(n);
