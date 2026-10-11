@@ -216,7 +216,7 @@ impl Posed {
         let triangles = match mesh.indices() {
             Some(i) => {
                 let i: Vec<usize> = i.iter().collect();
-                i.chunks_exact(3).map(|t| [t[0], t[1], t[2]]).collect()
+                i.as_chunks::<3>().0.to_vec()
             }
             None => (0..pos.len() / 3).map(|t| [3 * t, 3 * t + 1, 3 * t + 2]).collect(),
         };

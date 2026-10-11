@@ -436,6 +436,7 @@ fn flat_screen(
 
 /// Pass the pointer on the screen, and the mouse's buttons, to the menus' nodes (as Bevy's
 /// `render_ui_to_texture` example does).
+#[allow(clippy::too_many_arguments)]
 fn drive_pointer(
     mut commands: Commands,
     pip: Res<PipBoy>,
