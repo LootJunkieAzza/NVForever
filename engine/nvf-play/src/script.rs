@@ -776,6 +776,11 @@ impl EffectCtx for PlayCtx<'_> {
         self.data.messages.get(&message).is_some_and(|m| m.message_box)
     }
 
+    fn message_look(&self, message: FormId) -> (Option<String>, Option<f32>) {
+        let Some(m) = self.data.messages.get(&message) else { return (None, None) };
+        (m.icon.and_then(|i| self.data.menu_icons.get(&i).cloned()), m.display_seconds.map(|s| s as f32))
+    }
+
     fn enable_children(&self, r: FormId) -> Vec<FormId> {
         let mut out = Vec::new();
         let mut todo = vec![r];
@@ -901,6 +906,7 @@ pub(crate) fn run_scripts(
     mut sim: ResMut<SimState>,
     mut script: ResMut<ScriptState>,
     mut hud: ResMut<ScriptHud>,
+    mut corner: ResMut<crate::corner_messages::CornerMessages>,
     mut changed: MessageWriter<RefChanged>,
     mut travel: MessageWriter<TravelRequest>,
     mut open: MessageWriter<OpenContainer>,
@@ -1100,7 +1106,10 @@ pub(crate) fn run_scripts(
             ScriptEffect::OpenContainer(c) => {
                 open.write(OpenContainer { container: c });
             }
-            ScriptEffect::Notify(text) => hud.notify(text),
+            ScriptEffect::Notify(note) => {
+                info!("on screen: {}", note.text.trim().replace('\n', " / "));
+                corner.push(note);
+            }
             ScriptEffect::MessageBox(b) => hud.message_box(b),
             ScriptEffect::UseFurniture(reference) => {
                 info!("script: the player uses furniture {reference:08X} (a script's Activate)");

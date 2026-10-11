@@ -133,6 +133,15 @@ and `NVF_PLAY_TEST_WAIT=22:open,23.5:hours=24,24.5:accept` set:
 passed:" lines ending one date later at the time of day the menu opened at, and "wait summary:
 the menu was opened 1 times (1 as sleep), 24 hours passed, 0 requests held by scripts").
 
+After changes to the messages at the top left (`nvf-play` `corner_messages`, `interface`,
+`script_events` `Note`; docs/spec-notes/corner-messages.md §7), run two of them, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3` and
+`NVF_PLAY_TEST_SCRIPT=3:message:FactionReminderNCR,3.1:message:AbilityWellRestedStartMsg` set:
+`engine/target/release/nvforever --data <Data> --cell GSHouseInterior03 --play --no-voice --run-seconds 20`
+(expect exit 0 and, in this order, `corner message: "You are still dressed as a member of the NCR."
+for 2 s, icon glow_message_vaultboy_ncr.dds` and `corner message: "You are now Well Rested!" for
+10 s, icon default`, about 2.25 s apart).
+
 ## Commits
 
 End commit messages with the session's attribution lines. Keep commits focused; write

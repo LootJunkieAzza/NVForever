@@ -10,6 +10,12 @@
 //!   chosen button moves. The pointer chooses the button it is on.
 //! - Without the game's fonts (no archives, or a font that cannot be read) the same
 //!   layout is drawn with Bevy's font and plain lines.
+//! - Fonts, textures and units are `crate::interface`'s, shared with the other parts of
+//!   the interface.
+
+use crate::interface::{amber, at, face, plain_font, set_text, texture, u, Face, Set};
+use crate::script_hud::BoxButton;
+use bevy::image::{CompressedImageFormatSupport, CompressedImageFormats};
 
 use crate::script_hud::BoxButton;
 use crate::ui::{amber, at, bc_supported, face, plain_font, set_line, texture, u, Face};
@@ -259,10 +265,10 @@ fn spawn_box(commands: &mut Commands, view: &PanelView, faces: &Faces, selected:
                 }
             }
             if let Some(t) = &l.title {
-                set_text(b, &faces.title, t, Vec2::ZERO, bright);
+                set_text(b, &faces.title, t, Vec2::ZERO, bright, ());
             }
             for t in &l.text {
-                set_text(b, &faces.body, t, Vec2::ZERO, bright);
+                set_text(b, &faces.body, t, Vec2::ZERO, bright, ());
             }
             let (frame_x, frame_w) = l.frame;
             for (i, row) in l.buttons.iter().enumerate() {
@@ -283,7 +289,7 @@ fn spawn_box(commands: &mut Commands, view: &PanelView, faces: &Faces, selected:
                         }
                     });
                     for t in &row.lines {
-                        set_text(r, &faces.body, t, Vec2::new(frame_x, row.y), bright);
+                        set_text(r, &faces.body, t, Vec2::new(frame_x, row.y), bright, ());
                     }
                 });
             }
@@ -318,6 +324,7 @@ fn draw(
         }
         if let Some(view) = &panel.view {
             let faces = faces.get_or_insert_with(|| {
+                let bc = formats.as_deref().is_none_or(|f| f.0.contains(CompressedImageFormats::BC));
                 load_faces(data.as_deref(), &mut images, bc_supported(formats.as_deref()))
             });
             spawn_box(&mut commands, view, faces, panel.selected);
