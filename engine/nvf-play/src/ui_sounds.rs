@@ -273,12 +273,14 @@ fn act(after: &MenuModel, before: &MenuBefore, a: &Applied) -> Option<UiEvent> {
 
 // ---- watching the menus' state ------------------------------------------------------------
 
+/// The Wait menu as watched: sleep, the hours on the slider, the hours accepted and left.
+type WaitSeen = (bool, u32, Option<(u32, u32)>);
+
 /// What the watched menus showed last frame.
 #[derive(Default, PartialEq, Clone)]
 struct Seen {
     menu: Option<Mode>,
-    /// The Wait menu: sleep, hours on the slider, the hours accepted and left.
-    wait: Option<(bool, u32, Option<(u32, u32)>)>,
+    wait: Option<WaitSeen>,
     /// The dialogue menu's choices (labels) and the selected one.
     choices: Option<(Vec<String>, usize)>,
     /// The pause menu: open, and the settings page's selected row when that page is up.
@@ -527,7 +529,7 @@ mod tests {
 
     #[test]
     fn the_wait_menu_is_heard_from_its_state() {
-        let ev = |was: Option<(bool, u32, Option<(u32, u32)>)>, now| watched(&Seen { wait: was, ..seen() }, &Seen { wait: now, ..seen() }).into_iter().map(|u| (u.menu, u.event)).collect::<Vec<_>>();
+        let ev = |was: Option<WaitSeen>, now| watched(&Seen { wait: was, ..seen() }, &Seen { wait: now, ..seen() }).into_iter().map(|u| (u.menu, u.event)).collect::<Vec<_>>();
         assert_eq!(ev(None, Some((true, 1, None))), vec![(UiMenu::Sleep, UiEvent::Opened)]);
         assert_eq!(ev(Some((false, 1, None)), Some((false, 2, None))), vec![(UiMenu::Wait, UiEvent::Slider)]);
         assert_eq!(ev(Some((false, 2, None)), Some((false, 2, Some((2, 2))))), vec![(UiMenu::Wait, UiEvent::Accepted)]);
@@ -540,7 +542,7 @@ mod tests {
 
     #[test]
     fn dialogue_choices_and_the_pause_menu() {
-        let list = |i| Seen { choices: Some((vec!["a".into(), "b".into()]), i), ..seen() };
+        let list = |i| Seen { choices: Some((vec!["a".into(), "b".into()], i)), ..seen() };
         assert_eq!(watched(&list(0), &list(1)), vec![UiSound { menu: UiMenu::Dialogue, event: UiEvent::Focus }]);
         assert!(watched(&list(1), &list(1)).is_empty());
         assert_eq!(watched(&list(1), &seen()), vec![UiSound { menu: UiMenu::Dialogue, event: UiEvent::Answered }]);

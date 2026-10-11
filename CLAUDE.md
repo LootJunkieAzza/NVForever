@@ -209,8 +209,8 @@ After changes to the menus' sounds (`nvf-play` `ui_sounds` and its hooks in `men
 `engine/target/release/nvforever --data <Data> --cell GSGeneralStore --play --no-voice --run-seconds 72`
 (expect exit 0, "barter opened: UIMenuMode", "container take all: UIItemTakeAll", "inventory item used:
 NPCHumanUsingStimpak", "wait slider moved: UIMenuPrevNext" and "settings switch flipped: UIMenuPrevNext",
-and in the "ui sounds summary:" "24 played", "0 sounds not found" and "1 items' own sounds held back
-for Take All").
+and in the "ui sounds summary:" "24 played", "0 sounds not found" and one or more "items' own sounds held back
+for Take All"; the register's stacks vary).
 
 ## Commits
 
