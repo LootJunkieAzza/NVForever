@@ -114,7 +114,16 @@ docs/spec-notes/radio.md §6), run the saloon jukebox, switched off at 20 s and 
 (expect exit 0, "00109087 (vCountryRadio) is destroyed: silent", "00107D73 tuned to vCountryRadio
 playing sound\songs\radionv\…_mono.ogg", "switched off", the same file again "from <s> s" (20–25 s, by frame rate) and
 "radio summary: 1 receivers heard, 1 songs started, 0 DJ lines, 0 lines without a file; receivers
-switched 3 times, 1 on at exit").
+switched 3 times, 1 on at exit"), and the Pip-Boy radio with a script-started broadcast, with
+`NVF_PLAY_TEST_SCRIPT_MENUS=0.3`,
+`NVF_PLAY_TEST_SCRIPT=2:enable:RNVTARef,2:enable:vNCREmergencyRadioTARef,2:start:vNCREmergencyRadio` and
+`NVF_PLAY_TEST_RADIO=4:next,12:next,20:previous,28:tune=vNCREmergencyRadioTA,52:off` set:
+`engine/target/release/nvforever --data <Data> --cell Goodsprings --play --run-seconds 60`
+(expect exit 0, "pipboy radio: on, tuned to vCountryRadio", "the Pip-Boy tuned to vCountryRadio playing
+sound\songs\radionv\…mp3", "vNCREmergencyRadioTA starts a conversation (StartRadioConversation)",
+"the Pip-Boy tuned to vNCREmergencyRadioTA playing sound\voice\…", a "subtitle: NCR Emergency Radio: …"
+line, "ends its conversation: silent", the static loop "ui_radio_static_lp.wav (loop" and "pipboy radio
+summary: off at exit" with 2 or more "conversations started by scripts"; radio.md §8).
 After changes to the player's controls or to what scripts lock of them (`nvf-play`
 `control::ControlLocks`, `script::sync_locks`; docs/spec-notes/controls.md §5), run the
 held-player smoke test, with `NVF_PLAY_TEST_SCRIPT_MENUS=1`, `NVF_PLAY_TEST_MOVE=1:1:0`,
