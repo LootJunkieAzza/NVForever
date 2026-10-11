@@ -2149,3 +2149,37 @@ You asked for the placeholder message boxes to be swapped for the game's own, li
 7. **To look at any message:** set `NVF_PLAY_TEST_SCRIPT=20:message:PrimmMuseumPlaqueMessage`
    and `NVF_PLAY_TEST_SCRIPT_MENUS=off` before starting with `--play` (the name is the
    message's Editor ID).
+
+## Weapon and armour condition (2026-10-11, session "item condition")
+
+Branch `claude/item-condition`. Rules and sources: docs/spec-notes/combat-rules.md §17.
+
+1. **Built, as you asked:**
+   - Each shot wears your weapon. The game file has a setting for this
+     (`fDamageToWeaponValue`, 0.2): the 10mm Pistol's record has 80 health, so it lasts
+     400 shots, 33 full magazines. Your figure was "about 395".
+   - A hit wears the armour it lands on: the head piece for a head hit, the body
+     armour for any other, both for an explosion. The amount is 35 % of the hit's
+     damage, also a setting in the game file (`fDamageToArmorPercentage`).
+   - A shot on a weapon someone is holding damages the weapon instead of them.
+   - Your weapon at zero is unequipped and stays in your inventory as "(broken)"; it
+     cannot be equipped again. Anyone else's falls to the ground and cannot be equipped
+     when picked up.
+   - The HUD shows your weapon's condition next to the ammo count, and the inventory
+     shows it after the item's name.
+2. **My guesses, for you to confirm or change:**
+   - Melee weapons wear only when the swing hits something, by the same 0.2.
+   - A weapon that is hit loses the full damage of the shot, and its holder takes
+     none. A 10mm shot takes about a tenth off a Varmint Rifle.
+   - Only a drawn weapon can be hit. Holstered, the shot hits the person.
+   - Worn armour protects less: full DT at 100 %, half at 0 %. Broken armour stays on.
+   - Weapon damage still falls to half at zero condition (the rule from before). The
+     game file has settings that look like the original's rule (66 % + 34 %); I did
+     not use them because nothing we can cite says how they combine.
+3. **Not testable in play yet:** your own armour wearing and your weapon being hit,
+   because nobody attacks you yet. The code handles any actor and is tested without
+   the engine.
+4. **To see it yourself:** NPC weapons are only drawn with `--actor-weapons drawn`.
+   Shoot the gun in a settler's hands about ten times with the 10mm Pistol.
+5. **Not done:** repair (you said later), jamming and slower fire of worn weapons, a
+   worn item selling for less.

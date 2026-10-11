@@ -55,6 +55,17 @@ pub struct Listing {
     pub value: i64,
 }
 
+/// What a row says of a worn weapon or piece of armour after its name: the condition
+/// of the unit in use (the equipped one, else the one that would be equipped), nothing
+/// at full condition (docs/spec-notes/combat-rules.md §17).
+pub fn condition_note(kind: Option<ItemKind>, condition: Option<f32>) -> String {
+    match (kind, condition) {
+        (Some(ItemKind::Weapon | ItemKind::Armor), Some(c)) if c <= 0.0 => " (broken)".into(),
+        (Some(ItemKind::Weapon | ItemKind::Armor), Some(c)) if c < 1.0 => format!(" (CND {}%)", fnv_combat::condition::percent(c)),
+        _ => String::new(),
+    }
+}
+
 /// Display name of a form: its FULL name, else its Editor ID, else its FormID.
 pub fn display_name(forms: &FormStore, id: FormId) -> String {
     match forms.get(id) {
@@ -93,7 +104,7 @@ pub fn listing(world: &mut World<'_>, holder: FormId) -> Result<Listing, SimErro
             let it = forms.item(item);
             Row {
                 item,
-                name: display_name(forms, item),
+                name: display_name(forms, item) + &condition_note(it.map(|i| i.kind), inv.condition_in_use(item)),
                 count,
                 weight: it.and_then(|i| i.weight),
                 value: it.and_then(|i| i.value),

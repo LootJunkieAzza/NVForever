@@ -36,8 +36,10 @@
 //!   `aimnpc=<share>` (at that share of the NPC's height, 0 feet to 1 top: the head or
 //!   legs for limb hits), `aimpart=<n>` (at the nearest NPC's body part `n`, its index in
 //!   the NPC's BPTD, step C8), `aimref=<FormID hex>` (at the collision body of a placed
-//!   object, e.g. a bottle to shoot) and `equip=<FormID hex>` (give one unless carried and
-//!   equip it, as `NVF_PLAY_TEST_EQUIP`).
+//!   object, e.g. a bottle to shoot), `equip=<FormID hex>` (give one unless carried and
+//!   equip it, as `NVF_PLAY_TEST_EQUIP`) and `condition=<percent>` (set the condition of
+//!   everything the player has equipped, e.g. a weapon about to break). `aimpart=254`
+//!   aims at the weapon the nearest NPC holds drawn (`hitvol::WEAPON_PART`).
 //!
 //! The aids that stand in for the keys and the mouse (`NVF_PLAY_TEST_MOVE`,
 //! `NVF_PLAY_TEST_CONTROL`'s presses, `NVF_PLAY_TEST_LOOK`, `NVF_PLAY_TEST_ACTIVATE`) are
@@ -149,6 +151,7 @@ enum Press {
     AimPart(u8),
     AimRef(u32),
     Equip(FormId),
+    Condition(f32),
 }
 
 fn press(rest: &str) -> Result<Press, String> {
@@ -168,6 +171,8 @@ fn press(rest: &str) -> Result<Press, String> {
         _ => {
             if let Some(Ok(id)) = rest.strip_prefix("equip=").map(|h| u32::from_str_radix(h.trim().trim_start_matches("0x"), 16)) {
                 Press::Equip(FormId(id))
+            } else if let Some(Ok(p)) = rest.strip_prefix("condition=").map(|p| p.trim().parse::<f32>()) {
+                Press::Condition(p)
             } else if let Some(Ok(h)) = rest.strip_prefix("aimnpc=").map(|h| h.trim().parse::<f32>()) {
                 Press::AimNpcAt(h)
             } else if let Some(Ok(n)) = rest.strip_prefix("aimpart=").map(|n| n.trim().parse::<u8>()) {
@@ -369,6 +374,14 @@ fn keys_and_controls(
             Press::AimNpcAt(h) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Share(h))),
             Press::AimPart(n) => aim_at_nearest_actor(&phys, &mut player, |id| play.index.refs.get(&id).is_some_and(|e| &e.sig == b"ACHR"), Some(Aim::Part(n))),
             Press::AimRef(id) => aim_at_ref(&phys, &mut player, id),
+            Press::Condition(percent) => {
+                let c = (percent / 100.0).clamp(0.0, 1.0);
+                if let Ok(inv) = sim.world.inventory_mut(FormId::PLAYER_REF) {
+                    for item in inv.equipped() {
+                        inv.map_equipped(item, |e| fnv_sim::inventory::Extra { condition: Some(c), ..e });
+                    }
+                }
+            }
             Press::Equip(item) => {
                 let w = &mut sim.world;
                 let carried = w.item_count(FormId::PLAYER_REF, item).unwrap_or(0) > 0;
@@ -573,6 +586,7 @@ mod tests {
         assert_eq!(press("aimnpc=0.9").unwrap(), Press::AimNpcAt(0.9));
         assert_eq!(press("aimref=0010A202").unwrap(), Press::AimRef(0x10A202));
         assert_eq!(press("aimpart=4").unwrap(), Press::AimPart(4));
+        assert_eq!(press("condition=2.5").unwrap(), Press::Condition(2.5));
         assert!(press("shoot").is_err());
         assert_eq!(press("orbit=180:0").unwrap(), Press::Orbit(std::f32::consts::PI, 0.0));
         assert_eq!(press("release").unwrap(), Press::Release);

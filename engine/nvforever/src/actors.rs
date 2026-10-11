@@ -530,6 +530,9 @@ fn arm(
     };
     for e in crate::weapons::spawn_model(commands, spawned, stance.weapon_node, &part) {
         commands.entity(e).insert(RefVisual(reference));
+        if let Some(weapon) = a.weapon {
+            commands.entity(e).insert(crate::weapons::HeldWeapon { reference, weapon });
+        }
     }
     let skel_parent = skel.parents[stance.weapon_node].unwrap_or(0);
     let mut hold = WeaponHold::new(stance, world.weapon_mode == WeaponMode::Drawn, skel_parent);

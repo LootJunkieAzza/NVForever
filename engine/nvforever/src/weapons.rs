@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use fnv_actor::weapon::{clip_path, mount_bones, EquipClip, StanceFacts, WeaponAnim};
 use nvf_assets::actor::{bind_clip, ActorCtx, PreparedPart, PreparedSkeleton, SpawnedActor};
 use nvf_assets::anim_play::{BlendPlayer, BoundClip, Layer};
+use nvf_play::combat::WeaponBroken;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -129,6 +130,34 @@ impl WeaponHold {
     pub fn parent_node(&self) -> Option<usize> {
         let st = &self.stance;
         st.bones.get(self.anim.parent(&st.holster, &st.drawn, &st.facts)).copied()
+    }
+}
+
+/// On each drawn shape of the weapon model in an actor's hand or holster: whose it is
+/// and which WEAP (the hit volume of a drawn weapon, `limbs.rs`).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct HeldWeapon {
+    pub reference: u32,
+    pub weapon: fnv_sim::FormId,
+}
+
+/// A weapon that broke leaves its actor's hand (docs/spec-notes/combat-rules.md §17):
+/// its model is taken off the skeleton and the weapon clips stop. The weapon itself now
+/// lies on the ground as a dropped reference (`nvf_play::dropped` draws it).
+pub fn drop_broken(
+    mut commands: Commands,
+    mut broken: MessageReader<WeaponBroken>,
+    held: Query<(Entity, &HeldWeapon)>,
+    mut holds: Query<(Entity, &crate::limbs::ActorRig, &mut BlendPlayer), With<WeaponHold>>,
+) {
+    for b in broken.read() {
+        for (e, _) in held.iter().filter(|(_, h)| h.reference == b.form_id) {
+            commands.entity(e).despawn();
+        }
+        for (e, _, mut player) in holds.iter_mut().filter(|(_, rig, _)| rig.reference == b.form_id) {
+            commands.entity(e).remove::<WeaponHold>();
+            (player.layers[2], player.layers[3]) = (None, None);
+        }
     }
 }
 
