@@ -304,7 +304,7 @@ Wander packages in the masters):
 |---|---|---|---|
 | Eating | type-specific bit 0 "No Eating" | 465 of 791 | meals at the rolled times, on a seat if one is free; no food is picked up or eaten |
 | Sleeping | bit 1 "No Sleeping" | 305 | to a bed of the area for the rolled night; no bed, no sleep [hypothesis] |
-| Conversation | bit 2 "No Conversation" | 654 | read, **not carried out** (no actor-to-actor conversations yet) |
+| Conversation | bit 2 "No Conversation" | 654 | read, **not carried out** (no random conversations between actors yet; scripted ones, StartConversation, are docs/spec-notes/dialogue.md §5.1) |
 | Idle markers | bit 3 "No Idle Markers" | 706 | goes to a marker and faces its way, and plays the marker's idles there (docs/spec-notes/idles.md §5) |
 | Furniture (other than beds) | bit 4 "No Furniture" | 668 | sits on a seat of the area |
 | Wandering | bit 5 "No Wandering" | 489 | walks to a spot of the navmesh in the area |

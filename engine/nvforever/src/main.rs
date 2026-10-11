@@ -10,6 +10,7 @@
 //! menu.
 
 mod actors;
+mod anim_sounds;
 mod deaths;
 mod detection;
 mod dialogue_look;
@@ -790,6 +791,8 @@ fn main() -> AppExit {
             // The player's own body (player_body.rs): needs the actor records.
             app.add_plugins((player_body::PlayerBodyPlugin { first_person_body: args.first_person_body }, deaths::DeathsPlugin, limbs::LimbsPlugin, ragdoll::RagdollPlugin, shot_fx::ShotFxPlugin, particles::ParticlesPlugin));
             app.add_plugins(lips::LipsPlugin { enabled: !args.no_lip });
+            // The sounds clips and doors name (anim_sounds.rs).
+            app.add_plugins(anim_sounds::AnimSoundsPlugin);
             // The conversation's actor turns to the player (dialogue_look.rs).
             app.add_plugins(dialogue_look::DialogueLookPlugin);
             // Who perceives whom (detection.rs): the drawn actors and the player.

@@ -45,6 +45,14 @@ const T_TOP2: u32 = 0x935;
 const T_ADDED: u32 = 0x936;
 const T_SKILL: u32 = 0x937;
 const GOODBYE: u32 = 0x938;
+const T_ARGUE: u32 = 0x93A;
+const T_REPLY: u32 = 0x93B;
+const T_REPLY_NOT: u32 = 0x93C;
+const T_LAST: u32 = 0x93D;
+const K_OPEN: u32 = 0xF41;
+const K_REPLY: u32 = 0xF42;
+const K_NOT: u32 = 0xF43;
+const K_LAST: u32 = 0xF44;
 const A_OFF: u32 = 0xA01;
 const A_FIRST: u32 = 0xA02;
 const A_HIGH: u32 = 0xA03;
@@ -108,6 +116,8 @@ struct L {
     id: u32,
     quest: u32,
     flags: u16,
+    /// DATA next speaker (0 Target, 1 Self, 2 Either).
+    next: u8,
     speaker: Option<u32>,
     conds: Vec<Subrecord>,
     /// (response number, text, emotion).
@@ -130,7 +140,7 @@ fn result(value: Option<&str>) -> Vec<Subrecord> {
 }
 
 fn info(l: L) -> Vec<u8> {
-    let mut s = vec![sub(b"DATA", vec![0, 0, l.flags as u8, (l.flags >> 8) as u8]), sub(b"QSTI", u32b(l.quest))];
+    let mut s = vec![sub(b"DATA", vec![0, l.next, l.flags as u8, (l.flags >> 8) as u8]), sub(b"QSTI", u32b(l.quest))];
     s.extend(l.add.iter().map(|t| sub(b"NAME", u32b(*t))));
     for (number, text, emotion) in &l.responses {
         let trdt = [u32b(*emotion), u32b(50), vec![0; 4], vec![*number, 0, 0, 0], u32b(0), vec![0; 4]].concat();
@@ -351,6 +361,55 @@ fn plugin_bytes() -> Vec<u8> {
             0,
             50.0,
             vec![L { id: I_BYE, quest: QA, flags: info_flag::GOODBYE, responses: one("See you"), ..L::default() }],
+        ),
+        // A conversation between the two actors: the first opens with two responses (only
+        // the first is said) and links to two topics, of which the second actor can say
+        // only one; its reply goes on with itself (next speaker Self) and its last line
+        // says goodbye, its Link To ignored.
+        topic(
+            T_ARGUE,
+            "TestArgue",
+            "TestArgue",
+            topic_type::CONVERSATION,
+            0,
+            50.0,
+            vec![L {
+                id: K_OPEN,
+                quest: QA,
+                speaker: me,
+                responses: vec![(1, "Open", 0), (2, "Never said", 0)],
+                choices: vec![T_REPLY_NOT, T_REPLY],
+                begin: Some("30"),
+                end: Some("31"),
+                ..L::default()
+            }],
+        ),
+        topic(
+            T_REPLY,
+            "TestReply",
+            "TestReply",
+            topic_type::CONVERSATION,
+            0,
+            50.0,
+            vec![L { id: K_REPLY, quest: QA, next: 1, speaker: Some(NPC2), responses: one("Reply"), choices: vec![T_LAST], end: Some("32"), ..L::default() }],
+        ),
+        topic(
+            T_REPLY_NOT,
+            "TestReplyNot",
+            "TestReplyNot",
+            topic_type::CONVERSATION,
+            0,
+            50.0,
+            vec![L { id: K_NOT, quest: QA, speaker: Some(NPC2), conds: vec![gate(EQ, 99.0)], responses: one("Not said"), ..L::default() }],
+        ),
+        topic(
+            T_LAST,
+            "TestLast",
+            "TestLast",
+            topic_type::CONVERSATION,
+            0,
+            50.0,
+            vec![L { id: K_LAST, quest: QA, flags: info_flag::GOODBYE, speaker: Some(NPC2), responses: one("Last"), choices: vec![T_REPLY], ..L::default() }],
         ),
     ]
     .concat();
@@ -887,11 +946,12 @@ fn start_conversation_and_the_dialogue_functions() {
     let mut h = game(&f);
     call(&mut h, 0x1056, NPC1_REF, &[player.clone(), ArgValue::Value(Value::Ref(T_BYE))]);
     assert_eq!(h.dialogue.as_ref().unwrap().line.as_ref().unwrap().info, FormId(C_BYE));
-    // Two NPCs: recorded, no conversation.
+    // Two NPCs: no conversation with the player (`two_actors_talk_to_each_other`); with no
+    // topic and no HELLO in the load order nothing starts, and the call is no error.
     let mut k = game(&f);
     call(&mut k, 0x1056, NPC1_REF, &[ArgValue::Value(Value::Ref(NPC2_REF))]);
-    assert!(k.dialogue.is_none());
-    assert!(k.events.iter().any(|e| matches!(&e.kind, EventKind::Stub { name, .. } if name == "StartConversation")));
+    assert!(k.dialogue.is_none() && k.speech.is_empty());
+    assert!(!k.events.iter().any(|e| matches!(&e.kind, EventKind::Stub { .. } | EventKind::CallFailed { .. })));
     // AddTopic: the topic is offered in the topic list.
     let mut a = game(&f);
     call(&mut a, 0x1058, NPC1_REF, &[ArgValue::Value(Value::Ref(T_ADDED))]);
@@ -899,6 +959,42 @@ fn start_conversation_and_the_dialogue_functions() {
     a.start_dialogue(actor(), None).unwrap();
     listen(&mut a);
     assert!(offered(&a).contains(&T_ADDED));
+}
+
+#[test]
+fn two_actors_talk_to_each_other() {
+    let f = fixture();
+    let mut g = game(&f);
+    let (a, b) = (FormId(NPC1_REF), FormId(NPC2_REF));
+    let r = |id: u32| ArgValue::Value(Value::Ref(id));
+    call(&mut g, 0x1056, NPC1_REF, &[r(NPC2_REF), r(T_ARGUE)]);
+    // No menu: the player only overhears; the first line's begin script ran.
+    assert!(g.dialogue.is_none() && !g.in_menu());
+    assert!(g.in_actor_conversation(a) && g.in_actor_conversation(b));
+    assert_eq!(out(&g), 30.0);
+    let s = g.speech[0].clone();
+    assert_eq!((s.speaker, s.target, s.info, s.conversation), (a, Some(b), FormId(K_OPEN), Some(1)));
+    // Only the first response is said.
+    assert_eq!(s.remaining, g.response_seconds(a, FormId(K_OPEN), 0));
+    assert!(s.remaining < g.line_seconds(a, FormId(K_OPEN)));
+    // Either side starting another conversation meanwhile is refused.
+    call(&mut g, 0x1056, NPC2_REF, &[r(NPC1_REF), r(T_ARGUE)]);
+    let started = |g: &Game| g.events.iter().filter(|e| matches!(e.kind, EventKind::ActorConversationStarted { .. })).count();
+    assert_eq!(started(&g), 1);
+    for _ in 0..20_000 {
+        if g.speech.is_empty() {
+            break;
+        }
+        g.tick();
+    }
+    // The reply comes from the second actor (next speaker Target), only from the topic it
+    // can say; then the same actor again (Self) with the Goodbye line, which ends it.
+    let lines: Vec<(FormId, Option<FormId>, u32)> =
+        g.events.iter().filter_map(|e| if let EventKind::LineStarted { speaker, target, info, .. } = e.kind { Some((speaker, target, info.0)) } else { None }).collect();
+    assert_eq!(lines, vec![(a, Some(b), K_OPEN), (b, Some(a), K_REPLY), (b, Some(a), K_LAST)]);
+    assert!(g.events.iter().any(|e| matches!(e.kind, EventKind::ActorConversationEnded { speaker, target, reason: "goodbye", lines: 3 } if speaker == b && target == a)));
+    assert_eq!(out(&g), 32.0);
+    assert!(!g.in_actor_conversation(a) && g.dialogue.is_none());
 }
 
 #[test]
