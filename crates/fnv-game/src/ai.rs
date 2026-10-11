@@ -293,6 +293,24 @@ impl Game<'_> {
         out
     }
 
+    /// Every actor the periodic choice covers chooses now, as at its turn
+    /// ([`Game::update_package`]), with the packages' begin, end and change scripts; its
+    /// turns in the interval stay as they were. For game time that passes while a menu
+    /// holds the game (an hour of a wait or a sleep): the periodic choice goes by
+    /// [`Game::time`], which stands still there. [engineering choice: what the original's
+    /// actors do while the player waits is not described by any source read;
+    /// docs/spec-notes/wait-menu.md §7.]
+    pub fn choose_packages_now(&mut self) {
+        if !self.runs_packages() {
+            return;
+        }
+        for a in self.package_actors() {
+            if self.present(a) && !self.extra.get(&a).is_some_and(|e| e.dead) {
+                self.update_package(a);
+            }
+        }
+    }
+
     /// The periodic package choice, from [`Game::tick`]: every actor chooses when it is
     /// first seen and then every `package_interval` seconds. Actors do not all choose
     /// in the same frame: each has a fixed phase within the interval, from its FormID

@@ -85,6 +85,16 @@ impl Model {
         false
     }
 
+    /// A script makes the player sleep `hours` (`SetPCSleepHours`): they pass as if
+    /// accepted, at most [`MAX_HOURS`]; none for 0. A sleep already passing takes the new
+    /// count.
+    pub fn sleep_for(&mut self, hours: u32) {
+        let hours = hours.min(MAX_HOURS);
+        self.sleep = true;
+        self.hours = hours.max(1);
+        self.passing = (hours > 0).then_some(Passing { asked: hours, left: hours, since: 0.0 });
+    }
+
     /// `dt` seconds on while the hours pass, one hour every `hour_seconds`: whether an
     /// hour passed now (at most one a frame, so each is seen on its own).
     pub fn tick(&mut self, dt: f32, hour_seconds: f32) -> bool {
@@ -233,6 +243,88 @@ const SETTINGS: [Option<&str>; 14] = [
     Some("sDaySaturday"),
 ];
 
+/// Why the menu does not open (wait-menu.md §9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// A script turned waiting off (`EnableFastTravel`'s canWait).
+    Forbidden,
+    UnderWater,
+    HostilesNear,
+    /// Sleeping only: the bed is someone else's.
+    OwnedBed,
+}
+
+impl Refusal {
+    pub const COUNT: usize = 4;
+    pub const ALL: [Refusal; Refusal::COUNT] = [Refusal::Forbidden, Refusal::UnderWater, Refusal::HostilesNear, Refusal::OwnedBed];
+
+    /// For the log.
+    pub fn label(self) -> &'static str {
+        match self {
+            Refusal::Forbidden => "forbidden by a script",
+            Refusal::UnderWater => "under water",
+            Refusal::HostilesNear => "enemies near",
+            Refusal::OwnedBed => "someone else's bed",
+        }
+    }
+}
+
+/// The lines shown instead of the menu. The original takes each from a game setting
+/// [documented: GECK wiki "Settings" lists the names; SetPCHasSleepWaitOverride says the
+/// flag's text is `sNoWaitInCell`]. Only the two about enemies have a record in
+/// FalloutNV.esm [observed], and those are read from it; the defaults here are
+/// NVForever's own wording, used where no plugin sets the setting.
+#[derive(Debug, Clone, PartialEq, bevy::prelude::Resource)]
+pub struct RefusalWords {
+    pub forbidden: String,
+    pub under_water: String,
+    pub hostiles_wait: String,
+    pub hostiles_sleep: String,
+    pub owned_bed: String,
+}
+
+impl Default for RefusalWords {
+    fn default() -> Self {
+        let s = String::from;
+        RefusalWords {
+            forbidden: s("You cannot wait here."),
+            under_water: s("You cannot wait while swimming."),
+            hostiles_wait: s("You cannot wait with enemies close by."),
+            hostiles_sleep: s("You cannot sleep with enemies close by."),
+            owned_bed: s("This bed belongs to someone else."),
+        }
+    }
+}
+
+impl RefusalWords {
+    pub fn from_settings(get: impl Fn(&str) -> Option<String>) -> RefusalWords {
+        let mut w = RefusalWords::default();
+        let slots = [
+            ("sNoWaitInCell", &mut w.forbidden),
+            ("sNoWaitUnderWater", &mut w.under_water),
+            ("sNoWaitHostilActorsNear", &mut w.hostiles_wait),
+            ("sNoSleepHostileActorsNear", &mut w.hostiles_sleep),
+            ("sNoSleepInOwnedBed", &mut w.owned_bed),
+        ];
+        for (name, slot) in slots {
+            if let Some(v) = get(name) {
+                *slot = v;
+            }
+        }
+        w
+    }
+
+    pub fn line(&self, why: Refusal, sleep: bool) -> &str {
+        match (why, sleep) {
+            (Refusal::Forbidden, _) => &self.forbidden,
+            (Refusal::UnderWater, _) => &self.under_water,
+            (Refusal::HostilesNear, false) => &self.hostiles_wait,
+            (Refusal::HostilesNear, true) => &self.hostiles_sleep,
+            (Refusal::OwnedBed, _) => &self.owned_bed,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,6 +433,38 @@ mod tests {
         assert_eq!((a + 1) % 7, b);
         assert_eq!(w.date_line(&eve.advance(2.0)), format!("{}, 1.1.82, 1:00", w.weekdays[b as usize]));
         assert_eq!(clock(5), "0:05");
+    }
+
+    #[test]
+    fn a_script_can_make_the_player_sleep() {
+        let mut m = Model::open(false);
+        m.sleep_for(3);
+        assert!(m.sleep);
+        assert_eq!(m.passing.map(|p| (p.asked, p.left)), Some((3, 3)));
+        assert!(m.tick(0.5, 0.5));
+        // A new count while it passes.
+        m.sleep_for(99);
+        assert_eq!(m.passing.map(|p| (p.asked, p.left)), Some((MAX_HOURS, MAX_HOURS)));
+        // No hours: the Sleep menu, nothing passing.
+        let mut m = Model::open(false);
+        m.sleep_for(0);
+        assert_eq!((m.sleep, m.hours, m.passing), (true, 1, None));
+    }
+
+    #[test]
+    fn a_refusal_has_a_line_for_waiting_and_for_sleeping() {
+        let own = RefusalWords::default();
+        assert_ne!(own.line(Refusal::HostilesNear, false), own.line(Refusal::HostilesNear, true));
+        // The flag's text is the same for both.
+        assert_eq!(own.line(Refusal::Forbidden, false), own.line(Refusal::Forbidden, true));
+        // A plugin's settings are followed.
+        let w = RefusalWords::from_settings(|name| (name == "sNoSleepHostileActorsNear").then(|| "Not now.".to_string()));
+        assert_eq!(w.line(Refusal::HostilesNear, true), "Not now.");
+        assert_eq!(w.line(Refusal::HostilesNear, false), own.hostiles_wait);
+        assert_eq!(Refusal::ALL.len(), Refusal::COUNT);
+        for (i, r) in Refusal::ALL.iter().enumerate() {
+            assert_eq!(*r as usize, i);
+        }
     }
 
     #[test]

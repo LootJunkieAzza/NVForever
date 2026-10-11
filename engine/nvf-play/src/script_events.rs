@@ -29,6 +29,9 @@ pub enum ScriptEffect {
     Notify(String),
     /// A message box (`MESG` flagged "Message Box", or one with buttons).
     MessageBox(BoxMessage),
+    /// A script's `Activate` ran a piece of furniture's default activation for the
+    /// player: the player uses it (`crate::furniture`).
+    UseFurniture(u32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +63,10 @@ pub trait EffectCtx {
     fn destination(&self, cell: Option<FormId>) -> Destination;
     /// The effects of an activation's outcome (`activate::outcome::effects`).
     fn activation_effects(&self, a: &Activation, target: FormId) -> Vec<Effect>;
+    /// Whether the reference's base is a piece of furniture.
+    fn is_furniture(&self, _r: FormId) -> bool {
+        false
+    }
 }
 
 /// `fnv_sim::world::Activation` as the trace serialises it (`EventKind::Activated`
@@ -164,6 +171,11 @@ pub fn effects(events: &[Event], skip: &BTreeSet<usize>, ctx: &dyn EffectCtx) ->
             }
             EventKind::Activated { reference, by, outcome: Some(o) } => {
                 let Some(a) = activation_from_json(o) else { continue };
+                // Furniture's default activation, as by hand (`activate.rs`).
+                if *by == player && matches!(a.outcome, Outcome::Activated) && ctx.is_furniture(*reference) {
+                    out.push(ScriptEffect::UseFurniture(reference.0));
+                    continue;
+                }
                 for eff in ctx.activation_effects(&a, *reference) {
                     match eff {
                         Effect::RefChanged(id) => changed(&mut out, FormId(id)),

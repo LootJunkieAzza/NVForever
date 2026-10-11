@@ -25,6 +25,17 @@
 //! control cancels; the slider and the two buttons take the mouse (wait-menu.md §6 says
 //! which of these are the original's). [`model`] is the menu as plain data.
 //!
+//! **Refusals** (wait-menu.md §9): instead of opening, a line on the screen says why the
+//! player cannot wait or sleep now ([`refusal`]): a script forbade waiting, the player is
+//! swimming, hostile actors are near, the bed is someone else's. A script that opens the
+//! menu without asking for the check gets it regardless.
+//!
+//! **Scripts** see a sleep or a wait while its hours pass (`fnv_game::rest`:
+//! `IsPCSleeping`, `IsTimePassing`), can open the menu (`ShowSleepWaitMenu`), make the
+//! player sleep (`SetPCSleepHours`) and stop a sleep (`WakeUpPC`); [`script_requests`]
+//! takes what they asked. A bed's own script is told of the sleep
+//! (`Runtime::bed_activated_for_sleep`): that is what gives Well Rested.
+//!
 //! Test aid `NVF_PLAY_TEST_WAIT=<seconds>:<what>[,…]`: at each time `open` presses the
 //! Wait control, `hours=<n>` sets the slider, `accept` and `cancel` press the buttons.
 //! For the mouse: `point=<x>:<y>` puts the pointer there (parts of the window's width
@@ -45,7 +56,9 @@ use crate::{PlaySet, PlayState};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
-use model::{Command, Model, Words, JUMP, MAX_HOURS};
+use fnv_game::rest::RestRequest;
+use fnv_sim::FormId;
+use model::{Command, Model, Refusal, RefusalWords, Words, JUMP, MAX_HOURS};
 
 /// Real seconds between two hours passing [engineering choice: the original's pace is
 /// not captured; a full day takes twelve seconds].
@@ -75,9 +88,33 @@ impl WaitMenu {
     }
 }
 
-/// Open the menu (the Wait control, or the test aid).
-#[derive(Message, Clone, Copy, Debug, Default)]
-pub struct OpenWait;
+/// Open the menu. The default is the player's own request (the Wait control, lying down
+/// on a bed, the test aid).
+#[derive(Message, Clone, Copy, Debug, Default, PartialEq)]
+pub struct OpenWait {
+    /// A script's choice of the Sleep or the Wait menu (`ShowSleepWaitMenu`); `None`:
+    /// the Sleep menu when the player lies on a bed.
+    pub sleep: Option<bool>,
+    /// A script opens it without the check of the conditions: no refusal applies.
+    pub unchecked: bool,
+    /// These hours start passing at once (`SetPCSleepHours`).
+    pub hours: Option<u32>,
+}
+
+/// Outdoors and indoors, how near a hostile actor refuses a wait or a sleep, game units.
+/// The original reads the game settings `fHostileActorExteriorDistance` and
+/// `fHostileActorInteriorDistance` [documented: GECK wiki IsHostilesNearby]; neither has
+/// a record in FalloutNV.esm and no source read gives their values, so these two numbers
+/// are NVForever's [engineering choice] until someone reads them off the original
+/// (`GetGS` in its console). A plugin that sets the settings is followed.
+pub const HOSTILE_DISTANCE: [f32; 2] = [2048.0, 1024.0];
+
+/// An accepted hour has passed: the calendar is one hour on (whoever moves the world's
+/// people moves them on, `nvforever`'s residents).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct HourPassed {
+    pub sleep: bool,
+}
 
 /// A command for the open menu (keys, mouse, test aid).
 #[derive(Message, Clone, Copy, Debug)]
@@ -90,6 +127,10 @@ struct WaitStats {
     as_sleep: u32,
     hours: u32,
     refused: u32,
+    /// Requests answered with a refusal line, by [`Refusal`].
+    turned_down: [u32; Refusal::COUNT],
+    /// Sleeps a bed's own script was told of.
+    beds_told: u32,
 }
 
 /// `NVF_PLAY_TEST_WAIT`: what to do when.
@@ -164,6 +205,7 @@ impl Plugin for WaitPlugin {
             .insert_resource(WaitAid(aid))
             .add_message::<OpenWait>()
             .add_message::<WaitInput>()
+            .add_message::<HourPassed>()
             .add_systems(Startup, read_words)
             .add_systems(PreUpdate, aid_pointer.after(bevy::input::InputSystems).before(bevy::ui::UiSystems::Focus))
             // Before the scripts, as the running clock is (`crate::sim`): a frame's
@@ -174,6 +216,7 @@ impl Plugin for WaitPlugin {
                 (
                     rest_opens.run_if(in_state(PlayState::Playing)),
                     run_aid,
+                    script_requests,
                     open,
                     (keys, mouse, apply, draw).chain().run_if(in_state(PlayState::Menu)),
                 )
@@ -193,12 +236,90 @@ fn read_words(sim: Res<SimState>, mut commands: Commands) {
         _ => None,
     });
     commands.insert_resource(words);
+    let refusals = RefusalWords::from_settings(|name| match sim.forms.settings.get(&name.to_ascii_lowercase()) {
+        Some(fnv_sim::settings::Setting::Str(s)) if !s.trim().is_empty() => Some(s.clone()),
+        _ => None,
+    });
+    commands.insert_resource(refusals);
 }
 
 fn rest_opens(input: ControlInput, mut out: MessageWriter<OpenWait>) {
     if input.just_pressed(Control::Rest) {
-        out.write(OpenWait);
+        out.write(OpenWait::default());
     }
+}
+
+/// What scripts asked of the menu since the last frame (`fnv_game::rest`).
+fn script_requests(mut script: Option<ResMut<ScriptState>>, mut menu: ResMut<WaitMenu>, mut open: MessageWriter<OpenWait>, mut input: MessageWriter<WaitInput>) {
+    let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) else { return };
+    for r in rt.game.rest.take_requests() {
+        info!("wait menu: a script asks: {r:?}");
+        match (r, menu.0.as_mut()) {
+            (RestRequest::Menu { sleep, check }, _) => {
+                open.write(OpenWait { sleep: Some(sleep), unchecked: !check, hours: None });
+            }
+            // With the menu open the hours start in it; a sleep already passing takes
+            // the new count.
+            (RestRequest::Sleep { hours }, Some(m)) => {
+                m.sleep_for(hours);
+                match m.passing {
+                    Some(p) => rt.game.rest.begin(true, p.asked),
+                    None => rt.game.rest.end(),
+                }
+            }
+            (RestRequest::Sleep { hours }, _) => {
+                open.write(OpenWait { sleep: Some(true), unchecked: true, hours: Some(hours) });
+            }
+            (RestRequest::Wake, Some(m)) if m.sleep => {
+                input.write(WaitInput(Command::Cancel));
+            }
+            (RestRequest::Wake, _) => {}
+        }
+    }
+}
+
+/// Why the player cannot wait or sleep now, if anything forbids it (wait-menu.md §9).
+/// The original's refusals are known by the names of their texts only; the order they
+/// are tried in here is NVForever's [engineering choice].
+#[allow(clippy::too_many_arguments)]
+fn refusal(
+    sleep: bool,
+    bed: Option<u32>,
+    rt: Option<&mut crate::script::Runtime>,
+    sim: &mut SimState,
+    swimming: bool,
+    feet: Option<[f32; 3]>,
+    indoors: bool,
+    actors: &[(u32, [f32; 3])],
+    distance: f32,
+) -> Option<(Refusal, String)> {
+    // A script forbade waiting (`EnableFastTravel`'s canWait): the same flag refuses
+    // sleeping, and its text is the "cannot wait in this cell" one [documented: GECK wiki
+    // SetPCHasSleepWaitOverride, GetPCHasSleepWaitOverride].
+    if rt.as_ref().is_some_and(|rt| rt.game.player.fast_travel.wait_disabled) {
+        return Some((Refusal::Forbidden, "a script has turned waiting off (EnableFastTravel)".into()));
+    }
+    // [hypothesis: "under water" is the swimming state; the text's name speaks of
+    // waiting only, and nobody lies on a bed swimming.]
+    if swimming {
+        return Some((Refusal::UnderWater, "the player is swimming".into()));
+    }
+    let rt = rt?;
+    crate::script::with_world(rt, sim, |rt| {
+        let g = &mut rt.game;
+        if let Some(feet) = feet {
+            let near = |p: &[f32; 3]| (0..3).map(|k| (p[k] - feet[k]).powi(2)).sum::<f32>() <= distance * distance;
+            let close: Vec<FormId> = actors.iter().filter(|(_, p)| near(p)).map(|(id, _)| FormId(*id)).collect();
+            let hostile = close.iter().copied().find(|&a| fnv_game::rest::hostile_to_player(g, a));
+            info!("wait menu: {} living actors drawn, {} within {distance:.0} units, {}", actors.len(), close.len(), if hostile.is_some() { "one of them hostile" } else { "none hostile" });
+            if let Some(a) = hostile {
+                let place = if indoors { "indoors" } else { "outdoors" };
+                return Some((Refusal::HostilesNear, format!("{} is hostile and within {distance:.0} units ({place})", g.data.name(a))));
+            }
+        }
+        let owner = bed.filter(|_| sleep).and_then(|b| fnv_game::rest::bed_owned_by_another(g, FormId(b)))?;
+        Some((Refusal::OwnedBed, format!("the bed belongs to {}", g.data.name(owner))))
+    })
 }
 
 fn run_aid(time: AidTime, mut aid: ResMut<WaitAid>, mut open: MessageWriter<OpenWait>, mut input: MessageWriter<WaitInput>) {
@@ -209,7 +330,7 @@ fn run_aid(time: AidTime, mut aid: ResMut<WaitAid>, mut open: MessageWriter<Open
         info!("test aid NVF_PLAY_TEST_WAIT: {step:?}");
         match step {
             AidStep::Open => {
-                open.write(OpenWait);
+                open.write(OpenWait::default());
             }
             AidStep::Input(c) => {
                 input.write(WaitInput(c));
@@ -259,17 +380,18 @@ fn open(
     active: Res<ActiveMenu>,
     paused: Res<Paused>,
     seat: Res<PlayerSeat>,
-    sim: Res<SimState>,
-    words: Res<Words>,
+    mut sim: ResMut<SimState>,
+    (words, refusals): (Res<Words>, Res<RefusalWords>),
     mut stats: ResMut<WaitStats>,
     mut script: Option<ResMut<ScriptState>>,
     locks: Option<Res<ControlLocks>>,
     lock_stats: Option<ResMut<LockStats>>,
+    (phys, location, actors, mut hud): (Res<crate::phys::PhysState>, Res<crate::Location>, Res<crate::hitvol::HitVolumes>, ResMut<crate::activate::HudMessage>),
 ) {
-    if requests.read().count() == 0 {
-        return;
-    }
-    if locks.is_some_and(|l| l.pipboy) {
+    // One menu a frame: the last request stands.
+    let Some(asked) = requests.read().last().copied() else { return };
+    let by_script = asked.sleep.is_some();
+    if !by_script && locks.is_some_and(|l| l.pipboy) {
         info!("wait menu: stays shut, a script has disabled the player's controls (Pip-Boy)");
         stats.refused += 1;
         if let Some(mut s) = lock_stats {
@@ -282,7 +404,27 @@ fn open(
         info!("wait menu: request ignored, the player is not in the world (a menu, a conversation or a loading screen is up)");
         return;
     }
-    let m = Model::open(seat.bed);
+    let sleep = asked.sleep.unwrap_or(seat.bed);
+    let bed = seat.on.filter(|_| seat.bed);
+    if !asked.unchecked {
+        let player = phys.player.as_ref();
+        let indoors = location.interior.is_some();
+        let distance = ["fHostileActorExteriorDistance", "fHostileActorInteriorDistance"].map(|name| match sim.forms.settings.get(&name.to_ascii_lowercase()) {
+            Some(fnv_sim::settings::Setting::Float(v)) => Some(*v),
+            _ => None,
+        })[usize::from(indoors)]
+        .unwrap_or(HOSTILE_DISTANCE[usize::from(indoors)]);
+        let rt = script.as_mut().and_then(|s| s.rt.as_mut());
+        let no = refusal(sleep, bed, rt, &mut sim, player.is_some_and(|c| c.swimming), player.map(|c| c.feet), indoors, &actors.living, distance);
+        if let Some((why, detail)) = no {
+            let line = refusals.line(why, sleep);
+            info!("wait menu: refused ({}): {detail}; on screen: {line:?}", if sleep { "sleep" } else { "wait" });
+            hud.show(line.to_string());
+            stats.turned_down[why as usize] += 1;
+            return;
+        }
+    }
+    let mut m = Model::open(sleep);
     stats.opened += 1;
     stats.as_sleep += u32::from(m.sleep);
     match sim.world.calendar() {
@@ -298,6 +440,20 @@ fn open(
     // Scripts run MenuMode 1012 from now on.
     if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
         rt.game.open_menu(crate::script::MENU_SLEEP_WAIT);
+        // The bed's own script learns that the player sleeps on it.
+        if let Some(bed) = bed.filter(|_| sleep) {
+            if crate::script::with_world(rt, &mut sim, |rt| rt.bed_activated_for_sleep(FormId(bed))) {
+                info!("wait menu: the bed {bed:08X} has a script: its OnActivate block ran for this sleep");
+                stats.beds_told += 1;
+            }
+        }
+        if let Some(hours) = asked.hours {
+            m.sleep_for(hours);
+            if let Some(p) = m.passing {
+                info!("wait menu: sleeping {} hour(s) (a script's SetPCSleepHours)", p.asked);
+                rt.game.rest.begin(m.sleep, p.asked);
+            }
+        }
     }
     menu.0 = Some(m);
     next.set(PlayState::Menu);
@@ -375,14 +531,18 @@ fn mouse(
     }
 }
 
-fn apply(mut input: MessageReader<WaitInput>, mut menu: ResMut<WaitMenu>, mut next: ResMut<NextState<PlayState>>) {
+fn apply(mut input: MessageReader<WaitInput>, mut menu: ResMut<WaitMenu>, mut next: ResMut<NextState<PlayState>>, mut script: Option<ResMut<ScriptState>>) {
     for &WaitInput(cmd) in input.read() {
         let Some(m) = menu.0.as_mut() else { return };
         let before = m.clone();
         let close = m.apply(cmd);
         match (cmd, &m.passing, close) {
             (Command::Accept, Some(p), _) if before.passing.is_none() => {
-                info!("wait menu: {} {} hour(s)", if m.sleep { "sleeping" } else { "waiting" }, p.asked)
+                info!("wait menu: {} {} hour(s)", if m.sleep { "sleeping" } else { "waiting" }, p.asked);
+                // To scripts the player sleeps (or waits) from now until the menu closes.
+                if let Some(rt) = script.as_mut().and_then(|s| s.rt.as_mut()) {
+                    rt.game.rest.begin(m.sleep, p.asked);
+                }
             }
             (Command::Cancel, _, true) => match &before.passing {
                 Some(p) => info!("wait menu: stopped after {} of {} hours", p.asked - p.left, p.asked),
@@ -407,6 +567,7 @@ fn pass_hours(
     words: Res<Words>,
     mut stats: ResMut<WaitStats>,
     mut next: ResMut<NextState<PlayState>>,
+    mut passed: MessageWriter<HourPassed>,
 ) {
     let Some(m) = menu.0.as_mut() else { return };
     if m.passing.is_none() || !m.tick(time.delta_secs_f64() as f32, HOUR_SECONDS) {
@@ -416,6 +577,7 @@ fn pass_hours(
     match sim.world.advance_hours(1.0) {
         Ok(c) => {
             stats.hours += 1;
+            passed.write(HourPassed { sleep: m.sleep });
             info!(
                 "{}: hour {} of {} passed: {} (GameHour {:.3}, GameDaysPassed {:.3})",
                 if m.sleep { "sleep" } else { "wait" },
@@ -452,6 +614,7 @@ fn close(mut commands: Commands, mut menu: ResMut<WaitMenu>, roots: Query<Entity
             if rt.game.menu == Some(crate::script::MENU_SLEEP_WAIT) {
                 rt.game.close_menu();
             }
+            rt.game.rest.end();
         }
     }
     for e in &roots {
@@ -460,12 +623,20 @@ fn close(mut commands: Commands, mut menu: ResMut<WaitMenu>, roots: Query<Entity
 }
 
 fn report(mut exit: MessageReader<AppExit>, stats: Res<WaitStats>) {
-    if exit.read().next().is_none() || (stats.opened == 0 && stats.refused == 0) {
+    let turned_down: u32 = stats.turned_down.iter().sum();
+    if exit.read().next().is_none() || (stats.opened == 0 && stats.refused == 0 && turned_down == 0) {
         return;
     }
+    let why: Vec<String> = Refusal::ALL.iter().filter(|r| stats.turned_down[**r as usize] > 0).map(|r| format!("{} {}", stats.turned_down[*r as usize], r.label())).collect();
     info!(
-        "wait summary: the menu was opened {} times ({} as sleep), {} hours passed, {} requests held by scripts",
-        stats.opened, stats.as_sleep, stats.hours, stats.refused
+        "wait summary: the menu was opened {} times ({} as sleep), {} hours passed, {} requests held by scripts, {} refused{}, {} sleeps told to a bed's script",
+        stats.opened,
+        stats.as_sleep,
+        stats.hours,
+        stats.refused,
+        turned_down,
+        if why.is_empty() { String::new() } else { format!(" ({})", why.join(", ")) },
+        stats.beds_told
     );
 }
 
