@@ -17,6 +17,13 @@ use std::collections::HashMap;
 /// message-menu.md §3].
 pub const AMBER: [f32; 3] = [1.0, 182.0 / 255.0, 66.0 / 255.0];
 
+/// How dark the sheet behind the menus drawn over the world in play makes it (the
+/// container and barter menus, the tag-skill and trait lists): 0.75 black [design: the
+/// owner's wish after the playtest of 2026-10-11, amber text was hard to read over an
+/// orange world; the original blurs the world behind these menus instead (not built),
+/// its sheet is lighter: about 0.33 to 0.4 measured on the screenshots].
+pub const MENU_BACKING: f32 = 0.75;
+
 /// The interface's colour at a brightness (0 to 255, as the interface files give it).
 pub fn amber(brightness: f32) -> Color {
     let b = brightness / 255.0;
