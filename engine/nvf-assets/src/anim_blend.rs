@@ -476,6 +476,7 @@ mod tests {
             accum_root: Some("Bip01".into()),
             text_keys: Vec::new(),
             visibility: Vec::new(),
+            materials: Vec::new(),
         })
     }
 

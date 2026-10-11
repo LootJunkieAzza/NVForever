@@ -215,7 +215,7 @@ actors yet).
   `<when>` is seconds after the start, or (round 2) `<seconds>@<quest>=<stage>`: that
   many seconds after the frame the stage was first seen done (the opening's timing
   depends on loading and frame rate, so its steps wait for stages). Ops:
-  `start:<quest>`, `stop:<quest>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`
+  `start:<quest>`, `stop:<quest>`, `enable:<reference>`, `stage:<quest>:<n>`, `objective:<quest>:<n>`
   (display), `objective_done:<quest>:<n>`, `info:<INFO>[:<speaker>]` (a dialogue line
   said: its result scripts at once, conditions not required), `button:<n>` (answer the
   front box with button n, 0-based), `close` (OK / Done of the open script menu),

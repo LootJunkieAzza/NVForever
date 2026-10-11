@@ -110,6 +110,33 @@ impl MediaController {
             _ => &self.location,
         }
     }
+
+    /// The sets heard when the conditional faction stands `relation` towards the player
+    /// (0 neutral, 1 enemy, 2 ally, 3 friend, as GetFactionRelation [documented: GECK wiki
+    /// Media Location Controller: "Enemy Sets: … when the player is an Enemy of the chosen
+    /// Faction", and so on]). A controller without a faction, or a relation whose list is
+    /// empty, plays what [`MediaController::sets`] gives [design: the "Faction Not Found"
+    /// choice is in `NAM1`, which is not understood].
+    pub fn sets_for(&self, relation: Option<i64>) -> &[u32] {
+        let list = match (self.faction, relation) {
+            (Some(_), Some(1)) => &self.enemy,
+            (Some(_), Some(2)) => &self.ally,
+            (Some(_), Some(3)) => &self.friend,
+            _ => &self.neutral,
+        };
+        if self.faction.is_some() && !list.is_empty() {
+            list
+        } else {
+            self.sets()
+        }
+    }
+}
+
+/// The tracks of a dungeon set as layers, quietest first: explore (`NAM3`), suspense
+/// (`NAM4`) and battle (`NAM2`) [documented: xEdit field names]; the enable flags are a
+/// location set's and are not read [observed: dungeon sets store values above 63 there].
+pub fn dungeon_tracks(set: &MediaSet) -> [Option<&str>; 3] {
+    [set.tracks[1].as_deref(), set.tracks[2].as_deref(), set.tracks[0].as_deref()]
 }
 
 /// ASPC.
@@ -145,6 +172,20 @@ impl AcousticSpace {
     }
 }
 
+/// The music a region's sound data names (REGN `RDMO`, `RDSI`, `RDSB` [documented: xEdit
+/// "Music", "Incidental MediaSet", "Battle MediaSets"]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RegionMusic {
+    pub form_id: u32,
+    pub edid: Option<String>,
+    /// MUSC.
+    pub music: Option<u32>,
+    /// MSET of the incidental kind.
+    pub incidental: Option<u32>,
+    /// MSET of the battle kind, in stored order.
+    pub battle: Vec<u32>,
+}
+
 /// The music and acoustic-space forms of a load order.
 #[derive(Debug, Default)]
 pub struct AudioForms {
@@ -152,6 +193,8 @@ pub struct AudioForms {
     pub sets: BTreeMap<u32, MediaSet>,
     pub controllers: BTreeMap<u32, MediaController>,
     pub spaces: BTreeMap<u32, AcousticSpace>,
+    /// Regions naming any music, by FormID.
+    pub regions: BTreeMap<u32, RegionMusic>,
 }
 
 fn text(v: Option<Value>) -> Option<String> {
@@ -177,7 +220,7 @@ impl AudioForms {
             let Some(d) = defs.last() else { continue };
             let pi = d.plugin as usize;
             let r = lo.records[pi][d.ordinal as usize];
-            if !matches!(&r.header.sig, b"MUSC" | b"MSET" | b"ALOC" | b"ASPC") || r.header.flags & ref_flags::DELETED != 0 {
+            if !matches!(&r.header.sig, b"MUSC" | b"MSET" | b"ALOC" | b"ASPC" | b"REGN") || r.header.flags & ref_flags::DELETED != 0 {
                 continue;
             }
             let Ok(f) = Fields::new(r, pi, schema) else { continue };
@@ -222,6 +265,14 @@ impl AudioForms {
                             faction: f.formid(b"RNAM", lo),
                         },
                     );
+                }
+                b"REGN" => {
+                    let music = f.formid(b"RDMO", lo);
+                    let incidental = f.formid(b"RDSI", lo);
+                    let battle: Vec<u32> = formids(&f, b"RDSB", lo).into_iter().flatten().collect();
+                    if music.is_some() || incidental.is_some() || !battle.is_empty() {
+                        out.regions.insert(g, RegionMusic { form_id: g, edid, music, incidental, battle });
+                    }
                 }
                 _ => {
                     let s = formids(&f, b"SNAM", lo);
@@ -289,6 +340,14 @@ pub fn cell_audio(lo: &LoadOrder, schema: &Schema, cell: u32) -> CellAudio {
     let Some((pi, r)) = winner(lo, cell) else { return CellAudio::default() };
     let Ok(f) = Fields::new(r, pi, schema) else { return CellAudio::default() };
     CellAudio { music: f.formid(b"XCMO", lo), acoustic_space: f.formid(b"XCAS", lo) }
+}
+
+/// CELL `XCLR`: the regions an exterior cell is in.
+pub fn cell_regions(lo: &LoadOrder, schema: &Schema, cell: u32) -> Vec<u32> {
+    let Some((pi, r)) = winner(lo, cell) else { return Vec::new() };
+    let Ok(f) = Fields::new(r, pi, schema) else { return Vec::new() };
+    let Some(Value::Array(v)) = f.get(b"XCLR") else { return Vec::new() };
+    v.iter().filter_map(|x| global(lo, pi, formid_of(x)?)).collect()
 }
 
 /// WRLD `ZNAM`: the worldspace's music type.
@@ -424,6 +483,26 @@ mod tests {
         assert_eq!(MediaController { location: vec![], ..c.clone() }.sets(), [1]);
         assert_eq!(MediaController { faction: Some(9), neutral: vec![], ..c }.sets(), [2, 3]);
         assert!(MediaController::default().sets().is_empty());
+    }
+
+    #[test]
+    fn the_sets_by_standing() {
+        let c = MediaController { faction: Some(9), neutral: vec![1], ally: vec![2], friend: vec![], enemy: vec![4], location: vec![5], ..Default::default() };
+        assert_eq!(c.sets_for(Some(1)), [4]);
+        assert_eq!(c.sets_for(Some(2)), [2]);
+        // No friend sets: the neutral ones.
+        assert_eq!(c.sets_for(Some(3)), [1]);
+        assert_eq!(c.sets_for(Some(0)), [1]);
+        assert_eq!(c.sets_for(None), [1]);
+        // No faction: the location sets whatever the standing.
+        let c = MediaController { faction: None, ..c };
+        assert_eq!(c.sets_for(Some(1)), [5]);
+    }
+
+    #[test]
+    fn dungeon_layers() {
+        let set = MediaSet { kind: MediaSetKind::Dungeon, tracks: [Some("3high".into()), Some("1low".into()), Some("2mid".into()), None, None, None], enabled: 80, ..Default::default() };
+        assert_eq!(dungeon_tracks(&set), [Some("1low"), Some("2mid"), Some("3high")]);
     }
 
     #[test]

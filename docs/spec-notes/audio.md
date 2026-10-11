@@ -75,10 +75,11 @@ all four record types decode over FalloutNV.esm with no bytes left over [observe
 1. **The marker** [design]: of the enabled markers whose radius reaches the player, the
    one the player is deepest inside (smallest distance over radius); the lower FormID on
    a tie. How the game ranks overlapping markers is not known.
-2. **The set** [design]: a controller with a conditional faction plays its neutral sets
-   (the player's standing with the faction is taken as neutral), any other its location
-   sets. One of the list is picked at random on entering the marker and kept while
-   inside. A controller without a set is silence.
+2. **The set** [design]: a controller with a conditional faction plays the list for the
+   faction's standing towards the player (§13.2), any other its location sets. One of
+   the list is picked at random on entering the marker and kept while inside (picked
+   again when the standing changes). A controller without a set is silence. A dungeon
+   set in the list plays as §13.2 says.
 3. **Day or night** by the controller's two hours.
 4. **Layers** [hypothesis]: the outer file sounds within its boundary percentage of the
    radius (100 on the sets looked at), the middle and inner ones are added inside
@@ -94,9 +95,8 @@ all four record types decode over FalloutNV.esm with no bytes left over [observe
 6. **No marker**: the cell's music type, else the worldspace's, if its file exists; as
    one track at 10^(−|ANAM| ÷ 20), looping when `ANAM` is positive [hypothesis].
 
-Not built: battle, dungeon and incidental sets; the ally, friend and enemy lists; the
-location and retrigger delays and the minimum time on; intro and outro sounds; the
-`PlayMusic` script function; menu and death music.
+Battle, dungeon and incidental sets, the faction lists, the minimum time on, intro and
+outro sounds and `PlayMusic`: §13.
 
 ## 5. Sound markers
 
@@ -121,7 +121,7 @@ location and retrigger delays and the minimum time on; intro and outro sounds; t
   and folders hold `.ogg` takes.
 
 Not built: markers that neither loop nor play at random, Random Location, Start at
-Random Position, Mute When Submerged, panning.
+Random Position, Mute When Submerged. Panning: §14.5.
 
 ## 6. Background loops
 
@@ -139,8 +139,11 @@ Not built: the reverb environment, walla, and the region an acoustic space point
 - Music and loops are decoded while they play (rodio with symphonia: MP3, Ogg Vorbis,
   WAV); the three files of a set are mixed in one source so they cannot drift apart.
 - Log: `music: in marker …`, `music: <set> day|night started, layers …`,
-  `music: <set> layers …`, `music: <set> fades out`; at the end `music summary: …` and
-  `ambient summary: …`.
+  `music: <set> layers …`, `music: <set> fades out`, `music: battle begins …`,
+  `music: battle over …`, `music: intro|outro of …`, `music: a script plays …`,
+  `music: no music here; <set> plays a phrase in N s`; at the end `music summary: …`
+  (sets started, changes of layers, files not played, battles, battle loops, intro and
+  outro sounds, script requests, incidental phrases) and `ambient summary: …`.
 - Switches: `--no-music`, `--music-volume`; placed sounds and background loops go with
   `--no-sound`. The settings page has a Music switch.
 - Smoke test (CLAUDE.md): standing in Goodsprings, expect the desert exploration set
@@ -253,6 +256,560 @@ were not read.
   armour rustles, N reload keys, N other sound keys, N door sounds (N from door
   records), N keys without a SOUN`; per sound with
   `RUST_LOG=info,nvforever::anim_sounds=debug` (`trace` adds what is underfoot).
-- Not built: creature sound types (`Enum: BackLeft`, `Auxiliary…`, `Idle`, …; CREA
-  CSDT), landing and jumping (`FST…Land`/`Jump`), stairs on the landscape, wading
-  (ground under water), a door record's looping sound (BNAM), load doors' sounds.
+- Built since (§14): creature sound types, the player's landing and jumping, wading, a
+  door record's looping sound (BNAM), load doors' sounds. Stairs on the landscape: the
+  data has none (§14.2).
+
+## 11. World and script sounds
+
+Owner request 2026-10-11: "the rest of the sounds in game", hits on walls and bottles
+first, and shot glass that sounds like glass. Code: `nvf_play::world_sounds` (knocks,
+items, containers, activators, message boxes, script sounds, the per-impact log),
+`nvf_play::combat` (impacts), `fnv_combat::fx`, `fnv_game::sound`. Counts are of the
+owner's load order (FalloutNV.esm and the DLC) [observed, `nvforever --play` start-up
+log] unless they say FalloutNV.esm.
+
+### 11.1 Shot impacts: surface → sound
+
+A shot's impact takes the IPCT its weapon's impact data set (IPDS) gives for the
+surface's impact material, and plays that IPCT's sounds (combat-rules.md §16).
+
+- **Finding** [observed 2026-10-11, the bottles of combat-rules.md §14]: shooting
+  Sunny's bottles played `FXBulletImpactEarth`, the dirt sound. A bottle's collision is
+  one convex shape, and only triangle meshes kept their Havok material; a hit without a
+  material counts as dirt. Every box, sphere, capsule and convex-vertices shape stores
+  one material [documented: nif.xml `bhkSphereRepShape`]; it is now read
+  (`CollisionObject::material`, the first such shape's when a body has several
+  [design]) and given to the body's convex colliders. The same bottles now play
+  `FXBulletImpactGlass` ("impacts by material: glass 3").
+- Walls were not silent: buildings are triangle meshes whose triangles carry materials
+  [observed: Goodsprings building 001055E0, triangles of 0 STONE and 17 SHEET_METAL].
+- **Material names.** `fnv_combat::fx::impact_material` maps the 32 Havok materials
+  (code mod 32) [documented: nif.xml `Fallout3HavokMaterial`] to the twelve IPDS
+  materials by their names [hypothesis]. Checked against the names: stone, heavy stone
+  and broken concrete → stone; cloth → cloth; dirt and sand → dirt; glass and bottle →
+  glass; grass → grass; organic and skin → organic; water → water; wood and heavy wood
+  → wood; hollow metal, sheet metal, vehicle body and hollow parts, barrel, soda can,
+  shopping cart, lunchbox → hollow metal; metal, heavy metal, chain, bottle cap,
+  elevator, solid vehicle parts, pistol, rifle, baby rattle and rubber ball → metal
+  (the last two by default, not by name). Terrain has no code and counts as dirt
+  [design].
+- **Actors** take their base's Impact Material Type (NPC_ and CREA `NAM4`, the same
+  twelve in the same order [documented: xEdit]), organic without one [design]. Read
+  [observed, load order]: organic 5,565, metal 487, organic bug 318, hollow metal 40,
+  organic glow 34, stone 8, grass 3. Before this every actor counted as organic.
+- Destructible and loose objects go through the same path as walls: the impact is
+  picked before the hit's damage or push [observed: the code and the bottles' log].
+
+The table: the ballistic impact data set 0x00019083, which the 10mm pistol, the Varmint
+rifle and the service rifle name (WEAP `INAM`) [observed: `fnvtool combat fx`]. Sound
+folders are under `sound\fx\fx\bullet\impact\`; dB is the SOUN's static attenuation.
+
+| Surface (example) | Havok material | Impact material | IPCT | Sound (folder, dB) |
+|---|---|---|---|---|
+| Sunset Sarsaparilla bottle (loose) | 24 BOTTLE, convex [observed] | glass | `BallisticGlassImpact` | `FXBulletImpactGlass` (`glass\`, 0) |
+| window glass | 3 GLASS | glass | `BallisticGlassImpact` | `FXBulletImpactGlass` |
+| concrete or stone wall | 0 STONE [observed: 001055E0] | stone | `BallisticStoneImpact` | `FXBulletImpactConc` (`concrete\`, 15.4) |
+| sheet metal wall, car body, barrel, can | 17, 20, 23, 25 [17 observed: 001055E0] | hollow metal | `BallisticMetalHollowImpact` | `FXBulletImpactMetalH` (`metalhollow\`, 7.9) |
+| solid metal, guns | 5, 11, 26, 27 | metal | `BallisticMetalImpact` | `FXBulletImpactMetalS` (`metalsolid\`, 10.1) |
+| wood | 9, 12 | wood | `BallisticWoodImpact` | `FXBulletImpactWood` (`newood\`, 12.8) |
+| terrain, dirt, sand | none, 2, 18 [observed: terrain] | dirt | `BalisticDirtImpact` | `FXBulletImpactEarth` (`earth\`, 8.4) |
+| grass | 4 | grass | `BalisticDirtImpact` | `FXBulletImpactEarth` |
+| water | 8 | water | `ImpactWaterSplashSm` | `FXBulletImpactWater` (`water\`, 0) |
+| cloth | 1 | cloth | none: the set names no IPCT [observed] | none |
+| human NPC | `NAM4` Organic [observed: a hit on 00109A39] | organic | `BallisticOrganicImpact` | `FXBulletImpactFlesh` (`flesh\`, 10.1) |
+| robot | `NAM4` Metal or Hollow Metal | metal, hollow metal | as metal, hollow metal above | `FXBulletImpactMetalS`, `…MetalH` |
+| insect (radscorpion, ant, …) | `NAM4` Organic Bug | organic bug | `BallisticOrganicBugImpact` | `FXBulletImpactFlesh` |
+| glowing one | `NAM4` Organic Glow | organic glow | `BallisticOrganicGlowImpact` | `FXBulletImpactFlesh` |
+
+Read [observed, load order]: 147 IPCT in 73 IPDS. The three organic kinds share the
+flesh sound; their effects differ.
+
+### 11.2 Loose objects knocking
+
+No record names what a loose body sounds like when it hits something. FalloutNV.esm
+has 51 SOUN named `PHY…` (files under `sound\fx\phy\<material>\`), most in pairs `…H`
+and `…L`, named after the Havok materials (`PHYBottleH`, `PHYBarrelL`, `PHYCanSodaH`,
+`PHYGenericMetalSheetSmall`, `PHYVehicleMetalBodyH`, `PHYChain`, `PHYRubberBall`, …),
+and `CWoodSmall`, `CWoodMedium`, `CWoodLarge` whose files are `fx\phy\wood\crate_*`
+[observed]. `world_sounds::phy_sound` takes the one named after the body's material
+[hypothesis]; H for a hard knock, L for a light one [hypothesis: hard and light];
+where a family comes in sizes, hard takes the larger [design]. Dirt, grass, water and
+sand have none.
+
+When [design]: a dynamic body (placed clutter, a dropped item) that loses at least 90
+units/s of its speed in a frame (`knock_speed`: the speed lost along the way it was
+going) knocks; from 300 units/s hard; at most every 0.12 s per body, and not in the
+first 1.5 s after its collision came (bodies settling when a cell loads). Gaining speed
+(falling, pushed by a shot) is no knock. A knock plays at the body.
+
+Seen [observed 2026-10-11, Goodsprings]: a shot bottle falling off the fence,
+`PHYBottleL` at 122 units/s and `PHYBottleH` at 322; tumbleweeds (`TumbleweedNV`,
+collision material 30 BABY_RATTLE) rolling, `PHYBabyRattle`. `PHYTumbleweed` exists but
+nothing links it to the tumbleweed (its MSTT has no `SNAM`) [observed].
+
+### 11.3 Items, containers, activators
+
+| Record | Fields [documented: xEdit] | Records | Naming a pick-up / drop sound [observed] |
+|---|---|---|---|
+| WEAP | `YNAM` Sound - Pick Up, `ZNAM` Sound - Drop | 496 | 221 / 221 |
+| ARMO | same | 489 | 427 / 425 |
+| AMMO | same | 145 | 144 / 144 |
+| MISC | same | 603 | 53 / 42 |
+| KEYM | same | 313 | 283 / 283 |
+| ALCH | same | 226 | 24 / 24 |
+| CHIP | same | 6 | 1 / 1 |
+| BOOK | same | 27 | 0 / 0 |
+| NOTE | same | 1,225 | 0 / 0 |
+| IMOD | same | 112 | 0 / 0 |
+| CCRD | same | 324 | 0 / 0 |
+| CMNY | same | 6 | 0 / 0 |
+
+- Played: the pick-up sound when an item leaves the world for an inventory (activated
+  by hand or by a script), the drop sound when a drop creates a reference, both at the
+  reference [hypothesis: where]; in a container menu, the pick-up sound for what the
+  player takes and the drop sound for what the player puts in, at the listener
+  [hypothesis]. A record without one plays `UIItemGenericUp` or `UIItemGenericDown`
+  [hypothesis: by the names; no record links them].
+- Seen [observed 2026-10-11, GSHouseInterior03]: the BB gun `ITMPistolUp`, an empty
+  bottle (no field) `UIItemGenericUp`, five kinds of food taken from the fridge
+  `UIItemGenericUp`, 10mm rounds put in `ITMAmmunitionDown`, the jumpsuit dropped
+  `UIItemsClothingDown`.
+- CONT `SNAM` Sound - Open and `QNAM` Sound - Close [documented: xEdit]: 1,249
+  containers name one or both [observed]; played when the container menu opens on the
+  container and when it closes, at the container. The fridge 00105658 names neither.
+- ACTI `VNAM` Sound - Activation [documented: xEdit]: 116 activators without a radio
+  station (`RNAM`) name one [observed]; played when the player activates one, at it.
+  Not seen in a run yet.
+
+### 11.4 Message boxes and other interface sounds
+
+- MESG has no sound field [documented: xEdit MESG], and `menus\message_menu.xml` names
+  none for opening [observed]. Its buttons include
+  `menus\prefabs\list_box_template.xml`, whose `clicksound` is `UIMenuOK` and
+  `mouseoversound` `UIMenuFocus` [observed].
+- Built: `UIPopUpMessageWindow` when a box opens [design: by its name;
+  `UIPopUpMessageGeneral` names the same file, `fx\ui\popup\ui_popup_messagewindow.wav`
+  [observed]], `UIMenuOK` when a button is picked (the box goes), `UIMenuFocus` when the
+  choice moves.
+- What the interface files name for the other menus, and what NVForever plays in them: §12.
+
+### 11.5 Scripts
+
+`PlaySound sound [SystemSound]` plays a SOUN not placed; `ref.PlaySound3D sound` plays
+it at the calling reference [documented: GECK wiki PlaySound, PlaySound3D, owner
+export]. The rules queue them (`Game::sound_requests`, traced `sound_asked`); the
+engine plays them. Without SystemSound a sound asked for in a menu waits for the game
+[documented: it "may be queued and not played until returning to GameMode"]. Seen
+[observed]: a DLC start-up script's `PlaySound` (0x03016173). `PlayMusic` queues a music
+type for music.rs (`Game::music_requests`, traced `music_asked`; §13).
+
+### 11.6 Checks and what is left
+
+Log: `impact: …` (debug: collision material, impact material, IPCT, sounds), `knock: …`
+(debug), `world sounds: …` for items, containers, activators, message boxes and
+scripts; at the end `world sounds summary: …`. Smoke tests in CLAUDE.md (the bottles,
+the house).
+
+Not built: two loose bodies knocking each other told apart from one on the ground,
+loudness by how hard a knock is. Objects' own sounds (ACTI `SNAM`, CONT `RNAM`), the
+casings' sounds and panning: §14.
+
+## 12. Menu sounds
+
+Owner request 2026-10-11: build the sounds still missing; this part is the menus'. Code:
+`nvf_play::ui_sounds` (the table `sound_for`, the menus watched, the summary), with
+small hooks in `menu.rs` (a command's outcome), `pause.rs` (a switch flipped) and
+`world_sounds.rs` (Take All). Message boxes (§11.4) and the quest lines
+(quest-messages.md) play their own.
+
+### 12.1 What the interface files say
+
+A control of an interface file names a sound to play when it is clicked
+(`<clicksound>`) and when the pointer comes onto it (`<mouseoversound>`): the Editor ID of
+a SOUN [documented: GECK wiki Mouseoversound, owner export]; leaving it out is silence
+like `&nosound;` unless a parent gives one [documented: same page]. The wiki's
+interface guide calls `clicksound` "a numeric element" [documented: GECK wiki, Misc.xml
+export], and some files give numbers.
+
+Counted [observed 2026-10-11] over the 121 `.xml` files of `Fallout - Misc.bsa` (all of
+`menus\`; `Update.bsa` holds none): 89 `clicksound` and 19 `mouseoversound` in 28 files,
+and `globals.xml` sets `_sound_button_click` to `UIMenuOK`.
+
+| Value | clicksound | mouseoversound | Where |
+|---|---|---|---|
+| `UIMenuPrevNext` | 20 | | prev/next arrows (level up, character, tutorial, map), the settings' meters and toggles (start_menu.xml), the race menu's sliders |
+| `3` | 18 (2 more only off Xbox) | | every scroll bar prefab's arrows, sides and marker (vertical_scroll, vert_floating_scroll, horizontal_scroll, horiz_floating_scroll) |
+| `&nosound;` (`nosound` once) | 15 | 13 | the inventory, map, stats, repair, item mod and reputation lists; level-up and character items; the dialogue topics (click only) |
+| `UIMenuOK` | 9 | | list_box_template.xml rows; Continue, Done and the settings' buttons |
+| `UIMenuFocus` | | 6 | list_box_template.xml rows, text_box, super_text_box, tab_box, the race menu |
+| `UIPipboySelect` | 6 | | the stats page's CND, RAD, EFF, H2O, FOD and SLP buttons |
+| `1` | 6 | | the main menu's six entries |
+| `2` | 4 | | return buttons (select menu, save/load), the quest-added buttons |
+| `UIPipboyScroll`, `UIPipBoyMode` | 2, 2 | | the race menu's scroll arrows; its back and next buttons |
+| `UIMenuCancel` | 1 | | start_menu.xml `main_back_button` |
+| `9` | 1 | | the QuestAddedMenu itself |
+| copied | 3 | | book_menu.xml's pages from `BookMenu` `user8`; button_basic.xml from `gloabls()` `_sound_button_click` (spelt so) |
+
+- What the numbers stand for is not known; no file or wiki page maps them. They are not
+  played [design].
+- The files write `UIPipboySelect` and `UIPipboyScroll` where the records are
+  `UIPipBoySelect` and `UIPipBoyScroll` [observed]; Editor IDs are taken here as the
+  records spell them.
+- The menus NVForever draws, by their files: the container and barter rows and the
+  dialogue topics include `list_box_template.xml` (click `UIMenuOK`, pointer
+  `UIMenuFocus`), and the dialogue topics silence the click (`DM_Topic` `&nosound;`); the
+  inventory's rows silence both (`IM_InventoryListTemplateRect`); the container and
+  barter buttons (`text_box.xml`) name only `UIMenuFocus`; `sleep_wait_menu.xml`'s
+  scroll bar (`scrollbar_horiz.xml`) and buttons name no click; `message_menu.xml`
+  names none for opening; no menu file names a sound for opening or closing
+  [all observed].
+
+Files of the UI SOUN used [observed: FalloutNV.esm `FNAM`]: `UIMenuOK`
+`fx\ui\menu\ui_menu_ok.wav`, `UIMenuFocus` and `UIPipBoyScroll` both
+`fx\ui\menu\ui_menu_focus.wav`, `UIMenuPrevNext` `…\ui_menu_prevnext.wav`,
+`UIMenuCancel` `…\ui_menu_cancel.wav` (as `UIActivateNothing`), `UIMenuMode`
+`fx\ui\pipboy\ui_pipboy_mode.wav` (as `UIPipBoyMode` and `UICheckBox`), `UIMenuTab`
+`fx\xxx_placeholder_silence.wav` (a silent placeholder), `UIPipBoyAccessUp` / `…Down`
+`fx\ui\pipboy\ui_pipboy_access_up.wav` / `…_down.wav`, `UIItemTakeAll`
+`fx\ui\items\ui_items_takeall.wav`. 123 SOUN of FalloutNV.esm start with `UI`.
+
+**Aid items** name the sound of being used: ALCH `ENIT` bytes 16–19, Sound - Consume
+[documented: xEdit, schemas/fnv/objects.json]. FalloutNV.esm: 186 of 189 ALCH name one
+(`NPCHumanEatingFoodChewy` 93, `…Crunchy` 20, `NPCHumanDrinkingSoda` 19,
+`NPCHumanUsingComic` 15, the Stimpak `NPCHumanUsingStimpak`, …) [observed]; the owner's
+load order: 219 of 226 [observed, `nvforever --play` start-up].
+
+### 12.2 What plays
+
+| Menu | Event | Sound | Source |
+|---|---|---|---|
+| container, barter, dialogue, settings | the selection moves (keys, wheel, pointer; to the other list) | `UIMenuFocus` | [observed] the rows' mouse-over; [design] for the keys |
+| barter | an item put up or taken back | `UIMenuOK` | [observed] the rows' click |
+| dialogue | a choice answered | none | [observed] `DM_Topic` `&nosound;` |
+| settings page | chosen; a switch flipped; back | `UIMenuOK`; `UIMenuPrevNext`; `UIMenuCancel` | [observed] start_menu.xml rows, toggles, back button |
+| inventory | opened, closed (Tab) | `UIPipBoyAccessUp`, `…Down` | [design] Tab is the Pip-Boy's control; by name |
+| inventory | the selection moves | `UIPipBoyScroll` | [hypothesis] the file silences its rows; the Pip-Boy's scroll by name (the same file as `UIMenuFocus`) |
+| inventory | an item put on, taken off | the item's pick-up, drop sound (§11.3) | [design] |
+| inventory | an aid item used | its ALCH consume sound | [documented] the field; [hypothesis] that the menu plays it |
+| inventory | refused ("Cannot equip or use") | `UIMenuCancel` | [design] |
+| container | opened, closed | the CONT's own (§11.3) | [design] nothing more |
+| container | an item taken or put in | the item's own (§11.3) | |
+| container | Take All | `UIItemTakeAll`; the items' own held back | [hypothesis] by name |
+| container, barter | another category | `UIMenuPrevNext` | [design] as other menus' prev/next arrows |
+| barter | the trade made | the caps' pick-up sound when paid, their drop sound when paying; `UIMenuOK` when no caps move | [design] |
+| barter | refused (not enough caps, nothing to trade) | `UIMenuCancel` | [design] |
+| barter, Wait/Sleep, pause | opened | `UIMenuMode` | [design] by name |
+| barter, Wait/Sleep, pause | exit, cancel, resume | `UIMenuCancel` | [design] as the settings' back button |
+| Wait/Sleep | the slider moved | `UIMenuPrevNext` | [hypothesis] as the settings' meters; the menu's own scroll bar names none |
+| Wait/Sleep | the hours accepted | `UIMenuOK` | [design] the basic button's click (`_sound_button_click`) |
+| Wait/Sleep | closed after the last hour | none | [design] |
+
+All at the listener. The caps (MISC 0x0000000F `Caps001`) name no sound [observed in the
+run: a trade's caps fall back to `UIItemGenericUp` / `…Down`, §11.3]; `ITMBottlecapsUp`
+and `…Down` exist but nothing links them [observed].
+
+### 12.3 Checks and what is left
+
+Log: `ui sounds: <menu> <event>: <sound>` (moves of the selection at debug), at the end
+`ui sounds summary: …` (sounds played by Editor ID, events by menu, events without a
+sound and why, sounds not found, items held back for Take All). Smoke test in CLAUDE.md
+(Chet's barter, the cash register, the inventory, a stimpak, the Wait menu, the pause
+menu's settings) [observed 2026-10-11]: 24 played, 0 not found.
+
+Not built: the menus that do not exist yet (the Pip-Boy's pages, tabs, light, hum and
+radiation sounds; lockpicking, hacking, VATS, level up, perks, repair, surgery, the main
+menu, loading screens), the popups not drawn (`UIPopUpExperienceUp`, `UILevelUp`,
+`UIKarmaUp` / `…Down`, `UIRepGood` / `…Bad`, `UIPopUpMapMarkerAdded`), the numbered
+sounds 1, 2, 3 and 9, the quantity menu.
+
+## 13. Battle, dungeon, incidental and script music
+
+Owner request 2026-10-11: build the music that was "not built". Code:
+`fnv_world::audio` (`RegionMusic`, `cell_regions`, `MediaController::sets_for`,
+`dungeon_tracks`), `nvf-play` `music.rs` (`MusicCues`, battles, dungeon layers,
+incidental phrases, script music), `fnv_game::sound::play_music`. Survey:
+`cargo run --release -p fnv-world --example music_survey -- schemas/fnv <FalloutNV.esm>`.
+Counts are of FalloutNV.esm alone [observed] unless they say otherwise.
+
+### 13.1 What the records say
+
+- **Field meanings by set type** [documented: xEdit `wbDefinitionsFNV.pas` field names,
+  `schemas/fnv/audio.json`; GECK wiki Media Set, owner export, a page marked incomplete
+  whose times are partly "unverified"]: a battle set's `NAM2` is its loop, `DNAM` the
+  wait before the intro, `ENAM` the loop's fade-out time, `FNAM` the recovery time
+  ("time before battle state completely ends and another music can start"),
+  `HNAM`/`INAM` an intro and an outro SOUN. A dungeon set's `NAM2` is battle, `NAM3`
+  explore, `NAM4` suspense ("while enemies are on alert"), `DNAM` minimum time on,
+  `ENAM` crossfade overlap, `FNAM` layer crossfade time, `HNAM`/`INAM` intro ("while
+  player starts combat") and outro ("when combat stops"). An incidental set's `HNAM`
+  and `INAM` are a day and a night SOUN, `DNAM`/`FNAM` the day's minimum and maximum
+  time, `ENAM`/`GNAM` the night's (the wiki: "Minimum time in seconds").
+- **Battle sets** (32): all store wait 1, fade-out 3, recovery 10 and −10 dB; 16 named
+  `…Perc` and 16 `…Full`, files `music\bttl\{good,evil}N\mus_bttl_lp_…`. Rural sets
+  name `musBTTLAllRuralIntro`/`…Outro`, city sets `musBTTLAllCityIntro`/`…Outro`: 2D
+  SOUN at 9 dB attenuation whose folders (`sound\fx\mus\bttl\allruralintro\` and the
+  like) hold 5 to 7 takes each. `PNAM` holds values above 63 on some (11111100 binary
+  on `musSetBTTLCityEvil1Perc`): the enable flags are a location set's.
+- **Dungeon sets** (23): `musSetDNGN1ABC`–`8ABC` put `…_3High` in battle, `…_1Low` in
+  explore and `…_2Mid` in suspense (`music\dngn\dungeonN\`), at −2.5, −4, −4 dB, with
+  the city intro and outro; the three files have one length to the byte (Dungeon1 and
+  2 looked at), as a location set's stems do. Two Hoover Dam sets do the same with
+  `loc\hooverdam\` files; 13 `musSetOldFO1…`/`FO2…` sets name one Fallout 1 or 2 piece
+  in all three. Times 6, 10, 6 (DNGN1–7) or 6, 15, 6.
+- **Location sets' times** (81): 6, 15, 9 on 66 and 6, 15, 6 on 15: a minimum time on
+  of 6 everywhere.
+- **Controllers' lists**: battle lists hold battle sets only (265 entries); location
+  lists 92 dungeon and 74 location entries; enemy lists 10 dungeon and 1 location
+  entries; neutral, ally and friend lists location sets but for one dungeon set each.
+  65 controllers have a battle list; their markers are 486 of the 572 (307 of them in
+  interiors). `musCtrlGoodsprings` (faction `GoodspringsFaction`): neutral, ally and
+  friend `musSetLOCDesExplBothABC`, enemy `musSetDNGN6ABC`, battle
+  `musSetBTTLRuralEvil2Full` and `…Evil1Full`.
+- **Delays and `NAM1`**: the location delay is 0 on all 89 controllers. The retrigger
+  delay is 0 on 17 and 805.0667 on 39; the rest store values such as 7.8e−44, 1.3e−18,
+  3.5e18, −10085 [observed], which look like bytes nobody set. `NAM1` (xEdit: "Flags and
+  Enums, messily combined") is four bytes, the last three 0, the first 0x40 (2), 0x44
+  (48), 0x45 (1), 0x54 (37) or 0x55 (1). 26 of the 34 controllers with more than one
+  location set have 0x10 set [observed; hypothesis: the "Random" looping option of the
+  GECK's dialog]. The GECK wiki's "Faction Not Found" and "Looping Options" choices are
+  presumably in it; not decoded.
+- **Regions** (REGN `RDMO` "Music", `RDSI` "Incidental MediaSet", `RDSB` "Battle
+  MediaSets" [documented: xEdit wbDefinitionsFNV.pas, now in `schemas/fnv/sky.json`]):
+  11 regions name music, none a music type; 10 an incidental set (`musSetINCDesert`,
+  `…Hostile`, `…Mountain`, `…Freeside`) and 10 four to eight battle sets. Cells reach
+  them two ways: through their acoustic space (ASPC `RDAT`, which xEdit calls "Use
+  Sound From Region (Interiors Only)"), as 15,728 exterior cells and 1 interior reach
+  `AudioExtDesertDefault` (incidental `musSetINCDesert`, eight rural battle sets), and
+  other `AudioExt…` regions the same way; and through their own region list (`XCLR`:
+  `AudioINCPrimm` 72 cells, `AudioExtNorthVegas` 278, `AudioINCMountain` 54). The
+  Goodsprings cell lists only `GSWeatherRegion` and `VMapGoodspringsRegion`; its
+  acoustic space gives it the desert region.
+- **Incidental sets** (4, named by regions only, never by a controller): times
+  (DNAM, ENAM, FNAM, GNAM) Desert 4, 6, 16, 12; Hostile and Mountain 6, 6, 10, 12;
+  Freeside 6, 3, 12, 8. Their sounds are folders of short phrases:
+  `musINCdesertday` (`fx\mus\inc\day\`, 121 Ogg files of 29 to 330 KB),
+  `musINCdesertNight` (`…\night\`, 134), `musINCCreepy` (86), `musINCPeacful` (54).
+- **Game settings**: `fCombatMusicNearCombatInnerRadius` 500,
+  `fCombatMusicNearCombatOuterRadius` 2000, `fCombatMusicPlayerTargetedThreatRatio` 100,
+  `fCombatMusicGroupThreatRatioMax` 4, `fCombatMusicStopTime` 3 [observed: the names
+  and values; their meanings are hypotheses from the names].
+- **Main menu** [observed: the install's `Fallout_default.ini`]:
+  `SMainMenuMusicTrack=special\maintitle.mp3`, `sTitleMusic=MainTitle`,
+  `fMainMenuMusicVolume=0.6`, `fDefaultMusicVolume=0.6`; `Data\Music\Special\MainTitle.mp3`
+  is shipped.
+- **Death**: the music type `DefaultDeath` names `special\death.mp3`, which is not
+  shipped; a SOUN `MUSDeath` exists, and `sound\fx\mus\mus_death.ogg` is in the sound
+  archive; `Data\Music\SCR\mus_SCR_DeathStinger.mp3` is shipped and no music type names
+  it [observed]. Which of these the game plays when the player dies is not known.
+- **`PlayMusic`** [observed: `fnvtool script decompile`]: 9 calls in FalloutNV.esm (7
+  scripts, a dialogue line's result script, a quest stage) naming 7 music types:
+  `musSCRGoodspringsStinger` (`VCG01RemoveDocCarebearModeTriggerSCRIPT`, the trigger
+  outside Doc Mitchell's door), `1NoMusic` (the opening quest's stage 0 and the
+  Vault 11 slideshow script), `musSCRVegasStinger`, `MUSKimbleSpeechHail` (a trigger
+  and a dialogue line), `EndSlideShow`, `EndTransitionStinger` and `Endgame01`.
+  The GECK wiki: "Will not stop the currently playing music of a music marker. NV
+  Only." [documented].
+
+### 13.2 What plays (as built)
+
+1. **A battle** [design: NVForever's actors do not fight on their own yet]: a living,
+   drawn, hostile actor (`fnv_game::rest::hostile_to_player`: aggression with the
+   factions' relation) within `fCombatMusicNearCombatOuterRadius` that has the player
+   detected (`nvforever` `detection.rs`) makes one; it ends `fCombatMusicStopTime`
+   seconds after the last such look [hypothesis: the settings' meanings]. Aggressive
+   actors neutral to the player (the coyotes east of Goodsprings) do not count, Very
+   Aggressive ones (Fiends) do.
+2. **Battle sets**: the marker's controller's battle list, else the region's (§13.1),
+   one picked at random per battle [design]. Its intro plays after the wait time and
+   its loop with it; the place's music fades out over the loop's fade-out time and the
+   loop fades in over it; at the end the outro plays, the loop fades out, and the
+   place's music starts again after the recovery time [documented meanings, unverified;
+   design: intro and loop together].
+3. **Dungeon sets** in a controller's list play as three stems in step: explore always,
+   suspense added while a hostile actor near has noticed (or detected) the player,
+   battle added in a battle [hypothesis]; in a battle at a dungeon set no battle set
+   plays, the set's intro and outro do [design]. The enable flags are not read.
+4. **Minimum time on**: a layer of a location or dungeon set that came in stays at
+   least the set's minimum time on (6 s) [hypothesis: "Minimum Time on Layer"].
+5. **Faction lists**: with a conditional faction, GetFactionRelation of that faction
+   towards the player picks enemy, ally, friend or neutral sets; an empty list falls
+   back to neutral, then location [design; GECK wiki: the lists' meanings]. Standing as
+   GetFactionRelation reads it (faction reactions, SetEnemy/SetAlly, crime enemies);
+   reputation is not consulted [hypothesis].
+6. **Incidental phrases**: where no music plays at all (no marker, no cell or
+   worldspace type, no battle), the region's incidental set plays its day (06:00 to
+   23:54, the hours every controller stores) or night sound after a random wait between
+   its two times, again and again [design]. **Unit: minutes** [hypothesis]: the GECK wiki
+   says seconds, which with the desert's 4 to 16 would leave gaps shorter than the
+   phrases themselves; `INCIDENTAL_UNIT` in music.rs is the one place to change it.
+7. **Script music** (`PlayMusic`): the music type plays beside the place's music, at
+   its `ANAM` level, once or looping by `ANAM`'s sign (§4.6), coming in at once; a new
+   request replaces the last; a type without a file (`1NoMusic`) fades it out
+   [hypothesis].
+8. Intro, outro and incidental sounds go through `crate::sfx` at the listener (the
+   effects volume) and are not played with music off [design].
+
+Seen [observed 2026-10-11, `nvforever --play`, the owner's load order]:
+- Standing next to Violet (`--cell Goodsprings --pos=-46800,65000,4600 --hour 12`):
+  `music: battle begins (0x000F570B has the player detected): musSetBTTLRuralGood3Perc
+  after 1.0 s, from 8 battle sets` (the desert region's list), the intro `0x0014E8DA` a
+  second later and the loop, then `battle over, 6.9 s after it began` when she lost
+  sight of the player, and the outro `0x0014E8DB`. Outside every marker there: `no
+  music here; musSetINCDesert plays a phrase in 650 s`.
+- Walking onto Doc Mitchell's door trigger (the smoke test in CLAUDE.md):
+  `music: a script plays musSCRGoodspringsStinger (once)` over the Goodsprings set.
+
+### 13.3 Not built
+
+- The main menu's music: NVForever has no main menu yet (the INI's track is above).
+- The death music: the player does not die yet, and which record it is is open.
+- The retrigger delay (its values look unset) and `NAM1`; the inner radius and threat
+  ratios of the combat music settings; the crossfade overlap time (sets loop by
+  starting their files again).
+- `IsMusicPlaying`, `SetMusicState` and the other NVSE music functions.
+
+### 13.4 Open
+
+- The incidental times' unit (§13.2 item 6), and whether phrases also play inside a
+  marker's reach.
+- Whether battle music needs the player to be the target, how the threat ratios weigh
+  a group, and whether the original plays the intro before the loop or over it.
+- What a dungeon set's "suspense" answers to, and how a controller with both dungeon
+  sets and a battle list chooses.
+
+## 14. Creatures, movement, objects' own sounds, placement
+
+Owner request 2026-10-11: the remaining "not built" sounds. Code:
+`fnv_actor::anim_sounds` (the creature records, key → type), nvforever `anim_sounds.rs`
+(creatures, jumps, landings, wading) and `shot_fx.rs` (casings), `nvf_play::world_sounds`
+(objects' own sounds, load doors), `nvf_play::ambient` (sources played like sound
+markers), `nvf_play::sfx` (panning). Survey: the example `fnv-actor
+creature_sound_survey` (FalloutNV.esm alone; `--show <CREA edid>`, `--near x,y,r`,
+`--soun <prefix>`).
+
+### 14.1 Creatures
+
+- **The records** [documented: xEdit wbDefinitionsFNV.pas CREA, wbCSDT,
+  wbSoundTypeSounds; `schemas/fnv/gameplay.json`]: `CSDT` a sound type, then pairs of
+  `CSDI` a sound and `CSDC` its chance; `CSCR` "Inherits Sounds from" a creature. The
+  types: Left Foot, Right Foot, Left Back Foot, Right Back Foot, Idle, Aware, Attack, Hit,
+  Death, Weapon, Movement Loop, Conscious Loop, Auxiliary 1–8, then (xEdit lists
+  "Auxiliary 8" twice, numbering the rest one higher) Jump and PlayRandom/Loop.
+- **Counts** [observed]: 1,578 CREA. 86 list sounds themselves (most named
+  `AudioTemplate…`), 999 only inherit them (`CSCR`), none do both, 468 only have a
+  template (`TPLT`: 443 a leveled list, 25 a creature), 25 neither; 1,085 have sounds
+  after following `CSCR`. Every type a creature lists holds one sound (704 type lists).
+  Types listed (creatures): Left/Right Foot 72, Back feet 34, Idle 46, Aware 15, Attack
+  40, Hit 32, Death 66, Movement Loop 12, Conscious Loop 37, Auxiliary 1–8 45 to 16,
+  type 21 3; Weapon none, type 20 none. Chances: 100 on 541 of the 704, the rest 5–90.
+- **Type 21** holds `NPCSecuritronSiren` on the three Securitron templates [observed]:
+  a siren, not a jump; read with the observation that type 20 is never used, the game's
+  numbering is likely Auxiliary 8 = 19, Jump = 20, PlayRandom/Loop = 21 [hypothesis].
+  Not played.
+- **Examples** [observed]: `AudioTemplateGecko` Left/Right Foot `NPCGeckoFootLeft`/
+  `Right`, back feet `NPCGeckoFootRun…`, Attack `NPCGeckoSnarl` 50%, Hit
+  `NPCFeralGhoulInjured`, Death `NPCGeckoDeath`, Auxiliary 1–7 voices, swing, chomp,
+  jump; `AudioTemplateBigHorner` (Goodsprings' bighorners) feet `NPCBigHorner…FootL/R`,
+  Idle `NPCBrahminIdleBreathing` 50%, Hit and Aware `NPCBigHornerInjured`, Death
+  `NPCBighornerDeath`, Conscious Loop `NPCBigHornerConsciousLP` 50% (a folder, flagged
+  Play At Random), Auxiliary 1–4; `NVCrRaven` only Auxiliary 1 and 3 (take-off and fly
+  away); `AudioTemplateSecuritron` Movement Loop and Conscious Loop (files `…_lp.wav`).
+- **The keys** [observed, `kf_sound_keys` over `Fallout - Meshes.bsa`]: creature clips
+  carry `Enum: BackLeft` (136), `BackRight` (77), `Idle` (22), `Aware` (9), `Attack` (17,
+  and `attack` 11), `Hit` (3, the cazador's hit clips), `Auxiliary1`–`8` (54, 261, 51,
+  39, 39, 28, 23, 28; once `Auxiliary 3`), beside `Left`/`Right`. The bighorner's idle
+  clip has `BackLeft` at 4.5, 9.1, 11.1 and 14.0 s; its walk `Left`/`Right`; its run the
+  back feet and `Auxiliary2`; the raven's fly-away `Auxiliary1` at 0 s and `Auxiliary3`
+  at 2.4 s.
+- **As built**: the sounds are the creature's own list, else `CSCR`'s (followed up to
+  five times) [hypothesis: an own list wins; none has both], of the creature a leveled
+  list picked, else of the one placed. An `Enum:` key plays one of its type's sounds at
+  its chance (`fnv_actor::anim_sounds::creature_key_type`, `pick_creature_sound`)
+  [hypothesis: the keys name the types, one to one by name], at the creature, at most
+  once per 0.2 s per type [design]. Hit and Death play when combat reports a hit or a
+  death (`ActorHit`) [hypothesis]; `Enum: Hit` keys are not played again [design].
+  A living creature within 3,000 units sounds its Conscious Loop (the chance rolled once
+  per creature [design]) and while it moves (over 20 units/s) its Movement Loop, as
+  sources the ambient plays like sound markers (§14.3). A creature without sounds steps
+  like a person (§10.2). Not built: Aware (only through keys: nothing tells a creature
+  became aware yet; detection exists but combat AI does not), Attack beyond the keys
+  (creatures do not attack yet), Weapon, the type-21 sound.
+
+### 14.2 The player's movement
+
+- **Jumps and landings** [hypothesis: by the names]: `FST<family>Jump` when the player
+  leaves the ground going up faster than 100 units/s, `FST<family>Land` on touching
+  down after at least 0.4 s in the air [design: the thresholds], of the ground under the
+  feet (§10.2), else `FSTDirtJump`/`Land`; at the listener. Not while swimming.
+  `FSTDirtJump` names `fx\xxx_placeholder_silence.wav` [observed].
+- **Wading** [design]: feet more than 2 units under a water surface (the cell's water or
+  a placed water volume) step on Water (`FSTWaterWalkL`…, files `fx\fst\water\…`).
+- **Stairs on the landscape** do not exist in the data: the 89 landscape textures' Havok
+  materials are 0 (10), 2 (47), 4 (12), 10 (3), 18 (7) and 19 (10), none a stairs code
+  (64–127) [observed].
+- Not built: actors' jumps and landings (actors do not jump).
+
+### 14.3 Objects' own sounds
+
+- **The fields** [documented: xEdit]: ACTI `SNAM` Sound - Looping, CONT `RNAM` Sound -
+  Random/Looping, DOOR `BNAM` Sound - Looping. In FalloutNV.esm [observed]: 216 of 1,143
+  activators name one (Play At Random 164, Loop 49, neither 3), 144 of 2,478 containers
+  (Loop 86, Play At Random 39, neither 19), 3 of 320 doors (`EMTWoodFence`, Play At
+  Random); placed: 1,518 activators, 909 containers, 15 doors. Around Goodsprings: the
+  mailboxes and dumpsters (`EMTSandOnMetal`), the picket-fence gates (`EMTWoodFence`),
+  the saloon's exit triggers (`EMTWaterPressure`).
+- **As built** [design]: each such reference, while enabled, is a source at its place;
+  the ambient plays it as it plays a sound marker of that sound (§5: Loop goes round
+  within the sound's reach, Play At Random rolls its chance once a second, hours apply).
+  Sounds with neither flag are not played.
+- **Load doors** [hypothesis]: activating a door that leads elsewhere plays its open sound
+  (DOOR `SNAM`) at the listener as the player goes through.
+
+### 14.4 Shell casings
+
+FalloutNV.esm has `PHYCasingPistol`, `PHYCasingRifle` and `PHYCasingShotgun` (folders
+`fx\phy\weapon\casing_pistol\` …) and no field links them to a weapon [observed]. 78
+weapons name a casing model (WEAP `MOD2`): `assaultrifleshellcasing` 23, `grenadefrag`
+13, `45calcasing` 11 (the 10mm pistol's), `762mmcasing` 10, `shotgunshellcasing` 6,
+`eccellcasing` 6, others 1 or 2 [observed]. As built: the sound by the model's name
+(shotgun → Shotgun; .45, .357, .44, 10mm, 9mm, pistol and energy cells → Pistol; the rest
+Rifle) [hypothesis]; a bounce from 60 units/s plays it where the casing lands, up to
+three times a casing [design].
+
+### 14.5 Panning
+
+How the game places sounds in stereo is not known. As built [design]
+(`nvf_play::sfx::pan_gains`): a sound with a place is mixed to one channel and played in
+stereo; the ear facing it hears it whole, the other loses up to 0.7 of it by how far to
+the side it is (ahead, behind, above, below: both ears alike). The listener is the
+player's eye and heading, followed while the sound plays. Panned: effects at a place
+(impacts, knocks, actors' and creatures' sounds, doors, items, `PlaySound3D`), placed
+loops and random markers, objects' and creatures' sources, radios. Not panned: sounds at
+the listener (the player's own, interface), background loops, music, voices (a
+recorded decision: voice plays flat, voice.md).
+
+### 14.6 Reverb (not built)
+
+ASPC `ANAM` is an environment type [documented: xEdit]: None, Default, Generic, Padded
+Cell, Room, Bathroom, Livingroom, Stone Room, Auditorium, Concerthall, Cave, Arena,
+Hangar, Carpeted Hallway, Hallway, Stone Corridor, Alley, Forest, City, Mountains,
+Quarry, Plain, Parkinglot, Sewerpipe, Underwater, Small Room … Large Hall, Plate: the
+names of the I3DL2 / EAX reverb presets [hypothesis: the game hands the preset to its
+audio library]. Used in FalloutNV.esm [observed]: Small Room 26, Stone Corridor 25,
+Auditorium 23, Medium Room 15, Large Room 10, Cave 5, Medium Hall 3, Mountains 2,
+Livingroom, Sewerpipe, Stone Room and None 1 each. Not built: no reverb is applied; the
+preset values would need a documented source.
+
+### 14.7 Checks
+
+Log: the `anim sounds summary` ends `creatures: N sounds (<type> n, …), N hits, N deaths,
+N keys of a type not listed; the player jumped N and landed N times`; the `ambient
+summary` ends `things that sound (activators, containers, doors, creatures): N heard, N
+loops started, N random sounds played`; the `world sounds summary` ends `N load doors; N
+objects' own sounds in reach`; the `shot fx` line ends `N casing knocks heard`. Per
+sound with `RUST_LOG=info,nvforever::anim_sounds=debug,nvf_play::ambient=debug`. Seen
+[observed 2026-10-11, Goodsprings by the bighorner pen]: the bighorners' idle `Left Back
+Foot` (12 in 25 s), their conscious sound now and then, 4 hits and a death of
+00109A39 with its Hit and Death sounds, the player's jump and landing on dirt, 10
+casing knocks of 5 10mm casings. Smoke test in CLAUDE.md.

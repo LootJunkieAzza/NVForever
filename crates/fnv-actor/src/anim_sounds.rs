@@ -235,6 +235,155 @@ pub fn worn_foley(pieces: Vec<Vec<FoleySound>>) -> Vec<FoleySound> {
     first.unwrap_or_default()
 }
 
+/// The sound types a creature record lists (CREA `CSDT`) [documented: xEdit
+/// wbDefinitionsFNV.pas wbCSDT, `schemas/fnv/gameplay.json`; xEdit names 19 and 20 both
+/// "Auxiliary 8", so 20 and 21 are read as Jump and PlayRandom/Loop there].
+pub const CREATURE_SOUND_TYPES: [&str; 23] = [
+    "Left Foot",
+    "Right Foot",
+    "Left Back Foot",
+    "Right Back Foot",
+    "Idle",
+    "Aware",
+    "Attack",
+    "Hit",
+    "Death",
+    "Weapon",
+    "Movement Loop",
+    "Conscious Loop",
+    "Auxiliary 1",
+    "Auxiliary 2",
+    "Auxiliary 3",
+    "Auxiliary 4",
+    "Auxiliary 5",
+    "Auxiliary 6",
+    "Auxiliary 7",
+    "Auxiliary 8",
+    "Auxiliary 8 (second)",
+    "Jump",
+    "PlayRandom/Loop",
+];
+
+/// Creature sound types by number.
+pub mod creature_sound {
+    pub const LEFT_FOOT: u32 = 0;
+    pub const RIGHT_FOOT: u32 = 1;
+    pub const LEFT_BACK_FOOT: u32 = 2;
+    pub const RIGHT_BACK_FOOT: u32 = 3;
+    pub const IDLE: u32 = 4;
+    pub const AWARE: u32 = 5;
+    pub const ATTACK: u32 = 6;
+    pub const HIT: u32 = 7;
+    pub const DEATH: u32 = 8;
+    pub const WEAPON: u32 = 9;
+    pub const MOVEMENT_LOOP: u32 = 10;
+    pub const CONSCIOUS_LOOP: u32 = 11;
+    pub const AUXILIARY_1: u32 = 12;
+}
+
+/// The name of a creature sound type.
+pub fn creature_sound_type_name(kind: u32) -> &'static str {
+    CREATURE_SOUND_TYPES.get(kind as usize).copied().unwrap_or("?")
+}
+
+/// One sound a creature lists under a type: `CSDT` the type, then pairs of `CSDI` the
+/// sound and `CSDC` its chance [documented: xEdit wbSoundTypeSounds].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CreatureSound {
+    pub kind: u32,
+    pub sound: u32,
+    /// Percent.
+    pub chance: u8,
+}
+
+/// The sounds a creature record lists itself, in order.
+pub fn own_creature_sounds(lo: &LoadOrder, f: &Fields) -> Vec<CreatureSound> {
+    let mut out = Vec::new();
+    let mut kind = None;
+    for s in &f.subs {
+        let u32_of = |d: &[u8]| d.get(..4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+        match &s.sig {
+            b"CSDT" => kind = u32_of(&s.data),
+            b"CSDI" => {
+                if let (Some(kind), Some(sound)) = (kind, u32_of(&s.data).and_then(|l| global(lo, f.plugin, l))) {
+                    out.push(CreatureSound { kind, sound, chance: 100 });
+                }
+            }
+            b"CSDC" => {
+                if let (Some(last), Some(&c)) = (out.last_mut(), s.data.first()) {
+                    last.chance = c;
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Where a creature's sounds come from: its own list, else the creature it inherits
+/// sounds from (`CSCR`, followed up to four times) [documented: xEdit "Inherits Sounds
+/// from"; hypothesis: an own list wins]. The sounds and the record they came from.
+pub fn creature_sounds(lo: &LoadOrder, schema: &Schema, crea: u32) -> (Vec<CreatureSound>, u32) {
+    let mut id = crea;
+    for _ in 0..5 {
+        let Some(f) = winner(lo, id).and_then(|(pi, r)| Fields::new(r, pi, schema).ok()) else { break };
+        if &f.sig != b"CREA" {
+            break;
+        }
+        let own = own_creature_sounds(lo, &f);
+        if !own.is_empty() {
+            return (own, id);
+        }
+        match f.formid(b"CSCR", lo) {
+            Some(next) if next != id => id = next,
+            _ => break,
+        }
+    }
+    (Vec::new(), id)
+}
+
+/// The creature sound type an `Enum:` key stands for [hypothesis: by the names; xEdit's
+/// type names and the keys match one to one]: `Left`, `Right`, `BackLeft`, `BackRight`,
+/// `Idle`, `Aware`, `Attack`, `Hit`, `Auxiliary1`–`8` (also `Auxiliary 3`).
+pub fn creature_key_type(key: &str) -> Option<u32> {
+    use creature_sound::*;
+    let key = key.trim();
+    let (head, rest) = key.split_once(':')?;
+    if !head.trim().eq_ignore_ascii_case("enum") {
+        return None;
+    }
+    let w: String = rest.trim().chars().filter(|c| !c.is_whitespace()).collect::<String>().to_ascii_lowercase();
+    Some(match w.as_str() {
+        "left" => LEFT_FOOT,
+        "right" => RIGHT_FOOT,
+        "backleft" => LEFT_BACK_FOOT,
+        "backright" => RIGHT_BACK_FOOT,
+        "idle" => IDLE,
+        "aware" => AWARE,
+        "attack" => ATTACK,
+        "hit" => HIT,
+        _ => {
+            let n: u32 = w.strip_prefix("auxiliary")?.parse().ok()?;
+            if !(1..=8).contains(&n) {
+                return None;
+            }
+            AUXILIARY_1 + n - 1
+        }
+    })
+}
+
+/// Of a creature's sounds of one type, the one to play this time: one of them at random
+/// (`pick` in 0..1), then its chance (`roll` in 0..1) [hypothesis: a type with several
+/// sounds holds takes of one sound].
+pub fn pick_creature_sound(sounds: &[CreatureSound], kind: u32, pick: f32, roll: f32) -> Option<u32> {
+    let of: Vec<&CreatureSound> = sounds.iter().filter(|s| s.kind == kind).collect();
+    if of.is_empty() {
+        return None;
+    }
+    let s = of[((pick * of.len() as f32) as usize).min(of.len() - 1)];
+    (roll * 100.0 < f32::from(s.chance)).then_some(s.sound)
+}
+
 /// The Havok material of a landscape texture (LTEX HNAM's first byte) [documented:
 /// xEdit wbDefinitionsFNV.pas LTEX HNAM, `schemas/fnv/world.json`].
 pub fn land_texture_material(lo: &LoadOrder, schema: &Schema, ltex: u32) -> Option<u32> {
@@ -288,6 +437,32 @@ mod tests {
         assert_eq!(c[..3], ["FSTWoodStairsL", "FSTWoodRunL", "FSTWoodWalkL"]);
         assert_eq!(footstep_candidates("Snow", false, Gait::Walk, Side::Right)[2], "FSTSnowWalk");
         assert_eq!(footstep_candidates("Dirt", false, Gait::Sneak, Side::Right).last().unwrap(), "FSTDirtWalk");
+    }
+
+    #[test]
+    fn creature_keys_and_sounds() {
+        use creature_sound::*;
+        assert_eq!(creature_key_type("Enum: Left"), Some(LEFT_FOOT));
+        assert_eq!(creature_key_type("Enum: BackRight"), Some(RIGHT_BACK_FOOT));
+        assert_eq!(creature_key_type("enum: backLeft"), Some(LEFT_BACK_FOOT));
+        assert_eq!(creature_key_type("Enum: Auxiliary1"), Some(AUXILIARY_1));
+        assert_eq!(creature_key_type("Enum: Auxiliary 3"), Some(AUXILIARY_1 + 2));
+        assert_eq!(creature_key_type("Enum: Auxiliary9"), None);
+        assert_eq!(creature_key_type("Enum: attack"), Some(ATTACK));
+        assert_eq!(creature_key_type("Enum: ArmorWalk"), None);
+        assert_eq!(creature_key_type("Sound: NPCGeckoSnarl"), None);
+        assert_eq!(creature_sound_type_name(IDLE), "Idle");
+        let list = [
+            CreatureSound { kind: LEFT_FOOT, sound: 1, chance: 100 },
+            CreatureSound { kind: ATTACK, sound: 2, chance: 50 },
+            CreatureSound { kind: ATTACK, sound: 3, chance: 50 },
+        ];
+        assert_eq!(pick_creature_sound(&list, LEFT_FOOT, 0.99, 0.99), Some(1));
+        // One of the type's sounds, then its chance.
+        assert_eq!(pick_creature_sound(&list, ATTACK, 0.2, 0.4), Some(2));
+        assert_eq!(pick_creature_sound(&list, ATTACK, 0.7, 0.4), Some(3));
+        assert_eq!(pick_creature_sound(&list, ATTACK, 0.7, 0.6), None);
+        assert_eq!(pick_creature_sound(&list, IDLE, 0.0, 0.0), None);
     }
 
     #[test]

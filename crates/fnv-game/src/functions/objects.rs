@@ -309,12 +309,6 @@ pub fn set_broadcast_state(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, S
     none()
 }
 
-/// 1 while broadcasting nonstop; a station never set reads 0 [hypothesis].
-pub fn get_broadcast_state(g: &mut Game, ctx: &Ctx, _a: &Args) -> Result<Value, String> {
-    let r = ctx.subject()?;
-    yes(g.extra.get(&r).and_then(|e| e.broadcast).unwrap_or(false))
-}
-
 /// `SetTalkingActivatorActor [actor]`: kept for Layer 6 dialogue (none: back to the
 /// activator's own) [documented: catalogue summary].
 pub fn set_talking_activator_actor(g: &mut Game, ctx: &Ctx, a: &Args) -> Result<Value, String> {

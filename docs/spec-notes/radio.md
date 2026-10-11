@@ -6,8 +6,11 @@ needs verification, **[design]** is our choice where the game's rule is not know
 Counts come from `fnvtool world radio` (fnv.world.radio/1, §7) over FalloutNV.esm alone
 unless "ten masters" is said. Sources: the owner's GECK wiki export (pages Radio Stations,
 Creating Radio Stations, Radio Tab, Reference, Activator, SetBroadcastState,
-GetBroadcastState, StartRadioConversation, SetNPCRadio; 2026-10-09), xEdit's record
-definitions (schemas `objects.json`, `placed.json`, `world.json`).
+GetBroadcastState, StartRadioConversation, SetNPCRadio, PipBoyRadio, PipBoyRadioOff,
+ForceRadioStationUpdate, SetRadioToDialogueOnlyMode, GetFormFlag, GetFlagsHigh,
+IsRadioRef; 2026-10-09), xEdit's record definitions (schemas `objects.json`,
+`placed.json`, `world.json`), the masters' compiled scripts (`fnvtool script decompile`,
+read privately; nothing quoted beyond function names and FormIDs).
 
 Code: `fnv_world::radio` (records, placed stations and receivers), `fnv_game::radio`
 (receivers switched on, broadcast state, the programme as dialogue), `nvf-play`
@@ -46,7 +49,25 @@ voice.md (voice files).
     [observed: the masters' compiled scripts]; the others are the EDE frequency and FO3
     leftovers. Radio New Vegas, Mojave Music Radio, Black Mountain Radio and the casino
     stations have it.
-  - Bit `0x10000000` is set on 14 stations, meaning unknown.
+  - Bit `0x10000000` is "Non-Pipboy" [documented: GECK wiki GetFormFlag and GetFlagsHigh,
+    the header-flag table "adapted from FNVEdit": bit 28 "Non-Pipboy / Reflected by Auto
+    Water"]. It is set on 14 stations: the casino radios (Tops, Ultra-Luxe, Gomorrah),
+    the Strip and Goodsprings store radios, the Tops performers, Hanlon's and Lily's
+    recordings, EDE's frequency, Repcon's station and two FO3 leftovers; not on Radio New
+    Vegas, Mojave Music Radio, Black Mountain Radio, Camp Guardian or the NCR Emergency
+    Radio [observed]. The same table names bit 30 (`0x40000000`) only "NavMesh Generation
+    - Ground", so Continuous Broadcast stays a hypothesis.
+  - 25 of the 39 radio stations lack Non-Pipboy (`radio_stations_on_the_pipboy`); six of
+    those are placed: Radio New Vegas, Mojave Music Radio and the NCR Emergency Radio
+    (Everywhere), Black Mountain Radio (Radius 50,000, 5 % static), Camp Guardian
+    (Radius 5,000, 50 % static, from its exterior position reference) and the FO3
+    leftover `FFEU07RadioBeacon` (Radius 3,000, in worldspace `00031E12`) [observed].
+- Looping sound (`SNAM`): 10 stations name `OBJRadioStaticLP`
+  (`fx\ui\radio\ui_radio_static_lp.wav`, Loop, 18.5 dB): nine FO3 `FFRadioSignal`
+  stations (Continuous, no lines) and Hanlon's recording [observed]. A SOUN
+  `UIRadioStaticLP` names the same file (Loop, 10.13 dB); `UIRadioSignalFound`,
+  `UIRadioSignalLost` and `UIPipBoyStatic` exist too [observed]. No game setting (GMST)
+  names radio static [observed: none with "radio" or "static" in its Editor ID].
 - Radio templates: 10 TACTs name one (`AMLRadio` min 150, max 1800 units,
   13 dB; `AMLRadioLarge` 20 / 2500, 10.13 dB; `AMLRadioTheTops` 780 / 10000, 13.66 dB;
   `AMLRadioTopsPerformer` 20 / 2500, 2.64 dB). All four name the file
@@ -117,6 +138,11 @@ conditions are run on.
   `SetDestroyed 1` unless the player knows about the radio; OnActivate by the player
   shows a message unless fixed; fixing it sets `bfixed` and activates it [observed:
   decompiled; layer5-captures.md §8.3 d]. A destroyed receiver is silent [hypothesis].
+- Five receiver bases have neither a script nor a name (FULL): the three Tops performers'
+  speakers (`marker_audio.nif`, one placed each), `vCasinoGomorrahSpeaker02` and the FO3
+  `JukeBoxCleanVault101` [observed]. The player cannot activate an unnamed activator and
+  no script activates them, yet the Tops performers' broadcasts (§5) can only be heard
+  through them: they start switched on [hypothesis].
 - In the Prospector Saloon both receivers play Mojave Music Radio: the jukebox
   `00107D73` (`JukeBoxDirtyNVCountry`, StartOn script) and the broken radio.
 
@@ -128,7 +154,31 @@ conditions are run on.
   generate and play radio conversations one after another") [documented:
   SetBroadcastState, Radio Stations]. `StartRadioConversation [topic]` interrupts a
   broadcasting station with one conversation and returns to the loop, or plays one
-  conversation on a silent station [documented].
+  conversation on a silent station [documented]. `GetBroadcastState` reads the same
+  state, so a station never set reads its Continuous Broadcast flag.
+- **Who starts conversations** [observed: the masters' compiled scripts]: 13 scripts make
+  16 StartRadioConversation calls, all but two naming RadioHello: the Tops show script
+  (Bruce Isaac, the Rad Pack, the Lonesome Drifter by game hour, each station then set
+  to 0 by the performer's OnHit, OnStartCombat and OnDeath), Hanlon's trigger (after
+  `SetTalkingActivatorActor` names Hanlon), Lily's quest (with `SetNPCRadio 1` on Lily),
+  the NCR Emergency Radio's quest every ten seconds counted from the end of its last
+  line, Repcon's launch (with `SetBroadcastState 1` and the Pip-Boy tuned to it), a
+  Black Mountain line's begin script (`RadioBMDontTakeMyRaul`, the station set to 0
+  first) and an FO3 beacon script with no topic.
+- **Conversation rules we use** (`fnv_game::radio`, `nvf-play` `radio.rs`): from the
+  topic named (else RadioHello), the line the station can say now; then the links as
+  in the programme; the conversation ends at a line that links nowhere [hypothesis;
+  RadioGoodbye is "used to end a chain of radio links" [documented: Radio Tab]]. It
+  starts at once, heard or not, and interrupts the line on the air, whose end script
+  then does not run [design]. A call while the station is still saying a conversation's
+  line is not taken [design: the NCR quest asks every ten seconds and its first line
+  lasts 12 s]. Afterwards a broadcasting station starts again from RadioHello, a silent
+  one falls silent [documented: "return to generating looping broadcasts as before"].
+  A station that stops broadcasting finishes the line it is saying [design: some lines
+  stop their own station in their begin script].
+- Checked headless (`radio_data.rs`): with `vNCREmergencyRadio` running, twelve
+  conversations of the NCR Emergency Radio are one line each, ten different lines, all
+  its quest's; that station does not broadcast, Radio New Vegas does.
 - **Order** [observed: the masters' lines]:
   - Mojave Music Radio: 15 RadioHello lines, all Random and Run Immediately, each a song;
     three conditions `GetQuestVariable vCountryRadioQuest <slot> != <song number>` over
@@ -158,8 +208,18 @@ conditions are run on.
 ## 6. Playback (`nvforever --play`, `nvf-play` `radio.rs`)
 
 - A receiver plays while it is on (§4), enabled, not destroyed, its station has a
-  placed reference and broadcasts, and the player is within the template's maximum
-  distance of it.
+  placed reference, and the player is within the template's maximum distance of it. It
+  plays the station's line on the air; while the station is quiet (not broadcasting,
+  in no conversation) it plays the station's looping sound when the station has one
+  [hypothesis: SetBroadcastState 0, "the station will play static except when playing
+  scripted conversations" [documented]; Hanlon's speakers play `OBJRadioStaticLP`
+  until his confession], else nothing. A receiver does not need its station's placed
+  reference to be enabled [design: Radio New Vegas's is enabled only when the opening
+  ends].
+- **Actors made radios** (`SetNPCRadio`, §9): the actor plays like a receiver at its
+  current position, heard by the station's template, while it is enabled and in the
+  player's cell or worldspace. The filter on lines the actor is not the speaker of
+  [documented: SetNPCRadio] is not built.
 - One programme per station, shared by its receivers; it starts when one of its
   receivers is first heard and runs on from then, heard or not [design]. A receiver that
   starts while a line is under way joins at the point reached (the file is sought to it)
@@ -171,13 +231,19 @@ conditions are run on.
   looked at); DJ voice files at full level. By distance: the station's radio template,
   else the receiver's, else 150 / 1800 units (AMLRadio's), as `sfx::distance_gain`
   (full within the minimum, falling as minimum ÷ distance, faded out at the maximum).
-  The template's own static attenuation is not applied. Not panned.
+  The template's own static attenuation is not applied. Receivers and actors are panned
+  as the sound effects are (`crate::sfx::Panned`, audio.md §14.5) [design].
 - Pause: the Esc menu and loading screens hold sounds and programmes, as for placed
   loops (audio.md §7).
+- Subtitles [design]: the talk line (no sound form) heard loudest at a quarter of full
+  level or more is subtitled, the station's name as the speaker (`subtitle:` lines).
 - Log: `radio: <station> says <topic> <info>: <file> <seconds> s`, `radio: <receiver>
   tuned to <station> playing <file> [from <s> s]`, `radio: <receiver> (<station>)
-  switched on|off`, `radio: <receiver> (<station>) is destroyed: silent`, and at the end
-  `radio summary: N receivers heard, N songs started, N DJ lines, …`.
+  switched on|off`, `radio: <receiver> (<station>) is destroyed: silent`,
+  `radio: <station> starts a conversation (StartRadioConversation)`, `… ends its
+  conversation[: silent]`, `pipboy radio: …`, and at the end `radio summary: N receivers
+  heard, N songs started, N DJ lines, …; receivers switched N times, N on at exit (N
+  more start on)` and `pipboy radio summary: …`.
 - Smoke test (CLAUDE.md): the Prospector Saloon with the jukebox switched off at 20 s
   and on again at 28 s. Observed: `00109087 (vCountryRadio) is destroyed: silent`; the
   jukebox switched on by its OnLoad, `vCountryRadio says RadioHello 0x0016B80E:
@@ -187,30 +253,112 @@ conditions are run on.
   Vegas played nine DJ lines from RadioHello through RNVMusicIntroGeneric and then a
   song.
 
+- Looks: a receiver's model shows whether it is on (the radios' dials light by their
+  "Open" sequence, the jukeboxes' idle plays): activators.md §3.
+
 ## 7. Tools
 
 `fnvtool world radio <Data> <plugins> --schema schemas/fnv` (fnv.world.radio/1):
 `counts` (talking activators and their header flags, placed station references by
 range type, receiver bases and placements by script, the stations' lines and song
-files), `stations` (flags, voice type, template, placed references with `XRDO`, the
+files, the radio stations on the Pip-Boy), `stations` (flags, `on_pipboy`, voice type,
+template, looping sound, placed references with `XRDO` and `broadcasts_from`: the
+exterior worldspace and position the range is measured from, the
 quests that `GetIsID` them, their lines by topic and file type, receivers),
 `receiver_bases` (station, template, script, placements) and `goodsprings_receivers`.
 No texts are printed.
 
-## 8. Open and not built
+## 8. The Pip-Boy radio
 
-- Not built: the Pip-Boy radio (tuning, the station list, a station's broadcast range
-  and static, which decide what a Pip-Boy receives); `StartRadioConversation` (so the
-  Tops performers, Hanlon's confession, Lily's recording and the NCR emergency radio,
-  which only speak through it, stay silent), `ForceRadioStationUpdate`, `SetNPCRadio`
-  (an actor as a radio), `SetRadioToDialogueOnlyMode`; static between stations; panning
-  and reverb; subtitles of radio lines.
-- `GetBroadcastState` still reads 0 for a station no script has set, while playback
-  takes the base's Continuous Broadcast flag as the default (§5): which one the game
-  does is a capture question.
+- **What it receives**: radio stations without Non-Pipboy (§2) whose placed reference is
+  enabled and in range; a script may tune it to any enabled station in range, Non-Pipboy
+  or not [documented: PipBoyRadio, a disabled or out-of-range station "cannot be
+  selected"; observed: Repcon's launch script tunes the Pip-Boy to its Non-Pipboy
+  station]. The list is ordered by the stations' names [design].
+- **Range** (`fnv_world::radio::reception`) [documented: GECK wiki Reference, Broadcast
+  Range Type]: Everywhere always; Worldspace (and linked interiors) the station's
+  worldspace and its connected interiors; Linked Interiors the connected interior cells;
+  Current Cell its cell; Radius within the range radius of the station, or of its
+  exterior position reference for a station in an interior. Our readings [design]:
+  interiors "connected" to a worldspace are those the player walked into from it; doors
+  are not followed for Linked Interiors, which is the station's own cell; Current Cell
+  outdoors is the 4096-unit square; Radius is measured in three dimensions, from the
+  player's last position outdoors while inside; an interior station without an exterior
+  position reference is received in its own cell only. At Goodsprings Black Mountain
+  Radio is out of range, about 70,000 units from its station [observed: positions in
+  `fnvtool world radio`, `broadcasts_from`].
+- **Static**: "plays static over this percentage of the radius" [documented]. Over that
+  outer band the station falls evenly from full to nothing and the `UIRadioStaticLP`
+  loop rises from nothing to full [design; hypothesis for the sound, by its name]. A
+  tuned station that is quiet (§6) plays that static too [hypothesis].
+- **Playback**: at the listener, no falloff, not panned; songs play their own (stereo)
+  file, not the `_mono` copy [documented: Creating Radio Stations]; the song's static
+  attenuation, DJ lines at full level, as for receivers. The station's programme is the
+  one its receivers play (§6).
+- **Controls** [design; there is no Pip-Boy screen yet]: `]` tunes to the next station
+  received (off → first → … → last → off), `[` to the previous; not while a script has
+  turned the Pip-Boy off (DisablePlayerControls). Turned on without a station it takes
+  the last one tuned, else the first received. Out of range it falls silent until the
+  station is received again.
+- **Scripts** (§9): `PipBoyRadio 0` and `PipBoyRadioOff` turn it off, `PipBoyRadio 1
+  [station]` on (to the station given, else the last one), `PipBoyRadio tune <station>`
+  only while on [documented: PipBoyRadio notes]. The masters call PipBoyRadio three
+  times (Repcon's launch: 1, tune, 0) and PipBoyRadioOff once (before the ending
+  slides) [observed].
+- Test aid `NVF_PLAY_TEST_RADIO` (`nvf-play` `radio.rs`) and smoke test (CLAUDE.md):
+  at Goodsprings with Radio New Vegas and the NCR Emergency Radio enabled and its quest
+  started, the Pip-Boy steps through Mojave Music Radio, a DLC station and back, then
+  is tuned to the NCR Emergency Radio: its quest's StartRadioConversation every ten
+  seconds, a 12 s line (subtitled), one call not taken, static between conversations
+  [observed 2026-10-11]. With the ten masters loaded, the DLC stations their scripts
+  enable are listed too. Near the edge of Black Mountain Radio's range
+  (`--pos=-47300,5300,9000`) its song played at 0.51 of its level under static at 0.49
+  [observed].
+
+## 9. Scripts' radio functions (`fnv_game::radio`)
+
+- `SetBroadcastState` / `GetBroadcastState`: one state; unset, the Continuous Broadcast
+  flag (§5).
+- `StartRadioConversation [topic]`: kept for the engine, which starts it (§5).
+- `PipBoyRadio`, `PipBoyRadioOff`: §8.
+- `SetNPCRadio [0|1] station`: the masters always give the 0/1 first (six calls, Lily
+  and EDE) [observed]; 0 turns the actor's radio off whatever station is named; an actor
+  playing a station keeps it until turned off [documented: SetNPCRadio notes].
+- `ForceRadioStationUpdate` "forces radio update" [documented]: not called by
+  FalloutNV.esm; the DLC scripts call it (2 or 3 calls a run with the ten masters)
+  [observed]. The engine looks at every radio each frame, so it is only counted
+  [design].
+- `SetRadioToDialogueOnlyMode`: not called by the masters' scripts; not built.
+
+## 10. Loudness: what the data says
+
+- Songs carry their SOUN's static attenuation (12.33 dB on Radio New Vegas's songs:
+  ×0.242); DJ lines are voice files without a sound form, and nothing in the line, the
+  voice type or the station sets their level [observed: the TACT and VTYP fields, INFO
+  TRDT]. The data does not decide the DJ level; it stays at full [design], for the
+  owner's ear.
+- The radio templates (AMLRadio 13 dB, AMLRadioLarge 10.13 dB, AMLRadioTheTops
+  13.66 dB, AMLRadioTopsPerformer 2.64 dB) carry a static attenuation we do not apply
+  (§6); applied, it would lower DJ lines and songs alike from receivers.
+- The install's `Fallout_default.ini` [observed]: `fDefaultRadioVolume=0.5000`,
+  `fDefaultVoiceVolume=0.6000`, `fDefaultEffectsVolume=1.0000`, `fRadioDialogMute=0.50`,
+  `fDBVoiceAttenuationIn2D=2.0`, `iRadioUpdateInterval=250`. What they do is a
+  hypothesis (a radio slider at half the effects', the radio lowered to half during
+  conversations, 2D voice lines 2 dB down, the radio looked at every 250 ms). None is
+  applied: NVForever does not read the game's INIs (install-layout.md).
+
+## 11. Open and not built
+
+- Not built: a Pip-Boy screen (the radio is keys and the log), the filter on SetNPCRadio
+  lines, `SetRadioToDialogueOnlyMode`, the signal found / lost sounds, reverb, the INI
+  levels of §10.
 - Capture questions for the owner: whether a scriptless jukebox starts off and one
-  activation switches it on; how loud a radio is at a distance (the templates' curve and
-  whether their static attenuation applies); whether DJ lines and songs are as loud as
-  each other; whether a station runs on while no receiver is heard and where a receiver
-  joins; which linked topic a station takes when several have lines; the pause between
-  lines.
+  activation switches it on; whether the unnamed Tops speakers start on; whether a quiet
+  station's receivers play its looping sound (Hanlon's speakers before his confession);
+  how loud a radio is at a distance (the templates' curve and whether their static
+  attenuation applies); whether DJ lines and songs are as loud as each other; whether a
+  station runs on while no receiver is heard and where a receiver joins; which linked
+  topic a station takes when several have lines; the pause between lines; the
+  Pip-Boy's order of stations, what it plays out of range and in a static band, and
+  whether Black Mountain Radio is received at Goodsprings; what a second
+  StartRadioConversation does while a conversation plays.

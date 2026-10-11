@@ -68,6 +68,7 @@ fn radio_programmes() {
     let l = load(&dir);
     mojave_music_radio_rotates_its_songs(&l);
     radio_new_vegas_goes_from_news_to_songs(&l);
+    script_started_conversations(&l);
 }
 
 /// Mojave Music Radio (`vCountryRadio`) says 30 songs from RadioHello: every line has a
@@ -104,4 +105,43 @@ fn radio_new_vegas_goes_from_news_to_songs(l: &Loaded) {
     eprintln!("Radio New Vegas: {songs} songs in 60 lines: {topics:?}");
     assert!((5..50).contains(&songs), "{songs} songs in 60 lines");
     assert!(topics.iter().filter(|t| *t == "RadioHello").count() >= 2, "the programme did not come round again");
+}
+
+/// Conversations scripts start with StartRadioConversation RadioHello (radio.md §5): the
+/// NCR Emergency Radio once its quest runs: twelve conversations of one line each (its
+/// lines link nowhere, so a conversation ends after one) [observed with game data],
+/// every line its quest's. Its station has no Continuous Broadcast; Radio New Vegas has.
+fn script_started_conversations(l: &Loaded) {
+    let (data, refs) = (&l.data, &l.refs);
+    let world = World::new(&l.forms, refs, SimConfig::default());
+    let mut g = Game::new(data, world, GameConfig::default());
+    g.new_game();
+    let placed = |edid: &str| {
+        let base = data.by_edid(edid).expect("station");
+        refs.refs.iter().find(|(_, p)| p.base == base).map(|(id, _)| *id).expect("a placed station")
+    };
+    let ncr = placed("vNCREmergencyRadioTA");
+    assert!(!g.broadcasting(ncr), "the NCR Emergency Radio has no Continuous Broadcast");
+    assert!(g.broadcasting(placed("RadioNewVegasTA")));
+    let quest = data.by_edid("vNCREmergencyRadio").unwrap();
+    assert!(g.start_quest(quest));
+    let mut said = Vec::new();
+    for _ in 0..12 {
+        let Some((_, first)) = g.radio_start(ncr, None) else { break };
+        let mut line = first;
+        loop {
+            g.radio_line_begins(ncr, line);
+            g.radio_line_ends(ncr, line);
+            assert_eq!(data.infos[&line].quest, Some(quest), "{line} is not the NCR Emergency Radio's");
+            said.push(line);
+            match g.radio_follow(ncr, line) {
+                Some((_, next)) if said.len() < 100 => line = next,
+                _ => break,
+            }
+        }
+    }
+    let distinct: std::collections::BTreeSet<FormId> = said.iter().copied().collect();
+    eprintln!("NCR Emergency Radio: {} lines in 12 conversations, {} distinct", said.len(), distinct.len());
+    assert!(said.len() >= 12, "{} lines in 12 conversations", said.len());
+    assert!(distinct.len() >= 3, "only {} distinct lines", distinct.len());
 }
