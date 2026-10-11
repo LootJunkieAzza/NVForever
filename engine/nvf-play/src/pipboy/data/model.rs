@@ -1,0 +1,249 @@
+//! The DATA page as plain data: the heading's date, the order of the quest list, a
+//! list's scrolling, the world map's projection and the map markers' pictures
+//! (docs/spec-notes/pipboy.md §5.3). No Bevy here; tested below.
+
+use fnv_sim::clock::Calendar;
+
+/// Game units across a cell [documented: world.md, 4096 units a side].
+pub const CELL: f32 = 4096.0;
+
+/// The heading's date and time: month, day and the year's last two digits with dots,
+/// then the time of day as the wait menu writes it ("10.25.81, 9:29") [observed: the
+/// owner's screenshots show "10.25.81, 9:29" on 25 October 2281; hypothesis: no leading
+/// zero on the month or the day, a 24-hour clock as the wait menu's, wait-menu.md §4].
+pub fn date_time(c: &Calendar) -> String {
+    format!(
+        "{}.{}.{:02}, {}",
+        c.month as i64 + 1,
+        c.day as i64,
+        (c.year as i64).rem_euclid(100),
+        crate::wait::model::clock(crate::wait::model::minute_of_day(c))
+    )
+}
+
+/// A quest in the list: when it was first seen listed (a running count; larger is newer),
+/// its FormID, whether it is done (completed or failed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuestKey {
+    pub seen: u64,
+    pub form: u32,
+    pub done: bool,
+}
+
+/// The quest list's order: quests still running before those done, each part newest
+/// first, quests first seen together by FormID from the highest [hypothesis: fits the
+/// owner's screenshot, where the add-ons' quests (FormIDs 01…–04…) come before "Back in
+/// the Saddle" (0010A214), before "They Went That-a-Way" (000842DD), and the completed
+/// "Ain't That a Kick in the Head" is last].
+pub fn sort_quests(keys: &mut [QuestKey]) {
+    keys.sort_by(|a, b| a.done.cmp(&b.done).then(b.seen.cmp(&a.seen)).then(b.form.cmp(&a.form)));
+}
+
+/// An objective of the quest shown: its index in the quest, its text, done or not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectiveLine {
+    pub index: i32,
+    pub text: String,
+    pub done: bool,
+}
+
+/// The objectives' order: those still to do first, then those done, each part from the
+/// latest objective down [hypothesis].
+pub fn sort_objectives(lines: &mut [ObjectiveLine]) {
+    lines.sort_by(|a, b| a.done.cmp(&b.done).then(b.index.cmp(&a.index)));
+}
+
+/// The first row shown so that row `selected` is among the `fit` rows shown from it.
+pub fn keep_in_view(selected: usize, first: usize, fit: usize) -> usize {
+    let fit = fit.max(1);
+    if selected < first {
+        selected
+    } else if selected >= first + fit {
+        selected + 1 - fit
+    } else {
+        first
+    }
+}
+
+/// A row index moved by `by`, held within `len` rows.
+pub fn step(selected: usize, by: i32, len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    (selected as i64 + by as i64).clamp(0, len as i64 - 1) as usize
+}
+
+/// A worldspace's map: its picture and the cells it shows (WRLD `ICON`, `MNAM`)
+/// [documented: xEdit, schema `world.json`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorldMap {
+    /// The picture, as the interface names it (under `textures\`).
+    pub texture: String,
+    /// `MNAM` usable width and height: the map's size on the canvas at a magnification
+    /// of 1 [hypothesis: the menu file draws FO3's map 2048 wide (`filewidth`) and FO3's
+    /// and this game's worldspaces both give 2048].
+    pub usable: [f32; 2],
+    /// The north-west and south-east cells the picture runs between.
+    pub nw: [i32; 2],
+    pub se: [i32; 2],
+}
+
+/// Where the cells from the north-west cell's north-west corner to the south-east cell's
+/// south-east corner lie on a map picture: from this point (parts of the picture's width
+/// and height from its top left), this part of it across and down [observed: fitted on
+/// `wasteland_nv_1024_no_map.dds` to three places, Goodsprings (its roads as the owner's
+/// World Map screenshot shows them round the marker), the arc of Hoover Dam and the ring
+/// of Jacobstown, at one scale both ways (309.8 game units a texel), each within 4 texels
+/// of 1024; the picture's frame, rulers and corner marks lie outside. That the margins
+/// are the same for other worldspaces' maps is a hypothesis].
+pub const MAP_ORIGIN: [f32; 2] = [0.108, 0.102];
+pub const MAP_SPAN: f32 = 0.7876;
+
+impl WorldMap {
+    /// Where a game position falls on the picture, 0 to 1 from its top left
+    /// ([`MAP_ORIGIN`], [`MAP_SPAN`]).
+    pub fn uv(&self, x: f32, y: f32) -> [f32; 2] {
+        let across = (self.se[0] - self.nw[0] + 1).max(1) as f32;
+        let down = (self.nw[1] - self.se[1] + 1).max(1) as f32;
+        let cells = [(x / CELL - self.nw[0] as f32) / across, ((self.nw[1] + 1) as f32 - y / CELL) / down];
+        [MAP_ORIGIN[0] + cells[0] * MAP_SPAN, MAP_ORIGIN[1] + cells[1] * MAP_SPAN]
+    }
+}
+
+/// Where a map picture `size` long lies in its window along one axis, its point at `t`
+/// (0 to 1 of it) wanted at the window's middle `mid`: the menu file keeps the picture's
+/// near edge no further in than the middle and its far edge no further out
+/// [documented: map_menu.xml `MM_WorldMap_ParentImage` x between 427.5 − width and
+/// 427.5, y between 250 − height and 250].
+pub fn pan(t: f32, size: f32, mid: f32) -> f32 {
+    (mid - t * size).clamp(mid - size, mid)
+}
+
+/// Map marker types (REFR `TNAM` of a map marker) [documented: xEdit wbDefinitionsFNV.pas,
+/// "None", "City", "Settlement", "Encampment", "Natural Landmark", "Cave", "Factory",
+/// "Monument", "Military", "Office", "Town Ruins", "Urban Ruins", "Sewer Ruins", "Metro",
+/// "Vault"; observed: Vault 22 and Vault 3 are 14, Hidden Supply Cave 5, Camp McCarran 8,
+/// Hoover Dam 7].
+const ICONS: [&str; 15] = [
+    "settlement",
+    "city",
+    "settlement",
+    "encampment",
+    "natural_landmark",
+    "cave",
+    "factory",
+    "monument",
+    "military",
+    "office",
+    "ruins_town",
+    "ruins_urban",
+    "ruins_sewer",
+    "metro",
+    "vault",
+];
+
+/// The picture of a map marker of type `kind`: its type's icon once the player has been
+/// there, the "undiscovered" icon while it is only known; the inverted form under the
+/// highlight box [hypothesis: by the files' names in `interface\icons\world map\`;
+/// observed: the highlighted marker on the owner's Local Map screenshot is drawn
+/// filled; type 0 "None" takes the settlement's picture, design].
+pub fn marker_icon(kind: u8, discovered: bool, highlighted: bool) -> String {
+    let name = if discovered { ICONS.get(kind as usize).copied().unwrap_or("settlement") } else { "undiscovered" };
+    if highlighted {
+        format!("interface\\icons\\world map\\inverted\\icon_map_{name}_inverted.dds")
+    } else {
+        format!("interface\\icons\\world map\\icon_map_{name}.dds")
+    }
+}
+
+/// Text from the plugins' Windows-1252 bytes, up to the first NUL.
+pub fn cp1252(bytes: &[u8]) -> String {
+    const HIGH: [char; 32] = [
+        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8d}', 'Ž', '\u{8f}', '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ',
+        '\u{9d}', 'ž', 'Ÿ',
+    ];
+    bytes
+        .iter()
+        .take_while(|&&b| b != 0)
+        .map(|&b| match b {
+            0x80..=0x9F => HIGH[(b - 0x80) as usize],
+            _ => b as char,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_heading_writes_the_date_month_first() {
+        let c = Calendar { year: 2281.0, month: 9.0, day: 25.0, hour: 9.0 + 29.0 / 60.0, days_passed: 12.0 };
+        assert_eq!(date_time(&c), "10.25.81, 9:29");
+        let c = Calendar { year: 2282.0, month: 0.0, day: 3.0, hour: 21.05, days_passed: 0.0 };
+        assert_eq!(date_time(&c), "1.3.82, 21:03");
+    }
+
+    #[test]
+    fn quests_running_come_first_newest_on_top() {
+        let k = |seen, form, done| QuestKey { seen, form, done };
+        let mut v = vec![k(0, 0x104C1C, true), k(0, 0x0842DD, false), k(0, 0x10A214, false), k(0, 0x01005229, false), k(3, 0x01, false)];
+        sort_quests(&mut v);
+        let forms: Vec<u32> = v.iter().map(|q| q.form).collect();
+        assert_eq!(forms, vec![0x01, 0x01005229, 0x10A214, 0x0842DD, 0x104C1C]);
+    }
+
+    #[test]
+    fn objectives_to_do_come_before_those_done() {
+        let o = |index, done| ObjectiveLine { index, text: String::new(), done };
+        let mut v = vec![o(10, true), o(20, false), o(30, true), o(5, false)];
+        sort_objectives(&mut v);
+        assert_eq!(v.iter().map(|o| o.index).collect::<Vec<_>>(), vec![20, 5, 30, 10]);
+    }
+
+    #[test]
+    fn the_selected_row_stays_in_view() {
+        assert_eq!(keep_in_view(0, 3, 5), 0);
+        assert_eq!(keep_in_view(9, 3, 5), 5);
+        assert_eq!(keep_in_view(5, 3, 5), 3);
+        assert_eq!(step(0, -1, 4), 0);
+        assert_eq!(step(2, 5, 4), 3);
+        assert_eq!(step(2, 1, 0), 0);
+    }
+
+    #[test]
+    fn the_wasteland_map_puts_places_on_their_pictures() {
+        // WastelandNV: MNAM usable 2048 × 2048, cells (-35, 35) to (25, -25) [observed].
+        let m = WorldMap { texture: String::new(), usable: [2048.0; 2], nw: [-35, 35], se: [25, -25] };
+        assert_eq!(m.uv(-35.0 * CELL, 36.0 * CELL), MAP_ORIGIN);
+        let se = m.uv(26.0 * CELL, -25.0 * CELL);
+        assert!((se[0] - MAP_ORIGIN[0] - MAP_SPAN).abs() < 1e-6 && (se[1] - MAP_ORIGIN[1] - MAP_SPAN).abs() < 1e-6);
+        // The three places the margins were fitted on, in texels of the 1024 picture.
+        for (x, y, tx, ty) in [(-70992.0, 2560.0, 342.0, 575.0), (74712.0, 24848.0, 815.0, 496.0), (-108427.0, 96470.0, 225.0, 270.0)] {
+            let uv = m.uv(x, y);
+            assert!((uv[0] * 1024.0 - tx).abs() < 5.0 && (uv[1] * 1024.0 - ty).abs() < 5.0, "{x} {y}: {uv:?}");
+        }
+    }
+
+    #[test]
+    fn a_map_stays_over_its_window_middle() {
+        // A 2048 map centred on its middle point; at its edges it stops at the middle.
+        assert_eq!(pan(0.5, 2048.0, 427.5), 427.5 - 1024.0);
+        assert_eq!(pan(-0.2, 2048.0, 427.5), 427.5);
+        assert_eq!(pan(1.3, 2048.0, 427.5), 427.5 - 2048.0);
+    }
+
+    #[test]
+    fn marker_pictures_follow_the_type() {
+        assert_eq!(marker_icon(14, true, false), "interface\\icons\\world map\\icon_map_vault.dds");
+        assert_eq!(marker_icon(3, false, false), "interface\\icons\\world map\\icon_map_undiscovered.dds");
+        assert_eq!(marker_icon(5, true, true), "interface\\icons\\world map\\inverted\\icon_map_cave_inverted.dds");
+        assert_eq!(marker_icon(99, true, false), "interface\\icons\\world map\\icon_map_settlement.dds");
+    }
+
+    #[test]
+    fn plugin_text_reads_windows_1252() {
+        assert_eq!(cp1252(b"Ain\x92t That\0junk"), "Ain’t That");
+        assert_eq!(cp1252(b"caf\xe9"), "café");
+    }
+}
