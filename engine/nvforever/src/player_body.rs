@@ -537,6 +537,17 @@ impl PlayerBody {
     pub fn muzzle_entity(&self) -> Option<Entity> {
         self.muzzle_entity
     }
+
+    /// The clips heard (`anim_sounds.rs`): the animator of the rig in view (the
+    /// first-person rig while it is shown, else the body), whether that is the
+    /// first-person rig, and the armour worn.
+    pub fn heard(&self) -> Option<(&Animator, bool, &[FormId])> {
+        let b = self.body.as_ref()?;
+        match b.first.as_ref().filter(|f| f.shown == Some(true)) {
+            Some(f) => Some((&f.animator, true, &b.worn)),
+            None => Some((&b.third.animator, false, &b.worn)),
+        }
+    }
 }
 
 pub struct PlayerBodyPlugin {

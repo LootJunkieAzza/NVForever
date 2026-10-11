@@ -161,3 +161,98 @@ there, the background loop and the sound markers in reach.
 - What a controller's faction lists need (reputation, disguise?) and when battle and
   incidental sets play.
 - The per-second reading of Random Chance, and the hours of the four background loops.
+
+## 10. Sounds animations and doors name
+
+Code: `fnv_actor::anim_sounds` (reading the keys, footstep and armour sounds),
+nvforever `anim_sounds.rs` (hearing the clips that play, the ground underfoot),
+`nvf_play::doors` (door sequences' keys). Survey tools: the examples
+`fnv-nif kf_sound_keys` (text keys of every sequence in the archives named) and
+`fnv-world footstep_survey` (LTEX materials, ARMO animation sounds, `FST` records,
+which key names are SOUN editor IDs). Counts are over `Fallout - Meshes.bsa` (5,171
+files with sequences, 6,229 sequences) and FalloutNV.esm alone; the add-on archives
+were not read.
+
+### 10.1 What the data says
+
+- **Text keys naming sounds** [observed]: 3,530 keys read `Sound: <name>` (also
+  `sound:`), sometimes with a node after the name (`Sound: OBJVertibirdBladesALP
+  SoundNodeProps`; 586 of them on doors, doors.md). 842 distinct names: 663 are editor
+  IDs of SOUN records in FalloutNV.esm; the 179 others are not records there (83 with
+  `DLC` in the name, the rest Fallout 3 content such as `QSTBirthEKGCritical`,
+  `NPCTrogFootLeft`) [observed; hypothesis: animations left over from Fallout 3].
+- **First-person and third-person weapon clips** name their sounds: each reload clip
+  its weapon family's parts, e.g. `1hpreloada.kf` `WPNPistol10mmReloadOut` (0.20 s),
+  `WPNPistol10mmReloadN` (0.43 s), `WPNPistol10mmReloadChamber` (0.67 s);
+  `2hrreloada.kf` `WPNRifleHuntingReloadPt1`–`Pt4`; `2hareloadb.kf`
+  `WPNRiflePlasmaReloadPt1`–`Pt4`; jams, grenade throws (`WPNGrenadeThrowA`/`B`), melee
+  swings (`FXSwingKnife`, `FXSwing2hm`, `WPNArmSwing`) and swimming (`NPCHumanSwim`,
+  `NPCHumanSwimSurface`) likewise [observed]. Equip clips carry `Enum: Equip` and no
+  sound (the weapon's own draw sound plays, combat-rules.md §16) [observed].
+- **Footfalls** [observed]: `Enum: Left` (1,038 keys) and `Enum: Right` (966) on the
+  movement clips of people and creatures, first and third person (`_male\locomotion\
+  male\mtforward.kf`: Left 0.37 s, Right 1.03 s; `_1stperson\locomotion\mtforward.kf`:
+  0.33 s, 0.93 s), also on landing clips. Beside them, `Enum: ArmorWalk` (90),
+  `ArmorRun` (106), `ArmorSneak` (45), `FoleyWalk` (84), `FoleyRun` (126) and
+  `FoleySneak` (48): an `Armor…` key at each footfall, a `Foley…` key between them.
+  Creature clips also carry `Enum: BackLeft`/`BackRight`, `Auxiliary1`–`8`, `Idle`,
+  `Aware`, `Attack` (the CREA sound types, CSDT) and `m:L`/`m:R` (actors.md §8.3).
+- **Footstep records** [observed]: SOUN editor IDs `FST<material><kind>`: the families
+  ConcBroken, ConcSolid, Dirt, Grass, MetalHollow, MetalSheet, MetalSolid, Sand, Water
+  and Wood have `WalkL`/`WalkR`, `RunL`/`RunR`, mostly `SneakL`/`SneakR`, `Land` and
+  `Jump`; Wood, MetalSheet, MetalSolid and ConcSolid also `StairsL`/`StairsR`; Snow has
+  `Walk`, `Sneak` and `Land`; there are `FSTArmorL`/`R`, `FSTArmorPowerWalkL`/`R`,
+  `FSTWaterSwim` and Fallout 3's baby set. No record links a material to them: the
+  link is by name [hypothesis].
+- **Ground** [documented: xEdit LTEX HNAM; observed: counts]: each landscape texture
+  names a Havok material, numbered like nif.xml's `Fallout3HavokMaterial` (0 Stone, 2
+  Dirt, 4 Grass, 18 Sand, 19 Broken Concrete …). Of 89 LTEX: Dirt 47, Grass 12, Broken
+  Concrete 10, Stone 10 (`Asphalt02`, `Pavement`), Sand 7 (`GravelRoadWasteland01`),
+  Heavy Stone 3. Placed objects' collision triangles carry the same codes, plus 32 for
+  platforms and 64/96 for stairs (physics.md, `fnv_combat::fx::impact_material`).
+- **Armour rustle** [documented: xEdit ARMO SNAM "Animation Sound" (sound, chance,
+  type 17–22: Walk, Sneak, Run, Sneak (Armor), Run (Armor), Walk (Armor)) and TNAM
+  "Animation Sounds Template"; observed: the rest]: of 389 ARMO, 5 have SNAM, all
+  `…AudioTemplate` records (Light, Medium, Heavy, Plastic, Power), three sounds each,
+  at 100%; 228 name one of them as template (Light 134, Medium 63, Heavy 24, Plastic
+  6, Power 1); none sets BNAM. Light and Plastic use the plain types (FOLCloth…,
+  FOLPlastic…), Medium, Heavy and Power the `(Armor)` types (FOLArmorMedium…, …). The
+  type names and the sounds' names disagree consistently: type Walk holds
+  `FOLClothSneak`, Sneak `FOLClothWalk`, Run (Armor) `FOLArmorHeavyWalk`, Walk (Armor)
+  `FOLArmorHeavyRun` [observed; either xEdit's enum order or the records are off].
+
+### 10.2 What NVForever plays (`--play`)
+
+- **Which clips are heard** [design]: the player's rig in view (the first-person arms
+  rig while it is drawn, else the third-person body) and every drawn actor within
+  3,000 units of the player. Of a rig's layers, those with at least half their layer's
+  weight; a clip first seen part-way is heard from its next key, one just started (0.1
+  s) from its start; no actor steps or rustles twice within 0.2 s (crossfading clips).
+- `Sound:` keys play the SOUN of that editor ID; the node after the name is not used.
+  The player's sounds play at the listener, an actor's at its feet.
+- `Enum: Left`/`Right`: a ray down from the feet; on the landscape, the texture showing
+  most there (the default texture where none shows on more than half) gives the
+  material, on a placed object the triangle's code; the family by
+  `fnv_actor::anim_sounds::footstep_family` [hypothesis, from the names: stone, glass
+  and heavy stone are ConcSolid; dirt, cloth, organic and skin Dirt; hollow metal,
+  vehicle bodies, barrels and carts MetalHollow; sheet metal, cans and lunchboxes
+  MetalSheet; other metal MetalSolid]; shapes without per-triangle codes count as
+  ConcSolid, nothing underfoot as Dirt, swimming as Water [design]. The record is
+  `FST<family>Stairs<side>` on stairs, else `<gait><side>`, falling back to the walk,
+  the side-less sound and Dirt's [design]. The gait is the clip's `Armor…`/`Foley…`
+  keys' (else from its name: `fast` runs, `sneak` sneaks) [hypothesis].
+- `Enum: Armor<gait>` plays the worn armour's `(Armor)` sound for that gait,
+  `Foley<gait>` its plain one [hypothesis]; the gait is read from the sound's name, not
+  the type (§10.1) [design]; the chance is applied. Of several pieces worn, the first
+  with armour sounds counts, else the first with any [design]. No armour, no rustle.
+- **Doors**: the keys of the "Open"/"Close" sequence as the door passes them, at the
+  door; a sequence without sound keys plays the DOOR record's open (SNAM) or close
+  (ANAM) sound as it starts [design: whether the game plays the record's sound as well
+  as the keys' is not known].
+- Log: `anim sounds summary: N footsteps (… by the player, … by actors; ground: …), N
+  armour rustles, N reload keys, N other sound keys, N door sounds (N from door
+  records), N keys without a SOUN`; per sound with
+  `RUST_LOG=info,nvforever::anim_sounds=debug` (`trace` adds what is underfoot).
+- Not built: creature sound types (`Enum: BackLeft`, `Auxiliary…`, `Idle`, …; CREA
+  CSDT), landing and jumping (`FST…Land`/`Jump`), stairs on the landscape, wading
+  (ground under water), a door record's looping sound (BNAM), load doors' sounds.

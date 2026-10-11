@@ -12,6 +12,7 @@
 //! - [`mesh`]: how a part mesh joins the skeleton (skinned by bone name, rigid by `Prn`)
 //! - [`idle`]: IDLE records (idle animations) as data: model, links, group, raw conditions
 //! - [`idle_play`]: one idle animation playing: its loops, clip time and fades
+//! - [`anim_sounds`]: the sounds clips name in text keys, footsteps and armour rustle
 //! - [`anims`]: where `.kf` files sit relative to skeletons, and what their tracks bind to
 //! - [`locomotion`]: idle, walk, run and turn clips, their root motion, and choosing
 //!   and blending between them
@@ -27,6 +28,7 @@
 //! Facts and rules with confidence tags: docs/spec-notes/actors.md and (animation data)
 //! docs/spec-notes/animation.md.
 
+pub mod anim_sounds;
 pub mod anims;
 pub mod facegen;
 pub mod first_person;
