@@ -152,18 +152,11 @@ const CREATURE_COMBAT_SKILLS: [u16; 5] = [BIG_GUNS, ENERGY_WEAPONS, EXPLOSIVES, 
 
 impl<'a> Game<'a> {
     /// The actor definition supplying one group of `r`'s data: its base, or the base's
-    /// template while `from_template` says the template supplies that group (followed a
-    /// few levels) [documented: xEdit template flags].
+    /// template while `from_template` says the template supplies that group, a leveled
+    /// list on the way standing for one of its entries
+    /// ([`crate::GameData::template_source`]) [documented: xEdit template flags].
     pub(crate) fn def_following(&self, r: FormId, from_template: fn(&ActorDef) -> bool) -> Option<&'a ActorDef> {
-        let data = self.data;
-        let mut def = data.actors.get(&base_of(self, r)?)?;
-        for _ in 0..8 {
-            match def.template.filter(|_| from_template(def)).and_then(|t| data.actors.get(&t)) {
-                Some(d) => def = d,
-                None => break,
-            }
-        }
-        Some(def)
+        self.data.template_source(base_of(self, r)?, r, from_template).map(|(_, d)| d)
     }
 
     /// The definition supplying `r`'s stats (template flag "Stats").

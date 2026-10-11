@@ -134,10 +134,9 @@ pub fn show_sleep_wait_menu(g: &mut Game, _ctx: &Ctx, a: &Args) -> Result<Value,
 /// attacked [documented: GECK wiki GetFactionCombatReaction], with the factions combined
 /// as `GetFactionRelation` does; a Frenzied actor attacks anyone [hypothesis].
 ///
-/// Not covered: an actor whose factions come from its template (the ACBS template flag
-/// "Factions"; most creatures the wasteland spawns, whose template is a leveled list) has
-/// no factions here, so it counts as neutral to the player and only refuses a wait when
-/// it is Very Aggressive or Frenzied.
+/// An actor's factions and aggression are its template's where the template flags say so
+/// (docs/spec-notes/factions.md §2, §3). Most hostile actors are Very Aggressive and
+/// neutral to the player by their factions (§5 there), a Fiend for one.
 pub fn hostile_to_player(g: &mut Game, actor: FormId) -> bool {
     if actor == FormId::PLAYER_REF || !g.world.is_enabled(actor).unwrap_or(false) {
         return false;
