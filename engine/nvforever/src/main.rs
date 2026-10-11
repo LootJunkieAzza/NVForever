@@ -19,6 +19,7 @@ mod doors;
 mod emittance;
 mod fade;
 mod facegen;
+mod flashlight;
 mod fly;
 mod furniture;
 mod grass;
@@ -793,6 +794,8 @@ fn main() -> AppExit {
             .configure_sets(Update, nvf_play::PlaySet::Physics.before(world::stream));
         // Animation groups scripts play on objects (object_anims.rs).
         app.add_plugins(object_anims::ObjectAnimsPlugin);
+        // The flashlight's light on the player's camera (flashlight.rs).
+        app.add_plugins(flashlight::FlashlightPlugin);
     }
     if let Some(a) = actor_world {
         app.insert_resource(a);

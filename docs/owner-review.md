@@ -2619,3 +2619,26 @@ one it speaks to. Your decision: the speaker turns head and body. Branch
    `NVF_PLAY_TEST_SCRIPT=8:say_to:SunnyRef:player:GREETING` with
    `--cell GSProspectorSaloonInterior --play`.
 
+
+## Flashlight (2026-10-11, session "flashlight")
+
+Your request: holding the inventory button for 1 to 2 seconds turns a flashlight on or
+off, a classic one that lights what is in front of the camera. Branch
+`claude/flashlight`; code in `engine/nvf-play/src/flashlight.rs` (the key) and
+`engine/nvforever/src/flashlight.rs` (the light).
+
+1. **Built:** Tab held for 1 second switches the light, at once, while the key is still
+   down; letting go after that opens nothing. A tap opens the inventory as before, but
+   on letting go of the key rather than on pressing it.
+2. **The light:** a warm white cone (30° from the middle to the edge, fully lit to 14°)
+   from just right of and under the eye, reaching about 40 m with the game's falloff.
+   It casts shadows, so walls stop it; your own arms, weapon and body cast none (in
+   third person nothing between the camera and a little past your head does).
+3. **Our choices, not the game's:** the original's hold of Tab works the Pip-Boy light,
+   a glow round the player; this is a flashlight as you asked. Scripts that lock the
+   Pip-Boy (the opening) do not lock the light. Detection ignores it for now; say if a
+   lit flashlight should make you easier to see.
+4. **Checked in pictures:** in the Goodsprings house at 23:00 the cone lights the bed and
+   wall with the bedpost's shadow on it; outside at 01:00 the house across the road
+   takes the warm light and the stop sign's shadow. Test aid:
+   `NVF_PLAY_TEST_CONTROL=2:flashlight` with `--play`.
