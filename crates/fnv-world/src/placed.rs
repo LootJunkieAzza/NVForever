@@ -11,6 +11,11 @@ pub mod ref_flags {
     pub const VISIBLE_WHEN_DISTANT: u32 = 0x8000;
 }
 
+/// XSRF bit 1, "Imposter" [documented: xEdit wbDefinitionsFNV.pas REFR]. The other bits
+/// of the stored value vary from reference to reference (0x0A080002, 0x30002, ...) with no
+/// pattern [observed: the 301 references with XSRF in FalloutNV.esm].
+const IMPOSTER: u32 = 0x2;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Placement {
     pub form_id: u32,
@@ -33,6 +38,11 @@ pub struct Placement {
     /// reference's externally emitted light [documented: xEdit wbDefinitionsFNV.pas REFR;
     /// see crate::lighting::emittance].
     pub emittance: Option<u32>,
+    /// XSRF "Special Rendering Flags" bit 1, Imposter: drawn while the player is in a
+    /// region whose imposter list names it, at any distance, rather than with its cell
+    /// [documented: xEdit wbDefinitionsFNV.pas REFR; GECK wiki "Reference"]; see
+    /// [`crate::imposter`].
+    pub imposter: bool,
 }
 
 impl Placement {
@@ -65,6 +75,7 @@ pub fn placement(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Placement>
     let open_by_default = f.get(b"ONAM").is_some();
     let teleport = f.raw(b"XTEL").is_some();
     let emittance = f.formid(b"XEMI", lo).filter(|&e| e != 0);
+    let imposter = f.get(b"XSRF").and_then(|v| num(&v, "value")).is_some_and(|b| b as u32 & IMPOSTER != 0);
     Some(Placement {
         form_id: fid,
         sig: r.header.sig,
@@ -77,6 +88,7 @@ pub fn placement(lo: &LoadOrder, schema: &Schema, fid: u32) -> Option<Placement>
         open_by_default,
         teleport,
         emittance,
+        imposter,
     })
 }
 

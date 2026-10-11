@@ -5,6 +5,7 @@
 //! - [`fields`]: schema-decoded access to one record's subrecords
 //! - [`image_modifier`]: image space modifiers as animated screen effects
 //! - [`imagespace`]: image spaces and the weather's adapters (the colour grade)
+//! - [`imposter`]: references drawn at any distance while the player is in a region listing them
 //! - [`index`]: which cells belong to which worldspace and which references to which cell
 //! - [`placed`]: a placed reference (REFR/ACHR/ACRE/...) and the base object it places
 //! - [`land`]: landscape heights, normals, vertex colours and texture layers
@@ -21,6 +22,7 @@ pub mod fields;
 pub mod grass;
 pub mod image_modifier;
 pub mod imagespace;
+pub mod imposter;
 pub mod index;
 pub mod land;
 pub mod lighting;
