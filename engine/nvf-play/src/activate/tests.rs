@@ -314,3 +314,26 @@ fn activating_furniture_asks_to_use_it_and_says_nothing() {
     assert_eq!(app.world().resource::<HudMessage>().text, "");
     assert!(drain::<OpenContainer>(&mut app).is_empty());
 }
+
+/// The playtest's "cannot open containers" (2026-10-11): E opens a container, and E also
+/// closes the container menu; the press that opens it must not close it in the same frame.
+#[test]
+fn e_on_a_chest_opens_the_container_menu_and_it_stays_open() {
+    let mut app = scene(&[(CHEST_REF, 100.0)]);
+    // `scene` runs targeting and activation; here the menus follow them, as in play.
+    app.world_mut().resource_mut::<Schedules>().remove(Update);
+    app.add_plugins(bevy::state::app::StatesPlugin).init_state::<PlayState>();
+    crate::menu::add_open_and_keys(&mut app, (find_target, activate).chain());
+    app.update();
+    assert_eq!(target(&app), Some((CHEST_REF, Source::Collision)));
+    press_e(&mut app);
+    let open = |app: &App| app.world().resource::<crate::menu::ActiveMenu>().0.as_ref().map(|m| m.mode);
+    assert_eq!(open(&app), Some(crate::menu::model::Mode::Container(FormId(CHEST_REF))));
+    app.update();
+    assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Menu);
+    assert!(open(&app).is_some(), "the menu stays open after the press that opened it");
+    // The next press of E closes it.
+    press_e(&mut app);
+    app.update();
+    assert_eq!(*app.world().resource::<State<PlayState>>().get(), PlayState::Playing);
+}
