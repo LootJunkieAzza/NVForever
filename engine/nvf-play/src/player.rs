@@ -338,7 +338,7 @@ impl Plugin for PlayerPlugin {
             .insert_resource(NearAid::from_env())
             .add_systems(Startup, (init_player, crate::control::init_settings))
             .add_systems(Update, (grab_cursor, read_input, crate::control::read_controls, mouse_look).chain().in_set(PlaySet::Input))
-            .add_systems(Update, crate::control::enforce_locks.after(PlaySet::Input).before(PlaySet::Physics))
+            .add_systems(Update, (crate::control::enforce_locks, aiming_walks).chain().after(PlaySet::Input).before(PlaySet::Physics))
             .add_systems(Last, crate::control::report_locks)
             .configure_sets(Update, BodySet.in_set(PlaySet::Physics).after(log_status).before(crate::control::place_camera))
             .add_systems(
@@ -460,6 +460,21 @@ fn read_input(
     intent.sneak = control.sneak;
     if input.just_pressed(Control::Jump) {
         intent.jump = true;
+    }
+}
+
+/// While the player aims (Block held with a weapon out) they move at walking speed, not
+/// running, and the body walks [design: the owner's wish, playtest of 2026-10-11, "reduced
+/// to walk speed while aiming"; the original's rule is not captured]. Sneaking still
+/// slows the walk. NPCs that aim are for the combat AI (docs/design/combat-ai.md, open).
+pub fn aiming_walks(control: Res<PlayerControl>, mut intent: ResMut<MoveIntent>, mut was: Local<bool>) {
+    let aiming = control.aiming && control.weapon_out;
+    if aiming && !intent.walk {
+        intent.walk = true;
+    }
+    if aiming != *was {
+        *was = aiming;
+        info!("aiming: {}", if aiming { "the player moves at walking speed" } else { "over, running speed again" });
     }
 }
 
