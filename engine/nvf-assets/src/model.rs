@@ -10,7 +10,8 @@
 //! [`Rig`]: their node hierarchy, spawned per reference so the sequence can move nodes
 //! and skinned shapes (waving flags, windmills).
 
-use crate::anim_play::{Clip, Playing};
+use crate::anim_play::{Clip, MaterialTarget, Playing};
+use crate::material_anim::{MaterialSlot, RigMaterials};
 use crate::data::GameData;
 use crate::nif_material::NifMaterial;
 use crate::nif_spawn::{affine, build_mesh, is_editor_marker, shape_material, shape_props, shape_skin, to_bevy};
@@ -26,7 +27,7 @@ use bevy::prelude::*;
 use fnv_nif::anim::sequences;
 use fnv_nif::scene::{scene_objects, segment_triangles, Decoded, SceneObject};
 use fnv_nif::NifFile;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -154,6 +155,9 @@ pub struct RigShape {
     pub material: Handle<NifMaterial>,
     /// Inverse bind poses and the joint nodes, for skinned shapes.
     pub skin: Option<(Handle<SkinnedMeshInverseBindposes>, Vec<usize>)>,
+    /// A clip of the rig drives the shape's material (`crate::material_anim`): its name
+    /// and stored emissive colour and multiplier.
+    pub animated: Option<(String, [f32; 3], f32)>,
 }
 
 /// A door model's "Open" and "Close" sequences (docs/spec-notes/doors.md).
@@ -236,6 +240,18 @@ impl Rig {
         if let Some(idle) = &self.idle {
             let playing = Playing::new(source, idle, |n| by_name.get(n).copied()).at_phase(phase);
             commands.entity(entities[0]).insert(playing);
+        }
+        let slots: Vec<MaterialSlot> = self
+            .shapes
+            .iter()
+            .filter_map(|s| {
+                let (name, emissive, mult) = s.animated.clone()?;
+                Some(MaterialSlot::new(name, entities[s.node], s.material.clone(), emissive, mult))
+            })
+            .collect();
+        if !slots.is_empty() {
+            let idle = Arc::new(self.idle.as_ref().map(|c| c.materials.clone()).unwrap_or_default());
+            commands.entity(entities[0]).insert(RigMaterials { slots, idle, dark: false });
         }
         (entities[0], drawn, by_name)
     }
@@ -362,13 +378,26 @@ impl ModelCtx<'_> {
         // The embedded sequence played from load: Idle, else SpecialIdle, that moves at
         // least one node of this file.
         let seqs = sequences(&file, &dec);
-        let moves = |c: &Clip| c.tracks.iter().any(|(n, _)| objects.iter().any(|o| o.name.as_deref() == Some(n.as_str())));
+        let has = |n: &str| objects.iter().any(|o| o.name.as_deref() == Some(n));
+        // A clip moves a node of this file, or drives the material of one of its shapes.
+        let moves = |c: &Clip| c.tracks.iter().any(|(n, _)| has(n)) || c.materials.iter().any(|m| has(&m.shape));
         let named = |want: &str| {
             seqs.iter().filter(|s| s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(want))).map(Clip::from_sequence).find(&moves)
         };
         let idle = named("idle").or_else(|| named("specialidle"));
         // A door's Open and Close, when both move nodes of this file.
         let door = named("open").zip(named("close")).map(|(open, close)| DoorClips { open, close });
+        // Shapes whose material a clip of the rig drives.
+        let animated_shapes: HashSet<String> = idle
+            .iter()
+            .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+            .flat_map(|c| c.materials.iter().map(|m| m.shape.clone()))
+            .collect();
+        let emissive_shapes: HashSet<String> = idle
+            .iter()
+            .chain(door.iter().flat_map(|d| [&d.open, &d.close]))
+            .flat_map(|c| c.materials.iter().filter(|m| !matches!(m.target, MaterialTarget::UvOffset(_))).map(|m| m.shape.clone()))
+            .collect();
         // Rig nodes: the root first, then every object reachable from it.
         let animated = idle.is_some() || door.is_some();
         let mut rig = animated
@@ -429,7 +458,9 @@ impl ModelCtx<'_> {
             }
             let Ok(shape) = &dec.blocks[o.block] else { continue };
             let Some(data) = shape.block_ref("data").and_then(|r| dec.get(r)) else { continue };
-            let props = shape_props(&file, &dec, o, &by_block);
+            let mut props = shape_props(&file, &dec, o, &by_block);
+            let shape_name = o.name.clone().unwrap_or_default();
+            props.animated_emissive = emissive_shapes.contains(&shape_name);
             if props.is_helper() {
                 continue;
             }
@@ -483,7 +514,11 @@ impl ModelCtx<'_> {
                         Some((m, binds, joints)) => (m, Some((binds, joints))),
                         None => (mesh.clone(), None),
                     };
-                    r.shapes.push(RigShape { node, mesh, material: material.clone(), skin });
+                    let animated = animated_shapes.contains(&shape_name).then(|| {
+                        let (e, m) = props.emissive_parts();
+                        (shape_name.clone(), e, m)
+                    });
+                    r.shapes.push(RigShape { node, mesh, material: material.clone(), skin, animated });
                 }
             }
             out.shapes.push(PreparedShape {

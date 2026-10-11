@@ -115,6 +115,11 @@ docs/spec-notes/radio.md §6), run the saloon jukebox, switched off at 20 s and 
 playing sound\songs\radionv\…_mono.ogg", "switched off", the same file again "from <s> s" (20–25 s, by frame rate) and
 "radio summary: 1 receivers heard, 1 songs started, 0 DJ lines, 0 lines without a file; receivers
 switched 3 times, 1 on at exit").
+After changes to activators' on/off looks or to sequences on materials (nvforever `activators`,
+`nvf_assets::material_anim`; docs/spec-notes/activators.md §3), run that same saloon test and
+expect also "00107D73 (JukeBoxDirtyNVCountry) on: plays its idle", "off: holds its idle, lights
+dark", on again, "00109087 (GoodspringsRadio) off: keeps its stored look" and "activator summary:
+2 receivers drawn with an on/off look; switched on 1 times, off 1 times while drawn".
 After changes to the player's controls or to what scripts lock of them (`nvf-play`
 `control::ControlLocks`, `script::sync_locks`; docs/spec-notes/controls.md §5), run the
 held-player smoke test, with `NVF_PLAY_TEST_SCRIPT_MENUS=1`, `NVF_PLAY_TEST_MOVE=1:1:0`,

@@ -9,6 +9,7 @@
 //! `settings.rs` and `nvf_play::settings` list while the game runs) and closes the open
 //! menu.
 
+mod activators;
 mod actors;
 mod anim_sounds;
 mod deaths;
@@ -749,6 +750,15 @@ fn main() -> AppExit {
     .add_systems(Update, (fly::fly.run_if(move || play.is_none()), sky::sky_keys, sky::update_sky, sky::update_clouds, sky::update_night_sky, world::stream, fade::fade_cells, world::face_billboards, lod::update_lod, treelod::update_distant_trees, overlay, keys).chain())
     .init_resource::<AnimCost>()
     .add_systems(Update, advance_animations)
+    .init_resource::<activators::ActivatorStats>()
+    .add_systems(
+        Update,
+        (nvf_assets::material_anim::bind_rig_materials, activators::drive, nvf_assets::material_anim::animate_rig_materials)
+            .chain()
+            .after(advance_animations)
+            .after(nvf_play::PlaySet::Scripts),
+    )
+    .add_systems(Last, activators::report)
     .add_plugins(nvf_play::doors::DoorsPlugin)
     .add_systems(Update, (doors::register, doors::open_all.run_if(move || open_doors), doors::pose).chain().after(nvf_play::doors::DoorSystems).after(advance_animations))
     .init_resource::<locomotion::ActorAnimCost>()

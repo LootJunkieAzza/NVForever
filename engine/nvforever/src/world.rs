@@ -494,7 +494,10 @@ fn load_cell(
         // A door that opens in place (no XTEL) and has Open/Close sequences: posed from
         // its state in `nvf_play::doors` (doors.rs). Teleport doors stay static.
         let door = model.rig.as_ref().filter(|rig| rig.door.is_some() && &base.sig == b"DOOR" && !p.teleport);
-        if let Some(rig) = model.rig.as_ref().filter(|rig| rig.idle.is_some() || door.is_some()) {
+        // An activator with Open/Close or an idle (a radio, a jukebox): its on and off
+        // looks follow its state (activators.rs).
+        let activator = model.rig.as_ref().filter(|rig| (rig.door.is_some() || rig.idle.is_some()) && &base.sig == b"ACTI");
+        if let Some(rig) = model.rig.as_ref().filter(|rig| rig.idle.is_some() || door.is_some() || activator.is_some()) {
             // Animated (Idle sequence): its own node hierarchy per reference.
             // "Random Anim Start" bases start their idle at a phase spread by reference
             // (fnv_actor::anims::random_anim_start; animation.md §8).
@@ -508,6 +511,8 @@ fn load_cell(
             if door.is_some() {
                 commands.entity(root).insert(crate::doors::DoorRig::new(r, model.clone(), &path, nodes, p.open_by_default));
                 stats.refs_doors += 1;
+            } else if activator.is_some() {
+                commands.entity(root).insert(crate::activators::ActivatorRig::new(r, base.form_id, model.clone(), &path, nodes));
             }
             stats.shapes += drawn.len();
             stats.refs_drawn += 1;

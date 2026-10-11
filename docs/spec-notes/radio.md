@@ -187,6 +187,9 @@ conditions are run on.
   Vegas played nine DJ lines from RadioHello through RNVMusicIntroGeneric and then a
   song.
 
+- Looks: a receiver's model shows whether it is on (the radios' dials light by their
+  "Open" sequence, the jukeboxes' idle plays): activators.md §3.
+
 ## 7. Tools
 
 `fnvtool world radio <Data> <plugins> --schema schemas/fnv` (fnv.world.radio/1):

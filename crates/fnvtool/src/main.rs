@@ -2,6 +2,7 @@
 //! document on stdout (schemas in docs/cli-contract.md) and diagnostics on stderr.
 //! Exit codes: 0 success, 1 the input could not be processed, 2 usage error.
 
+mod activator_models;
 mod actor_anims;
 mod ai_choice;
 mod ai_cmd;
@@ -633,6 +634,17 @@ pub enum SimCmd {
     /// Every DOOR base: flags, sounds, placed references (teleport or not, locked) and
     /// the animation sequences and collision bodies of its model (fnv.sim.door_models/1).
     DoorModels {
+        #[command(flatten)]
+        lo: LoadOrderArgs,
+        #[arg(long)]
+        schema: PathBuf,
+        /// NIF schema directory (default: `<schema>/../nif`).
+        #[arg(long)]
+        nif_schema: Option<PathBuf>,
+    },
+    /// Every activator and talking activator base (radio receivers apart): the controller
+    /// sequences of its model and what their tracks drive (fnv.sim.activator_models/1).
+    ActivatorModels {
         #[command(flatten)]
         lo: LoadOrderArgs,
         #[arg(long)]
