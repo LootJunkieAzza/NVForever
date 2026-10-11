@@ -66,6 +66,7 @@ fn fake_cell(job: &Job) -> Prepared {
             open_by_default: false,
             teleport: false,
             emittance: None,
+            imposter: false,
         };
         // As `prepare::cell` does: at the simulation's pose when it holds another.
         let pose = job.pose_of(pl.form_id);
@@ -88,6 +89,7 @@ fn fake_cell(job: &Job) -> Prepared {
         open_by_default: false,
         teleport: false,
         emittance: None,
+        imposter: false,
     };
     let water = vec![CollisionObject { layer: fnv_phys::layers::WATER, ..object(100.0, Motion::Static) }];
     refs.push(Entry { form_id: pond.form_id, placement: Some(pond), shapes: Some(RefShapes { tallies: vec!["water_volume"], water, prepared: None, dynamic_local: None, door: None }) });
