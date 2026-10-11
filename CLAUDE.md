@@ -107,7 +107,7 @@ docs/spec-notes/radio.md §6), run the saloon jukebox, switched off at 20 s and 
 `NVF_PLAY_TEST_SCRIPT_MENUS=0.3`, `NVF_PLAY_TEST_NEAR=00107D73` and `NVF_PLAY_TEST_ACTIVATE=20,28` set:
 `engine/target/release/nvforever --data <Data> --cell GSProspectorSaloonInterior --play --no-voice --run-seconds 40`
 (expect exit 0, "00109087 (vCountryRadio) is destroyed: silent", "00107D73 tuned to vCountryRadio
-playing sound\songs\radionv\…_mono.ogg", "switched off", the same file again "from 20.… s" and
+playing sound\songs\radionv\…_mono.ogg", "switched off", the same file again "from <s> s" (20–25 s, by frame rate) and
 "radio summary: 1 receivers heard, 1 songs started, 0 DJ lines, 0 lines without a file; receivers
 switched 3 times, 1 on at exit").
 After changes to the player's controls or to what scripts lock of them (`nvf-play`

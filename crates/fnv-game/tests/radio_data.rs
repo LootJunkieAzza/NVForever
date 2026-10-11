@@ -102,6 +102,6 @@ fn radio_new_vegas_goes_from_news_to_songs(l: &Loaded) {
     let songs = lines.iter().filter(|(_, i)| data.infos[i].responses.iter().any(|r| r.sound.is_some())).count();
     let topics: Vec<String> = lines.iter().map(|(t, _)| topic(*t)).collect();
     eprintln!("Radio New Vegas: {songs} songs in 60 lines: {topics:?}");
-    assert!(songs >= 5 && songs < 50, "{songs} songs in 60 lines");
+    assert!((5..50).contains(&songs), "{songs} songs in 60 lines");
     assert!(topics.iter().filter(|t| *t == "RadioHello").count() >= 2, "the programme did not come round again");
 }
