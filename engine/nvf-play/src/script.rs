@@ -111,19 +111,24 @@ pub const MENU_INVENTORY: u16 = 1002;
 /// §5].
 pub const MENU_SLEEP_WAIT: u16 = 1012;
 
+/// The barter menu (`crate::menu`), which scripts open with ShowBarterMenu
+/// (`fnv_game::game::menus::BARTER`).
+pub const MENU_BARTER: u16 = menus::BARTER;
+
 /// The MenuMode code of an engine menu.
 pub fn menu_code(mode: Mode) -> u16 {
     match mode {
         Mode::Container(_) => MENU_CONTAINER,
         Mode::Inventory => MENU_INVENTORY,
+        Mode::Barter(_) => MENU_BARTER,
     }
 }
 
 /// A menu the scripts opened (a message box, a character-creation menu), as opposed to
-/// the engine's container, inventory and wait menus: the script overlay shows it and the
-/// player closes it there.
+/// the engine's container, inventory, barter and wait menus: the script overlay shows it
+/// and the player closes it there.
 pub fn is_script_menu(code: u16) -> bool {
-    code != MENU_CONTAINER && code != MENU_INVENTORY && code != MENU_SLEEP_WAIT
+    code != MENU_CONTAINER && code != MENU_INVENTORY && code != MENU_SLEEP_WAIT && code != MENU_BARTER
 }
 
 /// Default of `NVF_PLAY_TEST_SCRIPT_MENUS` in unattended runs, seconds.
