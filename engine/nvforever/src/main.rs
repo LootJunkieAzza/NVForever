@@ -350,12 +350,19 @@ struct Args {
     /// the log still names each file).
     #[arg(long)]
     no_voice: bool,
-    /// With --play: do not play sound effects (weapons, impacts, explosions).
+    /// With --play: do not play sound effects (weapons, impacts, explosions, placed
+    /// sounds and the cells' background loops).
     #[arg(long)]
     no_sound: bool,
     /// With --play: dialogue voice volume, 1 = as recorded.
     #[arg(long, default_value_t = 1.0)]
     voice_volume: f32,
+    /// With --play: do not play music (the log still names what would play).
+    #[arg(long)]
+    no_music: bool,
+    /// With --play: music volume, 1 = as recorded less the records' decibels.
+    #[arg(long, default_value_t = 1.0)]
+    music_volume: f32,
     /// With --play: do not move a speaker's face from the line's `.lip` file
     /// (docs/spec-notes/lipsync.md).
     #[arg(long)]
@@ -755,6 +762,7 @@ fn main() -> AppExit {
     }
     app.insert_resource(nvf_play::voice::VoiceSettings { play: !args.no_voice, volume: args.voice_volume, ..Default::default() });
     app.insert_resource(nvf_play::sfx::SfxSettings { play: !args.no_sound, ..Default::default() });
+    app.insert_resource(nvf_play::music::MusicSettings { play: !args.no_music, volume: args.music_volume });
     app.insert_resource(if args.menu_pause == "original" { nvf_play::pause::MenuPause::Original } else { nvf_play::pause::MenuPause::Living });
     app.insert_resource(nvf_play::dialogue_look::LookSettings { enabled: !args.no_dialogue_look, recentre_on_choices: args.dialogue_recentre && !args.no_dialogue_recentre });
     if let Some(data) = play {

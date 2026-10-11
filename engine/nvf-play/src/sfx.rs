@@ -5,11 +5,14 @@
 //! - **The record** [documented: xEdit SOUN]: a file or a folder under `sound\`, flags,
 //!   a minimum and a maximum attenuation distance, a static attenuation in hundredths of
 //!   a decibel and a frequency adjustment in percent.
-//! - **The file.** A folder stands for the `.wav` files directly in it; one is picked at
-//!   random each time [hypothesis: from the folders holding a few takes of one sound].
-//!   Files are WAV; PCM of 8, 16 or 24 bits and 32-bit float are decoded here and played
-//!   through Bevy's audio as a source of our own ([`PcmSound`]). Other encodings are
-//!   reported once and not played.
+//! - **The file.** A folder stands for the `.wav` and `.ogg` files directly in it; one is
+//!   picked at random each time [hypothesis: from the folders holding a few takes of one
+//!   sound]. A record names a `.wav`; where the archives hold an `.ogg` of that name
+//!   instead, that is the file [observed: 2,184 of the base sound archive's effects are
+//!   Ogg Vorbis, the ambient ones above all, docs/spec-notes/audio.md §5]. WAV files of
+//!   PCM (8, 16 or 24 bits) and 32-bit float are decoded here, Ogg Vorbis by rodio, both
+//!   to samples played through Bevy's audio as a source of our own ([`PcmSound`]).
+//!   Other encodings are reported once and not played.
 //! - **Loudness** [design; the record's five-point attenuation curve is not used]: the
 //!   static attenuation is taken off (gain 10^(−dB ÷ 20)). A sound with a place is at
 //!   full gain within its minimum distance of the listener (the player's eye), falls as
@@ -20,7 +23,8 @@
 //! - **Loops.** A [`LoopSound`] starts a SOUN going round and stops it again (a
 //!   weapon's Shoot 3D Looping sound while it fires).
 //! - Not built: panning, reverb, the sounds animations name in their text keys (reloads,
-//!   footsteps), ambient sounds.
+//!   footsteps). Placed sounds and the cells' background loops are [`crate::ambient`];
+//!   music is [`crate::music`].
 //!
 //! [`SfxSettings`] turns them off (`nvforever --no-sound`) and sets the volume.
 
@@ -122,6 +126,13 @@ impl PcmSound {
         self.samples.len() as f64 / (self.channels.max(1) as f64 * self.rate.max(1) as f64)
     }
 
+    /// Decode a whole file of another encoding (Ogg Vorbis) with rodio.
+    pub fn from_encoded(bytes: Vec<u8>) -> Result<PcmSound, String> {
+        let d = rodio::Decoder::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+        let (channels, rate) = (d.channels().get(), d.sample_rate().get());
+        Ok(PcmSound { samples: d.collect::<Vec<f32>>().into(), channels, rate })
+    }
+
     /// Decode a WAV file: the `fmt ` and `data` chunks of a RIFF/WAVE file [documented:
     /// the WAVE format]. `Err` names what is not supported.
     pub fn from_wav(bytes: &[u8]) -> Result<PcmSound, String> {
@@ -192,7 +203,7 @@ pub struct Sfx {
     /// The `.wav` files of a folder.
     folders: HashMap<String, Vec<String>>,
     reported: HashSet<String>,
-    rng: SplitMix,
+    pub(crate) rng: SplitMix,
     pub played: u32,
     pub silent: u32,
     pub failed: u32,
@@ -215,15 +226,21 @@ fn init(mut commands: Commands, d: Res<PlayWorld>) {
     commands.insert_resource(Sfx { forms, files: HashMap::new(), folders: HashMap::new(), reported: HashSet::new(), rng: SplitMix(0x5f37_59df), played: 0, silent: 0, failed: 0 });
 }
 
-/// The archive path of the file a SOUN plays this time.
+/// The archive path of the file a SOUN plays this time: the file it names, or the Ogg
+/// Vorbis file of the same name when the archives hold that instead; of a folder, one
+/// of its `.wav` and `.ogg` files.
 fn pick_file(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, file: &str) -> Option<String> {
     let path = fnv_vfs::normalize(&format!("sound\\{}", file.trim_start_matches(['\\', '/'])));
-    if path.ends_with(".wav") {
+    if let Some(stem) = path.strip_suffix(".wav") {
+        let ogg = format!("{stem}.ogg");
+        return Some(if !vfs.exists(&path) && vfs.exists(&ogg) { ogg } else { path });
+    }
+    if path.ends_with(".ogg") {
         return Some(path);
     }
     let folder = if path.ends_with('\\') { path } else { format!("{path}\\") };
     let files = sfx.folders.entry(folder.clone()).or_insert_with(|| {
-        let mut v = vfs.paths(|p| p.starts_with(folder.as_str()) && p.ends_with(".wav") && !p[folder.len()..].contains('\\'));
+        let mut v = vfs.paths(|p| p.starts_with(folder.as_str()) && (p.ends_with(".wav") || p.ends_with(".ogg")) && !p[folder.len()..].contains('\\'));
         v.sort();
         v
     });
@@ -234,9 +251,9 @@ fn pick_file(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, file: &str) -> Option<String> {
     Some(files[k.min(files.len() - 1)].clone())
 }
 
-/// The record, name, file and decoded samples of a SOUN for this playing of it; a
-/// sound without a file we can play is counted and reported once.
-fn source(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, assets: &mut Assets<PcmSound>, sound: FormId) -> Option<(Sound, String, String, Handle<PcmSound>)> {
+/// The record, name and file of a SOUN for this playing of it; a sound without a file
+/// is counted and reported once.
+pub(crate) fn resolve(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, sound: FormId) -> Option<(Sound, String, String)> {
     let s = sfx.forms.sounds.get(&sound).cloned()?;
     let name = s.edid.clone().unwrap_or_else(|| sound.to_string());
     let Some(path) = s.file.as_deref().and_then(|f| pick_file(sfx, vfs, f)) else {
@@ -246,9 +263,17 @@ fn source(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, assets: &mut Assets<PcmSound>, soun
         }
         return None;
     };
+    Some((s, name, path))
+}
+
+/// The record, name, file and decoded samples of a SOUN for this playing of it; a
+/// sound without a file we can play is counted and reported once.
+pub(crate) fn source(sfx: &mut Sfx, vfs: &fnv_vfs::Vfs, assets: &mut Assets<PcmSound>, sound: FormId) -> Option<(Sound, String, String, Handle<PcmSound>)> {
+    let (s, name, path) = resolve(sfx, vfs, sound)?;
     if !sfx.files.contains_key(&path) {
         let decoded = match vfs.read(&path) {
-            Some(Ok(bytes)) => PcmSound::from_wav(&bytes).map_err(|e| format!("{path}: {e}")),
+            Some(Ok(bytes)) if path.ends_with(".wav") => PcmSound::from_wav(&bytes).map_err(|e| format!("{path}: {e}")),
+            Some(Ok(bytes)) => PcmSound::from_encoded(bytes).map_err(|e| format!("{path}: {e}")),
             Some(Err(e)) => Err(format!("{path}: {e}")),
             None => Err(format!("{path}: not in the archives")),
         };
@@ -305,25 +330,43 @@ fn play(
             sfx.silent += 1;
         }
     }
+    let eye = player.as_deref().map(Player::eye);
     for r in requests.read() {
-        let Some((s, name, path, handle)) = source(sfx, &data.vfs, &mut assets, r.sound) else { continue };
-        let distance = r.at.zip(player.as_deref()).map(|(at, p)| {
-            let e = p.eye();
-            ((at[0] - e[0]).powi(2) + (at[1] - e[1]).powi(2) + (at[2] - e[2]).powi(2)).sqrt()
-        });
-        let gain = static_gain(&s) * distance.map_or(1.0, |d| distance_gain(&s, d)) * settings.volume.max(0.0);
-        let mut speed = 1.0 + s.frequency_adjust_percent / 100.0;
-        if s.has("Random Frequency Shift") {
-            speed *= 0.95 + 0.1 * sfx.rng.next_f32();
-        }
-        debug!("sfx: {name} {path} gain {gain:.3}{} speed {speed:.2}", distance.map_or(String::new(), |d| format!(" at {d:.0} units")));
-        if !settings.play || gain < 0.001 {
-            sfx.silent += 1;
-            continue;
-        }
-        sfx.played += 1;
-        commands.spawn((AudioPlayer::<PcmSound>(handle), PlaybackSettings::DESPAWN.with_volume(Volume::Linear(gain)).with_speed(speed.clamp(0.25, 4.0)), SfxSound));
+        one_shot(&mut commands, sfx, &data.vfs, &mut assets, &settings, r.sound, r.at, eye);
     }
+}
+
+/// Play a SOUN once, at a place (heard from `eye`) or at the listener. The seconds it
+/// lasts as played, also when it is too quiet to be heard or sounds are switched off;
+/// `None` without a file we can play.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn one_shot(
+    commands: &mut Commands,
+    sfx: &mut Sfx,
+    vfs: &fnv_vfs::Vfs,
+    assets: &mut Assets<PcmSound>,
+    settings: &SfxSettings,
+    sound: FormId,
+    at: Option<[f32; 3]>,
+    eye: Option<[f32; 3]>,
+) -> Option<f32> {
+    let (s, name, path, handle) = source(sfx, vfs, assets, sound)?;
+    let distance = at.zip(eye).map(|(at, e)| ((at[0] - e[0]).powi(2) + (at[1] - e[1]).powi(2) + (at[2] - e[2]).powi(2)).sqrt());
+    let gain = static_gain(&s) * distance.map_or(1.0, |d| distance_gain(&s, d)) * settings.volume.max(0.0);
+    let mut speed = 1.0 + s.frequency_adjust_percent / 100.0;
+    if s.has("Random Frequency Shift") {
+        speed *= 0.95 + 0.1 * sfx.rng.next_f32();
+    }
+    let speed = speed.clamp(0.25, 4.0);
+    let seconds = assets.get(&handle).map_or(0.0, |p| p.seconds() as f32) / speed;
+    debug!("sfx: {name} {path} gain {gain:.3}{} speed {speed:.2}", distance.map_or(String::new(), |d| format!(" at {d:.0} units")));
+    if !settings.play || gain < 0.001 {
+        sfx.silent += 1;
+        return Some(seconds);
+    }
+    sfx.played += 1;
+    commands.spawn((AudioPlayer::<PcmSound>(handle), PlaybackSettings::DESPAWN.with_volume(Volume::Linear(gain)).with_speed(speed), SfxSound));
+    Some(seconds)
 }
 
 fn report(mut exit: MessageReader<AppExit>, sfx: Option<Res<Sfx>>) {

@@ -2260,3 +2260,35 @@ refusals, §10 what is not built, §11 the test runs).
      the wait ends.
 7. **Still open from before:** the day-of-the-week question (item 7 of "Waiting and
    sleeping: the T menu") is untouched. I did not change that rule.
+
+## Music, sound markers and background loops (2026-10-11, session "music")
+
+Docs: docs/spec-notes/audio.md. Start `--play` in Goodsprings to hear it.
+
+1. **What you should hear:** the desert exploration music in and around Goodsprings,
+   the day version from 06:00 and the night version from about midnight; the air
+   conditioners humming near the saloon and store; the string lights creaking now and
+   then; the desert background (wind, insects) changing at dawn, in the day, at dusk and
+   at night.
+2. **Guesses I had to make, for you to check by ear against the game:**
+   - **Layers.** Each place's music is three files of the same length ("low", "mid",
+     "high"). I play the low one anywhere inside the place's radius and add the mid and
+     high ones as you come nearer its centre (for Goodsprings: within 8,400 and 2,800
+     units of the marker by the saloon). If the game instead swaps one for another, or
+     the music near the saloon sounds too thin or too busy next to the game's, tell me.
+   - **Fades.** A layer comes in or goes over 9 seconds; so does the change between
+     day and night music and walking out of a place.
+   - **Overlapping places.** Where two places' radii overlap I play the one you are
+     deeper inside.
+   - **Random placed sounds** (creaks, cave wind, debris): each rolls its record's
+     chance once a second. If they come too often or too rarely, tell me which.
+   - **Background loop hours:** dawn 5–9, day 9–17, dusk 17–21, night otherwise.
+3. **Not built yet:** battle music, dungeon music (explore, suspense, battle), the short
+   incidental pieces, music that depends on a faction liking or hating you (I always
+   play the neutral one), the music scripts ask for (stingers such as the one on leaving
+   Doc Mitchell's house), main menu and death music; reverb indoors, left-right panning
+   of placed sounds, and the region sounds (distant gunfire, coyotes, hawks).
+4. **Side effect:** sound effects whose file is stored as Ogg are now found. They were
+   silently skipped before.
+5. **Cost:** reading every marker at the start takes about half a second on the main
+   thread before the first frame.
